@@ -1,0 +1,56 @@
+"""Console entry point for the local desktop runtime."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import os
+import sys
+from pathlib import Path
+
+from screamingface_runtime.runtime import RuntimeConfig, run
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="screamingface-runtime",
+        description="Run the local AI Gateway and ScreamingFace Engine.",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path(
+            os.environ.get(
+                "SCREAMINGFACE_RUNTIME_DATA_DIR",
+                Path.home() / ".screamingface-studio",
+            )
+        ),
+        help="Writable directory for the SQLite database and persistent runtime data.",
+    )
+    parser.add_argument(
+        "--runner-config",
+        type=Path,
+        default=None,
+        help="URL4 runner configuration. Defaults to the copy embedded in this runtime.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _parser().parse_args(argv)
+    try:
+        asyncio.run(
+            run(
+                RuntimeConfig(
+                    data_dir=args.data_dir,
+                    runner_config=args.runner_config,
+                )
+            )
+        )
+    except Exception as exc:
+        print(f"SCREAMINGFACE_RUNTIME_ERROR {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(1) from None
+
+
+if __name__ == "__main__":
+    main()
