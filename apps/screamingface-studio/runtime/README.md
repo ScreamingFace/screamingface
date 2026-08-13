@@ -148,6 +148,20 @@ The PyInstaller spec explicitly collects dependencies that static analysis canno
 - distribution metadata used by plugin registries;
 - native libraries used by cryptography and Uvicorn's accelerated stack.
 
+## Tauri lifecycle
+
+The desktop process starts the runtime before creating its main window. It waits for the readiness
+record, forwards runtime output into the application log, records unexpected exits, and sends a
+graceful termination signal when Tauri exits. Runtime state is stored below Tauri's application
+data directory.
+
+Development builds look for the frozen executable first and fall back to the runtime virtual
+environment. Set `SCREAMINGFACE_RUNTIME_EXECUTABLE` to test a specific build explicitly.
+
+For application bundles, `src-tauri/before_build.sh` builds the PyInstaller `onedir` artifact and
+copies it into `src-tauri/resources/screamingface-runtime`. Tauri packages that directory as an
+application resource; the generated contents are ignored by Git.
+
 ## Runtime resources
 
 The desktop runtime embeds its configuration at
@@ -190,5 +204,5 @@ This split setup is for debugging only. The desktop app should use the combined 
   `URL4_BENCHMARK_ASSETS`. Catalog, connection, and smoke APIs work without them.
 - The frozen bundle currently includes broad LiteLLM module and data collection. It favors
   correctness over minimum bundle size.
-- Release code signing, notarization, target-triple naming, Tauri resource copying, and builds for
-  platforms other than macOS arm64 are not yet configured here.
+- Release code signing, notarization, target-triple naming, and builds for platforms other than
+  macOS arm64 are not yet configured here.

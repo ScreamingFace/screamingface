@@ -1,4 +1,5 @@
 mod commands;
+mod runtime_process;
 mod state;
 mod updates;
 mod windows;
@@ -24,6 +25,7 @@ pub fn run() {
     ])
     .setup(|app| {
       app.manage(Mutex::new(state::AppState::default()));
+      app.manage(runtime_process::RuntimeProcess::default());
       app.manage(state::PendingUpdate {
         update: Mutex::new(None),
         window_state: Mutex::new(None),
@@ -35,10 +37,16 @@ pub fn run() {
             .build(),
         )?;
       }
+      runtime_process::start(app.handle())?;
       windows::setup_main_window(app.handle())?;
       updates::start_periodic_update_checks(app.handle());
       Ok(())
     })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|app, event| {
+      if matches!(event, tauri::RunEvent::Exit) {
+        runtime_process::stop(app);
+      }
+    });
 }
