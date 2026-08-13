@@ -136,6 +136,7 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object]:
     from aigateway.main import create_app as create_gateway_app
     from pydantic import SecretStr
     from url4_cloud import job_env
+    from url4_cloud.config import Settings as EngineSettings
     from url4_cloud.local import create_local_app
 
     gateway = create_gateway_app(
@@ -150,7 +151,12 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object]:
         **os.environ,
         job_env.RUNNER_CONFIG: str(config.runner_config),
     }
-    engine = create_local_app(env=run_env)
+    engine = create_local_app(
+        settings=EngineSettings(
+            aigateway_base_url=f"http://{AI_GATEWAY_HOST}:{AI_GATEWAY_PORT}"
+        ),
+        env=run_env,
+    )
     return gateway, engine
 
 

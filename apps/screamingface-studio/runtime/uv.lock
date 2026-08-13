@@ -4,7 +4,7 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "aigateway"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "../../aigateway" }
 dependencies = [
     { name = "aiosqlite" },
@@ -2140,7 +2140,7 @@ wheels = [
 
 [[package]]
 name = "url4"
-version = "1.3.0"
+version = "1.4.1"
 source = { editable = "../../../packages/url4" }
 dependencies = [
     { name = "httpx" },
@@ -2172,7 +2172,7 @@ notebook = [{ name = "graphviz", specifier = ">=0.21" }]
 
 [[package]]
 name = "url4-cloud"
-version = "1.1.0"
+version = "1.3.0"
 source = { editable = "../../url4-cloud" }
 dependencies = [
     { name = "fastapi" },
@@ -2204,7 +2204,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.14.1" },
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "url4", extras = ["streaming"], editable = "../../../packages/url4" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -2214,7 +2214,6 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.3,<2" },
     { name = "pytest-cov", specifier = ">=5" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "ruff", specifier = ">=0.16.1" },
 ]
 examples = [

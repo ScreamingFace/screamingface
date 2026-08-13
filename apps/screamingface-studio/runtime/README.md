@@ -90,7 +90,7 @@ curl -fsS http://127.0.0.1:9108/v1/models
 curl -fsS http://127.0.0.1:9108/v1/connections
 ```
 
-Run the credential-free execution smoke test in another terminal:
+Run the credential-free API smoke test in another terminal:
 
 ```sh
 cd apps/screamingface-studio/runtime
@@ -100,13 +100,13 @@ cd apps/screamingface-studio/runtime
 Expected output:
 
 ```text
-SCREAMINGFACE_RUNTIME_SMOKE_OK screamingface-runtime-ok
+SCREAMINGFACE_RUNTIME_SMOKE_OK models=<count>
 ```
 
-This diagnostic mints a capability, attaches the production WebSocket protocol, schedules an
-in-process URL4 run, and verifies its terminal result. It evaluates a deterministic literal URL4
-expression and does not call or charge a model provider. The smoke command is development tooling,
-not a second shipped sidecar.
+This diagnostic checks both service health endpoints and verifies that the Engine can return its
+real model catalog through the bundled AI Gateway. It does not call or charge a model provider.
+Full URL4 execution requires a configured provider credential and is tested separately. The smoke
+command is development tooling, not a second shipped sidecar.
 
 Run the unit tests with:
 
