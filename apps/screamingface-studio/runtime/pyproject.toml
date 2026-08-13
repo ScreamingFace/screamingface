@@ -4,9 +4,7 @@ version = "0.1.0"
 description = "Standalone local runtime for ScreamingFace Studio"
 requires-python = ">=3.12"
 dependencies = [
-    "aigateway",
-    "litellm==1.87.0",
-    "url4-cloud",
+    "screamingface[runtime]",
 ]
 
 [project.scripts]
@@ -24,6 +22,8 @@ packages = ["src/screamingface_runtime"]
 aigateway = { path = "../../aigateway", editable = true }
 url4-cloud = { path = "../../url4-cloud", editable = true }
 url4 = { path = "../../../packages/url4", editable = true }
+screamingface = { path = "../../../packages/screamingface", editable = true }
+scoreboard = { path = "../../scoreboard", editable = true }
 
 [dependency-groups]
 dev = [

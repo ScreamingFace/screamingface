@@ -11,7 +11,7 @@ use tauri::{AppHandle, Manager};
 
 const READY_PREFIX: &str = "SCREAMINGFACE_RUNTIME_READY ";
 const ERROR_PREFIX: &str = "SCREAMINGFACE_RUNTIME_ERROR ";
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(35);
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Default)]

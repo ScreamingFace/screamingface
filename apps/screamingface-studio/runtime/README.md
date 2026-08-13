@@ -1,7 +1,7 @@
 # ScreamingFace Studio runtime
 
 This package provides the local backend for the ScreamingFace Studio desktop app. It runs the AI
-Gateway and ScreamingFace Engine together as one supervised process, without Docker, Kubernetes,
+Gateway, Scoreboard, and ScreamingFace Engine as one supervised runtime, without Docker, Kubernetes,
 NATS, or Postgres.
 
 The same package can run from Python during development or be built as a standalone PyInstaller
@@ -12,13 +12,14 @@ sidecar for Tauri.
 | Service | Address | Responsibility |
 | --- | --- | --- |
 | AI Gateway | `http://127.0.0.1:9105` | Provider credentials, model discovery, and inference routing |
+| Scoreboard | `http://127.0.0.1:9106` | Local leaderboard discovery and result storage |
 | ScreamingFace Engine | `http://127.0.0.1:9108` | REST/WebSocket API and URL4 execution |
 
 The Engine runs URL4 jobs in-process and uses an in-memory event stream. AI Gateway stores its
 database, encryption key, and JWT secret below the runtime data directory. The ScreamingFace SDK
 is a client for the Engine; it is not another service or executable.
 
-Both HTTP services bind to loopback. AI Gateway authentication is disabled for this local-only
+All HTTP services bind to loopback. AI Gateway authentication is disabled for this local-only
 deployment, so the runtime must not be exposed directly to a network.
 
 ## Requirements
@@ -53,10 +54,10 @@ The packaged URL4 configuration is used automatically. To test a different confi
 On startup, the launcher:
 
 1. creates the writable data directory;
-2. applies AI Gateway migrations in-process;
-3. starts both ASGI application lifespans;
-4. announces readiness after both ports are listening;
-5. supervises both services until `SIGINT` or `SIGTERM`.
+2. applies AI Gateway and Scoreboard migrations;
+3. starts the Gateway, Scoreboard, and Engine ASGI lifespans;
+4. announces readiness after all three ports are listening;
+5. supervises all services until `SIGINT` or `SIGTERM`.
 
 If either service exits unexpectedly, the launcher stops its peer and exits non-zero.
 
@@ -77,7 +78,7 @@ exit non-zero and write a concise line to stderr:
 SCREAMINGFACE_RUNTIME_ERROR <cause>
 ```
 
-One `SIGINT` or `SIGTERM` shuts down both ASGI lifespans and the parent process.
+One `SIGINT` or `SIGTERM` shuts down all ASGI lifespans and the parent process.
 
 ## Verify a running runtime
 
@@ -103,7 +104,7 @@ Expected output:
 SCREAMINGFACE_RUNTIME_SMOKE_OK models=<count>
 ```
 
-This diagnostic checks both service health endpoints and verifies that the Engine can return its
+This diagnostic checks all service health endpoints and verifies that the Engine can return its
 real model catalog through the bundled AI Gateway. It does not call or charge a model provider.
 Full URL4 execution requires a configured provider credential and is tested separately. The smoke
 command is development tooling, not a second shipped sidecar.

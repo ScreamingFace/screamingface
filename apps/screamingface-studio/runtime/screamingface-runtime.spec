@@ -1,6 +1,7 @@
 """Build one standalone ScreamingFace desktop runtime executable."""
 
 from pathlib import Path
+from importlib.metadata import distribution
 
 from PyInstaller.utils.hooks import (
     collect_data_files,
@@ -10,10 +11,13 @@ from PyInstaller.utils.hooks import (
 )
 
 root = Path(SPECPATH)
+screamingface_root = Path(distribution("screamingface").locate_file("screamingface"))
 
 LAZY_IMPORTS = (
     "aigateway",
     "litellm",
+    "scoreboard",
+    "screamingface",
     "tiktoken",
     "tiktoken_ext",
     "tortoise",
@@ -25,14 +29,14 @@ PACKAGES_WITH_DATA = (
     "litellm",
     "tiktoken",
     "screamingface_runtime",
+    "screamingface",
+    "scoreboard",
     "url4_cloud",
 )
 
 PACKAGES_WITH_METADATA = (
-    "aigateway",
     "litellm",
-    "url4",
-    "url4-cloud",
+    "screamingface",
 )
 
 PACKAGES_WITH_BINARIES = (
@@ -56,6 +60,17 @@ analysis = Analysis(
         data
         for package in PACKAGES_WITH_DATA
         for data in collect_data_files(package)
+    ]
+    + [
+        (str(screamingface_root / "_runtime" / "resources"), "screamingface/_runtime/resources"),
+        (
+            str(screamingface_root / "_runtime" / "scoreboard_portal"),
+            "screamingface/_runtime/scoreboard_portal",
+        ),
+        (
+            str(screamingface_root / "_runtime" / "scoreboard_artifacts"),
+            "screamingface/_runtime/scoreboard_artifacts",
+        ),
     ]
     + [
         metadata

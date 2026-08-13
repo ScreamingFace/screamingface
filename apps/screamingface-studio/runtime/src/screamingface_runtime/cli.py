@@ -28,6 +28,9 @@ def _parser() -> argparse.ArgumentParser:
         help="Writable directory for the SQLite database and persistent runtime data.",
     )
     parser.add_argument(
+        "--scoreboard-child", action="store_true", help=argparse.SUPPRESS
+    )
+    parser.add_argument(
         "--runner-config",
         type=Path,
         default=None,
@@ -39,6 +42,11 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = _parser().parse_args(argv)
     try:
+        if args.scoreboard_child:
+            from screamingface._runtime.server import run_scoreboard
+
+            run_scoreboard(RuntimeConfig(data_dir=args.data_dir))
+            return
         asyncio.run(
             run(
                 RuntimeConfig(
