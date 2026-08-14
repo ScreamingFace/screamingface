@@ -3,13 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from screamingface._runtime.config import bundled_runner_config
-from screamingface._runtime.server import SERVICES
 from screamingface_runtime.runtime import RuntimeConfig, run
 
 
 def test_studio_uses_the_shared_runtime() -> None:
     assert run.__module__ == "screamingface._runtime.server"
-    assert SERVICES == {
+    assert RuntimeConfig(data_dir=Path("/tmp/screamingface-studio-test")).services == {
         "gateway": "http://127.0.0.1:9105",
         "scoreboard": "http://127.0.0.1:9106",
         "engine": "http://127.0.0.1:9108",

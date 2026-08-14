@@ -31,6 +31,9 @@ def _parser() -> argparse.ArgumentParser:
         "--scoreboard-child", action="store_true", help=argparse.SUPPRESS
     )
     parser.add_argument(
+        "--scoreboard-port", type=int, default=9106, help=argparse.SUPPRESS
+    )
+    parser.add_argument(
         "--runner-config",
         type=Path,
         default=None,
@@ -45,7 +48,11 @@ def main(argv: list[str] | None = None) -> None:
         if args.scoreboard_child:
             from screamingface._runtime.server import run_scoreboard
 
-            run_scoreboard(RuntimeConfig(data_dir=args.data_dir))
+            run_scoreboard(
+                RuntimeConfig(
+                    data_dir=args.data_dir, scoreboard_port=args.scoreboard_port
+                )
+            )
             return
         asyncio.run(
             run(
