@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 from collections.abc import Iterator, Mapping
+from functools import cache
 from types import FrameType
 from typing import Any, Protocol
 
@@ -181,12 +182,13 @@ def _server(app: Any, port: int, name: str) -> Server:
     # rejected it against uvicorn.Config's ASGIApplication parameter.
     import uvicorn  # pyright: ignore[reportMissingImports]
 
-    return _EmbeddedServer(
+    return _embedded_server_type()(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info", lifespan="on"),
         name=name,
     )
 
 
+@cache
 def _embedded_server_type():
     import uvicorn  # pyright: ignore[reportMissingImports]
 
@@ -210,9 +212,6 @@ def _embedded_server_type():
     return EmbeddedServer
 
 
-_EmbeddedServer = _embedded_server_type()
-
-
 async def _supervise(  # noqa: C901, PLR0912, PLR0915
     servers: tuple[Server, ...],
     *,
@@ -228,7 +227,7 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
         scoreboard_log_task = asyncio.create_task(_relay_scoreboard_output(scoreboard))
         stop_task = asyncio.create_task(stop.wait())
         external_stop_task = (
-            asyncio.create_task(asyncio.to_thread(shutdown_event.wait))
+            asyncio.create_task(_wait_for_thread_event(shutdown_event))
             if shutdown_event is not None
             else None
         )
@@ -274,6 +273,11 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
             scoreboard_log_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await scoreboard_log_task
+
+
+async def _wait_for_thread_event(event: threading.Event) -> None:
+    while not event.is_set():
+        await asyncio.sleep(0.05)
 
 
 async def _serve_service(server: Server) -> None:

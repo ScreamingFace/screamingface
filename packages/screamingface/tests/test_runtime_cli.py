@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -9,9 +10,20 @@ from pathlib import Path
 
 import pytest
 
-from screamingface._runtime import cli, runtime_logging
+from screamingface._runtime import cli, runtime_logging, server
 from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig
+
+
+def test_external_shutdown_waiter_can_be_cancelled_before_event_is_set() -> None:
+    async def cancel_waiter() -> None:
+        task = asyncio.create_task(server._wait_for_thread_event(threading.Event()))
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1)
+
+    asyncio.run(cancel_waiter())
 
 
 def test_parser_exposes_public_commands() -> None:
