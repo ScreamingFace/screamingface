@@ -137,6 +137,12 @@ apps/screamingface-studio/runtime/dist/screamingface-runtime/screamingface-runti
   --data-dir ~/.screamingface-studio
 ```
 
+Run the complete frozen startup, API smoke, shutdown, and port-release check with:
+
+```sh
+apps/screamingface-studio/runtime/verify-sidecar.sh
+```
+
 `onedir` avoids extracting a one-file archive on every app launch and allows release tooling to
 sign nested native libraries before signing the main executable. The current macOS arm64 bundle
 is approximately 198 MB and is ad-hoc signed by PyInstaller for local development.

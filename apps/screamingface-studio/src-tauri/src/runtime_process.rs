@@ -9,6 +9,9 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 const READY_PREFIX: &str = "SCREAMINGFACE_RUNTIME_READY ";
 const ERROR_PREFIX: &str = "SCREAMINGFACE_RUNTIME_ERROR ";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
@@ -39,11 +42,15 @@ pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
   let data_dir = app.path().app_data_dir()?.join("runtime");
   std::fs::create_dir_all(&data_dir)?;
-  let mut child = Command::new(&executable)
+  let mut command = Command::new(&executable);
+  command
     .arg("--data-dir")
     .arg(&data_dir)
     .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
+    .stderr(Stdio::piped());
+  #[cfg(unix)]
+  command.process_group(0);
+  let mut child = command
     .spawn()
     .map_err(|error| {
       Error::new(
@@ -242,9 +249,10 @@ fn venv_executable() -> &'static str {
 
 #[cfg(unix)]
 fn request_shutdown(child: &mut Child) {
-  // SAFETY: `child.id()` is the PID returned by the successful spawn above.
+  // SAFETY: the child was placed in a new process group whose id is its PID. Signalling that
+  // group reaches the PyInstaller bootloader, Python runtime, and Scoreboard child together.
   unsafe {
-    libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
+    libc::kill(-(child.id() as libc::pid_t), libc::SIGTERM);
   }
 }
 
