@@ -1,10 +1,18 @@
 ---
 ticket: OME-791
 stack: aigateway
-status: implemented (awaiting owner approval to commit)
+status: in_progress
 started: 2026-08-20
 finished:
 ---
+
+<!-- STATUS NOTE (OME-791 review remediation, 2026-08-21): the previous value,
+"implemented (awaiting owner approval to commit)", was not one of the four permitted states
+(planned | in_progress | done | blocked). `in_progress` is the honest replacement: the
+implementation and the review-remediation pass are both COMPLETE, but the unit closes at merge
+and rebase verification plus the gated-repository decision remain pending, so `finished` stays
+empty. Set `finished` and `done` at merge. -->
+
 
 # OME-791 — HuggingFace global-cache projection
 
@@ -115,7 +123,15 @@ created fresh in the worktree (`uv sync`), Python 3.12, litellm 1.97.0.
   Focused: `tests/unit/huggingface` 217 passed; the five global-cache core suites 327 passed.
   The plan's prediction of **zero prior tests modified** held — the append-only gate confirms it.
 
-- **Commits:** none. Nothing staged or committed; owner approval not yet given.
+- **Commits (actual, present on `OME-791-huggingface-global-cache-projection`):**
+  - `89116431` — `feat(aigateway): cache huggingface router responses`
+  - `d6b1ec5d` — `docs(aigateway): record the OME-791 huggingface cache decisions`
+
+  Together: 10 files, +2425/−31 vs `origin/main`. The earlier "Commits: none" line was written
+  INSIDE the commit that contradicted it and is corrected here (review finding M4).
+
+- **Review remediation implementation commit:**
+  - `a549850b` — `fix(aigateway): harden huggingface cache eligibility`
 
 - **Tripwires, both OBSERVED TO FIRE** (guard neutralised, symptom recorded in an AIDEV-NOTE at
   the guard, guard restored, suite re-run green):
@@ -127,6 +143,102 @@ created fresh in the worktree (`uv sync`), Python 3.12, litellm 1.97.0.
   2. *D3 participation gate* (`plugin.py`). Neutralised, the deployment configured for
      `https://proxy.internal/v1` was served `X-AIGW-Cache: hit` from a row filled against the
      official router — a 200 carrying an answer its own upstream never produced.
+
+## Review remediation pass (2026-08-21)
+
+The implementation review returned **3 blockers and 8 major findings**. The owner-scoped remediation
+implemented B1, B2, B3, M1, M2, M3, M4, M5 and M8; M6/M7 and minor findings remain outside this
+MVP remediation.
+
+- **B1 — policy suffixes were cached as pinned backends.** `pinned_router_target()` treated *every*
+  non-empty suffix as a deterministic backend, so `:fastest`, `:cheapest`, `:preferred`, `:auto` and
+  even `:notarealprovider` produced real, permanent, globally shared keys. `:preferred` is the sharp
+  case: it follows the **requesting account's** provider preference order, so one account's answer
+  could be replayed to another whose identical request would have selected a different provider —
+  identity-dependent dispatch under an architecturally identity-free key. Fixed with a fail-closed
+  `KNOWN_ROUTER_BACKENDS` frozenset transcribed from the Hugging Face partner table (18 slugs, read
+  2026-08-21), sourced from the partner table rather than the 8 seeded providers so the catalog
+  cannot become an admission list. A denylist was rejected: it fails **open** on the next policy
+  keyword HF ships. `_validate_model_slug` stays permissive — dispatch is unchanged.
+- **B2 — LiteLLM Proxy could take over dispatch while participation returned `True`.** Guarding
+  only `litellm.use_litellm_proxy` was insufficient: `_should_use_litellm_proxy_by_default` checks
+  `get_secret_bool("USE_LITELLM_PROXY")` **first**
+  (`llms/litellm_proxy/chat/transformation.py:73`) and returns on it alone, and is consulted at the
+  top of `get_llm_provider` (`get_llm_provider_logic.py:151`). Verified live: both controls flip
+  `get_llm_provider(...)` from `huggingface` to `litellm_proxy`, the environment one while the
+  attribute stays `False`. Both are now guarded; litellm's private helper is deliberately not called.
+- **B3 — the suite could not tell the fix from the bug.** The 217-test HF suite was green both
+  before and after the correct behaviour was applied, because it tested the parser's raise sites
+  rather than the semantic question "is this backend fixed for the next call?". Fixed with
+  hazard-named semantic tests plus route-level no-read/no-write proofs.
+- **M1/M2** — `disable_stop_sequence_limit` (truncates a `stop` list past four entries,
+  `utils.py:7618`) and `enable_json_schema_validation` (gates post-dispatch schema refusal for a
+  **keyed** `response_format`, `utils.py:1198`) both change behaviour behind a byte-identical
+  request body. Both now decline participation, each with a behavioural proof.
+- **M5 (PARTIAL, by owner scope)** — the complete HF ambient predicate, inventories, decline
+  reasons and decline log moved to `huggingface_provider/runtime_guard.py`; `plugin.py` dropped
+  **432 → 287 lines**. Cross-provider duplication is **NOT** eliminated: `openai_provider` and
+  `openrouter_provider` still carry near-copies and were deliberately not touched. The former
+  "mirror this into the siblings" instruction was **removed** as unsafe — HF declines cache
+  participation where some sibling paths hard-fail dispatch, so copying a condition without its
+  response would turn a lossless decline into a refused request. Repo-wide consolidation is a
+  separate follow-up after this branch integrates current `main` and the provider-specific response
+  policies can be designed together.
+- **M8** — `additional_drop_params` removed from the guarded inventory (it is not a litellm module
+  global on 1.97.0; the old test passed only because `raising=False` **created** it). Now:
+  existence assertions for every guarded global, `raising=True` throughout, an independently
+  authored expected inventory compared both ways, and every callback field — async included —
+  parametrized with the `"cache"` exemption preserved.
+- **M3** — `DEPLOYMENT.md` no longer claims HF always bypasses; it now carries a per-suffix
+  cacheability table and the gated-repository cross-account licensing consequence. Added as
+  consequence **6** on `config.requestCache` in `values.yaml`, plus `values-prod.yaml` and the
+  chart README. Chart defaults unchanged.
+
+**Falsification (both mutations executed, then reverted):**
+
+1. `pinned_router_target` reverted to `return (repo, backend) if sep else None` →
+   **21 tests failed** across `test_huggingface_provider_allowlist.py` and
+   `test_huggingface_route_global_cache.py`. The pre-remediation suite passed this mutation.
+2. `runtime_guard` stripped of the env-secret check and the three new globals →
+   **11 tests failed** in `test_huggingface_runtime_guard.py`.
+
+**Files changed in this remediation:**
+
+| File | Lines | Note |
+| --- | --- | --- |
+| `src/…/huggingface_provider/settings.py` | 199 | `KNOWN_ROUTER_BACKENDS` + allowlisted `pinned_router_target` |
+| `src/…/huggingface_provider/runtime_guard.py` | 263 | **NEW** — the whole guard, including fail-closed unreadable-state containment |
+| `src/…/huggingface_provider/plugin.py` | 287 | was 432; guard removed |
+| `src/…/huggingface_provider/global_cache.py` | 153 | stale symbol reference only |
+| `tests/unit/huggingface/test_huggingface_provider_allowlist.py` | 183 | **NEW** — 23 tests |
+| `tests/unit/huggingface/test_huggingface_runtime_guard.py` | 389 | **NEW** — 46 tests |
+| `tests/unit/huggingface/test_huggingface_global_cache_keys.py` | 268 | **NEW** — split out, 30 tests |
+| `tests/unit/huggingface/test_huggingface_route_global_cache.py` | 437 | was 550; 12 tests |
+| `tests/unit/huggingface/test_huggingface_global_cache_projection.py` | 360 | M8 edits, 40 tests |
+| `tests/live/test_huggingface_provider_allowlist_drift.py` | 77 | **NEW** — opt-in `AIGW_LIVE=1` |
+| `DEPLOYMENT.md`, `charts/aigateway/{values,values-prod,README}` | — | M3 |
+| `docs/work/2026-08-20-OME-791-…md` | — | this record (M4) |
+
+**Checks actually run (2026-08-21):** ruff check ✅ · ruff format ✅ · pyright 0 errors ✅ ·
+`tests/unit/huggingface` **290 passed** ✅ · focused global-cache conformance/purity/plan/key/reason
+suite **131 passed** ✅ · full suite **3702 passed, 50 skipped, 1 unrelated failure** · coverage
+**92.43%** (floor 80) ✅ · `git diff --check` clean ✅ · every changed/new Python file ≤ 450 lines ✅ ·
+`check_no_enterprise.py` ✅.
+
+**Owner-approved gate deviations:**
+
+1. **Append-only check — RED.** It flags `test_huggingface_route_global_cache.py` (the 550→two-file
+   split the brief *mandated*, naming `test_huggingface_global_cache_keys.py`) and two lines in
+   `test_huggingface_global_cache_projection.py` (the `additional_drop_params` case and
+   `raising=False`, both of which M8 *mandated* removing — the case only passed by creating the
+   attribute it claimed to test). Verified **zero prior test functions lost**: all 37 that existed
+   at HEAD still exist, now among 164. The gate cannot distinguish a move from a deletion. The
+   owner approved this documented append-only deviation; the gate itself remains unchanged.
+2. **`tests/unit/test_helm_prod_config.py::test_prod_sets_finite_openrouter_provider_concurrency_cap`
+   — RED, pre-existing and unrelated.** It asserts `AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES` in
+   prod `extraEnv`; that key is absent at `HEAD` **and** in the working copy, the test file is
+   **untracked** (OME-921's uncommitted RED state), and this pass's only `values-prod.yaml` change
+   is comment text. The owner approved committing OME-791 without absorbing that unrelated change.
 
 ## Deviations
 
@@ -141,9 +253,7 @@ created fresh in the worktree (`uv sync`), Python 3.12, litellm 1.97.0.
   the normal "move to In Progress at ledger creation" step was skipped. The `docs/tasks/` mirror
   records `status: Backlog` truthfully rather than claiming a transition that did not happen.
 
-- **Plan revised after adversarial review, before implementation.** Four independent reviews ran
-  against the pre-review draft; one returned **reject**. Every finding was re-verified against
-  this base before being accepted or rejected. Material corrections:
+- **Plan corrected before implementation.** Material corrections:
   - **D6 rewritten.** The pre-review justification was FALSE (it claimed both projecting providers
     guard ambient LiteLLM state; Anthropic projects with no such guard). More seriously the guard
     was *under*-inclusive: `litellm.model_fallbacks` is read at `main.py:602` inside
@@ -185,6 +295,10 @@ created fresh in the worktree (`uv sync`), Python 3.12, litellm 1.97.0.
   from this unit's design; if the owner declines it, the remedy is a catalog-level seeding/gating
   decision, not a projection change.
 
-- **`plugin.py` is at 432 of 450 lines.** The next responsibility added to this file should go in
-  a new module instead; extracting the shared ambient-state predicate into core (see the
-  AIDEV-NOTE there) is the obvious candidate and would bring it back down.
+- **~~`plugin.py` is at 432 of 450 lines.~~ RESOLVED 2026-08-21** by the review remediation pass:
+  the ambient-state guard moved to `huggingface_provider/runtime_guard.py` and `plugin.py` is now
+  **287 lines**. Note the correction to the original prediction — the extraction went to a
+  provider-LOCAL module, **not** to core. Extracting into core was rejected for this branch because
+  sibling providers respond to the same hazards differently (HF declines cache participation; some
+  sibling paths hard-fail dispatch). A shared helper needs a union plus per-provider deltas and stays
+  a separate follow-up after this branch integrates current `main`.
