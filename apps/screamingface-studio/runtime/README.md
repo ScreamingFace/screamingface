@@ -1,8 +1,8 @@
 # ScreamingFace Studio runtime
 
 This package provides the local backend for the ScreamingFace Studio desktop app. It runs the AI
-Gateway, Scoreboard, and ScreamingFace Engine as one supervised runtime, without Docker, Kubernetes,
-NATS, or Postgres.
+Gateway, Scoreboard, and ScreamingFace Engine as one supervised runtime backed by local SQLite and
+an in-memory event stream.
 
 The same package can run from Python during development or be built as a standalone PyInstaller
 sidecar for Tauri.
@@ -24,7 +24,7 @@ deployment, so the runtime must not be exposed directly to a network.
 
 ## Requirements
 
-- Python 3.12
+- Python 3.12 or 3.13
 - [`uv`](https://docs.astral.sh/uv/)
 - macOS arm64 for the currently verified frozen build
 
@@ -59,7 +59,7 @@ On startup, the launcher:
 4. announces readiness after all three ports are listening;
 5. supervises all services until `SIGINT` or `SIGTERM`.
 
-If either service exits unexpectedly, the launcher stops its peer and exits non-zero.
+If any service exits unexpectedly, the launcher stops the others and exits non-zero.
 
 ## Process contract
 
@@ -68,7 +68,7 @@ Tauri and other process supervisors should consume the launcher's machine-readab
 Successful startup writes one line to stdout:
 
 ```text
-SCREAMINGFACE_RUNTIME_READY {"services":{"aigateway":"http://127.0.0.1:9105","engine":"http://127.0.0.1:9108"}}
+SCREAMINGFACE_RUNTIME_READY {"services":{"engine":"http://127.0.0.1:9108","gateway":"http://127.0.0.1:9105","scoreboard":"http://127.0.0.1:9106"}}
 ```
 
 Startup is limited to 30 seconds. Migration, configuration, lifespan, and port-binding failures
@@ -144,7 +144,7 @@ is approximately 198 MB and is ad-hoc signed by PyInstaller for local developmen
 The PyInstaller spec explicitly collects dependencies that static analysis cannot fully discover:
 
 - AI Gateway provider plugins and migrations;
-- LiteLLM, Tiktoken, Tortoise, URL4, and URL4 Cloud lazy imports;
+- LiteLLM, Tiktoken, Tortoise, URL4, and ScreamingFace Engine lazy imports;
 - the runner configuration, Engine diagrams, and LiteLLM model data;
 - distribution metadata used by plugin registries;
 - native libraries used by cryptography and Uvicorn's accelerated stack.
@@ -165,10 +165,9 @@ application resource; the generated contents are ignored by Git.
 
 ## Runtime resources
 
-The desktop runtime embeds its configuration at
-`src/screamingface_runtime/resources/url4.toml`. The container deployment uses
-`apps/url4-cloud/url4.toml`. A unit test requires their meaningful contents to match so the desktop
-and container model worlds cannot drift silently.
+The desktop sidecar uses the Engine configuration bundled by `screamingface[runtime]` from
+`apps/screamingface-engine/url4.toml`. A unit test compares the packaged configuration with that
+source so the desktop and deployed Engine model worlds cannot drift silently.
 
 AI Gateway migrations are Python modules and are bundled through PyInstaller's hidden imports.
 The SQLite database and generated secrets remain outside the application bundle in the writable
@@ -190,16 +189,16 @@ AIGW_AUTH_MODE=disabled .venv/bin/aigateway serve
 Terminal 2:
 
 ```sh
-cd apps/url4-cloud
+cd apps/screamingface-engine
 uv sync --frozen
-.venv/bin/url4-cloud serve --local
+.venv/bin/screamingface-engine serve --local
 ```
 
 This split setup is for debugging only. The desktop app should use the combined runtime process.
 
 ## Known limitations
 
-- Ports `9105` and `9108` are currently fixed. Starting a second local runtime reports an
+- Ports `9105`, `9106`, and `9108` are currently fixed. Starting a second local runtime reports an
   occupied-port startup error.
 - Benchmark evaluation requires prepared benchmark assets configured through
   `URL4_BENCHMARK_ASSETS`. Catalog, connection, and smoke APIs work without them.

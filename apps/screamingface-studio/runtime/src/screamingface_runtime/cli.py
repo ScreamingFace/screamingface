@@ -14,7 +14,7 @@ from screamingface_runtime.runtime import RuntimeConfig, run
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="screamingface-runtime",
-        description="Run the local AI Gateway and ScreamingFace Engine.",
+        description="Run the local AI Gateway, Scoreboard, and ScreamingFace Engine.",
     )
     parser.add_argument(
         "--data-dir",

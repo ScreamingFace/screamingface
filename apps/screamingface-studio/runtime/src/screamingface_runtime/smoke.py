@@ -8,7 +8,7 @@ import httpx
 
 
 async def smoke(engine_url: str, gateway_url: str, scoreboard_url: str) -> int:
-    """Verify both services and the Engine-to-Gateway catalog integration."""
+    """Verify all services and the Engine-to-Gateway catalog integration."""
 
     async with httpx.AsyncClient(timeout=30.0) as http:
         for service, base_url in (
