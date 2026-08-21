@@ -21,7 +21,22 @@ from aigateway.core.plugin_base import PluginSettings
 
 # Unified OpenAI-compatible router. Pinning this as api_base short-circuits
 # litellm's per-request provider-mapping fetch to huggingface.co.
-_ROUTER_API_BASE = "https://router.huggingface.co/v1"
+#
+# OME-791: PUBLIC because it is now global-cache KEY MATERIAL. ``global_cache.py`` emits it
+# as the projected ``api_base``, so the pure projection must be able to name it without
+# importing anything impure — it may not read the ``router_api_base`` FIELD below.
+#
+# INVARIANT: this constant is the OFFICIAL router; the field is what a deployment may
+# override. ``participates_in_global_cache`` declines when they disagree, which is what lets
+# the projection emit a constant while the field stays configurable (plan D3).
+#
+# AIDEV-NOTE: three other spellings of this host exist in the package and are deliberately
+# NOT derived from this constant (plan D4): ``api_key_validation._READINESS_URL`` is a
+# hardcoded literal precisely so an overridden base cannot redirect a credential probe —
+# ``test_huggingface_validation_requires_identity_and_readiness`` pins that — and
+# ``discovery.MODELS_URL`` / ``discovery.ALLOWED_ORIGINS`` serve the catalog surface and
+# carry no key material. This constant owns the DISPATCH path only.
+OFFICIAL_ROUTER_API_BASE = "https://router.huggingface.co/v1"
 
 
 def _default_model_slugs() -> list[str]:
@@ -114,7 +129,7 @@ class HuggingFacePluginSettings(PluginSettings):
     )
 
     default_models: list[str] = Field(default_factory=_default_model_slugs)
-    router_api_base: str = _ROUTER_API_BASE
+    router_api_base: str = OFFICIAL_ROUTER_API_BASE
     validation_model: str | None = None
 
     @field_validator("default_models")
