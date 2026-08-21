@@ -5,12 +5,20 @@ on:
       - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"
+      # this suite guards the justfile's stack-prepare recipe, and a guard that cannot run
+      # on its own subject is worse than none: the offending PR would merge green and the
+      # failure would surface later on an unrelated engine change.
+      - "packages/screamingface/justfile"
       - ".github/workflows/screamingface-engine-tests.yml"
   pull_request:
     paths:
       - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"
+      # this suite guards the justfile's stack-prepare recipe, and a guard that cannot run
+      # on its own subject is worse than none: the offending PR would merge green and the
+      # failure would surface later on an unrelated engine change.
+      - "packages/screamingface/justfile"
       - ".github/workflows/screamingface-engine-tests.yml"
   workflow_dispatch:
 

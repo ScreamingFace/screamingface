@@ -29,7 +29,14 @@ from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_RO
 from url4 import Text
 
 REPOSITORY_ROOT = Path(__file__).parents[4]
-_FAMILY_PREPARER = re.compile(r"screamingface_engine\.benchmarks\.[a-z0-9_]+\.prepare")
+# INVARIANT: the family segment is derived from the deployment's own bundle ids, so the guard
+# matches only what its failure message claims — a family-specific invocation. A bare
+# `[a-z0-9_]+` also matched `benchmarks.deployment.prepare_assets`, blaming the orchestrator.
+_FAMILY_PREPARER = re.compile(
+    r"screamingface_engine\.benchmarks\.(?:"
+    + "|".join(re.escape(bundle.id) for bundle in BUILTIN_DEPLOYMENT._asset_bundles)
+    + r")\.prepare\b"
+)
 
 
 def _benchmark(benchmark_id: str) -> Benchmark:
@@ -87,7 +94,14 @@ def test_builtin_prepare_cli_prints_one_auditable_record_per_bundle(
         "healthbench": {"professional_cases": 525, "worst30_cases": 157},
         "ifeval": {"cases": 541, "patched_keys": [146, 179]},
     }
-    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", lambda _root: summaries)
+
+    def prepare(_root: Path, on_prepared: object = None) -> dict[str, object]:
+        for bundle, summary in summaries.items():
+            if on_prepared is not None:
+                on_prepared(bundle, summary)  # type: ignore[operator]
+        return summaries
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", prepare)
 
     assert prepare_module.main(["--root", str(tmp_path)]) == 0
 
@@ -103,7 +117,7 @@ def test_builtin_prepare_cli_reports_declared_refusal_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    def refuse(_root: Path) -> dict[str, object]:
+    def refuse(_root: Path, _on_prepared: object = None) -> dict[str, object]:
         raise BenchmarkAssetPreparationError("frozen answer key drifted")
 
     monkeypatch.setattr(prepare_module, "prepare_builtin_assets", refuse)
@@ -120,7 +134,7 @@ def test_builtin_prepare_cli_does_not_hide_unexpected_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def explode(_root: Path) -> dict[str, object]:
+    def explode(_root: Path, _on_prepared: object = None) -> dict[str, object]:
         raise AssertionError("programming defect")
 
     monkeypatch.setattr(prepare_module, "prepare_builtin_assets", explode)
@@ -198,3 +212,90 @@ def test_benchmark_image_ci_names_the_complete_build() -> None:
 
     assert "Build the benchmark image" in body
     assert "Build the DRACO benchmark image" not in body
+
+
+def test_a_refusal_still_reports_the_bundles_that_already_completed(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: evidence for a completed bake survives a later bundle's refusal.
+
+    WHY: bundles bake in ID order and write real files as they go. Printing only after the
+    whole sequence succeeds means an operator reading the build log cannot tell which
+    bundles landed — losing exactly the audit trail this unit exists to provide.
+    """
+
+    def good(out: Path) -> dict[str, object]:
+        return {"cases": 100, "out": str(out)}
+
+    def refuse(_out: Path) -> dict[str, object]:
+        raise BenchmarkAssetPreparationError("frozen answer key drifted")
+
+    deployment = BenchmarkDeployment(
+        (
+            BenchmarkRegistration(
+                _benchmark("one"), asset_bundle=BenchmarkAssetBundle(id="alpha", prepare=good)
+            ),
+            BenchmarkRegistration(
+                _benchmark("two"), asset_bundle=BenchmarkAssetBundle(id="beta", prepare=refuse)
+            ),
+        )
+    )
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", deployment.prepare_assets)
+
+    assert prepare_module.main(["--root", str(tmp_path)]) == 1
+
+    captured = capsys.readouterr()
+    records = [json.loads(line) for line in captured.out.splitlines() if line.strip()]
+    assert records == [
+        {
+            "root": str(tmp_path),
+            "bundle": "alpha",
+            "summary": {"cases": 100, "out": str(tmp_path / "alpha")},
+        }
+    ]
+    assert captured.err == "benchmark asset preparation failed: frozen answer key drifted\n"
+
+
+def test_the_family_guard_does_not_flag_the_orchestrator_itself() -> None:
+    """WHY: the guard's message blames a family-specific invocation, so it must only match one."""
+
+    assert _FAMILY_PREPARER.search("-m screamingface_engine.benchmarks.prepare --root /x") is None
+    assert (
+        _FAMILY_PREPARER.search("screamingface_engine.benchmarks.deployment.prepare_assets(root)")
+        is None
+    )
+    assert (
+        _FAMILY_PREPARER.search("screamingface_engine.benchmarks.registry.prepare_everything()")
+        is None
+    )
+    assert _FAMILY_PREPARER.search("-m screamingface_engine.benchmarks.draco.prepare --out /x")
+
+
+def test_a_preparer_ignoring_the_summary_contract_fails_by_name(tmp_path: Path) -> None:
+    """WHY: a preparer still written against the old `-> None` port should say so, not TypeError."""
+
+    def stale(_out: Path) -> None:
+        return None
+
+    deployment = BenchmarkDeployment(
+        (
+            BenchmarkRegistration(
+                _benchmark("one"),
+                asset_bundle=BenchmarkAssetBundle(id="alpha", prepare=stale),  # type: ignore[arg-type]
+            ),
+        )
+    )
+
+    with pytest.raises(BenchmarkAssetPreparationError, match="summary mapping"):
+        deployment.prepare_assets(tmp_path)
+
+
+def test_the_engine_workflow_runs_when_the_guarded_justfile_changes() -> None:
+    """INVARIANT: a guard that cannot run on its own subject is worse than no guard."""
+
+    workflow = REPOSITORY_ROOT / ".github" / "workflows" / "screamingface-engine-tests.yml"
+    body = workflow.read_text(encoding="utf-8")
+
+    assert body.count('- "packages/screamingface/justfile"') == 2

@@ -89,17 +89,39 @@ class BenchmarkDeployment:
 
         return self._registrations
 
-    def prepare_assets(self, root: Path) -> dict[str, BenchmarkAssetSummary]:
-        """Prepare every unique bundle and retain its audit summary in stable ID order."""
+    def prepare_assets(
+        self,
+        root: Path,
+        on_prepared: Callable[[str, BenchmarkAssetSummary], None] | None = None,
+    ) -> dict[str, BenchmarkAssetSummary]:
+        """Prepare every unique bundle and retain its audit summary in stable ID order.
+
+        WHY `on_prepared`: bundles write real files as they go, so a later bundle's refusal
+        must not erase the evidence for the ones that already landed. The callback fires as
+        each bundle completes, letting a caller stream its audit record before any failure —
+        while the I/O decision stays with the caller and out of this orchestrator.
+        """
 
         root.mkdir(parents=True, exist_ok=True)
         prepared: dict[str, BenchmarkAssetSummary] = {}
         for bundle in self._asset_bundles:
             out = root / bundle.id
             out.mkdir(parents=True, exist_ok=True)
-            # INVARIANT: copy the adapter's observation so a later caller mutation cannot
-            # rewrite what this deployment reports as the evidence from its completed bake.
-            prepared[bundle.id] = dict(bundle.prepare(out))
+            observed = bundle.prepare(out)
+            if not isinstance(observed, Mapping):
+                raise BenchmarkAssetPreparationError(
+                    f"bundle {bundle.id!r} preparer returned "
+                    f"{type(observed).__name__}, not a summary mapping"
+                )
+            # INVARIANT: snapshot the adapter's own top-level observations so a later mutation
+            # of the mapping it handed back cannot rewrite this bake's reported evidence.
+            # AIDEV-NOTE: shallow by design — a preparer must build its values fresh rather
+            # than hand back a container it keeps mutating. Deep-copying arbitrary adapter
+            # values would be the orchestrator guessing at their semantics.
+            summary = dict(observed)
+            prepared[bundle.id] = summary
+            if on_prepared is not None:
+                on_prepared(bundle.id, summary)
         return prepared
 
 
