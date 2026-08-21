@@ -242,7 +242,7 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         """Delegate to the PURE module; see ``global_cache.py`` for the invariants."""
         return project_global_cache_request(body)
 
-    def participates_in_global_cache(self) -> bool:
+    def participates_in_global_cache(self, model: object = None) -> bool:
         """Whether THIS deployment's rows may be shared, given state the projection cannot see.
 
         INVARIANT: the projection describes a request sent to the OFFICIAL router by a process
@@ -261,7 +261,12 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         AIDEV-NOTE (M5): the decision itself lives in ``runtime_guard.py`` — ONE Hugging Face
         source of truth for every ambient and configuration condition. This hook only supplies
         the deployment-local value the guard may not read for itself and reports the outcome.
+
+        OME-884 passes the raw model through this port. HF deliberately keeps the existing
+        deployment-wide fail-closed predicate for now; narrowing individual alias-map entries is
+        a separate cross-provider runtime-guard follow-up.
         """
+        del model
         reason = global_cache_decline_reason(
             configured_router_api_base=self.settings.router_api_base
         )

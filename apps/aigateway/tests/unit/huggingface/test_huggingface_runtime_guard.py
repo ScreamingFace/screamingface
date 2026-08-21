@@ -187,6 +187,13 @@ def test_a_clean_process_participates() -> None:
     assert _plugin().participates_in_global_cache() is True
 
 
+def test_the_model_aware_core_hook_can_call_huggingface_participation() -> None:
+    # INVARIANT: OME-884 passes the raw requested model to every provider gate. Hugging Face keeps
+    # its conservative deployment-wide predicate, but accepting that argument must never cost every
+    # otherwise-cacheable request a fail-closed provider_projection bypass.
+    assert _plugin().participates_in_global_cache(_PINNED) is True
+
+
 # --- B2: BOTH LiteLLM Proxy controls ---------------------------------------------------------
 
 
