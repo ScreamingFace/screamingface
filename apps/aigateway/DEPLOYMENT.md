@@ -172,12 +172,38 @@ by every caller of the gateway**. The Helm chart enables it by default; set the 
 opt out. The standalone app default remains off. Enabling it is a decision about data sharing, not
 a performance setting.
 
-**It is not gateway-wide.** Only **anthropic** and **openrouter** can be served from cache in this
-release. Requests to **antigravity**, **codex**, **gemini-cli**, **huggingface** and **ollama**
-bypass it entirely and always dispatch. Caching a provider requires that provider to declare what
-*it* contributes to the upstream call (`global_cache_projection`), and those five inherit the
-bypassing default, so there is nothing safe to key on. This is a deliberate scope decision with
-follow-up work per provider: expect a 100% miss rate on those five and do not read it as a fault.
+**It is not gateway-wide.** Only **anthropic**, **openrouter** and **huggingface** can be served
+from cache in this release, and huggingface only *partly* (see below). Requests to
+**antigravity**, **codex**, **gemini-cli** and **ollama** bypass it entirely and always dispatch.
+Caching a provider requires that provider to declare what *it* contributes to the upstream call
+(`global_cache_projection`), and those four inherit the bypassing default, so there is nothing safe
+to key on. Expect a 100% miss rate on those four and do not read it as a fault.
+
+#### Hugging Face: only a pinned provider participates
+
+A Hugging Face model id may end in `:<suffix>`, and the suffix means one of two different things.
+Only the first is cacheable:
+
+| Request | Cached? | Why |
+| --- | --- | --- |
+| `huggingface/<org>/<model>:<provider>` — a **known partner slug** (`:novita`, `:groq`, …) | **yes** | one fixed backend answers, so the stored row describes the next identical call |
+| `huggingface/<org>/<model>` — no suffix | no | the router picks a backend **per request** (equivalent to `:fastest`) |
+| `:fastest`, `:cheapest`, `:preferred` — routing **policies** | no | a selection rule, not a backend. `:preferred` follows the **requesting account's** preference order, so it is identity-dependent and the global key is identity-free |
+| an unrecognised suffix | no | fail closed — unknown means unproven |
+| any request from a process with unsafe ambient LiteLLM state, or with `router_api_base` overridden away from the official router | no | the projection would describe a call this process is not making |
+
+Bypassing requests **still dispatch normally** — this narrows caching, never validity. The
+allowlist is a reviewed transcription of the Hugging Face partner table, so a newly launched
+partner is simply uncached until it is added.
+
+**Operator consequence — cross-account replay of gated repositories.** A cacheable Hugging Face
+response is stored globally and replayed to any caller whose request keys identically, **before
+any credential is resolved**. Many Hugging Face repositories are *gated*: access requires
+per-account licence acceptance. A row filled by an account that accepted the licence can therefore
+be served to an account that never did. The cache changes **who may read a stored answer**, never
+what goes on the wire — but if your deployment serves multiple tenants and relies on Hugging Face
+gating for licence compliance, that is a decision to take deliberately, not a side effect to
+discover. Set `config.requestCache.enabled=false` to opt out.
 
 ### What it does
 

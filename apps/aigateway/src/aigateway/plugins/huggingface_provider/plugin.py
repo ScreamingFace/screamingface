@@ -20,11 +20,8 @@ Key design points (validated against litellm 1.87.0):
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
-
-import litellm
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
@@ -51,11 +48,12 @@ from .discovery import (
 )
 from .global_cache import project_global_cache_request
 from .parameters import huggingface_chat_parameter_rules, huggingface_chat_parameter_tools
-from .settings import (
-    OFFICIAL_ROUTER_API_BASE,
-    HuggingFacePluginSettings,
-    pinned_router_target,
+from .runtime_guard import (
+    global_cache_decline_reason,
+    log_decline_once,
+    reset_decline_log,  # noqa: F401  (re-exported: tests reset the guard's per-process memo)
 )
+from .settings import HuggingFacePluginSettings, pinned_router_target
 
 if TYPE_CHECKING:
     from aigateway.core.chat_parameters import (
@@ -71,127 +69,6 @@ if TYPE_CHECKING:
 # Caller-supplied copies of these are stripped before the gateway injects its own
 # credential, so a client can never smuggle auth material to the upstream router.
 _CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"}
-
-logger = logging.getLogger(__name__)
-
-# Process-global LiteLLM controls that would make a stored HF row describe something other
-# than what dispatch actually sent.
-#
-# AIDEV-NOTE: this is the THIRD near-copy of this predicate in the repo — see
-# ``openai_provider/plugin.py::_has_unsafe_litellm_global_state`` and
-# ``openrouter_provider/litellm_controls.py::_has_unsafe_litellm_global_state``. Extracting one
-# core helper is the right cleanup and is deliberately deferred: the three condition sets are
-# NOT identical, because each provider's reachable litellm surface differs, so a shared helper
-# needs a union plus per-provider deltas. Until that exists, a change to any one of the three
-# should be mirrored in the others.
-_LITELLM_GLOBAL_RULE_FIELDS = (
-    # ``pre_call_rules``/``post_call_rules`` only ever RAISE
-    # (``litellm_core_utils/rules.py:29-58``), so they cannot corrupt a response body. They are
-    # guarded anyway for a different reason: a cache HIT returns at ``routes/chat.py:351``,
-    # BEFORE dispatch, so a deployment's configured refusal would be silently skipped for a
-    # stored row while still applying to a miss.
-    "pre_call_rules",
-    "post_call_rules",
-    # These change WHICH PARAMETERS reach the wire, so the same body produces two different
-    # upstream calls depending on process configuration.
-    "drop_params",
-    "additional_drop_params",
-)
-
-_LITELLM_GLOBAL_CALLBACK_FIELDS = (
-    "callbacks",
-    "input_callback",
-    "success_callback",
-    "failure_callback",
-    "_async_input_callback",
-    "_async_success_callback",
-    "_async_failure_callback",
-)
-
-
-def _unsafe_litellm_global_state() -> str | None:
-    """The ambient LiteLLM control that forbids sharing rows, or ``None`` if the process is clean.
-
-    WHY this gate exists — the load-bearing case, verified against installed litellm 1.97.0
-    rather than assumed. ``litellm.model_fallbacks`` is read at ``main.py:602``, INSIDE
-    ``async def acompletion`` (lines 388-698), which is exactly what HF's inherited
-    ``chat_completion`` calls:
-
-        fallbacks = fallbacks or litellm.model_fallbacks
-        if fallbacks is not None:
-            response = await async_completion_with_fallbacks(...)
-
-    ``fallback_utils.py:57,62`` then re-enters ``acompletion`` with ``model=fallback``. The
-    gateway strips a caller's ``fallbacks`` at ingress (``request_hardening.py:82``), so only
-    the process global can set it, and the fill path stores any answer carrying a
-    ``finish_reason`` without comparing its model to the key's. One process-global setting
-    therefore writes ANOTHER MODEL'S ANSWER under an HF key, in a store whose rows never
-    expire. That is a wrong answer, not a stale one — which is why a coarse provider-wide
-    decline is the right trade rather than an optimisation to be avoided.
-
-    ``litellm.headers`` is guarded because it reaches the HF wire SPECIFICALLY: ``main.py:2994``
-    inside ``_complete_huggingface`` does ``hf_headers = headers or litellm.headers``. Two
-    processes with different globals would key alike and send differently — ruling 34's exact
-    hazard.
-
-    AIDEV-NOTE: ``litellm.HuggingFaceChatConfig().get_config()`` was considered and REJECTED.
-    ``_complete_huggingface`` (``main.py:2971-3011``) reads no ``*Config.get_config()`` at all,
-    and ``BaseConfig.get_config`` reads only ``cls.__dict__``, so the condition cannot fire on
-    anything reaching the HF wire — while merely EVALUATING it instantiates the class, whose
-    ``__init__`` sets ``self.__class__._is_base_class = False`` and thus mutates litellm process
-    state on every request. A guard that protects nothing and mutates shared state is strictly
-    worse than no guard.
-    """
-    if getattr(litellm, "model_fallbacks", None):
-        return "litellm.model_fallbacks"
-    # Coarser than both exemplars, which test ``model in aliases``. WHY: this port's signature
-    # receives NO model (``_provider.py:278``), so the exact form is not expressible here. The
-    # coarse form is the fail-safe direction — it declines more often, never less — and the
-    # narrowing belongs to the OME-884 forward-merge, which changes this signature anyway.
-    if getattr(litellm, "model_alias_map", None):
-        return "litellm.model_alias_map"
-    if getattr(litellm, "headers", None):
-        return "litellm.headers"
-    if getattr(litellm, "proxy_auth", None) is not None:
-        return "litellm.proxy_auth"
-    for field in _LITELLM_GLOBAL_RULE_FIELDS:
-        if getattr(litellm, field, None):
-            return f"litellm.{field}"
-    for field in _LITELLM_GLOBAL_CALLBACK_FIELDS:
-        callbacks = getattr(litellm, field, None)
-        # ``"cache"`` is litellm's own bookkeeping entry, not a third-party observer; both
-        # existing exemplars permit it, and excluding it would decline in ordinary deployments.
-        if callbacks and any(callback != "cache" for callback in callbacks):
-            return f"litellm.{field}"
-    return None
-
-
-# WHY module state for logging: every decline path publishes the SAME wire reason
-# (``provider_projection``), so without a log an operator whose HF caching silently stopped has
-# no way to learn which check declined. But this runs per request, so an unconditional warning
-# would be its own operational problem. One line per condition per process is the compromise.
-_LOGGED_DECLINES: set[str] = set()
-
-
-def _log_decline_once(reason: str) -> None:
-    """Name the declining condition once per process, never the configured value.
-
-    INVARIANT: the TOKEN only. ``router_api_base`` can carry an internal hostname, and
-    ``litellm.headers`` can carry tenant or auth material, so neither value is ever logged.
-    """
-    if reason in _LOGGED_DECLINES:
-        return
-    _LOGGED_DECLINES.add(reason)
-    logger.warning(
-        "huggingface is not participating in the global cache: %s (this deployment's rows "
-        "are neither read nor written; requests dispatch normally)",
-        reason,
-    )
-
-
-def reset_decline_log() -> None:
-    """Clear the once-per-process log memo. For tests only."""
-    _LOGGED_DECLINES.clear()
 
 
 def _credential_service_for(profile_name: str) -> str:
@@ -380,40 +257,18 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
 
         INVARIANT: TOTAL in practice — ``global_plan.py:72-77`` swallows any raise here into
         non-participation, and the guard must never be the thing that fails a request.
+
+        AIDEV-NOTE (M5): the decision itself lives in ``runtime_guard.py`` — ONE Hugging Face
+        source of truth for every ambient and configuration condition. This hook only supplies
+        the deployment-local value the guard may not read for itself and reports the outcome.
         """
-        reason = self._global_cache_decline_reason()
+        reason = global_cache_decline_reason(
+            configured_router_api_base=self.settings.router_api_base
+        )
         if reason is None:
             return True
-        _log_decline_once(reason)
+        log_decline_once(reason)
         return False
-
-    def _global_cache_decline_reason(self) -> str | None:
-        """The condition that declines participation, or ``None`` to participate."""
-        # D3 — the operator-overridable router base. The projection emits the OFFICIAL constant
-        # unconditionally, so a deployment pointed anywhere else would key its requests as
-        # though they had gone to the official router and share rows with deployments that did.
-        # That is cross-endpoint contamination of a globally shared cache.
-        #
-        # WHY the comparison is NORMALISED rather than literal: litellm's
-        # ``_build_chat_completion_url`` does ``model_url.rstrip("/")`` before appending
-        # ``/chat/completions`` (``transformation.py:26-28``), so a trailing slash produces a
-        # byte-identical upstream call. A literal ``!=`` would silently disable caching for a
-        # deployment that is provably sending the same request. The normalisation stops there on
-        # purpose: this is a safety gate, so every accepted spelling must be provably
-        # wire-equivalent, not merely plausible. Anything else declines.
-        # AIDEV-NOTE: OBSERVED TO FIRE. This gate was neutralised on 2026-08-20 and
-        # ``test_a_row_filled_at_the_official_base_is_not_replayed_after_an_override`` was run.
-        # Observed symptom: the deployment configured for ``https://proxy.internal/v1`` was
-        # served ``X-AIGW-Cache: hit`` from the row a DIFFERENT deployment filled against the
-        # official router — a 200 carrying an answer its own upstream never produced, with no
-        # dispatch. That is the cross-endpoint contamination this gate exists to prevent, and it
-        # is silent on the wire. Gate restored.
-        configured = self.settings.router_api_base
-        if not isinstance(configured, str):
-            return "router_api_base"
-        if configured.rstrip("/") != OFFICIAL_ROUTER_API_BASE.rstrip("/"):
-            return "router_api_base"
-        return _unsafe_litellm_global_state()
 
     def cache_reference_from_cached_response(self, cached: Mapping[str, Any]) -> None:
         """No usage-accounting reference for HF — and saying so explicitly is REQUIRED.

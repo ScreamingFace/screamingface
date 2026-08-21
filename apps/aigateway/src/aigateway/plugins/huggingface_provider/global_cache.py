@@ -55,7 +55,7 @@ from .settings import OFFICIAL_ROUTER_API_BASE, pinned_router_target
 #   * pinning the base short-circuits ``_fetch_inference_provider_mapping``, whose lru-cached,
 #     env-keyed lookup would otherwise make the upstream model not a function of the request
 #     (``transformation.py:131-132`` returns early when ``litellm_params["api_base"]`` is set).
-#   * the ambient-LiteLLM conditions enumerated in ``plugin._has_unsafe_litellm_global_state``.
+#   * the ambient-LiteLLM conditions enumerated in ``runtime_guard.unsafe_litellm_global_state``.
 #     This revision is only meaningful for a process where none of them held; participation is
 #     what enforces that, and widening the accepted set is a mandatory bump here.
 #

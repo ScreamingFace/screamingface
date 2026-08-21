@@ -38,6 +38,50 @@ from aigateway.core.plugin_base import PluginSettings
 # carry no key material. This constant owns the DISPATCH path only.
 OFFICIAL_ROUTER_API_BASE = "https://router.huggingface.co/v1"
 
+# OME-791 (B1): the complete Hugging Face partner-provider vocabulary, transcribed from the
+# authoritative partner table at https://huggingface.co/docs/inference-providers/index
+# (18 partners, read 2026-08-21). Slugs are the doc-route names — the machine-readable form
+# that appears in the ``:<suffix>`` position — NOT the human display names, so "Fireworks" is
+# ``fireworks-ai``, "OVHcloud AI Endpoints" is ``ovhcloud``, "Z.ai" is ``zai-org``.
+#
+# INVARIANT: FAIL-CLOSED, and this is the whole point. The suffix position also accepts ROUTING
+# POLICIES — the same page documents ``:fastest`` (the unsuffixed default), ``:cheapest`` and
+# ``:preferred`` — which name no fixed backend. ``:preferred`` resolves against the REQUESTING
+# ACCOUNT's preference order, so a row keyed under it would replay one account's provider to an
+# account whose identical request would have gone elsewhere. Since the global key is
+# architecturally identity-free, that hazard cannot be keyed around; it can only be declined.
+#
+# WHY an allowlist and NOT a denylist of policy names: a denylist fails OPEN. The day Hugging
+# Face adds another policy keyword, a denylist would silently begin caching it as though it
+# named a backend, and nothing in this repository would notice. An unknown suffix must bypass.
+#
+# AIDEV-NOTE: this admits a suffix to the CACHE, never to DISPATCH. ``_validate_model_slug``
+# stays permissive on purpose (B1.4): a policy or unknown suffix is a perfectly valid request
+# that must still reach the router. Drift against the live vocabulary is reported by the
+# opt-in ``AIGW_LIVE`` test at ``tests/live/test_huggingface_provider_allowlist_drift.py``.
+KNOWN_ROUTER_BACKENDS: frozenset[str] = frozenset(
+    {
+        "baseten",
+        "cerebras",
+        "cohere",
+        "deepinfra",
+        "fal-ai",
+        "featherless-ai",
+        "fireworks-ai",
+        "groq",
+        "hf-inference",
+        "novita",
+        "nscale",
+        "ovhcloud",
+        "publicai",
+        "replicate",
+        "scaleway",
+        "together",
+        "wavespeed",
+        "zai-org",
+    }
+)
+
 
 def _default_model_slugs() -> list[str]:
     """Seed models in ``huggingface/<org>/<model>:<provider>`` router form.
@@ -107,18 +151,34 @@ def pinned_router_target(slug: str) -> tuple[str, str] | None:
     """The ``(<org>/<model>, <backend>)`` pair a gateway id pins, or ``None``.
 
     Lives beside ``_validate_model_slug`` so there is ONE definition of what a
-    well-formed HF gateway id is; this adds only the discovery-specific condition.
+    well-formed HF gateway id is; this adds only the pinned-backend condition.
 
-    WHY an unsuffixed id has no target: without ``:<provider>`` the router selects a
-    backend PER REQUEST, so no single backend row describes the next call. Reporting
-    one would be a guess dressed as live evidence.
+    INVARIANT (OME-791 B1): a target is returned ONLY for a suffix in
+    ``KNOWN_ROUTER_BACKENDS``. Three distinct inputs therefore share the ``None`` answer,
+    for one reason — NONE of them names a backend that is fixed for the next call:
+
+    * an UNSUFFIXED id: the router selects a backend per request (equivalently ``:fastest``).
+    * a ROUTING POLICY (``:fastest``, ``:cheapest``, ``:preferred``): a selection rule, not a
+      backend. ``:preferred`` resolves against the REQUESTING ACCOUNT's preference order, so it
+      is identity-dependent — unkeyable under an identity-free global key.
+    * an UNKNOWN suffix: unrecognised, therefore unproven. Fail closed.
+
+    Reporting a target for any of those would be a guess dressed as live evidence — and, since
+    this predicate also gates the global cache, a guess written into a row that never expires.
+
+    WHY this does NOT narrow dispatch: ``_validate_model_slug`` remains permissive, so every
+    syntactically valid id — policies and unknown suffixes included — still reaches the router
+    normally. This function narrows only what may be CACHED and what may be reported as
+    single-backend evidence.
     """
     try:
         _validate_model_slug(slug)
     except ValueError:
         return None
     repo, sep, backend = slug[len("huggingface/") :].partition(":")
-    return (repo, backend) if sep else None
+    if not sep or backend not in KNOWN_ROUTER_BACKENDS:
+        return None
+    return (repo, backend)
 
 
 class HuggingFacePluginSettings(PluginSettings):

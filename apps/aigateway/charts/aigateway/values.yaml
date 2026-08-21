@@ -117,6 +117,16 @@ config:
   #      refused: the gateway does not gate the cache on the auth mode. It is a posture to
   #      understand before enabling the cache where authentication is off.
   #
+  #   6. HUGGING FACE GATED REPOSITORIES REPLAY ACROSS ACCOUNTS. Hugging Face participates for
+  #      requests pinned to a KNOWN partner provider (`…:novita`, `…:groq`, …). Unsuffixed ids and
+  #      the routing policies `:fastest` / `:cheapest` / `:preferred` are NOT cached, because the
+  #      backend is chosen per request and `:preferred` follows the requesting ACCOUNT's
+  #      preference order. For the ids that DO cache: many Hugging Face repositories are *gated*
+  #      and require per-account licence acceptance, and a cache hit returns BEFORE any credential
+  #      is resolved — so a row filled by an account that accepted the licence can be served to an
+  #      account that never did. If you rely on Hugging Face gating for licence compliance across
+  #      tenants, decide this deliberately. See "The Global Response Cache" in DEPLOYMENT.md.
+  #
   # Callers can opt a single request out with the `use-cache=false` cache control.
   requestCache:
     enabled: true

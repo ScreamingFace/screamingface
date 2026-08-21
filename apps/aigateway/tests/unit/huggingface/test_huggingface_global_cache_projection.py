@@ -244,7 +244,11 @@ def test_a_deployment_pointed_somewhere_else_does_not_participate() -> None:
         pytest.param("pre_call_rules", [lambda _: True], id="pre-call-rules"),
         pytest.param("post_call_rules", [lambda _: True], id="post-call-rules"),
         pytest.param("drop_params", True, id="drop-params"),
-        pytest.param("additional_drop_params", ["seed"], id="additional-drop-params"),
+        # OME-791 M8: ``additional_drop_params`` was listed here and is NOT a litellm module
+        # global on the installed 1.97.0 — the case only passed because ``raising=False``
+        # CREATED the attribute. Removed with the production entry. Exhaustive per-field
+        # coverage, existence assertions and the drift falsification now live in
+        # ``test_huggingface_runtime_guard.py``.
         pytest.param("success_callback", ["langfuse"], id="a-real-callback"),
     ],
 )
@@ -260,7 +264,10 @@ def test_unsafe_ambient_litellm_state_declines_participation(
     # That is a wrong answer, not a stale one.
     import litellm
 
-    monkeypatch.setattr(litellm, attribute, value, raising=False)
+    # OME-791 M8: ``raising=True``. With ``raising=False`` a renamed or removed litellm global
+    # would be silently CREATED by the test, so the guard could stop protecting anything while
+    # this stayed green.
+    monkeypatch.setattr(litellm, attribute, value, raising=True)
 
     assert _plugin().participates_in_global_cache() is False
 
@@ -272,7 +279,7 @@ def test_a_clean_process_participates(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # ``"cache"`` in a callback list is explicitly permitted — it is litellm's own cache
     # bookkeeping, not a third-party observer, and both existing exemplars allow it.
-    monkeypatch.setattr(litellm, "success_callback", ["cache"], raising=False)
+    monkeypatch.setattr(litellm, "success_callback", ["cache"], raising=True)
 
     assert _plugin().participates_in_global_cache() is True
 
