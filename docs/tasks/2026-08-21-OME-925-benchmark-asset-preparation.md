@@ -17,4 +17,4 @@ closed:
 
 Follow up OME-875 without changing benchmark bytes: retain each preparer's audit summary,
 surface expected preparation failures without a traceback, use the registry-derived entrypoint
-for local and image preparation, and cache the benchmark-image build's network work in CI.
+for local and image preparation, and name the complete benchmark-image build accurately in CI.

@@ -192,13 +192,9 @@ def test_local_stack_prepare_uses_the_registered_asset_orchestrator() -> None:
     assert _FAMILY_PREPARER.search(body) is None
 
 
-def test_benchmark_image_ci_names_and_caches_the_complete_build() -> None:
+def test_benchmark_image_ci_names_the_complete_build() -> None:
     workflow = REPOSITORY_ROOT / ".github" / "workflows" / "screamingface-engine-tests.yml"
     body = workflow.read_text(encoding="utf-8")
 
     assert "Build the benchmark image" in body
     assert "Build the DRACO benchmark image" not in body
-    assert "image: registry:3" in body
-    assert "driver-opts: network=host" in body
-    assert "cache-from: type=gha,scope=ci-screamingface-engine-benchmark" in body
-    assert "cache-to: type=gha,scope=ci-screamingface-engine-benchmark,mode=max" in body

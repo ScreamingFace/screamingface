@@ -23,12 +23,11 @@ Spec: `docs/spec/2026-08-21-OME-925-benchmark-asset-preparation.md` · Stack:
 - Strengthen the Dockerfile test to derive the root constant and reject any family preparer.
 - Add the equivalent local-preparation invariant and CLI output/error tests.
 
-## 4. Cache the CI image build
+## 4. Name the CI image build accurately
 
 - Rename the benchmark-image step.
-- Use a job-local registry with the container BuildKit driver so the base image remains available
-  while the benchmark build imports/exports a dedicated GitHub Actions cache.
-- Keep the final benchmark image loaded for the existing smoke test.
+- Preserve the existing, proven base-image handoff and smoke test.
+- Defer persistent dataset/corpus caching until its cross-run semantics have a focused design.
 
 ## 5. Verify and publish
 
