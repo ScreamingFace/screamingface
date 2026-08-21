@@ -23,7 +23,9 @@ def test_runtime_config_uses_persistent_databases(tmp_path: Path) -> None:
 
 
 def test_bundled_runner_config_matches_the_deployment_config() -> None:
-    deployment = Path(__file__).resolve().parents[3] / "url4-cloud" / "url4.toml"
+    deployment = (
+        Path(__file__).resolve().parents[3] / "screamingface-engine" / "url4.toml"
+    )
 
     assert (
         bundled_runner_config().read_text().rstrip() == deployment.read_text().rstrip()
