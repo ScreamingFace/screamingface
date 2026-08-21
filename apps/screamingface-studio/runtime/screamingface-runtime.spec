@@ -18,11 +18,11 @@ LAZY_IMPORTS = (
     "litellm",
     "scoreboard",
     "screamingface",
+    "screamingface_engine",
     "tiktoken",
     "tiktoken_ext",
     "tortoise",
     "url4",
-    "url4_cloud",
 )
 
 PACKAGES_WITH_DATA = (
@@ -30,8 +30,8 @@ PACKAGES_WITH_DATA = (
     "tiktoken",
     "screamingface_runtime",
     "screamingface",
+    "screamingface_engine",
     "scoreboard",
-    "url4_cloud",
 )
 
 PACKAGES_WITH_METADATA = (

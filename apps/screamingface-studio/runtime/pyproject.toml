@@ -2,7 +2,7 @@
 name = "screamingface-runtime"
 version = "0.1.0"
 description = "Standalone local runtime for ScreamingFace Studio"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "screamingface[runtime]",
 ]
@@ -20,10 +20,12 @@ packages = ["src/screamingface_runtime"]
 
 [tool.uv.sources]
 aigateway = { path = "../../aigateway", editable = true }
-url4-cloud = { path = "../../url4-cloud", editable = true }
 url4 = { path = "../../../packages/url4", editable = true }
 screamingface = { path = "../../../packages/screamingface", editable = true }
 scoreboard = { path = "../../scoreboard", editable = true }
+
+[tool.uv]
+environments = ["sys_platform == 'darwin'"]
 
 [dependency-groups]
 dev = [
