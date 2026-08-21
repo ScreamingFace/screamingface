@@ -133,6 +133,11 @@ jobs:
   image:
     name: Build the deployable images
     runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:3
+        ports:
+          - 5000:5000
     steps:
       - uses: actions/checkout@v7
       # WHY build on PRs at all: `592e4a89` rewrote the Dockerfile substantially (repo-root
@@ -140,33 +145,35 @@ jobs:
       # it until a release tag — so a break surfaced at release time, on the release path.
       - uses: docker/setup-buildx-action@v4
         with:
-          # Let the benchmark build consume the PR-built base without publishing it.
-          driver: docker
+          # WHY: the container driver can persist BuildKit layers in the GHA cache. Host
+          # networking lets both builds exchange the unpublished PR base via the job registry.
+          driver-opts: network=host
       - uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/screamingface-engine/Dockerfile
-          push: false
-          load: true
-          tags: screamingface-engine:ci
-      - name: Build the DRACO benchmark image
+          push: true
+          tags: localhost:5000/screamingface-engine:ci
+      - name: Build the benchmark image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/screamingface-engine/Dockerfile.benchmark
           build-contexts: |
-            screamingface-engine-ci=docker-image://screamingface-engine:ci
+            screamingface-engine-ci=docker-image://localhost:5000/screamingface-engine:ci
           build-args: |
             BASE=screamingface-engine-ci
           push: false
           load: true
           tags: screamingface-engine-benchmark:ci
+          cache-from: type=gha,scope=ci-screamingface-engine-benchmark
+          cache-to: type=gha,scope=ci-screamingface-engine-benchmark,mode=max
       # Both argv modes must at least start from the built image: the entrypoint is the mode
       # switch, so a broken one is a deployment that cannot run either half.
       - name: Smoke both modes
         run: |
-          docker run --rm screamingface-engine:ci screamingface-engine --help
-          docker run --rm screamingface-engine:ci screamingface-engine run --help
+          docker run --rm localhost:5000/screamingface-engine:ci screamingface-engine --help
+          docker run --rm localhost:5000/screamingface-engine:ci screamingface-engine run --help
           docker run --rm screamingface-engine-benchmark:ci screamingface-engine run --help
 
   chart:

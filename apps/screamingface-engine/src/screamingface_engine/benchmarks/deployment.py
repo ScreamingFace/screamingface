@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 
-type BenchmarkAssetPreparer = Callable[[Path], None]
+type BenchmarkAssetSummary = Mapping[str, Any]
+type BenchmarkAssetPreparer = Callable[[Path], BenchmarkAssetSummary]
 
 _ASSET_BUNDLE_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
+
+
+class BenchmarkAssetPreparationError(RuntimeError):
+    """An expected, operator-readable refusal to prepare a benchmark asset bundle."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,22 +89,25 @@ class BenchmarkDeployment:
 
         return self._registrations
 
-    def prepare_assets(self, root: Path) -> tuple[Path, ...]:
-        """Prepare every unique required bundle beneath ``root``, in stable ID order."""
+    def prepare_assets(self, root: Path) -> dict[str, BenchmarkAssetSummary]:
+        """Prepare every unique bundle and retain its audit summary in stable ID order."""
 
         root.mkdir(parents=True, exist_ok=True)
-        prepared: list[Path] = []
+        prepared: dict[str, BenchmarkAssetSummary] = {}
         for bundle in self._asset_bundles:
             out = root / bundle.id
             out.mkdir(parents=True, exist_ok=True)
-            bundle.prepare(out)
-            prepared.append(out)
-        return tuple(prepared)
+            # INVARIANT: copy the adapter's observation so a later caller mutation cannot
+            # rewrite what this deployment reports as the evidence from its completed bake.
+            prepared[bundle.id] = dict(bundle.prepare(out))
+        return prepared
 
 
 __all__ = [
     "BenchmarkAssetBundle",
     "BenchmarkAssetPreparer",
+    "BenchmarkAssetPreparationError",
+    "BenchmarkAssetSummary",
     "BenchmarkDeployment",
     "BenchmarkRegistration",
 ]
