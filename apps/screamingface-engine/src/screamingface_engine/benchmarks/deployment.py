@@ -21,6 +21,16 @@ class BenchmarkAssetPreparationError(RuntimeError):
     """An expected, operator-readable refusal to prepare a benchmark asset bundle."""
 
 
+class BenchmarkAssetPreparerContractError(TypeError):
+    """A preparer broke the port contract — a defect in this codebase, not an asset refusal.
+
+    WHY a separate hierarchy: `BenchmarkAssetPreparationError` is the orchestrator CLI's exit-1
+    channel for dataset and answer-key drift, reported without a traceback. A wrongly-typed
+    preparer is a programming defect; laundering it through that channel sends an operator
+    hunting for dataset drift that does not exist. `TypeError` keeps it recognisable as one.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class BenchmarkAssetBundle:
     """One physical directory of immutable assets, shared by one or more Benchmarks."""
@@ -109,7 +119,7 @@ class BenchmarkDeployment:
             out.mkdir(parents=True, exist_ok=True)
             observed = bundle.prepare(out)
             if not isinstance(observed, Mapping):
-                raise BenchmarkAssetPreparationError(
+                raise BenchmarkAssetPreparerContractError(
                     f"bundle {bundle.id!r} preparer returned "
                     f"{type(observed).__name__}, not a summary mapping"
                 )
@@ -129,6 +139,7 @@ __all__ = [
     "BenchmarkAssetBundle",
     "BenchmarkAssetPreparer",
     "BenchmarkAssetPreparationError",
+    "BenchmarkAssetPreparerContractError",
     "BenchmarkAssetSummary",
     "BenchmarkDeployment",
     "BenchmarkRegistration",

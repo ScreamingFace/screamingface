@@ -34,7 +34,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         # WHY stream rather than print at the end: a refusal partway through must still leave
         # the completed bundles' evidence in the build log, which is the point of the record.
         record = {"root": str(args.root), "bundle": bundle, "summary": summary}
-        print(json.dumps(record), flush=True)
+        # WHY `default=str`: this runs inside the preparation loop, so a summary value json
+        # cannot encode would abort every bundle after this one. A reporting fault must cost
+        # fidelity in one record, never the assets the image is being built to carry.
+        print(json.dumps(record, default=str), flush=True)
 
     try:
         prepare_builtin_assets(args.root, emit)

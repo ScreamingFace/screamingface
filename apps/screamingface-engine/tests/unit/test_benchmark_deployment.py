@@ -17,6 +17,7 @@ from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
     BenchmarkAssetPreparationError,
+    BenchmarkAssetPreparerContractError,
     BenchmarkDeployment,
     BenchmarkRegistration,
 )
@@ -29,12 +30,19 @@ from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_RO
 from url4 import Text
 
 REPOSITORY_ROOT = Path(__file__).parents[4]
-# INVARIANT: the family segment is derived from the deployment's own bundle ids, so the guard
-# matches only what its failure message claims — a family-specific invocation. A bare
+BENCHMARKS_PACKAGE = Path(__file__).parents[2] / "src" / "screamingface_engine" / "benchmarks"
+# INVARIANT: the family segment is derived from the family packages that exist on disk, so the
+# guard matches only what its failure message claims — a family-specific invocation. A bare
 # `[a-z0-9_]+` also matched `benchmarks.deployment.prepare_assets`, blaming the orchestrator.
+# WHY not bundle ids: this guard matches module paths, and the codebase already separates the
+# two (`draco-3pass` is a benchmark id over the `draco` bundle). A family that renamed its
+# bundle id away from its package name would silently stop being guarded at all.
+FAMILY_PACKAGES = tuple(
+    sorted(path.parent.name for path in BENCHMARKS_PACKAGE.glob("*/prepare.py"))
+)
 _FAMILY_PREPARER = re.compile(
     r"screamingface_engine\.benchmarks\.(?:"
-    + "|".join(re.escape(bundle.id) for bundle in BUILTIN_DEPLOYMENT._asset_bundles)
+    + "|".join(re.escape(family) for family in FAMILY_PACKAGES)
     + r")\.prepare\b"
 )
 
@@ -273,13 +281,19 @@ def test_the_family_guard_does_not_flag_the_orchestrator_itself() -> None:
     assert _FAMILY_PREPARER.search("-m screamingface_engine.benchmarks.draco.prepare --out /x")
 
 
-def test_a_preparer_ignoring_the_summary_contract_fails_by_name(tmp_path: Path) -> None:
-    """WHY: a preparer still written against the old `-> None` port should say so, not TypeError."""
+def test_the_family_guard_covers_every_family_preparer_package() -> None:
+    """WHY: a guard derived from a mistyped path would match nothing and pass in silence."""
 
+    assert set(FAMILY_PACKAGES) == {"draco", "healthbench", "ifeval"}
+    for family in FAMILY_PACKAGES:
+        assert _FAMILY_PREPARER.search(f"-m screamingface_engine.benchmarks.{family}.prepare")
+
+
+def _stale_preparer_deployment() -> BenchmarkDeployment:
     def stale(_out: Path) -> None:
         return None
 
-    deployment = BenchmarkDeployment(
+    return BenchmarkDeployment(
         (
             BenchmarkRegistration(
                 _benchmark("one"),
@@ -288,8 +302,33 @@ def test_a_preparer_ignoring_the_summary_contract_fails_by_name(tmp_path: Path) 
         )
     )
 
-    with pytest.raises(BenchmarkAssetPreparationError, match="summary mapping"):
-        deployment.prepare_assets(tmp_path)
+
+def test_a_preparer_ignoring_the_summary_contract_fails_by_name(tmp_path: Path) -> None:
+    """WHY: a preparer still written against the old `-> None` port should say so by name.
+
+    INVARIANT: it is a *defect*, not an operator refusal, so it must not be a
+    `BenchmarkAssetPreparationError` — that class is the CLI's exit-1 channel for dataset and
+    answer-key drift, and a wrongly-typed preparer sends an operator hunting for drift that
+    does not exist.
+    """
+
+    with pytest.raises(BenchmarkAssetPreparerContractError, match="summary mapping"):
+        _stale_preparer_deployment().prepare_assets(tmp_path)
+
+    assert not issubclass(BenchmarkAssetPreparerContractError, BenchmarkAssetPreparationError)
+
+
+def test_a_preparer_contract_defect_reaches_the_operator_as_a_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: the CLI must not launder a preparer defect into a one-line exit 1."""
+
+    deployment = _stale_preparer_deployment()
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", deployment.prepare_assets)
+
+    with pytest.raises(BenchmarkAssetPreparerContractError, match="summary mapping"):
+        prepare_module.main(["--root", str(tmp_path)])
 
 
 def test_the_engine_workflow_runs_when_the_guarded_justfile_changes() -> None:
@@ -299,3 +338,51 @@ def test_the_engine_workflow_runs_when_the_guarded_justfile_changes() -> None:
     body = workflow.read_text(encoding="utf-8")
 
     assert body.count('- "packages/screamingface/justfile"') == 2
+
+
+def test_an_unserializable_summary_value_does_not_abort_the_remaining_bundles(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: a fault in the audit record must not stop assets from being prepared.
+
+    WHY: the record is printed from inside the preparation loop, so a `json.dumps` refusal on
+    the first bundle's summary would leave every later bundle unbaked — the image would ship
+    missing assets because of a *reporting* problem.
+    """
+
+    def exotic(out: Path) -> dict[str, object]:
+        return {"cases": 1, "out": out}
+
+    def plain(out: Path) -> dict[str, object]:
+        return {"cases": 2, "out": str(out)}
+
+    deployment = BenchmarkDeployment(
+        (
+            BenchmarkRegistration(
+                _benchmark("one"), asset_bundle=BenchmarkAssetBundle(id="alpha", prepare=exotic)
+            ),
+            BenchmarkRegistration(
+                _benchmark("two"), asset_bundle=BenchmarkAssetBundle(id="beta", prepare=plain)
+            ),
+        )
+    )
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", deployment.prepare_assets)
+
+    assert prepare_module.main(["--root", str(tmp_path)]) == 0
+
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert records == [
+        {
+            "root": str(tmp_path),
+            "bundle": "alpha",
+            "summary": {"cases": 1, "out": str(tmp_path / "alpha")},
+        },
+        {
+            "root": str(tmp_path),
+            "bundle": "beta",
+            "summary": {"cases": 2, "out": str(tmp_path / "beta")},
+        },
+    ]
+    assert (tmp_path / "beta").is_dir()
