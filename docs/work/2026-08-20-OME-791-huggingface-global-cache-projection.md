@@ -10,8 +10,8 @@ finished:
 "implemented (awaiting owner approval to commit)", was not one of the four permitted states
 (planned | in_progress | done | blocked). `in_progress` is the honest replacement: the
 implementation and the review-remediation pass are both COMPLETE, but the unit closes at merge
-and rebase verification plus the gated-repository decision remain pending, so `finished` stays
-empty. Set `finished` and `done` at merge. -->
+and the gated-repository decision remains pending, so `finished` stays empty. Set `finished` and
+`done` at merge. -->
 
 
 # OME-791 — HuggingFace global-cache projection
@@ -123,15 +123,14 @@ created fresh in the worktree (`uv sync`), Python 3.12, litellm 1.97.0.
   Focused: `tests/unit/huggingface` 217 passed; the five global-cache core suites 327 passed.
   The plan's prediction of **zero prior tests modified** held — the append-only gate confirms it.
 
-- **Commits (actual, present on `OME-791-huggingface-global-cache-projection`):**
-  - `89116431` — `feat(aigateway): cache huggingface router responses`
-  - `d6b1ec5d` — `docs(aigateway): record the OME-791 huggingface cache decisions`
-
-  Together: 10 files, +2425/−31 vs `origin/main`. The earlier "Commits: none" line was written
-  INSIDE the commit that contradicted it and is corrected here (review finding M4).
-
-- **Review remediation implementation commit:**
-  - `a549850b` — `fix(aigateway): harden huggingface cache eligibility`
+- **Commit series** (subjects only; `git log origin/main..HEAD` is authoritative after history
+  edits):
+  - `feat(aigateway): cache huggingface router responses`
+  - `docs(aigateway): record the OME-791 huggingface cache decisions`
+  - `fix(aigateway): harden huggingface cache eligibility`
+  - `docs(aigateway): record OME-791 cache remediation`
+  - `fix(aigateway): accept model-aware huggingface cache gate`
+  - `docs(aigateway): record OME-791 rebase verification`
 
 - **Tripwires, both OBSERVED TO FIRE** (guard neutralised, symptom recorded in an AIDEV-NOTE at
   the guard, guard restored, suite re-run green):
@@ -208,10 +207,10 @@ MVP remediation.
 | --- | --- | --- |
 | `src/…/huggingface_provider/settings.py` | 199 | `KNOWN_ROUTER_BACKENDS` + allowlisted `pinned_router_target` |
 | `src/…/huggingface_provider/runtime_guard.py` | 263 | **NEW** — the whole guard, including fail-closed unreadable-state containment |
-| `src/…/huggingface_provider/plugin.py` | 287 | was 432; guard removed |
+| `src/…/huggingface_provider/plugin.py` | 292 | was 432; guard removed; OME-884 model argument accepted |
 | `src/…/huggingface_provider/global_cache.py` | 153 | stale symbol reference only |
 | `tests/unit/huggingface/test_huggingface_provider_allowlist.py` | 183 | **NEW** — 23 tests |
-| `tests/unit/huggingface/test_huggingface_runtime_guard.py` | 389 | **NEW** — 46 tests |
+| `tests/unit/huggingface/test_huggingface_runtime_guard.py` | 396 | **NEW** — 47 tests |
 | `tests/unit/huggingface/test_huggingface_global_cache_keys.py` | 268 | **NEW** — split out, 30 tests |
 | `tests/unit/huggingface/test_huggingface_route_global_cache.py` | 437 | was 550; 12 tests |
 | `tests/unit/huggingface/test_huggingface_global_cache_projection.py` | 360 | M8 edits, 40 tests |
@@ -219,11 +218,13 @@ MVP remediation.
 | `DEPLOYMENT.md`, `charts/aigateway/{values,values-prod,README}` | — | M3 |
 | `docs/work/2026-08-20-OME-791-…md` | — | this record (M4) |
 
-**Checks actually run (2026-08-21):** ruff check ✅ · ruff format ✅ · pyright 0 errors ✅ ·
-`tests/unit/huggingface` **290 passed** ✅ · focused global-cache conformance/purity/plan/key/reason
-suite **131 passed** ✅ · full suite **3702 passed, 50 skipped, 1 unrelated failure** · coverage
-**92.43%** (floor 80) ✅ · `git diff --check` clean ✅ · every changed/new Python file ≤ 450 lines ✅ ·
-`check_no_enterprise.py` ✅.
+**Post-rebase checks actually run (2026-08-21):** ruff check ✅ · ruff format ✅ · pyright
+0 errors ✅ · `tests/unit/huggingface` **291 passed** ✅ · focused global-cache
+conformance/purity/plan/key/reason suite **134 passed** ✅ · complete pytest+coverage gate ✅ · coverage
+floor 80% satisfied ✅ · `git diff --check` clean ✅ · every changed/new Python file ≤ 450 lines ✅ ·
+`check_no_enterprise.py` ✅. The first post-rebase full run exposed 30 HF failures caused by
+OME-884 passing a raw model into the old zero-argument hook; the model-aware compatibility fix added
+the port signature and a regression test, after which the complete gate was green.
 
 **Owner-approved gate deviations:**
 
@@ -234,19 +235,17 @@ suite **131 passed** ✅ · full suite **3702 passed, 50 skipped, 1 unrelated fa
    attribute it claimed to test). Verified **zero prior test functions lost**: all 37 that existed
    at HEAD still exist, now among 164. The gate cannot distinguish a move from a deletion. The
    owner approved this documented append-only deviation; the gate itself remains unchanged.
-2. **`tests/unit/test_helm_prod_config.py::test_prod_sets_finite_openrouter_provider_concurrency_cap`
-   — RED, pre-existing and unrelated.** It asserts `AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES` in
-   prod `extraEnv`; that key is absent at `HEAD` **and** in the working copy, the test file is
-   **untracked** (OME-921's uncommitted RED state), and this pass's only `values-prod.yaml` change
-   is comment text. The owner approved committing OME-791 without absorbing that unrelated change.
+2. **OME-921 Helm RED — RESOLVED BY REBASE.** The untracked
+   `test_prod_sets_finite_openrouter_provider_concurrency_cap` was unrelated to this branch and
+   failed before rebase. Current `main` supplies the expected production override; the test passes
+   inside the complete post-rebase gate without any OME-791 implementation change.
 
 ## Deviations
 
-- **Branch/base.** `OME-791-huggingface-global-cache-projection` branched from `origin/main` at
-  `c157ed7a`. OME-884 is NOT merged, so `openai_provider`'s
-  projection is absent on this base; its module shape was copied as a pattern, never imported.
-  Forward-merge item: OME-884 changes the `participates_in_global_cache` signature to receive a
-  model, which would let the `model_alias_map` check narrow from coarse-truthy to exact-model.
+- **Branch/base.** The branch rebased cleanly onto `origin/main` at `7a2f7e48`. OME-884's
+  model-aware participation port is now present. HF accepts the raw-model argument while retaining
+  its conservative deployment-wide ambient predicate; exact-model alias narrowing remains the
+  separate cross-provider follow-up described above.
 
 - **Linear untouched, by owner direction.** The owner directed mid-session that Linear must not be
   modified during this work. OME-791 was deliberately left in Backlog, no comment was posted, and
