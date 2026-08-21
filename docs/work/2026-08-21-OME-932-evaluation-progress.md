@@ -11,15 +11,17 @@ finished:
 ## Intent
 
 Define and, after explicit approval, implement an Engine-owned semantic progress module that
-publishes truthful per-Candidate Case lifecycle snapshots through explicit URL4 checkpoints,
-without repeating paid work, exposing Benchmark-private material, changing `packages/url4`, or
-changing the authoritative final Candidate Result.
+publishes truthful terminal Case counts and provisional scores through OME-934's generic Log seam,
+without repeating paid work, exposing Benchmark-private material, changing generated URL4 or
+`packages/url4`, or changing the authoritative final Candidate Result.
 
 ## Planned changes
 
 - `docs/spec/2026-08-22-OME-932-evaluation-progress.md`
 - `docs/plan/2026-08-22-OME-932-evaluation-progress.md`
 - `docs/tasks/2026-08-21-OME-932-evaluation-progress.md`
+- `docs/diagrams/ome-887-live-evaluation-progress.svg`
+- `docs/diagrams/ome-887-live-evaluation-progress.png`
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/definition.py`
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/registry.py`
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/progress.py`
@@ -35,10 +37,10 @@ changing the authoritative final Candidate Result.
 
 ## Test plan
 
-- RED tests for exact phase snapshots, monotonic accounting, selected-order provisional scoring,
-  and final reconciliation.
-- Regression tests proving the URL4 delta is limited to checkpoints and derived revisions, while
-  Case envelope bytes, final Candidate Results, failure policy, and paid-call counts are unchanged.
+- RED tests for terminal snapshots, monotonic accounting, selected-order provisional scoring, and
+  final reconciliation.
+- Regression tests proving URL4, protocol/revision/cache identity, Case envelope bytes, final
+  Candidate Results, failure policy, and paid-call ledgers are unchanged.
 - Boundary/error tests for grading failure, refusal, no gradeable Cases, projector/scorer failure,
   event-sink failure, and malformed Benchmark adapter output.
 - Registry conformance tests for every shipped Benchmark and zero core imports of plugins.
@@ -50,11 +52,11 @@ changing the authoritative final Candidate Result.
 - The Client is never required to score, parse URL4, or receive private Case material.
 - Progress calculation and publication make no model, judge, network, or paid calls and cannot
   affect execution or final aggregation.
-- The benchmark URL4 changes intentionally to carry explicit pass-through lifecycle checkpoints;
-  `packages/url4` remains unchanged and the added text is constant in the selected Case count.
+- Generated URL4 and its protocol/revision/cache identity remain byte-identical; no progress node or
+  dependency is inserted and `packages/url4` remains unchanged.
 - IFEval, DRACO, and HealthBench preserve existing final results under the full Engine gate.
-- No production code begins before OME-931 merges, this branch is rebased, and the spec/plan are
-  explicitly approved.
+- No production code begins before OME-934 merges, this branch is rebased, and the revised
+  spec/plan are explicitly approved.
 
 ## Outcome (fill at the end — required before COMMIT)
 

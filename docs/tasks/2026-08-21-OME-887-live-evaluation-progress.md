@@ -13,13 +13,14 @@ closed:
 
 Coordinate the independently gated Engine and Client work required for a truthful,
 always-alive Evaluation experience. The replacement supersedes PR #649's combined landing,
-benchmark-aware Runner coupling, public Event kind, legacy fallback, and previous UI. It retains
-the explicit URL4 pass-through checkpoint concept under OME-932 without changing `packages/url4`.
+URL4 pass-through checkpoints, benchmark-aware Runner coupling, public Event kind, legacy fallback,
+and previous UI.
 
 Delivery units:
 
-- OME-931 / PR #685 — sequential outer Benchmark Cases; prerequisite.
-- OME-932 — Engine-owned `screamingface.evaluation-progress.v1` snapshots.
-- OME-933 — strict Client decoding and the SFDS v2 Candidate table.
+- OME-934 — generic run-scoped structured-Log seam.
+- OME-932 — terminal Case counts and provisional Benchmark scores.
+- OME-933 — existing-Event activity, strict progress decoding, and the SFDS v2 Candidate table.
 
-PR #649 remains closed as implementation history.
+Generated URL4 and `packages/url4` remain unchanged. OME-931 / PR #685 is independent rather than
+a prerequisite. PR #649 remains closed as implementation history.
