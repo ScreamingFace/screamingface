@@ -8,7 +8,7 @@ Preconditions before production code:
 
 1. OME-931 / PR #685 is merged.
 2. `OME-932-evaluation-progress` is rebased onto the resulting `origin/main`.
-3. The owner explicitly approves this specification and plan in plain words.
+3. Complete — owner approved this specification and plan in plain words on 2026-08-22.
 4. The post-rebase rendered URL4 and final-result fixtures are recorded as the regression base.
 
 The work is split into four independently green SDLC iterations. Every iteration begins with new

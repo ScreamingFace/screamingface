@@ -1,7 +1,6 @@
 # OME-932 — Benchmark-native live Evaluation progress
 
-Status: DRAFT FOR APPROVAL 2026-08-22. Production code remains blocked on OME-931, rebase, and
-explicit approval of this specification and its implementation plan.
+Status: APPROVED 2026-08-22. Production code remains blocked on OME-931 and rebase.
 
 ## 1. Problem
 
