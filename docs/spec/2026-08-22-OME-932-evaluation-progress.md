@@ -35,6 +35,8 @@ Benchmark manifest.
 
 ![Live Evaluation progress architecture](../diagrams/ome-887-live-evaluation-progress.png)
 
+[Open the interactive architecture diagram](../diagrams/ome-887-live-evaluation-progress-architecture.html).
+
 ## 3. Ownership and boundaries
 
 ### OME-934: generic Runner mechanism

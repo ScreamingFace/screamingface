@@ -1,171 +1,97 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" width="1600" height="1040" role="img" aria-labelledby="title desc">
-  <title id="title">Live Evaluation progress through the existing Event stream</title>
-  <desc id="desc">The unchanged URL4 run emits existing observations. Benchmark terminal Case semantics use the generic OME-934 Log seam. Both paths merge at the existing bridge and reach one Client callback. OME-932 owns terminal Case counts and provisional scoring; OME-933 owns presentation.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1420" width="1400" height="1420" role="img" aria-labelledby="diagram-title diagram-desc">
+  <title id="diagram-title">Live Evaluation progress through one Event stream</title>
+  <desc id="diagram-desc">Existing URL4 observations and Benchmark-owned terminal Case snapshots join at the generic bridge and travel through the existing NATS and WebSocket Event stream to one Client callback. Generated URL4, execution, paid calls, and final CandidateResult remain unchanged.</desc>
   <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow-cyan" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M2 2L10 6L2 10" fill="none" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-emerald" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M2 2L10 6L2 10" fill="none" stroke="#34d399" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M2 2L10 6L2 10" fill="none" stroke="#fb923c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
     <style>
-      :root {
-        --bg: #fcfdff;
-        --surface: #f4f6f9;
-        --surface-2: #eceef0;
-        --border: #c2c4c6;
-        --border-2: #b4b6b8;
-        --text: #3b3c3e;
-        --text-2: #616265;
-        --accent: #4b91f0;
-        --accent-soft: #edf5ff;
-        --accent-text: #0f3b6e;
-        --success: #2b964e;
-        --success-soft: #edf8f0;
-        --teal: #008a7d;
-        --teal-soft: #eaf8f6;
-      }
-      text { font-family: "IBM Plex Sans", Arial, sans-serif; fill: #3b3c3e; }
-      .mono { font-family: "IBM Plex Mono", Menlo, monospace; }
-      .title { font-size: 28px; font-weight: 600; }
-      .subtitle { font-size: 15px; fill: #616265; }
-      .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 1.4px; fill: #616265; }
-      .heading { font-size: 18px; font-weight: 600; }
-      .label { font-size: 14px; font-weight: 600; }
-      .body { font-size: 13px; fill: #616265; }
-      .small { font-size: 12px; fill: #616265; }
-      .micro { font-size: 11px; fill: #616265; }
-      .panel { fill: #f4f6f9; stroke: #c2c4c6; stroke-width: 1; }
-      .well { fill: #eceef0; stroke: #b4b6b8; stroke-width: 1; }
-      .accent { fill: #edf5ff; stroke: #4b91f0; stroke-width: 1.5; }
-      .semantic { fill: #eaf8f6; stroke: #008a7d; stroke-width: 1.5; }
-      .verified { fill: #edf8f0; stroke: #2b964e; stroke-width: 1.5; }
-      .arrow { fill: none; stroke: #616265; stroke-width: 1.5; }
-      .arrow-accent { fill: none; stroke: #4b91f0; stroke-width: 2; }
-      .arrow-semantic { fill: none; stroke: #008a7d; stroke-width: 2; }
-      .dash { stroke-dasharray: 6 5; }
+      text { font-family: "JetBrains Mono", monospace; paint-order: stroke fill; stroke: #020617; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+      text.title { stroke-width: 6; }
+      text.sub { stroke-width: 3; }
+      .cluster { fill: none; stroke-width: 1; stroke-dasharray: 8 6; rx: 4; }
+      .component { rx: 2; stroke-width: 1.5; }
+      .edge { fill: none; stroke-width: 1.5; }
     </style>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0 0 L10 5 L0 10 Z" fill="#616265"/>
-    </marker>
-    <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0 0 L10 5 L0 10 Z" fill="#4b91f0"/>
-    </marker>
-    <marker id="arrow-semantic" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0 0 L10 5 L0 10 Z" fill="#008a7d"/>
-    </marker>
   </defs>
 
-  <rect width="1600" height="1040" fill="#fcfdff"/>
+  <rect width="1400" height="1420" fill="#020617"/>
+  <rect width="1400" height="1420" fill="url(#grid)"/>
 
-  <text x="40" y="48" class="title">Live Evaluation progress · one existing Event stream</text>
-  <text x="40" y="76" class="subtitle">Existing URL4 activity keeps the interface alive; one terminal Case Log adds the facts spans do not contain.</text>
+  <text x="40" y="45" class="title" fill="#f8fafc" font-size="22" font-weight="700">LIVE EVALUATION PROGRESS · ONE EVENT STREAM</text>
+  <text x="40" y="72" class="sub" fill="#94a3b8" font-size="12">Existing URL4 activity keeps the interface alive; terminal Case Logs add exact progress.</text>
 
-  <rect x="40" y="102" width="1520" height="64" class="accent"/>
-  <text x="64" y="127" class="label" fill="#0f3b6e">FIXED ARCHITECTURE BOUNDARY</text>
-  <text x="64" y="150" class="body">Generated URL4 · execution graph · protocol/revision/cache identity · paid calls · final CandidateResult</text>
-  <text x="1130" y="141" class="mono label" fill="#0f3b6e">UNCHANGED</text>
+  <rect class="cluster" x="300" y="100" width="800" height="400" stroke="#22d3ee"/>
+  <text x="320" y="120" fill="#22d3ee" font-size="11" font-weight="700">CLIENT · OME-933</text>
+  <rect class="cluster" x="40" y="620" width="1320" height="250" stroke="#fb923c"/>
+  <text x="60" y="640" fill="#fb923c" font-size="11" font-weight="700">GENERIC ENGINE DELIVERY · OME-934 + EXISTING TRANSPORT</text>
+  <rect class="cluster" x="40" y="1040" width="1320" height="300" stroke="#34d399"/>
+  <text x="930" y="1060" fill="#34d399" font-size="11" font-weight="700">EXECUTION + BENCHMARK SEMANTICS · OME-932</text>
 
-  <rect x="40" y="198" width="520" height="650" class="panel"/>
-  <text x="64" y="228" class="eyebrow">EXECUTION + BENCHMARK SEMANTICS</text>
+  <path d="M700 250V345" class="edge" stroke="#22d3ee" marker-end="url(#arrow-cyan)"/>
+  <text x="716" y="302" fill="#94a3b8" font-size="10">updates one row</text>
+  <path d="M235 1120V790" class="edge" stroke="#34d399" marker-end="url(#arrow-emerald)"/>
+  <text x="251" y="960" fill="#94a3b8" font-size="10">terminal snapshot</text>
+  <path d="M370 745H530" class="edge" stroke="#34d399" marker-end="url(#arrow-emerald)"/>
+  <text x="450" y="733" fill="#94a3b8" font-size="10" text-anchor="middle">ordinary Log</text>
+  <path d="M680 1120V790" class="edge" stroke="#34d399" marker-end="url(#arrow-emerald)"/>
+  <text x="696" y="960" fill="#94a3b8" font-size="10">existing observations</text>
+  <path d="M830 745H1010" class="edge" stroke="#fb923c" marker-end="url(#arrow-orange)"/>
+  <text x="920" y="733" fill="#94a3b8" font-size="10" text-anchor="middle">existing Event stream</text>
+  <path d="M1145 700V207Q1145 195 1133 195H900" class="edge" stroke="#22d3ee" marker-end="url(#arrow-cyan)"/>
+  <text x="1161" y="452" fill="#94a3b8" font-size="10">one ordered callback</text>
+  <line x1="1148" y1="448" x2="1158" y2="448" stroke="#64748b" stroke-width="0.5" stroke-dasharray="2,2"/>
 
-  <rect x="70" y="256" width="460" height="210" class="well"/>
-  <text x="94" y="286" class="heading">Existing URL4 run</text>
-  <text x="94" y="315" class="mono body">Candidate / Fusion DAG</text>
-  <text x="94" y="339" class="body">Model calls · Judge calls · cache · cost</text>
-  <line x1="94" y1="360" x2="506" y2="360" stroke="#c2c4c6" stroke-width="1"/>
-  <text x="94" y="388" class="label">Existing observations</text>
-  <text x="94" y="413" class="mono small">span · usage · response · cache · cost</text>
-  <text x="94" y="440" class="small">Enough to show truthful live activity.</text>
+  <rect class="component cyan" x="500" y="165" width="400" height="85" rx="2" fill="rgba(8,51,68,.4)" stroke="#22d3ee"/>
+  <text x="700" y="195" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="middle">ONE CLIENT CALLBACK</text>
+  <text x="700" y="218" fill="#94a3b8" font-size="10" text-anchor="middle">receives every public Event in sequence</text>
+  <text x="700" y="235" fill="#22d3ee" font-size="9" text-anchor="middle">no URL4 parsing · no Client scoring</text>
+  <rect class="component cyan" x="420" y="345" width="560" height="105" rx="2" fill="rgba(8,51,68,.4)" stroke="#22d3ee"/>
+  <text x="445" y="374" fill="#f8fafc" font-size="13" font-weight="700">CANDIDATE ROW</text>
+  <text x="445" y="403" fill="#22d3ee" font-size="11" font-weight="600">Running</text>
+  <text x="605" y="403" fill="#f8fafc" font-size="11">completed / total</text>
+  <text x="825" y="403" fill="#f8fafc" font-size="11">score so far</text>
+  <text x="445" y="430" fill="#94a3b8" font-size="9">activity: existing Events · exact bar: terminal Log · authority: final CandidateResult</text>
 
-  <rect x="70" y="500" width="460" height="306" class="semantic"/>
-  <text x="94" y="530" class="eyebrow" fill="#008a7d">PR 2 · OME-932 · /BENCHMARKS</text>
-  <text x="94" y="562" class="heading">Terminal Case recorder</text>
-  <text x="94" y="591" class="body">Successful Case envelope or Candidate failure</text>
-  <line x1="94" y1="612" x2="506" y2="612" stroke="#008a7d" stroke-opacity="0.35" stroke-width="1"/>
-  <text x="94" y="640" class="label">Benchmark-owned projection</text>
-  <text x="94" y="665" class="body">Shared grade_case + existing native scorer</text>
-  <text x="94" y="696" class="mono small">completed · total · graded</text>
-  <text x="94" y="719" class="mono small">failed · refused · provisional score</text>
-  <text x="94" y="752" class="small">One complete snapshot per newly terminal Case.</text>
-  <text x="94" y="779" class="small">No phase inference · fail-open · private data excluded.</text>
+  <rect class="component emerald" x="100" y="700" width="270" height="90" rx="2" fill="rgba(6,78,59,.4)" stroke="#34d399"/>
+  <text x="235" y="730" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">GENERIC RUN LOG SEAM</text>
+  <text x="235" y="753" fill="#94a3b8" font-size="9" text-anchor="middle">exact URL4 + opaque emit_log</text>
+  <text x="235" y="772" fill="#34d399" font-size="9" text-anchor="middle">no Benchmark knowledge</text>
+  <rect class="component emerald" x="530" y="700" width="300" height="90" rx="2" fill="rgba(6,78,59,.4)" stroke="#34d399"/>
+  <text x="680" y="730" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">EXISTING _BRIDGE</text>
+  <text x="680" y="753" fill="#94a3b8" font-size="9" text-anchor="middle">one observer · ordered wire frames</text>
+  <text x="680" y="772" fill="#34d399" font-size="9" text-anchor="middle">span · log · cost · result</text>
+  <rect class="component amber" x="1010" y="700" width="270" height="90" rx="2" fill="rgba(251,146,60,.3)" stroke="#fb923c"/>
+  <text x="1145" y="730" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">NATS / WEBSOCKET</text>
+  <text x="1145" y="753" fill="#94a3b8" font-size="9" text-anchor="middle">existing ordered transport</text>
+  <text x="1145" y="772" fill="#fb923c" font-size="9" text-anchor="middle">one public Event stream</text>
 
-  <rect x="610" y="198" width="350" height="650" class="panel"/>
-  <text x="634" y="228" class="eyebrow">GENERIC ENGINE DELIVERY</text>
+  <rect class="component emerald" x="75" y="1120" width="320" height="110" rx="2" fill="rgba(6,78,59,.4)" stroke="#34d399"/>
+  <text x="235" y="1150" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">TERMINAL CASE RECORDER</text>
+  <text x="235" y="1173" fill="#94a3b8" font-size="9" text-anchor="middle">shared grade_case + native scorer</text>
+  <text x="235" y="1194" fill="#34d399" font-size="9" text-anchor="middle">completed · graded · failed · refused</text>
+  <text x="235" y="1213" fill="#34d399" font-size="9" text-anchor="middle">provisional score · fail-open</text>
+  <rect class="component slate" x="520" y="1120" width="320" height="110" rx="2" fill="rgba(30,41,59,.5)" stroke="#94a3b8"/>
+  <text x="680" y="1150" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">EXISTING URL4 RUN</text>
+  <text x="680" y="1173" fill="#94a3b8" font-size="9" text-anchor="middle">Candidate / Fusion execution DAG</text>
+  <text x="680" y="1194" fill="#94a3b8" font-size="9" text-anchor="middle">model · judge · cache · usage · cost</text>
+  <text x="680" y="1213" fill="#f8fafc" font-size="9" text-anchor="middle">activity arrives without inference</text>
+  <rect class="component slate" x="980" y="1100" width="320" height="150" rx="2" fill="rgba(30,41,59,.5)" stroke="#94a3b8"/>
+  <text x="1140" y="1131" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">UNCHANGED CONTRACT</text>
+  <text x="1140" y="1157" fill="#94a3b8" font-size="9" text-anchor="middle">generated URL4 · execution graph</text>
+  <text x="1140" y="1177" fill="#94a3b8" font-size="9" text-anchor="middle">protocol · revision · cache identity</text>
+  <text x="1140" y="1197" fill="#94a3b8" font-size="9" text-anchor="middle">paid calls · Case envelopes</text>
+  <text x="1140" y="1217" fill="#94a3b8" font-size="9" text-anchor="middle">final CandidateResult</text>
+  <text x="1140" y="1238" fill="#22d3ee" font-size="9" font-weight="600" text-anchor="middle">BYTE-IDENTICAL / AUTHORITATIVE</text>
 
-  <rect x="640" y="266" width="290" height="146" class="well"/>
-  <text x="664" y="296" class="heading">Existing _Bridge</text>
-  <text x="664" y="324" class="body">One observer receives every URL4 event.</text>
-  <text x="664" y="350" class="body">Maps events onto existing wire frames.</text>
-  <text x="664" y="383" class="mono small">sequence · run subject · eviction</text>
-
-  <rect x="640" y="470" width="290" height="112" class="accent"/>
-  <text x="664" y="500" class="heading">NATS / WebSocket</text>
-  <text x="664" y="528" class="body">The existing ordered Event stream.</text>
-  <text x="664" y="554" class="mono small">span · log · cost · result</text>
-
-  <rect x="640" y="640" width="290" height="142" class="accent"/>
-  <text x="664" y="670" class="eyebrow" fill="#0f3b6e">PR 1 · OME-934</text>
-  <text x="664" y="702" class="heading">Generic run Log seam</text>
-  <text x="664" y="730" class="body">Exact URL4 + opaque emit_log callback.</text>
-  <text x="664" y="756" class="body">No Benchmark schema or scoring knowledge.</text>
-
-  <rect x="1010" y="198" width="550" height="650" class="panel"/>
-  <text x="1034" y="228" class="eyebrow">PR 3 · OME-933 · CLIENT</text>
-
-  <rect x="1040" y="266" width="490" height="116" class="well"/>
-  <text x="1064" y="296" class="heading">One existing Client callback</text>
-  <text x="1064" y="324" class="body">Receives every public Event in sequence.</text>
-  <text x="1064" y="352" class="body">Recognizes progress as an ordinary structured Log.</text>
-
-  <rect x="1040" y="426" width="230" height="132" class="accent"/>
-  <text x="1064" y="456" class="label">Live activity</text>
-  <text x="1064" y="484" class="body">Spans · calls · elapsed</text>
-  <text x="1064" y="507" class="body">tokens · cost · cache</text>
-  <text x="1064" y="536" class="small">Keeps Running visibly alive.</text>
-
-  <rect x="1300" y="426" width="230" height="132" class="semantic"/>
-  <text x="1324" y="456" class="label">Exact progress</text>
-  <text x="1324" y="484" class="body">completed / total bar</text>
-  <text x="1324" y="507" class="body">provisional native score</text>
-  <text x="1324" y="536" class="small">Only facts supplied by OME-932.</text>
-
-  <rect x="1040" y="606" width="490" height="176" class="verified"/>
-  <text x="1064" y="636" class="heading">Stable Candidate row</text>
-  <line x1="1064" y1="654" x2="1506" y2="654" stroke="#2b964e" stroke-opacity="0.35" stroke-width="1"/>
-  <text x="1064" y="684" class="mono label">Running</text>
-  <text x="1200" y="684" class="mono body">completed / total</text>
-  <text x="1390" y="684" class="mono body">score so far</text>
-  <text x="1064" y="718" class="body">Existing Events update activity continuously.</text>
-  <text x="1064" y="744" class="body">Terminal snapshot advances the bar and score.</text>
-  <text x="1064" y="770" class="body">Final CandidateResult replaces both with Finished + final score.</text>
-
-  <path d="M530 390 H588 V338 H640" class="arrow-accent" marker-end="url(#arrow-accent)"/>
-  <text x="568" y="374" class="micro" text-anchor="middle">existing</text>
-  <text x="568" y="388" class="micro" text-anchor="middle">events</text>
-
-  <path d="M530 706 H640" class="arrow-semantic" marker-end="url(#arrow-semantic)"/>
-  <text x="585" y="694" class="micro" text-anchor="middle">snapshot</text>
-
-  <path d="M820 640 V412" class="arrow-semantic dash" marker-end="url(#arrow-semantic)"/>
-  <text x="833" y="620" class="micro">ordinary Log</text>
-
-  <path d="M750 412 V470" class="arrow-accent" marker-end="url(#arrow-accent)"/>
-  <path d="M930 526 H985 V324 H1040" class="arrow-accent" marker-end="url(#arrow-accent)"/>
-  <text x="984" y="511" class="micro" text-anchor="end">one stream</text>
-
-  <path d="M1160 382 V426" class="arrow-accent" marker-end="url(#arrow-accent)"/>
-  <path d="M1415 382 V426" class="arrow-semantic" marker-end="url(#arrow-semantic)"/>
-  <path d="M1155 558 V606" class="arrow-accent" marker-end="url(#arrow-accent)"/>
-  <path d="M1415 558 V606" class="arrow-semantic" marker-end="url(#arrow-semantic)"/>
-
-  <rect x="40" y="888" width="1520" height="104" class="well"/>
-  <text x="64" y="918" class="eyebrow">LANDING ORDER</text>
-  <rect x="220" y="908" width="300" height="58" class="accent"/>
-  <text x="244" y="933" class="label">1 · OME-934</text>
-  <text x="244" y="954" class="small">generic Runner seam</text>
-  <path d="M520 937 H650" class="arrow" marker-end="url(#arrow)"/>
-  <rect x="650" y="908" width="300" height="58" class="semantic"/>
-  <text x="674" y="933" class="label">2 · OME-932</text>
-  <text x="674" y="954" class="small">terminal Case semantics</text>
-  <path d="M950 937 H1080" class="arrow" marker-end="url(#arrow)"/>
-  <rect x="1080" y="908" width="300" height="58" class="verified"/>
-  <text x="1104" y="933" class="label">3 · OME-933</text>
-  <text x="1104" y="954" class="small">SFDS Candidate table</text>
-
-  <text x="40" y="1020" class="mono micro">OME-887 · live Evaluation progress · SFDS v2 app register · 2026-08-22</text>
+  <text x="40" y="1390" fill="#475569" font-size="10">OME-887 · OME-934 → OME-932 → OME-933 · SFDS v2 · 2026-08-22</text>
 </svg>

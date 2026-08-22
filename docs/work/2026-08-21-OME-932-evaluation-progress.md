@@ -20,6 +20,7 @@ without repeating paid work, exposing Benchmark-private material, changing gener
 - `docs/spec/2026-08-22-OME-932-evaluation-progress.md`
 - `docs/plan/2026-08-22-OME-932-evaluation-progress.md`
 - `docs/tasks/2026-08-21-OME-932-evaluation-progress.md`
+- `docs/diagrams/ome-887-live-evaluation-progress-architecture.html`
 - `docs/diagrams/ome-887-live-evaluation-progress.svg`
 - `docs/diagrams/ome-887-live-evaluation-progress.png`
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/definition.py`
