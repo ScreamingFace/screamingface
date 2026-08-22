@@ -66,6 +66,7 @@ class EvaluationProgressTracker:
     __slots__ = (
         "_candidate_failures",
         "_case_executions",
+        "_diagnostic_type",
         "_projections",
         "_scorer",
         "benchmark_id",
@@ -80,6 +81,7 @@ class EvaluationProgressTracker:
         self.benchmark_id = benchmark_id
         self.total = total
         self._case_executions: dict[CaseId, _TerminalCase] = {}
+        self._diagnostic_type: str | None = None
         self._projections: dict[CaseId, _CaseProjection] = {}
         self._scorer: Scorer | None = None
         self._candidate_failures = 0
@@ -112,7 +114,8 @@ class EvaluationProgressTracker:
             and isinstance(selected_index, int)
             and not isinstance(selected_index, bool)
             and 0 <= selected_index < self.total
-            and case_id not in self._case_executions
+            and not self._has_terminal(case_id)
+            and not any(_case_ids_match(case_id, pending) for pending in self._projections)
             and callable(grade_case)
             and callable(scorer)
         )
@@ -120,6 +123,14 @@ class EvaluationProgressTracker:
             self._projections[case_id] = _CaseProjection(selected_index, grade_case, scorer)
             self._scorer = scorer
         return accepted
+
+    def take_diagnostic_type(self) -> str | None:
+        diagnostic = self._diagnostic_type
+        self._diagnostic_type = None
+        return diagnostic
+
+    def _has_terminal(self, case_id: CaseId) -> bool:
+        return any(_case_ids_match(case_id, terminal) for terminal in self._case_executions)
 
     def record_case_execution(self, value: str) -> ProgressSnapshot | None:
         """Retain one new valid terminal Case, bounded by the selected total."""
@@ -134,9 +145,14 @@ class EvaluationProgressTracker:
                 outcome = case_execution_outcome(value)
             except (TypeError, ValueError):
                 outcome = None
-            if outcome is not None and outcome.case_id not in self._case_executions:
+            if outcome is not None and not self._has_terminal(outcome.case_id):
                 projection = _take_projection(self._projections, outcome.case_id)
-                result = _project_case(projection, value, outcome.case_id)
+                result, diagnostic = _project_case(projection, value, outcome.case_id)
+                if diagnostic is not None:
+                    self._diagnostic_type = diagnostic
+                    return None
+                if result is None and outcome.error is None:
+                    self._diagnostic_type = "MissingCaseProjection"
                 status = (
                     result.status
                     if result is not None
@@ -144,7 +160,7 @@ class EvaluationProgressTracker:
                     if outcome.error is not None and outcome.candidate.status == "refused"
                     else "failed"
                     if outcome.error is not None
-                    else None
+                    else "failed"
                 )
                 self._case_executions[outcome.case_id] = _TerminalCase(
                     value,
@@ -172,7 +188,9 @@ class EvaluationProgressTracker:
             and terminal.result.grade is not None
             and terminal.result.grade.score is not None
         ]
-        provisional = _provisional_score(graded, self._scorer)
+        provisional, diagnostic = _provisional_score(graded, self._scorer)
+        if diagnostic is not None:
+            self._diagnostic_type = diagnostic
         return ProgressSnapshot(
             total=self.total,
             completed=self.completed,
@@ -187,18 +205,20 @@ def _project_case(
     projection: _CaseProjection | None,
     raw: str,
     case_id: CaseId,
-) -> CaseResult | None:
+) -> tuple[CaseResult | None, str | None]:
     if projection is None:
-        return None
+        return None, None
+    result: CaseResult | None
+    diagnostic: str | None
     try:
-        result = projection.grade_case(raw)
-    except Exception:  # noqa: BLE001 - a progress projector is observational
-        return None
-    return (
-        result
-        if isinstance(result, CaseResult) and _case_ids_match(result.case_id, case_id)
-        else None
-    )
+        projected = projection.grade_case(raw)
+    except Exception as exc:  # noqa: BLE001 - a progress projector is observational
+        result, diagnostic = None, type(exc).__name__
+    else:
+        valid = isinstance(projected, CaseResult) and _case_ids_match(projected.case_id, case_id)
+        result = projected if valid else None
+        diagnostic = None if valid else "InvalidCaseProjection"
+    return result, diagnostic
 
 
 def _take_projection(
@@ -228,20 +248,22 @@ def _case_ids_match(left: CaseId, right: CaseId) -> bool:
 def _provisional_score(
     terminals: list[_TerminalCase],
     scorer: Scorer | None,
-) -> float | None:
+) -> tuple[float | None, str | None]:
     if not terminals or scorer is None or any(case.selected_index is None for case in terminals):
-        return None
+        return None, None
     ordered = sorted(terminals, key=lambda case: int(case.selected_index or 0))
     typed = [case.result for case in ordered if case.result is not None]
     try:
         value = scorer(typed).score
-    except Exception:  # noqa: BLE001 - the final aggregate remains authoritative
-        return None
-    return (
-        float(value)
-        if not isinstance(value, bool) and isinstance(value, int | float) and math.isfinite(value)
-        else None
-    )
+    except Exception as exc:  # noqa: BLE001 - the final aggregate remains authoritative
+        score, diagnostic = None, type(exc).__name__
+    else:
+        valid = (
+            not isinstance(value, bool) and isinstance(value, int | float) and math.isfinite(value)
+        )
+        score = float(value) if valid else None
+        diagnostic = None if valid else "InvalidProvisionalScore"
+    return score, diagnostic
 
 
 def discover_evaluation_progress(

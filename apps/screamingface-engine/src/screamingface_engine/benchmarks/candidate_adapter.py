@@ -29,14 +29,14 @@ class _CandidateInvocation:
         self._node = node
 
     async def __call__(self, request: Request) -> str:
-        if not request.intent.strip():
-            raise ResolutionError(
-                "Candidate Invocation expression must be non-empty",
-                code="candidate_contract_error",
-                permanent=True,
-            )
-        policy = _candidate_policy(request.params)
         try:
+            if not request.intent.strip():
+                raise ResolutionError(
+                    "Candidate Invocation expression must be non-empty",
+                    code="candidate_contract_error",
+                    permanent=True,
+                )
+            policy = _candidate_policy(request.params)
             with retrieval_scope(policy):
                 return await evaluate_candidate_recipe(
                     self._node,

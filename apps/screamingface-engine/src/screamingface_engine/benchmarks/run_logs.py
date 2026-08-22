@@ -99,6 +99,7 @@ class _BenchmarkRunRecorder:
         if self._active and self._progress is not None:
             try:
                 snapshot = self._progress.record_case_execution(value)
+                self._report_progress_diagnostic()
                 if snapshot is not None:
                     self.emit(self._progress.benchmark_id, PROGRESS_BODY, snapshot.attributes())
             except Exception as exc:  # noqa: BLE001 - progress must remain observational
@@ -108,6 +109,7 @@ class _BenchmarkRunRecorder:
         if self._active and self._progress is not None:
             try:
                 snapshot = self._progress.record_candidate_failure()
+                self._report_progress_diagnostic()
                 if snapshot is not None:
                     self.emit(self._progress.benchmark_id, PROGRESS_BODY, snapshot.attributes())
             except Exception as exc:  # noqa: BLE001 - progress must remain observational
@@ -123,17 +125,28 @@ class _BenchmarkRunRecorder:
         scorer: Scorer,
     ) -> None:
         if self._active and self._progress is not None:
-            self._progress.register_case_projection(
-                benchmark_id,
-                case_id=case_id,
-                selected_index=selected_index,
-                grade_case=grade_case,
-                scorer=scorer,
-            )
+            try:
+                self._progress.register_case_projection(
+                    benchmark_id,
+                    case_id=case_id,
+                    selected_index=selected_index,
+                    grade_case=grade_case,
+                    scorer=scorer,
+                )
+                self._report_progress_diagnostic()
+            except Exception as exc:  # noqa: BLE001 - progress must remain observational
+                self._warn_progress_once(exc)
 
-    def _warn_progress_once(self, exc: Exception) -> None:
+    def _report_progress_diagnostic(self) -> None:
+        if self._progress is not None:
+            diagnostic = self._progress.take_diagnostic_type()
+            if diagnostic is not None:
+                self._warn_progress_once(diagnostic)
+
+    def _warn_progress_once(self, exc: Exception | str) -> None:
         if not self._progress_warned:
-            _logger.warning("Benchmark progress observation failed (%s)", type(exc).__name__)
+            diagnostic = exc if isinstance(exc, str) else type(exc).__name__
+            _logger.warning("Benchmark progress observation failed (%s)", diagnostic)
             self._progress_warned = True
 
     def _warn_closed_once(self) -> None:

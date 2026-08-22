@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,8 @@ from screamingface_engine.benchmarks.ifeval.definition import (
 from screamingface_engine.benchmarks.run_logs import register_case_projection
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
+
+_logger = logging.getLogger(__name__)
 
 
 def install(node: Url4Node, root: Path) -> None:
@@ -216,15 +219,21 @@ def _case_evaluation(root: Path):
     """Pack exact attempt records into one authoritative per-Case envelope."""
 
     progress_assets: tuple[dict[int, dict[str, Any]], list[int]] | None = None
+    progress_warned = False
 
     def handle(request: Request) -> str:
-        nonlocal progress_assets
+        nonlocal progress_assets, progress_warned
         case_id, result = _bind_case_evaluation(request)
         rendered = compact_json(result)
         try:
             progress_assets = _register_progress(root, case_id, progress_assets)
-        except (OSError, TypeError, ValueError):
-            pass
+        except Exception as exc:  # noqa: BLE001 - live progress is observational
+            if not progress_warned:
+                _logger.warning(
+                    "IFEval progress registration failed (%s)",
+                    type(exc).__name__,
+                )
+                progress_warned = True
         return rendered
 
     return handle

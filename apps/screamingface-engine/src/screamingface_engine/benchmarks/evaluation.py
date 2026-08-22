@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +21,8 @@ JsonObject = dict[str, Any]
 CaseEvaluationBinder = Callable[[int, list[JsonObject]], JsonObject]
 CaseEvaluationObserver = Callable[[JsonObject], None]
 AggregateAdapter = Callable[[str, int], JsonObject]
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +63,10 @@ def case_evaluation_endpoint(
 ) -> Callable[[Request], str]:
     """Adapt one non-empty collection of evaluator records into a Case envelope route."""
 
+    observer_warned = False
+
     def endpoint(request: Request) -> str:
+        nonlocal observer_warned
         try:
             case_id = positive_case_id(request.intent)
             raw_items = json_array(request.context, label)
@@ -80,8 +86,13 @@ def case_evaluation_endpoint(
         if observe is not None:
             try:
                 observe(result)
-            except Exception:  # noqa: BLE001 - live progress is observational
-                pass
+            except Exception as exc:  # noqa: BLE001 - live progress is observational
+                if not observer_warned:
+                    _logger.warning(
+                        "Benchmark Case projection registration failed (%s)",
+                        type(exc).__name__,
+                    )
+                    observer_warned = True
         return rendered
 
     return endpoint

@@ -30,8 +30,8 @@ without repeating paid work, exposing Benchmark-private material, changing gener
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/case_execution.py`
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/evaluation.py`
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/aggregation.py`
-- one benchmark-agnostic Runner run-context/log port and its executor wiring, as fixed by the
-  approved plan
+- OME-934's benchmark-agnostic Runner run-context/log port as an integration prerequisite; OME-932
+  changes no generic Runner or URL4 package code
 - Benchmark-owned IFEval, DRACO, and HealthBench grading/aggregation adapters as identified by
   the approved plan
 - focused Engine contract and regression tests identified by the approved plan
@@ -89,6 +89,20 @@ without repeating paid work, exposing Benchmark-private material, changing gener
 - Full gate: `uv run .claude/scripts/run_gates.py screamingface-engine` — **ALL GATES GREEN**
   (append-only check, Ruff check/format, Pyright, layering, Pytest with coverage).
 
+## Iteration 3 — observational hardening and review
+
+- Added fail-open regression coverage for pre-execution Candidate contract failures, projection
+  registration, projector and scorer failures, non-finite scores, sink failures, concurrent runs,
+  equivalent integer/string Case IDs, privacy-bounded diagnostics, and generic Runner layering.
+- Review found and fixed four terminal-accounting gaps: Candidate validation failures before model
+  execution were not counted; registration was not guarded; projector failure could imply a false
+  completion; and equivalent integer/string Case IDs could count twice.
+- All observational failure diagnostics are bounded to a safe exception type and warning class;
+  no rendered URL4, Case data, answer, rubric, model identity, or raw error text is logged.
+- Focused Runner/Benchmark/identity/failure/paid-call suite: **150 passed**.
+- Full gate: `uv run .claude/scripts/run_gates.py screamingface-engine` — **ALL GATES GREEN**
+  (append-only check, Ruff check/format, Pyright, recursive layering, Pytest with coverage).
+
 ## Acceptance
 
 - Engine publishes strict `screamingface.evaluation-progress.v1` structured Log snapshots from
@@ -102,9 +116,16 @@ without repeating paid work, exposing Benchmark-private material, changing gener
 - No production code begins before OME-934 merges, this branch is rebased, and the revised
   spec/plan are explicitly approved.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** pending
-- **Commits:** pending
-- **Gates:** pending
-- **Deviations:** pending
+- **Actual files:** Benchmark definition/registry metadata; run-local progress discovery, tracking,
+  and Log adapter; shared Candidate/Case observation seams; IFEval, DRACO, and HealthBench shared
+  projectors/scorers; focused unit, conformance, privacy, isolation, and layering tests; approved
+  spec, plan, task mirrors, ledger, and architecture diagram.
+- **Commits:** `9e5c9cd2` (terminal tracking), `27c9f511` (shared live/final scoring), plus the
+  final observational hardening and regression commit containing this ledger update.
+- **Gates:** `uv run .claude/scripts/run_gates.py screamingface-engine` — **ALL GATES GREEN**;
+  focused contract regression command — **150 passed**.
+- **Deviations:** OME-934 remains the integration prerequisite. Before publishing OME-932, rebase
+  it onto the merged seam and rerun the same focused suite and full Engine gate. No generic Runner,
+  generated URL4, `packages/url4`, paid-call, cache-identity, or final-result change was added here.

@@ -323,3 +323,16 @@ def test_runner_tree_imports_concrete_benchmark_adapter_only_at_composition_root
     offenders = [path.relative_to(_SRC) for path in _recursive_concrete_adapter_importers(runner)]
 
     assert offenders == []
+
+
+def test_generic_runner_tree_never_imports_benchmark_progress_semantics() -> None:
+    semantic_module = "screamingface_engine.benchmarks.progress"
+    runner = _SRC / "runner"
+
+    offenders = [
+        path.relative_to(_SRC)
+        for path in runner.rglob("*.py")
+        if semantic_module in _imported_modules(path)
+    ]
+
+    assert offenders == []
