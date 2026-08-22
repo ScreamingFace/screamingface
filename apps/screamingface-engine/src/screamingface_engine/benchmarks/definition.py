@@ -83,6 +83,9 @@ class Benchmark:
     case_count: int
     build: Callable[[int], Node]
     install: BenchmarkInstaller = _no_routes
+    # The exact revision-pinned reducer route is execution metadata for run-local observation.
+    # It is not published in the catalogue and does not enter Benchmark identity.
+    aggregate_route: str | None = None
     check_surface: CheckSurface | None = None
     # FEATURE: benchmark descriptions on the leaderboard (OME-904). `title`, `description`,
     # `focus` and `dataset_url` are the four fields the public board displays, and this
@@ -108,6 +111,10 @@ class Benchmark:
             or self.case_count < 1
         ):
             raise ValueError("Benchmark case_count must be a positive integer")
+        if self.aggregate_route is not None and (
+            not isinstance(self.aggregate_route, str) or not self.aggregate_route.startswith("/")
+        ):
+            raise ValueError("Benchmark aggregate_route must be an absolute route path")
 
     def _validate_display_metadata(self) -> None:
         """Refuse text the leaderboard could not show (OME-904)."""

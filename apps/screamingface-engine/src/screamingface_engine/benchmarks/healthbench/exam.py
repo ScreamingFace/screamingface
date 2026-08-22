@@ -319,6 +319,7 @@ def healthbench_benchmark(
         case_count=len(case_ids),
         build=build,
         install=install,
+        aggregate_route=exam.routes.aggregate,
         # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the
         # only place the board's text is written; it is seeded from the catalogue at deploy.
         focus=focus,

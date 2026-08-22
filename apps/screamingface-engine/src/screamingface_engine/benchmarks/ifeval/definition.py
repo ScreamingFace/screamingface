@@ -121,6 +121,7 @@ IFEVAL = Benchmark(
     case_count=CASE_COUNT,
     build=_build,
     install=install_ifeval,
+    aggregate_route=AGGREGATE_ROUTE,
     # Free: the deterministic verifier costs no model call, so a corrective loop
     # on IFEval spends only on members and the judge.
     check_surface=CheckSurface(

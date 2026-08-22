@@ -46,6 +46,32 @@ without repeating paid work, exposing Benchmark-private material, changing gener
   event-sink failure, and malformed Benchmark adapter output.
 - Registry conformance tests for every shipped Benchmark and zero core imports of plugins.
 
+## Pre-implementation baseline — 2026-08-22
+
+- Focused Runner seam, Benchmark protocol, final-result/error, aggregation, identity, and paid-call
+  regression suite: **114 passed**.
+- Command: `uv run pytest -q tests/unit/test_run_log_seam.py tests/unit/test_benchmark_run_logs.py
+  tests/unit/test_benchmark_protocol.py tests/unit/test_benchmark_outcome_conformance.py
+  tests/unit/test_benchmark_failure_policy.py tests/unit/test_ifeval_aggregate.py
+  tests/unit/test_ifeval_aggregate_case_mapping.py tests/unit/test_draco_aggregate.py
+  tests/unit/test_draco_aggregate_case_mapping.py tests/unit/test_healthbench_aggregate.py
+  tests/unit/test_draco_corrective_loop_e2e.py`.
+
+## Iteration 1 — exact discovery and terminal tracking
+
+- Added exact structural discovery from one registered revision-pinned aggregate route and one
+  canonical literal `aggregate:N`; malformed, unknown, out-of-range, duplicate-route, and
+  multi-call expressions remain inert.
+- Added one run-local bounded tracker that de-duplicates successful Case envelopes and accounts
+  Candidate exceptions without changing their raised object or the successful Case return bytes.
+- Declared the exact aggregate route on every built-in Benchmark without publishing it or adding it
+  to Benchmark identity.
+- TDD evidence: the new test module first failed collection because
+  `screamingface_engine.benchmarks.progress` did not exist, then passed **17 tests** after the
+  implementation. The baseline suite plus the new tests passes **131 tests**.
+- Full gate: `uv run .claude/scripts/run_gates.py screamingface-engine` — **ALL GATES GREEN**
+  (append-only check, Ruff check/format, Pyright, layering, Pytest with coverage).
+
 ## Acceptance
 
 - Engine publishes strict `screamingface.evaluation-progress.v1` structured Log snapshots from

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from screamingface_engine.benchmarks.case_execution import install_case_execution
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
+from screamingface_engine.benchmarks.run_logs import record_candidate_failure
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     RetrievalPolicyError,
@@ -43,11 +44,15 @@ class _CandidateInvocation:
                     request.context or "",
                 )
         except RetrievalPolicyError as exc:
+            record_candidate_failure()
             raise ResolutionError(
                 str(exc),
                 code="candidate_policy_escalation",
                 permanent=True,
             ) from exc
+        except Exception:
+            record_candidate_failure()
+            raise
 
 
 def install_candidate_invocation(node: Url4Node) -> None:

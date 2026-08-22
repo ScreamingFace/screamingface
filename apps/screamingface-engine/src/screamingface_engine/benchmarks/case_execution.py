@@ -17,6 +17,7 @@ from screamingface_engine.benchmarks.evaluation import (
     candidate_answer,
     compact_json,
 )
+from screamingface_engine.benchmarks.run_logs import record_successful_case_execution
 from url4.peer.server import Request, Url4Node
 
 CASE_EXECUTION_ROUTE = "/benchmarks/case-execution"
@@ -141,7 +142,9 @@ def _case_execution(request: Request) -> str:
             raise ValueError("Case execution grading must contain exactly one outcome")
     except (TypeError, ValueError) as exc:
         raise benchmark_unavailable(str(exc)) from exc
-    return compact_json(case_execution_payload(case_id, invocation, grading))
+    result = compact_json(case_execution_payload(case_id, invocation, grading))
+    record_successful_case_execution(result)
+    return result
 
 
 __all__ = [

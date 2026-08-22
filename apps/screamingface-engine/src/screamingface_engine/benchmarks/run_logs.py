@@ -9,6 +9,10 @@ from contextlib import AbstractContextManager
 from types import TracebackType
 from typing import Literal
 
+from screamingface_engine.benchmarks.progress import (
+    EvaluationProgressTracker,
+    discover_evaluation_progress,
+)
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 from screamingface_engine.run_log_contract import (
     LogScalar,
@@ -28,6 +32,8 @@ class _BenchmarkRunRecorder:
         "_disabled",
         "_emit",
         "_owner",
+        "_progress",
+        "_progress_warned",
         "_registry",
         "_unknown_warned",
     )
@@ -36,10 +42,13 @@ class _BenchmarkRunRecorder:
         self,
         registry: BenchmarkRegistry,
         emit: StructuredLogEmitter,
+        progress: EvaluationProgressTracker | None = None,
     ) -> None:
         self._registry = registry
         self._emit = emit
         self._owner: str | None = None
+        self._progress = progress
+        self._progress_warned = False
         self._active = True
         self._disabled = False
         self._closed_warned = False
@@ -82,6 +91,25 @@ class _BenchmarkRunRecorder:
 
     def close(self) -> None:
         self._active = False
+
+    def record_case_execution(self, value: str) -> None:
+        if self._active and self._progress is not None:
+            try:
+                self._progress.record_case_execution(value)
+            except Exception as exc:  # noqa: BLE001 - progress must remain observational
+                self._warn_progress_once(exc)
+
+    def record_candidate_failure(self) -> None:
+        if self._active and self._progress is not None:
+            try:
+                self._progress.record_candidate_failure()
+            except Exception as exc:  # noqa: BLE001 - progress must remain observational
+                self._warn_progress_once(exc)
+
+    def _warn_progress_once(self, exc: Exception) -> None:
+        if not self._progress_warned:
+            _logger.warning("Benchmark progress observation failed (%s)", type(exc).__name__)
+            self._progress_warned = True
 
     def _warn_closed_once(self) -> None:
         if not self._closed_warned:
@@ -142,12 +170,12 @@ class BenchmarkRunLogAdapter:
         rendered_url4: str,
         emit_structured_log: StructuredLogEmitter,
     ) -> AbstractContextManager[None] | None:
-        # WHY opaque: Benchmark ownership comes from the operation that actually runs. Inferring it
-        # from syntax would couple progress to URL4 formatting and fail on equivalent expressions.
-        del rendered_url4
         if not len(self._registry):
             return None
-        return _BenchmarkRunScope(_BenchmarkRunRecorder(self._registry, emit_structured_log))
+        progress = discover_evaluation_progress(self._registry, rendered_url4)
+        return _BenchmarkRunScope(
+            _BenchmarkRunRecorder(self._registry, emit_structured_log, progress)
+        )
 
 
 def emit_benchmark_run_log(
@@ -166,4 +194,25 @@ def emit_benchmark_run_log(
         recorder.emit(benchmark_id, body, attributes)
 
 
-__all__ = ["BenchmarkRunLogAdapter", "emit_benchmark_run_log"]
+def record_successful_case_execution(value: str) -> None:
+    """Observe one validated Case return when a progress tracker is active."""
+
+    recorder = _current_recorder.get()
+    if recorder is not None:
+        recorder.record_case_execution(value)
+
+
+def record_candidate_failure() -> None:
+    """Observe one Candidate exception when a progress tracker is active."""
+
+    recorder = _current_recorder.get()
+    if recorder is not None:
+        recorder.record_candidate_failure()
+
+
+__all__ = [
+    "BenchmarkRunLogAdapter",
+    "emit_benchmark_run_log",
+    "record_candidate_failure",
+    "record_successful_case_execution",
+]
