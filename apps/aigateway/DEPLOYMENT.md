@@ -172,12 +172,34 @@ by every caller of the gateway**. The Helm chart enables it by default; set the 
 opt out. The standalone app default remains off. Enabling it is a decision about data sharing, not
 a performance setting.
 
-**It is not gateway-wide.** Only **anthropic**, **openrouter** and **huggingface** can be served
-from cache in this release, and huggingface only *partly* (see below). Requests to
-**antigravity**, **codex**, **gemini-cli** and **ollama** bypass it entirely and always dispatch.
-Caching a provider requires that provider to declare what *it* contributes to the upstream call
-(`global_cache_projection`), and those four inherit the bypassing default, so there is nothing safe
-to key on. Expect a 100% miss rate on those four and do not read it as a fault.
+**It is not gateway-wide.** Of the eight registered providers, **anthropic**, **openai**,
+**openrouter** and eligible **huggingface** requests can be served from cache in this release —
+huggingface only *partly* (see below). Requests to **antigravity**, **codex**, **gemini-cli** and
+**ollama** bypass it entirely and always dispatch. Caching a provider requires that provider to
+declare what *it* contributes to the upstream call (`global_cache_projection`), and those four
+inherit the bypassing default, so there is nothing safe to key on. Expect a 100% miss rate on
+those four and do not read it as a fault.
+
+**The four cacheable providers are not gated the same way, and the difference matters because this
+table describes the pre-credential cache stage itself — not checks that run only after a miss:**
+
+| Provider | Provider switch checked before cache | Additional cache-participation gate |
+| --- | --- | --- |
+| `anthropic` | none | none beyond projection and shared request eligibility |
+| `openai` | none | requested-model and ambient-state runtime certification |
+| `openrouter` | its own enabled flag | none beyond projection and shared request eligibility |
+| `huggingface` | none | pinned-backend rule below, router-base certification and ambient-state runtime certification |
+
+OpenRouter does have additional dispatch-time protection against unsafe ambient LiteLLM state, but
+that runs only on a miss. A cache hit returns before dispatch, so it is not a cache-participation
+gate and is deliberately not represented as one here. Anthropic likewise has no separate
+participation override; it inherits the default after its projection accepts the request.
+
+Direct **openai** is the one to read twice: it has **no OpenRouter-style operator switch**, so
+`requestCache.enabled` is the only lever that turns its caching off. That is not the same as
+caching unconditionally — its runtime guard still declines per request when the model is
+ambiently aliased or the process carries LiteLLM state that would reroute the call. Plan for
+OpenAI responses to be cached and cross-account replayable whenever the cache is on.
 
 #### Hugging Face: only a pinned provider participates
 
@@ -306,6 +328,19 @@ FROM request_cache_entries;
 Watch this table's size like any other unbounded table and prune deliberately (for example by
 `created_at`, or by `hit_count = 0` for rows nothing has ever reused). Pruning is safe at any time:
 a deleted row is a cache miss, and the next caller re-fills it.
+
+**Rows carry the provider that filled them, so a reset does not have to be all-or-nothing.** To
+drop only Hugging Face rows — after a partner-allowlist correction, say, or to retire replayable
+gated-repository answers — without discarding every other provider's cache:
+
+```sql
+DELETE FROM request_cache_entries WHERE provider = 'huggingface';
+```
+
+That removes Hugging Face cache rows and nothing else; substitute any other provider name to
+narrow the same way. It is a targeted version of the full reset, not a different mechanism, and
+carries the same guarantee: the next caller re-fills what was removed. There is no runtime
+endpoint for this — it is a deliberate database operation, on purpose.
 
 ### Plaintext storage boundary
 

@@ -28,11 +28,11 @@ right end state and is deliberately NOT done here:
     sibling paths hard-fail dispatch. Copying a condition without its response would convert a
     lossless cache decline into a refused request. Do NOT mirror these conditions mechanically
     into another provider.
-  * OME-884 changes the sibling signatures and has not merged into this base.
-
-Repository-wide consolidation is therefore a FOLLOW-UP after OME-884 merges, when the final
-sibling signatures are available. Cross-provider duplication is NOT eliminated by this change —
-only the Hugging Face copy is now cohesive and single-sourced.
+OME-884 IS present in this base and the participation hook now accepts the raw requested model,
+so the port signature is settled and is NOT what blocks extraction. The differing condition sets
+and — above all — the differing failure responses are. Repository-wide consolidation stays a
+FOLLOW-UP for that reason. Cross-provider duplication is NOT eliminated by this change; only the
+Hugging Face copy is now cohesive and single-sourced.
 """
 
 from __future__ import annotations
@@ -91,9 +91,14 @@ UNREADABLE_AMBIENT_STATE_REASON = "litellm.runtime_state"
 # so a row filled under one setting would bypass the refusal the other setting performs.
 LITELLM_DISPATCH_GLOBALS: tuple[str, ...] = (
     "model_fallbacks",
-    # Coarser than the sibling exemplars, which test ``model in aliases``. WHY: this port's
-    # signature receives NO model (``_provider.py:278``), so the exact form is not expressible.
-    # The coarse form is the fail-safe direction — it declines more often, never less.
+    # Coarser than the sibling exemplars, which test ``model in aliases``. The narrow form IS
+    # expressible here — ``participates_in_global_cache`` carries the raw requested model since
+    # OME-884 (``_provider.py:278``) — and Hugging Face deliberately keeps the provider-wide
+    # decline for the MVP anyway: it is the fail-safe direction, declining more often and never
+    # less. Exact-model narrowing is a non-blocking cross-provider follow-up, not an
+    # impossibility. COST OF THE CONSERVATIVE FORM, so nobody rediscovers it as a bug: ONE
+    # unrelated alias entry anywhere in the deployment stops Hugging Face caching entirely for
+    # the life of the process. Lossless, logged once, and visible only as a 100% miss rate.
     "model_alias_map",
     "headers",
     "use_litellm_proxy",

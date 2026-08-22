@@ -48,6 +48,44 @@ _ROUTING_POLICIES = ("fastest", "cheapest", "preferred", "auto")
 # the catalog publishes but does not admit.
 _REAL_PROVIDERS = ("groq", "baseten")
 
+# INVARIANT: this literal is the INDEPENDENT copy of the reviewed Hugging Face partner table.
+# It is written out by hand and compared for equality, never derived from production — a test
+# that reads ``KNOWN_ROUTER_BACKENDS`` on both sides of an assertion cannot fail, so the
+# sweeps below are structurally blind to a bad member and only this pin can see one.
+#
+# WHY a duplicated list is the right answer here and not DRY-violating drift: the two copies
+# are SUPPOSED to be compared. A single edit to either side must be justified to a reviewer,
+# which is the entire mechanism — the hazard being guarded is a policy keyword (``fastest``,
+# ``preferred``, a future ``:balanced``) reaching the allowlist, because a policy names no
+# fixed backend and its rows would replay one account's backend selection to another under a
+# key that is architecturally identity-free.
+#
+# AIDEV-NOTE: adding a genuinely new Hugging Face partner is a TWO-file change, on purpose.
+# Update production ``KNOWN_ROUTER_BACKENDS`` and this literal in the same commit, and say in
+# the message which partner-table revision you transcribed from.
+_EXPECTED_ROUTER_BACKENDS = frozenset(
+    {
+        "baseten",
+        "cerebras",
+        "cohere",
+        "deepinfra",
+        "fal-ai",
+        "featherless-ai",
+        "fireworks-ai",
+        "groq",
+        "hf-inference",
+        "novita",
+        "nscale",
+        "ovhcloud",
+        "publicai",
+        "replicate",
+        "scaleway",
+        "together",
+        "wavespeed",
+        "zai-org",
+    }
+)
+
 
 def _body(model: str, **extra: Any) -> dict[str, Any]:
     return {"model": model, "messages": [{"role": "user", "content": "hi"}], **extra}
@@ -132,6 +170,18 @@ def test_exactly_the_allowlisted_suffixes_are_cacheable() -> None:
 
 
 # --- the allowlist itself ----------------------------------------------------------------------
+
+
+def test_the_allowlist_is_exactly_the_independently_transcribed_partner_table() -> None:
+    """The one assertion in this module that a production-side edit cannot satisfy on its own.
+
+    Every other test here derives its expectation from ``KNOWN_ROUTER_BACKENDS``, so swapping a
+    member for another plausible slug leaves them all green. Measured, not assumed: rebinding the
+    constant with ``wavespeed`` -> ``fireworks`` left the whole 291-test suite passing, as did
+    ``publicai`` -> ``best`` — a policy-shaped word that would have made an identity-dependent
+    request cacheable. Both are red here.
+    """
+    assert KNOWN_ROUTER_BACKENDS == _EXPECTED_ROUTER_BACKENDS
 
 
 def test_no_routing_policy_is_in_the_allowlist() -> None:

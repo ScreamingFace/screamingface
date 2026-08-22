@@ -131,6 +131,8 @@ created fresh in the worktree (`uv sync`), Python 3.12, litellm 1.97.0.
   - `docs(aigateway): record OME-791 cache remediation`
   - `fix(aigateway): accept model-aware huggingface cache gate`
   - `docs(aigateway): record OME-791 rebase verification`
+  - `fix(aigateway): reject incomplete multi-choice cache rows`
+  - `fix(aigateway): close Hugging Face cache crosscheck findings`
 
 - **Tripwires, both OBSERVED TO FIRE** (guard neutralised, symptom recorded in an AIDEV-NOTE at
   the guard, guard restored, suite re-run green):
@@ -176,7 +178,8 @@ MVP remediation.
   request body. Both now decline participation, each with a behavioural proof.
 - **M5 (PARTIAL, by owner scope)** — the complete HF ambient predicate, inventories, decline
   reasons and decline log moved to `huggingface_provider/runtime_guard.py`; `plugin.py` dropped
-  **432 → 287 lines**. Cross-provider duplication is **NOT** eliminated: `openai_provider` and
+  **432 → 287 lines** in that pass and is **292 lines** after the OME-884 signature adaptation.
+  Cross-provider duplication is **NOT** eliminated: `openai_provider` and
   `openrouter_provider` still carry near-copies and were deliberately not touched. The former
   "mirror this into the siblings" instruction was **removed** as unsafe — HF declines cache
   participation where some sibling paths hard-fail dispatch, so copying a condition without its
@@ -287,17 +290,86 @@ the port signature and a regression test, after which the complete gate was gree
   `test_a_raising_guard_costs_a_bypass_and_never_the_request`, which asserts the plan-level
   contract a caller actually depends on.
 
-- **Owner decision still open, flagged not buried:** gated-repo licensing under cross-account
-  replay (spec §9). Most seeds are gated repos requiring per-HF-account license acceptance, so a
-  row filled by an accepting account can be served to one that never accepted. Recorded as an
-  ACCEPTED CONSEQUENCE because it follows from the approved exact-replay semantics rather than
-  from this unit's design; if the owner declines it, the remedy is a catalog-level seeding/gating
-  decision, not a projection change.
+- **Owner decision accepted for MVP:** gated-repo licensing under cross-account replay (spec §9).
+  Most seeds are gated repos requiring per-HF-account license acceptance, so a row filled by an
+  accepting account can be served to one that never accepted. The identity-free global cache is
+  intentionally shared and does not re-check credentials or licence acceptance on a hit.
+  Deployments requiring tenant-specific licence enforcement must disable the global request cache
+  or isolate gateway/cache instances by trust boundary.
 
 - **~~`plugin.py` is at 432 of 450 lines.~~ RESOLVED 2026-08-21** by the review remediation pass:
   the ambient-state guard moved to `huggingface_provider/runtime_guard.py` and `plugin.py` is now
-  **287 lines**. Note the correction to the original prediction — the extraction went to a
+  **292 lines** after the OME-884 signature adaptation. Note the correction to the original
+  prediction — the extraction went to a
   provider-LOCAL module, **not** to core. Extracting into core was rejected for this branch because
   sibling providers respond to the same hazards differently (HF declines cache participation; some
   sibling paths hard-fail dispatch). A shared helper needs a union plus per-provider deltas and stays
   a separate follow-up after this branch integrates current `main`.
+
+## Crosscheck remediation pass (2026-08-22)
+
+A second independent read-only review of the merged remediation produced eight surviving findings
+(five defects D1–D5, plus weak points W1–W4). This pass closes D1–D5, W1, W4 and one shared-core
+correctness defect. W2 and W3 were assessed and deliberately **not** implemented — see below.
+
+### Findings closed
+
+| ID | File | Change |
+|---|---|---|
+| D1 | `DEPLOYMENT.md` | The exhaustive cacheable-provider list named 3 cacheable + 4 bypassing = **7 of 8** registered providers. Direct **openai** — which implements `global_cache_projection` and has **no** operator enable switch — was unaccounted for. Added it, plus a per-provider gating table distinguishing "no operator switch" from "unconditional" (its runtime guard still declines per request). |
+| D2 | `tests/live/test_huggingface_provider_allowlist_drift.py` | The `allowlist - observed` direction was computed, printed, then discarded — the only conditional was on the other direction. Added `_EXPECTED_CATALOG_OMISSIONS`; unexpected omissions now **fail**. Not an equality check: the endpoint is a chat-model catalog, so absence is not proof of removal, and a benign reappearance must not go red. |
+| D3 | `parameters.py`, `tests/unit/huggingface/test_huggingface_route_global_cache.py` | The AIDEV-NOTE governing every `cache_behavior` edit pointed at the module the key-difference proofs **left** during the file split. Repointed to `test_huggingface_global_cache_keys.py` and deleted the 88 lines of dead duplicate scaffolding (`_EXPECTED_KEYED_PATHS`, `_KEY_DIFFERENCE_CASES`, `_published_cache_behaviour`, `_key_hash`) that had no call sites and that `ruff` cannot see. |
+| D4 | `runtime_guard.py` | Comments only. Removed two false claims — that OME-884 had not merged into this base (it had; `git merge-base HEAD origin/main` is main's own HEAD) and that the participation port "receives NO model" (`_provider.py:278` is the line carrying the model parameter). Replaced with the real rationale, already recorded correctly at `plugin.py:265-267`, and stated the operational cost of the conservative form. |
+| D5 | `charts/aigateway/values.yaml` | "read all five consequences" → "six". The sixth was appended to this same file by the earlier pass; only `values-prod.yaml` had been re-counted. |
+| W1 | `tests/unit/huggingface/test_huggingface_provider_allowlist.py` | Added `_EXPECTED_ROUTER_BACKENDS`, an independent literal of the 18-member partner table, asserted for **equality**. Every prior test derived its expectation from `KNOWN_ROUTER_BACKENDS` on both sides and was structurally blind to a bad member. |
+| W4 | `DEPLOYMENT.md` | Documented `DELETE FROM request_cache_entries WHERE provider = 'huggingface';`. Verified the column is real and indexed (`request_cache_entry.py:16`) and that the stored value is the plugin's `custom_llm_provider` (`global_plan.py:135`). |
+
+### Shared-core correctness fix (TDD)
+
+`routes/chat_cache_stage.py::_is_a_whole_answer` validated only `choices[0]`. Because `n` is KEYED
+for every cacheable provider, an `n=2` body has its own key and is replayed only to another `n=2`
+request — which is exactly what made a half-finished pair **permanent** rather than harmless.
+
+RED first: new `tests/unit/test_chat_cache_write_eligibility.py` (17 tests) failed 5 / passed 12,
+the 5 being precisely the later-choice cases. Then the minimal fix — `all()` over every choice.
+
+- **INVARIANT relocated, not removed:** `all([])` is vacuously `True`, so the pre-existing
+  `if not choices: return False` guard is now load-bearing for the empty-list case. The
+  `an-empty-choices-list` parametrized case is therefore not redundant coverage.
+- The pre-existing route-level `test_global_cache_write_eligibility.py` was **not modified** and
+  stays green; every one of its cases is single-choice, which is why it could not see this.
+
+### Deliberately NOT done
+
+- **W2** (a duplicate HF-only litellm version pin) — the repository-wide OpenAI tripwire already
+  blocks an unreviewed upgrade; a second pin is duplication, not coverage.
+- **W3** (narrowing `model_alias_map` to the requested model) — current behaviour is fail-safe and
+  costs only cache participation. Non-blocking cross-provider follow-up; its cost is now stated at
+  the guard instead of being rediscovered as a bug.
+- **W4 placement deviation:** the instruction said "near the existing full-table reset example".
+  That example sits inside the *mandatory full clear* required before a `0010` schema downgrade,
+  where a partial `DELETE` would wrongly imply a narrower reset suffices. Placed in the cache-size
+  / pruning section instead — the operational home for targeted deletion.
+
+### Checks actually run
+
+| Check | Result |
+|---|---|
+| configured aigateway quality gates against `origin/main` | **ALL GREEN** (append-only, ruff check, ruff format, pyright, `check_no_enterprise.py`, pytest+coverage) |
+| `pytest tests/unit/huggingface -q` | **292 passed** (was 291; +1 is the W1 pin) |
+| focused global-cache suites + the new module | **151 passed** |
+| `AIGW_LIVE=1 pytest tests/live/…allowlist_drift.py -q -s` | **1 passed** — 14 observed, 0 new, 4 expected omissions, 0 unexpected |
+| full suite `--cov-fail-under=80` | **3884 passed, 50 skipped, coverage 92.50%** |
+| `git diff --check` | clean |
+| file sizes | all ≤ 450; the route test **shrank** 437 → 349 |
+
+**Falsification, not just green:** the W1 pin was proved discriminating by re-running the exact
+mutation the review used — `wavespeed` → `fireworks`, which previously left all 291 tests passing,
+now fails one test and only that one. The D2 assertion was proved discriminating by simulating an
+unexpected catalog omission, which fails with the offending slug named. Both mutations were
+reverted and the clean state re-verified.
+
+**Append-only gate vs `origin/main`: GREEN.** Against the branch tip it flags the two
+brief-mandated edits (the D2 assertion body and the D3 dead block). Zero test functions were lost:
+the drift module holds 1 before and after, the route module 8 before and after, with an empty
+set difference in both. The gate was not weakened or modified.

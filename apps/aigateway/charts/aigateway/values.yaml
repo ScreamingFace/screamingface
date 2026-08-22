@@ -98,7 +98,7 @@ config:
   # gets, whoever they are.
   #
   # ON BY DEFAULT for chart deployments. This is a product decision about data sharing, not a
-  # performance knob, so read all five consequences before deploying it; set `enabled: false` to
+  # performance knob, so read all six consequences before deploying it; set `enabled: false` to
   # opt the deployment out:
   #
   #   1. CROSS-USER REPLAY. Two callers who send the identical request receive the identical stored

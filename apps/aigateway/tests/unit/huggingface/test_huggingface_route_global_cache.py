@@ -23,8 +23,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aigateway.core.request_cache import RequestCacheWrite
-from aigateway.core.request_cache.global_controls import GlobalCacheControls
-from aigateway.core.request_cache.global_plan import build_global_cache_plan
 from aigateway.plugins.huggingface_provider.plugin import PLUGIN
 from aigateway.plugins.huggingface_provider.settings import HuggingFacePluginSettings
 
@@ -35,74 +33,6 @@ _PATCH_TARGET = (
 _MODEL = "huggingface/deepseek-ai/DeepSeek-R1:novita"
 _HF_KEY = "hf_route_global_cache_key_1234567890"
 
-# The complete set of HF request paths that OME-791 promotes to ``keyed``.
-#
-# INVARIANT: TWELVE, not the ten ``direct_rule`` calls a reader counts in ``parameters.py``.
-# ``function_calling_rules`` emits ``tools`` AND ``tool_choice`` as two separate rules
-# (``standard_parameters.py:232-252``, with ``tool_choice=True`` defaulted at ``:204``), so a
-# literal set written from the source file alone is wrong by two. The meta-test below derives
-# the real set from the live rule table and asserts equality against this literal, so the two
-# can never drift.
-_EXPECTED_KEYED_PATHS = frozenset(
-    {
-        "temperature",
-        "max_tokens",
-        "stop",
-        "response_format",
-        "seed",
-        "n",
-        "frequency_penalty",
-        "presence_penalty",
-        "logprobs",
-        "top_logprobs",
-        "tools",
-        "tool_choice",
-    }
-)
-
-# One concrete pair of DIFFERENT values per keyed path. A path missing from this table has no
-# key-difference proof, which the meta-test refuses.
-_KEY_DIFFERENCE_CASES: dict[str, tuple[Any, Any]] = {
-    "temperature": (0.0, 1.0),
-    "max_tokens": (16, 32),
-    "stop": (["END"], ["STOP"]),
-    "response_format": ({"type": "text"}, {"type": "json_object"}),
-    "seed": (1, 2),
-    "n": (1, 2),
-    "frequency_penalty": (0.0, 0.5),
-    "presence_penalty": (0.0, 0.5),
-    # INVARIANT: ``top_logprobs`` requires ``logprobs is True``, so the pair varies the
-    # dependent field while holding the enabling one — otherwise the 400 combination rule,
-    # not the key, would be what distinguishes the two requests.
-    "logprobs": (True, False),
-    "top_logprobs": (1, 2),
-    "tools": (
-        [{"type": "function", "function": {"name": "alpha", "parameters": {}}}],
-        [{"type": "function", "function": {"name": "beta", "parameters": {}}}],
-    ),
-    "tool_choice": ("auto", "none"),
-}
-
-
-def _published_cache_behaviour(document: dict[str, Any]) -> dict[str, str]:
-    """``{request_path: cache_behavior}`` as a CALLER reads it off the contract document.
-
-    Shape (verified against the live route): each entry under ``parameters`` — and each tool
-    entry under ``tools`` — carries a ``gateway`` block holding ``cache_behavior``. Reading both
-    sections matters: ``tools`` and ``tool_choice`` are two of the twelve promoted paths and do
-    not appear beside the scalar parameters.
-    """
-    published: dict[str, str] = {}
-    for section in ("parameters", "tools"):
-        entries = document.get(section)
-        if not isinstance(entries, dict):
-            continue
-        for name, entry in entries.items():
-            gateway = entry.get("gateway") if isinstance(entry, dict) else None
-            if isinstance(gateway, dict) and "cache_behavior" in gateway:
-                published[str(name)] = str(gateway["cache_behavior"])
-    return published
-
 
 def _body(**overrides: Any) -> dict[str, Any]:
     body: dict[str, Any] = {
@@ -111,24 +41,6 @@ def _body(**overrides: Any) -> dict[str, Any]:
     }
     body.update(overrides)
     return body
-
-
-def _key_hash(body: dict[str, Any]) -> str:
-    """The global cache key for ``body``, through the REAL plan.
-
-    WHY the whole plan rather than the projection alone: a key-difference test that called the
-    projection directly would prove nothing about promotion, because the projection does not
-    see parameters at all. Only the plan applies the rule table, so only the plan can show that
-    a promoted path actually reached the key.
-    """
-    decision = build_global_cache_plan(
-        body=body,
-        plugin=PLUGIN,
-        controls=GlobalCacheControls(participate=True),
-        cache_enabled=True,
-    )
-    assert not hasattr(decision, "reason"), f"expected a key, got a bypass: {decision}"
-    return cast(Any, decision).key_hash
 
 
 # --- the route ----------------------------------------------------------------

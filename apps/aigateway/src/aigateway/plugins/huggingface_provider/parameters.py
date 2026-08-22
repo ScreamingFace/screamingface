@@ -56,9 +56,15 @@ _AUTH: tuple[AuthMode, ...] = ("api_key",)
 #
 # WHAT KEYED COMMITS TO: each value below is output-affecting, so it must enter the cache key
 # for a replayed answer to be correct. Every keyed path carries a concrete key-difference proof
-# in ``tests/unit/huggingface/test_huggingface_route_global_cache.py``, and a meta-test there
+# in ``tests/unit/huggingface/test_huggingface_global_cache_keys.py``, and a meta-test there
 # derives the keyed set from THIS table — so a new keyed path cannot land without its proof,
 # and an accidental promotion fails loudly rather than silently widening what is shared.
+#
+# AIDEV-NOTE: that module is the SINGLE home of the key-difference table. The proofs lived in
+# ``test_huggingface_route_global_cache.py`` until the OME-791 file split moved them, which
+# left a duplicate copy of the scaffolding behind that this note used to point at; running the
+# route module alone then looked green for a promotion it no longer checked. Add a new keyed
+# path's proof to the keys module, and do not reintroduce a second table anywhere.
 #
 # CALLER-VISIBLE: ``cache_behavior`` and ``projection_revision`` both feed the published
 # contract digest (``core/model_parameter_contract.py:78``), so touching either moves every HF
