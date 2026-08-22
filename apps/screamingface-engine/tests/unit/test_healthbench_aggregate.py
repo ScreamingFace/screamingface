@@ -13,7 +13,10 @@ from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.healthbench.aggregate import (
     AggregateError,
     aggregate,
+    grade_case,
     load_rubric_points,
+    score_cases,
+    selected_cases,
 )
 from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
@@ -194,6 +197,27 @@ def test_fully_judged_cases_score_and_mean_unclipped(tmp_path: Path) -> None:
     # Same decoder rejects non-numeric metric values (also seen live) — the
     # scoring label must never reappear inside metrics.
     assert all(isinstance(value, (int, float)) for value in result["metrics"].values())
+
+
+def test_live_projection_and_final_aggregation_share_case_grading_and_scorer(
+    tmp_path: Path,
+) -> None:
+    _write_rubric(tmp_path, 1, [5, -2])
+    row = _case_row(1, {1: True, 2: False})
+    selected = selected_cases(tmp_path, (1,))[0]
+
+    projected = grade_case(row, selected, [5, -2])
+    final = aggregate(
+        json.dumps([row]),
+        tmp_path,
+        benchmark_id="hb",
+        benchmark_revision="rev",
+        case_ids=(1,),
+        mean=unclipped_mean,
+    )
+
+    assert projected.model_dump() == final["cases"][0]
+    assert score_cases(unclipped_mean, [projected]).score == final["score"]
 
 
 def test_canonical_contract_metrics_map_healthbench_semantics(tmp_path: Path) -> None:

@@ -26,6 +26,7 @@ from screamingface_engine.benchmarks.ifeval.definition import (
     CHECK_ROUTE,
     CHECK_SURFACE_ROUTE,
 )
+from screamingface_engine.benchmarks.run_logs import register_case_projection
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -39,7 +40,7 @@ def install(node: Url4Node, root: Path) -> None:
     endpoints = (
         (CHECK_ROUTE, _check(root)),
         (CHECK_SURFACE_ROUTE, _check_surface(root)),
-        (CASE_EVALUATION_ROUTE, _case_evaluation),
+        (CASE_EVALUATION_ROUTE, _case_evaluation(root)),
         (
             AGGREGATE_ROUTE,
             aggregate_endpoint(
@@ -211,30 +212,71 @@ def _case_by_input(root: Path, prompt: str) -> int:
     return _positive_int(matches[0], "case id")
 
 
-def _case_evaluation(request: Request) -> str:
+def _case_evaluation(root: Path):
     """Pack exact attempt records into one authoritative per-Case envelope."""
 
+    progress_assets: tuple[dict[int, dict[str, Any]], list[int]] | None = None
+
+    def handle(request: Request) -> str:
+        nonlocal progress_assets
+        case_id, result = _bind_case_evaluation(request)
+        rendered = compact_json(result)
+        try:
+            progress_assets = _register_progress(root, case_id, progress_assets)
+        except (OSError, TypeError, ValueError):
+            pass
+        return rendered
+
+    return handle
+
+
+def _bind_case_evaluation(request: Request) -> tuple[int, dict[str, Any]]:
     try:
         case_id = _positive_int(request.intent, "case id")
         payload = json_object(request.context, "Case evaluation")
-        expected = tuple(f"attempt_{index}" for index in range(1, len(payload) + 1))
-        if not expected or tuple(payload) != expected:
-            raise ValueError(
-                "IFEval Case evaluation fields must be consecutive attempt_1..attempt_N"
-            )
-        attempts: list[dict[str, Any]] = []
-        for field in expected:
-            raw = payload[field]
-            if not isinstance(raw, str):
-                raise ValueError(f"IFEval Case evaluation {field} must be JSON text")
-            decoded = json.loads(raw)
-            if not isinstance(decoded, dict):
-                raise ValueError(f"IFEval Case evaluation {field} must decode to an object")
-            attempts.append(decoded)
-        result = bind_case_evaluation(case_id, attempts)
+        attempts = _attempt_records(payload)
+        return case_id, bind_case_evaluation(case_id, attempts)
     except (TypeError, ValueError) as exc:
         raise _unavailable(str(exc)) from exc
-    return compact_json(result)
+
+
+def _attempt_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    expected = tuple(f"attempt_{index}" for index in range(1, len(payload) + 1))
+    if not expected or tuple(payload) != expected:
+        raise ValueError("IFEval Case evaluation fields must be consecutive attempt_1..attempt_N")
+    attempts: list[dict[str, Any]] = []
+    for field in expected:
+        raw = payload[field]
+        if not isinstance(raw, str):
+            raise ValueError(f"IFEval Case evaluation {field} must be JSON text")
+        decoded = json.loads(raw)
+        if not isinstance(decoded, dict):
+            raise ValueError(f"IFEval Case evaluation {field} must decode to an object")
+        attempts.append(decoded)
+    return attempts
+
+
+def _register_progress(
+    root: Path,
+    case_id: int,
+    assets: tuple[dict[int, dict[str, Any]], list[int]] | None,
+) -> tuple[dict[int, dict[str, Any]], list[int]]:
+    selected_assets = assets or (
+        scoring.load_specs(root / "instructions"),
+        scoring.load_case_order(root),
+    )
+    specs, case_order = selected_assets
+    selected_index = case_order.index(case_id)
+    selected = scoring.selected_cases(specs, case_order, selected_index + 1)[selected_index]
+    spec = specs[case_id]
+    register_case_projection(
+        BENCHMARK_ID,
+        case_id=case_id,
+        selected_index=selected_index,
+        grade_case=lambda raw: scoring.grade_case(raw, selected, spec),
+        scorer=scoring.score_cases,
+    )
+    return selected_assets
 
 
 def _verification(

@@ -18,6 +18,7 @@ from url4.peer.server import Request
 
 JsonObject = dict[str, Any]
 CaseEvaluationBinder = Callable[[int, list[JsonObject]], JsonObject]
+CaseEvaluationObserver = Callable[[JsonObject], None]
 AggregateAdapter = Callable[[str, int], JsonObject]
 
 
@@ -54,6 +55,7 @@ def case_evaluation_endpoint(
     label: str,
     item_name: str,
     bind: CaseEvaluationBinder,
+    observe: CaseEvaluationObserver | None = None,
     error_context_head: int | None = None,
 ) -> Callable[[Request], str]:
     """Adapt one non-empty collection of evaluator records into a Case envelope route."""
@@ -74,7 +76,13 @@ def case_evaluation_endpoint(
             if error_context_head is not None:
                 detail += f"; context head: {request.context[:error_context_head]!r}"
             raise benchmark_unavailable(detail) from exc
-        return compact_json(result)
+        rendered = compact_json(result)
+        if observe is not None:
+            try:
+                observe(result)
+            except Exception:  # noqa: BLE001 - live progress is observational
+                pass
+        return rendered
 
     return endpoint
 

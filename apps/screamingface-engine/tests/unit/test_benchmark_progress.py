@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 
 import pytest
 
@@ -12,12 +13,25 @@ from screamingface_engine.benchmarks import (
     candidate_adapter,
     case_execution,
 )
+from screamingface_engine.benchmarks.aggregation import (
+    CandidateScore,
+    SelectedCase,
+    failed_case_result,
+    refused_case_result,
+    scored_case_result,
+)
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.progress import (
     EvaluationProgressTracker,
     discover_evaluation_progress,
 )
+from screamingface_engine.benchmarks.run_logs import (
+    BenchmarkRunLogAdapter,
+    record_candidate_failure,
+    register_case_projection,
+)
+from screamingface_engine.run_log_contract import LogScalar
 from url4 import Node, RelExpr, RelUrl, expr, render, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -189,3 +203,257 @@ async def test_candidate_exception_records_failure_and_reraises_the_same_excepti
 
     assert raised.value is failure
     assert observed == [None]
+
+
+def _projected_case(case_id: int, score: float):
+    return scored_case_result(
+        selected_case=SelectedCase(case_id=case_id, input=f"question {case_id}", metadata={}),
+        output=f"answer {case_id}",
+        finish_reason="stop",
+        grade={"method": "test", "score": score, "metrics": {}, "checks": []},
+    )
+
+
+def test_complete_snapshots_use_selected_order_and_the_shared_scorer() -> None:
+    benchmark = _benchmark(case_count=2)
+    records: list[tuple[str, dict[str, LogScalar]]] = []
+    scorer_inputs: list[tuple[int | str, ...]] = []
+
+    def emit(body: str, attributes: Mapping[str, LogScalar]) -> None:
+        records.append((body, dict(attributes)))
+
+    def scorer(cases) -> CandidateScore:
+        scorer_inputs.append(tuple(case.case_id for case in cases))
+        scores = [float(case.grade.score) for case in cases if case.grade is not None]
+        return CandidateScore(score=sum(scores) / len(scores), metrics={})
+
+    adapter = BenchmarkRunLogAdapter(BenchmarkRegistry((benchmark,)))
+    rendered = render(_aggregate_call(benchmark.aggregate_route or "", text("aggregate:2")))
+    scope = adapter.open_run_scope(rendered, emit)
+    assert scope is not None
+
+    with scope:
+        register_case_projection(
+            benchmark.id,
+            case_id=2,
+            selected_index=1,
+            grade_case=lambda _raw: _projected_case(2, 0.2),
+            scorer=scorer,
+        )
+        case_execution._case_execution(_case_request(2))
+        register_case_projection(
+            benchmark.id,
+            case_id=1,
+            selected_index=0,
+            grade_case=lambda _raw: _projected_case(1, 0.8),
+            scorer=scorer,
+        )
+        case_execution._case_execution(_case_request(1))
+
+    assert scorer_inputs == [(2,), (1, 2)]
+    assert records == [
+        (
+            "evaluation progress",
+            {
+                "screamingface.event.schema": "screamingface.evaluation-progress.v1",
+                "cases.total": 2,
+                "cases.completed": 1,
+                "cases.graded": 1,
+                "cases.failed": 0,
+                "cases.refused": 0,
+                "score.provisional": 0.2,
+                "score.coverage": 0.5,
+            },
+        ),
+        (
+            "evaluation progress",
+            {
+                "screamingface.event.schema": "screamingface.evaluation-progress.v1",
+                "cases.total": 2,
+                "cases.completed": 2,
+                "cases.graded": 2,
+                "cases.failed": 0,
+                "cases.refused": 0,
+                "score.provisional": 0.5,
+                "score.coverage": 1.0,
+            },
+        ),
+    ]
+
+
+def test_candidate_failure_emits_one_terminal_failed_snapshot() -> None:
+    benchmark = _benchmark(case_count=1)
+    records: list[tuple[str, dict[str, LogScalar]]] = []
+    adapter = BenchmarkRunLogAdapter(BenchmarkRegistry((benchmark,)))
+    rendered = render(_aggregate_call(benchmark.aggregate_route or "", text("aggregate:1")))
+    scope = adapter.open_run_scope(
+        rendered,
+        lambda body, attributes: records.append((body, dict(attributes))),
+    )
+    assert scope is not None
+
+    with scope:
+        record_candidate_failure()
+        record_candidate_failure()
+
+    assert records == [
+        (
+            "evaluation progress",
+            {
+                "screamingface.event.schema": "screamingface.evaluation-progress.v1",
+                "cases.total": 1,
+                "cases.completed": 1,
+                "cases.graded": 0,
+                "cases.failed": 1,
+                "cases.refused": 0,
+                "score.provisional": None,
+                "score.coverage": 0.0,
+            },
+        )
+    ]
+
+
+def test_url4_stringified_integer_case_id_uses_the_integer_projection() -> None:
+    benchmark = _benchmark(case_count=1)
+    records: list[tuple[str, dict[str, LogScalar]]] = []
+    adapter = BenchmarkRunLogAdapter(BenchmarkRegistry((benchmark,)))
+    rendered = render(_aggregate_call(benchmark.aggregate_route or "", text("aggregate:1")))
+    scope = adapter.open_run_scope(
+        rendered,
+        lambda body, attributes: records.append((body, dict(attributes))),
+    )
+    assert scope is not None
+
+    with scope:
+        register_case_projection(
+            benchmark.id,
+            case_id=1,
+            selected_index=0,
+            grade_case=lambda _raw: _projected_case(1, 1.0),
+            scorer=lambda cases: CandidateScore(score=float(len(cases)), metrics={}),
+        )
+        case_execution._case_execution(_case_request("1"))
+
+    assert records[0][1]["cases.graded"] == 1
+    assert records[0][1]["score.provisional"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("projected", "graded", "failed", "refused", "score"),
+    [
+        (
+            refused_case_result(
+                selected_case=SelectedCase(case_id=1, input="question 1", metadata={}),
+                refusal="I cannot answer.",
+                grade={"method": "test", "score": 0.4, "metrics": {}, "checks": []},
+            ),
+            1,
+            0,
+            1,
+            0.4,
+        ),
+        (
+            failed_case_result(
+                selected_case=SelectedCase(case_id=1, input="question 1", metadata={}),
+                failures=[
+                    {
+                        "stage": "grading",
+                        "code": "grading_failed",
+                        "message": "grading failed",
+                        "retryable": None,
+                        "case_id": 1,
+                        "metadata": {},
+                    }
+                ],
+                grade={"method": "test", "score": None, "metrics": {}, "checks": []},
+            ),
+            0,
+            1,
+            0,
+            None,
+        ),
+    ],
+)
+def test_snapshot_counts_follow_the_projected_case_contract(
+    projected,
+    graded: int,
+    failed: int,
+    refused: int,
+    score: float | None,
+) -> None:
+    benchmark = _benchmark(case_count=1)
+    records: list[tuple[str, dict[str, LogScalar]]] = []
+    adapter = BenchmarkRunLogAdapter(BenchmarkRegistry((benchmark,)))
+    scope = adapter.open_run_scope(
+        render(_aggregate_call(benchmark.aggregate_route or "", text("aggregate:1"))),
+        lambda body, attributes: records.append((body, dict(attributes))),
+    )
+    assert scope is not None
+
+    def scorer(cases) -> CandidateScore:
+        grade = cases[0].grade
+        assert grade is not None and grade.score is not None
+        return CandidateScore(score=float(grade.score), metrics={})
+
+    with scope:
+        register_case_projection(
+            benchmark.id,
+            case_id=1,
+            selected_index=0,
+            grade_case=lambda _raw: projected,
+            scorer=scorer,
+        )
+        case_execution._case_execution(_case_request(1))
+
+    attributes = records[0][1]
+    assert attributes["cases.graded"] == graded
+    assert attributes["cases.failed"] == failed
+    assert attributes["cases.refused"] == refused
+    assert attributes["score.provisional"] == score
+
+
+def test_scorer_failure_suppresses_only_that_snapshot_and_later_scoring_recovers() -> None:
+    benchmark = _benchmark(case_count=2)
+    records: list[tuple[str, dict[str, LogScalar]]] = []
+
+    def scorer(cases) -> CandidateScore:
+        if len(cases) == 1:
+            raise RuntimeError("private scorer detail")
+        return CandidateScore(score=0.5, metrics={})
+
+    adapter = BenchmarkRunLogAdapter(BenchmarkRegistry((benchmark,)))
+    scope = adapter.open_run_scope(
+        render(_aggregate_call(benchmark.aggregate_route or "", text("aggregate:2"))),
+        lambda body, attributes: records.append((body, dict(attributes))),
+    )
+    assert scope is not None
+
+    with scope:
+        for case_id in (1, 2):
+            register_case_projection(
+                benchmark.id,
+                case_id=case_id,
+                selected_index=case_id - 1,
+                grade_case=lambda _raw, case_id=case_id: _projected_case(case_id, 0.5),
+                scorer=scorer,
+            )
+            case_execution._case_execution(_case_request(case_id))
+
+    assert [attributes["score.provisional"] for _, attributes in records] == [None, 0.5]
+
+
+def _case_request(case_id: int | str) -> Request:
+    return Request(
+        path=case_execution.CASE_EXECUTION_ROUTE,
+        context=json.dumps(
+            {
+                "case_id": case_id,
+                "candidate_invocation": encode_candidate_invocation(
+                    f"answer {case_id}", "stop", None
+                ),
+                "grading": [{"verdict": "PASS"}],
+            }
+        ),
+        intent="preserve",
+        params={},
+    )

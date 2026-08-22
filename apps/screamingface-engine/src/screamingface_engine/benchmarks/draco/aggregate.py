@@ -157,11 +157,11 @@ def aggregate(
         benchmark_revision=benchmark_revision,
         selected_cases=selection,
         cases=case_results,
-        scorer=_draco_score,
+        scorer=score_cases,
     ).as_payload()
 
 
-def _draco_score(cases: Sequence[CaseResult]) -> CandidateScore:
+def score_cases(cases: Sequence[CaseResult]) -> CandidateScore:
     """Apply the official DRACO cross-Case reduction to gradeable typed Cases."""
 
     scored = [case.model_dump() for case in cases]
@@ -234,69 +234,75 @@ def _aggregate_rows(
     rubrics: Mapping[int, Mapping[str, Any]],
     judge_passes: int,
 ) -> list[CaseResult]:
-    case_results: list[CaseResult] = []
-    for index, row in enumerate(decoded_rows):
-        if row.grading_error is not None and row.candidate is not None:
-            case_results.append(
-                grading_failure_case_result(
-                    selected_case=_selected_case(row.expected_case),
-                    candidate=row.candidate,
-                    error=row.grading_error,
-                    method="rubric",
-                    default_code="draco_grading_failed",
-                    default_message="the DRACO grader could not grade this Case",
-                )
-            )
-            continue
-        if not row.case_records:
-            failure = _row_failure(
-                row.raw,
-                index,
-                row.expected_case,
-                row.decode_error,
-            )
-            case_results.append(
-                case_results_module.failed_selected_case_result(row.expected_case, failure)
-            )
-            continue
-        case_record = row.case_records[0]
-        case_id = optional_integer(case_record.get("case_id"))
-        if case_id is None:  # pragma: no cover - sealed by _require_verifiable_mapping
-            raise AssertionError("a scored DRACO row must carry its Engine-bound case_id")
-        rubric = rubrics.get(case_id)
-        if rubric is None:
-            failure = {
-                "stage": "grading",
-                "code": "missing_case_rubric",
-                "message": "the selected Case has no installed DRACO rubric",
-                "retryable": None,
-                "case_id": case_id,
-                "metadata": {"row_index": index},
-            }
-            case_results.append(case_results_module.ungraded_case_result(case_record, failure))
-            continue
+    return [
+        _grade_decoded_case(row, rubrics, judge_passes, row_index=index)
+        for index, row in enumerate(decoded_rows)
+    ]
+
+
+def grade_case(
+    raw: object,
+    expected_case: Mapping[str, Any],
+    rubric: Mapping[str, Any],
+    *,
+    judge_passes: int,
+) -> CaseResult:
+    """Project one exact DRACO Case with the same rules used by final aggregation."""
+
+    selected = _validate_selected_cases([expected_case])
+    decoded = _decode_rows([raw], selected, judge_passes)
+    _require_verifiable_mapping(decoded)
+    return _grade_decoded_case(decoded[0], {int(expected_case["id"]): rubric}, judge_passes)
+
+
+def _grade_decoded_case(
+    row: _DecodedRow,
+    rubrics: Mapping[int, Mapping[str, Any]],
+    judge_passes: int,
+    *,
+    row_index: int = 0,
+) -> CaseResult:
+    if row.grading_error is not None and row.candidate is not None:
+        result = grading_failure_case_result(
+            selected_case=_selected_case(row.expected_case),
+            candidate=row.candidate,
+            error=row.grading_error,
+            method="rubric",
+            default_code="draco_grading_failed",
+            default_message="the DRACO grader could not grade this Case",
+        )
+    elif not row.case_records:
+        failure = _row_failure(row.raw, row_index, row.expected_case, row.decode_error)
+        result = case_results_module.failed_selected_case_result(row.expected_case, failure)
+    else:
+        result = _grade_evaluation(row, rubrics, judge_passes, row_index)
+    return result
+
+
+def _grade_evaluation(
+    row: _DecodedRow,
+    rubrics: Mapping[int, Mapping[str, Any]],
+    judge_passes: int,
+    row_index: int,
+) -> CaseResult:
+    case_record = row.case_records[0]
+    case_id = optional_integer(case_record.get("case_id"))
+    if case_id is None:  # pragma: no cover - sealed by _require_verifiable_mapping
+        raise AssertionError("a scored DRACO row must carry its Engine-bound case_id")
+    rubric = rubrics.get(case_id)
+    if rubric is None:
+        failure = {
+            "stage": "grading",
+            "code": "missing_case_rubric",
+            "message": "the selected Case has no installed DRACO rubric",
+            "retryable": None,
+            "case_id": case_id,
+            "metadata": {"row_index": row_index},
+        }
+        result = case_results_module.ungraded_case_result(case_record, failure)
+    else:
         verdicts = case_results_module.valid_verdicts(rubric, row.evidence, case_id)
-        if not verdicts:
-            failure = {
-                "stage": "grading",
-                "code": "no_valid_judge_verdict",
-                "message": "no valid Judge verdict was produced for this Case",
-                "retryable": None,
-                "case_id": case_id,
-                "metadata": {"row_index": index},
-            }
-            case_results.append(
-                case_results_module.incomplete_case_result(
-                    case_record,
-                    rubric,
-                    row.checks,
-                    row.evidence,
-                    judge_passes,
-                    failure,
-                )
-            )
-            continue
-        case_results.append(
+        result = (
             case_results_module.scored_case_result(
                 case_record,
                 rubric,
@@ -305,8 +311,24 @@ def _aggregate_rows(
                 verdicts,
                 judge_passes,
             )
+            if verdicts
+            else case_results_module.incomplete_case_result(
+                case_record,
+                rubric,
+                row.checks,
+                row.evidence,
+                judge_passes,
+                {
+                    "stage": "grading",
+                    "code": "no_valid_judge_verdict",
+                    "message": "no valid Judge verdict was produced for this Case",
+                    "retryable": None,
+                    "case_id": case_id,
+                    "metadata": {"row_index": row_index},
+                },
+            )
         )
-    return case_results
+    return result
 
 
 def _row_failure(

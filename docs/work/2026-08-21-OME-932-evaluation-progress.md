@@ -72,6 +72,23 @@ without repeating paid work, exposing Benchmark-private material, changing gener
 - Full gate: `uv run .claude/scripts/run_gates.py screamingface-engine` — **ALL GATES GREEN**
   (append-only check, Ruff check/format, Pyright, layering, Pytest with coverage).
 
+## Iteration 2 — shared grading, scoring, and snapshots
+
+- Extracted one per-Case projector and the existing scorer from each IFEval, DRACO, and
+  HealthBench reducer; live projection and final aggregation now call the same functions.
+- Benchmark-specific Case-evaluation endpoints register pure projector closures while their
+  installed private assets are in scope. The shared Case return remains the terminal trigger, so
+  no URL4 node, model/Judge call, or result byte changes.
+- Added complete `screamingface.evaluation-progress.v1` snapshots for successful Cases and
+  Candidate failures, including native provisional score and exact `graded / total` coverage.
+- Covered out-of-order completion, selected-order scoring, integer/string URL4 Case identity,
+  graded refusal, ungraded failure, scorer failure recovery, and exact bounded attributes.
+- Real HealthBench limit-one URL4 conformance: the one provisional snapshot reconciles exactly to
+  the final score and coverage.
+- Focused Runner/Benchmark/identity/failure/paid-call suite: **166 passed**.
+- Full gate: `uv run .claude/scripts/run_gates.py screamingface-engine` — **ALL GATES GREEN**
+  (append-only check, Ruff check/format, Pyright, layering, Pytest with coverage).
+
 ## Acceptance
 
 - Engine publishes strict `screamingface.evaluation-progress.v1` structured Log snapshots from

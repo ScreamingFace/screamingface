@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from screamingface_engine.benchmarks.draco import aggregate as scoring
 from screamingface_engine.benchmarks.draco import assets as protocol_assets
@@ -35,6 +35,7 @@ from screamingface_engine.benchmarks.evaluation import (
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.run_logs import register_case_projection
 from url4.peer.server import Request, Url4Node
 
 
@@ -60,6 +61,7 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
             label="DRACO Case evaluation",
             item_name="Criterion evaluation",
             bind=bind_case_evaluation,
+            observe=_progress_projection(selected_cases, rubrics, exam),
         )
     )
     node.endpoint(exam.routes.aggregate)(
@@ -220,6 +222,33 @@ def _aggregate(
         )
 
     return aggregate
+
+
+def _progress_projection(
+    selected_cases: list[dict[str, object]],
+    rubrics: dict[int, dict[str, Any]],
+    exam: DracoExam,
+):
+    by_id = {cast(int, case["id"]): (index, case) for index, case in enumerate(selected_cases)}
+
+    def observe(result: dict[str, Any]) -> None:
+        case_id = int(result["case_id"])
+        selected_index, selected_case = by_id[case_id]
+        rubric = rubrics[case_id]
+        register_case_projection(
+            exam.id,
+            case_id=case_id,
+            selected_index=selected_index,
+            grade_case=lambda raw, selected_case=selected_case, rubric=rubric: scoring.grade_case(
+                raw,
+                selected_case,
+                rubric,
+                judge_passes=exam.judge_passes,
+            ),
+            scorer=scoring.score_cases,
+        )
+
+    return observe
 
 
 def _parse_cases(raw: str) -> list[dict[str, object]]:

@@ -13,7 +13,10 @@ from screamingface_engine.benchmarks.ifeval.aggregate import (
     SCHEMA,
     AggregateError,
     aggregate,
+    grade_case,
     load_specs,
+    score_cases,
+    selected_cases,
 )
 from screamingface_engine.benchmarks.ifeval.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
@@ -134,6 +137,17 @@ def test_exact_case_evaluations_survive_the_collect_boundary() -> None:
 
     assert result["score"] == 1.0
     assert result["case_count"] == 2
+
+
+def test_live_projection_and_final_aggregation_share_case_grading_and_scorer() -> None:
+    row = _evaluation(1, [True, False], [True, True])
+    selected = selected_cases(_SPECS, _ORDER, 1)[0]
+
+    projected = grade_case(row, selected, _SPECS[1])
+    final = aggregate(_rows(row), _SPECS, "ifeval", _ORDER, selected_case_count=1)
+
+    assert projected.model_dump() == final["cases"][0]
+    assert score_cases([projected]).score == final["score"]
 
 
 def test_a_failed_case_is_excluded_and_lowers_candidate_coverage() -> None:

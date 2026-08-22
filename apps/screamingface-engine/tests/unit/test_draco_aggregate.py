@@ -166,6 +166,27 @@ def test_candidate_output_cannot_become_judge_evidence() -> None:
     assert result["metrics"]["verdict_coverage"] == 1.0
 
 
+def test_live_projection_and_final_aggregation_share_case_grading_and_scorer() -> None:
+    row = _case_row(
+        1,
+        ("a1", ["MET"] * 5),
+        ("a2", ["MET"] * 5),
+        ("a3", ["UNMET"] * 5),
+        ("b1", ["MET"] * 5),
+    )
+
+    projected = agg.grade_case(row, _selected_cases(1)[0], _RUBRIC, judge_passes=5)
+    final = agg.aggregate(
+        json.dumps([row]),
+        rubrics={1: _RUBRIC},
+        benchmark_id="draco",
+        selected_cases=_selected_cases(1),
+    )
+
+    assert projected.model_dump() == final["cases"][0]
+    assert agg.score_cases([projected]).score == final["score"]
+
+
 def test_partial_judge_evidence_scores_with_explicit_verdict_coverage() -> None:
     evidence = {
         "a1": [_verdict("a1", "MET", sequence=n) for n in range(1, 6)],

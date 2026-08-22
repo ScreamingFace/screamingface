@@ -95,7 +95,7 @@ def _points_from(decoded: object) -> list[int] | None:
     return points
 
 
-def _selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
+def selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
     try:
         decoded = json.loads((root / "cases.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -155,34 +155,30 @@ def aggregate(
     diverging on spread (sample stdev, see ``scoring.sample_stdev``).
     """
 
-    selected_cases = _selected_cases(root, case_ids)
+    selected_cases_for_run = selected_cases(root, case_ids)
     by_case, errors_by_case, grading_failures = _index_rows(_decode_rows(raw_rows), case_ids)
     case_results: list[CaseResult] = []
-    for selected in selected_cases:
+    for selected in selected_cases_for_run:
         case_id = int(selected.case_id)
         grading_failure = grading_failures.get(case_id)
         if grading_failure is not None:
-            assert grading_failure.error is not None
-            result = grading_failure_case_result(
-                selected_case=selected,
-                candidate=grading_failure.candidate,
-                error=grading_failure.error,
-                method="rubric",
-                default_code="healthbench_grading_failed",
-                default_message="the HealthBench grader could not grade this Case",
-            )
+            result = _project_indexed_case(selected, None, None, grading_failure)
         else:
             points = load_rubric_points(root, case_id)
-            result, _, _, _, _ = _case_result(
-                selected, by_case.get(case_id), points, errors_by_case.get(case_id)
+            result = _project_indexed_case(
+                selected,
+                by_case.get(case_id),
+                points,
+                None,
+                errors_by_case.get(case_id),
             )
         case_results.append(result)
     return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
-        selected_cases=selected_cases,
+        selected_cases=selected_cases_for_run,
         cases=case_results,
-        scorer=_healthbench_scorer(mean),
+        scorer=lambda cases: score_cases(mean, cases),
     ).as_payload()
 
 
@@ -219,6 +215,54 @@ def _healthbench_scorer(
         )
 
     return score
+
+
+def score_cases(
+    mean: Callable[[Sequence[float]], float | None],
+    cases: Sequence[CaseResult],
+) -> CandidateScore:
+    """Apply one board's existing mean to a gradeable Case subset."""
+
+    return _healthbench_scorer(mean)(cases)
+
+
+def grade_case(
+    raw: object,
+    selected_case: SelectedCase,
+    points: list[int] | None,
+) -> CaseResult:
+    """Project one exact HealthBench Case with the same rules used by final aggregation."""
+
+    case_id = int(selected_case.case_id)
+    by_case, errors_by_case, grading_failures = _index_rows([raw], (case_id,))
+    return _project_indexed_case(
+        selected_case,
+        by_case.get(case_id),
+        points,
+        grading_failures.get(case_id),
+        errors_by_case.get(case_id),
+    )
+
+
+def _project_indexed_case(
+    selected_case: SelectedCase,
+    row: Mapping[str, Any] | None,
+    points: list[int] | None,
+    grading_failure: CaseExecutionOutcome | None,
+    orphan_errors: list[dict[str, Any]] | None = None,
+) -> CaseResult:
+    if grading_failure is not None:
+        assert grading_failure.error is not None
+        return grading_failure_case_result(
+            selected_case=selected_case,
+            candidate=grading_failure.candidate,
+            error=grading_failure.error,
+            method="rubric",
+            default_code="healthbench_grading_failed",
+            default_message="the HealthBench grader could not grade this Case",
+        )
+    result, _, _, _, _ = _case_result(selected_case, row, points, orphan_errors)
+    return result
 
 
 def _case_result(

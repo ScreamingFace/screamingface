@@ -63,7 +63,7 @@ def aggregate(
     """
 
     rows = _rows(rows_json)
-    selected = _selected_cases(specs, case_order, selected_case_count)
+    selected = selected_cases(specs, case_order, selected_case_count)
     _reject_surplus_rows(rows, selected)
     case_results: list[CaseResult] = []
     for index, raw in enumerate(rows):
@@ -73,41 +73,13 @@ def aggregate(
         if _collected_error(raw) is not None:
             case_results.append(_failed_case_result(raw, index, selected_case))
             continue
-        try:
-            outcome = case_execution_outcome(raw)
-        except (TypeError, ValueError) as exc:
-            raise AggregateError(
-                f"Case result at position {index} is not a valid Case execution: {exc}"
-            ) from None
-        if not case_execution_matches(outcome, selected_case.case_id):
-            raise AggregateError(
-                f"Case result at position {index} claims case_id {outcome.case_id!r}, "
-                f"but the selected Case is {selected_case.case_id!r}"
-            )
-        if outcome.error is not None:
-            case_results.append(
-                grading_failure_case_result(
-                    selected_case=selected_case,
-                    candidate=outcome.candidate,
-                    error=outcome.error,
-                    method="deterministic",
-                    default_code="ifeval_checker_failed",
-                    default_message="the IFEval checker could not grade this Case",
-                )
-            )
-            continue
-        record = _first_valid_record(outcome.grading, case_id, spec)
-        if record is None:
-            raise AggregateError(
-                f"Case result at position {index} is not a valid IFEval Case Evaluation"
-            )
-        case_results.append(_case_result(selected_case, record))
+        case_results.append(grade_case(raw, selected_case, spec, row_index=index))
     return finalize_candidate_result(
         benchmark_id=benchmark_id,
         benchmark_revision=IFEVAL_REVISION,
         selected_cases=selected,
         cases=case_results,
-        scorer=_ifeval_score,
+        scorer=score_cases,
     ).as_payload()
 
 
@@ -224,7 +196,7 @@ def _rows(rows_json: str) -> list[Any]:
     return rows
 
 
-def _selected_cases(
+def selected_cases(
     specs: Mapping[int, Mapping[str, Any]],
     case_order: Sequence[int],
     selected_case_count: int,
@@ -253,6 +225,43 @@ def _selected_cases(
         SelectedCase(case_id=case_id, input=str(specs[case_id]["prompt"]), metadata={})
         for case_id in selected
     ]
+
+
+def grade_case(
+    raw: object,
+    selected_case: SelectedCase,
+    spec: Mapping[str, Any],
+    *,
+    row_index: int | None = None,
+) -> CaseResult:
+    """Project one exact Case execution with the same rules used by final aggregation."""
+
+    position = f" at position {row_index}" if row_index is not None else ""
+    try:
+        outcome = case_execution_outcome(raw)
+    except (TypeError, ValueError) as exc:
+        raise AggregateError(
+            f"Case result{position} is not a valid Case execution: {exc}"
+        ) from None
+    if not case_execution_matches(outcome, selected_case.case_id):
+        raise AggregateError(
+            f"Case result{position} claims case_id {outcome.case_id!r}, "
+            f"but the selected Case is {selected_case.case_id!r}"
+        )
+    if outcome.error is not None:
+        return grading_failure_case_result(
+            selected_case=selected_case,
+            candidate=outcome.candidate,
+            error=outcome.error,
+            method="deterministic",
+            default_code="ifeval_checker_failed",
+            default_message="the IFEval checker could not grade this Case",
+        )
+    case_id = int(selected_case.case_id)
+    record = _first_valid_record(outcome.grading, case_id, spec)
+    if record is None:
+        raise AggregateError(f"Case result{position} is not a valid IFEval Case Evaluation")
+    return _case_result(selected_case, record)
 
 
 def _first_valid_record(
@@ -376,7 +385,7 @@ def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> Case
     )
 
 
-def _ifeval_score(cases: Sequence[CaseResult]) -> CandidateScore:
+def score_cases(cases: Sequence[CaseResult]) -> CandidateScore:
     """Apply IFEval's published accuracy formulas to gradeable typed Cases."""
 
     grades = [case.grade for case in cases]

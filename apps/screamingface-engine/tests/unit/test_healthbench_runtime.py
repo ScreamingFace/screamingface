@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.case_execution import (
     case_execution_payload,
     install_case_execution,
@@ -33,6 +34,8 @@ from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
 from screamingface_engine.benchmarks.healthbench.runtime import install, preflight
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS
 from screamingface_engine.benchmarks.healthbench.verdict import call as verdict_call
+from screamingface_engine.benchmarks.run_logs import BenchmarkRunLogAdapter
+from screamingface_engine.run_log_contract import LogScalar
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -342,6 +345,57 @@ async def test_a_limit_one_expression_resolves_end_to_end(tmp_path: Path) -> Non
     assert result["case_count"] == 1
     assert result["metrics"]["verdict_coverage"] == 1.0
     assert result["cases"][0]["failures"] == []
+
+
+@pytest.mark.asyncio
+async def test_real_limit_one_expression_emits_one_exact_provisional_snapshot(
+    tmp_path: Path,
+) -> None:
+    _write_assets(tmp_path)
+    node = Url4Node("test")
+    install(node, tmp_path, WORST30_EXAM)
+    install_case_execution(node)
+
+    @node.endpoint(CANDIDATE_ROUTE)
+    def candidate(_request: Request) -> str:
+        return encode_candidate_invocation(_ANSWER, "stop", None)
+
+    @node.endpoint(f"/{JUDGE_MODEL}")
+    def judge(_request: Request) -> str:
+        return '{"explanation": "asks which study", "criteria_met": true}'
+
+    expression = expr(
+        src(Text("unused-candidate-recipe"), name="candidate", weight=0.0),
+        src(HEALTHBENCH_WORST30.protocol(1), name="exam", weight=0.0),
+        intent=Text("$exam"),
+    )
+    rendered = render(expression)
+    records: list[tuple[str, dict[str, LogScalar]]] = []
+    scope = BenchmarkRunLogAdapter(BUILTIN_BENCHMARKS).open_run_scope(
+        rendered,
+        lambda body, attributes: records.append((body, dict(attributes))),
+    )
+    assert scope is not None
+
+    with scope:
+        final = json.loads((await node.evaluate(rendered)).text)
+
+    assert final["score"] == 1.0
+    assert records == [
+        (
+            "evaluation progress",
+            {
+                "screamingface.event.schema": "screamingface.evaluation-progress.v1",
+                "cases.total": 1,
+                "cases.completed": 1,
+                "cases.graded": 1,
+                "cases.failed": 0,
+                "cases.refused": 0,
+                "score.provisional": final["score"],
+                "score.coverage": final["coverage"],
+            },
+        )
+    ]
 
 
 def _write_full_assets(root: Path, points: tuple[int, ...] = (8,)) -> None:

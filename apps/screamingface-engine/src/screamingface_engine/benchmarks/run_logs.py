@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import contextvars
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from types import TracebackType
 from typing import Literal
 
+from screamingface_engine.benchmarks.aggregation import Scorer
+from screamingface_engine.benchmarks.contract import CaseId, CaseResult
 from screamingface_engine.benchmarks.progress import (
+    PROGRESS_BODY,
     EvaluationProgressTracker,
     discover_evaluation_progress,
 )
@@ -95,16 +98,38 @@ class _BenchmarkRunRecorder:
     def record_case_execution(self, value: str) -> None:
         if self._active and self._progress is not None:
             try:
-                self._progress.record_case_execution(value)
+                snapshot = self._progress.record_case_execution(value)
+                if snapshot is not None:
+                    self.emit(self._progress.benchmark_id, PROGRESS_BODY, snapshot.attributes())
             except Exception as exc:  # noqa: BLE001 - progress must remain observational
                 self._warn_progress_once(exc)
 
     def record_candidate_failure(self) -> None:
         if self._active and self._progress is not None:
             try:
-                self._progress.record_candidate_failure()
+                snapshot = self._progress.record_candidate_failure()
+                if snapshot is not None:
+                    self.emit(self._progress.benchmark_id, PROGRESS_BODY, snapshot.attributes())
             except Exception as exc:  # noqa: BLE001 - progress must remain observational
                 self._warn_progress_once(exc)
+
+    def register_case_projection(
+        self,
+        benchmark_id: str,
+        *,
+        case_id: CaseId,
+        selected_index: int,
+        grade_case: Callable[[str], CaseResult],
+        scorer: Scorer,
+    ) -> None:
+        if self._active and self._progress is not None:
+            self._progress.register_case_projection(
+                benchmark_id,
+                case_id=case_id,
+                selected_index=selected_index,
+                grade_case=grade_case,
+                scorer=scorer,
+            )
 
     def _warn_progress_once(self, exc: Exception) -> None:
         if not self._progress_warned:
@@ -210,9 +235,31 @@ def record_candidate_failure() -> None:
         recorder.record_candidate_failure()
 
 
+def register_case_projection(
+    benchmark_id: str,
+    *,
+    case_id: CaseId,
+    selected_index: int,
+    grade_case: Callable[[str], CaseResult],
+    scorer: Scorer,
+) -> None:
+    """Register one Benchmark-owned pure projector for the pending Case return."""
+
+    recorder = _current_recorder.get()
+    if recorder is not None:
+        recorder.register_case_projection(
+            benchmark_id,
+            case_id=case_id,
+            selected_index=selected_index,
+            grade_case=grade_case,
+            scorer=scorer,
+        )
+
+
 __all__ = [
     "BenchmarkRunLogAdapter",
     "emit_benchmark_run_log",
     "record_candidate_failure",
     "record_successful_case_execution",
+    "register_case_projection",
 ]
