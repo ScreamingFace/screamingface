@@ -49,8 +49,8 @@ construct ScreamingFace attributes.
 
 `benchmarks/progress.py` owns:
 
-- exact Benchmark/total discovery from the existing registered aggregate route and literal
-  `aggregate:N`;
+- exact Benchmark/total discovery during run-scope setup, only when the rendered expression
+  contains exactly one registered aggregate route with a literal `aggregate:N`;
 - the `screamingface.evaluation-progress.v1` schema;
 - run-local terminal Case accounting;
 - conversion of raw terminal Case execution through Benchmark-owned `grade_case`;
@@ -113,8 +113,8 @@ Required scalar attributes:
 | `score.provisional` | Finite Benchmark-native number or null |
 | `score.coverage` | `cases.graded / cases.total`, in `[0, 1]` |
 
-Candidate identity and ordering come from the existing run subject and CloudEvent sequence. The
-record repeats no Candidate or model identifier.
+Candidate association remains Client-owned per run. CloudEvent sequence orders progress snapshots
+within that run. The record repeats no Candidate or model identifier.
 
 It contains no Case id, input, answer, prompt, attachment, rubric, Judge explanation, model identity,
 provider error, or Benchmark-private metadata.

@@ -17,7 +17,8 @@ Every iteration begins with failing tests; existing tests are append-only.
 
 ### RED
 
-- Activate only for exactly one registered aggregate route with valid literal `aggregate:N`.
+- During run-scope setup, activate only when the rendered expression contains exactly one
+  registered aggregate route with a valid literal `aggregate:N`.
 - Missing, malformed, unknown, or ambiguous matches install no tracker and do not affect execution.
 - Limits `1`, `10`, and full size resolve the exact adapter and total without changing URL4.
 - Concurrent terminal notifications cannot cross-talk or double-count.
