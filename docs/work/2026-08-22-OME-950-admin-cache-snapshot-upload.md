@@ -1,9 +1,9 @@
 ---
 ticket: OME-950
 stack: repo
-status: in_progress
+status: done
 started: 2026-08-22
-finished:
+finished: 2026-08-22
 ---
 
 # OME-950 — Admin cache-snapshot upload (spec + scaffolding unit)
@@ -38,6 +38,6 @@ epic's documentation scaffolding. No implementation in this unit — spec, mirro
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned
-- **Commits:** <sha — message>
+- **Commits:** 9f191515 — docs(spec): OME-950 admin cache-snapshot upload — spec, mirrors, ledger, diagram
 - **Gates:** n/a (docs-only)
 - **Deviations:** ids OME-950..953 are provisional until the owner files them in Linear
