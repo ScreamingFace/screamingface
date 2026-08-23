@@ -284,8 +284,21 @@ RESULT_INLINE_CAP_BYTES = "URL4_CLOUD_RESULT_INLINE_CAP_BYTES"
 """Largest result body (UTF-8 bytes) that rides the result frame inline; anything larger is
 spilled whole to :data:`ARTIFACTS_DIR`. Replaces the pre-OME-892 truncation cap."""
 
-DEFAULT_RESULT_INLINE_CAP_BYTES = 1_048_576
-"""1 MiB — the historical wire cap, kept so small runs stay byte-identical to before."""
+DEFAULT_RESULT_INLINE_CAP_BYTES = 524_288
+"""512 KiB — half the historical 1 MiB wire cap, with the excess as envelope headroom.
+
+WHY not 1 MiB (the measured failure this fixes, OME-949): the inline gate compares the RAW
+UTF-8 result against this cap, but what is PUBLISHED is the CloudEvent envelope wrapping it
+— ids, source, subject, time, plus JSON re-escaping of the result string. Measured on real
+DRACO aggregates the envelope inflates the frame ≈6% over the raw result (619,026-byte
+result → 657,732-byte frame), and a broker at the common 1 MiB `max_payload` default then
+REJECTS the publish with ``nats: maximum payload exceeded`` — at the run's final frame,
+after every model call has already been paid for. A raw result in roughly
+(0.94 MiB, 1.00 MiB] therefore failed deterministically while both smaller (inline, fits)
+and larger (spilled to an artifact reference, tiny) results succeeded. 512 KiB leaves two
+times the observed envelope cost as margin; anything in (512 KiB, hard cap] spills to
+:data:`ARTIFACTS_DIR`, which the SDK redeems transparently.
+"""
 
 RESULT_HARD_CAP_BYTES = "URL4_CLOUD_RESULT_HARD_CAP_BYTES"
 """Absolute result ceiling: past this the run FAILS with ``result_too_large`` instead of
