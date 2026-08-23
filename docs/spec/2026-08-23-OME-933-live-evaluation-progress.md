@@ -3,7 +3,7 @@
 - **Linear:** https://linear.app/openmined/issue/OME-933/redesign-live-evaluation-progress
 - **Landing:** `packages/screamingface`
 - **Dependency:** `OME-950` supplies relative URL4 route names in ordinary terminal spans
-- **Status:** awaiting implementation approval
+- **Status:** approved 2026-08-23
 
 ## Outcome
 
@@ -18,7 +18,9 @@ schema, Benchmark hook, Engine adapter, URL4 expression, or Client-side scoring 
 
 - One Candidate is one independently submitted Engine Run.
 - Candidate Runs can overlap and their Events can interleave.
-- The Client knows the ordered Candidates and selected Case count before execution starts.
+- The Client knows the ordered Candidates before execution starts. Ordinary Benchmark evaluation
+  also knows the selected Case count; opaque `sf.evaluate(url4)` replay learns it only from the
+  final decoded Report.
 - The transport accepts one Event observer for each Run.
 - The transport's existing Run state validates sequence continuity and suppresses replayed Events
   before invoking that observer.
@@ -50,9 +52,14 @@ event.name == "/benchmarks/case-execution"
 Both `status="ok"` and `status="error"` count because both mean that Case-execution node reached a
 terminal outcome. Failure is evidence about that completion, not a reason to hide the completion.
 
-Each row's denominator is the selected `evaluation.case_count`. `42 / 100` means 42 terminal
-Cases have been observed for that Candidate; it is not Case ID 42 and does not claim which Case is
-currently executing. The display never exceeds its known total.
+For ordinary Benchmark evaluation, each row's denominator is the selected
+`evaluation.case_count`. `42 / 100` means 42 terminal Cases have been observed for that Candidate;
+it is not Case ID 42 and does not claim which Case is currently executing. The display never
+exceeds its known total.
+
+Opaque `sf.evaluate(url4)` replay has no separate selected-count input. It shows the exact observed
+numerator as `42 cases finished` while running, then learns the denominator from the authoritative
+Report. The Client does not parse URL4 to invent execution context.
 
 No other structural span counts. In particular, a `RemoteFetchNode` with the same unqualified
 path does not count because its operation differs. Model spans cannot stand in for Cases because

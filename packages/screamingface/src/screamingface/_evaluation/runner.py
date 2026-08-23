@@ -79,18 +79,19 @@ def evaluate_sync(
     observer = _sync_event_observer(
         on_event,
         progress,
-        len(evaluation.candidates),
+        tuple(evaluation.candidates),
+        evaluation.case_count,
         benchmark,
-        candidate_models=_candidate_model_ids(tuple(evaluation.candidates)),
-        candidate_urls=tuple(candidate.url4 for candidate in evaluation.candidates),
         check_disclosure=check_disclosure,
     )
     try:
         outcomes = _run_candidates_sync(transport, tuple(evaluation.candidates), observer)
-    except BaseException:
-        _close_event_observer(observer)
+        report = report_from_outcomes(evaluation, outcomes)
+    except BaseException as exc:
+        _abort_event_observer(observer, exc)
         raise
-    return report_from_outcomes(evaluation, outcomes)
+    _reconcile_event_observer(observer, report)
+    return report
 
 
 async def evaluate_async(
@@ -128,18 +129,19 @@ async def evaluate_async(
     observer = _async_event_observer(
         on_event,
         progress,
-        len(evaluation.candidates),
+        tuple(evaluation.candidates),
+        evaluation.case_count,
         benchmark,
-        candidate_models=_candidate_model_ids(tuple(evaluation.candidates)),
-        candidate_urls=tuple(candidate.url4 for candidate in evaluation.candidates),
         check_disclosure=check_disclosure,
     )
     try:
         outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
-    except BaseException:
-        _close_event_observer(observer)
+        report = report_from_outcomes(evaluation, outcomes)
+    except BaseException as exc:
+        _abort_event_observer(observer, exc)
         raise
-    return report_from_outcomes(evaluation, outcomes)
+    _reconcile_event_observer(observer, report)
+    return report
 
 
 def _evaluation_options(on_event: object, progress: object) -> None:
@@ -152,20 +154,18 @@ def _evaluation_options(on_event: object, progress: object) -> None:
 def _sync_event_observer(
     callback: Callable[[Event], None] | None,
     progress: bool | None,
-    total_candidates: int | None = None,
+    candidates: tuple[Candidate, ...] = (),
+    case_count: int | None = None,
     benchmark: str | None = None,
-    candidate_models: tuple[str, ...] = (),
-    candidate_urls: tuple[str, ...] = (),
     check_disclosure: str | None = None,
-) -> Callable[[Event], None] | None:
+) -> _SyncEventObserver | None:
     from screamingface._evaluation.progress import _progress_observer
 
     builtin = _progress_observer(
         progress,
-        total_candidates=total_candidates,
+        candidates=candidates,
+        case_count=case_count,
         benchmark=benchmark,
-        candidate_models=candidate_models,
-        candidate_urls=candidate_urls,
         check_disclosure=check_disclosure,
     )
     if builtin is None and callback is None:
@@ -176,20 +176,18 @@ def _sync_event_observer(
 def _async_event_observer(
     callback: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
-    total_candidates: int | None = None,
+    candidates: tuple[Candidate, ...] = (),
+    case_count: int | None = None,
     benchmark: str | None = None,
-    candidate_models: tuple[str, ...] = (),
-    candidate_urls: tuple[str, ...] = (),
     check_disclosure: str | None = None,
-) -> Callable[[Event], Awaitable[None]] | None:
+) -> _AsyncEventObserver | None:
     from screamingface._evaluation.progress import _progress_observer
 
     builtin = _progress_observer(
         progress,
-        total_candidates=total_candidates,
+        candidates=candidates,
+        case_count=case_count,
         benchmark=benchmark,
-        candidate_models=candidate_models,
-        candidate_urls=candidate_urls,
         check_disclosure=check_disclosure,
     )
     if builtin is None and callback is None:
@@ -200,19 +198,28 @@ def _async_event_observer(
 class _SyncEventObserver:
     def __init__(
         self,
-        builtin: Callable[[Event], None] | None,
+        builtin: object | None,
         callback: Callable[[Event], None] | None,
     ) -> None:
         self._builtin = builtin
         self._callback = callback
         self._lock = Lock()
 
-    def __call__(self, event: Event) -> None:
-        with self._lock:
-            if self._builtin is not None:
-                _observe_progress(self._builtin, event)
-            if self._callback is not None:
-                self._callback(event)
+    def bind(self, candidate: Candidate) -> Callable[[Event], None]:
+        def observe(event: Event) -> None:
+            with self._lock:
+                if self._builtin is not None:
+                    _observe_candidate_progress(self._builtin, candidate, event)
+                if self._callback is not None:
+                    self._callback(event)
+
+        return observe
+
+    def reconcile(self, report: Report) -> None:
+        _reconcile_progress(self._builtin, report)
+
+    def abort(self, exc: BaseException) -> None:
+        _abort_progress(self._builtin, exc)
 
     def close(self) -> None:
         _close_progress(self._builtin)
@@ -221,21 +228,30 @@ class _SyncEventObserver:
 class _AsyncEventObserver:
     def __init__(
         self,
-        builtin: Callable[[Event], None] | None,
+        builtin: object | None,
         callback: Callable[[Event], None | Awaitable[None]] | None,
     ) -> None:
         self._builtin = builtin
         self._callback = callback
         self._lock = asyncio.Lock()
 
-    async def __call__(self, event: Event) -> None:
-        async with self._lock:
-            if self._builtin is not None:
-                _observe_progress(self._builtin, event)
-            if self._callback is not None:
-                returned = self._callback(event)
-                if inspect.isawaitable(returned):
-                    await returned
+    def bind(self, candidate: Candidate) -> Callable[[Event], Awaitable[None]]:
+        async def observe(event: Event) -> None:
+            async with self._lock:
+                if self._builtin is not None:
+                    _observe_candidate_progress(self._builtin, candidate, event)
+                if self._callback is not None:
+                    returned = self._callback(event)
+                    if inspect.isawaitable(returned):
+                        await returned
+
+        return observe
+
+    def reconcile(self, report: Report) -> None:
+        _reconcile_progress(self._builtin, report)
+
+    def abort(self, exc: BaseException) -> None:
+        _abort_progress(self._builtin, exc)
 
     def close(self) -> None:
         _close_progress(self._builtin)
@@ -246,8 +262,14 @@ def _close_event_observer(observer: object) -> None:
         observer.close()
 
 
-def _candidate_model_ids(candidates: tuple[Candidate, ...]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(model for candidate in candidates for model in candidate.models))
+def _reconcile_event_observer(observer: object, report: Report) -> None:
+    if isinstance(observer, (_SyncEventObserver, _AsyncEventObserver)):
+        observer.reconcile(report)
+
+
+def _abort_event_observer(observer: object, exc: BaseException) -> None:
+    if isinstance(observer, (_SyncEventObserver, _AsyncEventObserver)):
+        observer.abort(exc)
 
 
 def _close_progress(observer: object) -> None:
@@ -260,11 +282,46 @@ def _close_progress(observer: object) -> None:
         _logger.exception("ScreamingFace progress cleanup failed")
 
 
-def _observe_progress(observer: Callable[[Event], None], event: Event) -> None:
+def _observe_candidate_progress(observer: object, candidate: Candidate, event: Event) -> None:
+    selected = getattr(observer, "observe", None)
+    if not callable(selected):
+        _logger.error("ScreamingFace progress observer has no Candidate observation method")
+        return
+    _observe_progress(selected, candidate, event)
+
+
+def _reconcile_progress(observer: object | None, report: Report) -> None:
+    if observer is None:
+        return
+    reconcile = getattr(observer, "reconcile", None)
+    if not callable(reconcile):
+        return
+    try:
+        reconcile(report)
+    except Exception:
+        _logger.exception("ScreamingFace progress reconciliation failed")
+        _close_progress(observer)
+
+
+def _abort_progress(observer: object | None, exc: BaseException) -> None:
+    if observer is None:
+        return
+    abort = getattr(observer, "abort", None)
+    if not callable(abort):
+        _close_progress(observer)
+        return
+    try:
+        abort(exc)
+    except Exception:
+        _logger.exception("ScreamingFace progress finalization failed")
+        _close_progress(observer)
+
+
+def _observe_progress(observer: Callable[..., object], *values: object) -> None:
     """Keep decorative progress output outside the Evaluation failure boundary."""
 
     try:
-        observer(event)
+        observer(*values)
     except (OSError, ValueError):
         # Closed pipes and notebook streams must not cancel paid Engine work.
         return
@@ -277,11 +334,12 @@ def _observe_progress(observer: Callable[[Event], None], event: Event) -> None:
 def _run_candidates_sync(
     transport: SyncRunTransport,
     candidates: tuple[Candidate, ...],
-    observer: Callable[[Event], None] | None,
+    observer: _SyncEventObserver | None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
     if len(candidates) == 1:
         candidate = candidates[0]
-        return ((candidate, transport.run(candidate, observer)),)
+        selected_observer = None if observer is None else observer.bind(candidate)
+        return ((candidate, transport.run(candidate, selected_observer)),)
 
     with ThreadPoolExecutor(
         max_workers=min(len(candidates), _MAX_CANDIDATES_IN_FLIGHT),
@@ -290,7 +348,12 @@ def _run_candidates_sync(
         futures = ()
         try:
             futures = tuple(
-                executor.submit(transport.run, candidate, observer) for candidate in candidates
+                executor.submit(
+                    transport.run,
+                    candidate,
+                    None if observer is None else observer.bind(candidate),
+                )
+                for candidate in candidates
             )
             return tuple(
                 (candidate, future.result())
@@ -309,17 +372,19 @@ def _run_candidates_sync(
 async def _run_candidates_async(
     transport: AsyncRunTransport,
     candidates: tuple[Candidate, ...],
-    observer: Callable[[Event], None | Awaitable[None]] | None,
+    observer: _AsyncEventObserver | None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
     if len(candidates) == 1:
         candidate = candidates[0]
-        return ((candidate, await transport.run(candidate, observer)),)
+        selected_observer = None if observer is None else observer.bind(candidate)
+        return ((candidate, await transport.run(candidate, selected_observer)),)
 
     gate = asyncio.Semaphore(_MAX_CANDIDATES_IN_FLIGHT)
 
     async def run(candidate: Candidate) -> _RunOutcome:
         async with gate:
-            return await transport.run(candidate, observer)
+            selected_observer = None if observer is None else observer.bind(candidate)
+            return await transport.run(candidate, selected_observer)
 
     tasks = tuple(asyncio.create_task(run(candidate)) for candidate in candidates)
     try:

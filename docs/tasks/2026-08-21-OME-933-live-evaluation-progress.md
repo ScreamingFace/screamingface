@@ -20,4 +20,8 @@ order, uses horizontal scrolling on narrow screens, preserves the aggregate cach
 band, and never fabricates activity or evidence. The decoded final Candidate Result remains
 authoritative.
 
+Ordinary Benchmark evaluation knows the selected Case count up front and renders exact `x / N`.
+Opaque `sf.evaluate(url4)` replay shows its exact observed numerator while running, then learns
+the denominator from the final Report; the Client does not parse URL4.
+
 Blocked by OME-950. Canonical spec, plan, and ledger precede implementation.

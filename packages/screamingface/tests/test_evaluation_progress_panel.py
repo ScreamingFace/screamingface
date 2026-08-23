@@ -1,14 +1,11 @@
-"""The live evaluate() panel: the Event fold and the HTML it renders."""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
-
-import pytest
+from typing import Any, cast
 
 import screamingface as sf
+from screamingface._evaluation.model import Candidate, _compiled_candidate, _compiled_operation
 from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.evaluation_view import (
     _compact,
@@ -17,16 +14,32 @@ from screamingface._ui.evaluation_view import (
     evaluation_panel_html,
 )
 
-_START = datetime(2026, 8, 7, 12, 0, tzinfo=UTC)
+_START = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
 
 
-def envelope(sequence: int = 1, *, run_id: str = "run_1", offset: float = 0.0) -> dict[str, Any]:
+def candidate(name: str = "opus", model: str = "provider/opus") -> Candidate:
+    operation = _compiled_operation(
+        id=f"op_{name}",
+        kind="model",
+        label=f"{name} answer",
+        depends_on=(),
+    )
+    return _compiled_candidate(
+        name=name,
+        kind="model",
+        models=(model,),
+        url4=f"(@)!'{name}'",
+        operations=(operation,),
+    )
+
+
+def envelope(sequence: int, *, run_id: str = "run_opus") -> dict[str, Any]:
     return {
-        "id": f"event_{sequence}",
+        "id": f"{run_id}_{sequence}",
         "run_id": run_id,
         "sequence": sequence,
-        "timestamp": _START + timedelta(seconds=offset),
-        "source": f"/trace/{run_id}/node/root",
+        "timestamp": _START + timedelta(seconds=sequence),
+        "source": f"/trace/{run_id}/node/{sequence}",
     }
 
 
@@ -36,7 +49,7 @@ def model_span(sequence: int, **overrides: Any) -> sf.events.Span:
         "operation": "chat",
         "start": _START,
         "end": _START + timedelta(seconds=2),
-        "request_model": "anthropic/claude-opus-4.8",
+        "request_model": "provider/opus",
         "input_tokens": 1_000,
         "output_tokens": 250,
     }
@@ -44,424 +57,108 @@ def model_span(sequence: int, **overrides: Any) -> sf.events.Span:
     return sf.events.Span(**envelope(sequence), **values)
 
 
-def test_structural_spans_never_count_as_model_work() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
+def progress(*candidates: Candidate) -> _EvaluationProgress:
+    selected = candidates or (candidate(),)
+    return _EvaluationProgress(candidates=selected, case_count=2)
 
-    progress.observe(
+
+def test_model_spans_accumulate_calls_tokens_failures_and_refusals() -> None:
+    opus = candidate()
+    state = progress(opus)
+
+    state.observe(opus, model_span(1))
+    state.observe(opus, model_span(2, status="error", input_tokens=10, output_tokens=0))
+    state.observe(opus, model_span(3, refusal="declined"))
+
+    row = state.rows[0]
+    assert (row.model_calls, row.failed_calls, row.refusals) == (3, 1, 1)
+    assert (row.input_tokens, row.output_tokens) == (2_010, 500)
+
+
+def test_structural_spans_do_not_count_as_model_work() -> None:
+    opus = candidate()
+    state = progress(opus)
+
+    state.observe(
+        opus,
         sf.events.Span(
             **envelope(1),
             name="TextNode",
             operation="TextNode",
             start=_START,
-            end=_START + timedelta(seconds=1),
-        )
+            end=_START,
+        ),
     )
 
-    assert progress.model_calls == 0
-    assert progress.have_tokens is False
-
-
-def test_model_spans_accumulate_calls_tokens_and_failures() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-
-    progress.observe(model_span(1))
-    progress.observe(model_span(2, status="error", input_tokens=10, output_tokens=0))
-    progress.observe(model_span(3, refusal="declined"))
-
-    assert progress.model_calls == 3
-    assert progress.failed_calls == 1
-    assert progress.refusals == 1
-    assert progress.input_tokens == 2_010
-    assert progress.output_tokens == 500
+    assert state.rows[0].model_calls == 0
 
 
 def test_subtree_usage_is_ignored_so_cost_is_not_double_counted() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-
-    progress.observe(
-        sf.events.Usage(
-            **envelope(1),
-            scope="self",
-            provider="openrouter",
-            model="m",
-            pricing_version="v1",
-            usage=sf.Usage(cost_usd=Decimal("0.25")),
+    opus = candidate()
+    state = progress(opus)
+    for sequence, scope, amount in ((1, "self", "0.25"), (2, "subtree", "99")):
+        state.observe(
+            opus,
+            sf.events.Usage(
+                **envelope(sequence),
+                scope=cast(Any, scope),
+                provider="provider",
+                model="opus",
+                pricing_version="v1",
+                usage=sf.Usage(cost_usd=Decimal(amount)),
+            ),
         )
-    )
-    progress.observe(
-        sf.events.Usage(
-            **envelope(2),
-            scope="subtree",
-            provider="openrouter",
-            model="m",
-            pricing_version="v1",
-            usage=sf.Usage(cost_usd=Decimal("99.00")),
-        )
-    )
 
-    assert progress.cost_usd == Decimal("0.25")
+    assert state.rows[0].cost_usd == Decimal("0.25")
 
 
-def test_progress_tracks_candidates_and_reports_the_worst_terminal_status() -> None:
-    progress = _EvaluationProgress(total_candidates=2)
-
-    progress.observe(sf.events.Terminated(**envelope(1, run_id="run_1"), status="succeeded"))
-    assert progress.running is True
-    assert progress.status == "running"
-    assert progress.fraction == 0.5
-
-    progress.observe(sf.events.Terminated(**envelope(2, run_id="run_2"), status="failed"))
-
-    assert progress.finished is True
-    # A single failure must not be hidden by a sibling candidate that succeeded.
-    assert progress.status == "failed"
-    assert progress.fraction == 1.0
-
-
-def test_elapsed_comes_from_event_timestamps_not_the_wall_clock() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-
-    progress.observe(sf.events.Started(**envelope(1, offset=0), url4="(@)!'hi'"))
-    progress.observe(sf.events.Terminated(**envelope(2, offset=90), status="succeeded"))
-
-    assert progress.elapsed_seconds == 90.0
-
-
-def test_unknown_total_never_renders_a_fabricated_percentage() -> None:
-    progress = _EvaluationProgress(total_candidates=None)
-    progress.observe(model_span(1))
-
-    assert progress.fraction is None
-    assert progress.finished is False
-
-    html = evaluation_panel_html(progress)
-
-    assert "sf-eval__fill--sweep" in html
-    assert "%'" not in html.split("sf-eval__track")[1].split("</div>")[0]
-
-
-def test_panel_renders_live_totals_and_escapes_untrusted_text() -> None:
-    progress = _EvaluationProgress(total_candidates=2)
-    progress.observe(model_span(1, request_model="<script>alert(1)</script>"))
-    progress.observe(
-        sf.events.Usage(
-            **envelope(2),
-            scope="self",
-            provider="openrouter",
-            model="m",
-            pricing_version="v1",
-            usage=sf.Usage(cost_usd=Decimal("1.5")),
-        )
+def test_nested_termination_does_not_change_the_candidate_status() -> None:
+    opus = candidate()
+    state = progress(opus)
+    root = "/trace/run_opus/node/root"
+    state.observe(
+        opus,
+        sf.events.Started(**{**envelope(1), "source": root}, url4=opus.url4),
     )
 
-    html = evaluation_panel_html(progress, "GPQA <Diamond>")
-
-    assert "Evaluating" in html
-    assert "0/2 candidates" in html
-    assert "1.0k / 250" in html
-    assert "$1.50" in html
-    assert "GPQA &lt;Diamond&gt;" in html
-    assert "<script>" not in html
-
-
-def test_panel_switches_to_a_completed_heading_and_surfaces_the_error() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(
-        sf.events.Terminated(
-            **envelope(1),
-            status="failed",
-            error=sf.events.TerminationError(code="boom", message="engine exploded"),
-        )
+    state.observe(
+        opus,
+        sf.events.Terminated(**envelope(2), status="failed"),
     )
 
-    html = evaluation_panel_html(progress, "GPQA")
+    assert state.rows[0].status == "running"
 
-    assert "Evaluation complete" in html
-    assert "sf-eval__state failed" in html
-    assert "engine exploded" in html
-
-
-def test_the_clock_advances_between_events_not_only_on_them() -> None:
-    """A long model call emits no Events; a frozen clock would read as a hang."""
-
-    from screamingface._ui.evaluation_view import _NotebookEvaluationView
-
-    now = [100.0]
-    view = _NotebookEvaluationView(1, "GPQA", clock=lambda: now[0], tick=False)
-    view(sf.events.Started(**envelope(1), url4="(@)!'hi'"))
-    first = view._html.value
-
-    now[0] += 45.0  # time passes; no Event arrives
-    view._html.value = view._render()
-
-    assert "0.0s" in first
-    assert "45.0s" in view._html.value
-
-
-def test_a_finished_run_reports_the_span_it_took_not_the_wall_clock() -> None:
-    from screamingface._ui.evaluation_view import _NotebookEvaluationView
-
-    now = [100.0]
-    view = _NotebookEvaluationView(1, "GPQA", clock=lambda: now[0], tick=False)
-    view(sf.events.Started(**envelope(1, offset=0), url4="(@)!'hi'"))
-    view(sf.events.Terminated(**envelope(2, offset=12), status="succeeded"))
-
-    now[0] += 900.0  # the notebook sits open long after the run ended
-
-    assert "12.0s" in view._render()
-
-
-def test_closing_a_failed_evaluation_stops_the_notebook_ticker() -> None:
-    from screamingface._ui.evaluation_view import _NotebookEvaluationView
-
-    view = _NotebookEvaluationView(1, "GPQA", tick=False)
-
-    view.close()
-
-    assert view._done.is_set()
-
-
-def test_live_figure_formatters_cover_large_small_and_long_running_values() -> None:
-    """The panel stays compact without hiding sub-cent cost or long elapsed time."""
-
-    assert _compact(2_000_000) == "2.0M"
-    assert _money(Decimal("0.005")) == "$0.0050"
-    assert _duration(65) == "1m 05s"
-    assert _duration(3_665) == "1h 01m"
-
-
-def test_panel_surfaces_failed_calls_and_subcent_cost() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(model_span(1, status="error", input_tokens=2_000_000))
-    progress.observe(
-        sf.events.Usage(
-            **envelope(2),
-            scope="self",
-            provider="openrouter",
-            model="m",
-            pricing_version="v1",
-            usage=sf.Usage(cost_usd=Decimal("0.005")),
-        )
+    state.observe(
+        opus,
+        sf.events.Terminated(**{**envelope(3), "source": root}, status="failed"),
     )
 
-    html = evaluation_panel_html(progress)
-
-    assert "1 · 1 failed" in html
-    assert "2.0M / 250" in html
-    assert "$0.0050" in html
+    assert state.rows[0].status == "run_failed"
 
 
-def test_phase_progress_distinguishes_candidate_work_from_benchmark_grading() -> None:
-    candidate_model = "openrouter/anthropic/claude-opus-4.8"
-    progress = _EvaluationProgress(
-        total_candidates=1,
-        candidate_models=frozenset({candidate_model}),
-    )
+def test_live_cache_rate_excludes_bypasses() -> None:
+    opus = candidate()
+    state = progress(opus)
+    state.observe(opus, model_span(1, cache_status="hit"))
+    state.observe(opus, model_span(2, cache_status="miss"))
+    state.observe(opus, model_span(3, cache_status="bypass", cache_reason="stream"))
 
-    assert "Starting evaluation" in evaluation_panel_html(progress, "Fixture Benchmark")
-
-    progress.observe(sf.events.Started(**envelope(1), url4="(@)!'hi'"))
-    assert progress.activity == "Running candidate"
-
-    progress.observe(model_span(2, request_model=candidate_model))
-    assert progress.activity == "Running candidate · 1 model call completed"
-
-    progress.observe(
-        model_span(
-            3,
-            request_model="openrouter/google/gemini-3.1-pro-preview",
-        )
-    )
-    assert progress.activity == "Grading benchmark · 1 model call completed"
-
-    progress.observe(sf.events.Terminated(**envelope(4), status="succeeded"))
-    html = evaluation_panel_html(progress, "Fixture Benchmark")
-
-    assert progress.activity == "Evaluation finished"
-    assert "phase · Evaluation finished" in html
-    assert "evaluation finished" in html
+    assert state.rows[0].cache_totals == (1, 1, 1)
+    assert state.rows[0].cache_hit_rate == 0.5
+    assert state.cache_bypass_breakdown == (("stream", 1),)
 
 
-def test_evaluation_only_says_finished_after_every_candidate_terminates() -> None:
-    progress = _EvaluationProgress(total_candidates=2)
-
-    progress.observe(sf.events.Terminated(**envelope(1, run_id="run_1"), status="succeeded"))
-
-    assert progress.activity == "Running candidates · 1/2 finished"
-    assert all(text != "evaluation finished" for _, _, text in progress.feed)
-
-    progress.observe(sf.events.Terminated(**envelope(2, run_id="run_2"), status="succeeded"))
-
-    assert progress.activity == "Evaluation finished"
-    assert progress.feed[0][2] == "evaluation finished"
-
-
-def test_parallel_candidate_starts_create_one_evaluation_start_entry() -> None:
-    progress = _EvaluationProgress(total_candidates=2)
-
-    progress.observe(sf.events.Started(**envelope(1, run_id="run_1"), url4="(@)!'one'"))
-    progress.observe(sf.events.Started(**envelope(1, run_id="run_2"), url4="(@)!'two'"))
-
-    assert [text for _, _, text in progress.feed] == ["evaluation started"]
-
-
-def test_live_feed_uses_arrival_time_when_engine_event_timestamps_do_not_advance() -> None:
-    from screamingface._ui.evaluation_view import _NotebookEvaluationView
-
-    now = [100.0]
-    view = _NotebookEvaluationView(2, "DRACO", clock=lambda: now[0], tick=False)
-    view(sf.events.Started(**envelope(1, run_id="run_1"), url4="(@)!'one'"))
-
-    now[0] += 14
-    view(sf.events.Terminated(**envelope(2, run_id="run_1"), status="succeeded"))
-
-    assert "0:14" in view._html.value
-    assert "candidate 1/2 finished" in view._html.value
-
-
-def test_determinate_progress_is_static_and_unavailable_metrics_are_not_zero() -> None:
-    progress = _EvaluationProgress(total_candidates=2)
-    progress.observe(sf.events.Terminated(**envelope(1), status="succeeded"))
-
-    html = evaluation_panel_html(progress)
-
-    assert "width:50.0%" in html
-    assert "sf-eval__fill--live" not in html
-    assert "<div class='sf-eval__stat-v'>—</div>" in html
-
-
-def test_nested_url4_termination_does_not_complete_a_candidate() -> None:
-    candidate_url4 = "(@)!'candidate'"
-    progress = _EvaluationProgress(
-        total_candidates=1,
-        candidate_urls=frozenset({candidate_url4}),
-    )
-    progress.observe(sf.events.Started(**envelope(1), url4=candidate_url4))
-    nested = envelope(2, run_id="run_1")
-    nested["source"] = "/trace/run_1/node/nested"
-
-    progress.observe(
-        sf.events.Terminated(
-            **nested,
-            status="succeeded",
-        )
-    )
-
-    assert progress.completed == 0
-    assert progress.fraction == 0.0
-
-    progress.observe(sf.events.Terminated(**envelope(3), status="succeeded"))
-
-    assert progress.completed == 1
-    assert progress.finished is True
-
-
-def test_candidate_completion_surfaces_the_engine_cache_summary() -> None:
-    candidate_url4 = "(@)!'candidate'"
-    progress = _EvaluationProgress(
-        total_candidates=2,
-        candidate_urls=frozenset({candidate_url4}),
-    )
-    progress.observe(sf.events.Started(**envelope(1), url4=candidate_url4))
-    progress.observe(
+def test_authoritative_cache_summary_replaces_live_counts_and_reasons() -> None:
+    opus = candidate()
+    state = progress(opus)
+    state.observe(opus, model_span(1, cache_status="bypass", cache_reason="stream"))
+    state.observe(
+        opus,
         sf.events.Log(
             **envelope(2),
             severity_number=9,
             severity_text="INFO",
-            body="gateway response cache: 21 hit, 0 miss, 0 bypass",
-            attributes={"cache.hits": 21, "cache.misses": 0, "cache.bypasses": 0},
-        )
-    )
-
-    progress.observe(sf.events.Terminated(**envelope(3), status="succeeded"))
-
-    assert progress.feed[0][2] == "candidate 1/2 finished · cache: 21 hits"
-
-
-def test_model_spans_update_live_cache_counts_and_exclude_bypasses_from_rate() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-
-    progress.observe(model_span(1, cache_status="hit"))
-    progress.observe(model_span(2, cache_status="miss"))
-    progress.observe(model_span(3, cache_status="bypass"))
-
-    assert progress.cache_totals == (1, 1, 1)
-    assert progress.cache_hit_rate == 0.5
-
-    html = evaluation_panel_html(progress)
-    assert "sf-eval__cache" in html
-    assert "50.0%" in html
-    assert "1 hit · 1 miss" in html
-    assert "1 bypassed" in html
-
-
-def test_final_cache_summary_replaces_live_counts_and_runs_still_aggregate() -> None:
-    progress = _EvaluationProgress(total_candidates=2)
-    progress.observe(model_span(1, cache_status="hit"))
-    progress.observe(model_span(2, cache_status="miss"))
-    progress.observe(
-        sf.events.Log(
-            **envelope(3),
-            severity_number=9,
-            severity_text="INFO",
-            body="gateway response cache: 10 hit, 2 miss, 0 bypass",
-            attributes={"cache.hits": 10, "cache.misses": 2, "cache.bypasses": 0},
-        )
-    )
-    progress.observe(
-        sf.events.Span(
-            **envelope(1, run_id="run_2"),
-            name="chat",
-            operation="chat",
-            start=_START,
-            end=_START + timedelta(seconds=1),
-            request_model="openrouter/example/model",
-            cache_status="bypass",
-        )
-    )
-
-    assert progress.cache_counts == {"run_1": (10, 2, 0), "run_2": (0, 0, 1)}
-    assert progress.cache_totals == (10, 2, 1)
-    assert progress.cache_hit_rate == pytest.approx(10 / 12)
-
-
-def test_cache_metric_stays_unavailable_without_hit_or_miss_evidence() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(model_span(1, cache_status="bypass"))
-    progress.observe(model_span(2, cache_status="bypass"))
-
-    assert progress.cache_totals == (0, 0, 2)
-    assert progress.cache_hit_rate is None
-
-    html = evaluation_panel_html(progress)
-    band = html.split("class='sf-eval__cache'", 1)[1]
-    assert "<span class='sf-eval__cache-v'>—</span>" in band
-    assert "0 hit · 0 miss" in band
-    assert "2 bypassed" in band
-    assert "unstated 2" in band
-
-
-def test_the_stat_row_keeps_three_cells_so_nothing_truncates() -> None:
-    """WHY: a fourth cell is ~206px at the panel's 920px cap — about 32 characters before its
-    label and value — so the diagnostic half would ellipsise at every width the panel gets."""
-
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(model_span(1, cache_status="hit"))
-
-    html = evaluation_panel_html(progress)
-    assert "grid-template-columns:repeat(3,1fr)" in html
-    assert "repeat(4,1fr)" not in html
-
-
-def test_the_band_reads_bypass_reasons_from_the_authoritative_summary() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-
-    progress.observe(
-        sf.events.Log(
-            **envelope(1),
-            severity_number=9,
-            severity_text="INFO",
-            body="gateway response cache: 6 hit, 3 miss, 91 bypass",
+            body="cache summary",
             attributes={
                 "cache.hits": 6,
                 "cache.misses": 3,
@@ -469,138 +166,91 @@ def test_the_band_reads_bypass_reasons_from_the_authoritative_summary() -> None:
                 "cache.bypass.unsupported_control": 74,
                 "cache.bypass.opted_out": 17,
             },
-        )
+        ),
     )
 
-    assert progress.cache_bypass_breakdown == (("unsupported_control", 74), ("opted_out", 17))
-    html = evaluation_panel_html(progress)
-    assert "91 bypassed" in html
-    assert "unsupported_control 74" in html
-    assert "opted_out 17" in html
-
-
-def test_a_summary_replaces_rather_than_doubles_span_derived_reasons() -> None:
-    """INVARIANT: the summary is a reconciliation, never an addition."""
-
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(model_span(1, cache_status="bypass", cache_reason="opted_out"))
-    progress.observe(model_span(2, cache_status="bypass", cache_reason="opted_out"))
-
-    assert progress.cache_bypass_breakdown == (("opted_out", 2),)
-
-    progress.observe(
-        sf.events.Log(
-            **envelope(3),
-            severity_number=9,
-            severity_text="INFO",
-            body="gateway response cache: 0 hit, 0 miss, 5 bypass",
-            attributes={
-                "cache.hits": 0,
-                "cache.misses": 0,
-                "cache.bypasses": 5,
-                "cache.bypass.opted_out": 5,
-            },
-        )
+    assert state.rows[0].cache_totals == (6, 3, 91)
+    assert state.cache_bypass_breakdown == (
+        ("unsupported_control", 74),
+        ("opted_out", 17),
     )
 
-    assert progress.cache_bypass_breakdown == (("opted_out", 5),)
 
-
-def test_a_bypass_naming_no_reason_is_counted_as_unstated() -> None:
-    """WHY: the breakdown must always sum to the bypass total, or neither number is trustworthy."""
-
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(model_span(1, cache_status="bypass"))
-    progress.observe(model_span(2, cache_status="bypass"))
-
-    assert progress.cache_bypass_breakdown == (("unstated", 2),)
-
-    # The strict Event contract is what makes a blank reason unreachable in the fold.
-    with pytest.raises(ValueError, match="cache_reason must be a non-empty string"):
-        model_span(3, cache_status="bypass", cache_reason="   ")
-
-
-def test_unstated_and_other_stay_distinct_buckets() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(
-        sf.events.Log(
-            **envelope(1),
-            severity_number=9,
-            severity_text="INFO",
-            body="gateway response cache: 0 hit, 0 miss, 9 bypass",
-            attributes={
-                "cache.hits": 0,
-                "cache.misses": 0,
-                "cache.bypasses": 9,
-                "cache.bypass.unstated": 4,
-                "cache.bypass.other": 5,
-            },
-        )
-    )
-
-    assert progress.cache_bypass_breakdown == (("other", 5), ("unstated", 4))
-
-
-def test_a_healthy_run_renders_no_bypass_segment_at_all() -> None:
-    """WHY: the band only grows when it has something to report."""
-
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(model_span(1, cache_status="hit"))
-    progress.observe(model_span(2, cache_status="miss"))
-
-    html = evaluation_panel_html(progress)
-    assert "1 hit · 1 miss" in html
-    assert "bypassed" not in html
-
-
-def test_reason_maps_from_two_runs_aggregate_without_overwriting() -> None:
-    progress = _EvaluationProgress(total_candidates=2)
-    progress.observe(model_span(1, cache_status="bypass", cache_reason="stream"))
-    progress.observe(
+def test_cache_evidence_from_candidates_aggregates_without_overwriting() -> None:
+    opus = candidate()
+    gpt = candidate("gpt", "provider/gpt")
+    state = progress(opus, gpt)
+    state.observe(opus, model_span(1, cache_status="hit"))
+    state.observe(
+        gpt,
         sf.events.Span(
-            **envelope(1, run_id="run_2"),
+            **envelope(1, run_id="run_gpt"),
             name="chat",
             operation="chat",
             start=_START,
-            end=_START + timedelta(seconds=1),
-            request_model="openrouter/example/model",
+            end=_START,
+            request_model="provider/gpt",
             cache_status="bypass",
             cache_reason="metadata",
-        )
+        ),
     )
 
-    assert progress.cache_bypass_breakdown == (("metadata", 1), ("stream", 1))
+    assert state.cache_totals == (1, 0, 1)
+    assert state.cache_bypass_breakdown == (("metadata", 1),)
 
 
-def test_the_band_says_so_when_no_provenance_arrives() -> None:
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(model_span(1))
+def test_unstated_bypass_reason_remains_distinct_from_other() -> None:
+    opus = candidate()
+    state = progress(opus)
+    state.observe(opus, model_span(1, cache_status="bypass"))
+    state.observe(opus, model_span(2, cache_status="bypass", cache_reason="other"))
 
-    html = evaluation_panel_html(progress)
-    band = html.split("class='sf-eval__cache'")[1].split("</div>")[0]
-    assert "no cache activity reported" in html
-    assert "—" in band
-    assert "%" not in band
+    assert state.cache_bypass_breakdown == (("other", 1), ("unstated", 1))
 
 
-def test_the_band_body_uses_a_contracted_text_token() -> None:
-    """--sf-ink-3 measures 3.20:1 light and 3.83:1 dark against the panel ground: below AA,
-    and SFDS states it is not a text color."""
+def test_panel_escapes_candidate_identity_and_global_errors() -> None:
+    selected = candidate("<script>", "provider/<model>")
+    state = progress(selected)
+    state.abort(RuntimeError("bad <payload>"))
 
-    progress = _EvaluationProgress(total_candidates=1)
-    progress.observe(model_span(1, cache_status="hit"))
+    html = evaluation_panel_html(state, "DRACO <private>")
 
-    html = evaluation_panel_html(progress)
-    band = html.split(".sf-eval__cache-of{")[1].split("}")[0]
-    assert "var(--sf-ink-2)" in band
-    assert "--sf-ink-3" not in band
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "provider/&lt;model&gt;" in html
+    assert "bad &lt;payload&gt;" in html
+    assert "DRACO &lt;private&gt;" in html
 
 
-def test_the_cache_label_uses_the_canonical_contracted_text_role() -> None:
-    """INVARIANT: visible labels use ink-2; ink-3 is decoration, never readable text."""
+def test_cache_band_renders_truthful_empty_and_bypass_states() -> None:
+    opus = candidate()
+    state = progress(opus)
 
-    html = evaluation_panel_html(_EvaluationProgress(total_candidates=1))
-    label = html.split(".sf-eval__cache-k{")[1].split("}")[0]
+    empty = evaluation_panel_html(state)
 
-    assert "color:var(--sf-ink-2)" in label
+    assert "no cache activity reported" in empty
+    assert "bypassed" not in empty
+
+    state.observe(opus, model_span(1, cache_status="bypass", cache_reason="opted_out"))
+    bypassed = evaluation_panel_html(state)
+
+    assert "1 bypassed" in bypassed
+    assert "opted_out 1" in bypassed
+
+
+def test_visible_cache_text_uses_readable_ink_two() -> None:
+    html = evaluation_panel_html(progress())
+    label = html.split(".sf-eval__cache-k{", 1)[1].split("}", 1)[0]
+    body = html.split(".sf-eval__cache-of,", 1)[1].split("}", 1)[0]
+
+    assert "var(--sf-ink-2)" in label
+    assert "var(--sf-ink-2)" in body
     assert "--sf-ink-3" not in label
+    assert "--sf-ink-3" not in body
+
+
+def test_live_figure_formatters_cover_large_small_and_long_values() -> None:
+    assert _compact(2_000_000) == "2.0M"
+    assert _money(Decimal("0.005")) == "$0.0050"
+    assert _duration(65) == "1m 05s"
+    assert _duration(3_665) == "1h 01m"
