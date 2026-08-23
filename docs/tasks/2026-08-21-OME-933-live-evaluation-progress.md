@@ -1,7 +1,7 @@
 ---
 id: OME-933
 linear_url: https://linear.app/openmined/issue/OME-933/redesign-live-evaluation-progress
-status: in_review
+status: in_progress
 type: improvement
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
