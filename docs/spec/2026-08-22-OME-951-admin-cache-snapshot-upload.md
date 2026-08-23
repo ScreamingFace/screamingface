@@ -1,4 +1,4 @@
-# OME-950 — Admin cache-snapshot upload (spec)
+# OME-951 — Admin cache-snapshot upload (spec)
 
 Status: draft 2026-08-22 — awaiting owner approval in plain words.
 
@@ -6,9 +6,11 @@ Related: the global request cache's create-only lane (OME-305 plan §5.3), the D
 runbook (`draco-cache-seed-v3/RUNBOOK.md`), the OpenRouter global-cache projection (OME-884),
 and `local_k8s_deployment.sh` (`snapshot-cache` / `restore-cache` commands).
 
-Provisional id: `OME-950` and its sub-issues `OME-951..953` are proposed, not yet filed in
-Linear (Linear MCP was not active in the session that wrote this spec). The owner creates the
-epic and sub-issues, then replaces the ids in this file and the mirrors in `docs/tasks/`.
+Linear: epic [OME-951](https://linear.app/openmined/issue/OME-951/admin-cache-snapshot-upload-epic),
+sub-issues [OME-952](https://linear.app/openmined/issue/OME-952/aigateway-cache-snapshot-upload-routes-and-loader)
+(aigateway), [OME-953](https://linear.app/openmined/issue/OME-953/aigateway-ui-response-cache-console-section)
+(aigateway-ui), [OME-954](https://linear.app/openmined/issue/OME-954/snapshot-cache-emits-a-revision-guard-manifest)
+(repo script).
 
 ## Outcome
 
@@ -129,7 +131,7 @@ the COPY-block reload works end to end.
 8. Revision constants are compared, never trusted from the file alone: `force` overrides a
    mismatch but the override is recorded on the job and in the audit line.
 
-## Revision-guard sidecar (produced by OME-953)
+## Revision-guard sidecar (produced by OME-954)
 
 `snapshot-cache` writes `<name>.manifest.json` beside `<name>.sql.gz`:
 
@@ -155,9 +157,9 @@ part when the operator attaches it.
 
 | Issue | Stack | Scope |
 |---|---|---|
-| OME-951 | `apps/aigateway` | Routes, schemas, job runner, COPY/merge loader, revision guard, tests, OpenAPI. |
-| OME-952 | `apps/aigateway-ui` | "Response cache" console section: info panel, upload form, job list with polling; TS client + regenerated types. |
-| OME-953 | `repo` | `snapshot-cache` emits the sidecar manifest; runbook note; this diagram's twin link. |
+| OME-952 | `apps/aigateway` | Routes, schemas, job runner, COPY/merge loader, revision guard, tests, OpenAPI. |
+| OME-953 | `apps/aigateway-ui` | "Response cache" console section: info panel, upload form, job list with polling; TS client + regenerated types. |
+| OME-954 | `repo` | `snapshot-cache` emits the sidecar manifest; runbook note; this diagram's twin link. |
 
 ## Non-goals
 

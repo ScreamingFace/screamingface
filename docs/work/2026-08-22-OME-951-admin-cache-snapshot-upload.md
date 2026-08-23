@@ -1,12 +1,12 @@
 ---
-ticket: OME-950
+ticket: OME-951
 stack: repo
 status: done
 started: 2026-08-22
 finished: 2026-08-22
 ---
 
-# OME-950 — Admin cache-snapshot upload (spec + scaffolding unit)
+# OME-951 — Admin cache-snapshot upload (spec + scaffolding unit)
 
 ## Intent
 
@@ -16,11 +16,11 @@ epic's documentation scaffolding. No implementation in this unit — spec, mirro
 
 ## Planned changes
 
-- `docs/spec/2026-08-22-OME-950-admin-cache-snapshot-upload.md` (new)
-- `docs/tasks/2026-08-22-OME-950-admin-cache-snapshot-upload.md` (new, epic mirror)
-- `docs/tasks/2026-08-22-OME-951-aigateway-cache-snapshot-upload.md` (new)
-- `docs/tasks/2026-08-22-OME-952-aigateway-ui-cache-upload-console.md` (new)
-- `docs/tasks/2026-08-22-OME-953-snapshot-manifest-emission.md` (new)
+- `docs/spec/2026-08-22-OME-951-admin-cache-snapshot-upload.md` (new)
+- `docs/tasks/2026-08-22-OME-951-admin-cache-snapshot-upload.md` (new, epic mirror)
+- `docs/tasks/2026-08-22-OME-952-aigateway-cache-snapshot-upload.md` (new)
+- `docs/tasks/2026-08-22-OME-953-aigateway-ui-cache-upload-console.md` (new)
+- `docs/tasks/2026-08-22-OME-954-snapshot-manifest-emission.md` (new)
 - `docs/diagrams/ome-950-cache-snapshot-upload.svg` + `.png` (new)
 
 ## Test plan
@@ -38,6 +38,6 @@ epic's documentation scaffolding. No implementation in this unit — spec, mirro
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned
-- **Commits:** 9f191515 — docs(spec): OME-950 admin cache-snapshot upload — spec, mirrors, ledger, diagram
+- **Commits:** 9f191515 — docs(spec): OME-951 admin cache-snapshot upload — spec, mirrors, ledger, diagram
 - **Gates:** n/a (docs-only)
-- **Deviations:** ids OME-950..953 are provisional until the owner files them in Linear
+- **Deviations:** filed as OME-951..954 in Linear (one off the drafted OME-950..953; ids and file names updated)

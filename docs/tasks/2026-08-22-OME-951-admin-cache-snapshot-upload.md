@@ -1,6 +1,6 @@
 ---
-id: OME-950
-linear_url: # pending — owner creates the epic in Linear (MCP not active in the filing session)
+id: OME-951
+linear_url: https://linear.app/openmined/issue/OME-951/admin-cache-snapshot-upload-epic
 status: todo
 type: improvement
 priority: 3
@@ -10,8 +10,6 @@ closed:
 ---
 
 # Admin cache-snapshot upload (epic)
-
-PROVISIONAL id — Linear is the authority; replace this mirror's id and url when the epic exists.
 
 Let an administrator feed a response-cache snapshot (gzip'd single-table `pg_dump` of
 `request_cache_entries`, as `snapshot-cache` produces) into a deployed aigateway through the
@@ -23,7 +21,7 @@ affected app/package. Never one mega-ticket.
 
 Canonical artifacts:
 
-- Spec: `docs/spec/2026-08-22-OME-950-admin-cache-snapshot-upload.md`
-- Diagram: `docs/diagrams/ome-950-cache-snapshot-upload.svg` (+ `.png`)
-- Ledger: `docs/work/2026-08-22-OME-950-admin-cache-snapshot-upload.md`
-- Sub-issues: OME-951 (aigateway), OME-952 (aigateway-ui), OME-953 (repo)
+- Spec: `docs/spec/2026-08-22-OME-951-admin-cache-snapshot-upload.md`
+- Diagram: `docs/diagrams/ome-951-cache-snapshot-upload.svg` (+ `.png`)
+- Ledger: `docs/work/2026-08-22-OME-951-admin-cache-snapshot-upload.md`
+- Sub-issues: OME-952 (aigateway), OME-953 (aigateway-ui), OME-954 (repo)
