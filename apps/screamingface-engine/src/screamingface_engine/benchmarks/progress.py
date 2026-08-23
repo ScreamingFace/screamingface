@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
-from screamingface_engine.benchmarks.aggregation import Scorer
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
-from screamingface_engine.benchmarks.definition import Benchmark
+from screamingface_engine.benchmarks.definition import (
+    Benchmark,
+    BoundEvaluation,
+    IndexedCaseResult,
+)
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 from url4 import Node, RelExpr, Text, build, walk
 from url4.core.errors import Url4Error
@@ -17,8 +22,7 @@ from url4.core.errors import Url4Error
 _AGGREGATE_INTENT = re.compile(r"aggregate:([1-9][0-9]*)")
 PROGRESS_BODY = "evaluation progress"
 PROGRESS_SCHEMA = "screamingface.evaluation-progress.v1"
-
-type CaseProjector = Callable[[str], CaseResult]
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,13 +50,6 @@ class ProgressSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class _CaseProjection:
-    selected_index: int
-    grade_case: CaseProjector
-    scorer: Scorer
-
-
-@dataclass(frozen=True, slots=True)
 class _TerminalCase:
     raw: str
     selected_index: int | None
@@ -67,13 +64,18 @@ class EvaluationProgressTracker:
         "_candidate_failures",
         "_case_executions",
         "_diagnostic_type",
-        "_projections",
-        "_scorer",
+        "_evaluation",
         "benchmark_id",
         "total",
     )
 
-    def __init__(self, *, benchmark_id: str, total: int) -> None:
+    def __init__(
+        self,
+        *,
+        benchmark_id: str,
+        total: int,
+        evaluation: BoundEvaluation | None = None,
+    ) -> None:
         if not isinstance(benchmark_id, str) or not benchmark_id:
             raise ValueError("benchmark_id must be non-empty text")
         if isinstance(total, bool) or not isinstance(total, int) or total < 1:
@@ -82,8 +84,7 @@ class EvaluationProgressTracker:
         self.total = total
         self._case_executions: dict[CaseId, _TerminalCase] = {}
         self._diagnostic_type: str | None = None
-        self._projections: dict[CaseId, _CaseProjection] = {}
-        self._scorer: Scorer | None = None
+        self._evaluation = evaluation
         self._candidate_failures = 0
 
     @property
@@ -97,32 +98,6 @@ class EvaluationProgressTracker:
     @property
     def case_executions(self) -> tuple[str, ...]:
         return tuple(terminal.raw for terminal in self._case_executions.values())
-
-    def register_case_projection(
-        self,
-        benchmark_id: str,
-        *,
-        case_id: CaseId,
-        selected_index: int,
-        grade_case: CaseProjector,
-        scorer: Scorer,
-    ) -> bool:
-        """Bind one private Benchmark projector before its shared Case return becomes terminal."""
-
-        accepted = (
-            benchmark_id == self.benchmark_id
-            and isinstance(selected_index, int)
-            and not isinstance(selected_index, bool)
-            and 0 <= selected_index < self.total
-            and not self._has_terminal(case_id)
-            and not any(_case_ids_match(case_id, pending) for pending in self._projections)
-            and callable(grade_case)
-            and callable(scorer)
-        )
-        if accepted:
-            self._projections[case_id] = _CaseProjection(selected_index, grade_case, scorer)
-            self._scorer = scorer
-        return accepted
 
     def take_diagnostic_type(self) -> str | None:
         diagnostic = self._diagnostic_type
@@ -146,11 +121,16 @@ class EvaluationProgressTracker:
             except (TypeError, ValueError):
                 outcome = None
             if outcome is not None and not self._has_terminal(outcome.case_id):
-                projection = _take_projection(self._projections, outcome.case_id)
-                result, diagnostic = _project_case(projection, value, outcome.case_id)
+                projected, diagnostic = _project_case(
+                    self._evaluation,
+                    value,
+                    outcome.case_id,
+                    self.total,
+                )
                 if diagnostic is not None:
                     self._diagnostic_type = diagnostic
                     return None
+                result = projected.result if projected is not None else None
                 if result is None and outcome.error is None:
                     self._diagnostic_type = "MissingCaseProjection"
                 status = (
@@ -164,7 +144,7 @@ class EvaluationProgressTracker:
                 )
                 self._case_executions[outcome.case_id] = _TerminalCase(
                     value,
-                    projection.selected_index if projection is not None else None,
+                    projected.selected_index if projected is not None else None,
                     result,
                     status,
                 )
@@ -188,7 +168,7 @@ class EvaluationProgressTracker:
             and terminal.result.grade is not None
             and terminal.result.grade.score is not None
         ]
-        provisional, diagnostic = _provisional_score(graded, self._scorer)
+        provisional, diagnostic = _provisional_score(graded, self._evaluation)
         if diagnostic is not None:
             self._diagnostic_type = diagnostic
         return ProgressSnapshot(
@@ -202,34 +182,28 @@ class EvaluationProgressTracker:
 
 
 def _project_case(
-    projection: _CaseProjection | None,
+    evaluation: BoundEvaluation | None,
     raw: str,
     case_id: CaseId,
-) -> tuple[CaseResult | None, str | None]:
-    if projection is None:
+    total: int,
+) -> tuple[IndexedCaseResult | None, str | None]:
+    if evaluation is None:
         return None, None
-    result: CaseResult | None
+    result: IndexedCaseResult | None
     diagnostic: str | None
     try:
-        projected = projection.grade_case(raw)
+        projected = evaluation.grade_case(raw)
     except Exception as exc:  # noqa: BLE001 - a progress projector is observational
         result, diagnostic = None, type(exc).__name__
     else:
-        valid = isinstance(projected, CaseResult) and _case_ids_match(projected.case_id, case_id)
+        valid = (
+            isinstance(projected, IndexedCaseResult)
+            and projected.selected_index < total
+            and _case_ids_match(projected.result.case_id, case_id)
+        )
         result = projected if valid else None
         diagnostic = None if valid else "InvalidCaseProjection"
     return result, diagnostic
-
-
-def _take_projection(
-    projections: dict[CaseId, _CaseProjection],
-    case_id: CaseId,
-) -> _CaseProjection | None:
-    key = next(
-        (candidate for candidate in projections if _case_ids_match(candidate, case_id)),
-        None,
-    )
-    return projections.pop(key) if key is not None else None
 
 
 def _case_ids_match(left: CaseId, right: CaseId) -> bool:
@@ -247,14 +221,18 @@ def _case_ids_match(left: CaseId, right: CaseId) -> bool:
 
 def _provisional_score(
     terminals: list[_TerminalCase],
-    scorer: Scorer | None,
+    evaluation: BoundEvaluation | None,
 ) -> tuple[float | None, str | None]:
-    if not terminals or scorer is None or any(case.selected_index is None for case in terminals):
+    if (
+        not terminals
+        or evaluation is None
+        or any(case.selected_index is None for case in terminals)
+    ):
         return None, None
     ordered = sorted(terminals, key=lambda case: int(case.selected_index or 0))
     typed = [case.result for case in ordered if case.result is not None]
     try:
-        value = scorer(typed).score
+        value = evaluation.score_cases(typed).score
     except Exception as exc:  # noqa: BLE001 - the final aggregate remains authoritative
         score, diagnostic = None, type(exc).__name__
     else:
@@ -269,6 +247,8 @@ def _provisional_score(
 def discover_evaluation_progress(
     registry: BenchmarkRegistry,
     rendered_url4: str,
+    *,
+    assets_root: Path,
 ) -> EvaluationProgressTracker | None:
     """Discover exactly one registered aggregate call or decline fail-open."""
 
@@ -278,8 +258,31 @@ def discover_evaluation_progress(
     matches = _matching_aggregate_calls(root, _aggregate_routes(registry))
     if matches is None or len(matches) != 1:
         return None
-    benchmark_id, selected = matches[0]
-    return EvaluationProgressTracker(benchmark_id=benchmark_id, total=selected)
+    benchmark, selected = matches[0]
+    return _bind_evaluation_progress(benchmark, selected, assets_root)
+
+
+def _bind_evaluation_progress(
+    benchmark: Benchmark,
+    selected: int,
+    assets_root: Path,
+) -> EvaluationProgressTracker | None:
+    evaluation = benchmark.evaluation
+    # INVARIANT: aggregate matching admits only routes owned by an Evaluation adapter.
+    assert evaluation is not None
+    try:
+        bound = evaluation.bind(assets_root, selected)
+    except Exception as exc:  # noqa: BLE001 - discovery is observational and fail-open
+        _logger.warning("Benchmark Evaluation binding failed (%s)", type(exc).__name__)
+        return None
+    if not isinstance(bound, BoundEvaluation):
+        _logger.warning("Benchmark Evaluation binding failed (InvalidBoundEvaluation)")
+        return None
+    return EvaluationProgressTracker(
+        benchmark_id=benchmark.id,
+        total=selected,
+        evaluation=bound,
+    )
 
 
 def _parse(rendered_url4: str) -> Node | None:
@@ -292,17 +295,17 @@ def _parse(rendered_url4: str) -> Node | None:
 def _aggregate_routes(registry: BenchmarkRegistry) -> dict[str, tuple[Benchmark, ...]]:
     declared: dict[str, list[Benchmark]] = {}
     for benchmark in registry:
-        if benchmark.aggregate_route is None:
+        if benchmark.evaluation is None:
             continue
-        declared.setdefault(benchmark.aggregate_route, []).append(benchmark)
+        declared.setdefault(benchmark.evaluation.aggregate_route, []).append(benchmark)
     return {route: tuple(benchmarks) for route, benchmarks in declared.items()}
 
 
 def _matching_aggregate_calls(
     root: Node,
     routes: Mapping[str, tuple[Benchmark, ...]],
-) -> list[tuple[str, int]] | None:
-    matches: list[tuple[str, int]] = []
+) -> list[tuple[Benchmark, int]] | None:
+    matches: list[tuple[Benchmark, int]] = []
     for node in walk(root):
         if not isinstance(node, RelExpr) or node.path not in routes:
             continue
@@ -317,7 +320,7 @@ def _matching_aggregate_calls(
         benchmark = benchmarks[0]
         selected = int(match.group(1))
         if selected <= benchmark.case_count:
-            matches.append((benchmark.id, selected))
+            matches.append((benchmark, selected))
     return matches
 
 

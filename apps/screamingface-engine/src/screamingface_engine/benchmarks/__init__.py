@@ -3,7 +3,10 @@
 from screamingface_engine.benchmarks.definition import (
     CANDIDATE_REF,
     Benchmark,
+    BenchmarkEvaluation,
     BenchmarkInstaller,
+    BoundEvaluation,
+    IndexedCaseResult,
     candidate,
     link_candidate,
 )
@@ -20,9 +23,12 @@ __all__ = [
     "CANDIDATE_REF",
     "DEFAULT_BENCHMARK_ASSETS_ROOT",
     "Benchmark",
+    "BenchmarkEvaluation",
     "BenchmarkInstaller",
     "BenchmarkRegistry",
+    "BoundEvaluation",
     "EMPTY_BENCHMARKS",
+    "IndexedCaseResult",
     "assets_root",
     "candidate",
     "link_candidate",

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import contextvars
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from contextlib import AbstractContextManager
+from pathlib import Path
 from types import TracebackType
 from typing import Literal
 
-from screamingface_engine.benchmarks.aggregation import Scorer
-from screamingface_engine.benchmarks.contract import CaseId, CaseResult
 from screamingface_engine.benchmarks.progress import (
     PROGRESS_BODY,
     EvaluationProgressTracker,
@@ -115,28 +114,6 @@ class _BenchmarkRunRecorder:
             except Exception as exc:  # noqa: BLE001 - progress must remain observational
                 self._warn_progress_once(exc)
 
-    def register_case_projection(
-        self,
-        benchmark_id: str,
-        *,
-        case_id: CaseId,
-        selected_index: int,
-        grade_case: Callable[[str], CaseResult],
-        scorer: Scorer,
-    ) -> None:
-        if self._active and self._progress is not None:
-            try:
-                self._progress.register_case_projection(
-                    benchmark_id,
-                    case_id=case_id,
-                    selected_index=selected_index,
-                    grade_case=grade_case,
-                    scorer=scorer,
-                )
-                self._report_progress_diagnostic()
-            except Exception as exc:  # noqa: BLE001 - progress must remain observational
-                self._warn_progress_once(exc)
-
     def _report_progress_diagnostic(self) -> None:
         if self._progress is not None:
             diagnostic = self._progress.take_diagnostic_type()
@@ -198,10 +175,11 @@ class _BenchmarkRunScope(AbstractContextManager[None]):
 class BenchmarkRunLogAdapter:
     """Adapt the immutable Benchmark registry onto the generic Runner run-scope port."""
 
-    __slots__ = ("_registry",)
+    __slots__ = ("_assets_root", "_registry")
 
-    def __init__(self, registry: BenchmarkRegistry) -> None:
+    def __init__(self, registry: BenchmarkRegistry, *, assets_root: Path = Path()) -> None:
         self._registry = registry
+        self._assets_root = assets_root
 
     def open_run_scope(
         self,
@@ -210,7 +188,11 @@ class BenchmarkRunLogAdapter:
     ) -> AbstractContextManager[None] | None:
         if not len(self._registry):
             return None
-        progress = discover_evaluation_progress(self._registry, rendered_url4)
+        progress = discover_evaluation_progress(
+            self._registry,
+            rendered_url4,
+            assets_root=self._assets_root,
+        )
         return _BenchmarkRunScope(
             _BenchmarkRunRecorder(self._registry, emit_structured_log, progress)
         )
@@ -248,31 +230,9 @@ def record_candidate_failure() -> None:
         recorder.record_candidate_failure()
 
 
-def register_case_projection(
-    benchmark_id: str,
-    *,
-    case_id: CaseId,
-    selected_index: int,
-    grade_case: Callable[[str], CaseResult],
-    scorer: Scorer,
-) -> None:
-    """Register one Benchmark-owned pure projector for the pending Case return."""
-
-    recorder = _current_recorder.get()
-    if recorder is not None:
-        recorder.register_case_projection(
-            benchmark_id,
-            case_id=case_id,
-            selected_index=selected_index,
-            grade_case=grade_case,
-            scorer=scorer,
-        )
-
-
 __all__ = [
     "BenchmarkRunLogAdapter",
     "emit_benchmark_run_log",
     "record_candidate_failure",
     "record_successful_case_execution",
-    "register_case_projection",
 ]

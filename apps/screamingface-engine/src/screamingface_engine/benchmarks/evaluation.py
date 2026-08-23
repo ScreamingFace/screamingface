@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -19,10 +18,7 @@ from url4.peer.server import Request
 
 JsonObject = dict[str, Any]
 CaseEvaluationBinder = Callable[[int, list[JsonObject]], JsonObject]
-CaseEvaluationObserver = Callable[[JsonObject], None]
 AggregateAdapter = Callable[[str, int], JsonObject]
-
-_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,15 +54,11 @@ def case_evaluation_endpoint(
     label: str,
     item_name: str,
     bind: CaseEvaluationBinder,
-    observe: CaseEvaluationObserver | None = None,
     error_context_head: int | None = None,
 ) -> Callable[[Request], str]:
     """Adapt one non-empty collection of evaluator records into a Case envelope route."""
 
-    observer_warned = False
-
     def endpoint(request: Request) -> str:
-        nonlocal observer_warned
         try:
             case_id = positive_case_id(request.intent)
             raw_items = json_array(request.context, label)
@@ -82,18 +74,7 @@ def case_evaluation_endpoint(
             if error_context_head is not None:
                 detail += f"; context head: {request.context[:error_context_head]!r}"
             raise benchmark_unavailable(detail) from exc
-        rendered = compact_json(result)
-        if observe is not None:
-            try:
-                observe(result)
-            except Exception as exc:  # noqa: BLE001 - live progress is observational
-                if not observer_warned:
-                    _logger.warning(
-                        "Benchmark Case projection registration failed (%s)",
-                        type(exc).__name__,
-                    )
-                    observer_warned = True
-        return rendered
+        return compact_json(result)
 
     return endpoint
 

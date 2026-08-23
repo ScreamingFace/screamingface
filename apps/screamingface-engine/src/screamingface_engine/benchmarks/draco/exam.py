@@ -30,6 +30,7 @@ from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import Benchmark, CheckSurface, candidate
+from screamingface_engine.benchmarks.draco.evaluator import evaluation
 from screamingface_engine.benchmarks.draco.prompts import JUDGE_INSTRUCTIONS
 from screamingface_engine.benchmarks.draco.verdict import call as criterion_verdict
 from screamingface_engine.benchmarks.protocol import (
@@ -327,7 +328,7 @@ def draco_benchmark(
         case_count=CASE_COUNT,
         build=build,
         install=install,
-        aggregate_route=exam.routes.aggregate,
+        evaluation=evaluation(exam, ASSET_BUNDLE_ID),
         # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the
         # only place the board's text is written; it is seeded from the catalogue at deploy.
         focus=focus,

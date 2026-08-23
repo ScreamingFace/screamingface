@@ -1,6 +1,6 @@
 # OME-932 — Terminal Benchmark progress and provisional scores
 
-Status: APPROVED, revised 2026-08-22. Production code is blocked only on OME-934.
+Status: APPROVED, revised 2026-08-23. Production code is blocked only on OME-934.
 
 ## 1. Problem
 
@@ -51,14 +51,17 @@ construct ScreamingFace attributes.
 
 - exact Benchmark/total discovery during run-scope setup, only when the rendered expression
   contains exactly one registered aggregate route with a literal `aggregate:N`;
+- binding that Benchmark's one immutable Evaluation adapter to the selected Case count and
+  deployment assets;
 - the `screamingface.evaluation-progress.v1` schema;
 - run-local terminal Case accounting;
-- conversion of raw terminal Case execution through Benchmark-owned `grade_case`;
+- conversion of raw terminal Case execution through the bound Evaluation adapter;
 - selected-order provisional scoring;
 - privacy filtering and fail-open publication.
 
-Existing shared Benchmark endpoints notify the active tracker. `BenchmarkRegistry` wires immutable
-Benchmark adapters; generic Runner modules never import concrete plugins.
+Only the existing shared Candidate and Case execution seams notify the active tracker. Individual
+Benchmark route handlers do not register progress projectors or scorers. `BenchmarkRegistry` wires
+immutable Benchmark Evaluation adapters; generic Runner modules never import concrete plugins.
 
 ### OME-933: Client
 
@@ -121,15 +124,23 @@ provider error, or Benchmark-private metadata.
 
 ## 6. Benchmark authority
 
-Each progress adapter declares:
+Each `Benchmark` declares exactly one optional Evaluation adapter. It is Benchmark semantics, not
+a progress-specific callback collection. Its interface owns:
 
-- its exact revision-pinned aggregate route;
-- selected Case resolution for matched `aggregate:N`;
-- `grade_case(raw_case_execution, selected_case) -> CaseResult`;
-- its existing pure cross-Case scorer.
+- the exact revision-pinned aggregate route;
+- `bind(assets_root, selected_case_count) -> BoundEvaluation`;
+- selected Case identity/order resolution inside that bound run;
+- `BoundEvaluation.grade_case(raw_case_execution) -> IndexedCaseResult`;
+- `BoundEvaluation.score_cases(graded_cases) -> CandidateScore`.
 
-Live projection and final aggregation call the same `grade_case` and scorer functions. Extraction
-is a refactor of existing IFEval, DRACO, and HealthBench semantics, not a second implementation.
+The generic tracker binds the adapter once at run-scope setup and then consumes only normalized
+indexed `CaseResult` values. It does not receive a scorer repeatedly from individual Case route
+handlers and cannot silently replace one run's scoring authority mid-run.
+
+Live projection and final aggregation call the same Benchmark-owned `grade_case` and scorer
+functions. Extraction is a refactor of existing IFEval, DRACO, and HealthBench semantics, not a
+second implementation. The aggregate modules remain the owners of those semantics; the Evaluation
+adapter binds their pure functions to installed assets and selected Case order.
 
 The scorer is computation-only, deterministic, re-entrant, subset-safe, and free of model, network,
 filesystem mutation, and paid calls. The provisional score remains in the Benchmark's native scale.
@@ -164,7 +175,8 @@ The following are byte/behaviour invariants:
 
 ## 9. Acceptance
 
-1. IFEval, DRACO, and HealthBench live/final paths share `grade_case` and scorer functions.
+1. IFEval, DRACO, and HealthBench each expose one Evaluation adapter through `BenchmarkRegistry`;
+   live/final paths share its `grade_case` and scorer functions.
 2. Out-of-order success, refusal, Candidate failure, and grading failure produce exact monotonic
    terminal counts without duplicate accounting.
 3. Provisional scores use completed gradeable Cases in selected order and reconcile with the final
@@ -174,3 +186,4 @@ The following are byte/behaviour invariants:
    pre-OME-932 baseline.
 6. Privacy and layering tests enforce the boundaries above.
 7. `uv run .claude/scripts/run_gates.py screamingface-engine` is green.
+8. No concrete Benchmark runtime endpoint imports or calls a progress registration function.

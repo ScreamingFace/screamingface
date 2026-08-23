@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from screamingface_engine.benchmarks.contract import CANDIDATE_BINDING, CANDIDATE_ROUTE
+from screamingface_engine.benchmarks.aggregation import CandidateScore
+from screamingface_engine.benchmarks.contract import (
+    CANDIDATE_BINDING,
+    CANDIDATE_ROUTE,
+    CaseResult,
+)
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
 from url4 import Node, RelExpr, build, expr, render, src, text
 from url4.peer.server import Url4Node
@@ -17,6 +22,9 @@ CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 type CheckCost = Literal["free", "paid"]
+type EvaluationBinder = Callable[[Path, int], "BoundEvaluation"]
+type CaseEvaluator = Callable[[str], "IndexedCaseResult"]
+type CaseScorer = Callable[[Sequence[CaseResult]], CandidateScore]
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a
@@ -33,6 +41,50 @@ _DISPLAY_LIMITS = {"title": 255, "revision": 64, "focus": 120}
 
 def _no_routes(_node: Url4Node, _assets_root: Path) -> None:
     """Default installer for a protocol that needs no private routes or assets."""
+
+
+@dataclass(frozen=True, slots=True)
+class IndexedCaseResult:
+    """One normalized Case tied to its immutable selected-run position."""
+
+    selected_index: int
+    result: CaseResult
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.selected_index, bool)
+            or not isinstance(self.selected_index, int)
+            or self.selected_index < 0
+        ):
+            raise ValueError("IndexedCaseResult selected_index must be a non-negative integer")
+        if not isinstance(self.result, CaseResult):
+            raise TypeError("IndexedCaseResult result must be a CaseResult")
+
+
+@dataclass(frozen=True, slots=True)
+class BoundEvaluation:
+    """One run's Benchmark semantics after assets and selected order are fixed."""
+
+    grade_case: CaseEvaluator
+    score_cases: CaseScorer
+
+    def __post_init__(self) -> None:
+        if not callable(self.grade_case) or not callable(self.score_cases):
+            raise TypeError("BoundEvaluation grading and scoring operations must be callable")
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkEvaluation:
+    """Bind one Benchmark's semantic evaluator for an exact selected run."""
+
+    aggregate_route: str
+    bind: EvaluationBinder
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.aggregate_route, str) or not self.aggregate_route.startswith("/"):
+            raise ValueError("BenchmarkEvaluation aggregate_route must be an absolute route path")
+        if not callable(self.bind):
+            raise TypeError("BenchmarkEvaluation bind must be callable")
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,9 +135,7 @@ class Benchmark:
     case_count: int
     build: Callable[[int], Node]
     install: BenchmarkInstaller = _no_routes
-    # The exact revision-pinned reducer route is execution metadata for run-local observation.
-    # It is not published in the catalogue and does not enter Benchmark identity.
-    aggregate_route: str | None = None
+    evaluation: BenchmarkEvaluation | None = None
     check_surface: CheckSurface | None = None
     # FEATURE: benchmark descriptions on the leaderboard (OME-904). `title`, `description`,
     # `focus` and `dataset_url` are the four fields the public board displays, and this
@@ -111,10 +161,8 @@ class Benchmark:
             or self.case_count < 1
         ):
             raise ValueError("Benchmark case_count must be a positive integer")
-        if self.aggregate_route is not None and (
-            not isinstance(self.aggregate_route, str) or not self.aggregate_route.startswith("/")
-        ):
-            raise ValueError("Benchmark aggregate_route must be an absolute route path")
+        if self.evaluation is not None and not isinstance(self.evaluation, BenchmarkEvaluation):
+            raise TypeError("Benchmark evaluation must be a BenchmarkEvaluation")
 
     def _validate_display_metadata(self) -> None:
         """Refuse text the leaderboard could not show (OME-904)."""

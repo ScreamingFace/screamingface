@@ -28,6 +28,7 @@ from screamingface_engine.benchmarks.healthbench.definition import (
     PROFESSIONAL_EXAM,
     WORST30_EXAM,
 )
+from screamingface_engine.benchmarks.healthbench.exam import ASSET_BUNDLE_ID
 from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.prepare import envelope
 from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
@@ -351,9 +352,10 @@ async def test_a_limit_one_expression_resolves_end_to_end(tmp_path: Path) -> Non
 async def test_real_limit_one_expression_emits_one_exact_provisional_snapshot(
     tmp_path: Path,
 ) -> None:
-    _write_assets(tmp_path)
+    bundle_root = tmp_path / ASSET_BUNDLE_ID
+    _write_assets(bundle_root)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
+    install(node, bundle_root, WORST30_EXAM)
     install_case_execution(node)
 
     @node.endpoint(CANDIDATE_ROUTE)
@@ -371,7 +373,7 @@ async def test_real_limit_one_expression_emits_one_exact_provisional_snapshot(
     )
     rendered = render(expression)
     records: list[tuple[str, dict[str, LogScalar]]] = []
-    scope = BenchmarkRunLogAdapter(BUILTIN_BENCHMARKS).open_run_scope(
+    scope = BenchmarkRunLogAdapter(BUILTIN_BENCHMARKS, assets_root=tmp_path).open_run_scope(
         rendered,
         lambda body, attributes: records.append((body, dict(attributes))),
     )

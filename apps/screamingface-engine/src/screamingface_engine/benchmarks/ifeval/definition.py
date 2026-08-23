@@ -7,6 +7,7 @@ from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import Benchmark, CheckSurface, candidate
+from screamingface_engine.benchmarks.ifeval.evaluator import evaluation
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
@@ -121,7 +122,7 @@ IFEVAL = Benchmark(
     case_count=CASE_COUNT,
     build=_build,
     install=install_ifeval,
-    aggregate_route=AGGREGATE_ROUTE,
+    evaluation=evaluation(AGGREGATE_ROUTE, ASSET_BUNDLE_ID),
     # Free: the deterministic verifier costs no model call, so a corrective loop
     # on IFEval spends only on members and the judge.
     check_surface=CheckSurface(

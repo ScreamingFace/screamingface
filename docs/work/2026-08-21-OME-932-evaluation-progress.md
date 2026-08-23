@@ -1,9 +1,9 @@
 ---
 ticket: OME-932
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-08-21
-finished:
+finished: 2026-08-23
 ---
 
 # OME-932 — publish benchmark-native Evaluation progress
@@ -31,7 +31,8 @@ without repeating paid work, exposing Benchmark-private material, changing gener
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/evaluation.py`
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/aggregation.py`
 - OME-934's benchmark-agnostic Runner run-context/log port as an integration prerequisite; OME-932
-  changes no generic Runner or URL4 package code
+  changes no URL4 package or executor code, while the Engine composition root supplies the exact
+  installed Benchmark asset root to the concrete adapter
 - Benchmark-owned IFEval, DRACO, and HealthBench grading/aggregation adapters as identified by
   the approved plan
 - focused Engine contract and regression tests identified by the approved plan
@@ -103,6 +104,23 @@ without repeating paid work, exposing Benchmark-private material, changing gener
 - Full gate: `uv run .claude/scripts/run_gates.py screamingface-engine` — **ALL GATES GREEN**
   (append-only check, Ruff check/format, Pyright, recursive layering, Pytest with coverage).
 
+## Iteration 4 — Benchmark-owned Evaluation adapter
+
+- **Intent:** replace the unreleased loose aggregate-route and per-Case projector/scorer
+  registration with one deep Benchmark Evaluation interface, bound once per run.
+- **Planned files:** shared Benchmark definition/progress/run-log modules; one Evaluation adapter
+  per IFEval, DRACO, and HealthBench; removal of concrete runtime progress callbacks; contract,
+  conformance, failure, privacy, and layering tests; revised spec and plan.
+- **Test plan:** RED interface/discovery/binding tests; built-in adapter conformance; immutable
+  scorer and selected-order projection; bind/project/score fail-open behavior; no concrete runtime
+  progress imports; unchanged URL4, final results, paid calls, and generic Runner diff.
+- **Acceptance:** one adapter per Benchmark; no loose compatibility surface; generic tracker owns
+  all progress flow after binding; full focused regression and Engine gates green.
+- **Result:** every shipped Benchmark now owns one Evaluation adapter that binds its existing
+  grader, scorer, private assets, and selected order once per run. Concrete runtime endpoints no
+  longer know about progress registration. The production-shaped focused suite passes **161
+  tests**.
+
 ## Acceptance
 
 - Engine publishes strict `screamingface.evaluation-progress.v1` structured Log snapshots from
@@ -119,13 +137,20 @@ without repeating paid work, exposing Benchmark-private material, changing gener
 ## Outcome
 
 - **Actual files:** Benchmark definition/registry metadata; run-local progress discovery, tracking,
-  and Log adapter; shared Candidate/Case observation seams; IFEval, DRACO, and HealthBench shared
-  projectors/scorers; focused unit, conformance, privacy, isolation, and layering tests; approved
-  spec, plan, task mirrors, ledger, and architecture diagram.
-- **Commits:** `9e5c9cd2` (terminal tracking), `27c9f511` (shared live/final scoring), plus the
-  final observational hardening and regression commit containing this ledger update.
-- **Gates:** `uv run .claude/scripts/run_gates.py screamingface-engine` — **ALL GATES GREEN**;
-  focused contract regression command — **150 passed**.
-- **Deviations:** OME-934 remains the integration prerequisite. Before publishing OME-932, rebase
-  it onto the merged seam and rerun the same focused suite and full Engine gate. No generic Runner,
-  generated URL4, `packages/url4`, paid-call, cache-identity, or final-result change was added here.
+  and Log adapter; the Engine composition-root asset injection; shared Candidate/Case observation
+  seams; IFEval, DRACO, and HealthBench Evaluation adapters over their existing graders/scorers;
+  focused unit, conformance, privacy, isolation, and layering tests; approved spec, plan, task
+  mirrors, ledger, and architecture diagram.
+- **Commits:** `9e5c9cd2` (terminal tracking), `27c9f511` (shared live/final scoring),
+  `19d1565d` (observational hardening), plus
+  `refactor(screamingface-engine): deepen benchmark evaluation progress` in this iteration.
+- **Gates:** `uv run .claude/scripts/run_gates.py screamingface-engine --base
+  014386e79472d63a3ab21489e4dbf25e1d6a97a4` — **ALL GATES GREEN** (append-only, Ruff
+  check/format, Pyright, recursive layering, full Pytest with coverage); focused production-shaped
+  contract regression command — **161 passed**.
+- **Deviations:** Iteration 4 replaces OME-932's own unreleased interface and its branch-local
+  contract tests with the owner-approved deeper adapter; it carries no compatibility fallback.
+  OME-934 remains the integration prerequisite. Before merging OME-932, retarget/rebase it onto the
+  merged seam and rerun the same focused suite and full Engine gate. No generic executor,
+  generated URL4, `packages/url4`, paid-call, cache-identity, or final-result change is added here;
+  `runner/main.py` only wires the concrete adapter with the already-resolved Benchmark asset root.

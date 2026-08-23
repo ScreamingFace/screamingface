@@ -226,6 +226,10 @@ def build_executor(
     ``web_tools.build_client``), rather than leaving it half-configured.
     """
 
+    selected_assets_root = (
+        benchmark_assets_root if benchmark_assets_root is not None else assets_root(env)
+    )
+
     async def _world() -> World:
         # `include_extra_models`: the Runner boot is the ONE parse that reads the
         # Job-scoped URL4_CLOUD_EXTRA_MODELS overlay (review F3) — this env IS the
@@ -278,11 +282,7 @@ def build_executor(
                 install_corrective_runtime(world.node)
                 benchmarks.install(
                     world.node,
-                    assets_root=(
-                        benchmark_assets_root
-                        if benchmark_assets_root is not None
-                        else assets_root(env)
-                    ),
+                    assets_root=selected_assets_root,
                 )
                 cleanup.pop_all()
         return world.node, world.aclose
@@ -294,7 +294,10 @@ def build_executor(
         hard_cap=hard_cap,
         memory_budget=bridge_budget_from_env(env),
         artifact_store=artifact_store,
-        run_log_scope_factory=BenchmarkRunLogAdapter(benchmarks),
+        run_log_scope_factory=BenchmarkRunLogAdapter(
+            benchmarks,
+            assets_root=selected_assets_root,
+        ),
     )
 
 

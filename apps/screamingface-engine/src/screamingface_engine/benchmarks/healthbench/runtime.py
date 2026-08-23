@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +49,6 @@ from screamingface_engine.benchmarks.healthbench.prompts import (
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.run_logs import register_case_projection
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -123,12 +121,6 @@ def _install_protocol_once(
                 label="HealthBench Case evaluation",
                 item_name="Rubric evaluation",
                 bind=bind_case_evaluation,
-                observe=_progress_projection(
-                    root,
-                    benchmark_id,
-                    case_ids,
-                    mean,
-                ),
                 error_context_head=300,
             ),
         ),
@@ -311,36 +303,6 @@ def _aggregate(
         )
 
     return aggregate_handler
-
-
-def _progress_projection(
-    root: Path,
-    benchmark_id: str,
-    case_ids: tuple[int, ...],
-    mean: ExamMean,
-):
-    selection: dict[int, tuple[int, reducing.SelectedCase]] | None = None
-    scorer = partial(reducing.score_cases, mean)
-
-    def observe(result: dict[str, Any]) -> None:
-        nonlocal selection
-        if selection is None:
-            selected = reducing.selected_cases(root, case_ids)
-            selection = {int(case.case_id): (index, case) for index, case in enumerate(selected)}
-        case_id = int(result["case_id"])
-        selected_index, selected_case = selection[case_id]
-        points = reducing.load_rubric_points(root, case_id)
-        register_case_projection(
-            benchmark_id,
-            case_id=case_id,
-            selected_index=selected_index,
-            grade_case=lambda raw, selected_case=selected_case, points=points: reducing.grade_case(
-                raw, selected_case, points
-            ),
-            scorer=scorer,
-        )
-
-    return observe
 
 
 def _transcript(raw_cases: str, case_id: int) -> str:

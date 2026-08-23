@@ -72,6 +72,33 @@ Commit: `refactor(screamingface-engine): share case scoring with live progress`
 
 Commit: `test(screamingface-engine): prove terminal progress is observational`
 
+## Iteration 4 — deepen the Benchmark Evaluation adapter
+
+Owner approved this replacement on 2026-08-23 before OME-932 review. Because the interface is
+unreleased, it has no compatibility fallback: the loose `aggregate_route` field and per-Case
+`register_case_projection(..., scorer=...)` interface are replaced, not layered.
+
+### RED
+
+- A Benchmark declares one Evaluation adapter containing its aggregate route and bind operation.
+- Exact discovery binds that adapter once to the deployment asset root and `aggregate:N` count.
+- A bound adapter projects a raw terminal envelope into one selected index plus `CaseResult` and
+  owns one immutable scorer for the entire run.
+- All shipped Benchmarks conform through the same generic interface.
+- Generic progress requires no imports or callbacks from concrete Benchmark runtime endpoints.
+- Adapter bind/project/score failure remains fail-open and privacy-bounded.
+
+### GREEN
+
+- Add the generic Evaluation adapter and bound-run value objects beside `Benchmark`.
+- Add one concrete adapter inside each IFEval, DRACO, and HealthBench module.
+- Move private asset/selection binding out of route-time progress callbacks and into adapter bind.
+- Remove concrete runtime progress registration and simplify the tracker to normalized indexed
+  Case results from its one bound adapter.
+- Keep aggregate modules as the sole owners of shared per-Case grading and cross-Case scoring.
+
+Commit: `refactor(screamingface-engine): deepen benchmark evaluation progress`
+
 ## Verification
 
 After every iteration:
@@ -96,5 +123,7 @@ Before PR:
 | Wrong Benchmark or total is selected | Exact registered route plus literal `aggregate:N`; zero/ambiguous matches decline. |
 | Concurrent completions double-count | One run-local tracker with terminal identity de-duplication and out-of-order tests. |
 | Live and final scores drift | One `grade_case` and scorer seam called by both paths. |
+| A run changes scorer between Cases | One bound Evaluation owns the scorer for its full lifetime. |
+| Progress leaks into concrete route handlers | Shared terminal hooks call the generic tracker; concrete runtimes register nothing. |
 | UI stalls between Case completions | OME-933 continues folding existing spans, model calls, cost, usage, and cache Events. |
 | Result-affecting semantics become implicit | URL4/manifest remain authoritative; tracker only observes terminal results. |
