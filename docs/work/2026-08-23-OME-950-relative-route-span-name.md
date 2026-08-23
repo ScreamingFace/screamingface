@@ -43,8 +43,8 @@ without adding a second progress-event path or coupling URL4 to ScreamingFace Be
 
 - **Actual files:** all six planned files — four SDLC artifacts, the URL4 DAG observer detail
   selector, and its append-only observation tests.
-- **Commits:** pending — `fix(url4): report relative routes in span names`, landing with this
-  ledger update.
+- **Commits:** `34cea424` — `fix(url4): report relative routes in span names`; this final ledger
+  evidence update follows in the documentation commit.
 - **Gates:** RED: 2 failed for empty relative-node detail; focused GREEN: 2 passed; full URL4
   suite: 1161 passed; `uv run .claude/scripts/run_gates.py url4`: ALL GATES GREEN (append-only,
   ruff check, ruff format, pyright, pytest with 95% coverage floor).
