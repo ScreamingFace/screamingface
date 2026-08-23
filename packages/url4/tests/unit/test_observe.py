@@ -309,3 +309,44 @@ async def test_node_finished_span_ids_are_a_bijection_with_node_started() -> Non
         finished_ids = [e.span_id for e in rec.events if isinstance(e, NodeFinished)]
         assert len(started_ids) == len(set(started_ids)), expr
         assert sorted(started_ids) == sorted(finished_ids), expr
+
+
+@pytest.mark.asyncio
+async def test_relative_node_observes_its_static_path_template() -> None:
+    from url4.dag.nodes import RelUrlNode, TextNode
+
+    template = "/private/$case"
+    resolved = "/private/42"
+    rec = RecordingObserver()
+
+    result = await run(
+        RelUrlNode(template, deps={"bind:case": TextNode("42")}),
+        StaticIOLayer(fetch_map={resolved: "ok"}),
+        observer=rec,
+    )
+
+    assert result == "ok"
+    started = next(
+        e for e in rec.events if isinstance(e, NodeStarted) and e.node_kind == "RelUrlNode"
+    )
+    assert started.detail == template
+
+
+@pytest.mark.asyncio
+async def test_failing_relative_node_retains_its_route_detail() -> None:
+    from url4.dag.nodes import RelUrlNode
+
+    route = "/benchmarks/case-execution"
+    rec = RecordingObserver()
+
+    with pytest.raises(ResolutionError, match="no fetch mapping"):
+        await run(RelUrlNode(route), StaticIOLayer(), observer=rec)
+
+    started = next(
+        e for e in rec.events if isinstance(e, NodeStarted) and e.node_kind == "RelUrlNode"
+    )
+    assert started.detail == route
+    finished = next(
+        e for e in rec.events if isinstance(e, NodeFinished) and e.span_id == started.span_id
+    )
+    assert finished.status == "error"

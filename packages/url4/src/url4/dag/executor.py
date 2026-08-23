@@ -216,7 +216,7 @@ class Executor:
 def _detail(node: DagNode) -> str:
     """Best-effort human-readable detail for a :class:`~url4.observe.NodeStarted`
     event — a route/URL/text the node carries, or ``""`` when none applies."""
-    for attr in ("target", "text", "body"):
+    for attr in ("target", "path", "text", "body"):
         value = getattr(node, attr, None)
         if isinstance(value, str) and value:
             return value
