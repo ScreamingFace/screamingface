@@ -112,8 +112,7 @@ Candidate table already owns exact visible Case fractions. The compact line now 
 Candidate elapsed time now truncates fractional seconds because the panel refreshes once per
 second. It renders integral seconds below an hour and drops seconds at hour scale.
 The final owner-approved table pass replaces vague `Partial` with exact graded coverage, retains
-authoritative final duration, right-aligns numeric columns, and reserves the compact receipt's
-height before usage evidence arrives so the table never jumps.
+authoritative final duration, and right-aligns numeric columns.
 Cache diagnosis found that the local stack intentionally leaves `AIGW_REQUEST_CACHE_ENABLED` off,
 so its model calls report bypass rather than hit/miss. The table now renders `Bypassed` for that
 reported state and reserves `Not reported` for genuinely absent cache outcome evidence.
@@ -124,5 +123,8 @@ The final owner-approved header compaction places live Evaluation state at the r
 benchmark-title row so changing receipt digits never shift it. The canonical progress track stays
 visible only while progress is actionable, including partial stopped/failed runs; successful
 completion removes the redundant full bar and 100% and reports `complete · duration` from
-authoritative Candidate Result timestamps. The receipt remains left-aligned and reserved, and the
-Candidate table remains the canonical detail surface for both one and many Candidates.
+authoritative Candidate Result timestamps. The receipt remains left-aligned, and the Candidate
+table remains the canonical detail surface for both one and many Candidates.
+Live notebook QA then showed that the reserved empty receipt row reads as an oversized dead band
+before any model activity returns. The owner-approved correction omits the receipt entirely until
+real evidence exists, keeping the initial progress track and Candidate table in a compact rhythm.

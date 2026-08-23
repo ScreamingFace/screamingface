@@ -159,7 +159,7 @@ Content appears in this order:
 2. Paid-check disclosure, when applicable.
 3. Overall Candidate-Case progress, only while the Evaluation is not successfully complete and
    every Candidate denominator is known.
-4. Compact live receipt, with its height reserved before evidence exists.
+4. Compact live receipt, only after cost/call/token evidence exists.
 5. Candidate table.
 6. Global error, only when present.
 
@@ -178,9 +178,9 @@ duration from the earliest Candidate start to the latest Candidate completion.
 
 The receipt is one muted mono line beneath the optional progress track, ordered by user value:
 `cost $0.76 · 68 model calls · 202.9k in / 30.2k out`. It exposes only fields with evidence and is
-visually empty before any exists, while reserving its one-line height so the Candidate table does
-not jump when usage first arrives. It replaces the large three-cell aggregate strip without
-changing the underlying live accounting.
+absent before any exists so an empty placeholder does not create a large visual gap above the
+Candidate table. It replaces the large three-cell aggregate strip without changing the underlying
+live accounting.
 
 After the authoritative Report reconciles, when exact evidence proves every observed model call
 was a hit, with no miss, bypass, unaccounted call, non-zero cost, or non-zero token usage, the

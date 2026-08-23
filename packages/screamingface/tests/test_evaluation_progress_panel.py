@@ -147,13 +147,13 @@ def test_subtree_usage_is_ignored_so_cost_is_not_double_counted() -> None:
     assert state.rows[0].cost_usd == Decimal("0.25")
 
 
-def test_panel_reserves_compact_live_receipt_before_evidence_exists() -> None:
+def test_panel_collapses_live_receipt_before_evidence_exists() -> None:
     opus = candidate()
     state = progress(opus)
 
     initial = evaluation_panel_html(state)
-    assert "<div class='sf-eval__receipt' aria-hidden='true'></div>" in initial
-    assert ".sf-eval__receipt{margin-top:7px;min-height:1.45em" in initial
+    assert "<div class='sf-eval__receipt'" not in initial
+    assert ".sf-eval__table-wrap{margin-top:12px" in initial
 
     state.observe(opus, model_span(1))
     state.observe(opus, model_span(2))

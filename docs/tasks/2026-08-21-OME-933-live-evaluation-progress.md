@@ -34,8 +34,8 @@ the redundant full track and 100% label and shows `complete · duration`; partia
 states retain the known progress evidence.
 
 Running cost, model calls, and tokens remain visible as one compact evidence-only receipt rather
-than three large boxes. Cost appears first. The receipt shows no placeholder values before evidence
-exists, while its one-line height is reserved to prevent the table shifting when evidence arrives.
+than three large boxes. Cost appears first. The receipt is absent before evidence exists so the
+empty state does not leave a large blank band above the Candidate table.
 
 Partial coverage is explicit (`1/2 graded`) rather than a vague `Partial` label. Running and
 finished rows retain per-Candidate duration in Status, using authoritative Candidate Result

@@ -95,7 +95,8 @@ In `_ui/evaluation_view.py`:
   current/maximum values on the progressbar for accessibility while the table owns visible exact
   Case counts
 - replace the three-cell aggregate usage strip with one evidence-only live receipt ordered as
-  cost, model calls, then tokens in/out; reserve its one-line height before evidence exists
+  cost, model calls, then tokens in/out; omit it before evidence exists so the empty state stays
+  compact
 - render `model calls · fully cached · no tokens billed` only when per-Candidate cache outcomes
   account for every observed model call as a hit and usage/cost evidence does not contradict it;
   suppress zero cost/token telemetry from that receipt while retaining `$0.00` in the table
