@@ -154,7 +154,7 @@ without repeating paid work, exposing Benchmark-private material, changing gener
   and HealthBench defers rubric points until the matching terminal Case.
 - **TDD evidence:** the initial focused run failed seven tests for the six review findings and the
   three eager binders; the typed-observation fail-open regression then failed independently.
-  Final focused progress/adapter suite: **55 passed**. Broader Benchmark protocol, aggregation,
+  Final focused progress/adapter suite: **57 passed**. Broader Benchmark protocol, aggregation,
   failure-policy, identity, and paid-call regression suite: **141 passed**.
 - **Gate:** `uv run .claude/scripts/run_gates.py screamingface-engine --base
   014386e79472d63a3ab21489e4dbf25e1d6a97a4` — **ALL GATES GREEN** (append-only, Ruff
