@@ -32,18 +32,16 @@ that name and its existing `ok` or `error` status.
 the resolved context, intent, query, collection row, endpoint result, prompt, answer, or other
 runtime payload.
 
-A `RemoteFetchNode` retains its static authority as well as its path. For example, authority
-`peer.example` and path `/benchmarks/case-execution` report
-`url4://peer.example/benchmarks/case-execution`. A remote operation therefore cannot collide with
-the local relative route or with the same path on another authority.
+A `RemoteFetchNode` reports the same unqualified static path. The existing node kind remains
+`RemoteFetchNode`, so the Engine publishes `gen_ai.operation.name="RemoteFetchNode"`; a consumer
+distinguishes it from the local `RelUrlNode` by matching both operation and name.
 
 ## Design
 
 Extend the existing best-effort detail selector from `target`, `text`, and `body` to also consider
-`path`. When a node carries both `authority` and `path`, preserve the canonical static remote
-identity as `url4://{authority}{path}`. Keep the current priority and behavior of every existing
-source. This is a generic DAG observation improvement: URL4 has no knowledge of Benchmarks or the
-consumer interpreting a particular route.
+`path`. Keep the current priority and behavior of every existing source. This is a generic DAG
+observation improvement: URL4 has no knowledge of Benchmarks or the consumer interpreting a
+particular route.
 
 ## Boundaries
 
@@ -52,13 +50,13 @@ consumer interpreting a particular route.
 - No new observation dataclass, CloudEvent kind, schema field, queue, or transport.
 - No Engine or Client production change.
 - No resolved path or dynamic payload is added to telemetry.
-- No remote authority is discarded or conflated with a local relative route.
+- Remote authorities remain absent from detail; node kind distinguishes remote and local spans.
 - No compatibility fallback before V1.
 
 ## Acceptance
 
 1. A successful `RelUrlNode` start observation carries its static path as detail.
 2. An erroring `RelUrlNode` retains the same path detail and the existing matching finish event.
-3. A `RemoteFetchNode` reports `url4://{authority}{path}`, distinct from the same local path.
+3. A `RemoteFetchNode` reports its unqualified static path and retains its distinct node kind.
 4. Existing `target`, `text`, and `body` detail sources remain unchanged.
 5. The full `url4` quality gate passes.
