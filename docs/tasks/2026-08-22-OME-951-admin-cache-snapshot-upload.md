@@ -4,7 +4,7 @@ linear_url: https://linear.app/openmined/issue/OME-951/admin-cache-snapshot-uplo
 status: todo
 type: improvement
 priority: 3
-labels: [repo, autonomous, agentic]
+labels: [aigateway, repo, autonomous, agentic]
 created: 2026-08-22
 closed:
 ---
