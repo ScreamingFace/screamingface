@@ -205,6 +205,11 @@ class _SyncEventObserver:
         self._callback = callback
         self._lock = Lock()
 
+    def begin(self, candidate: Candidate) -> None:
+        with self._lock:
+            if self._builtin is not None:
+                _begin_candidate_progress(self._builtin, candidate)
+
     def bind(self, candidate: Candidate) -> Callable[[Event], None]:
         def observe(event: Event) -> None:
             with self._lock:
@@ -234,6 +239,11 @@ class _AsyncEventObserver:
         self._builtin = builtin
         self._callback = callback
         self._lock = asyncio.Lock()
+
+    async def begin(self, candidate: Candidate) -> None:
+        async with self._lock:
+            if self._builtin is not None:
+                _begin_candidate_progress(self._builtin, candidate)
 
     def bind(self, candidate: Candidate) -> Callable[[Event], Awaitable[None]]:
         async def observe(event: Event) -> None:
@@ -290,6 +300,14 @@ def _observe_candidate_progress(observer: object, candidate: Candidate, event: E
     _observe_progress(selected, candidate, event)
 
 
+def _begin_candidate_progress(observer: object, candidate: Candidate) -> None:
+    begin = getattr(observer, "begin", None)
+    if not callable(begin):
+        _logger.error("ScreamingFace progress observer has no Candidate begin method")
+        return
+    _observe_progress(begin, candidate)
+
+
 def _reconcile_progress(observer: object | None, report: Report) -> None:
     if observer is None:
         return
@@ -339,22 +357,24 @@ def _run_candidates_sync(
     if len(candidates) == 1:
         candidate = candidates[0]
         selected_observer = None if observer is None else observer.bind(candidate)
+        if observer is not None:
+            observer.begin(candidate)
         return ((candidate, transport.run(candidate, selected_observer)),)
 
     with ThreadPoolExecutor(
         max_workers=min(len(candidates), _MAX_CANDIDATES_IN_FLIGHT),
         thread_name_prefix="screamingface-candidate",
     ) as executor:
+
+        def run(candidate: Candidate) -> _RunOutcome:
+            selected_observer = None if observer is None else observer.bind(candidate)
+            if observer is not None:
+                observer.begin(candidate)
+            return transport.run(candidate, selected_observer)
+
         futures = ()
         try:
-            futures = tuple(
-                executor.submit(
-                    transport.run,
-                    candidate,
-                    None if observer is None else observer.bind(candidate),
-                )
-                for candidate in candidates
-            )
+            futures = tuple(executor.submit(run, candidate) for candidate in candidates)
             return tuple(
                 (candidate, future.result())
                 for candidate, future in zip(candidates, futures, strict=True)
@@ -377,6 +397,8 @@ async def _run_candidates_async(
     if len(candidates) == 1:
         candidate = candidates[0]
         selected_observer = None if observer is None else observer.bind(candidate)
+        if observer is not None:
+            await observer.begin(candidate)
         return ((candidate, await transport.run(candidate, selected_observer)),)
 
     gate = asyncio.Semaphore(_MAX_CANDIDATES_IN_FLIGHT)
@@ -384,6 +406,8 @@ async def _run_candidates_async(
     async def run(candidate: Candidate) -> _RunOutcome:
         async with gate:
             selected_observer = None if observer is None else observer.bind(candidate)
+            if observer is not None:
+                await observer.begin(candidate)
             return await transport.run(candidate, selected_observer)
 
     tasks = tuple(asyncio.create_task(run(candidate)) for candidate in candidates)

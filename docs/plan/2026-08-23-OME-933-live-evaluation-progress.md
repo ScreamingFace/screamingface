@@ -42,6 +42,8 @@ In `_evaluation/runner.py` and `_evaluation/progress.py`:
 - keep the text observer behavior unchanged while ignoring its bound Candidate context
 - reconcile the built-in observer only after `report_from_outcomes` returns a valid Report
 - on workflow failure, freeze the built-in observer without emitting a synthetic public Event
+- mark a Candidate submitted immediately before `transport.run`; derive `Not run` only from that
+  runner-owned fact, never from a missing root Event
 
 Cover both the single-Candidate fast path and the multi-Candidate sync/async paths. Pin the existing
 eight-Run concurrency gate and queued Candidates that never start.
@@ -60,6 +62,7 @@ In `_ui/evaluation_state.py`:
 - keep bounded real activity evidence; add no inferred phase or Case identity
 - reconcile final fields from the matching CandidateResult by Candidate identity and validate that
   every expected Candidate appears once
+- reconcile completed Cases from final CaseResults and preserve live cost when final usage omits it
 
 The fold remains independent of ipywidgets and wall-clock reads so its transitions are deterministic
 and directly testable.
@@ -69,15 +72,46 @@ and directly testable.
 In `_ui/evaluation_view.py`:
 
 - replace the aggregate progress bar with the six-column semantic Candidate table
-- add the sticky header/Candidate column and an internal horizontal-scroll shell; do not add a
-  responsive card/stack alternative
-- show truthful unavailable/final wording and a progress element for each known denominator
-- preserve the paid-check disclosure, aggregate calls/tokens/cost, cache-provenance band, collapsed
-  activity, and conditional global error in the specified order
+- keep the sticky header and use a compact fixed-layout width allocation that fits the notebook
+  without an internal horizontal scrollbar or responsive card/stack alternative
+- remove widget-level horizontal padding so the whole surface aligns with the notebook output edge
+- show only each Candidate's authored display name; omit the redundant full model route
+- keep Status to one line with lifecycle, qualifier, and Running elapsed time; truncate fractional
+  seconds, retain integral seconds below an hour, and show only hours/minutes from one hour onward
+- replace vague `Partial` with the exact `graded/selected graded` count guaranteed by Candidate
+  coverage, and retain final duration from authoritative Candidate Result timestamps
+- use the benchmark name as the stable title; remove the dynamic Evaluation headline and aggregate
+  row-state subtitle
+- use the canonical static square signal with the blue app accent for genuinely Running rows; add
+  no widget-specific animation
+- render one canonical SFDS fusion-gradient overall track from summed completed/planned
+  Candidate-Case runs, including its anchored gradient and `.11s linear` width transition
+- place the compact `state · percent` mono text at the right edge of the benchmark-title row,
+  using `evaluating…`, `complete`, `stopped`, `timed out`, or `failed`; keep the state without a
+  percentage when the denominator is unknown and impose no fixed maximum
+- hide the progress track and redundant 100% after successful reconciliation, replace the state
+  with `complete · duration` using authoritative Candidate Result timestamps, and retain the
+  track for stopped/failed partial work when its denominator is known; keep exact aggregate
+  current/maximum values on the progressbar for accessibility while the table owns visible exact
+  Case counts
+- replace the three-cell aggregate usage strip with one evidence-only live receipt ordered as
+  cost, model calls, then tokens in/out; reserve its one-line height before evidence exists
+- render `model calls · fully cached · no tokens billed` only when per-Candidate cache outcomes
+  account for every observed model call as a hit and usage/cost evidence does not contradict it;
+  suppress zero cost/token telemetry from that receipt while retaining `$0.00` in the table
+- show truthful exact Case text for each known denominator without a redundant progress bar
+- right-align Cases, Score, Cost, and Cache hit using the canonical SFDS numeric-column treatment
+- preserve the paid-check disclosure, aggregate accounting state, per-Candidate cache evidence, and
+  conditional global error; omit aggregate cache and Run activity sections
+- distinguish all-bypass cache evidence as `Bypassed` from genuinely absent outcomes as
+  `Not reported`; compute percentages only over hit/miss traffic
 - replace whole-panel `aria-live` with a dedicated limited announcement region
 - apply SFDS v2 app-register typography, square/hairline geometry, readable text roles, solid blue
   activity, semantic status colors, light/dark parity, and reduced-motion behavior
-- remove the old gradient/sweep and small-screen stacked-stat treatment
+- pin the generated tokens and canonical table recipe from `OpenMined/screamingface-brand`
+  commit `7ea35a12608776ba3f811811578cec9fd5193b4f`; update the shared notebook token bridge
+  centrally where its older palette has drifted
+- remove the old inferred phase/sweep treatment and small-screen stacked-stat treatment
 - fold Events immediately, coalesce dirty renders around 100 ms, retain the one-second silent clock,
   and force a final visible render before stopping the scheduler
 

@@ -22,6 +22,7 @@ from screamingface._evaluation.runner import (
 )
 from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.evaluation_view import evaluation_panel_html
+from screamingface._ui.style import FUSION_GRADIENT, STYLE
 
 _START = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
 
@@ -224,48 +225,81 @@ def outcome(name: str) -> _RunOutcome:
     )
 
 
-def report_for(selected: Candidate, *, score: float | None = 0.75) -> sf.Report:
-    grade = sf.CaseGrade(method="fixture", score=score, metrics={}, checks=())
-    case = sf.CaseResult(
-        case_id=1,
-        input="Question",
-        output="Answer",
-        finish_reason="stop",
-        grade=grade,
-        failures=(),
-        metadata={},
+def report_for(
+    selected: Candidate,
+    *,
+    score: float | None = 0.75,
+    case_count: int = 1,
+    cost_usd: Decimal | None = Decimal("0.40"),
+    graded_case_count: int | None = None,
+    completed_seconds: int = 2,
+) -> sf.Report:
+    numeric_grades = (
+        (case_count if graded_case_count is None else graded_case_count) if score is not None else 0
+    )
+    cases = tuple(
+        sf.CaseResult(
+            case_id=case_id,
+            input="Question",
+            output="Answer",
+            finish_reason="stop",
+            grade=(
+                sf.CaseGrade(method="fixture", score=score, metrics={}, checks=())
+                if score is None or case_id <= numeric_grades
+                else None
+            ),
+            failures=(
+                ()
+                if score is None or case_id <= numeric_grades
+                else (
+                    sf.Failure(
+                        stage="grading",
+                        code="missing_grade",
+                        message="fixture grade unavailable",
+                        case_id=case_id,
+                        metadata={},
+                    ),
+                )
+            ),
+            metadata={},
+        )
+        for case_id in range(1, case_count + 1)
     )
     benchmark = sf.BenchmarkInfo(id="draco", revision="fixture", case_count=100)
     result = sf.CandidateResult(
         benchmark=benchmark,
         run_id=f"run_{selected.name}",
         started_at=_START,
-        completed_at=_START + timedelta(seconds=2),
+        completed_at=_START + timedelta(seconds=completed_seconds),
         name=selected.name,
         kind=selected.kind,
         url4=selected.url4,
         models=selected.models,
         operations=selected.operations,
         score=score,
-        coverage=1.0 if score is not None else 0.0,
+        coverage=round(numeric_grades / case_count, 4),
         metrics={},
-        cases=(case,),
+        cases=cases,
         members=(),
         failures=(),
         usage=sf.Usage(
             input_tokens=1_000,
             output_tokens=200,
-            cost_usd=Decimal("0.40"),
+            cost_usd=cost_usd,
         ),
     )
-    return sf.Report(benchmark=benchmark, case_count=1, candidates=(result,))
+    return sf.Report(benchmark=benchmark, case_count=case_count, candidates=(result,))
 
 
 def test_sync_candidate_runner_uses_one_bound_observer_per_run() -> None:
     candidates = (candidate("opus"), candidate("gpt"))
+    begun: list[str] = []
     observed: list[tuple[str, str]] = []
 
     class Builtin:
+        def begin(self, selected: Candidate) -> None:
+            begun.append(selected.name)
+
         def observe(self, selected: Candidate, event: sf.Event) -> None:
             observed.append((selected.name, event.run_id))
 
@@ -282,14 +316,19 @@ def test_sync_candidate_runner_uses_one_bound_observer_per_run() -> None:
 
     _run_candidates_sync(cast(Any, Transport()), candidates, observer)
 
+    assert sorted(begun) == ["gpt", "opus"]
     assert sorted(observed) == [("gpt", "run_gpt"), ("opus", "run_opus")]
 
 
 def test_async_candidate_runner_uses_one_bound_observer_per_run() -> None:
     candidates = (candidate("opus"), candidate("gpt"))
+    begun: list[str] = []
     observed: list[tuple[str, str]] = []
 
     class Builtin:
+        def begin(self, selected: Candidate) -> None:
+            begun.append(selected.name)
+
         def observe(self, selected: Candidate, event: sf.Event) -> None:
             observed.append((selected.name, event.run_id))
 
@@ -306,6 +345,7 @@ def test_async_candidate_runner_uses_one_bound_observer_per_run() -> None:
 
     asyncio.run(_run_candidates_async(cast(Any, Transport()), candidates, observer))
 
+    assert sorted(begun) == ["gpt", "opus"]
     assert sorted(observed) == [("gpt", "run_gpt"), ("opus", "run_opus")]
 
 
@@ -348,6 +388,35 @@ def test_final_report_is_the_only_score_and_finished_authority() -> None:
     assert progress.rows[0].cost_usd == Decimal("0.40")
 
 
+def test_final_report_reconciles_case_progress_without_erasing_live_cost() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=None)
+    progress.observe(opus, span(1, run_id="run_opus"))
+    progress.observe(opus, span(2, run_id="run_opus"))
+    progress.observe(opus, span(3, run_id="run_opus"))
+    progress.observe(
+        opus,
+        sf.events.Usage(
+            id="usage",
+            run_id="run_opus",
+            sequence=4,
+            timestamp=_START,
+            source="/trace/run_opus/node/root",
+            scope="self",
+            provider="provider",
+            model="opus",
+            pricing_version="v1",
+            usage=sf.Usage(cost_usd=Decimal("0.25")),
+        ),
+    )
+
+    progress.reconcile(report_for(opus, case_count=2, cost_usd=None))
+
+    row = progress.rows[0]
+    assert (row.completed_cases, row.total_cases) == (2, 2)
+    assert row.cost_usd == Decimal("0.25")
+
+
 @pytest.mark.parametrize(
     ("started", "error", "expected"),
     [
@@ -382,6 +451,37 @@ def test_abort_maps_only_explicit_workflow_evidence(
     assert progress.rows[0].status == expected
 
 
+def test_submitted_candidate_without_lifecycle_evidence_is_not_labelled_not_run() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=1)
+
+    progress.begin(opus)
+    progress.abort(RuntimeError("event stream ended"))
+
+    assert progress.rows[0].status == "run_failed"
+    assert progress.rows[0].activity == "Run outcome unavailable"
+
+
+def test_bound_started_event_does_not_depend_on_repeating_the_candidate_url4() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=1)
+
+    progress.begin(opus)
+    progress.observe(
+        opus,
+        sf.events.Started(
+            id="started",
+            run_id="run_opus",
+            sequence=1,
+            timestamp=_START,
+            source="/trace/run_opus/node/root",
+            url4="(@)!'wire-normalized-differently'",
+        ),
+    )
+
+    assert progress.rows[0].status == "running"
+
+
 def test_terminal_engine_evidence_wins_over_workflow_abort_inference() -> None:
     opus = candidate("opus")
     progress = _EvaluationProgress(candidates=(opus,), case_count=1)
@@ -412,6 +512,14 @@ def test_terminal_engine_evidence_wins_over_workflow_abort_inference() -> None:
     progress.abort(RuntimeError("decode failed"))
 
     assert progress.rows[0].status == "stopped"
+
+    html = evaluation_panel_html(progress, "DRACO", elapsed=20)
+    table = html.split("<table", 1)[1].split("</table>", 1)[0]
+    assert ">Stopped<" in table
+    assert "Run stopped" not in table
+    assert "sf-eval__activity" not in table
+    assert "<details" not in html
+    assert "Run stopped" not in html
 
 
 @pytest.mark.parametrize("phase", ["reconcile", "abort"])
@@ -451,20 +559,82 @@ def test_candidate_table_uses_the_approved_columns_and_truthful_values() -> None
 
     html = evaluation_panel_html(progress, "DRACO")
 
-    headers = ["Candidate", "Status", "Progress", "Score", "Cost", "Cache"]
+    headers = ["Candidate", "Status", "Cases", "Score", "Cost", "Cache hit"]
     positions = [html.index(f">{header}<") for header in headers]
     assert positions == sorted(positions)
     assert "<table" in html
     assert "sf-eval__table-wrap" in html
-    assert "overflow-x:auto" in html
+    assert "overflow-x:auto" not in html
+    assert "min-width:820px" not in html
+    assert "tabindex='0'" not in html
+    assert "table-layout:fixed" in html
+    assert ".sf-eval{border:0;padding:4px 0 14px;" in html
+    widths = {"candidate": 27, "status": 17, "cases": 10, "score": 17, "cost": 14, "cache": 15}
+    for name, width in widths.items():
+        assert f".sf-eval__col--{name}{{width:{width}%}}" in html
     assert "opus" in html
     assert "gpt" in html
+    assert "provider/opus" not in html
+    assert "provider/gpt" not in html
+    assert "<progress" not in html
     assert "1 / 100" in html
     assert "Not scored yet" in html
     assert "Not reported" in html
 
 
-def test_candidate_table_has_no_inferred_phase_gradient_or_whole_table_live_region() -> None:
+def test_numeric_candidate_columns_are_right_aligned() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=1)
+
+    html = evaluation_panel_html(progress, "DRACO")
+
+    for header in ("Cases", "Score", "Cost", "Cache hit"):
+        assert f"<th scope='col' class='sf-eval__num'>{header}</th>" in html
+    assert ".sf-eval__num{text-align:right}" in html
+    row = html.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    assert row.count("sf-eval__num") == 4
+
+
+def test_notebook_surface_uses_current_sfds_v2_tokens() -> None:
+    assert "--sf-bg:#fcfdff" in STYLE
+    assert "--sf-surface:#f4f6f9" in STYLE
+    assert "--sf-surface-2:#eceef0" in STYLE
+    assert "--sf-ink:#3b3c3e" in STYLE
+    assert "--sf-ink-2:#616265" in STYLE
+    assert "--sf-ink-3:#b4b6b8" in STYLE
+    assert "--sf-line:#cdcfd2" in STYLE
+    assert "--sf-line-2:#b4b6b8" in STYLE
+    assert "--sf-danger-solid:#ff0325" in STYLE
+    assert "--sf-bg:#05070b" in STYLE
+    assert "--sf-surface:#0c0f13" in STYLE
+    assert "--sf-surface-2:#15181c" in STYLE
+    assert "--sf-ink:#e0e5eb" in STYLE
+    assert "--sf-ink-2:#c7ccd2" in STYLE
+    assert "--sf-ink-3:#585c61" in STYLE
+    assert "--sf-line:#35383d" in STYLE
+    assert "--sf-line-2:#585c61" in STYLE
+    assert "--sf-danger-solid:#ed413f" in STYLE
+
+
+def test_candidate_table_matches_current_sfds_table_recipe() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=1)
+    progress.abort(RuntimeError("failed"))
+
+    html = evaluation_panel_html(progress, "DRACO")
+
+    assert "font-size:13px" in html
+    assert "padding:12px 16px" in html
+    assert "border-bottom:1px solid var(--sf-line-2)" in html
+    assert "font-size:11px;font-weight:500" in html
+    assert "letter-spacing:.1em" in html
+    assert ".sf-eval__candidate{font-family:" in html
+    assert "font-weight:500;\n  color:var(--sf-ink)" in html
+    assert "align-items:center;gap:8px" in html
+    assert "background:var(--sf-danger-solid)" in html
+
+
+def test_candidate_table_has_no_inferred_phase_or_whole_table_live_region() -> None:
     opus = candidate("opus")
     progress = _EvaluationProgress(candidates=(opus,), case_count=1)
 
@@ -472,11 +642,65 @@ def test_candidate_table_has_no_inferred_phase_gradient_or_whole_table_live_regi
 
     assert "Answering" not in html
     assert "Grading" not in html
-    assert "linear-gradient" not in html
     assert "sf-eval-sweep" not in html
     table = html.split("<table", 1)[1].split("</table>", 1)[0]
     assert "aria-live" not in table
-    assert "prefers-reduced-motion:reduce" in html
+    assert "<progress" not in html
+
+
+def test_running_panel_has_stable_benchmark_title_and_canonical_static_status() -> None:
+    opus = candidate("opus")
+    gpt = candidate("gpt")
+    progress = _EvaluationProgress(candidates=(opus, gpt), case_count=2)
+    progress.begin(opus)
+    progress.observe(
+        opus,
+        sf.events.Started(
+            id="started",
+            run_id="run_opus",
+            sequence=1,
+            timestamp=_START,
+            source="/trace/run_opus/node/root",
+            url4=opus.url4,
+        ),
+    )
+
+    html = evaluation_panel_html(progress, "DRACO", elapsed=45)
+
+    assert "<div class='sf-eval__title'>DRACO</div>" in html
+    assert "<div class='sf-eval__title-state'>evaluating… · 0%</div>" in html
+    assert ".sf-eval__title-row{display:flex" in html
+    assert "justify-content:space-between" in html
+    assert "DRACO ·" not in html
+    assert "sf-eval__sub" not in html
+    assert ".sf-eval__status--running .sf-eval__status-sq{background:var(--sf-accent)}" in html
+    assert "@keyframes sf-eval-running" not in html
+    assert "animation:sf-eval-running" not in html
+
+
+def test_overall_progress_uses_canonical_sfds_run_treatment() -> None:
+    opus = candidate("opus")
+    gpt = candidate("gpt")
+    progress = _EvaluationProgress(candidates=(opus, gpt), case_count=100)
+    progress.observe(opus, span(1, run_id="run_opus"))
+    progress.observe(gpt, span(1, run_id="run_gpt"))
+
+    html = evaluation_panel_html(progress, "DRACO", elapsed=45)
+
+    assert "Overall progress" not in html
+    assert "2 / 200 case runs" not in html
+    assert "evaluating… · 1%" in html
+    assert "evaluating… · 1% · 2/200" not in html
+    assert "role='progressbar'" in html
+    assert "aria-valuemin='0'" in html
+    assert "aria-valuemax='200'" in html
+    assert "aria-valuenow='2'" in html
+    assert "width:1%" in html
+    assert "background-size:10000.0% 100%" in html
+    assert f"background-image:{FUSION_GRADIENT}" in html
+    assert "transition:width .11s linear" in html
+    overall = html.split("<div class='sf-eval__overall'>", 1)[1].split("</div>", 1)[0]
+    assert "evaluating…" not in overall
 
 
 def test_opaque_url4_replay_keeps_an_unknown_denominator_truthful() -> None:
@@ -489,6 +713,70 @@ def test_opaque_url4_replay_keeps_an_unknown_denominator_truthful() -> None:
     assert "1 case finished" in html
     assert "max='None'" not in html
     assert "1 /" not in html
+    assert "<div class='sf-eval__overall'>" not in html
+    assert "<div class='sf-eval__title-state'>evaluating…</div>" in html
+
+
+def test_aborted_evaluation_headline_does_not_claim_completion() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=1)
+    progress.begin(opus)
+    progress.observe(
+        opus,
+        sf.events.Started(
+            id="started",
+            run_id="run_opus",
+            sequence=1,
+            timestamp=_START,
+            source="/trace/run_opus/node/root",
+            url4=opus.url4,
+        ),
+    )
+
+    progress.abort(KeyboardInterrupt())
+
+    html = evaluation_panel_html(progress, "DRACO")
+    assert "Evaluation complete" not in html
+    assert "Evaluation ended" not in html
+    assert "<div class='sf-eval__title'>DRACO</div>" in html
+    assert "stopped · 0%" in html
+    assert "stopped · 0% · 0/1" not in html
+    table = html.split("<table", 1)[1].split("</table>", 1)[0]
+    assert "Not scored yet" not in table
+    assert ">Not scored<" in table
+
+
+def test_reconciled_evaluation_uses_complete_progress_state() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=1)
+
+    progress.reconcile(report_for(opus))
+
+    html = evaluation_panel_html(progress, "DRACO")
+    assert "<div class='sf-eval__title'>DRACO</div>" in html
+    assert "<div class='sf-eval__title-state'>complete · 2s</div>" in html
+    assert "complete · 100%" not in html
+    assert "<div class='sf-eval__overall'>" not in html
+    assert "Finished · 2s" in html
+
+
+def test_partial_result_names_exact_graded_coverage_and_keeps_final_duration() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=2)
+
+    progress.reconcile(
+        report_for(
+            opus,
+            score=0.3799,
+            case_count=2,
+            graded_case_count=1,
+            completed_seconds=70,
+        )
+    )
+
+    html = evaluation_panel_html(progress, "DRACO")
+    assert "Finished · 1/2 graded · 1m 10s" in html
+    assert "Finished · Partial" not in html
 
 
 def test_notebook_view_clock_advances_and_abort_leaves_a_frozen_panel(
@@ -523,12 +811,12 @@ def test_notebook_view_clock_advances_and_abort_leaves_a_frozen_panel(
         ),
     )
 
-    assert "0.0s" in view._html.value
+    assert "0s" in view._html.value
 
     now[0] += 45
     view._html.value = view._render()
 
-    assert "45.0s" in view._html.value
+    assert "45s" in view._html.value
 
     view.abort(RuntimeError("result decode failed"))
 

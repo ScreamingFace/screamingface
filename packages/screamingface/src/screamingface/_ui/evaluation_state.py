@@ -27,6 +27,7 @@ class _CandidateProgress:
     output_tokens: int = 0
     have_tokens: bool = False
     cost_usd: Decimal | None = None
+    submitted: bool = False
     started: bool = False
     terminal_status: str | None = None
     root_sources: set[str] = field(default_factory=set)
@@ -66,12 +67,22 @@ class _CandidateProgress:
         elif self.result.score is None:
             qualifier = "Incomplete"
         elif self.result.coverage < 1.0:
-            qualifier = "Partial"
+            graded = sum(
+                case.grade is not None and case.grade.score is not None
+                for case in self.result.cases
+            )
+            qualifier = f"{graded}/{len(self.result.cases)} graded"
         elif self.result.failures:
             qualifier = "Warnings"
         else:
             qualifier = None
         return qualifier
+
+    @property
+    def duration_seconds(self) -> float | None:
+        if self.result is None:
+            return None
+        return (self.result.completed_at - self.result.started_at).total_seconds()
 
     @property
     def cache_totals(self) -> tuple[int, int, int] | None:
@@ -92,6 +103,24 @@ class _CandidateProgress:
         cacheable = hits + misses
         return None if cacheable == 0 else hits / cacheable
 
+    @property
+    def fully_cached(self) -> bool:
+        totals = self.cache_totals
+        if self.model_calls == 0 or totals is None:
+            return False
+        hits, misses, bypasses = totals
+        cost_consistent = self.cost_usd is None or self.cost_usd == 0
+        tokens_consistent = not self.have_tokens or (
+            self.input_tokens == 0 and self.output_tokens == 0
+        )
+        return (
+            hits == self.model_calls
+            and misses == 0
+            and bypasses == 0
+            and cost_consistent
+            and tokens_consistent
+        )
+
     def observe(self, event: Event, elapsed_seconds: float | None = None) -> None:
         if isinstance(event, Started):
             self._observe_started(event, elapsed_seconds)
@@ -104,9 +133,12 @@ class _CandidateProgress:
         elif isinstance(event, Span):
             self._observe_span(event)
 
+    def begin(self) -> None:
+        self.submitted = True
+        self.activity = "Run submitted"
+
     def _observe_started(self, event: Started, elapsed_seconds: float | None) -> None:
-        if event.url4 != self.candidate.url4:
-            return
+        self.submitted = True
         self.started = True
         self.root_sources.add(event.source)
         self.activity = "Run started"
@@ -198,7 +230,9 @@ class _CandidateProgress:
     def reconcile(self, result: CandidateResult) -> None:
         self.result = result
         self.total_cases = len(result.cases)
-        self.cost_usd = result.usage.cost_usd
+        self.completed_cases = self.total_cases
+        if result.usage.cost_usd is not None:
+            self.cost_usd = result.usage.cost_usd
         if result.usage.input_tokens is not None:
             self.input_tokens = result.usage.input_tokens
             self.have_tokens = True
@@ -210,9 +244,13 @@ class _CandidateProgress:
     def abort(self, exc: BaseException) -> None:
         if self.result is not None or self.status not in {"queued", "running"}:
             return
-        if not self.started:
+        if not self.submitted:
             self.workflow_status = "not_run"
             self.activity = "Not started"
+            return
+        if not self.started:
+            self.workflow_status = "run_failed"
+            self.activity = "Run outcome unavailable"
             return
         if isinstance(exc, KeyboardInterrupt):
             self.workflow_status = "stopped"
@@ -269,9 +307,29 @@ class _EvaluationProgress:
         elif after != before and after not in {"queued", "running"}:
             self.announcement = f"{candidate.name} {after.replace('_', ' ')}"
 
+    def begin(self, candidate: Candidate) -> None:
+        try:
+            row = self._rows_by_name[candidate.name]
+        except KeyError:
+            raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
+        row.begin()
+
     @property
     def finished(self) -> bool:
         return all(row.status not in {"queued", "running"} for row in self.rows)
+
+    @property
+    def complete(self) -> bool:
+        return all(row.result is not None for row in self.rows)
+
+    @property
+    def duration_seconds(self) -> float | None:
+        if not self.complete:
+            return None
+        results = tuple(row.result for row in self.rows if row.result is not None)
+        started_at = min(result.started_at for result in results)
+        completed_at = max(result.completed_at for result in results)
+        return (completed_at - started_at).total_seconds()
 
     @property
     def model_calls(self) -> int:
@@ -316,6 +374,14 @@ class _EvaluationProgress:
         hits, misses, _ = totals
         cacheable = hits + misses
         return None if cacheable == 0 else hits / cacheable
+
+    @property
+    def fully_cached(self) -> bool:
+        return (
+            self.complete
+            and self.model_calls > 0
+            and all(row.model_calls == 0 or row.fully_cached for row in self.rows)
+        )
 
     @property
     def cache_bypass_breakdown(self) -> tuple[tuple[str, int], ...]:

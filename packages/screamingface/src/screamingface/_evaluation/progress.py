@@ -16,6 +16,8 @@ _logger = logging.getLogger(__name__)
 
 
 class _EvaluationObserver(Protocol):
+    def begin(self, candidate: Candidate) -> None: ...
+
     def observe(self, candidate: Candidate, event: Event) -> None: ...
 
     def reconcile(self, report: Report) -> None: ...
@@ -97,6 +99,9 @@ class _ProgressObserver:
     def observe(self, candidate: Candidate, event: Event) -> None:
         del candidate
         self(event)
+
+    def begin(self, candidate: Candidate) -> None:
+        del candidate
 
     def reconcile(self, report: Report) -> None:
         del report

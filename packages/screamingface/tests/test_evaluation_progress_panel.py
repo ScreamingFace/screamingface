@@ -62,6 +62,41 @@ def progress(*candidates: Candidate) -> _EvaluationProgress:
     return _EvaluationProgress(candidates=selected, case_count=2)
 
 
+def reconcile_complete(state: _EvaluationProgress, selected: Candidate) -> None:
+    benchmark = sf.BenchmarkInfo(id="draco", revision="fixture", case_count=2)
+    cases = tuple(
+        sf.CaseResult(
+            case_id=case_id,
+            input="Question",
+            output="Answer",
+            finish_reason="stop",
+            grade=sf.CaseGrade(method="fixture", score=1.0, metrics={}, checks=()),
+            failures=(),
+            metadata={},
+        )
+        for case_id in (1, 2)
+    )
+    result = sf.CandidateResult(
+        benchmark=benchmark,
+        run_id="run_opus",
+        started_at=_START,
+        completed_at=_START + timedelta(seconds=1),
+        name=selected.name,
+        kind=selected.kind,
+        url4=selected.url4,
+        models=selected.models,
+        operations=selected.operations,
+        score=1.0,
+        coverage=1.0,
+        metrics={},
+        cases=cases,
+        members=(),
+        failures=(),
+        usage=sf.Usage(input_tokens=0, output_tokens=0, cost_usd=Decimal("0")),
+    )
+    state.reconcile(sf.Report(benchmark=benchmark, case_count=2, candidates=(result,)))
+
+
 def test_model_spans_accumulate_calls_tokens_failures_and_refusals() -> None:
     opus = candidate()
     state = progress(opus)
@@ -110,6 +145,90 @@ def test_subtree_usage_is_ignored_so_cost_is_not_double_counted() -> None:
         )
 
     assert state.rows[0].cost_usd == Decimal("0.25")
+
+
+def test_panel_reserves_compact_live_receipt_before_evidence_exists() -> None:
+    opus = candidate()
+    state = progress(opus)
+
+    initial = evaluation_panel_html(state)
+    assert "<div class='sf-eval__receipt' aria-hidden='true'></div>" in initial
+    assert ".sf-eval__receipt{margin-top:7px;min-height:1.45em" in initial
+
+    state.observe(opus, model_span(1))
+    state.observe(opus, model_span(2))
+    state.observe(
+        opus,
+        sf.events.Usage(
+            **envelope(3),
+            scope="self",
+            provider="provider",
+            model="opus",
+            pricing_version="v1",
+            usage=sf.Usage(cost_usd=Decimal("0.25")),
+        ),
+    )
+
+    html = evaluation_panel_html(state)
+    assert "<div class='sf-eval__receipt'>" in html
+    assert "<div class='sf-eval__receipt' aria-hidden='true'>" not in html
+    assert "cost $0.25 · 2 model calls · 2.0k in / 500 out" in html
+    assert "sf-eval__stats" not in html
+
+
+def test_fully_cached_receipt_tells_the_success_story_without_zero_telemetry() -> None:
+    opus = candidate()
+    state = progress(opus)
+    state.observe(
+        opus,
+        model_span(1, cache_status="hit", input_tokens=0, output_tokens=0),
+    )
+    state.observe(
+        opus,
+        model_span(2, cache_status="hit", input_tokens=0, output_tokens=0),
+    )
+    state.observe(
+        opus,
+        sf.events.Usage(
+            **envelope(3),
+            scope="self",
+            provider="provider",
+            model="opus",
+            pricing_version="v1",
+            usage=sf.Usage(input_tokens=0, output_tokens=0, cost_usd=Decimal("0")),
+        ),
+    )
+    assert "fully cached" not in evaluation_panel_html(state)
+    reconcile_complete(state, opus)
+
+    html = evaluation_panel_html(state)
+    receipt = html.split("<div class='sf-eval__receipt'>", 1)[1].split("</div>", 1)[0]
+
+    assert "2 model calls · " in receipt
+    assert "fully cached" in receipt
+    assert "no tokens billed" in receipt
+    assert "cost $0.00" not in receipt
+    assert "0 in / 0 out" not in receipt
+    assert "sf-eval__receipt-success" in receipt
+    assert ">$0.00<" in html
+    assert "<div class='sf-eval__title-state'>complete · 1s</div>" in html
+    assert "<div class='sf-eval__overall'>" not in html
+
+
+def test_fully_cached_receipt_requires_cache_evidence_for_every_model_call() -> None:
+    opus = candidate()
+    state = progress(opus)
+    state.observe(
+        opus,
+        model_span(1, cache_status="hit", input_tokens=0, output_tokens=0),
+    )
+    state.observe(opus, model_span(2, input_tokens=0, output_tokens=0))
+
+    html = evaluation_panel_html(state)
+    receipt = html.split("<div class='sf-eval__receipt'>", 1)[1].split("</div>", 1)[0]
+
+    assert "fully cached" not in receipt
+    assert "no tokens billed" not in receipt
 
 
 def test_nested_termination_does_not_change_the_candidate_status() -> None:
@@ -217,40 +336,36 @@ def test_panel_escapes_candidate_identity_and_global_errors() -> None:
 
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
-    assert "provider/&lt;model&gt;" in html
+    assert "provider/&lt;model&gt;" not in html
     assert "bad &lt;payload&gt;" in html
     assert "DRACO &lt;private&gt;" in html
 
 
-def test_cache_band_renders_truthful_empty_and_bypass_states() -> None:
+def test_panel_omits_aggregate_cache_band_even_when_evidence_exists() -> None:
     opus = candidate()
     state = progress(opus)
-
-    empty = evaluation_panel_html(state)
-
-    assert "no cache activity reported" in empty
-    assert "bypassed" not in empty
-
     state.observe(opus, model_span(1, cache_status="bypass", cache_reason="opted_out"))
-    bypassed = evaluation_panel_html(state)
+    html = evaluation_panel_html(state)
 
-    assert "1 bypassed" in bypassed
-    assert "opted_out 1" in bypassed
+    assert "<div class='sf-eval__cache'>" not in html
+    assert "no cache activity reported" not in html
+    assert "1 bypassed" not in html
+    assert "opted_out 1" not in html
+    table = html.split("<table", 1)[1].split("</table>", 1)[0]
+    assert ">Bypassed<" in table
 
 
-def test_visible_cache_text_uses_readable_ink_two() -> None:
+def test_panel_omits_run_activity_section() -> None:
     html = evaluation_panel_html(progress())
-    label = html.split(".sf-eval__cache-k{", 1)[1].split("}", 1)[0]
-    body = html.split(".sf-eval__cache-of,", 1)[1].split("}", 1)[0]
 
-    assert "var(--sf-ink-2)" in label
-    assert "var(--sf-ink-2)" in body
-    assert "--sf-ink-3" not in label
-    assert "--sf-ink-3" not in body
+    assert "<details" not in html
+    assert "Run activity" not in html
 
 
 def test_live_figure_formatters_cover_large_small_and_long_values() -> None:
     assert _compact(2_000_000) == "2.0M"
     assert _money(Decimal("0.005")) == "$0.0050"
+    assert _duration(1.9) == "1s"
     assert _duration(65) == "1m 05s"
-    assert _duration(3_665) == "1h 01m"
+    assert _duration(3_665) == "1hr 01min"
+    assert _duration(9_925) == "2hrs 45min"
