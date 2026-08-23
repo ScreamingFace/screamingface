@@ -1,7 +1,7 @@
 ---
 id: OME-933
 linear_url: https://linear.app/openmined/issue/OME-933/redesign-live-evaluation-progress
-status: in_progress
+status: in_review
 type: improvement
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
@@ -24,4 +24,6 @@ Ordinary Benchmark evaluation knows the selected Case count up front and renders
 Opaque `sf.evaluate(url4)` replay shows its exact observed numerator while running, then learns
 the denominator from the final Report; the Client does not parse URL4.
 
-Blocked by OME-950. Canonical spec, plan, and ledger precede implementation.
+Draft PR: https://github.com/ScreamingFace/screamingface/pull/694
+
+Blocked by OME-950 until its relative-route span name lands.

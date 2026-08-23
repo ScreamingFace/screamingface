@@ -56,8 +56,7 @@ counts; keep final Candidate Results authoritative for scores and outcome classi
 ## Outcome
 
 - **Actual files:** the spec/task mirror and every production/test file listed above.
-- **Commits:** `f718b42b` (approved spec/plan); implementation is the conventional OME-933 commit
-  containing this completed ledger.
+- **Commits:** `f718b42b` (approved spec/plan), `aa7d3282` (Candidate-scoped implementation).
 - **Gates:** 77 focused progress/evaluation tests passed; 1,043 package tests passed with one
   skip before the final edge-case additions; the complete official `screamingface` gate then
   passed Ruff, Pyright, ≥95% coverage, notebook validation, build, and distribution checks.
