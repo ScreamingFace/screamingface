@@ -46,7 +46,7 @@ from screamingface_engine.benchmarks.aggregation import (
     refused_case_result,
     scored_case_result,
 )
-from screamingface_engine.benchmarks.case_execution import (
+from screamingface_engine.benchmarks.case_execution_contract import (
     CaseExecutionOutcome,
     case_execution_matches,
     case_execution_outcome,

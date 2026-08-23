@@ -99,23 +99,40 @@ def _relative_endpoint_paths(protocol: Node) -> set[str]:
     """Collect literal relative routes, including those inside iteration templates."""
 
     found: set[str] = set()
+    for child in walk_benchmark_expression(protocol):
+        # A `/path!intent` call and a bare `(/path)` data reference both resolve against the
+        # routes installed on this node, so both have to be checked.
+        reference = (
+            child.path
+            if isinstance(child, RelExpr)
+            else child.value
+            if isinstance(child, RelUrl)
+            else None
+        )
+        if reference is not None and (path := _literal_path(reference)) is not None:
+            found.add(path)
+    return found
+
+
+def walk_benchmark_expression(protocol: Node) -> Iterator[Node]:
+    """Walk structural children and parseable URL4 held in Iteration templates."""
+
     pending = [protocol]
     while pending:
         selected = pending.pop()
         for child in walk(selected):
-            # A `/path!intent` call and a bare `(/path)` data reference both resolve against the
-            # routes installed on this node, so both have to be checked.
-            reference = (
-                child.path
-                if isinstance(child, RelExpr)
-                else child.value
-                if isinstance(child, RelUrl)
-                else None
-            )
-            if reference is not None and (path := _literal_path(reference)) is not None:
-                found.add(path)
+            yield child
             if isinstance(child, Iteration):
-                for template in (child.body, child.intent, child.reducer):
+                # WHY body+intent together: this is the exact expression MapNode spawns for one
+                # row. A named body source is not necessarily parseable on its own, so walking the
+                # strings separately silently misses legal routes inside the template.
+                row_expression = (
+                    f"({child.body})!{child.intent}" if child.intent else f"({child.body})"
+                )
+                # The per-row intent is also a processor target in its own right. In the combined
+                # expression it is represented as RelUrl text, while standalone parsing exposes
+                # an embedded call's context and intent for discovery.
+                for template in (row_expression, child.intent, child.reducer):
                     if not template:
                         continue
                     try:
@@ -125,7 +142,6 @@ def _relative_endpoint_paths(protocol: Node) -> set[str]:
                         # cannot be parsed here carries no route to check. Skipping narrows the
                         # check; raising would fail the world for a legal Benchmark.
                         continue
-    return found
 
 
 EMPTY_BENCHMARKS = BenchmarkRegistry()
@@ -136,4 +152,5 @@ __all__ = [
     "BenchmarkRegistry",
     "EMPTY_BENCHMARKS",
     "assets_root",
+    "walk_benchmark_expression",
 ]

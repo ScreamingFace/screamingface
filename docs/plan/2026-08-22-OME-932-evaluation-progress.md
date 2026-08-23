@@ -99,6 +99,38 @@ unreleased, it has no compatibility fallback: the loose `aggregate_route` field 
 
 Commit: `refactor(screamingface-engine): deepen benchmark evaluation progress`
 
+## Iteration 5 — review hardening and redundancy cleanup
+
+Owner approved this review-fix iteration on 2026-08-23. The URL4 discovery parser remains because
+the Runner receives only the independently executable expression; no Client/job sidecar or URL4
+change is introduced.
+
+### RED
+
+- Anonymous Candidate failures cannot prevent a later identified Case terminal from being
+  recorded, and counters remain bounded by the selected total.
+- A per-board projection exception records that identified Case once as failed and allows later
+  Cases to continue advancing progress.
+- Binding a limited run performs no full-corpus asset validation or eager per-Case asset loading.
+- Syntax-derived progress snapshots do not claim, conflict with, or disable authoritative
+  Benchmark-owned Logs.
+- Aggregate discovery finds registered calls nested inside Iteration body, intent, and reducer
+  templates.
+- The shared Case endpoint passes a typed terminal outcome to the tracker without a second JSON
+  decode or a lazy import cycle.
+
+### GREEN
+
+- Reconcile anonymous failures when an identified terminal arrives at capacity.
+- Retain projection failures as failed terminal records and delete unreachable status branches.
+- Make board Evaluation binding selection-only and per-Case asset access lazy where necessary.
+- Separate progress publication from the recorder's generic ownership claim.
+- Extract and reuse one Benchmark-aware expression traversal helper.
+- Move the typed Case outcome contract below the shared endpoint and notify the recorder with that
+  value.
+
+Commit: `fix(screamingface-engine): harden live evaluation progress`
+
 ## Verification
 
 After every iteration:

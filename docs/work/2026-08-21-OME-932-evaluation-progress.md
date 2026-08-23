@@ -134,6 +134,35 @@ without repeating paid work, exposing Benchmark-private material, changing gener
 - No production code begins before OME-934 merges, this branch is rebased, and the revised
   spec/plan are explicitly approved.
 
+## Iteration 5 — review hardening and redundancy cleanup
+
+- **Intent:** retain canonical URL4 discovery while removing avoidable full-corpus work,
+  duplicated Case decoding, ownership interference, and terminal-accounting gaps found in review.
+- **Planned files:** shared Benchmark expression traversal, Case outcome contract/endpoint,
+  progress tracker/run-log adapter, built-in Evaluation binders, focused unit/conformance tests,
+  and this approved spec/plan/ledger.
+- **Test plan:** RED coverage for all six review findings plus typed-outcome delivery and
+  selection-only/lazy asset binding; focused regression suite; complete Engine gate.
+- **Acceptance:** generated URL4, URL4 packages, paid calls, final results, and existing error
+  contracts remain unchanged; progress stays fail-open, bounded, and exact.
+- **Result:** canonical URL4 discovery now reuses one template-aware registry traversal; projection
+  diagnostics retain identified failed terminals; identified terminals reconcile anonymous
+  placeholders; progress publication cannot claim generic Log ownership; and the shared Case
+  endpoint delivers one typed observation while preserving malformed authoritative returns.
+- **Binding:** IFEval loads only a selected instruction spec when its Case finishes, DRACO no
+  longer repeats installation's full protocol validation and loads one selected rubric lazily,
+  and HealthBench defers rubric points until the matching terminal Case.
+- **TDD evidence:** the initial focused run failed seven tests for the six review findings and the
+  three eager binders; the typed-observation fail-open regression then failed independently.
+  Final focused progress/adapter suite: **55 passed**. Broader Benchmark protocol, aggregation,
+  failure-policy, identity, and paid-call regression suite: **141 passed**.
+- **Gate:** `uv run .claude/scripts/run_gates.py screamingface-engine --base
+  014386e79472d63a3ab21489e4dbf25e1d6a97a4` — **ALL GATES GREEN** (append-only, Ruff
+  check/format, Pyright, recursive layering, full Pytest coverage).
+- **Deviation:** complete snapshots now explicitly permit `cases.failed` to decrease only when an
+  identified terminal replaces an anonymous failure placeholder; `cases.completed` never
+  decreases. This is the owner-approved correction that prevents genuine Cases being frozen out.
+
 ## Outcome
 
 - **Actual files:** Benchmark definition/registry metadata; run-local progress discovery, tracking,

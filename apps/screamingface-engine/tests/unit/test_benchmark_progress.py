@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -24,6 +25,10 @@ from screamingface_engine.benchmarks.aggregation import (
     scored_case_result,
 )
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.benchmarks.case_execution_contract import (
+    CaseExecutionObservation,
+    case_execution_outcome,
+)
 from screamingface_engine.benchmarks.contract import CaseResult, encode_candidate_invocation
 from screamingface_engine.benchmarks.progress import (
     EvaluationProgressTracker,
@@ -34,7 +39,7 @@ from screamingface_engine.benchmarks.run_logs import (
     record_candidate_failure,
 )
 from screamingface_engine.run_log_contract import LogScalar
-from url4 import Node, RelExpr, RelUrl, expr, render, text
+from url4 import Node, RelExpr, RelUrl, expr, iterate, render, src, text
 from url4.peer.server import Request
 
 type CaseEvaluator = Callable[[str], IndexedCaseResult]
@@ -174,6 +179,50 @@ def test_every_builtin_protocol_declares_and_discovers_its_exact_aggregate_route
         assert (tracker.benchmark_id, tracker.total) == (builtin.id, 1)
 
 
+def test_registered_aggregate_inside_iteration_template_is_discovered() -> None:
+    benchmark = _benchmark(case_count=1)
+    rendered = render(
+        iterate(
+            [text("row")],
+            body=(
+                src(
+                    _aggregate_call(_route(benchmark), text("aggregate:1")),
+                    name="result",
+                    weight=0.0,
+                ),
+            ),
+            intent=text("$result"),
+        )
+    )
+
+    tracker = discover_evaluation_progress(
+        BenchmarkRegistry((benchmark,)), rendered, assets_root=Path()
+    )
+
+    assert tracker is not None
+    assert (tracker.benchmark_id, tracker.total) == (benchmark.id, 1)
+
+
+@pytest.mark.parametrize("template", ["intent", "reducer"])
+def test_registered_aggregate_inside_iteration_tail_template_is_discovered(
+    template: str,
+) -> None:
+    benchmark = _benchmark(case_count=1)
+    aggregate = render(_aggregate_call(_route(benchmark), text("aggregate:1")))
+    iteration = (
+        iterate([text("row")], body=text("row"), intent=aggregate)
+        if template == "intent"
+        else iterate([text("row")], body=text("row"), intent=text("row"), reduce=aggregate)
+    )
+
+    tracker = discover_evaluation_progress(
+        BenchmarkRegistry((benchmark,)), render(iteration), assets_root=Path()
+    )
+
+    assert tracker is not None
+    assert (tracker.benchmark_id, tracker.total) == (benchmark.id, 1)
+
+
 def test_aggregate_route_must_be_an_absolute_route() -> None:
     with pytest.raises(ValueError, match="aggregate_route must be an absolute route path"):
         _benchmark(aggregate_route="benchmarks/alpha/aggregate")
@@ -189,12 +238,17 @@ def _successful_case(case_id: int) -> str:
     )
 
 
+def _successful_observation(case_id: int) -> CaseExecutionObservation:
+    raw = _successful_case(case_id)
+    return CaseExecutionObservation(raw=raw, outcome=case_execution_outcome(raw))
+
+
 def test_terminal_tracker_deduplicates_successes_rejects_malformed_rows_and_is_bounded() -> None:
     tracker = EvaluationProgressTracker(benchmark_id="alpha", total=2)
 
-    assert tracker.record_case_execution(_successful_case(1))
-    assert not tracker.record_case_execution(_successful_case(1))
-    assert not tracker.record_case_execution("not-json")
+    assert tracker.record_case_execution(_successful_observation(1))
+    assert not tracker.record_case_execution(_successful_observation(1))
+    assert not tracker.record_case_execution(cast(Any, "not-json"))
     assert tracker.record_candidate_failure()
     assert not tracker.record_candidate_failure()
 
@@ -288,6 +342,25 @@ def test_candidate_failure_emits_one_terminal_failed_snapshot() -> None:
             },
         )
     ]
+
+
+def test_identified_terminal_reconciles_an_anonymous_failure_at_capacity() -> None:
+    benchmark = _benchmark(case_count=2)
+    records: list[tuple[str, dict[str, LogScalar]]] = []
+    scope = BenchmarkRunLogAdapter(BenchmarkRegistry((benchmark,))).open_run_scope(
+        render(_aggregate_call(_route(benchmark), text("aggregate:2"))),
+        lambda body, attributes: records.append((body, dict(attributes))),
+    )
+    assert scope is not None
+
+    with scope:
+        record_candidate_failure()
+        record_candidate_failure()
+        case_execution._case_execution(_case_request(1))
+
+    assert [attributes["cases.completed"] for _, attributes in records] == [1, 2, 2]
+    assert records[-1][1]["cases.graded"] == 1
+    assert records[-1][1]["cases.failed"] == 1
 
 
 def test_url4_stringified_integer_case_id_uses_the_integer_projection() -> None:

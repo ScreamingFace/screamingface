@@ -61,7 +61,7 @@ from screamingface_engine.benchmarks.aggregation import (
     grading_failure_case_result,
     public_error,
 )
-from screamingface_engine.benchmarks.case_execution import (
+from screamingface_engine.benchmarks.case_execution_contract import (
     case_execution_matches,
     case_execution_outcome,
 )

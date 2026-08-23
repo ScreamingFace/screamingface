@@ -9,14 +9,18 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from screamingface_engine.benchmarks.case_execution_contract import CaseExecutionObservation
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BoundEvaluation,
     IndexedCaseResult,
 )
-from screamingface_engine.benchmarks.registry import BenchmarkRegistry
-from url4 import Node, RelExpr, Text, build, walk
+from screamingface_engine.benchmarks.registry import (
+    BenchmarkRegistry,
+    walk_benchmark_expression,
+)
+from url4 import Node, RelExpr, Text, build
 from url4.core.errors import Url4Error
 
 _AGGREGATE_INTENT = re.compile(r"aggregate:([1-9][0-9]*)")
@@ -107,49 +111,53 @@ class EvaluationProgressTracker:
     def _has_terminal(self, case_id: CaseId) -> bool:
         return any(_case_ids_match(case_id, terminal) for terminal in self._case_executions)
 
-    def record_case_execution(self, value: str) -> ProgressSnapshot | None:
+    def record_case_execution(
+        self, observation: CaseExecutionObservation
+    ) -> ProgressSnapshot | None:
         """Retain one new valid terminal Case, bounded by the selected total."""
 
-        accepted = False
-        if self.completed < self.total:
-            try:
-                # Lazy import keeps the shared Case endpoint free to notify the run-Log adapter
-                # without forming a module cycle through this tracker.
-                from screamingface_engine.benchmarks.case_execution import case_execution_outcome
+        if not isinstance(observation, CaseExecutionObservation):
+            return None
+        outcome = observation.outcome
+        if self._has_terminal(outcome.case_id) or not self._admit_identified_terminal():
+            return None
+        projected, diagnostic = _project_case(
+            self._evaluation,
+            observation.raw,
+            outcome.case_id,
+            self.total,
+        )
+        if diagnostic is not None:
+            self._diagnostic_type = diagnostic
+        result = projected.result if projected is not None else None
+        if result is None and diagnostic is None and outcome.error is None:
+            self._diagnostic_type = "MissingCaseProjection"
+        status = (
+            result.status
+            if result is not None
+            else "refused"
+            if outcome.error is not None and outcome.candidate.status == "refused"
+            else "failed"
+        )
+        self._case_executions[outcome.case_id] = _TerminalCase(
+            observation.raw,
+            projected.selected_index if projected is not None else None,
+            result,
+            status,
+        )
+        return self.snapshot()
 
-                outcome = case_execution_outcome(value)
-            except (TypeError, ValueError):
-                outcome = None
-            if outcome is not None and not self._has_terminal(outcome.case_id):
-                projected, diagnostic = _project_case(
-                    self._evaluation,
-                    value,
-                    outcome.case_id,
-                    self.total,
-                )
-                if diagnostic is not None:
-                    self._diagnostic_type = diagnostic
-                    return None
-                result = projected.result if projected is not None else None
-                if result is None and outcome.error is None:
-                    self._diagnostic_type = "MissingCaseProjection"
-                status = (
-                    result.status
-                    if result is not None
-                    else "refused"
-                    if outcome.error is not None and outcome.candidate.status == "refused"
-                    else "failed"
-                    if outcome.error is not None
-                    else "failed"
-                )
-                self._case_executions[outcome.case_id] = _TerminalCase(
-                    value,
-                    projected.selected_index if projected is not None else None,
-                    result,
-                    status,
-                )
-                accepted = True
-        return self.snapshot() if accepted else None
+    def _admit_identified_terminal(self) -> bool:
+        """Make room for stronger identified evidence without exceeding the selected total."""
+
+        if self.completed < self.total:
+            return True
+        if self._candidate_failures == 0:
+            return False
+        # INVARIANT: an identified terminal is stronger evidence than an anonymous Candidate
+        # failure. Reconcile one placeholder instead of freezing a genuine Case outside capacity.
+        self._candidate_failures -= 1
+        return True
 
     def record_candidate_failure(self) -> ProgressSnapshot | None:
         """Account one anonymous Candidate failure when capacity remains."""
@@ -306,7 +314,7 @@ def _matching_aggregate_calls(
     routes: Mapping[str, tuple[Benchmark, ...]],
 ) -> list[tuple[Benchmark, int]] | None:
     matches: list[tuple[Benchmark, int]] = []
-    for node in walk(root):
+    for node in walk_benchmark_expression(root):
         if not isinstance(node, RelExpr) or node.path not in routes:
             continue
         benchmarks = routes[node.path]

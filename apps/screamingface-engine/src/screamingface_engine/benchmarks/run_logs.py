@@ -10,6 +10,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Literal
 
+from screamingface_engine.benchmarks.case_execution_contract import CaseExecutionObservation
 from screamingface_engine.benchmarks.progress import (
     PROGRESS_BODY,
     EvaluationProgressTracker,
@@ -65,6 +66,13 @@ class _BenchmarkRunRecorder:
     ) -> None:
         if not self._claim(benchmark_id):
             return
+        self._submit(body, attributes)
+
+    def _submit(
+        self,
+        body: str,
+        attributes: Mapping[str, LogScalar],
+    ) -> None:
         try:
             self._emit(body, attributes)
         except Exception as exc:  # noqa: BLE001 - the concrete adapter is observational too
@@ -94,13 +102,15 @@ class _BenchmarkRunRecorder:
     def close(self) -> None:
         self._active = False
 
-    def record_case_execution(self, value: str) -> None:
+    def record_case_execution(self, observation: CaseExecutionObservation) -> None:
         if self._active and self._progress is not None:
             try:
-                snapshot = self._progress.record_case_execution(value)
+                snapshot = self._progress.record_case_execution(observation)
                 self._report_progress_diagnostic()
                 if snapshot is not None:
-                    self.emit(self._progress.benchmark_id, PROGRESS_BODY, snapshot.attributes())
+                    # WHY no `_claim`: discovery identifies only this progress projection. It must
+                    # not seize or conflict with ownership asserted by an operation that ran.
+                    self._submit(PROGRESS_BODY, snapshot.attributes())
             except Exception as exc:  # noqa: BLE001 - progress must remain observational
                 self._warn_progress_once(exc)
 
@@ -110,7 +120,7 @@ class _BenchmarkRunRecorder:
                 snapshot = self._progress.record_candidate_failure()
                 self._report_progress_diagnostic()
                 if snapshot is not None:
-                    self.emit(self._progress.benchmark_id, PROGRESS_BODY, snapshot.attributes())
+                    self._submit(PROGRESS_BODY, snapshot.attributes())
             except Exception as exc:  # noqa: BLE001 - progress must remain observational
                 self._warn_progress_once(exc)
 
@@ -214,12 +224,12 @@ def emit_benchmark_run_log(
         recorder.emit(benchmark_id, body, attributes)
 
 
-def record_successful_case_execution(value: str) -> None:
+def record_successful_case_execution(observation: CaseExecutionObservation) -> None:
     """Observe one validated Case return when a progress tracker is active."""
 
     recorder = _current_recorder.get()
     if recorder is not None:
-        recorder.record_case_execution(value)
+        recorder.record_case_execution(observation)
 
 
 def record_candidate_failure() -> None:

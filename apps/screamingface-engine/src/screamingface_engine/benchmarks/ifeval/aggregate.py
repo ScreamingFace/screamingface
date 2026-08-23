@@ -28,7 +28,7 @@ from screamingface_engine.benchmarks.aggregation import (
     refused_case_result,
     scored_case_result,
 )
-from screamingface_engine.benchmarks.case_execution import (
+from screamingface_engine.benchmarks.case_execution_contract import (
     case_execution_matches,
     case_execution_outcome,
 )
@@ -155,6 +155,19 @@ def load_specs(directory: Path) -> dict[int, dict[str, Any]]:
     return specs
 
 
+def load_spec(directory: Path, case_id: int) -> dict[str, Any]:
+    """Load one selected instruction spec after world installation validated the corpus."""
+
+    path = directory / f"{case_id}.json"
+    try:
+        decoded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AggregateError(f"instruction spec {case_id} is unavailable: {exc}") from None
+    if not isinstance(decoded, dict):
+        raise AggregateError(f"instruction spec {case_id} must be a JSON object")
+    return decoded
+
+
 def load_case_order(root: Path) -> list[int]:
     """The installed selection order — ``cases.json``'s ids, in file order.
 
@@ -207,14 +220,7 @@ def selected_cases(
     them would grade rows against the wrong specs.
     """
 
-    if (
-        isinstance(selected_case_count, bool)
-        or not isinstance(selected_case_count, int)
-        or selected_case_count < 1
-        or selected_case_count > len(case_order)
-    ):
-        raise AggregateError(f"selected_case_count must be between 1 and {len(case_order)}")
-    selected = list(case_order[:selected_case_count])
+    selected = selected_case_ids(case_order, selected_case_count)
     missing = [case_id for case_id in selected if case_id not in specs]
     if missing:
         raise AggregateError(
@@ -225,6 +231,19 @@ def selected_cases(
         SelectedCase(case_id=case_id, input=str(specs[case_id]["prompt"]), metadata={})
         for case_id in selected
     ]
+
+
+def selected_case_ids(case_order: Sequence[int], selected_case_count: int) -> list[int]:
+    """Select the exact installed Case prefix without loading its private specifications."""
+
+    if (
+        isinstance(selected_case_count, bool)
+        or not isinstance(selected_case_count, int)
+        or selected_case_count < 1
+        or selected_case_count > len(case_order)
+    ):
+        raise AggregateError(f"selected_case_count must be between 1 and {len(case_order)}")
+    return list(case_order[:selected_case_count])
 
 
 def grade_case(

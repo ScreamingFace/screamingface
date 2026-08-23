@@ -1,6 +1,6 @@
 # OME-932 — Terminal Benchmark progress and provisional scores
 
-Status: APPROVED, revised 2026-08-23. Production code is blocked only on OME-934.
+Status: APPROVED, revised 2026-08-23. Review hardening is in progress.
 
 ## 1. Problem
 
@@ -83,12 +83,17 @@ before calling the scorer. OME-931 is therefore independent, not a prerequisite.
 Snapshots are complete state, never deltas. The tracker enforces:
 
 - fixed positive `cases.total`;
-- monotonic `completed`, `graded`, `failed`, and `refused`;
+- monotonic `completed` and identified Case de-duplication;
 - every counter is between zero and total;
 - graded, failed, and refused are each no greater than completed;
 - each terminal Case is accounted once;
 - finite numeric provisional scores only;
 - coverage is always `graded / total`.
+
+Candidate failures observed before the Case envelope exists are anonymous placeholders. A later
+identified terminal may replace one such placeholder at capacity; `completed` remains monotonic
+while the complete snapshot's classification counters reconcile to the stronger evidence. This is
+the only path on which `failed` may decrease.
 
 A graded refusal may increment both graded and refused, matching the finalizer. A failure without a
 numeric grade increments completed and failed but not graded.
@@ -187,3 +192,22 @@ The following are byte/behaviour invariants:
 6. Privacy and layering tests enforce the boundaries above.
 7. `uv run .claude/scripts/run_gates.py screamingface-engine` is green.
 8. No concrete Benchmark runtime endpoint imports or calls a progress registration function.
+
+## 10. Review hardening
+
+The canonical URL4 remains the only portable run description available to the Runner, so exact
+Benchmark and selected-count discovery continues to parse it inside the Benchmark adapter. That
+parse discovers only immutable run context; actual terminal facts still come exclusively from the
+shared Candidate and Case execution operations.
+
+Before merge, the implementation must additionally guarantee:
+
+- aggregate discovery descends into parseable Iteration templates by reusing the registry's
+  Benchmark-aware expression traversal;
+- discovery never performs full-corpus filesystem validation on the Runner event loop;
+- a projection diagnostic still records the identified Case as a failed terminal;
+- identified Case terminals cannot be permanently displaced by anonymous Candidate failures;
+- syntax-derived progress context cannot claim or disable generic Benchmark Log ownership;
+- the tracker receives an already-decoded typed Case outcome instead of reparsing its own shared
+  endpoint's JSON return;
+- dead or unreachable status branches are removed rather than retained as compatibility code.

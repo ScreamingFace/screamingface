@@ -36,6 +36,19 @@ def load_rubrics(directory: Path) -> dict[int, dict[str, Any]]:
     return rubrics
 
 
+def load_rubric(directory: Path, case_id: int) -> dict[str, Any]:
+    """Load one selected rubric after world installation validated protocol alignment."""
+
+    path = directory / f"{case_id}.json"
+    try:
+        decoded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AggregateError(f"DRACO rubric {case_id} is unavailable: {exc}") from None
+    if not isinstance(decoded, dict):
+        raise AggregateError(f"DRACO rubric {case_id} must be a JSON object")
+    return decoded
+
+
 def validate_protocol_assets(
     root: Path,
     cases: list[dict[str, object]],

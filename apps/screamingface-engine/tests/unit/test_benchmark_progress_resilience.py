@@ -137,10 +137,10 @@ async def test_pre_execution_candidate_contract_errors_are_terminal_failures(
     assert observed == [None]
 
 
-def test_case_execution_notifies_only_after_constructing_the_exact_return(
+def test_case_execution_notifies_with_the_decoded_exact_return(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    observed: list[str] = []
+    observed: list[object] = []
     monkeypatch.setattr(case_execution, "record_successful_case_execution", observed.append)
     invocation = encode_candidate_invocation("answer", "stop", None)
     request = Request(
@@ -158,10 +158,40 @@ def test_case_execution_notifies_only_after_constructing_the_exact_return(
 
     result = case_execution._case_execution(request)
 
-    assert observed == [result]
+    assert len(observed) == 1
+    observation = observed[0]
+    assert getattr(observation, "raw") == result
+    assert getattr(observation, "outcome").case_id == 7
     assert result == case_execution.compact_json(
         case_execution.case_execution_payload(7, invocation, [{"verdict": "PASS"}])
     )
+
+
+def test_typed_observation_failure_cannot_replace_the_preserved_case_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[object] = []
+    monkeypatch.setattr(case_execution, "record_successful_case_execution", observed.append)
+    invocation = encode_candidate_invocation("answer", "stop", None)
+    request = Request(
+        path=case_execution.CASE_EXECUTION_ROUTE,
+        context=json.dumps(
+            {
+                "case_id": 7,
+                "candidate_invocation": invocation,
+                "grading": [{"error": "malformed"}],
+            }
+        ),
+        intent="preserve",
+        params={},
+    )
+
+    result = case_execution._case_execution(request)
+
+    assert result == case_execution.compact_json(
+        case_execution.case_execution_payload(7, invocation, [{"error": "malformed"}])
+    )
+    assert observed == []
 
 
 @pytest.mark.asyncio
@@ -218,7 +248,7 @@ def test_binding_failure_is_fail_open_and_privacy_bounded(
     assert "rubric" not in caplog.text
 
 
-def test_projector_failure_suppresses_snapshot_and_preserves_case_return(
+def test_projector_failure_records_failed_terminal_and_preserves_case_return(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     records: list[tuple[str, dict[str, LogScalar]]] = []
@@ -238,7 +268,21 @@ def test_projector_failure_suppresses_snapshot_and_preserves_case_return(
         result = case_execution._case_execution(_request(1))
 
     assert json.loads(result)["case_id"] == 1
-    assert records == []
+    assert records == [
+        (
+            "evaluation progress",
+            {
+                "screamingface.event.schema": "screamingface.evaluation-progress.v1",
+                "cases.total": 1,
+                "cases.completed": 1,
+                "cases.graded": 0,
+                "cases.failed": 1,
+                "cases.refused": 0,
+                "score.provisional": None,
+                "score.coverage": 0.0,
+            },
+        )
+    ]
     assert "Benchmark progress observation failed (RuntimeError)" in caplog.text
     assert "private answer" not in caplog.text
 
