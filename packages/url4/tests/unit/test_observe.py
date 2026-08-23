@@ -350,3 +350,25 @@ async def test_failing_relative_node_retains_its_route_detail() -> None:
         e for e in rec.events if isinstance(e, NodeFinished) and e.span_id == started.span_id
     )
     assert finished.status == "error"
+
+
+@pytest.mark.asyncio
+async def test_remote_node_observes_its_authority_and_static_path() -> None:
+    from url4.dag.nodes import RemoteFetchNode
+
+    authority = "peer.example"
+    path = "/benchmarks/case-execution"
+    target = f"url4://{authority}{path}"
+    rec = RecordingObserver()
+
+    result = await run(
+        RemoteFetchNode(authority, path),
+        StaticIOLayer(fetch_map={f"{target}?q=()": "ok"}),
+        observer=rec,
+    )
+
+    assert result == "ok"
+    started = next(
+        e for e in rec.events if isinstance(e, NodeStarted) and e.node_kind == "RemoteFetchNode"
+    )
+    assert started.detail == target

@@ -29,11 +29,14 @@ without adding a second progress-event path or coupling URL4 to ScreamingFace Be
 - RED: execute a failing relative fetch and require the same route detail plus a matching error
   finish.
 - Preserve all existing detail sources and the start/finish span bijection.
+- Distinguish a remote URL4 operation by its static authority and path rather than collapsing it
+  onto the same local route name.
 - Run the complete URL4 quality gate, including lint, format, typecheck, tests, and coverage.
 
 ## Acceptance
 
 - Relative URL4 spans expose only the authored static path template.
+- Remote URL4 spans expose their authored static authority and path.
 - Successful and failed terminal relative operations are distinguishable by route and existing
   status without any new event type.
 - Rendered URL4, execution results, scheduling, and existing observation fields are unchanged.
@@ -42,10 +45,14 @@ without adding a second progress-event path or coupling URL4 to ScreamingFace Be
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** all six planned files — four SDLC artifacts, the URL4 DAG observer detail
-  selector, and its append-only observation tests.
+  selector, and its append-only observation tests. Review follow-up coverage also pins remote
+  authority plus path so it cannot collide with the local Case route.
 - **Commits:** `34cea424` — `fix(url4): report relative routes in span names`; this final ledger
   evidence update follows in the documentation commit.
 - **Gates:** RED: 2 failed for empty relative-node detail; focused GREEN: 2 passed; full URL4
   suite: 1161 passed; `uv run .claude/scripts/run_gates.py url4`: ALL GATES GREEN (append-only,
   ruff check, ruff format, pyright, pytest with 95% coverage floor).
+- **Review follow-up:** RED proved `RemoteFetchNode` collapsed onto the local path; GREEN preserves
+  its canonical static `url4://{authority}{path}` identity; the focused local, failing-local, and
+  remote observation tests pass, and the complete URL4 quality gate is ALL GATES GREEN.
 - **Deviations:** none.

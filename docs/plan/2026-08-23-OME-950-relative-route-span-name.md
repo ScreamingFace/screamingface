@@ -28,3 +28,11 @@ Run the focused observation tests, then the complete URL4 test suite.
 - Review the diff for payload disclosure, public-wire blast radius, and accidental behavior change.
 - Complete the ledger, commit with `Refs: OME-950`, push, and open a draft PR against `main`.
 - Keep OME-934/932 and their PRs open as fallback until the span-based path is proven end to end.
+
+## 4. Review follow-up — preserve remote identity
+
+- RED: execute a `RemoteFetchNode` using the same path as the local terminal Case route and require
+  its observation detail to include `url4://{authority}`.
+- Compose static `authority` and `path` before the ordinary attribute selection so remote peers do
+  not collide with local routes or with one another.
+- Rerun the focused observation tests and the complete URL4 quality gate before updating the PR.
