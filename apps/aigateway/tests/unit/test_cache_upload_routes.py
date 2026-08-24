@@ -18,9 +18,10 @@ import uuid
 from datetime import UTC, datetime
 from ipaddress import ip_network
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import aigateway.routes.admin_cache as admin_cache
@@ -59,12 +60,17 @@ def _runner() -> tuple[CacheUploadRunner, ImmediateLoader]:
 
 
 def _admin_client(client: TestClient, runner: CacheUploadRunner | None = None) -> TestClient:
-    client.app.state.settings.auth_mode = "cloudflare_headers"
-    client.app.state.settings.allowed_networks = (POD_NETWORK,)
-    client.app.state.settings.admin_emails = frozenset({ADMIN})
+    # Starlette types `TestClient.app` as its internal `_WrapASGI2` transport wrapper, but at
+    # runtime it IS the FastAPI app (the wrapper is built inside the transport, not here) — the
+    # state mutations below are how the route tests arm the admin gate. The cast is the type
+    # system catching up with that runtime fact.
+    app = cast(FastAPI, client.app)
+    app.state.settings.auth_mode = "cloudflare_headers"
+    app.state.settings.allowed_networks = (POD_NETWORK,)
+    app.state.settings.admin_emails = frozenset({ADMIN})
     if runner is not None:
-        client.app.state.cache_upload_runner = runner
-    return TestClient(client.app, client=("10.1.2.3", 50000))
+        app.state.cache_upload_runner = runner
+    return TestClient(app, client=("10.1.2.3", 50000))
 
 
 def _headers() -> dict[str, str]:
