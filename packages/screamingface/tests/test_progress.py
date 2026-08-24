@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from datetime import UTC, datetime
 from io import StringIO
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -33,7 +33,10 @@ def test_progress_can_be_disabled_or_forced() -> None:
     observer = _progress_observer(True, stream=stream)
     assert observer is not None
 
-    observer(sf.events.Started(**envelope(), url4="(@)!'hello'"))
+    observer.observe(
+        cast(Any, object()),
+        sf.events.Started(**envelope(), url4="(@)!'hello'"),
+    )
 
     assert stream.getvalue() == "ScreamingFace · Evaluation started\n"
 
@@ -76,13 +79,14 @@ def test_progress_neutralizes_terminal_controls_and_multiline_log_spoofing() -> 
     observer = _progress_observer(True, stream=stream)
     assert observer is not None
 
-    observer(
+    observer.observe(
+        cast(Any, object()),
         sf.events.Log(
             **envelope(),
             severity_number=9,
             severity_text="INFO",
             body="safe\x1b]0;forged-title\x07\rforged\nnext\tline",
-        )
+        ),
     )
 
     assert stream.getvalue() == ("ScreamingFace · safe ]0;forged-title forged next line\n")
@@ -120,9 +124,15 @@ def test_sync_evaluate_combines_builtin_and_caller_observers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: list[tuple[str, str]] = []
+
+    class Progress:
+        def observe(self, candidate: object, event: sf.Event) -> None:
+            del candidate
+            observed.append(("progress", event.kind))
+
     monkeypatch.setattr(
         "screamingface._evaluation.progress._progress_observer",
-        lambda requested, **_: lambda event: observed.append(("progress", event.kind)),
+        lambda requested, **_: Progress(),
     )
     callback = _sync_event_observer(
         lambda event: observed.append(("caller", event.kind)),
@@ -130,7 +140,7 @@ def test_sync_evaluate_combines_builtin_and_caller_observers(
     )
     assert callback is not None
 
-    callback(sf.events.Started(**envelope(), url4="(@)!'hello'"))
+    callback.bind(cast(Any, object()))(sf.events.Started(**envelope(), url4="(@)!'hello'"))
 
     assert observed == [("progress", "started"), ("caller", "started")]
 
@@ -140,17 +150,19 @@ def test_sync_builtin_progress_failure_does_not_block_the_caller_observer(
 ) -> None:
     observed: list[str] = []
 
-    def broken_progress(_event: sf.Event) -> None:
-        raise OSError("stdout closed")
+    class BrokenProgress:
+        def observe(self, candidate: object, event: sf.Event) -> None:
+            del candidate, event
+            raise OSError("stdout closed")
 
     monkeypatch.setattr(
         "screamingface._evaluation.progress._progress_observer",
-        lambda requested, **_: broken_progress,
+        lambda requested, **_: BrokenProgress(),
     )
     callback = _sync_event_observer(lambda event: observed.append(event.kind), True)
     assert callback is not None
 
-    callback(sf.events.Started(**envelope(), url4="(@)!'hello'"))
+    callback.bind(cast(Any, object()))(sf.events.Started(**envelope(), url4="(@)!'hello'"))
 
     assert observed == ["started"]
 
@@ -161,8 +173,8 @@ def test_sync_evaluation_failure_closes_live_builtin_progress(
     class Progress:
         closed = False
 
-        def __call__(self, _event: sf.Event) -> None:
-            pass
+        def observe(self, candidate: object, event: sf.Event) -> None:
+            del candidate, event
 
         def close(self) -> None:
             self.closed = True
@@ -184,9 +196,15 @@ async def test_async_evaluate_combines_builtin_and_async_caller_observers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: list[tuple[str, str]] = []
+
+    class Progress:
+        def observe(self, candidate: object, event: sf.Event) -> None:
+            del candidate
+            observed.append(("progress", event.kind))
+
     monkeypatch.setattr(
         "screamingface._evaluation.progress._progress_observer",
-        lambda requested, **_: lambda event: observed.append(("progress", event.kind)),
+        lambda requested, **_: Progress(),
     )
 
     async def caller(event: sf.Event) -> None:
@@ -195,7 +213,7 @@ async def test_async_evaluate_combines_builtin_and_async_caller_observers(
     callback = _async_event_observer(caller, True)
     assert callback is not None
 
-    await callback(sf.events.Started(**envelope(), url4="(@)!'hello'"))
+    await callback.bind(cast(Any, object()))(sf.events.Started(**envelope(), url4="(@)!'hello'"))
 
     assert observed == [("progress", "started"), ("caller", "started")]
 
@@ -206,12 +224,14 @@ async def test_async_builtin_progress_failure_does_not_block_the_caller_observer
 ) -> None:
     observed: list[str] = []
 
-    def broken_progress(_event: sf.Event) -> None:
-        raise OSError("stdout closed")
+    class BrokenProgress:
+        def observe(self, candidate: object, event: sf.Event) -> None:
+            del candidate, event
+            raise OSError("stdout closed")
 
     monkeypatch.setattr(
         "screamingface._evaluation.progress._progress_observer",
-        lambda requested, **_: broken_progress,
+        lambda requested, **_: BrokenProgress(),
     )
 
     async def caller(event: sf.Event) -> None:
@@ -220,7 +240,7 @@ async def test_async_builtin_progress_failure_does_not_block_the_caller_observer
     callback = _async_event_observer(caller, True)
     assert callback is not None
 
-    await callback(sf.events.Started(**envelope(), url4="(@)!'hello'"))
+    await callback.bind(cast(Any, object()))(sf.events.Started(**envelope(), url4="(@)!'hello'"))
 
     assert observed == ["started"]
 
@@ -232,8 +252,8 @@ async def test_async_evaluation_failure_closes_live_builtin_progress(
     class Progress:
         closed = False
 
-        def __call__(self, _event: sf.Event) -> None:
-            pass
+        def observe(self, candidate: object, event: sf.Event) -> None:
+            del candidate, event
 
         def close(self) -> None:
             self.closed = True
@@ -250,7 +270,7 @@ async def test_async_evaluation_failure_closes_live_builtin_progress(
     assert progress.closed is True
 
 
-def test_candidate_model_identity_reaches_builtin_progress(
+def test_candidate_identity_and_case_count_reach_builtin_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     received: dict[str, object] = {}
@@ -264,15 +284,15 @@ def test_candidate_model_identity_reaches_builtin_progress(
         progress_observer,
     )
 
+    candidates = (object(),)
     observer = _sync_event_observer(
         None,
         True,
-        total_candidates=1,
+        candidates=cast(Any, candidates),
+        case_count=100,
         benchmark="draco",
-        candidate_models=("openrouter/anthropic/claude-opus-4.8",),
-        candidate_urls=("(@)!'candidate'",),
     )
 
     assert observer is not None
-    assert received["candidate_models"] == ("openrouter/anthropic/claude-opus-4.8",)
-    assert received["candidate_urls"] == ("(@)!'candidate'",)
+    assert received["candidates"] == candidates
+    assert received["case_count"] == 100

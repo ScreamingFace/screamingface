@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import io
 import warnings
+from typing import Any, cast
 
 import pytest
 
 from screamingface._evaluation import progress as progress_module
+from screamingface._evaluation.model import _compiled_candidate, _compiled_operation
 from screamingface._evaluation.progress import _progress_observer
 from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.evaluation_view import evaluation_panel_html
@@ -27,6 +29,27 @@ _DISCLOSURE = "Benchmark 'draco' may make up to 6 paid check calls (6 per case x
 def _headless_stream() -> io.StringIO:
     # StringIO.isatty() is False — the "no panel, no terminal" environment.
     return io.StringIO()
+
+
+def _panel_progress() -> _EvaluationProgress:
+    operation = _compiled_operation(
+        id="op_model",
+        kind="model",
+        label="model answer",
+        depends_on=(),
+    )
+    return _EvaluationProgress(
+        candidates=(
+            _compiled_candidate(
+                name="model",
+                kind="model",
+                models=("provider/model",),
+                url4="(@)!'model'",
+                operations=(operation,),
+            ),
+        ),
+        case_count=1,
+    )
 
 
 def test_headless_evaluation_still_warns() -> None:
@@ -51,7 +74,8 @@ def test_a_rendering_panel_suppresses_the_warning(monkeypatch: pytest.MonkeyPatc
     # would reintroduce the red banner OME-845 removes.
     taken: dict[str, str | None] = {}
 
-    def fake_notebook_observer(total, benchmark, models, urls, check_disclosure=None):
+    def fake_notebook_observer(candidates, case_count, benchmark, check_disclosure=None):
+        del candidates, case_count, benchmark
         taken["disclosure"] = check_disclosure
         return lambda event: None
 
@@ -59,7 +83,13 @@ def test_a_rendering_panel_suppresses_the_warning(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(progress_module, "_notebook_observer", fake_notebook_observer)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        observer = _progress_observer(None, stream=_headless_stream(), check_disclosure=_DISCLOSURE)
+        observer = _progress_observer(
+            None,
+            stream=_headless_stream(),
+            candidates=cast(Any, (object(),)),
+            case_count=1,
+            check_disclosure=_DISCLOSURE,
+        )
     assert observer is not None
     assert taken["disclosure"] == _DISCLOSURE
 
@@ -85,13 +115,13 @@ def test_no_disclosure_never_warns() -> None:
 
 
 def test_the_panel_renders_the_disclosure_line() -> None:
-    html = evaluation_panel_html(_EvaluationProgress(), "draco", None, "up to 6 paid check <calls>")
+    html = evaluation_panel_html(_panel_progress(), "draco", None, "up to 6 paid check <calls>")
     assert "sf-eval__note" in html
     assert "check surface · up to 6 paid check &lt;calls&gt;" in html
 
 
 def test_the_panel_omits_the_line_without_a_disclosure() -> None:
-    html = evaluation_panel_html(_EvaluationProgress(), "draco", None, None)
+    html = evaluation_panel_html(_panel_progress(), "draco", None, None)
     # The class exists in the stylesheet either way; the LINE must not render.
     assert "check surface ·" not in html
     assert "<div class='sf-eval__note'>" not in html

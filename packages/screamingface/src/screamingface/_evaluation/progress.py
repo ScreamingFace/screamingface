@@ -5,25 +5,35 @@ from __future__ import annotations
 import logging
 import sys
 import unicodedata
-from collections.abc import Callable
-from typing import TextIO
+from typing import Protocol, TextIO
 
 from screamingface._environment import ipykernel_loaded as _in_notebook
+from screamingface._evaluation.model import Candidate
 from screamingface.events import Event, Log, Span, Started, Terminated
+from screamingface.report import Report
 
 _logger = logging.getLogger(__name__)
+
+
+class _EvaluationObserver(Protocol):
+    def begin(self, candidate: Candidate) -> None: ...
+
+    def observe(self, candidate: Candidate, event: Event) -> None: ...
+
+    def reconcile(self, report: Report) -> None: ...
+
+    def abort(self, exc: BaseException) -> None: ...
 
 
 def _progress_observer(
     requested: bool | None,
     *,
     stream: TextIO | None = None,
-    total_candidates: int | None = None,
+    candidates: tuple[Candidate, ...] = (),
+    case_count: int | None = None,
     benchmark: str | None = None,
-    candidate_models: tuple[str, ...] = (),
-    candidate_urls: tuple[str, ...] = (),
     check_disclosure: str | None = None,
-) -> Callable[[Event], None] | None:
+) -> _EvaluationObserver | None:
     selected_stream = sys.stderr if stream is None else stream
     in_notebook = _in_notebook()
     enabled = requested is not False and (
@@ -31,10 +41,8 @@ def _progress_observer(
     )
     # In a notebook the live panel is preferred; text remains the fallback everywhere.
     rich = (
-        _notebook_observer(
-            total_candidates, benchmark, candidate_models, candidate_urls, check_disclosure
-        )
-        if enabled and in_notebook
+        _notebook_observer(candidates, case_count, benchmark, check_disclosure)
+        if enabled and in_notebook and candidates
         else None
     )
     # The paid-check disclosure must never be silent (OME-845): the panel is its calm
@@ -52,12 +60,11 @@ def _progress_observer(
 
 
 def _notebook_observer(
-    total_candidates: int | None,
+    candidates: tuple[Candidate, ...],
+    case_count: int | None,
     benchmark: str | None,
-    candidate_models: tuple[str, ...],
-    candidate_urls: tuple[str, ...],
     check_disclosure: str | None = None,
-) -> Callable[[Event], None] | None:
+) -> _EvaluationObserver | None:
     """The live panel, or None when it cannot be built (text progress then carries it).
 
     Building a widget touches ipywidgets' comm layer, which can fail for reasons well
@@ -69,10 +76,9 @@ def _notebook_observer(
         from screamingface._ui.evaluation_view import _NotebookEvaluationView
 
         return _NotebookEvaluationView(
-            total_candidates,
+            candidates,
+            case_count,
             benchmark,
-            candidate_models,
-            candidate_urls,
             check_disclosure=check_disclosure,
         )
     except Exception:
@@ -89,6 +95,19 @@ class _ProgressObserver:
         if message is not None:
             self._stream.write(f"ScreamingFace · {_terminal_text(message)}\n")
             self._stream.flush()
+
+    def observe(self, candidate: Candidate, event: Event) -> None:
+        del candidate
+        self(event)
+
+    def begin(self, candidate: Candidate) -> None:
+        del candidate
+
+    def reconcile(self, report: Report) -> None:
+        del report
+
+    def abort(self, exc: BaseException) -> None:
+        del exc
 
 
 def _message(event: Event) -> str | None:

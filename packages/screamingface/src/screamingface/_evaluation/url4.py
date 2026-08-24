@@ -36,8 +36,9 @@ def evaluate_url4_sync(
     """Execute one already-linked evaluation expression unchanged."""
 
     from screamingface._evaluation.runner import (
-        _close_event_observer,
+        _abort_event_observer,
         _evaluation_options,
+        _reconcile_event_observer,
         _sync_event_observer,
     )
 
@@ -46,17 +47,19 @@ def evaluate_url4_sync(
     observer = _sync_event_observer(
         on_event,
         progress,
-        1,
+        (candidate,),
+        None,
         "URL4 replay",
-        candidate_models=candidate.models,
-        candidate_urls=(candidate.url4,),
     )
     try:
-        outcome = transport.run(candidate, observer)
-    except BaseException:
-        _close_event_observer(observer)
+        bound = None if observer is None else observer.bind(candidate)
+        outcome = transport.run(candidate, bound)
+        report = report_from_url4_outcome(candidate, outcome)
+    except BaseException as exc:
+        _abort_event_observer(observer, exc)
         raise
-    return report_from_url4_outcome(candidate, outcome)
+    _reconcile_event_observer(observer, report)
+    return report
 
 
 async def evaluate_url4_async(
@@ -68,9 +71,10 @@ async def evaluate_url4_async(
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
     from screamingface._evaluation.runner import (
+        _abort_event_observer,
         _async_event_observer,
-        _close_event_observer,
         _evaluation_options,
+        _reconcile_event_observer,
     )
 
     _evaluation_options(on_event, progress)
@@ -78,17 +82,19 @@ async def evaluate_url4_async(
     observer = _async_event_observer(
         on_event,
         progress,
-        1,
+        (candidate,),
+        None,
         "URL4 replay",
-        candidate_models=candidate.models,
-        candidate_urls=(candidate.url4,),
     )
     try:
-        outcome = await transport.run(candidate, observer)
-    except BaseException:
-        _close_event_observer(observer)
+        bound = None if observer is None else observer.bind(candidate)
+        outcome = await transport.run(candidate, bound)
+        report = report_from_url4_outcome(candidate, outcome)
+    except BaseException as exc:
+        _abort_event_observer(observer, exc)
         raise
-    return report_from_url4_outcome(candidate, outcome)
+    _reconcile_event_observer(observer, report)
+    return report
 
 
 def _candidate_from_url4(value: str) -> Candidate:

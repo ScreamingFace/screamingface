@@ -1,126 +1,91 @@
-"""Accumulated view of one Evaluation, folded from public Events only.
-
-Deliberately free of ipywidgets and of wall-clock reads: every number here is derived
-from Events the Engine actually sent, so the panel can never show a figure the run did
-not produce, and the fold stays directly testable.
-"""
+"""Candidate-scoped state for the live Evaluation panel."""
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
 from decimal import Decimal
 from typing import cast
 
+from screamingface._evaluation.model import Candidate
 from screamingface.events import Event, Log, Span, Started, Terminated, Usage
+from screamingface.report import CandidateResult, Report
 
-# A candidate is one Engine run, so terminal Events are the only honest completion
-# signal — model Spans fire many times per candidate and cannot stand in for it.
-_TERMINAL_ORDER = ("failed", "timed_out", "stopped", "succeeded")
-
-# WHY a prefix rather than a fixed key list: the gateway owns the reason vocabulary and publishes
-# one attribute per reason it saw. INVARIANT: the `cache.bypasses` total does not start with this
-# prefix, so the total can never be harvested as a reason bucket.
 _BYPASS_REASON_PREFIX = "cache.bypass."
-
 UNSTATED_BYPASS_REASON = "unstated"
-"""The Engine's bucket for a bypass that named no reason. Kept distinct from its `other` bucket:
-`other` is a cardinality overflow, this is an absent value, and merging them would erase which."""
 
 
 @dataclass(slots=True)
-class _EvaluationProgress:
-    """Running totals for one `evaluate()` call."""
-
-    total_candidates: int | None = None
-    candidate_models: frozenset[str] = field(default_factory=frozenset)
-    candidate_urls: frozenset[str] = field(default_factory=frozenset)
-    root_sources: set[str] = field(default_factory=set)
-    cache_counts: dict[str, tuple[int, int, int]] = field(default_factory=dict)
-    cache_bypass_reasons: dict[str, dict[str, int]] = field(default_factory=dict)
-    completed: int = 0
-    terminal_counts: dict[str, int] = field(default_factory=dict)
+class _CandidateProgress:
+    candidate: Candidate
+    total_cases: int | None
+    completed_cases: int = 0
+    failed_cases: int = 0
     model_calls: int = 0
-    candidate_calls: int = 0
-    benchmark_calls: int = 0
     failed_calls: int = 0
     refusals: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     have_tokens: bool = False
     cost_usd: Decimal | None = None
-    first_at: datetime | None = None
-    latest_at: datetime | None = None
-    arrival_elapsed_seconds: float | None = None
+    submitted: bool = False
+    started: bool = False
+    terminal_status: str | None = None
+    root_sources: set[str] = field(default_factory=set)
+    cache_counts: dict[str, tuple[int, int, int]] = field(default_factory=dict)
+    cache_bypass_reasons: dict[str, dict[str, int]] = field(default_factory=dict)
     activity: str | None = None
-    error: str | None = None
-    evaluation_started: bool = False
-    #: Newest-first ring of recent Events, so the panel can show work happening rather
-    #: than a single frozen "last thing". Bounded: a long run emits thousands.
-    feed: deque[tuple[float, str, str]] = field(default_factory=lambda: deque(maxlen=40))
-
-    def observe(self, event: Event, *, elapsed_seconds: float | None = None) -> None:
-        self._stamp(event.timestamp)
-        if elapsed_seconds is not None:
-            self.arrival_elapsed_seconds = max(0.0, elapsed_seconds)
-        if isinstance(event, Started):
-            self._observe_started(event, elapsed_seconds)
-        elif isinstance(event, Log):
-            self._observe_cache_log(event)
-        elif isinstance(event, Span):
-            self._observe_span(event, elapsed_seconds)
-        elif isinstance(event, Usage):
-            self._observe_usage(event)
-        elif isinstance(event, Terminated):
-            self._observe_root_terminated(event, elapsed_seconds)
-
-    @property
-    def running(self) -> bool:
-        return not self.finished
-
-    @property
-    def finished(self) -> bool:
-        """True once every candidate has reported a terminal Event."""
-
-        return self.total_candidates is not None and self.completed >= self.total_candidates
+    result: CandidateResult | None = None
+    workflow_status: str | None = None
+    started_elapsed_seconds: float | None = None
 
     @property
     def status(self) -> str:
-        """Worst terminal status seen, or 'running' while work is outstanding."""
-
-        if not self.finished:
-            return "running"
-        for name in _TERMINAL_ORDER:
-            if self.terminal_counts.get(name):
-                return name
-        return "succeeded"
+        if self.result is not None:
+            status = "finished"
+        elif self.terminal_status == "failed":
+            status = "run_failed"
+        elif self.terminal_status in {"stopped", "timed_out"}:
+            status = self.terminal_status
+        elif self.workflow_status is not None:
+            status = self.workflow_status
+        else:
+            status = "running" if self.started else "queued"
+        return status
 
     @property
-    def fraction(self) -> float | None:
-        """Completed share of candidates, or None when the total is unknown."""
+    def score(self) -> float | None:
+        return None if self.result is None else self.result.score
 
-        if not self.total_candidates:
+    @property
+    def score_available(self) -> bool:
+        return self.result is not None
+
+    @property
+    def qualifier(self) -> str | None:
+        if self.result is None:
+            qualifier = None
+        elif self.result.score is None:
+            qualifier = "Incomplete"
+        elif self.result.coverage < 1.0:
+            graded = sum(
+                case.grade is not None and case.grade.score is not None
+                for case in self.result.cases
+            )
+            qualifier = f"{graded}/{len(self.result.cases)} graded"
+        elif self.result.failures:
+            qualifier = "Warnings"
+        else:
+            qualifier = None
+        return qualifier
+
+    @property
+    def duration_seconds(self) -> float | None:
+        if self.result is None:
             return None
-        return min(1.0, self.completed / self.total_candidates)
-
-    @property
-    def elapsed_seconds(self) -> float | None:
-        event_elapsed = (
-            None
-            if self.first_at is None or self.latest_at is None
-            else max(0.0, (self.latest_at - self.first_at).total_seconds())
-        )
-        if self.arrival_elapsed_seconds is None:
-            return event_elapsed
-        if event_elapsed is None:
-            return self.arrival_elapsed_seconds
-        return max(self.arrival_elapsed_seconds, event_elapsed)
+        return (self.result.completed_at - self.result.started_at).total_seconds()
 
     @property
     def cache_totals(self) -> tuple[int, int, int] | None:
-        """Latest authoritative hit, miss, and bypass totals across Candidate Runs."""
-
         if not self.cache_counts:
             return None
         return (
@@ -130,104 +95,87 @@ class _EvaluationProgress:
         )
 
     @property
-    def cache_bypass_breakdown(self) -> tuple[tuple[str, int], ...]:
-        """Bypass reasons across every Candidate Run, most frequent first.
-
-        Ties break on the reason name so a live re-render cannot reorder equal counts.
-        AIDEV-NOTE: `other` summed across runs collapses different reason sets — honest per run,
-        imprecise in aggregate. Deliberately not surfaced; explaining it costs more than it buys.
-        """
-
-        totals: dict[str, int] = {}
-        for reasons in self.cache_bypass_reasons.values():
-            for reason, count in reasons.items():
-                totals[reason] = totals.get(reason, 0) + count
-        return tuple(sorted(totals.items(), key=lambda item: (-item[1], item[0])))
-
-    @property
     def cache_hit_rate(self) -> float | None:
-        counts = self.cache_totals
-        if counts is None:
+        totals = self.cache_totals
+        if totals is None:
             return None
-        hits, misses, _ = counts
+        hits, misses, _ = totals
         cacheable = hits + misses
         return None if cacheable == 0 else hits / cacheable
 
-    def _note(
-        self,
-        event: Event,
-        kind: str,
-        text: str,
-        elapsed_seconds: float | None = None,
-    ) -> None:
-        event_offset = (
-            0.0
-            if self.first_at is None
-            else max(0.0, (event.timestamp - self.first_at).total_seconds())
+    @property
+    def fully_cached(self) -> bool:
+        totals = self.cache_totals
+        if self.model_calls == 0 or totals is None:
+            return False
+        hits, misses, bypasses = totals
+        cost_consistent = self.cost_usd is None or self.cost_usd == 0
+        tokens_consistent = not self.have_tokens or (
+            self.input_tokens == 0 and self.output_tokens == 0
         )
-        offset = (
-            event_offset
-            if elapsed_seconds is None
-            else max(event_offset, max(0.0, elapsed_seconds))
+        return (
+            hits == self.model_calls
+            and misses == 0
+            and bypasses == 0
+            and cost_consistent
+            and tokens_consistent
         )
-        self.feed.appendleft((offset, kind, text))
 
-    def _stamp(self, moment: datetime) -> None:
-        if self.first_at is None or moment < self.first_at:
-            self.first_at = moment
-        if self.latest_at is None or moment > self.latest_at:
-            self.latest_at = moment
+    def observe(self, event: Event, elapsed_seconds: float | None = None) -> None:
+        if isinstance(event, Started):
+            self._observe_started(event, elapsed_seconds)
+        elif isinstance(event, Log):
+            self._observe_cache_log(event)
+        elif isinstance(event, Usage):
+            self._observe_usage(event)
+        elif isinstance(event, Terminated):
+            self._observe_terminated(event)
+        elif isinstance(event, Span):
+            self._observe_span(event)
+
+    def begin(self) -> None:
+        self.submitted = True
+        self.activity = "Run submitted"
 
     def _observe_started(self, event: Started, elapsed_seconds: float | None) -> None:
-        if self.candidate_urls and event.url4 not in self.candidate_urls:
-            return
+        self.submitted = True
+        self.started = True
         self.root_sources.add(event.source)
-        self.activity = "Running candidate" if self.total_candidates == 1 else "Running candidates"
-        if not self.evaluation_started:
-            self.evaluation_started = True
-            self._note(event, "start", "evaluation started", elapsed_seconds)
+        self.activity = "Run started"
+        self.started_elapsed_seconds = elapsed_seconds
 
-    def _observe_root_terminated(
-        self,
-        event: Terminated,
-        elapsed_seconds: float | None,
-    ) -> None:
-        if self.candidate_urls and event.source not in self.root_sources:
+    def _observe_terminated(self, event: Terminated) -> None:
+        if event.source not in self.root_sources:
             return
-        self._observe_terminated(event, elapsed_seconds)
+        self.terminal_status = event.status
+        self.activity = (
+            "Run finished"
+            if event.status == "succeeded"
+            else f"Run {event.status.replace('_', ' ')}"
+        )
 
-    def _observe_cache_log(self, event: Log) -> None:
-        names = ("cache.hits", "cache.misses", "cache.bypasses")
-        values = tuple(event.attributes.get(name) for name in names)
-        if not all(isinstance(value, int) and not isinstance(value, bool) for value in values):
-            return
-        self.cache_counts[event.run_id] = cast(tuple[int, int, int], values)
-        # INVARIANT: the summary is a reconciliation, so it REPLACES this run's reason map rather
-        # than adding to it — including replacing it with nothing when the run had no bypasses.
-        # WHY the prefix is safe: `cache.bypasses` (the total) does not start with `cache.bypass.`,
-        # so the total can never be read as a reason bucket.
-        self.cache_bypass_reasons[event.run_id] = {
-            key[len(_BYPASS_REASON_PREFIX) :]: value
-            for key, value in event.attributes.items()
-            if key.startswith(_BYPASS_REASON_PREFIX)
-            and isinstance(value, int)
-            and not isinstance(value, bool)
-        }
+    def _observe_span(self, event: Span) -> None:
+        if event.operation == "RelUrlNode" and event.name == "/benchmarks/case-execution":
+            self._observe_case_span(event)
+        if event.request_model is not None:
+            self._observe_model_span(event)
 
-    def _observe_span(self, event: Span, elapsed_seconds: float | None) -> None:
-        # Structural URL4 spans carry no request_model; only paid model work counts.
-        if event.request_model is None:
-            return
+    def _observe_case_span(self, event: Span) -> None:
+        self.completed_cases += 1
+        if self.total_cases is not None:
+            self.completed_cases = min(self.total_cases, self.completed_cases)
+        if event.status == "error":
+            self.failed_cases += 1
+        unit = "case" if self.completed_cases == 1 else "cases"
+        self.activity = (
+            f"{self.completed_cases} {unit} finished"
+            if self.total_cases is None
+            else f"{self.completed_cases} / {self.total_cases} {unit} finished"
+        )
+
+    def _observe_model_span(self, event: Span) -> None:
         self._observe_cache_status(event)
         self.model_calls += 1
-        if event.request_model in self.candidate_models:
-            self.candidate_calls += 1
-            role = "candidate"
-            self.activity = _calls_activity("Running candidate", self.candidate_calls)
-        else:
-            self.benchmark_calls += 1
-            role = "grading"
-            self.activity = _calls_activity("Grading benchmark", self.benchmark_calls)
         if event.status == "error":
             self.failed_calls += 1
         if event.refusal is not None:
@@ -238,12 +186,28 @@ class _EvaluationProgress:
         if event.output_tokens is not None:
             self.output_tokens += event.output_tokens
             self.have_tokens = True
-        self._note(
-            event,
-            "error" if event.status == "error" else "model",
-            f"{role} · {_span_text(event)}",
-            elapsed_seconds,
+        outcome = (
+            "refused"
+            if event.refusal is not None
+            else "failed"
+            if event.status == "error"
+            else "finished"
         )
+        self.activity = f"Model call {outcome}"
+
+    def _observe_cache_log(self, event: Log) -> None:
+        names = ("cache.hits", "cache.misses", "cache.bypasses")
+        values = tuple(event.attributes.get(name) for name in names)
+        if not all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+            return
+        self.cache_counts[event.run_id] = cast(tuple[int, int, int], values)
+        self.cache_bypass_reasons[event.run_id] = {
+            key[len(_BYPASS_REASON_PREFIX) :]: value
+            for key, value in event.attributes.items()
+            if key.startswith(_BYPASS_REASON_PREFIX)
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+        }
 
     def _observe_cache_status(self, event: Span) -> None:
         if event.cache_status is None:
@@ -253,85 +217,198 @@ class _EvaluationProgress:
         self.cache_counts[event.run_id] = cast(tuple[int, int, int], tuple(counts))
         if event.cache_status != "bypass":
             return
-        # WHY tally live rather than wait for the summary: the band is a diagnostic during the run,
-        # and a bypass storm is worth seeing before the run ends. INVARIANT: a bypass naming no
-        # reason still lands in a bucket, so the breakdown always sums to the bypass total.
         reason = (event.cache_reason or "").strip() or UNSTATED_BYPASS_REASON
         observed = self.cache_bypass_reasons.setdefault(event.run_id, {})
         observed[reason] = observed.get(reason, 0) + 1
 
     def _observe_usage(self, event: Usage) -> None:
-        # 'subtree' repeats what its children already reported — summing both double counts.
-        if event.scope != "self":
+        if event.scope != "self" or event.usage.cost_usd is None:
             return
         amount = event.usage.cost_usd
-        if amount is None:
-            return
         self.cost_usd = amount if self.cost_usd is None else self.cost_usd + amount
 
-    def _observe_terminated(self, event: Terminated, elapsed_seconds: float | None) -> None:
-        self.completed += 1
-        self.terminal_counts[event.status] = self.terminal_counts.get(event.status, 0) + 1
-        if event.error is not None and self.error is None:
-            self.error = event.error.message
-        kind = "done" if event.status == "succeeded" else "error"
-        if not self.finished and self.total_candidates is not None:
-            self.activity = (
-                f"Running candidates · {self.completed}/{self.total_candidates} finished"
-            )
-            terminal = "finished" if event.status == "succeeded" else event.status.replace("_", " ")
-            self._note(
-                event,
-                kind,
-                f"candidate {self.completed}/{self.total_candidates} {terminal}"
-                f"{self._cache_suffix(event.run_id)}",
-                elapsed_seconds,
-            )
+    def reconcile(self, result: CandidateResult) -> None:
+        self.result = result
+        self.total_cases = len(result.cases)
+        self.completed_cases = self.total_cases
+        if result.usage.cost_usd is not None:
+            self.cost_usd = result.usage.cost_usd
+        if result.usage.input_tokens is not None:
+            self.input_tokens = result.usage.input_tokens
+            self.have_tokens = True
+        if result.usage.output_tokens is not None:
+            self.output_tokens = result.usage.output_tokens
+            self.have_tokens = True
+        self.activity = "Result ready"
+
+    def abort(self, exc: BaseException) -> None:
+        if self.result is not None or self.status not in {"queued", "running"}:
             return
-        terminal = "finished" if self.status == "succeeded" else self.status.replace("_", " ")
-        self.activity = f"Evaluation {terminal}"
-        self._note(
-            event,
-            kind,
-            f"evaluation {terminal}{self._cache_suffix(event.run_id)}",
-            elapsed_seconds,
+        if not self.submitted:
+            self.workflow_status = "not_run"
+            self.activity = "Not started"
+            return
+        if not self.started:
+            self.workflow_status = "run_failed"
+            self.activity = "Run outcome unavailable"
+            return
+        if isinstance(exc, KeyboardInterrupt):
+            self.workflow_status = "stopped"
+            self.activity = "Run stopped"
+        elif isinstance(exc, TimeoutError):
+            self.workflow_status = "timed_out"
+            self.activity = "Run timed out"
+        else:
+            self.workflow_status = "run_failed"
+            self.activity = "Run failed"
+
+
+@dataclass(slots=True, init=False)
+class _EvaluationProgress:
+    case_count: int | None
+    rows: tuple[_CandidateProgress, ...]
+    _rows_by_name: dict[str, _CandidateProgress]
+    error: str | None
+    announcement: str
+
+    def __init__(self, *, candidates: tuple[Candidate, ...], case_count: int | None) -> None:
+        if not candidates:
+            raise ValueError("live Evaluation progress requires at least one Candidate")
+        if case_count is not None and (
+            isinstance(case_count, bool) or not isinstance(case_count, int) or case_count < 1
+        ):
+            raise ValueError("live Evaluation progress case_count must be positive")
+        rows = tuple(
+            _CandidateProgress(candidate=candidate, total_cases=case_count)
+            for candidate in candidates
+        )
+        self.case_count = case_count
+        self.rows = rows
+        self._rows_by_name = {row.candidate.name: row for row in rows}
+        self.error = None
+        self.announcement = ""
+
+    def observe(
+        self,
+        candidate: Candidate,
+        event: Event,
+        *,
+        elapsed_seconds: float | None = None,
+    ) -> None:
+        try:
+            row = self._rows_by_name[candidate.name]
+        except KeyError:
+            raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
+        before = row.status
+        row.observe(event, elapsed_seconds)
+        after = row.status
+        if isinstance(event, Started) and row.started:
+            self.announcement = "Evaluation started"
+        elif after != before and after not in {"queued", "running"}:
+            self.announcement = f"{candidate.name} {after.replace('_', ' ')}"
+
+    def begin(self, candidate: Candidate) -> None:
+        try:
+            row = self._rows_by_name[candidate.name]
+        except KeyError:
+            raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
+        row.begin()
+
+    @property
+    def finished(self) -> bool:
+        return all(row.status not in {"queued", "running"} for row in self.rows)
+
+    @property
+    def complete(self) -> bool:
+        return all(row.result is not None for row in self.rows)
+
+    @property
+    def duration_seconds(self) -> float | None:
+        if not self.complete:
+            return None
+        results = tuple(row.result for row in self.rows if row.result is not None)
+        started_at = min(result.started_at for result in results)
+        completed_at = max(result.completed_at for result in results)
+        return (completed_at - started_at).total_seconds()
+
+    @property
+    def model_calls(self) -> int:
+        return sum(row.model_calls for row in self.rows)
+
+    @property
+    def failed_calls(self) -> int:
+        return sum(row.failed_calls for row in self.rows)
+
+    @property
+    def input_tokens(self) -> int:
+        return sum(row.input_tokens for row in self.rows)
+
+    @property
+    def output_tokens(self) -> int:
+        return sum(row.output_tokens for row in self.rows)
+
+    @property
+    def have_tokens(self) -> bool:
+        return any(row.have_tokens for row in self.rows)
+
+    @property
+    def cost_usd(self) -> Decimal | None:
+        reported = tuple(row.cost_usd for row in self.rows if row.cost_usd is not None)
+        return None if not reported else sum(reported, Decimal())
+
+    @property
+    def cache_totals(self) -> tuple[int, int, int] | None:
+        reported = tuple(row.cache_totals for row in self.rows if row.cache_totals is not None)
+        if not reported:
+            return None
+        return cast(
+            tuple[int, int, int],
+            tuple(sum(counts[index] for counts in reported) for index in range(3)),
         )
 
-    def _cache_suffix(self, run_id: str) -> str:
-        counts = self.cache_counts.get(run_id)
-        if counts is None:
-            return ""
-        parts = [
-            _cache_count(name, count)
-            for name, count in zip(("hit", "miss", "bypass"), counts, strict=True)
-            if count
-        ]
-        return f" · cache: {', '.join(parts)}" if parts else ""
+    @property
+    def cache_hit_rate(self) -> float | None:
+        totals = self.cache_totals
+        if totals is None:
+            return None
+        hits, misses, _ = totals
+        cacheable = hits + misses
+        return None if cacheable == 0 else hits / cacheable
 
+    @property
+    def fully_cached(self) -> bool:
+        return (
+            self.complete
+            and self.model_calls > 0
+            and all(row.model_calls == 0 or row.fully_cached for row in self.rows)
+        )
 
-def _cache_count(name: str, count: int) -> str:
-    plural = {"hit": "hits", "miss": "misses", "bypass": "bypasses"}[name]
-    return f"{count:,} {name if count == 1 else plural}"
+    @property
+    def cache_bypass_breakdown(self) -> tuple[tuple[str, int], ...]:
+        totals: dict[str, int] = {}
+        for row in self.rows:
+            for reasons in row.cache_bypass_reasons.values():
+                for reason, count in reasons.items():
+                    totals[reason] = totals.get(reason, 0) + count
+        return tuple(sorted(totals.items(), key=lambda item: (-item[1], item[0])))
 
+    def reconcile(self, report: Report) -> None:
+        if self.case_count is not None and report.case_count != self.case_count:
+            raise ValueError("final Report has the wrong selected Case count")
+        results = {result.name: result for result in report.candidates}
+        if set(results) != set(self._rows_by_name):
+            raise ValueError("final Report has the wrong Candidates")
+        self.case_count = report.case_count
+        for row in self.rows:
+            row.reconcile(results[row.candidate.name])
+        self.announcement = "Evaluation complete"
 
-def _calls_activity(phase: str, count: int) -> str:
-    noun = "model call" if count == 1 else "model calls"
-    return f"{phase} · {count} {noun} completed"
-
-
-def _span_text(event: Span) -> str:
-    """One model call, summarised the way the text observer already words it."""
-
-    parts = [str(event.request_model)]
-    if event.refusal is not None:
-        parts.append("refused")
-    elif event.status == "error":
-        parts.append("failed")
-    if event.start is not None and event.end is not None:
-        parts.append(f"{(event.end - event.start).total_seconds():.1f}s")
-    if event.input_tokens is not None or event.output_tokens is not None:
-        parts.append(f"{event.input_tokens or 0:,}/{event.output_tokens or 0:,} tok")
-    return " · ".join(parts)
+    def abort(self, exc: BaseException) -> None:
+        for row in self.rows:
+            row.abort(exc)
+        message = str(exc).strip()
+        self.error = message or None
+        self.announcement = "Evaluation stopped"
 
 
 __all__: list[str] = []
