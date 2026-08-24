@@ -142,6 +142,14 @@ class Settings(BaseSettings):
         default=1_000_000, gt=0, validation_alias="AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES"
     )
 
+    # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by
+    # POST /v1/admin/cache/snapshots. Deliberately on the compressed bytes — that is what
+    # crosses the wire and fills the spool directory — and deliberately generous: the DRACO
+    # corpus is ~35 MB gzipped today and snapshots grow with the table.
+    cache_upload_max_bytes: int = Field(
+        default=268_435_456, gt=0, validation_alias="AIGW_CACHE_UPLOAD_MAX_BYTES"
+    )
+
     # Bounded public-catalog discovery behind /v1/model-parameters (OME-479 §5.2,
     # §5.3). Enabled by default: the evidence it gathers can only RESTRICT what a
     # contract claims, so running without it is the more permissive state, not the
