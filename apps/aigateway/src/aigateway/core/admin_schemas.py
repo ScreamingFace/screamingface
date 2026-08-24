@@ -123,3 +123,56 @@ class SetAdminApiKeyRequest(BaseModel):
 class PatchAdminProfileRequest(BaseModel):
     defaults: ProfileDefaults | None = None
     account_label: str | None = None
+
+
+# --- response-cache admin (OME-952) ---------------------------------------------------------------
+
+
+class AdminCacheInfoOut(BaseModel):
+    """Live state of the global response cache, for the console's cache section.
+
+    ``revisions`` are the constants every cache key embeds; a snapshot manifest that disagrees
+    with them would load rows the gateway can never serve, which is why the console shows the
+    live values beside the upload form.
+    """
+
+    serving: bool
+    row_count: int
+    revisions: dict[str, str]
+
+
+class AdminCacheJobOut(BaseModel):
+    """One snapshot load attempt, as the console lists and polls it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    state: str
+    """``validating`` → ``loading`` → ``merging`` → ``complete`` | ``failed`` | ``refused``."""
+
+    mode: str
+    """``merge`` (create-or-replace) or ``replace`` (wholesale contents swap)."""
+
+    actor: str
+    created_at: datetime
+    finished_at: datetime | None = None
+    staged_rows: int | None = None
+    live_before: int | None = None
+    live_after: int | None = None
+    inserted_rows: int | None = None
+    """Merge mode only, best-effort: derived from the before/after counts, not row RETURNING."""
+
+    updated_rows: int | None = None
+    manifest_present: bool = False
+    forced: bool = False
+    """A revision mismatch was overridden with ``force`` — visible on the job and the audit line."""
+
+    warnings: list[str] = Field(default_factory=list)
+    refusal: str | None = None
+    """Machine code naming why a ``refused`` job was refused; see the spec's refusal contract."""
+
+    error: str | None = None
+
+
+class AdminCacheJobList(BaseModel):
+    jobs: list[AdminCacheJobOut]

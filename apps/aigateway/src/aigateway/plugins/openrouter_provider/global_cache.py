@@ -65,6 +65,15 @@ from .settings import (
 # for models without built-in search, one that erred rather than answering.
 GLOBAL_CACHE_ADAPTER_REVISION = "openrouter-global-cache-2026-08d"
 
+# OME-952: register the revision with the core-owned registry the admin cache-snapshot
+# upload compares manifests against. Plugins import core (never the reverse), and this
+# module is imported by ``plugin.py`` at load time, so the registration is in place before
+# any route can run. Registering HERE keeps the constant single-sourced: the registry and
+# the projection report the same name.
+from aigateway.core.request_cache.revisions import register_adapter_revision  # noqa: E402
+
+register_adapter_revision("openrouter_adapter", GLOBAL_CACHE_ADAPTER_REVISION)
+
 
 def project_global_cache_request(body: dict[str, Any]) -> dict[str, Any] | CacheBypass:
     """What this provider will send, as a deterministic function of the body.
