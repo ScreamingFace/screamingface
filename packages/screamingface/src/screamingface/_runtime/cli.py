@@ -23,7 +23,7 @@ from screamingface._runtime.config import RuntimeConfig, default_data_dir
 
 _STATE_VERSION = 1
 _PORT_DEFAULTS = {"gateway": 9105, "scoreboard": 9106, "engine": 9108}
-_BENCHMARKS = ("draco", "ifeval", "healthbench")
+_BENCHMARKS = ("draco", "ifeval", "healthbench", "gdpval")
 
 
 def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
@@ -612,6 +612,10 @@ def _validate_benchmark_output(name: str, destination: Path) -> list[str]:
         "draco": ("cases.json", "criteria", "rubrics"),
         "ifeval": ("cases.json", "instructions", "nltk_data"),
         "healthbench": ("cases.json", "rubrics"),
+        # WHY no reference directory here: GDPval's reference documents are flattened to text at
+        # build time and baked INTO cases.json, so the downloaded originals are a build cache
+        # rather than a served asset.
+        "gdpval": ("cases.json", "rubrics"),
     }[name]
     missing = [relative for relative in required if not (destination / relative).exists()]
     if missing:

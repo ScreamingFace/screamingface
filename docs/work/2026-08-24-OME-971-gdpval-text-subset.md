@@ -292,6 +292,34 @@ sibling. OME-971 therefore spans two landings — `url4-cloud` and `py-screaming
 CLAUDE.md §8 would normally split into an epic. Flagged and overridden by the owner; the
 `py-screamingface` label should be added to the issue so the board reflects it.
 
+### Task 8 — SDK surface: CLI prepare and the example notebook (DONE)
+
+Folded into this ticket by owner decision, so OME-971 spans `url4-cloud` and
+`py-screamingface`.
+
+- **Actual files:** `_runtime/cli.py`, `tests/test_runtime_cli.py`,
+  `scripts/build_notebooks.py`, `examples/10_gdpval.ipynb` (generated).
+- **Gates:** ALL GATES GREEN on the `screamingface` stack (`--skip-append-only`) — ruff ·
+  ruff format · pyright · pytest --cov-fail-under=95 · check_notebooks · uv build ·
+  check_distribution.
+- **Changes:** `"gdpval"` added to `_BENCHMARKS` (it is the `choices=` for `prepare`, so the
+  command previously failed at argument parsing); `"gdpval": ("cases.json", "rubrics")` added to
+  `_validate_benchmark_output`'s required-files table, which would otherwise `KeyError` after an
+  otherwise successful prepare. No reference directory is required there: GDPval's references are
+  flattened into `cases.json` at build time, so the downloaded originals are a build cache rather
+  than a served asset.
+- **Prior-test change (third of the same category, previously approved twice):** the
+  `test_benchmark_fingerprint_uses_engine_preparation_revision` parametrize tuple is an
+  exhaustive benchmark enumeration; `gdpval` was ADDED to it. Coverage extended, never relaxed.
+- **Notebook:** `_gdpval_e2e()` added to the deterministic builder and registered as
+  `10_gdpval.ipynb`. Its opening cell states both deviations before any code runs — pairwise
+  expert grading vs per-criterion rubric judging, and a formatted document vs plain text — so a
+  reader cannot reach a number without meeting the caveat. It also warns that grading fans out
+  one judge call per criterion (~4,500 per candidate on a full run) before suggesting `limit` is
+  dropped.
+- **`_benchmark_fingerprint` needed no change:** it reads `DATASET_REVISION` off the `prepare`
+  module, and GDPval's is imported into that namespace from `pins.py`.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>
