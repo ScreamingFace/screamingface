@@ -50,3 +50,5 @@ release/
 # excluded only via .git/info/exclude, which is local to a clone and never travels, so a
 # fresh clone saw them as untracked.
 .claude/worktrees/
+*.sql.gz
+*.manifest.json
