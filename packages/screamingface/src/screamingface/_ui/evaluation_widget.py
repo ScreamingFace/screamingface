@@ -5,17 +5,11 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from html import escape
 from typing import Any
 
 from screamingface._evaluation.model import Candidate
 from screamingface._ui.evaluation_state import _EvaluationProgress
-from screamingface._ui.evaluation_view import (
-    _STYLE,
-    _candidate_table_html,
-    _evaluation_header_html,
-    _terminal_html,
-)
+from screamingface._ui.evaluation_view import _evaluation_fragments
 from screamingface.events import Event
 from screamingface.report import Report
 
@@ -46,19 +40,22 @@ class _NotebookEvaluationView:
         self._done = threading.Event()
         self._dirty = threading.Event()
         self._tick = tick
-        self._header: Any = widgets.HTML(value=self._render_header())
-        self._table: Any = widgets.HTML(value=self._render_table())
-        self._terminal: Any = widgets.HTML(value=self._render_terminal())
-        # INVARIANT: this Box owns scrollLeft and is never replaced. Updating the HTML child may
-        # replace table rows, but Colab keeps the user's horizontal position on this stable node.
-        self._table_scroll: Any = widgets.Box(
-            children=(self._table,),
+        header, table, terminal = self._render_fragments()
+        self._header: Any = widgets.HTML(value=header)
+        # INVARIANT: this HTML widget owns scrollLeft and is never replaced. Value updates replace
+        # its table descendants while Colab keeps the scroll position on this stable root node.
+        self._table: Any = widgets.HTML(
+            value=table,
             layout=widgets.Layout(overflow="auto", width="100%"),
             tabbable=True,
             tooltip="Candidate evaluation table",
         )
-        self._table_scroll.add_class("sf-eval__table-scroll")
-        self._html: Any = widgets.VBox(children=(self._header, self._table_scroll, self._terminal))
+        self._table.add_class("sf-eval__table-scroll")
+        self._terminal: Any = widgets.HTML(value=terminal)
+        self._html: Any = widgets.VBox(
+            children=(self._header, self._table, self._terminal),
+            tooltip="ScreamingFace evaluation progress",
+        )
         self._html.add_class("sf-ui")
         self._html.add_class("sf-eval")
         self._shown = False
@@ -107,25 +104,20 @@ class _NotebookEvaluationView:
         self._done.set()
         self._dirty.set()
 
-    def _render_header(self) -> str:
-        title = escape(self._benchmark) if self._benchmark else "Evaluation"
-        return _STYLE + _evaluation_header_html(
+    def _render_fragments(self) -> tuple[str, str, str]:
+        elapsed = None if self._progress.finished else self._clock() - self._started
+        return _evaluation_fragments(
             self._progress,
-            title,
+            self._benchmark,
+            elapsed,
             self._check_disclosure,
         )
 
-    def _render_table(self) -> str:
-        elapsed = None if self._progress.finished else self._clock() - self._started
-        return _candidate_table_html(self._progress, elapsed)
-
-    def _render_terminal(self) -> str:
-        return _terminal_html(self._progress)
-
     def _refresh(self) -> None:
-        self._header.value = self._render_header()
-        self._table.value = self._render_table()
-        self._terminal.value = self._render_terminal()
+        header, table, terminal = self._render_fragments()
+        self._header.value = header
+        self._table.value = table
+        self._terminal.value = terminal
 
     def _tick_loop(self) -> None:
         deadline = self._started + self._MAX_TICK_SECONDS

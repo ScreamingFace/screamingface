@@ -71,19 +71,17 @@ _STYLE = (
 )
 
 
-def evaluation_panel_html(
+def _evaluation_fragments(
     progress: _EvaluationProgress,
     benchmark: str | None = None,
     elapsed: float | None = None,
     check_disclosure: str | None = None,
-) -> str:
+) -> tuple[str, str, str]:
     title = escape(benchmark) if benchmark else "Evaluation"
     return (
-        f"{_STYLE}<div class='sf-ui sf-eval' aria-label='ScreamingFace evaluation progress'>"
-        f"{_evaluation_header_html(progress, title, check_disclosure)}"
-        f"{_candidate_table_html(progress, elapsed)}"
-        f"{_terminal_html(progress)}"
-        "</div>"
+        _STYLE + _evaluation_header_html(progress, title, check_disclosure),
+        _candidate_table_html(progress, elapsed),
+        _terminal_html(progress),
     )
 
 
@@ -223,8 +221,7 @@ def _candidate_table_html(progress: _EvaluationProgress, elapsed: float | None) 
         for name in ("candidate", "status", "cases", "score", "cost", "cache")
     )
     return (
-        "<div class='sf-eval__table-wrap' role='region' "
-        "aria-label='Candidate evaluation table' tabindex='0'>"
+        "<div class='sf-eval__table-wrap'>"
         "<table class='sf-eval__table'>"
         "<caption>Candidate Evaluation progress</caption>"
         f"<colgroup>{columns}</colgroup>"

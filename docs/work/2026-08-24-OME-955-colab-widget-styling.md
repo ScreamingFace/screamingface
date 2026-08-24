@@ -38,15 +38,30 @@ evaluation table usable at narrow output widths without losing horizontal positi
 - Focused tests and the complete ScreamingFace quality gates pass.
 - Work is committed and pushed without opening a PR.
 
+## Review follow-up
+
+- Remove the unused static `evaluation_panel_html` composition and make tests exercise the same
+  fragments consumed by the live widget.
+- Make the stable `widgets.HTML` table node the sole focusable horizontal-scroll owner; remove the
+  inert nested region/focus target while retaining the table caption and a descriptive tooltip.
+- Give the live widget root a descriptive tooltip and lower Colab selector specificity so the
+  existing JupyterLab and VS Code host selectors remain authoritative.
+- Pin the actual runtime composition, focus ownership, and host precedence with regressions before
+  updating the draft PR.
+
 ## Outcome
 
-- **Actual files:** shared notebook theme tokens, evaluation static HTML, a focused live ipywidgets
-  host, its internal observer import, focused UI/report regressions, and the OME-955 SDLC artifacts.
-- **Commits:** `fix(screamingface): clean up Colab widget styling`
-- **Gates:** 69 focused evaluation/report tests pass; complete `screamingface` gate passes Ruff,
+- **Actual files:** shared notebook theme tokens, the runtime evaluation fragment projection, a
+  focused live ipywidgets host, its internal observer import, focused UI/report regressions, and the
+  OME-955 SDLC artifacts. Review follow-up removed the dead static panel composition and made the
+  stable table HTML widget the only scroll/focus owner.
+- **Commits:** `fix(screamingface): clean up Colab widget styling`;
+  `fix(screamingface): align Colab widget runtime semantics`
+- **Gates:** 94 focused evaluation/report tests pass; complete `screamingface` gate passes Ruff,
   formatting, Pyright, the full pytest suite at the 95% coverage floor, notebook checks, package
   build, and distribution validation.
 - **Deviations:** the append-only assertion gate was skipped because this owner-approved ticket
-  intentionally replaces the inherited no-horizontal-overflow contract. The in-app browser had no
-  connected runtime, so deterministic CSS/DOM and real-ipywidgets verification replaced screenshot
-  inspection; owner Colab visual verification remains before PR readiness.
+  intentionally replaces the inherited no-horizontal-overflow contract and the review explicitly
+  corrected tests that targeted a dead static path. The in-app browser had no connected runtime, so
+  deterministic CSS/DOM and real-ipywidgets verification replaced screenshot inspection; owner
+  Colab visual verification remains before PR readiness.

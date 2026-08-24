@@ -21,3 +21,6 @@ spec: ../spec/2026-08-24-OME-955-colab-widget-styling.md
    run the complete ScreamingFace gate suite.
 6. Review `origin/main...HEAD` for SFDS and compatibility regressions, fill the ledger outcome,
    commit, and push the branch. Do not open a PR until the owner requests it.
+7. Review follow-up: delete the unused static panel composition, route runtime and tests through one
+   fragment projection, make the stable table HTML node the sole scroll/focus owner, correct host
+   selector specificity, rerun all gates, and update the draft PR.

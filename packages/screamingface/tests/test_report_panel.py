@@ -270,8 +270,8 @@ def test_report_repr_html_is_wired_to_the_panel() -> None:
 def test_report_repr_carries_explicit_colab_theme_overrides() -> None:
     html = report(candidate("m", 0.5))._repr_html_()
 
-    assert 'html[theme="light"] .sf-ui' in html
-    assert 'html[theme="dark"] .sf-ui' in html
+    assert ':where(html[theme="light"]) .sf-ui' in html
+    assert ':where(html[theme="dark"]) .sf-ui' in html
 
 
 def test_report_formatters_keep_artifact_figures_readable() -> None:

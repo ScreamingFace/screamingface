@@ -19,7 +19,8 @@ SFDS v2 remains the only colour and typography source. The shared notebook style
 light and dark token sets using host signals in this precedence order:
 
 1. `prefers-color-scheme` is the generic fallback;
-2. Colab output iframes override it with `html[theme="light"]` or `html[theme="dark"]`;
+2. Colab output iframes override it with zero-specificity `:where(html[theme="light"])` or
+   `:where(html[theme="dark"])` host qualifiers;
 3. the existing explicit JupyterLab and VS Code selectors remain authoritative in those hosts.
 
 The Colab selector is not guessed: official `googlecolab/colabtools` output CSS uses
@@ -33,11 +34,12 @@ views consume it without duplicating theme logic.
 
 - The six-column Candidate table has a readable minimum width of 820 px. Narrow outputs scroll
   horizontally instead of compressing or overlapping columns.
-- The scroll region is keyboard reachable and labelled as the Candidate evaluation table.
-- Static HTML owns overflow on its table wrapper.
-- The live ipywidgets view owns overflow on a stable `Box` around the table. Header, table HTML,
-  and terminal/error content may update independently, but the scroll-owning DOM node is never
-  replaced, so its `scrollLeft` survives every update without JavaScript, polling, or smoothing.
+- The table is rendered only through the live ipywidgets path; no unused static panel projection is
+  maintained.
+- A stable, focusable `widgets.HTML` node owns horizontal overflow and carries a descriptive
+  tooltip. Its table retains a caption for table semantics. Header, table HTML, and terminal/error
+  content may update independently, but the scroll-owning DOM node is never replaced, so its
+  `scrollLeft` survives every update without JavaScript, polling, or smoothing.
 - The evaluation header owns its inset. The table remains full-width; no global `.sf-ui` padding
   is added, so report and other notebook surfaces do not acquire a new indent.
 
@@ -54,6 +56,6 @@ views consume it without duplicating theme logic.
 
 ## Accessibility and compatibility
 
-The scroll container is focusable for keyboard users and retains the table's caption. Current
-JupyterLab and VS Code theme selectors stay present and ordered after the Colab selectors. The
-generic media-query fallback remains for other HTML notebook hosts.
+The scroll container is the sole table-area focus target and retains the table's caption. Current
+JupyterLab and VS Code theme selectors stay present, ordered later, and carry greater specificity
+than the Colab qualifiers. The generic media-query fallback remains for other HTML notebook hosts.

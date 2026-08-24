@@ -21,10 +21,19 @@ from screamingface._evaluation.runner import (
     _SyncEventObserver,
 )
 from screamingface._ui.evaluation_state import _EvaluationProgress
-from screamingface._ui.evaluation_view import evaluation_panel_html
+from screamingface._ui.evaluation_view import _evaluation_fragments
 from screamingface._ui.style import _DARK, _LIGHT, FUSION_GRADIENT, STYLE
 
 _START = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
+
+
+def _runtime_fragments_html(
+    progress: _EvaluationProgress,
+    benchmark: str | None = None,
+    elapsed: float | None = None,
+    check_disclosure: str | None = None,
+) -> str:
+    return "".join(_evaluation_fragments(progress, benchmark, elapsed, check_disclosure))
 
 
 class _FakeLayout:
@@ -33,8 +42,22 @@ class _FakeLayout:
 
 
 class _FakeHTML:
-    def __init__(self, *, value: str) -> None:
+    def __init__(
+        self,
+        *,
+        value: str,
+        layout: _FakeLayout | None = None,
+        tabbable: bool | None = None,
+        tooltip: str | None = None,
+    ) -> None:
         self.value = value
+        self.layout = layout or _FakeLayout()
+        self.tabbable = tabbable
+        self.tooltip = tooltip
+        self._dom_classes: list[str] = []
+
+    def add_class(self, value: str) -> None:
+        self._dom_classes.append(value)
 
 
 class _FakeBox:
@@ -561,7 +584,7 @@ def test_terminal_engine_evidence_wins_over_workflow_abort_inference() -> None:
 
     assert progress.rows[0].status == "stopped"
 
-    html = evaluation_panel_html(progress, "DRACO", elapsed=20)
+    html = _runtime_fragments_html(progress, "DRACO", elapsed=20)
     table = html.split("<table", 1)[1].split("</table>", 1)[0]
     assert ">Stopped<" in table
     assert "Run stopped" not in table
@@ -605,7 +628,7 @@ def test_candidate_table_uses_the_approved_columns_and_truthful_values() -> None
     progress = _EvaluationProgress(candidates=(opus, gpt), case_count=100)
     progress.observe(opus, span(1, run_id="run_opus"))
 
-    html = evaluation_panel_html(progress, "DRACO")
+    html = _runtime_fragments_html(progress, "DRACO")
 
     headers = ["Candidate", "Status", "Cases", "Score", "Cost", "Cache hit"]
     positions = [html.index(f">{header}<") for header in headers]
@@ -629,15 +652,15 @@ def test_candidate_table_uses_the_approved_columns_and_truthful_values() -> None
 def test_candidate_table_owns_the_responsive_scroll_boundary() -> None:
     progress = _EvaluationProgress(candidates=(candidate("opus"),), case_count=1)
 
-    html = evaluation_panel_html(progress, "DRACO")
+    html = _runtime_fragments_html(progress, "DRACO")
 
     assert "sf-eval__table-wrap" in html
     assert "overflow-x:auto" in html
     assert ".sf-eval__table-scroll .sf-eval__table-wrap{overflow:visible}" in html
     assert "min-width:820px" in html
-    assert "tabindex='0'" in html
-    assert "role='region'" in html
-    assert "aria-label='Candidate evaluation table'" in html
+    assert "tabindex='0'" not in html
+    assert "role='region'" not in html
+    assert "aria-label='Candidate evaluation table'" not in html
     assert ".sf-eval{border:0;padding:0 0 14px;" in html
     assert ".sf-eval__header{padding:4px 14px 0}" in html
 
@@ -646,7 +669,7 @@ def test_numeric_candidate_columns_are_right_aligned() -> None:
     opus = candidate("opus")
     progress = _EvaluationProgress(candidates=(opus,), case_count=1)
 
-    html = evaluation_panel_html(progress, "DRACO")
+    html = _runtime_fragments_html(progress, "DRACO")
 
     for header in ("Cases", "Score", "Cost", "Cache hit"):
         assert f"<th scope='col' class='sf-eval__num'>{header}</th>" in html
@@ -677,8 +700,8 @@ def test_notebook_surface_uses_current_sfds_v2_tokens() -> None:
 
 
 def test_colab_theme_attribute_overrides_the_generic_media_preference() -> None:
-    assert f'html[theme="light"] .sf-ui{{{_LIGHT}}}' in STYLE
-    assert f'html[theme="dark"] .sf-ui{{{_DARK}}}' in STYLE
+    assert f':where(html[theme="light"]) .sf-ui{{{_LIGHT}}}' in STYLE
+    assert f':where(html[theme="dark"]) .sf-ui{{{_DARK}}}' in STYLE
     assert "@media (prefers-color-scheme:dark)" in STYLE
     assert '.jp-mod-theme-dark .sf-ui,[data-jp-theme-light="false"] .sf-ui' in STYLE
     assert ".vscode-dark .sf-ui,.vscode-high-contrast .sf-ui" in STYLE
@@ -691,7 +714,7 @@ def test_candidate_table_matches_current_sfds_table_recipe() -> None:
     progress = _EvaluationProgress(candidates=(opus,), case_count=1)
     progress.abort(RuntimeError("failed"))
 
-    html = evaluation_panel_html(progress, "DRACO")
+    html = _runtime_fragments_html(progress, "DRACO")
 
     assert "font-size:13px" in html
     assert "padding:12px 16px" in html
@@ -708,7 +731,7 @@ def test_candidate_table_has_no_inferred_phase_or_whole_table_live_region() -> N
     opus = candidate("opus")
     progress = _EvaluationProgress(candidates=(opus,), case_count=1)
 
-    html = evaluation_panel_html(progress, "DRACO")
+    html = _runtime_fragments_html(progress, "DRACO")
 
     assert "Answering" not in html
     assert "Grading" not in html
@@ -735,7 +758,7 @@ def test_running_panel_has_stable_benchmark_title_and_canonical_static_status() 
         ),
     )
 
-    html = evaluation_panel_html(progress, "DRACO", elapsed=45)
+    html = _runtime_fragments_html(progress, "DRACO", elapsed=45)
 
     assert "<div class='sf-eval__title'>DRACO</div>" in html
     assert "<div class='sf-eval__title-state'>evaluating… · 0%</div>" in html
@@ -755,7 +778,7 @@ def test_overall_progress_uses_canonical_sfds_run_treatment() -> None:
     progress.observe(opus, span(1, run_id="run_opus"))
     progress.observe(gpt, span(1, run_id="run_gpt"))
 
-    html = evaluation_panel_html(progress, "DRACO", elapsed=45)
+    html = _runtime_fragments_html(progress, "DRACO", elapsed=45)
 
     assert "Overall progress" not in html
     assert "2 / 200 case runs" not in html
@@ -778,7 +801,7 @@ def test_opaque_url4_replay_keeps_an_unknown_denominator_truthful() -> None:
     progress = _EvaluationProgress(candidates=(opus,), case_count=None)
     progress.observe(opus, span(1, run_id="run_opus"))
 
-    html = evaluation_panel_html(progress, "URL4 replay")
+    html = _runtime_fragments_html(progress, "URL4 replay")
 
     assert "1 case finished" in html
     assert "max='None'" not in html
@@ -805,7 +828,7 @@ def test_aborted_evaluation_headline_does_not_claim_completion() -> None:
 
     progress.abort(KeyboardInterrupt())
 
-    html = evaluation_panel_html(progress, "DRACO")
+    html = _runtime_fragments_html(progress, "DRACO")
     assert "Evaluation complete" not in html
     assert "Evaluation ended" not in html
     assert "<div class='sf-eval__title'>DRACO</div>" in html
@@ -822,7 +845,7 @@ def test_reconciled_evaluation_uses_complete_progress_state() -> None:
 
     progress.reconcile(report_for(opus))
 
-    html = evaluation_panel_html(progress, "DRACO")
+    html = _runtime_fragments_html(progress, "DRACO")
     assert "<div class='sf-eval__title'>DRACO</div>" in html
     assert "<div class='sf-eval__title-state'>complete · 2s</div>" in html
     assert "complete · 100%" not in html
@@ -844,7 +867,7 @@ def test_partial_result_names_exact_graded_coverage_and_keeps_final_duration() -
         )
     )
 
-    html = evaluation_panel_html(progress, "DRACO")
+    html = _runtime_fragments_html(progress, "DRACO")
     assert "Finished · 1/2 graded · 1m 10s" in html
     assert "Finished · Partial" not in html
 
@@ -884,11 +907,11 @@ def test_notebook_view_clock_advances_and_abort_leaves_a_frozen_panel(
 
     assert "45s" in _widget_text(view._html)
 
-    scroll = view._table_scroll
+    scroll = view._table
     view.abort(RuntimeError("result decode failed"))
 
     assert view._done.is_set()
-    assert view._table_scroll is scroll
+    assert view._table is scroll
     assert "Run failed" in _widget_text(view._html)
     assert "result decode failed" in _widget_text(view._html)
 
@@ -918,7 +941,7 @@ def test_notebook_view_lifecycle_shows_once_and_reconciles_authoritative_report(
     view._show()
     assert displayed == [view._html]
 
-    scroll = view._table_scroll
+    scroll = view._table
     assert scroll.layout.overflow == "auto"
     assert scroll.layout.width == "100%"
     assert scroll.tabbable is True
@@ -928,11 +951,11 @@ def test_notebook_view_lifecycle_shows_once_and_reconciles_authoritative_report(
 
     view.begin(opus)
     assert view._dirty.is_set()
-    assert view._table_scroll is scroll
+    assert view._table is scroll
 
     view.reconcile(report_for(opus))
     assert view._done.is_set()
-    assert view._table_scroll is scroll
+    assert view._table is scroll
     assert "complete · 2s" in _widget_text(view._html)
     assert "Finished · 2s" in _widget_text(view._html)
 
@@ -957,11 +980,74 @@ def test_notebook_view_builds_a_real_focusable_ipywidgets_scroll_container(
     )
 
     assert isinstance(view._html, widgets.VBox)
-    assert isinstance(view._table_scroll, widgets.Box)
-    assert view._table_scroll.layout.overflow == "auto"
-    assert view._table_scroll.layout.width == "100%"
-    assert view._table_scroll.tabbable is True
-    assert view._table_scroll.tooltip == "Candidate evaluation table"
-    assert view._table_scroll.children == (view._table,)
+    assert isinstance(view._table, widgets.HTML)
+    assert view._table.layout.overflow == "auto"
+    assert view._table.layout.width == "100%"
+    assert view._table.tabbable is True
+    assert view._table.tooltip == "Candidate evaluation table"
 
     view.close()
+
+
+def test_live_widget_uses_one_runtime_fragment_projection(monkeypatch: Any) -> None:
+    from screamingface._ui import evaluation_widget
+    from screamingface._ui.evaluation_widget import _NotebookEvaluationView
+
+    monkeypatch.setattr(_NotebookEvaluationView, "_show", lambda self: None)
+    calls: list[tuple[str, float | None]] = []
+
+    def fragments(
+        progress: _EvaluationProgress,
+        benchmark: str | None,
+        elapsed: float | None,
+        check_disclosure: str | None,
+    ) -> tuple[str, str, str]:
+        del progress, check_disclosure
+        calls.append((benchmark or "", elapsed))
+        return "header", "table", "terminal"
+
+    monkeypatch.setattr(evaluation_widget, "_evaluation_fragments", fragments)
+    view = _NotebookEvaluationView(
+        (candidate("opus"),),
+        1,
+        "DRACO",
+        clock=lambda: 100.0,
+        tick=False,
+    )
+
+    assert calls == [("DRACO", 0.0)]
+    assert view._header.value == "header"
+    assert view._table.value == "table"
+    assert view._terminal.value == "terminal"
+
+    view.close()
+
+
+def test_table_html_widget_is_the_only_focusable_scroll_owner(monkeypatch: Any) -> None:
+    import ipywidgets as widgets
+
+    from screamingface._ui.evaluation_widget import _NotebookEvaluationView
+
+    monkeypatch.setattr(_NotebookEvaluationView, "_show", lambda self: None)
+    view = _NotebookEvaluationView(
+        (candidate("opus"),),
+        1,
+        "DRACO",
+        clock=lambda: 100.0,
+        tick=False,
+    )
+
+    assert isinstance(view._table, widgets.HTML)
+    assert view._table.layout.overflow == "auto"
+    assert view._table.tabbable is True
+    assert view._table.tooltip == "Candidate evaluation table"
+    assert "role='region'" not in view._table.value
+    assert "tabindex='0'" not in view._table.value
+    assert view._html.tooltip == "ScreamingFace evaluation progress"
+
+    view.close()
+
+
+def test_colab_theme_qualifiers_cannot_override_explicit_notebook_hosts() -> None:
+    assert f':where(html[theme="light"]) .sf-ui{{{_LIGHT}}}' in STYLE
+    assert f':where(html[theme="dark"]) .sf-ui{{{_DARK}}}' in STYLE
