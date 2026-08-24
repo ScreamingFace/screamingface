@@ -297,3 +297,82 @@ export async function listProviders(): Promise<string[]> {
   }
   return [...providers].sort();
 }
+
+// --- response-cache admin (OME-953) ---------------------------------------------------------------
+
+export type AdminCacheInfo = components["schemas"]["AdminCacheInfoOut"];
+export type AdminCacheJob = components["schemas"]["AdminCacheJobOut"];
+
+export async function cacheInfo(): Promise<AdminCacheInfo> {
+  return request<AdminCacheInfo>("/v1/admin/cache/info");
+}
+
+export async function listCacheJobs(): Promise<AdminCacheJob[]> {
+  const page = await request<components["schemas"]["AdminCacheJobList"]>(
+    "/v1/admin/cache/snapshots/jobs",
+  );
+  return page.jobs;
+}
+
+export async function getCacheJob(jobId: string): Promise<AdminCacheJob> {
+  return request<AdminCacheJob>(`/v1/admin/cache/snapshots/jobs/${segment(jobId)}`);
+}
+
+/**
+ * Upload one snapshot archive (and its optional manifest) for the gateway to load.
+ *
+ * The console's only multipart call: the archive is tens of megabytes of file, not JSON, and the
+ * browser-built `FormData` carries both the file and the scalar fields exactly as the gateway's
+ * `POST /v1/admin/cache/snapshots` expects them. The `content-type` header is deliberately NOT
+ * set — the boundary belongs to fetch, and a manual header would break the body it frames.
+ *
+ * `snapshot`/`manifest` are `File`s, which on the server side (this module only ever runs there)
+ * are the request's web-standard file objects — never read into memory here; undici streams them.
+ */
+export async function uploadCacheSnapshot(input: {
+  mode: "merge" | "replace";
+  force: boolean;
+  acknowledgeLoss: boolean;
+  snapshot: File;
+  manifest: File | null;
+}): Promise<AdminCacheJob> {
+  const email = await callerEmail();
+  const form = new FormData();
+  form.set("mode", input.mode);
+  form.set("force", String(input.force));
+  form.set("acknowledge_loss", String(input.acknowledgeLoss));
+  form.set("snapshot", input.snapshot, input.snapshot.name || "snapshot.sql.gz");
+  if (input.manifest) form.set("manifest", input.manifest, input.manifest.name);
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl()}/v1/admin/cache/snapshots`, {
+      method: "POST",
+      headers: {
+        ...(email ? { "x-user-email": email } : {}),
+      },
+      body: form,
+      cache: "no-store",
+    });
+  } catch (cause) {
+    throw new AdminApiError(
+      "unreachable",
+      0,
+      "The gateway did not answer. Check AIGATEWAY_ADMIN_BASE_URL and that it is running.",
+      cause,
+    );
+  }
+  if (response.status === 204) return undefined as unknown as AdminCacheJob;
+
+  const text = await response.text();
+  const payload: unknown = text ? safeJson(text) : undefined;
+  if (!response.ok) {
+    const detail =
+      typeof payload === "object" && payload !== null && "detail" in payload
+        ? (payload as { detail: unknown }).detail
+        : payload;
+    const kind = classify(response.status, detail);
+    throw new AdminApiError(kind, response.status, messageFor(kind, detail), detail);
+  }
+  return payload as AdminCacheJob;
+}

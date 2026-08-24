@@ -39,6 +39,7 @@ from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
+from .core.request_cache.upload_job import CacheUploadRunner
 from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
@@ -46,6 +47,7 @@ from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .routes import (
     accounts,
     admin,
+    admin_cache,
     api_key_validation,
     auth,
     auth_session,
@@ -377,6 +379,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
     app.state.discovery_runtime = _build_discovery_runtime(settings)
+    # OME-952: the admin cache-snapshot upload runner. app-state-only by the same reasoning
+    # as `admitted_models` above: job REPORTS are deployment-lifetime, the loaded data and
+    # the audit log are the durable truth.
+    app.state.cache_upload_runner = CacheUploadRunner(
+        max_upload_bytes=settings.cache_upload_max_bytes
+    )
     # OME-879: dynamic-admission state. Deliberately app-state-only (deployment
     # lifetime): a restart forgets every admission and nothing is persisted.
     app.state.admitted_models = {}
@@ -391,6 +399,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(accounts.router)
     app.include_router(admin.router)
     _describe_admin_security(app)
+    app.include_router(admin_cache.router)
     app.include_router(api_key_validation.router)
     app.include_router(auth.router)
     app.include_router(oauth_connections.router)

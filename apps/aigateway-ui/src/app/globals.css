@@ -726,3 +726,107 @@
   outline: var(--border-strong) solid var(--accent-focus-ring);
   outline-offset: 2px;
 }
+
+/* ── Response cache section (OME-953) ───────────────────────────────────────────────────── */
+
+.app-bar-nav {
+  display: flex;
+  gap: 1rem;
+  font-family: var(--f-mono);
+  font-size: 0.8125rem;
+}
+
+.app-bar-nav a {
+  color: var(--sf-ink-2);
+  text-decoration: none;
+}
+
+.app-bar-nav a:hover,
+.app-bar-nav a:focus-visible {
+  color: var(--sf-ink-1);
+  text-decoration: underline;
+}
+
+.cache-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+  margin-block: 1.5rem;
+}
+
+.cache-info-label {
+  display: block;
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sf-ink-3);
+  margin-bottom: 0.25rem;
+}
+
+.cache-info-value {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--sf-ink-1);
+}
+
+.cache-info-revisions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.cache-info-key {
+  color: var(--sf-ink-3);
+}
+
+.cache-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.cache-upload-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+}
+
+.cache-upload-notice {
+  margin-block: 0;
+}
+
+.cache-check {
+  accent-color: var(--accent-solid);
+}
+
+.cache-jobs-title {
+  font-size: 1rem;
+  margin-block: 2rem 0.75rem;
+}
+
+.cache-refusal,
+.cache-warning {
+  display: inline-block;
+  font-family: var(--f-mono);
+  font-size: 0.75rem;
+  margin-right: 0.5rem;
+}
+
+.cache-refusal {
+  color: var(--sf-danger);
+}
+
+.cache-warning {
+  color: var(--sf-ink-2);
+}
+
+.cache-code {
+  font-family: var(--f-mono);
+  font-size: 0.875em;
+}
+
+.cache-retry {
+  margin-top: 0.75rem;
+}
