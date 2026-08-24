@@ -61,6 +61,13 @@ request, shared by every caller. Two callers who send the identical request get 
 response, and the second one's provider credential is never touched. The chart ships `true`; set
 `config.requestCache.enabled=false` to opt out.
 
+**Hugging Face caveat.** Hugging Face participates only for ids pinned to a known partner provider
+(`…:novita`, `…:groq`, …). Unsuffixed ids and the routing policies `:fastest` / `:cheapest` /
+`:preferred` always dispatch, because the backend is chosen per request and `:preferred` follows the
+requesting account's own preference order. For the ids that do cache, gated-repository responses
+replay across accounts before any credential is resolved — see consequence 6 on
+`config.requestCache` in `values.yaml`.
+
 `true` makes the cache available immediately. Reading and writing the response row has no
 secret-provider, encryption-key or canary dependency. Effective-key construction may still read the
 caller's encrypted profile-default index; it never resolves the selected provider credential on a hit.
