@@ -1,9 +1,9 @@
 ---
 ticket: OME-936
 stack: repo
-status: done
+status: in_progress
 started: 2026-08-22
-finished: 2026-08-22
+finished:
 ---
 
 # OME-936 — Write the observability & traceability review spec
@@ -37,6 +37,12 @@ audit evidence and the locked decisions.
   with real issue IDs.
 - All 12 `docs/tasks/` mirrors exist with correct frontmatter.
 - Lands via PR; `OME-936` closed with the close template after merge.
+
+## Review status
+
+PR #688 is a **draft** and stays that way until the owner confirms readiness (2026-08-24).
+The spec is under review; iterations land on this branch. Do not mark ready, do not merge,
+and do not close `OME-936` until that confirmation is given in plain words.
 
 ## Outcome (fill at the end — required before COMMIT)
 
