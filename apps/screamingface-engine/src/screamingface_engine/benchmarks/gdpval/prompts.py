@@ -48,4 +48,37 @@ Reply with JSON only, no prose outside it:
 {{"explanation": "<one or two sentences>", "criteria_met": true or false}}
 """
 
-__all__ = ["GRADER_TEMPLATE"]
+
+def render_rubric_item(points: int, criterion: str) -> str:
+    """One criterion as the judge sees it — ``[points] criterion``.
+
+    INVARIANT: integer points render WITHOUT a decimal ("[2]", never "[2.0]"). `prepare` rejects
+    non-integer scores at build time so this can never be reached with a float, but rendering is
+    where a drift would silently change every future grader prompt's bytes.
+    """
+
+    if isinstance(points, bool) or not isinstance(points, int):
+        raise ValueError("rubric points must be an integer")
+    if not isinstance(criterion, str) or not criterion.strip():
+        raise ValueError("rubric criterion must be non-empty text")
+    return f"[{points}] {criterion}"
+
+
+def build_grader_prompt(request: str, submission: str, rubric_item: str) -> str:
+    """Fill the template into ONE finished judge prompt.
+
+    INVARIANT: the prompt is fully substituted HERE, Engine-side. Judge behaviour is
+    prompt-byte-sensitive, so assembling the same information inside the expression — or in a
+    different order — would change grading without changing the board's revision.
+    """
+
+    if not isinstance(request, str) or not request.strip():
+        raise ValueError("grader request must be non-empty text")
+    if not isinstance(submission, str):
+        raise ValueError("grader submission must be text")
+    if not isinstance(rubric_item, str) or not rubric_item.strip():
+        raise ValueError("grader rubric item must be non-empty text")
+    return GRADER_TEMPLATE.format(request=request, submission=submission, criterion=rubric_item)
+
+
+__all__ = ["GRADER_TEMPLATE", "build_grader_prompt", "render_rubric_item"]

@@ -136,3 +136,11 @@ def test_emit_is_byte_identical_across_runs(tmp_path) -> None:
     assert (first / "rubrics" / "1.json").read_bytes() == (
         second / "rubrics" / "1.json"
     ).read_bytes()
+
+
+def test_rubric_ids_are_one_based_positions() -> None:
+    # INVARIANT: `scoring.case_score` indexes points with enumerate(points, start=1) and
+    # `verdict.binding_key` refuses ids below 1. A 0-based id here would misalign every
+    # criterion with its point value and silently produce wrong scores.
+    row = _row("t", rubric=_rubric((2, _CONTENT), (1, "Second criterion."), (3, "Third.")))
+    assert [item["rubric_id"] for item in rubric_items(row, 1)] == [1, 2, 3]

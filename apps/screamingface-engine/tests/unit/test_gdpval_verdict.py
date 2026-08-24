@@ -60,8 +60,11 @@ def test_unparseable_replies_are_invalid(raw: str) -> None:
 
 
 def test_an_invalid_reply_keeps_the_raw_output_for_audit() -> None:
+    # WHY the key is `raw_output`: the aggregate's evidence projection reads that name when it
+    # renders a rejected verdict into the report. A different key here would drop the audit
+    # trail silently — the reply would be recorded as invalid with nothing to inspect.
     record = bind("garbage", case_id=1, rubric_id=2, producer_id="judge-x")
-    assert record["raw"] == "garbage"
+    assert record["raw_output"] == "garbage"
 
 
 def test_the_engine_stamps_identity_and_ignores_what_the_judge_claims() -> None:

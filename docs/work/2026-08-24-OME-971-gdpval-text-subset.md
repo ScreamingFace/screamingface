@@ -219,6 +219,41 @@ RED first, per `sdlc-python`.
     (max 3 returns). The ordering comment is load-bearing: `isinstance(True, int)` is True in
     Python, so the bool check must be an explicit `isinstance(..., bool)` and must come last.
 
+### Tasks 5b + 6 — the board, its routes, and registration (DONE)
+
+- **Actual files:** `benchmarks/gdpval/{exam,definition,check_policy,case_evaluation,aggregate,
+  runtime}.py`, `scoring.py` (+ `sample_stdev`, `verdict_coverage`),
+  `tests/unit/test_gdpval_definition.py`; `benchmarks/builtins.py` registers `GDPVAL_TEXT`.
+- **Gates:** ALL GATES GREEN (`--skip-append-only`, see below). 2,100 tests pass.
+- **Served:** `gdpval-text`, 102 cases, revision `04dd881e686c0cca`.
+
+- **Two prior-test changes, both owner-approved Confidence-Gate decisions:**
+  1. `test_gdpval_verdict.py` — `bind` stored a rejected reply under `"raw"`; the contract's
+     Evidence field is `raw_output` (`benchmarks/contract.py:61`). Left as-is, a rejected judge
+     reply would be recorded as invalid with NOTHING to inspect — the audit trail silently
+     dropped, on exactly the artefact one would investigate after a bad run. Owner chose to fix
+     the key rather than add a translation layer hiding the mistake.
+  2. Four registry enumerations (`test_benchmark_protocol`, `test_benchmark_display_metadata` x2,
+     `test_benchmark_deployment`) list the installed boards exhaustively. Adding a sixth board is
+     precisely what they exist to force. Each was EXTENDED, never relaxed — the assertions remain
+     exhaustive.
+
+- **Defect caught before it shipped: a 1-based/0-based mismatch.** `prepare` assigned `rubric_id`
+  from a 0-based enumerate, while `scoring.case_score` indexes points with
+  `enumerate(points, start=1)` and `verdict.binding_key` rejects ids below 1. Every criterion
+  would have been scored against the WRONG point value, silently and plausibly. Fixed at all
+  three sites and pinned by `test_rubric_ids_are_one_based_positions`. Found only by wiring the
+  reducer against the preparer — neither module's own tests could see it.
+
+- **Deviations:**
+  - `aggregate.py` and `runtime.py` mirror HealthBench's structure closely rather than sharing
+    it. Same reasoning as `scoring.py`: that board's revision is FROZEN at a published value, and
+    parameterising its reducer to serve a second benchmark would put a live identity at risk to
+    remove a structural resemblance.
+  - `check_policy.CHECK_THRESHOLD = 0.5` is PROVISIONAL and says so. DRACO's 0.7 was set against
+    known baselines; no candidate has been measured on this board yet, so the first real runs
+    should confirm the bar separates drafts worth iterating from drafts worth stopping.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>

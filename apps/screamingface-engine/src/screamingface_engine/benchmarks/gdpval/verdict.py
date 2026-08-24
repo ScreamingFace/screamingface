@@ -26,6 +26,44 @@ from typing import Any
 SCHEMA = "screamingface.gdpval-rubric-verdict.v1"
 
 
+def call(judge: object, *, case_id: str, rubric_id: str, route: str, retry: int):
+    """Wrap a judge call so a parse retry redraws a FRESH judge sample.
+
+    The problem: a judge sometimes answers with something that is not the JSON we asked for.
+    That is still a SUCCESSFUL model call, so ``;retry=`` on the judge itself would never fire —
+    there is no error to retry.
+
+    The trick: nest the judge INSIDE the verdict call as its context, and put ``;retry=`` on the
+    verdict. The flow becomes:
+
+        judge answers -> verdict route parses -> garbage? -> verdict RAISES ->
+        ``;retry=`` re-resolves the whole nested expression -> the judge is asked AGAIN ->
+        a fresh sample (temperature 0.2) that may parse this time.
+
+    INVARIANT: the judge never sees ``case_id`` or ``rubric_id``. The Engine writes both into
+    the verdict route's intent, so identity is stamped rather than echoed.
+    """
+
+    from url4 import Node, RelExpr, Text, render, src
+
+    if not isinstance(judge, Node):
+        raise ValueError("verdict call needs a URL4 judge node")
+    if not isinstance(route, str) or not route.startswith("/"):
+        raise ValueError("rubric verdict route must be an absolute URL4 path")
+    if isinstance(retry, bool) or not isinstance(retry, int) or retry < 0:
+        raise ValueError("retry must be a non-negative integer")
+    return src(
+        RelExpr(
+            path=route,
+            context=render(judge, check=False),
+            intent=Text(f"{case_id}:{rubric_id}"),
+        ),
+        name="verdict",
+        weight=0.0,
+        retry=retry,
+    )
+
+
 def binding_key(value: str) -> tuple[int, int]:
     """Decode ``case_id:rubric_id`` — both Engine-assigned positive integers."""
 
@@ -67,7 +105,7 @@ def bind(raw: str, *, case_id: int, rubric_id: int, producer_id: str) -> dict[st
     if reason is not None:
         # WHY keep the raw text: a run that fails on grading is investigated after the fact, and
         # "the judge said something unparseable" is not evidence unless the something is kept.
-        return {**record, "valid": False, "reason": reason, "raw": raw}
+        return {**record, "valid": False, "reason": reason, "raw_output": raw}
     assert decoded is not None  # narrowed by _invalid_reason returning None
     return {
         **record,
@@ -114,4 +152,4 @@ def _invalid_reason(raw: object, decoded: dict[str, Any] | None) -> str | None:
     return next((reason for failed, reason in checks if failed), None)
 
 
-__all__ = ["SCHEMA", "bind", "binding_key"]
+__all__ = ["SCHEMA", "bind", "binding_key", "call"]

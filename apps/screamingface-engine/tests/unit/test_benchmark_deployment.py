@@ -204,6 +204,7 @@ def test_builtins_are_registered_with_their_physical_asset_bundles() -> None:
     assert registrations == {
         "draco": "draco",
         "draco-3pass": "draco",
+        "gdpval-text": "gdpval",
         "ifeval": "ifeval",
         "healthbench-worst30": "healthbench",
         "healthbench-professional": "healthbench",

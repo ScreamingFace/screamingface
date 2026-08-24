@@ -73,4 +73,25 @@ def mean(scores: Iterable[float | None]) -> float | None:
     return sum(graded) / len(graded)
 
 
-__all__ = ["case_score", "mean"]
+def sample_stdev(values: Sequence[float]) -> float:
+    """Sample standard deviation (n-1) over Case scores — a reporting-only metric.
+
+    WHY n-1: population stdev understates spread by roughly 10% at small n, and a partial run
+    (the SDK's ``limit=N``) is exactly the small-n case a reader is most likely to see.
+    """
+
+    if len(values) < 2:
+        return 0.0
+    centre = sum(values) / len(values)
+    return (sum((value - centre) ** 2 for value in values) / (len(values) - 1)) ** 0.5
+
+
+def verdict_coverage(judged: int, total: int) -> float:
+    """Fraction of criteria carrying a valid verdict; 1.0 is required for a valid attempt."""
+
+    if total <= 0:
+        return 0.0
+    return judged / total
+
+
+__all__ = ["case_score", "mean", "sample_stdev", "verdict_coverage"]
