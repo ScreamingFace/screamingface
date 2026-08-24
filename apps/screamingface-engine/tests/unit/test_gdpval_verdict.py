@@ -86,3 +86,41 @@ def test_bind_requires_a_producer_id() -> None:
     # audited after the fact.
     with pytest.raises(ValueError):
         bind(_reply(True), case_id=1, rubric_id=2, producer_id="  ")
+
+
+# --- reply shapes the judge actually produces --------------------------------------------------
+
+
+def test_a_fenced_json_reply_is_accepted() -> None:
+    # WHY: measured against the pinned judge (gemini-3.1-pro-preview) on 2026-08-25 — it wraps
+    # its JSON in a ```json fence. DRACO hit the same behaviour with the same model and strips
+    # fences for exactly this reason. Rejecting these would fail every case at rubric 1.
+    raw = '```json\n{\n  "explanation": "No SOAP headings.",\n  "criteria_met": false\n}\n```'
+    record = bind(raw, case_id=1, rubric_id=1, producer_id="judge-x")
+    assert record["valid"] is True
+    assert record["criteria_met"] is False
+
+
+def test_a_bare_fence_without_a_language_tag_is_accepted() -> None:
+    raw = '```\n{"explanation": "ok", "criteria_met": true}\n```'
+    assert bind(raw, case_id=1, rubric_id=1, producer_id="j")["criteria_met"] is True
+
+
+def test_json_preceded_by_prose_is_recovered() -> None:
+    # WHY a fallback rather than strictness: the alternative is burning two retries and failing
+    # the Case on a reply that plainly contains the verdict.
+    raw = 'Here is my assessment:\n{"explanation": "fine", "criteria_met": true}'
+    assert bind(raw, case_id=1, rubric_id=1, producer_id="j")["criteria_met"] is True
+
+
+def test_fence_stripping_does_not_soften_the_boolean_rule() -> None:
+    # INVARIANT: recovering the JSON is not the same as accepting a truthy value. A fenced
+    # reply whose criteria_met is a STRING is still invalid.
+    raw = '```json\n{"explanation": "x", "criteria_met": "true"}\n```'
+    record = bind(raw, case_id=1, rubric_id=1, producer_id="j")
+    assert record["valid"] is False
+
+
+def test_a_fence_containing_no_json_is_still_invalid() -> None:
+    raw = "```\nI could not determine this.\n```"
+    assert bind(raw, case_id=1, rubric_id=1, producer_id="j")["valid"] is False

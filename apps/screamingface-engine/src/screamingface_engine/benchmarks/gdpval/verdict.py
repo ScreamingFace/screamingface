@@ -121,13 +121,50 @@ def _require_positive(value: object, label: str) -> None:
 
 
 def _decode_object(raw: object) -> dict[str, Any] | None:
+    """Recover the judge's JSON object from however it chose to present it.
+
+    AIDEV-NOTE: the pinned judge (gemini-3.1-pro-preview) wraps its JSON in a ```json fence —
+    measured 2026-08-25, and it failed every Case at rubric 1 until this was handled. DRACO hit
+    the same behaviour with the same model and strips fences for the same reason.
+
+    INVARIANT: recovering the object is NOT the same as relaxing what counts as a verdict.
+    `_invalid_reason` still demands a real JSON boolean, so a fenced reply carrying
+    `"criteria_met": "true"` remains invalid.
+    """
+
     if not isinstance(raw, str) or not raw.strip():
         return None
+    text = _without_fences(raw.strip())
     try:
-        decoded = json.loads(raw)
+        decoded = json.loads(text)
+    except json.JSONDecodeError:
+        decoded = _first_json_value(text)
+    return decoded if isinstance(decoded, dict) else None
+
+
+def _without_fences(text: str) -> str:
+    if "```" not in text:
+        return text
+    return "\n".join(
+        line for line in text.splitlines() if not line.strip().startswith("```")
+    ).strip()
+
+
+def _first_json_value(text: str) -> Any:
+    """The first JSON object embedded in prose, or None.
+
+    WHY a fallback rather than strictness: the alternative is spending two retries and failing
+    the Case on a reply that plainly contains the verdict.
+    """
+
+    start = text.find("{")
+    if start < 0:
+        return None
+    try:
+        value, _ = json.JSONDecoder().raw_decode(text[start:])
     except json.JSONDecodeError:
         return None
-    return decoded if isinstance(decoded, dict) else None
+    return value
 
 
 def _invalid_reason(raw: object, decoded: dict[str, Any] | None) -> str | None:
