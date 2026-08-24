@@ -823,3 +823,44 @@ def test_notebook_view_clock_advances_and_abort_leaves_a_frozen_panel(
     assert view._done.is_set()
     assert "Run failed" in view._html.value
     assert "result decode failed" in view._html.value
+
+
+def test_notebook_view_lifecycle_shows_once_and_reconciles_authoritative_report(
+    monkeypatch: Any,
+) -> None:
+    from screamingface._ui.evaluation_view import _NotebookEvaluationView
+
+    class HTML:
+        def __init__(self, *, value: str) -> None:
+            self.value = value
+
+    displayed: list[HTML] = []
+    monkeypatch.setitem(sys.modules, "ipywidgets", SimpleNamespace(HTML=HTML))
+    monkeypatch.setitem(
+        sys.modules,
+        "IPython.display",
+        SimpleNamespace(display=displayed.append),
+    )
+    opus = candidate("opus")
+    view = _NotebookEvaluationView(
+        (opus,),
+        1,
+        "DRACO",
+        clock=lambda: 100.0,
+        tick=False,
+    )
+
+    assert displayed == [view._html]
+    view._show()
+    assert displayed == [view._html]
+
+    view.begin(opus)
+    assert view._dirty.is_set()
+
+    view.reconcile(report_for(opus))
+    assert view._done.is_set()
+    assert "complete · 2s" in view._html.value
+    assert "Finished · 2s" in view._html.value
+
+    view.close()
+    assert view._done.is_set()

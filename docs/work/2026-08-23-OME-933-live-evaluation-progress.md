@@ -57,10 +57,10 @@ counts; keep final Candidate Results authoritative for scores and outcome classi
 
 - **Actual files:** the spec/task mirror and every production/test file listed above.
 - **Commits:** `f718b42b` (approved spec/plan), `aa7d3282` (Candidate-scoped implementation).
-- **Gates:** the latest compact-header follow-up passes 79 focused progress/evaluation tests,
-  Ruff, Pyright, and the full package suite (1,064 passed, one skipped). The earlier complete
-  official `screamingface` gate also passed ≥95% coverage, notebook validation, build, and
-  distribution checks before the owner's two local notebook edits; those edits remain untouched.
+- **Gates:** the latest follow-up passes 80 focused progress/evaluation tests, Ruff, Pyright, and
+  the full package coverage gate (1,065 passed, one skipped; 95.04%). The earlier complete official
+  `screamingface` gate also passed notebook validation, build, and distribution checks before the
+  owner's local notebook edits; those edits remain untouched.
 - **Deviations:** opaque URL4 replay cannot know its selected denominator before result decoding,
   so it truthfully renders the exact observed numerator until the final Report supplies the total.
   The approved plan intentionally replaced aggregate-panel assertions with Candidate-table
