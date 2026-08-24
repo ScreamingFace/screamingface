@@ -57,4 +57,6 @@ kubectl config view \
   >/dev/null || fail "the server returned an invalid kubeconfig"
 
 install -m 600 "$temporary_kubeconfig" "$kubeconfig_path"
+printf 'Preview access is ready for namespace sf-preview-pr-%s.\n' "$pr_number" >&2
+printf 'Cluster-wide commands are blocked.\n' >&2
 printf '%s\n' "$kubeconfig_path"

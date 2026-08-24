@@ -155,9 +155,37 @@ def test_active_comment_contains_access_and_observability_contract() -> None:
     assert "bash -s -- 123" in comment
     assert "cloudflared access token" not in comment
     assert "CF_ACCESS_TOKEN" not in comment
-    assert "kubectl logs" in comment
+    assert "kubectl logs deployment/url4-cloud --all-containers --tail=200" in comment
+    assert "DEPLOYMENT_NAME" not in comment
+    assert "This kubeconfig only accesses namespace sf-preview-pr-123." in comment
+    assert "Commands with --all-namespaces or -A are blocked." in comment
     assert "signoz.pulse.dev.openmined.org/logs-explorer" in comment
     assert 'k8s_namespace_name="sf-preview-pr-123"' in comment
+
+
+@pytest.mark.parametrize(
+    ("component", "deployment"),
+    [
+        ("aigateway", "aigw"),
+        ("aigatewayUi", "aigw-ui"),
+        ("scoreboard", "leaderboard"),
+        ("engine", "url4-cloud"),
+    ],
+)
+def test_active_comment_uses_the_selected_deployment(
+    component: str, deployment: str
+) -> None:
+    contract = load_contract()
+
+    comment = contract.preview_comment(
+        status="preview",
+        number=123,
+        sha="a" * 40,
+        components=(component,),
+        images=(component,),
+    )
+
+    assert f"kubectl logs deployment/{deployment} " in comment
 
 
 def test_workflows_keep_oidc_away_from_forks_and_serialize_admission() -> None:

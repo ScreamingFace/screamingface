@@ -24,6 +24,12 @@ LABEL_SLUG = {
     "scoreboard": "scoreboard",
     "engine": "engine",
 }
+DEPLOYMENT_NAMES = {
+    "aigateway": "aigw",
+    "aigatewayUi": "aigw-ui",
+    "scoreboard": "leaderboard",
+    "engine": "url4-cloud",
+}
 COMPONENT_LABELS = {
     name: f"preview-component-{LABEL_SLUG[name]}" for name in COMPONENTS
 }
@@ -184,6 +190,11 @@ def preview_comment(
     namespace = f"sf-preview-pr-{number}"
     component_text = ", ".join(components) or "none"
     image_text = ", ".join(images) or "none"
+    log_commands = [
+        f"kubectl logs deployment/{DEPLOYMENT_NAMES[component]} "
+        "--all-containers --tail=200"
+        for component in components
+    ]
     lines = [
         COMMENT_MARKER,
         f"## Preview: {display_status}",
@@ -233,8 +244,11 @@ def preview_comment(
                     f'| bash -s -- {number})"'
                 ),
                 "kubectl get pods",
-                "kubectl logs deployment/DEPLOYMENT_NAME --all-containers --tail=200",
+                *log_commands,
                 "```",
+                "",
+                f"This kubeconfig only accesses namespace {namespace}.",
+                "Commands with --all-namespaces or -A are blocked.",
                 "",
                 "### Observability",
                 "",
