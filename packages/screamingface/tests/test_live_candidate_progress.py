@@ -22,9 +22,57 @@ from screamingface._evaluation.runner import (
 )
 from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.evaluation_view import evaluation_panel_html
-from screamingface._ui.style import FUSION_GRADIENT, STYLE
+from screamingface._ui.style import _DARK, _LIGHT, FUSION_GRADIENT, STYLE
 
 _START = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
+
+
+class _FakeLayout:
+    def __init__(self, **values: object) -> None:
+        self.__dict__.update(values)
+
+
+class _FakeHTML:
+    def __init__(self, *, value: str) -> None:
+        self.value = value
+
+
+class _FakeBox:
+    def __init__(
+        self,
+        *,
+        children: tuple[object, ...] = (),
+        layout: _FakeLayout | None = None,
+        tabbable: bool | None = None,
+        tooltip: str | None = None,
+    ) -> None:
+        self.children = children
+        self.layout = layout or _FakeLayout()
+        self.tabbable = tabbable
+        self.tooltip = tooltip
+        self._dom_classes: list[str] = []
+
+    def add_class(self, value: str) -> None:
+        self._dom_classes.append(value)
+
+
+class _FakeVBox(_FakeBox):
+    pass
+
+
+def _fake_widgets() -> SimpleNamespace:
+    return SimpleNamespace(
+        Box=_FakeBox,
+        HTML=_FakeHTML,
+        Layout=_FakeLayout,
+        VBox=_FakeVBox,
+    )
+
+
+def _widget_text(widget: object) -> str:
+    value = getattr(widget, "value", "")
+    children = getattr(widget, "children", ())
+    return str(value) + "".join(_widget_text(child) for child in children)
 
 
 def candidate(name: str) -> Candidate:
@@ -562,13 +610,9 @@ def test_candidate_table_uses_the_approved_columns_and_truthful_values() -> None
     headers = ["Candidate", "Status", "Cases", "Score", "Cost", "Cache hit"]
     positions = [html.index(f">{header}<") for header in headers]
     assert positions == sorted(positions)
+    assert html.count("scope='col'") == len(headers)
     assert "<table" in html
-    assert "sf-eval__table-wrap" in html
-    assert "overflow-x:auto" not in html
-    assert "min-width:820px" not in html
-    assert "tabindex='0'" not in html
     assert "table-layout:fixed" in html
-    assert ".sf-eval{border:0;padding:4px 0 14px;" in html
     widths = {"candidate": 27, "status": 17, "cases": 10, "score": 17, "cost": 14, "cache": 15}
     for name, width in widths.items():
         assert f".sf-eval__col--{name}{{width:{width}%}}" in html
@@ -580,6 +624,22 @@ def test_candidate_table_uses_the_approved_columns_and_truthful_values() -> None
     assert "1 / 100" in html
     assert "Not scored yet" in html
     assert "Not reported" in html
+
+
+def test_candidate_table_owns_the_responsive_scroll_boundary() -> None:
+    progress = _EvaluationProgress(candidates=(candidate("opus"),), case_count=1)
+
+    html = evaluation_panel_html(progress, "DRACO")
+
+    assert "sf-eval__table-wrap" in html
+    assert "overflow-x:auto" in html
+    assert ".sf-eval__table-scroll .sf-eval__table-wrap{overflow:visible}" in html
+    assert "min-width:820px" in html
+    assert "tabindex='0'" in html
+    assert "role='region'" in html
+    assert "aria-label='Candidate evaluation table'" in html
+    assert ".sf-eval{border:0;padding:0 0 14px;" in html
+    assert ".sf-eval__header{padding:4px 14px 0}" in html
 
 
 def test_numeric_candidate_columns_are_right_aligned() -> None:
@@ -614,6 +674,16 @@ def test_notebook_surface_uses_current_sfds_v2_tokens() -> None:
     assert "--sf-line:#35383d" in STYLE
     assert "--sf-line-2:#585c61" in STYLE
     assert "--sf-danger-solid:#ed413f" in STYLE
+
+
+def test_colab_theme_attribute_overrides_the_generic_media_preference() -> None:
+    assert f'html[theme="light"] .sf-ui{{{_LIGHT}}}' in STYLE
+    assert f'html[theme="dark"] .sf-ui{{{_DARK}}}' in STYLE
+    assert "@media (prefers-color-scheme:dark)" in STYLE
+    assert '.jp-mod-theme-dark .sf-ui,[data-jp-theme-light="false"] .sf-ui' in STYLE
+    assert ".vscode-dark .sf-ui,.vscode-high-contrast .sf-ui" in STYLE
+    assert '.jp-mod-theme-light .sf-ui,[data-jp-theme-light="true"] .sf-ui' in STYLE
+    assert ".vscode-light .sf-ui" in STYLE
 
 
 def test_candidate_table_matches_current_sfds_table_recipe() -> None:
@@ -782,13 +852,9 @@ def test_partial_result_names_exact_graded_coverage_and_keeps_final_duration() -
 def test_notebook_view_clock_advances_and_abort_leaves_a_frozen_panel(
     monkeypatch: Any,
 ) -> None:
-    from screamingface._ui.evaluation_view import _NotebookEvaluationView
+    from screamingface._ui.evaluation_widget import _NotebookEvaluationView
 
-    class HTML:
-        def __init__(self, *, value: str) -> None:
-            self.value = value
-
-    monkeypatch.setitem(sys.modules, "ipywidgets", SimpleNamespace(HTML=HTML))
+    monkeypatch.setitem(sys.modules, "ipywidgets", _fake_widgets())
     monkeypatch.setattr(_NotebookEvaluationView, "_show", lambda self: None)
     opus = candidate("opus")
     now = [100.0]
@@ -811,31 +877,29 @@ def test_notebook_view_clock_advances_and_abort_leaves_a_frozen_panel(
         ),
     )
 
-    assert "0s" in view._html.value
+    assert "0s" in _widget_text(view._html)
 
     now[0] += 45
-    view._html.value = view._render()
+    view._refresh()
 
-    assert "45s" in view._html.value
+    assert "45s" in _widget_text(view._html)
 
+    scroll = view._table_scroll
     view.abort(RuntimeError("result decode failed"))
 
     assert view._done.is_set()
-    assert "Run failed" in view._html.value
-    assert "result decode failed" in view._html.value
+    assert view._table_scroll is scroll
+    assert "Run failed" in _widget_text(view._html)
+    assert "result decode failed" in _widget_text(view._html)
 
 
 def test_notebook_view_lifecycle_shows_once_and_reconciles_authoritative_report(
     monkeypatch: Any,
 ) -> None:
-    from screamingface._ui.evaluation_view import _NotebookEvaluationView
+    from screamingface._ui.evaluation_widget import _NotebookEvaluationView
 
-    class HTML:
-        def __init__(self, *, value: str) -> None:
-            self.value = value
-
-    displayed: list[HTML] = []
-    monkeypatch.setitem(sys.modules, "ipywidgets", SimpleNamespace(HTML=HTML))
+    displayed: list[object] = []
+    monkeypatch.setitem(sys.modules, "ipywidgets", _fake_widgets())
     monkeypatch.setitem(
         sys.modules,
         "IPython.display",
@@ -854,13 +918,50 @@ def test_notebook_view_lifecycle_shows_once_and_reconciles_authoritative_report(
     view._show()
     assert displayed == [view._html]
 
+    scroll = view._table_scroll
+    assert scroll.layout.overflow == "auto"
+    assert scroll.layout.width == "100%"
+    assert scroll.tabbable is True
+    assert scroll.tooltip == "Candidate evaluation table"
+    assert scroll._dom_classes == ["sf-eval__table-scroll"]
+    assert view._html._dom_classes == ["sf-ui", "sf-eval"]
+
     view.begin(opus)
     assert view._dirty.is_set()
+    assert view._table_scroll is scroll
 
     view.reconcile(report_for(opus))
     assert view._done.is_set()
-    assert "complete · 2s" in view._html.value
-    assert "Finished · 2s" in view._html.value
+    assert view._table_scroll is scroll
+    assert "complete · 2s" in _widget_text(view._html)
+    assert "Finished · 2s" in _widget_text(view._html)
 
     view.close()
     assert view._done.is_set()
+
+
+def test_notebook_view_builds_a_real_focusable_ipywidgets_scroll_container(
+    monkeypatch: Any,
+) -> None:
+    import ipywidgets as widgets
+
+    from screamingface._ui.evaluation_widget import _NotebookEvaluationView
+
+    monkeypatch.setattr(_NotebookEvaluationView, "_show", lambda self: None)
+    view = _NotebookEvaluationView(
+        (candidate("opus"),),
+        1,
+        "DRACO",
+        clock=lambda: 100.0,
+        tick=False,
+    )
+
+    assert isinstance(view._html, widgets.VBox)
+    assert isinstance(view._table_scroll, widgets.Box)
+    assert view._table_scroll.layout.overflow == "auto"
+    assert view._table_scroll.layout.width == "100%"
+    assert view._table_scroll.tabbable is True
+    assert view._table_scroll.tooltip == "Candidate evaluation table"
+    assert view._table_scroll.children == (view._table,)
+
+    view.close()
