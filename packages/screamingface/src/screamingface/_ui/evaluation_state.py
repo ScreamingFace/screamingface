@@ -71,7 +71,7 @@ class _CandidateProgress:
                 case.grade is not None and case.grade.score is not None
                 for case in self.result.cases
             )
-            qualifier = f"{graded}/{len(self.result.cases)} graded"
+            qualifier = f"{graded} / {len(self.result.cases)} graded"
         elif self.result.failures:
             qualifier = "Warnings"
         else:

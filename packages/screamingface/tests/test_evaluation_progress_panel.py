@@ -10,11 +10,20 @@ from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.evaluation_view import (
     _compact,
     _duration,
+    _evaluation_fragments,
     _money,
-    evaluation_panel_html,
 )
 
 _START = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
+
+
+def _runtime_fragments_html(
+    state: _EvaluationProgress,
+    benchmark: str | None = None,
+    elapsed: float | None = None,
+    check_disclosure: str | None = None,
+) -> str:
+    return "".join(_evaluation_fragments(state, benchmark, elapsed, check_disclosure))
 
 
 def candidate(name: str = "opus", model: str = "provider/opus") -> Candidate:
@@ -151,7 +160,7 @@ def test_panel_collapses_live_receipt_before_evidence_exists() -> None:
     opus = candidate()
     state = progress(opus)
 
-    initial = evaluation_panel_html(state)
+    initial = _runtime_fragments_html(state)
     assert "<div class='sf-eval__receipt'" not in initial
     assert ".sf-eval__table-wrap{margin-top:12px" in initial
 
@@ -169,7 +178,7 @@ def test_panel_collapses_live_receipt_before_evidence_exists() -> None:
         ),
     )
 
-    html = evaluation_panel_html(state)
+    html = _runtime_fragments_html(state)
     assert "<div class='sf-eval__receipt'>" in html
     assert "<div class='sf-eval__receipt' aria-hidden='true'>" not in html
     assert "cost $0.25 · 2 model calls · 2.0k in / 500 out" in html
@@ -198,10 +207,10 @@ def test_fully_cached_receipt_tells_the_success_story_without_zero_telemetry() -
             usage=sf.Usage(input_tokens=0, output_tokens=0, cost_usd=Decimal("0")),
         ),
     )
-    assert "fully cached" not in evaluation_panel_html(state)
+    assert "fully cached" not in _runtime_fragments_html(state)
     reconcile_complete(state, opus)
 
-    html = evaluation_panel_html(state)
+    html = _runtime_fragments_html(state)
     receipt = html.split("<div class='sf-eval__receipt'>", 1)[1].split("</div>", 1)[0]
 
     assert "2 model calls · " in receipt
@@ -224,7 +233,7 @@ def test_fully_cached_receipt_requires_cache_evidence_for_every_model_call() -> 
     )
     state.observe(opus, model_span(2, input_tokens=0, output_tokens=0))
 
-    html = evaluation_panel_html(state)
+    html = _runtime_fragments_html(state)
     receipt = html.split("<div class='sf-eval__receipt'>", 1)[1].split("</div>", 1)[0]
 
     assert "fully cached" not in receipt
@@ -332,7 +341,7 @@ def test_panel_escapes_candidate_identity_and_global_errors() -> None:
     state = progress(selected)
     state.abort(RuntimeError("bad <payload>"))
 
-    html = evaluation_panel_html(state, "DRACO <private>")
+    html = _runtime_fragments_html(state, "DRACO <private>")
 
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
@@ -345,7 +354,7 @@ def test_panel_omits_aggregate_cache_band_even_when_evidence_exists() -> None:
     opus = candidate()
     state = progress(opus)
     state.observe(opus, model_span(1, cache_status="bypass", cache_reason="opted_out"))
-    html = evaluation_panel_html(state)
+    html = _runtime_fragments_html(state)
 
     assert "<div class='sf-eval__cache'>" not in html
     assert "no cache activity reported" not in html
@@ -356,7 +365,7 @@ def test_panel_omits_aggregate_cache_band_even_when_evidence_exists() -> None:
 
 
 def test_panel_omits_run_activity_section() -> None:
-    html = evaluation_panel_html(progress())
+    html = _runtime_fragments_html(progress())
 
     assert "<details" not in html
     assert "Run activity" not in html
