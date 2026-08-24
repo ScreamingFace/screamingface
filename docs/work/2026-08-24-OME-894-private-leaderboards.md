@@ -48,6 +48,16 @@ Full table in the spec (§2), verified against `origin/main` at `0b6a970c`. The 
 Per `docs/plan/2026-08-24-OME-894-private-leaderboards.md`: regression guard → schema+migration →
 optional read identity → store owner scoping → four read paths → staff operator module → close-out.
 
+## Running deviations
+
+1. **The read-identity dependency was split across two files, not the one the plan named.** The
+   plan said `core/auth/read_identity.py`. The trust decision landed as a pure
+   `optional_identity()` in `core/auth/cloudflare_identity.py` — free of FastAPI and of Settings,
+   so it is testable without constructing a request — and only the adapter that lifts the four
+   inputs off the request lives in `routes/dependencies.py`. Putting a `Request` import into
+   `core/auth` would have coupled the port to the framework, which the existing module
+   deliberately avoids by taking `Mapping[str, str]`.
+
 ## Test plan
 
 The regression guard is written **first**, before any privacy behaviour exists, because the main

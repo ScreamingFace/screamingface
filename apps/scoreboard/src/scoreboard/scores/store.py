@@ -243,7 +243,10 @@ class SubmitOutcome(NamedTuple):
 
 
 def _build_leaderboard_query(
-    benchmark_id: str, top_n: int, registered_revision: str | None
+    benchmark_id: str,
+    top_n: int,
+    registered_revision: str | None,
+    owner: str | None = None,
 ) -> QueryBuilder:
     scores = Score.get_table()
     # INVARIANT: every entry the board ranks was measured against the revision the benchmark is
@@ -284,7 +287,18 @@ def _build_leaderboard_query(
         )
         .where(scores.benchmark_id == benchmark_id)
     )
-    if registered_revision is not None:
+    if owner is not None:
+        # FEATURE: OME-894 — a private board shows the caller their own submissions and nobody
+        # else's. Scoped in the QUERY: a post-filter would read every participant's row into
+        # memory to serve one person, and would collide with `top_n` below by counting rows it
+        # then discarded.
+        ranked = ranked.where(scores.submitted_by == owner)
+    if registered_revision is not None and owner is None:
+        # INVARIANT (OME-894 D8): the revision filter above exists to stop incomparable numbers
+        # being RANKED against each other. An owner-scoped read presents no ranking — a private
+        # board suppresses rank entirely — so the filter has no purpose there, and applying it
+        # would hide a participant's own submission with no explanation. That silent
+        # disappearance is the failure that stranded a real DRACO run on 2026-08-19 (OME-909).
         ranked = ranked.where(scores.benchmark_revision == registered_revision)
     ranked = ranked.as_("ranked")
 
@@ -460,14 +474,19 @@ class ScoreStore:
     async def cleanup_expired_idempotency_keys(self, now: datetime) -> int:
         return await IdempotencyKey.filter(expires_at__lte=now).delete()
 
-    async def leaderboard(self, benchmark_id: str, top_n: int = 50) -> list[LeaderboardEntry]:
+    async def leaderboard(
+        self, benchmark_id: str, top_n: int = 50, owner: str | None = None
+    ) -> list[LeaderboardEntry]:
         conn = Tortoise.get_connection("default")
         # The board is defined by the revision its benchmark is registered at; entries measured
         # against anything else are not comparable to it and do not rank (OME-775).
         benchmark = await Benchmark.get_or_none(id=benchmark_id)
         result = await execute_pypika(
             _build_leaderboard_query(
-                benchmark_id, top_n, benchmark.revision if benchmark else None
+                benchmark_id,
+                top_n,
+                benchmark.revision if benchmark else None,
+                owner,
             ),
             using_db=conn,
         )
@@ -480,21 +499,29 @@ class ScoreStore:
         benchmark_id: str,
         spec_id: str,
         limit: int = 50,
+        owner: str | None = None,
     ) -> list[ScoreSchema]:
-        rows = (
-            await Score.filter(benchmark_id=benchmark_id, spec_id=spec_id)
-            .order_by("-submitted_at")
-            .limit(limit)
-        )
+        # OME-894: `owner` scopes the history to one participant on a private board. Applied as
+        # a queryset filter, so the limit counts only rows the caller may see.
+        query = Score.filter(benchmark_id=benchmark_id, spec_id=spec_id)
+        if owner is not None:
+            query = query.filter(submitted_by=owner)
+        rows = await query.order_by("-submitted_at").limit(limit)
         return [_score_to_schema(score) for score in rows]
 
-    async def list_all_for_benchmark(self, benchmark_id: str) -> list[ScoreSchema]:
+    async def list_all_for_benchmark(
+        self, benchmark_id: str, owner: str | None = None
+    ) -> list[ScoreSchema]:
         """Every Score row for a benchmark, chronologically — unlike `leaderboard()`
         (best-per-spec only), this is what OME-323's frontier trend needs: the full
         submission history across all specs, deliberately benchmark-wide (spec §6's
         frontier-scope resolution).
         """
-        rows = await Score.filter(benchmark_id=benchmark_id).order_by("submitted_at")
+        query = Score.filter(benchmark_id=benchmark_id)
+        if owner is not None:
+            # OME-894: scoped so no aggregate over other participants can be derived from it.
+            query = query.filter(submitted_by=owner)
+        rows = await query.order_by("submitted_at")
         return [_score_to_schema(score) for score in rows]
 
     async def mark_verified(self, score_id: UUID | str) -> None:

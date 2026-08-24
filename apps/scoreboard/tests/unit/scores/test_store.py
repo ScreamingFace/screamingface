@@ -1086,3 +1086,120 @@ async def test_register_benchmark_can_flip_visibility_back(tortoise_db: None) ->
 
     assert reregistered.visibility == "public"
     assert await Benchmark.all().count() == 1
+
+
+# --- OME-894: owner-scoped reads -------------------------------------------------------------
+# Scoping lives in the QUERY, not in a post-filter over rows already fetched: a post-filter would
+# read every participant's row into memory to serve one person, and would interact silently with
+# top_n (ten rows fetched, one kept, nine of someone else's discarded after the fact).
+
+ALICE = "alice@example.test"
+BOB = "bob@example.test"
+
+
+def _owned_submission(
+    *,
+    submitted_by: str,
+    spec_id: str,
+    score: float = 0.75,
+    benchmark_revision: str | None = None,
+) -> ScoreSubmission:
+    return ScoreSubmission(
+        benchmark_id="hle",
+        spec_id=spec_id,
+        url4_expression=f"url4://benchmark/{spec_id}/{submitted_by}/{score}",
+        submitted_by=submitted_by,
+        score=score,
+        total_questions=100,
+        correct_questions=int(score * 100),
+        ran_with_providers=["openai"],
+        benchmark_revision=benchmark_revision,
+    )
+
+
+async def _two_participant_board() -> ScoreStore:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", revision="rev-current")
+    await store.submit(
+        _owned_submission(
+            submitted_by=ALICE,
+            spec_id="spec-alice",
+            score=0.60,
+            benchmark_revision="rev-current",
+        )
+    )
+    await store.submit(
+        _owned_submission(
+            submitted_by=BOB,
+            spec_id="spec-bob",
+            score=0.90,
+            benchmark_revision="rev-current",
+        )
+    )
+    return store
+
+
+async def test_leaderboard_scoped_to_an_owner_returns_only_their_rows(
+    tortoise_db: None,
+) -> None:
+    store = await _two_participant_board()
+
+    rows = await store.leaderboard("hle", owner=ALICE)
+
+    assert [row.spec_id for row in rows] == ["spec-alice"]
+
+
+async def test_leaderboard_without_an_owner_is_unchanged(tortoise_db: None) -> None:
+    # The public path must not shift because the owner-scoping parameter exists.
+    store = await _two_participant_board()
+
+    rows = await store.leaderboard("hle")
+
+    assert [row.spec_id for row in rows] == ["spec-bob", "spec-alice"]
+
+
+async def test_an_owner_sees_their_row_measured_against_another_revision(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT (OME-894 D8): a private board suppresses rank, so the registered-revision filter
+    # has no purpose there — it exists to stop incomparable numbers being RANKED against each
+    # other. Keeping it would hide a participant's own submission with no explanation, which is
+    # the invisible-submission failure that stranded a real DRACO run on 2026-08-19.
+    store = await _two_participant_board()
+    await store.submit(
+        _owned_submission(
+            submitted_by=ALICE,
+            spec_id="spec-alice-old",
+            score=0.55,
+            benchmark_revision="rev-obsolete",
+        )
+    )
+
+    scoped = await store.leaderboard("hle", owner=ALICE)
+    public = await store.leaderboard("hle")
+
+    assert sorted(row.spec_id for row in scoped) == ["spec-alice", "spec-alice-old"]
+    # The public board still refuses the obsolete revision — D8 changes the scoped read only.
+    assert "spec-alice-old" not in {row.spec_id for row in public}
+
+
+async def test_list_for_spec_scoped_to_an_owner_hides_another_participants_rows(
+    tortoise_db: None,
+) -> None:
+    store = await _two_participant_board()
+
+    mine = await store.list_for_spec("hle", "spec-alice", owner=ALICE)
+    theirs = await store.list_for_spec("hle", "spec-bob", owner=ALICE)
+
+    assert [row.spec_id for row in mine] == ["spec-alice"]
+    assert theirs == []
+
+
+async def test_list_all_for_benchmark_scoped_to_an_owner_returns_only_their_rows(
+    tortoise_db: None,
+) -> None:
+    store = await _two_participant_board()
+
+    rows = await store.list_all_for_benchmark("hle", owner=ALICE)
+
+    assert [row.submitted_by for row in rows] == [ALICE]
