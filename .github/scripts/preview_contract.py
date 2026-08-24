@@ -30,6 +30,18 @@ DEPLOYMENT_NAMES = {
     "scoreboard": "leaderboard",
     "engine": "url4-cloud",
 }
+POD_LABEL_NAMES = {
+    "aigateway": "aigateway",
+    "aigatewayUi": "aigateway-ui",
+    "scoreboard": "scoreboard",
+    "engine": "url4-cloud",
+}
+COMPONENT_TITLES = {
+    "aigateway": "AI Gateway",
+    "aigatewayUi": "AI Gateway UI",
+    "scoreboard": "Scoreboard",
+    "engine": "Engine",
+}
 COMPONENT_LABELS = {
     name: f"preview-component-{LABEL_SLUG[name]}" for name in COMPONENTS
 }
@@ -190,11 +202,42 @@ def preview_comment(
     namespace = f"sf-preview-pr-{number}"
     component_text = ", ".join(components) or "none"
     image_text = ", ".join(images) or "none"
-    log_commands = [
-        f"kubectl logs deployment/{DEPLOYMENT_NAMES[component]} "
-        "--all-containers --tail=200"
-        for component in components
+    debug_commands = [
+        "# Show pod status, restarts, IP addresses, and nodes.",
+        f"kubectl --namespace {namespace} get pods -o wide",
+        "",
+        "# Show recent warning events.",
+        (
+            f"kubectl --namespace {namespace} get events "
+            "--field-selector type=Warning --sort-by=.metadata.creationTimestamp"
+        ),
     ]
+    for component in components:
+        title = COMPONENT_TITLES[component]
+        deployment = DEPLOYMENT_NAMES[component]
+        pod_label = POD_LABEL_NAMES[component]
+        debug_commands.extend(
+            [
+                "",
+                f"# Describe the {title} pods.",
+                (
+                    f"kubectl --namespace {namespace} describe pods "
+                    f"--selector app.kubernetes.io/name={pod_label}"
+                ),
+                "",
+                f"# Show the latest {title} logs.",
+                (
+                    f"kubectl --namespace {namespace} logs deployment/{deployment} "
+                    "--all-containers --tail=200"
+                ),
+                "",
+                f"# Follow {title} logs. Press Ctrl+C to stop.",
+                (
+                    f"kubectl --namespace {namespace} logs --follow "
+                    f"deployment/{deployment} --all-containers --tail=50"
+                ),
+            ]
+        )
     lines = [
         COMMENT_MARKER,
         f"## Preview: {display_status}",
@@ -243,18 +286,35 @@ def preview_comment(
                     ".github/scripts/preview_access.sh?ref=main' "
                     f'| bash -s -- {number})"'
                 ),
-                "kubectl get pods",
-                *log_commands,
                 "```",
                 "",
                 f"This kubeconfig only accesses namespace {namespace}.",
                 "Commands with --all-namespaces or -A are blocked.",
                 "",
+                "### Reconnect from a new terminal",
+                "",
+                "The kubeconfig remains on this machine. Its token lasts one hour.",
+                "Run the Kubernetes access command again after the token expires.",
+                "",
+                "```bash",
+                f"export KUBECONFIG=/tmp/sf-preview-pr-{number}.kubeconfig",
+                f"kubectl --namespace {namespace} get pods",
+                "```",
+                "",
+                "### Quick debug",
+                "",
+                "Pod suffixes change after restarts.",
+                "These commands use the pull-request namespace, stable labels, and stable deployment names.",
+                "",
+                "```bash",
+                *debug_commands,
+                "```",
+                "",
                 "### Observability",
                 "",
-                f"[Open SigNoz logs](https://signoz.pulse.dev.openmined.org/logs-explorer?query=k8s_namespace_name%3D%22{namespace}%22)",
+                f"[Open SigNoz logs](https://signoz.pulse.dev.openmined.org/logs-explorer?query=k8s.namespace.name%3D%22{namespace}%22)",
                 "",
-                f'Filter: `k8s_namespace_name="{namespace}"`',
+                f'Filter: `k8s.namespace.name="{namespace}"`',
             ]
         )
     return "\n".join(lines) + "\n"

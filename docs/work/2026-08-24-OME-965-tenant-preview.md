@@ -57,3 +57,5 @@ the pull-request author exact access and observability instructions.
 - **Access follow-up:** Replace the error-prone token sequence with a trusted-main helper.
   The helper handles Cloudflare login, GitHub identity, safe download, and kubeconfig validation.
 - **Output follow-up:** Show exact deployment log commands and explain the pull-request namespace limit.
+- **Debug follow-up:** Add reconnect, pod status, warning event, describe, recent log, and live log commands.
+  Use `k8s.namespace.name` for the SigNoz namespace filter.

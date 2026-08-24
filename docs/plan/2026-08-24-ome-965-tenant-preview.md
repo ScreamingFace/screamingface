@@ -13,6 +13,7 @@
 9. Open and merge the tenant automation pull request after review and green checks.
 10. Open an Engine-only fixture pull request and run the live Preview qualification.
 11. Replace the manual access-token sequence with one trusted access helper.
+12. Add copy-ready debug commands and the correct SigNoz namespace field.
 
 ## Files
 

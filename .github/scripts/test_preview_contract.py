@@ -155,25 +155,40 @@ def test_active_comment_contains_access_and_observability_contract() -> None:
     assert "bash -s -- 123" in comment
     assert "cloudflared access token" not in comment
     assert "CF_ACCESS_TOKEN" not in comment
-    assert "kubectl logs deployment/url4-cloud --all-containers --tail=200" in comment
+    assert (
+        "kubectl --namespace sf-preview-pr-123 logs deployment/url4-cloud "
+        "--all-containers --tail=200" in comment
+    )
+    assert (
+        "kubectl --namespace sf-preview-pr-123 logs --follow "
+        "deployment/url4-cloud --all-containers --tail=50" in comment
+    )
+    assert (
+        "kubectl --namespace sf-preview-pr-123 describe pods "
+        "--selector app.kubernetes.io/name=url4-cloud" in comment
+    )
+    assert "kubectl --namespace sf-preview-pr-123 get pods -o wide" in comment
+    assert "export KUBECONFIG=/tmp/sf-preview-pr-123.kubeconfig" in comment
+    assert "Its token lasts one hour." in comment
     assert "DEPLOYMENT_NAME" not in comment
     assert "This kubeconfig only accesses namespace sf-preview-pr-123." in comment
     assert "Commands with --all-namespaces or -A are blocked." in comment
     assert "signoz.pulse.dev.openmined.org/logs-explorer" in comment
-    assert 'k8s_namespace_name="sf-preview-pr-123"' in comment
+    assert 'k8s.namespace.name="sf-preview-pr-123"' in comment
+    assert "k8s_namespace_name" not in comment
 
 
 @pytest.mark.parametrize(
-    ("component", "deployment"),
+    ("component", "deployment", "pod_label"),
     [
-        ("aigateway", "aigw"),
-        ("aigatewayUi", "aigw-ui"),
-        ("scoreboard", "leaderboard"),
-        ("engine", "url4-cloud"),
+        ("aigateway", "aigw", "aigateway"),
+        ("aigatewayUi", "aigw-ui", "aigateway-ui"),
+        ("scoreboard", "leaderboard", "scoreboard"),
+        ("engine", "url4-cloud", "url4-cloud"),
     ],
 )
 def test_active_comment_uses_the_selected_deployment(
-    component: str, deployment: str
+    component: str, deployment: str, pod_label: str
 ) -> None:
     contract = load_contract()
 
@@ -185,7 +200,11 @@ def test_active_comment_uses_the_selected_deployment(
         images=(component,),
     )
 
-    assert f"kubectl logs deployment/{deployment} " in comment
+    assert (
+        f"kubectl --namespace sf-preview-pr-123 logs deployment/{deployment} "
+        in comment
+    )
+    assert f"--selector app.kubernetes.io/name={pod_label}" in comment
 
 
 def test_workflows_keep_oidc_away_from_forks_and_serialize_admission() -> None:
