@@ -63,7 +63,7 @@ _STYLE = (
   font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:11.5px;color:var(--sf-ink-2);font-variant-numeric:tabular-nums}
 .sf-eval__receipt-success{color:var(--sf-success);font-weight:500}
-.sf-eval__num{text-align:right}
+.sf-eval__table .sf-eval__num{text-align:right}
 .sf-eval__err{margin-top:10px;padding:8px 10px;border-left:2px solid var(--sf-blind);
   background:var(--sf-blind-bg);color:var(--sf-blind);font-family:"IBM Plex Mono",ui-monospace,
   monospace;font-size:12px;white-space:pre-wrap}

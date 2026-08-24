@@ -678,6 +678,14 @@ def test_numeric_candidate_columns_are_right_aligned() -> None:
     assert row.count("sf-eval__num") == 4
 
 
+def test_numeric_alignment_rule_beats_the_base_table_cell_rule() -> None:
+    progress = _EvaluationProgress(candidates=(candidate("opus"),), case_count=1)
+
+    html = _runtime_fragments_html(progress, "DRACO")
+
+    assert ".sf-eval__table .sf-eval__num{text-align:right}" in html
+
+
 def test_notebook_surface_uses_current_sfds_v2_tokens() -> None:
     assert "--sf-bg:#fcfdff" in STYLE
     assert "--sf-surface:#f4f6f9" in STYLE
