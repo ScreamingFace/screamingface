@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.gdpval.ingestion import (
     IngestionError,
     Reader,
@@ -45,7 +46,10 @@ from screamingface_engine.benchmarks.gdpval.ingestion import (
 )
 from screamingface_engine.benchmarks.gdpval.pins import DATASET, DATASET_REVISION
 from screamingface_engine.benchmarks.gdpval.rubric_filter import strip_format_criteria
-from screamingface_engine.benchmarks.gdpval.subset import TEXT_SUBSET_TASK_IDS
+from screamingface_engine.benchmarks.gdpval.subset import (
+    EXCLUDED_TASK_IDS,
+    TEXT_SUBSET_TASK_IDS,
+)
 
 # WHY a stable delimiter: the reference block is part of the Case input and therefore part of the
 # answer key. Its exact bytes must not drift between builds.
@@ -61,8 +65,14 @@ _FETCH_ATTEMPTS = 4
 _FETCH_BACKOFF_S = 2.0
 
 
-class PrepareError(RuntimeError):
-    """The build refuses to bake these assets. Always says which task and why."""
+class PrepareError(BenchmarkAssetPreparationError):
+    """The build refuses to bake these assets. Always says which task and why.
+
+    WHY this base: OME-925 made asset preparation auditable, and
+    `BenchmarkAssetPreparationError` is the orchestrator's exit-1 channel for dataset and
+    answer-key drift — reported to an operator without a traceback. Frozen-id drift and an
+    unreadable reference are exactly that, not programming defects.
+    """
 
 
 def select_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -266,12 +276,21 @@ def _fetch(task_id: str, file_name: str, urls: Mapping[str, str], cache: Path) -
     ) from last
 
 
-def prepare(out: Path, *, assets_root: Path | None = None) -> int:
-    """Bake the GDPval text-subset assets into ``out``."""
+def prepare(out: Path, *, assets_root: Path | None = None) -> dict[str, Any]:
+    """Bake the GDPval text-subset assets into ``out``, returning its audit summary."""
 
     rows = load_rows()
     cache = assets_root or (out / "_references")
-    return emit(rows, out, reader=_build_reader(cache, reference_urls(rows)))
+    cases = emit(rows, out, reader=_build_reader(cache, reference_urls(rows)))
+    return {
+        "cases": cases,
+        # WHY the exclusions ride the summary: they are a scoring-relevant choice, not an
+        # implementation detail. An audit record that showed 102 cases without saying which 7
+        # tasks were dropped, and why, would hide the decision it exists to document.
+        "excluded_tasks": len(EXCLUDED_TASK_IDS),
+        "dataset_revision": DATASET_REVISION,
+        "out": str(out),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -280,11 +299,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--references", type=Path, default=None)
     args = parser.parse_args(argv)
     try:
-        count = prepare(args.out, assets_root=args.references)
+        summary = prepare(args.out, assets_root=args.references)
     except (PrepareError, IngestionError) as exc:
         print(f"gdpval prepare failed: {exc}", file=sys.stderr)
         return 1
-    print(f"gdpval: baked {count} cases into {args.out}")
+    print(
+        f"gdpval: baked {summary['cases']} cases into {args.out} "
+        f"({summary['excluded_tasks']} tasks excluded for unusable references)"
+    )
     return 0
 
 

@@ -320,6 +320,37 @@ Folded into this ticket by owner decision, so OME-971 spans `url4-cloud` and
 - **`_benchmark_fingerprint` needed no change:** it reads `DATASET_REVISION` off the `prepare`
   module, and GDPval's is imported into that namespace from `pins.py`.
 
+### Task 9 — first live grading run, and the rebase onto main (DONE)
+
+**The judge was answering correctly; the parser was wrong.** The first real grading run failed
+every Case at rubric 1 with `invalid judge reply`. One direct judge call showed why: the pinned
+model wraps its JSON in a ```json fence. `_decode_object` did a bare `json.loads` and rejected
+it, retries redrew the same shape, and the Case failed. DRACO pins the SAME model and already
+strips fences for exactly this reason — I mirrored HealthBench's parser while pinning DRACO's
+judge and inherited the mismatch. Fixed with DRACO's approach plus a first-JSON-object fallback
+for replies preceded by prose. A test pins that recovery does NOT relax the boolean rule: a
+fenced `"criteria_met": "true"` is still invalid.
+
+**Rebased onto origin/main (5 commits ahead).** Two textual conflicts, one semantic:
+
+- **OME-925 changed the preparer contract.** `BenchmarkAssetPreparer` went from
+  `Callable[[Path], None]` to returning a `BenchmarkAssetSummary`, and preparers now subclass
+  `BenchmarkAssetPreparationError` — the orchestrator's exit-1 channel for dataset drift,
+  reported without a traceback. `gdpval/prepare.py` adapted: `prepare` returns
+  `{cases, excluded_tasks, dataset_revision, out}` and `PrepareError` takes the new base. The
+  exclusions ride the summary deliberately — an audit record showing 102 cases without saying
+  seven were dropped would hide the decision it exists to document.
+  A textual merge would have applied CLEANLY and left the contract broken at runtime.
+- `builtins.py` and `test_benchmark_deployment.py` conflicted textually and were resolved to
+  main's shape.
+- A new guard, `test_the_family_guard_covers_every_family_preparer_package`, pins the literal
+  set of family packages (it is computed from disk, so `gdpval/prepare.py` grew it). Extended
+  to include `gdpval` — the fourth exhaustive enumeration this unit has had to grow, all
+  extended and none relaxed.
+
+**Verified after rebase:** both stacks green, and the preparer runs end to end against the new
+contract — `gdpval: baked 102 cases … (7 tasks excluded for unusable references)`.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>

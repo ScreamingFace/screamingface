@@ -197,3 +197,20 @@ def test_a_cached_reference_is_not_downloaded_again(tmp_path) -> None:
     cached.write_bytes(b"already here")
     _fetch("task-42", "ref.pdf", {}, tmp_path)  # no URL available: only a cache hit can pass
     assert cached.read_bytes() == b"already here"
+
+
+def test_prepare_returns_an_audit_summary(tmp_path, monkeypatch) -> None:
+    # INVARIANT (OME-925): a preparer returns an operator-readable summary, not None. The
+    # deployment orchestrator records it per bundle so a later bundle's refusal cannot erase
+    # the evidence for the ones that already landed.
+    from screamingface_engine.benchmarks.gdpval import prepare as module
+
+    monkeypatch.setattr(module, "load_rows", _all_rows)
+    monkeypatch.setattr(module, "_build_reader", lambda _cache, _urls: _reader)
+    summary = module.prepare(tmp_path)
+
+    assert summary["cases"] == len(TEXT_SUBSET_TASK_IDS)
+    # WHY the exclusions belong in the record: dropping 7 tasks is a scoring-relevant choice.
+    # A summary showing 102 cases without saying any were dropped would hide that decision.
+    assert summary["excluded_tasks"] == 7
+    assert summary["dataset_revision"]

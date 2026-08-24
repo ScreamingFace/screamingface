@@ -303,7 +303,7 @@ def test_the_family_guard_does_not_flag_the_orchestrator_itself() -> None:
 def test_the_family_guard_covers_every_family_preparer_package() -> None:
     """WHY: a guard derived from a mistyped path would match nothing and pass in silence."""
 
-    assert set(FAMILY_PACKAGES) == {"draco", "healthbench", "ifeval"}
+    assert set(FAMILY_PACKAGES) == {"draco", "gdpval", "healthbench", "ifeval"}
     for family in FAMILY_PACKAGES:
         assert _FAMILY_PREPARER.search(f"-m screamingface_engine.benchmarks.{family}.prepare")
 
