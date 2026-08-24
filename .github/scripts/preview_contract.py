@@ -219,22 +219,21 @@ def preview_comment(
                 "",
                 "### Kubernetes access",
                 "",
+                f"Kubeconfig endpoint: https://kube-pr-{number}.preview.dev.screamingface.ai/kubeconfig",
+                "",
+                "This command opens Cloudflare login and prepares `kubectl`.",
+                "It uses a helper from trusted `main`, not from pull-request code.",
+                "",
                 "```bash",
-                f'PREVIEW_KUBECONFIG="/tmp/sf-preview-pr-{number}.kubeconfig"',
-                f'PREVIEW_KUBECONFIG_URL="https://kube-pr-{number}.preview.dev.screamingface.ai/kubeconfig"',
-                'CF_ACCESS_TOKEN="$(cloudflared access token -app="$PREVIEW_KUBECONFIG_URL")"',
-                'GITHUB_TOKEN="$(gh auth token)"',
-                "{",
-                '  printf \'header = "cf-access-token: %s"\\n\' "$CF_ACCESS_TOKEN"',
-                '  printf \'header = "X-Preview-Access-Token: %s"\\n\' "$CF_ACCESS_TOKEN"',
-                '  printf \'header = "X-GitHub-Token: %s"\\n\' "$GITHUB_TOKEN"',
-                '  printf \'url = "%s"\\n\' "$PREVIEW_KUBECONFIG_URL"',
-                '} | curl --fail --silent --show-error --config - > "$PREVIEW_KUBECONFIG"',
-                "unset CF_ACCESS_TOKEN GITHUB_TOKEN",
-                'chmod 600 "$PREVIEW_KUBECONFIG"',
-                'export KUBECONFIG="$PREVIEW_KUBECONFIG"',
+                (
+                    'export KUBECONFIG="$(gh api -H '
+                    "'Accept: application/vnd.github.raw' "
+                    "'repos/ScreamingFace/screamingface/contents/"
+                    ".github/scripts/preview_access.sh?ref=main' "
+                    f'| bash -s -- {number})"'
+                ),
                 "kubectl get pods",
-                "kubectl logs POD_NAME --all-containers --tail=200",
+                "kubectl logs deployment/DEPLOYMENT_NAME --all-containers --tail=200",
                 "```",
                 "",
                 "### Observability",

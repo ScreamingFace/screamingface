@@ -12,10 +12,12 @@
 8. Run local contract, repository, and workflow validation.
 9. Open and merge the tenant automation pull request after review and green checks.
 10. Open an Engine-only fixture pull request and run the live Preview qualification.
+11. Replace the manual access-token sequence with one trusted access helper.
 
 ## Files
 
 - `.github/scripts/preview_contract.py`
+- `.github/scripts/preview_access.sh`
 - `.github/scripts/test_preview_contract.py`
 - `.github/workflows/preview-images.yml`
 - `.github/workflows/preview-admission.yml`
@@ -30,4 +32,3 @@
 - Workflow contract tests reject `pull_request_target`, fork OIDC, missing exact tags, and missing labels.
 - The sample Engine pull request proves image publication, Argo deployment, Runner Jobs, access,
   observability, and deletion.
-

@@ -36,7 +36,10 @@ their pull-request images, and enters the bounded Preview queue after exact-revi
 ## Developer contract
 
 The maintained pull-request comment shows status, exact revision, selected images, application
-URLs, Kubernetes access commands, and namespace-filtered SigNoz links.
+URLs, one trusted Kubernetes access helper command, and namespace-filtered SigNoz links.
+
+The helper performs Cloudflare login, GitHub author verification, safe download, and kubeconfig
+validation. It comes from trusted `main`, never from pull-request code.
 
 ## Security
 
@@ -44,4 +47,3 @@ URLs, Kubernetes access commands, and namespace-filtered SigNoz links.
 - Azure OIDC runs only when the pull-request head repository equals the base repository.
 - The Preview identity can push only to the disposable Preview registry.
 - The admission workflow runs trusted default-branch code and never checks out pull-request code.
-
