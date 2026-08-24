@@ -351,6 +351,28 @@ fenced `"criteria_met": "true"` is still invalid.
 **Verified after rebase:** both stacks green, and the preparer runs end to end against the new
 contract — `gdpval: baked 102 cases … (7 tasks excluded for unusable references)`.
 
+### Task 10 — CI: the benchmark image build (DONE)
+
+`Dockerfile.benchmark` runs `benchmarks.prepare --root /opt/benchmarks` in a throwaway build
+stage that installed only `datasets==5.0.0`, so the GDPval preparer died on
+`ModuleNotFoundError: pdfplumber`. Added `pdfplumber==0.11.10` and `python-docx==1.2.0` with
+exact pins, matching `packages/screamingface`'s runtime extra.
+
+That file's own comment already stated the reason pins matter here — "Changing either may
+change the benchmark bytes baked into an image" — which is exactly the concern these two
+parsers carry: they produce the reference text baked into the answer key.
+
+**Consequence to watch:** the benchmark image build now also downloads GDPval's 85 reference
+files from HuggingFace. Image builds get slower and gain 85 network fetches that can flake; the
+preparer's four-attempt retry with backoff is what stands between that and a red build. If image
+build time becomes a problem, the fix is caching the references as a build layer, not dropping
+the retry.
+
+**Caught only by CI.** Every local path — `uv run`, the SDK CLI, the direct module invocation —
+had the parsers available one way or another. The image build is the one environment that
+installs its preparer dependencies explicitly, so it was the only place the omission could
+surface.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>
