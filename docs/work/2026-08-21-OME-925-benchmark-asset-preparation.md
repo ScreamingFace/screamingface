@@ -239,3 +239,14 @@ two guards from passing green on the shapes they exist to catch.
   edited lines are the guard's own regex and three `REPOSITORY_ROOT` reads — all added by this
   branch's earlier passes, not inherited from `origin/main`. Nothing was weakened: both guards
   now match strictly more, and no assertion was relaxed.
+
+### Fourth-pass correction
+
+A first cut of this pass also reported `rubric_files` from a `rubrics/*.json` glob. Dropped before
+merge: `emit` writes one rubric per Case and never clears the directory, so that count equals
+`professional_cases` on a fresh bake and is inflated by leftovers on a re-prepare into an existing
+assets dir (`just stack-prepare`, `screamingface prepare --force`) — redundant when accurate,
+misleading when not, i.e. the same "cannot vary usefully" defect this pass set out to remove.
+`emit` was deliberately left alone rather than made to clear the directory: that changes what the
+bake DOES to fix a reporting problem that disappears with the field. The synthetic HealthBench
+summary in the CLI test fixture was aligned to the real key names in the same change.

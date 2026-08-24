@@ -113,7 +113,7 @@ def test_builtin_prepare_cli_prints_one_auditable_record_per_bundle(
 ) -> None:
     summaries = {
         "draco": {"cases": 100},
-        "healthbench": {"professional_cases": 525, "worst30_cases": 157},
+        "healthbench": {"professional_cases": 525, "declared_worst30_cases": 157},
         "ifeval": {"cases": 541, "patched_keys": [146, 179]},
     }
 

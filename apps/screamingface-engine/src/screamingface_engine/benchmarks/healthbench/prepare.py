@@ -233,10 +233,13 @@ def _prepare(out: Path) -> dict[str, Any]:
     # count but PROFESSIONAL_CASE_COUNT, so echoing its inputs would restate a constant the
     # build enforced rather than report this bake — a record that can never differ is not
     # evidence. Reading the written bundle back is the only observation available here.
+    # WHY not also count `rubrics/`: `emit` writes one rubric per Case and never clears the
+    # directory, so that count equals this one on a fresh bake and is inflated by leftovers on a
+    # re-prepare — redundant when accurate, misleading when not. `cases.json` is rewritten whole,
+    # so reading it back is both a count of THIS bake and proof the file landed intact.
     cases = json.loads((out / "cases.json").read_text(encoding="utf-8"))
     return {
         "professional_cases": len(cases),
-        "rubric_files": sum(1 for _ in (out / "rubrics").glob("*.json")),
         # The worst-30% board is a serve-time SELECTION over frozen ids (see the module
         # docstring), never its own bake. Named `declared_` so an operator reading the build
         # log cannot mistake a compile-time constant for something this run produced.
