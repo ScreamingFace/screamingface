@@ -63,7 +63,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           git fetch --no-tags origin "$HEAD_SHA"
-          git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" > /tmp/preview-paths
+          git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" > /tmp/preview-paths
       - id: classify
         name: Select affected Preview images
         env:

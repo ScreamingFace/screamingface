@@ -165,6 +165,7 @@ def test_workflows_keep_oidc_away_from_forks_and_serialize_admission() -> None:
     assert "head.repo.full_name == github.repository" in images
     assert "acropenminedpreview.azurecr.io" in images
     assert "preview-building" in images
+    assert '"$BASE_SHA...$HEAD_SHA"' in images
     assert "workflow_run:" in admission
     assert "schedule:" in admission
     assert "screamingface-preview-admission" in admission
