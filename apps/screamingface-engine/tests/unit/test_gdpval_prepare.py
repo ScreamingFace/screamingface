@@ -144,3 +144,56 @@ def test_rubric_ids_are_one_based_positions() -> None:
     # criterion with its point value and silently produce wrong scores.
     row = _row("t", rubric=_rubric((2, _CONTENT), (1, "Second criterion."), (3, "Third.")))
     assert [item["rubric_id"] for item in rubric_items(row, 1)] == [1, 2, 3]
+
+
+# --- reference resolution ---------------------------------------------------------------------
+
+
+def test_reference_urls_maps_every_file_to_its_download_url() -> None:
+    from screamingface_engine.benchmarks.gdpval.prepare import reference_urls
+
+    rows = [
+        {"reference_files": ["a/x.pdf", "b/y.docx"], "reference_file_urls": ["u1", "u2"]},
+        {"reference_files": ["c/z.pdf"], "reference_file_urls": ["u3"]},
+    ]
+    assert reference_urls(rows) == {"a/x.pdf": "u1", "b/y.docx": "u2", "c/z.pdf": "u3"}
+
+
+def test_reference_urls_tolerates_a_row_with_no_references() -> None:
+    # WHY: 66 of the 102 selected tasks carry no reference files at all.
+    from screamingface_engine.benchmarks.gdpval.prepare import reference_urls
+
+    assert reference_urls([{"reference_files": None, "reference_file_urls": None}]) == {}
+
+
+def test_an_unfetchable_reference_names_its_task_and_file(tmp_path) -> None:
+    # INVARIANT: a reference with no URL fails the build identifiably. Silently skipping it would
+    # bake a task whose prompt refers to material the model never received.
+    from screamingface_engine.benchmarks.gdpval.ingestion import IngestionError
+    from screamingface_engine.benchmarks.gdpval.prepare import _build_reader
+
+    read = _build_reader(tmp_path, {})
+    with pytest.raises(IngestionError) as excinfo:
+        read("task-42", "missing/file.pdf")
+    assert "task-42" in str(excinfo.value)
+    assert "missing/file.pdf" in str(excinfo.value)
+
+
+def test_a_reference_format_with_no_reader_fails_the_build(tmp_path) -> None:
+    from screamingface_engine.benchmarks.gdpval.ingestion import IngestionError
+    from screamingface_engine.benchmarks.gdpval.prepare import _build_reader
+
+    read = _build_reader(tmp_path, {"sheet.xlsx": "u"})
+    with pytest.raises(IngestionError, match="no reader"):
+        read("task-42", "sheet.xlsx")
+
+
+def test_a_cached_reference_is_not_downloaded_again(tmp_path) -> None:
+    # WHY: the preparer fetches 85 files; a re-run after a mid-build failure must not re-download
+    # everything. Presence plus non-zero size is the cache hit.
+    from screamingface_engine.benchmarks.gdpval.prepare import _fetch
+
+    cached = tmp_path / "ref.pdf"
+    cached.write_bytes(b"already here")
+    _fetch("task-42", "ref.pdf", {}, tmp_path)  # no URL available: only a cache hit can pass
+    assert cached.read_bytes() == b"already here"

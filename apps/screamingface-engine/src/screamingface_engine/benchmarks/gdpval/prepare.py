@@ -29,6 +29,8 @@ import argparse
 import importlib
 import json
 import sys
+import time
+import urllib.request
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,7 @@ from typing import Any
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.gdpval.ingestion import (
     IngestionError,
+    Reader,
     docx_reader,
     extract_reference_text,
     pdf_reader,
@@ -51,6 +54,11 @@ _REFERENCE_HEADER = "--- Reference file: {name} ---"
 #: ``(task_id, file_name) -> text``. Injected so the policy is testable without the build-time
 #: parsing libraries; ``prepare`` supplies the real one.
 ReferenceReader = Callable[[str, str], str]
+
+#: Per-file download budget. A reference is a working document, not a dataset.
+_FETCH_TIMEOUT_S = 120
+_FETCH_ATTEMPTS = 4
+_FETCH_BACKOFF_S = 2.0
 
 
 class PrepareError(RuntimeError):
@@ -177,28 +185,93 @@ def load_rows() -> list[dict[str, Any]]:
     return rows
 
 
-def _build_reader(root: Path) -> ReferenceReader:
-    """Dispatch a reference to the reader for its extension, applying the viability floor."""
+def reference_urls(rows: list[dict[str, Any]]) -> dict[str, str]:
+    """Map every reference file's dataset path to its download URL.
 
-    readers = {".pdf": pdf_reader(root), ".docx": docx_reader(root), ".doc": docx_reader(root)}
+    WHY a map built from ALL rows rather than a per-row lookup: the reader is constructed once
+    and closes over this, which keeps ``emit`` and ``case_input`` taking the same two-argument
+    reader they are tested against. Dataset paths embed a content hash, so they are unique.
+    """
+
+    urls: dict[str, str] = {}
+    for row in rows:
+        names = row.get("reference_files") or []
+        sources = row.get("reference_file_urls") or []
+        for name, url in zip(names, sources, strict=False):
+            urls[str(name)] = str(url)
+    return urls
+
+
+def _build_reader(cache: Path, urls: Mapping[str, str]) -> ReferenceReader:
+    """Download each reference once, then flatten it with the reader for its extension.
+
+    INVARIANT: build time only. The download happens here so a Runner Job — offline, read-only
+    rootfs — never needs the network or the original binaries.
+
+    AIDEV-NOTE: the concrete readers are built LAZILY, on first use of each extension. 66 of the
+    102 selected tasks carry no reference files at all, and eagerly constructing them would make
+    `pdfplumber` and `python-docx` hard requirements of a build that may never open a PDF — and
+    would make this function untestable without both installed.
+    """
+
+    cache.mkdir(parents=True, exist_ok=True)
+    factories = {".pdf": pdf_reader, ".docx": docx_reader, ".doc": docx_reader}
+    built: dict[str, Reader] = {}
 
     def read(task_id: str, file_name: str) -> str:
         suffix = Path(file_name).suffix.casefold()
-        chosen = readers.get(suffix)
-        if chosen is None:
+        factory = factories.get(suffix)
+        if factory is None:
             raise IngestionError(
                 f"task {task_id}: reference {file_name!r} has no reader for {suffix!r} — the "
                 f"selection should contain only prose formats"
             )
-        return extract_reference_text(task_id, file_name, reader=chosen)
+        _fetch(task_id, file_name, urls, cache)
+        if suffix not in built:
+            built[suffix] = factory(cache)
+        return extract_reference_text(task_id, file_name, reader=built[suffix])
 
     return read
+
+
+def _fetch(task_id: str, file_name: str, urls: Mapping[str, str], cache: Path) -> None:
+    """Download one reference into the cache, unless it is already there."""
+
+    destination = cache / file_name
+    if destination.is_file() and destination.stat().st_size > 0:
+        return
+    url = urls.get(file_name)
+    if not url:
+        raise IngestionError(
+            f"task {task_id}: reference {file_name!r} has no download URL in the dataset"
+        )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # WHY retry: this fetches 85 files in sequence from a public CDN, and a single reset
+    # ("Connection reset by peer") would otherwise abandon a multi-minute build. Bounded, so a
+    # genuinely missing file still fails rather than looping.
+    last: OSError | None = None
+    for attempt in range(_FETCH_ATTEMPTS):
+        try:
+            with urllib.request.urlopen(url, timeout=_FETCH_TIMEOUT_S) as response:
+                destination.write_bytes(response.read())
+        except OSError as exc:
+            last = exc
+            if attempt + 1 < _FETCH_ATTEMPTS:
+                time.sleep(_FETCH_BACKOFF_S * (attempt + 1))
+        else:
+            return
+    raise IngestionError(
+        f"task {task_id}: reference {file_name!r} could not be downloaded after "
+        f"{_FETCH_ATTEMPTS} attempts: {last}"
+    ) from last
 
 
 def prepare(out: Path, *, assets_root: Path | None = None) -> int:
     """Bake the GDPval text-subset assets into ``out``."""
 
-    return emit(load_rows(), out, reader=_build_reader(assets_root or out))
+    rows = load_rows()
+    cache = assets_root or (out / "_references")
+    return emit(rows, out, reader=_build_reader(cache, reference_urls(rows)))
 
 
 def main(argv: list[str] | None = None) -> int:

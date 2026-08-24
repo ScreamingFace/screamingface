@@ -254,6 +254,44 @@ RED first, per `sdlc-python`.
     known baselines; no candidate has been measured on this board yet, so the first real runs
     should confirm the bar separates drafts worth iterating from drafts worth stopping.
 
+### Task 7 — first real prepare run, and what it found (DONE)
+
+Running the preparer against live data surfaced three defects that no unit test could have
+caught, because each lived in the gap between a module and the outside world.
+
+- **The dataset pin was wrong — the serious one.** `DATASET_REVISION` was copied from
+  UKGovernmentBEIS/inspect_evals (`a3848a2a…`, 2025-09-25). At that revision `rubric_json` is
+  NULL on all 220 rows: rubrics arrived five months later in `11e7900c` — "Release GDPval v2
+  (rubrics + deliverables)", 2026-02-10. The reference implementation never reads the rubrics
+  (it uploads deliverables to OpenAI's grading service), so its pin never needed them; this
+  board is built entirely on them. Pin corrected; an AIDEV-NOTE records why it must not be
+  re-copied. Board revision moved `04dd881e686c0cca` -> `820f9f3b52bd146a`.
+- **Reference files were never downloaded.** Phase 0 fetched them by hand; the preparer pointed
+  its reader at a directory nothing populated. `reference_urls` + `_fetch` added, resolving URLs
+  inside the reader so `emit`/`case_input` keep the signatures their committed tests pin.
+- **No retry on fetch.** 85 sequential downloads from a public CDN; one "Connection reset by
+  peer" killed a multi-minute build. Four bounded attempts with backoff — bounded, so a genuinely
+  missing file still fails rather than looping.
+
+**The design held:** the preparer FAILED LOUDLY at case 1 rather than baking 102 empty rubrics
+and shipping a benchmark that scored every candidate at zero. That is the "fail the build, never
+bake empty" invariant doing its job.
+
+**A test then surfaced a fourth issue:** `_build_reader` eagerly constructed both concrete
+readers, making `pdfplumber` and `python-docx` hard requirements of every build — including the
+66 of 102 tasks that carry no reference files at all. Now built lazily, per extension, on first
+use.
+
+**Verified end to end:** `gdpval: baked 102 cases` — 102 cases, 102 rubric assets, 58 reference
+files downloaded and flattened.
+
+### Scope expansion (owner decision, 2026-08-25)
+
+The SDK-side CLI and example notebook were folded into this ticket rather than filed as a
+sibling. OME-971 therefore spans two landings — `url4-cloud` and `py-screamingface` — which
+CLAUDE.md §8 would normally split into an epic. Flagged and overridden by the owner; the
+`py-screamingface` label should be added to the issue so the board reflects it.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>
