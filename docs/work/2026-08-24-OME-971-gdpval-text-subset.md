@@ -148,6 +148,29 @@ RED first, per `sdlc-python`.
     malformed package), and what the operator needs is WHICH of 85 files broke. The original
     exception is preserved as the cause.
 
+### Task 3 — bake the Cases and rubrics (DONE)
+
+- **Actual files:** `benchmarks/gdpval/{prepare,pins}.py`, `tests/unit/test_gdpval_prepare.py`.
+- **Gates:** ALL GATES GREEN. 11 new tests, no prior test touched.
+- **Verified against the real dataset:** `select_rows` returns 102; `rubric_items` leaves 4,454
+  criteria after the container filter — matching the independent measurement exactly; `emit`
+  writes ids 1..102 with one rubric asset each.
+- **Deviations:**
+  - **`pins.py` landed here, not in Task 5.** The preparer needs `DATASET` and
+    `DATASET_REVISION`; deferring it would have meant hard-coding them twice. Judge pins still
+    arrive with the board in Task 5.
+  - **Selection is addressed by `task_id`, not by row position.** HealthBench freezes 1-based
+    positions in the upstream file because its rows have no stable identity. GDPval rows carry
+    stable `task_id`s, so ordering comes from `TEXT_SUBSET_TASK_IDS` and the build asserts every
+    frozen id is present. A reshuffled upstream file therefore cannot renumber this exam.
+  - **A test of mine was wrong and was fixed.** `test_cases_json_carries_no_rubric` asserted that
+    the string "criterion" is absent from `cases.json`. It passed on synthetic prompts and would
+    have failed on real data for an innocent reason — one GDPval task says "as a release
+    criterion" in its own prompt text. Replaced with a structural assertion (case keys are
+    exactly `{id, input}`; the envelope is exactly `{schema, messages}`), which is what the
+    invariant actually claims. Caught by running the preparer over the published parquet rather
+    than by the test suite.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>
