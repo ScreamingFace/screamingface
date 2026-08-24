@@ -171,6 +171,26 @@ RED first, per `sdlc-python`.
     invariant actually claims. Caught by running the preparer over the published parquet rather
     than by the test suite.
 
+### Task 4a — the scoring metric (DONE)
+
+- **Actual files:** `benchmarks/gdpval/scoring.py`, `tests/unit/test_gdpval_scoring.py`.
+- **Gates:** ALL GATES GREEN. 12 new tests, no prior test touched.
+- **Deviations:**
+  - **Scope narrowed to scoring alone.** The plan bundled scoring, verdict, prompts and records
+    into Task 4. Verdict parsing and the grader prompt are inseparable from the url4 expression
+    that nests the judge inside the verdict route for retry, so they move to Task 5 where that
+    tree is written. Keeps this iteration one focused unit (loop rule 2).
+  - **`case_score` duplicates `healthbench.scoring.case_score` deliberately, not by oversight.**
+    The per-case math is identical; the OBLIGATIONS are not. HealthBench's module is bound to
+    simple-evals parity and must follow the reference if it moves; this board's metric answers to
+    the GDPval rubrics alone. A shared version could only drift under one caller's obligations
+    while silently redefining the other's exam. The reasoning is recorded in the module, since a
+    later reader will otherwise read it as duplication worth collapsing. Repo precedent agrees —
+    DRACO and HealthBench each own a `scoring.py` and nothing imports across benchmarks.
+  - **The exam mean is plain, with no clip** (spec D4). HealthBench's professional board clips
+    because the official HealthBench metric does; GDPval's official metric is an expert pairwise
+    win rate, so there is no published convention to match and a floor would imply one exists.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>
