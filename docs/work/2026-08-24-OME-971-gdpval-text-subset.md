@@ -191,6 +191,34 @@ RED first, per `sdlc-python`.
     because the official HealthBench metric does; GDPval's official metric is an expert pairwise
     win rate, so there is no published convention to match and a floor would imply one exists.
 
+### Task 5a — judge pins, grader prompt, verdict parsing (DONE)
+
+- **Actual files:** `benchmarks/gdpval/{pins,prompts,verdict}.py`,
+  `tests/unit/test_gdpval_verdict.py`.
+- **Gates:** ALL GATES GREEN. 27 new tests (parametrised), no prior test touched.
+- **Decisions:**
+  - **Judge is DRACO's pin — `openrouter/google/gemini-3.1-pro-preview`** (owner decision).
+    GDPval's official grading is blinded expert PAIRWISE comparison, unreachable here, and
+    OpenAI's automated stand-in is a hosted service rather than a callable model — so the judge
+    is our free choice. Reusing DRACO's keeps one judge across two rubric-graded boards, which is
+    one variable rather than two when scores move. Named as a deviation in the board description.
+  - **`temperature=0.2` is carried over and is load-bearing for retry.** An unparseable reply is
+    retried by re-resolving the nested judge call; at temperature 0 the retry would re-send
+    identical bytes and fail identically. HealthBench solves this by pinning no temperature at
+    all; DRACO's 0.2 achieves the same redraw while staying near-deterministic.
+  - **`JUDGE_RETRIES = 2`.** The reference loops forever on malformed replies. At ~4,498 judge
+    calls per candidate an unbounded retry against a systematically broken prompt would burn a
+    run's budget before anyone noticed.
+  - **Cost measured, and an earlier claim corrected.** At $2/$12 per 1M, one judge call is
+    ~$0.0114 and a full 102-task run is ~$51 per candidate; a five-task pilot is ~$3. The
+    ledger previously implied the per-item fan-out made the planning document's estimate "44x
+    low" — the CALL COUNT is ~44x, but each call is small (one criterion in, a short verdict
+    out), so the total lands near the original figure by a different route.
+- **Deviations:**
+  - `_invalid_reason` is a check TABLE rather than a chain of guards, to satisfy `PLR0911`
+    (max 3 returns). The ordering comment is load-bearing: `isinstance(True, int)` is True in
+    Python, so the bool check must be an explicit `isinstance(..., bool)` and must come last.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>
