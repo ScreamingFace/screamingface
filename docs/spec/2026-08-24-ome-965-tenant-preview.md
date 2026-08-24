@@ -36,10 +36,16 @@ their pull-request images, and enters the bounded Preview queue after exact-revi
 ## Developer contract
 
 The maintained pull-request comment shows status, exact revision, selected images, application
-URLs, one trusted Kubernetes access helper command, and namespace-filtered SigNoz links.
+URLs, one trusted Kubernetes access helper command, reconnect steps, copy-ready debug commands,
+and namespace-filtered SigNoz links.
 
 The helper performs Cloudflare login, GitHub author verification, safe download, and kubeconfig
 validation. It comes from trusted `main`, never from pull-request code.
+
+Debug commands use the exact pull-request namespace, stable deployment names, and stable pod
+labels. SigNoz filters use the `k8s.namespace.name` field.
+
+The downloaded kubeconfig stays on the developer machine. Its Kubernetes token lasts one hour.
 
 ## Security
 
