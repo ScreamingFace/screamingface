@@ -1,0 +1,232 @@
+name: Preview images
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled, closed]
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: screamingface-preview-images-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: acropenminedpreview.azurecr.io
+
+jobs:
+  disable:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action == 'closed' || github.event.pull_request.draft ||
+      contains(github.event.pull_request.labels.*.name, 'no-preview'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Remove the Preview request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 .github/scripts/preview_contract.py disable
+          --number "$PR_NUMBER" --sha "$HEAD_SHA"
+
+  plan:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.action != 'closed' && !github.event.pull_request.draft &&
+      !contains(github.event.pull_request.labels.*.name, 'no-preview')
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.classify.outputs.components }}
+      images: ${{ steps.classify.outputs.images }}
+      matrix: ${{ steps.classify.outputs.matrix }}
+      engine: ${{ steps.classify.outputs.engine }}
+      any: ${{ steps.classify.outputs.any }}
+      tag: ${{ steps.classify.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read both sides of renamed paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin "$HEAD_SHA"
+          git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" > /tmp/preview-paths
+      - id: classify
+        name: Select affected Preview images
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 .github/scripts/preview_contract.py classify
+          --paths /tmp/preview-paths --number "$PR_NUMBER" --sha "$HEAD_SHA"
+          --output "$GITHUB_OUTPUT"
+      - name: Mark the request preview-building
+        if: steps.classify.outputs.any == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          COMPONENTS: ${{ steps.classify.outputs.components }}
+          IMAGES: ${{ steps.classify.outputs.images }}
+        run: >-
+          python3 .github/scripts/preview_contract.py prepare
+          --number "$PR_NUMBER" --sha "$HEAD_SHA"
+          --components "$COMPONENTS" --images "$IMAGES"
+      - name: Disable an empty Preview
+        if: steps.classify.outputs.any != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 .github/scripts/preview_contract.py disable
+          --number "$PR_NUMBER" --sha "$HEAD_SHA"
+
+  images:
+    needs: plan
+    if: needs.plan.outputs.any == 'true' && needs.plan.outputs.matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_PREVIEW_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign in to the Preview registry
+        run: az acr login --name acropenminedpreview
+      - uses: docker/setup-buildx-action@v4
+      - name: Select image inputs
+        id: image
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          case "$COMPONENT" in
+            aigateway)
+              echo "file=apps/aigateway/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "repository=screamingface-aigateway" >> "$GITHUB_OUTPUT"
+              ;;
+            aigatewayUi)
+              echo "file=apps/aigateway-ui/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "repository=screamingface-aigateway-ui" >> "$GITHUB_OUTPUT"
+              ;;
+            scoreboard)
+              echo "file=apps/scoreboard/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "repository=screamingface-scoreboard" >> "$GITHUB_OUTPUT"
+              ;;
+            *) exit 2 ;;
+          esac
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ steps.image.outputs.file }}
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ steps.image.outputs.repository }}:${{ needs.plan.outputs.tag }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=preview-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=preview-${{ matrix.component }}
+
+  engine:
+    needs: plan
+    if: needs.plan.outputs.engine == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_PREVIEW_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign in to the Preview registry
+        run: az acr login --name acropenminedpreview
+      - uses: docker/setup-buildx-action@v4
+      - name: Build Engine
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/screamingface-engine/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/screamingface-engine:${{ needs.plan.outputs.tag }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=preview-engine
+          cache-to: type=gha,mode=max,scope=preview-engine
+      - name: Build Engine benchmark from the exact Engine image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/screamingface-engine/Dockerfile.benchmark
+          build-args: BASE=${{ env.REGISTRY }}/screamingface-engine:${{ needs.plan.outputs.tag }}
+          push: true
+          tags: ${{ env.REGISTRY }}/screamingface-engine-benchmark:${{ needs.plan.outputs.tag }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=preview-engine-benchmark
+          cache-to: type=gha,mode=max,scope=preview-engine-benchmark
+
+  finish:
+    needs: [plan, images, engine]
+    if: always() && needs.plan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Queue the exact revision
+        if: >-
+          needs.plan.result == 'success' &&
+          (needs.images.result == 'success' || needs.images.result == 'skipped') &&
+          (needs.engine.result == 'success' || needs.engine.result == 'skipped')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          COMPONENTS: ${{ needs.plan.outputs.components }}
+          IMAGES: ${{ needs.plan.outputs.images }}
+        run: >-
+          python3 .github/scripts/preview_contract.py ready
+          --number "$PR_NUMBER" --sha "$HEAD_SHA"
+          --components "$COMPONENTS" --images "$IMAGES"
+      - name: Record a failed build
+        if: >-
+          needs.plan.result != 'success' ||
+          (needs.images.result != 'success' && needs.images.result != 'skipped') ||
+          (needs.engine.result != 'success' && needs.engine.result != 'skipped')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          COMPONENTS: ${{ needs.plan.outputs.components }}
+          IMAGES: ${{ needs.plan.outputs.images }}
+        run: >-
+          python3 .github/scripts/preview_contract.py failed
+          --number "$PR_NUMBER" --sha "$HEAD_SHA"
+          --components "$COMPONENTS" --images "$IMAGES"

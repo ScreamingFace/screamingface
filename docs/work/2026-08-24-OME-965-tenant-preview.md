@@ -1,9 +1,9 @@
 ---
 ticket: OME-965
 stack: repo
-status: in_progress
+status: done
 started: 2026-08-24
-finished:
+finished: 2026-08-24
 ---
 
 # OME-965 — implement tenant Preview automation
@@ -45,7 +45,12 @@ the pull-request author exact access and observability instructions.
 
 ## Outcome
 
-- **Actual files:** pending
-- **Commits:** pending
-- **Gates:** pending
-- **Deviations:** pending
+- **Actual files:** The planned helper, tests, workflows, checks, contributor guide, and
+  work artifacts changed.
+- **Commits:** `test: define tenant preview contract` and
+  `feat: automate tenant preview environments`.
+- **Gates:** 11 contract tests pass. Ruff check, Ruff format, Python compilation,
+  YAML parsing, and `git diff --check` pass.
+- **External state:** All required status, component, and image labels exist in the tenant repo.
+- **Deviations:** Linear was unavailable. The owner-authorized OME-965 work item continues
+  as the repository-wide Preview automation unit.
