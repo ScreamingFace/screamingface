@@ -352,6 +352,12 @@ class ScoreSubmission(BaseModel):
         return self
 
 
+# INVARIANT (OME-894): the only two visibilities there are. A private benchmark stays LISTED in
+# the public catalogue and marked (owner decision, 2026-08-24) — participants must be able to find
+# it to enter, and the catalogue carries no scores, so listing it leaks nothing.
+Visibility = Literal["public", "private"]
+
+
 class BenchmarkSchema(BaseModel):
     """Read DTO for benchmarks."""
 
@@ -367,6 +373,7 @@ class BenchmarkSchema(BaseModel):
     # WHY exposed: a client comparing its run against the board needs to know which revision
     # the board is registered at, so it can tell a real score gap from an incomparable one.
     revision: str | None
+    visibility: Visibility
     created_at: datetime
 
 

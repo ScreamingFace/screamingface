@@ -134,3 +134,15 @@ def test_score_model_carries_a_nullable_indexed_benchmark_revision() -> None:
     assert revision_field.null is True
     assert revision_field.max_length == 64
     assert revision_field.index is True
+
+
+def test_benchmark_model_visibility_defaults_to_public() -> None:
+    # WHY a default rather than nullable (OME-894): a benchmark whose visibility is unknown must
+    # not be private-by-accident (the challenge becomes unreadable) or public-by-accident (the
+    # challenge leaks). `public` preserves today's behaviour for every existing row with no
+    # backfill, and only the entry challenge flips.
+    visibility_field = cast(Any, Benchmark._meta.fields_map["visibility"])
+
+    assert visibility_field.default == "public"
+    assert visibility_field.null is False
+    assert visibility_field.max_length == 16

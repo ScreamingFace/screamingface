@@ -1044,3 +1044,45 @@ async def test_an_unreadable_cost_degrades_but_keeps_the_row() -> None:
 
     assert [row["spec_id"] for row in rows] == ["bad-cost"]
     assert rows[0]["run_cost_usd"] is None
+
+
+# --- OME-894: benchmark visibility ----------------------------------------------------------
+
+
+async def test_register_benchmark_defaults_visibility_to_public(tortoise_db: None) -> None:
+    store = ScoreStore()
+
+    registered = await store.register_benchmark(
+        benchmark_id="hle",
+        display_name="Humanity's Last Exam",
+    )
+
+    assert registered.visibility == "public"
+
+
+async def test_register_benchmark_persists_private_visibility(tortoise_db: None) -> None:
+    store = ScoreStore()
+
+    registered = await store.register_benchmark(
+        benchmark_id="healthbench-worst30",
+        display_name="HealthBench Worst-30% Challenge",
+        visibility="private",
+    )
+    listed = await store.list_benchmarks()
+
+    assert registered.visibility == "private"
+    assert [benchmark.visibility for benchmark in listed] == ["private"]
+
+
+async def test_register_benchmark_can_flip_visibility_back(tortoise_db: None) -> None:
+    # INVARIANT: seeding is idempotent and update_or_create rewrites defaults, so a benchmark
+    # cannot get stuck private after a mis-seed.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+
+    reregistered = await store.register_benchmark(
+        benchmark_id="hle", display_name="HLE", visibility="public"
+    )
+
+    assert reregistered.visibility == "public"
+    assert await Benchmark.all().count() == 1

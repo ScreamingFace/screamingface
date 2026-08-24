@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 from .config import Settings
 from .db import close_db, init_db
-from .scores.schemas import BenchmarkSchema
+from .scores.schemas import BenchmarkSchema, Visibility
 from .scores.store import ScoreStore
 
 SEED_BENCHMARKS_ENV = "SCOREBOARD_SEED_BENCHMARKS_JSON"
@@ -54,6 +54,10 @@ class SeedBenchmark(BaseModel):
     # carries the Engine's value, and the two are compared for comparability (OME-775).
     # Optional because the retained legacy demo entries have no Engine revision.
     revision: str | None = Field(default=None, max_length=64)
+    # OME-894: `private` keeps a benchmark listed in the catalogue but scopes every score-bearing
+    # read path to the caller. Defaults to public so an operator cannot make a board private by
+    # forgetting a key, and an existing values file keeps working untouched.
+    visibility: Visibility = "public"
     # Short editorial line for the portal catalogue's "Focus" column (OME-874). Optional: it is
     # copy someone writes, not a value the Engine derives.
     focus: str | None = Field(default=None, max_length=120)
@@ -413,6 +417,7 @@ async def seed_benchmarks(benchmarks: Sequence[SeedBenchmark]) -> list[Benchmark
                 dataset_url=benchmark.dataset_url,
                 revision=benchmark.revision,
                 focus=benchmark.focus,
+                visibility=benchmark.visibility,
             )
         )
     return seeded

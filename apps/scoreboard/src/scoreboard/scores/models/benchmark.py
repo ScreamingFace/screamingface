@@ -26,6 +26,13 @@ class BaseBenchmark(BaseScoreboardModel):
     # WHY nullable: the retained legacy demo entries (hle/livetruth/livetruth-latest) have no
     # Engine revision, so this column is added without a backfill.
     revision = fields.CharField(max_length=64, null=True)
+    # INVARIANT (OME-894): privacy is a property of the BENCHMARK, enforced in the API on every
+    # read path — not a portal concern. The portal is static JS against a public API, so hiding
+    # rows in the page would leave `curl /v1/leaderboard/{id}` serving the whole board.
+    # WHY a default and NOT nullable: an unknown visibility must not resolve to private by
+    # accident (the entry challenge becomes unreadable) or public by accident (it leaks).
+    # `public` preserves today's behaviour for every existing row, so no backfill is needed.
+    visibility = fields.CharField(max_length=16, default="public")
     created_at = fields.DatetimeField(auto_now_add=True)
 
 

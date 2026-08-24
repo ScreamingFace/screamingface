@@ -19,7 +19,13 @@ from tortoise.transactions import in_transaction
 from scoreboard.classification.openness import Openness
 
 from .models import Benchmark, IdempotencyKey, Score
-from .schemas import BenchmarkSchema, LeaderboardEntry, ScoreSchema, ScoreSubmission
+from .schemas import (
+    BenchmarkSchema,
+    LeaderboardEntry,
+    ScoreSchema,
+    ScoreSubmission,
+    Visibility,
+)
 
 # INVARIANT: columns the raw leaderboard projection must convert itself. The
 # projection bypasses the ORM, so nothing else will do it.
@@ -47,6 +53,7 @@ def benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
         focus=model.focus,
         dataset_url=model.dataset_url,
         revision=model.revision,
+        visibility=cast(Visibility, model.visibility),
         created_at=model.created_at,
     )
 
@@ -310,6 +317,7 @@ class ScoreStore:
         dataset_url: str | None = None,
         revision: str | None = None,
         focus: str | None = None,
+        visibility: Visibility = "public",
     ) -> BenchmarkSchema:
         benchmark, _ = await Benchmark.update_or_create(
             defaults={
@@ -318,6 +326,9 @@ class ScoreStore:
                 "dataset_url": dataset_url,
                 "revision": revision,
                 "focus": focus,
+                # WHY in defaults, not only on create: seeding is idempotent, so a benchmark
+                # mis-seeded as private must be able to flip back (OME-894).
+                "visibility": visibility,
             },
             id=benchmark_id,
         )
