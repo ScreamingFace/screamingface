@@ -110,7 +110,8 @@ _STYLE = (
   background:var(--sf-blind)}
 /* an inactive row recedes (the whole label dims) while a live one stays full ink — state
    reads from weight+square, never from hue alone, so a colour-blind reader still gets it */
-.sf-connections__status.not_connected,.sf-connections__status.login_required{
+.sf-connections__status.not_connected,.sf-connections__status.unavailable,
+.sf-connections__status.login_required{
   color:var(--sf-ink-3)}
 .sf-connections__source{font-size:14px;color:var(--sf-ink-3);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
@@ -444,15 +445,15 @@ def _provider_presentation(
     )
     if provider_mutations_enabled:
         return status, connection.account_label
-    # On a hosted Engine the connection rows are caller-scoped BYOK state, not the
-    # operator-managed credentials used for execution. Every provider the hosted Engine
-    # advertises is therefore presented as managed availability; its caller status must not
-    # make a deployment credential look unavailable.
-    return status, "Available via ScreamingFace"
+    # Hosted status is caller-scoped availability supplied by the Engine. Claim managed
+    # availability only for a provider the caller can actually use.
+    return status, "Available via ScreamingFace" if status == "connected" else None
 
 
 def _provider_status(connection: Connection, *, provider_mutations_enabled: bool) -> str:
-    return connection.status if provider_mutations_enabled else "connected"
+    if not provider_mutations_enabled and connection.status == "not_connected":
+        return "unavailable"
+    return connection.status
 
 
 def _meta_html(connection: Connection, *, provider_mutations_enabled: bool) -> str:
@@ -506,10 +507,10 @@ def _access_meta_html(status: str, engine_url: str) -> str:
 
 
 def _status_label(status: str) -> str:
-    """Live states are capitalised; an inactive state stays lowercase and recedes."""
+    """Capitalise decisive states; transitional and diagnostic states stay quiet."""
 
     words = status.replace("_", " ")
-    return words.capitalize() if status in {"connected", "authenticated"} else words
+    return words.capitalize() if status in {"connected", "authenticated", "unavailable"} else words
 
 
 def _status_html(status: str) -> str:
