@@ -131,6 +131,16 @@ def test_the_secret_key_is_assigned_in_the_secret_template() -> None:
     assert job_env.ARTIFACT_S3_SECRET_KEY in _yaml_keys(secret)
 
 
+def test_runner_scheduling_is_serialized_from_deployment_values() -> None:
+    """INVARIANT: the control plane and every Runner Job share one placement source."""
+    app = _APP_ENV.read_text(encoding="utf-8")
+
+    assert "URL4_CLOUD_RUNNER_NODE_SELECTOR" in app
+    assert "toJson .Values.nodeSelector" in app
+    assert "URL4_CLOUD_RUNNER_TOLERATIONS" in app
+    assert "toJson .Values.tolerations" in app
+
+
 # --- the bundled store configures itself (OME-929) ---------------------------------------
 
 

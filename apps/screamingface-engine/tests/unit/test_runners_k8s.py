@@ -407,3 +407,41 @@ async def test_the_pod_outlives_its_own_stream_reclamation() -> None:
 
     assert float(env[job_env.JOB_DEADLINE_S]) == 60
     assert spec["activeDeadlineSeconds"] > 60 + grace
+
+
+async def test_runner_job_carries_configured_scheduling() -> None:
+    client = FakeBatchV1()
+    node_selector = {"openmined.org/pool": "preview"}
+    tolerations = [
+        {
+            "key": "workload",
+            "operator": "Equal",
+            "value": "preview",
+            "effect": "NoSchedule",
+        }
+    ]
+    runner = K8sJobRunner(
+        client,
+        image="runner:test",
+        node_selector=node_selector,
+        tolerations=tolerations,
+    )
+    node_selector["openmined.org/pool"] = "default"
+    tolerations[0]["value"] = "default"
+    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+    pod = _pod(client, name)
+    assert pod["nodeSelector"] == {"openmined.org/pool": "preview"}
+    assert pod["tolerations"] == [
+        {"key": "workload", "operator": "Equal", "value": "preview", "effect": "NoSchedule"}
+    ]
+    assert pod["automountServiceAccountToken"] is False
+
+
+async def test_runner_job_omits_empty_scheduling() -> None:
+    client = FakeBatchV1()
+    name = await K8sJobRunner(client, image="runner:test").schedule(
+        TOPIC, "chat(hi)", deadline_s=60
+    )
+    pod = _pod(client, name)
+    assert "nodeSelector" not in pod
+    assert "tolerations" not in pod
