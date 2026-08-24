@@ -100,6 +100,8 @@ def test_helper_logs_in_and_installs_valid_kubeconfig(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == str(kubeconfig)
     assert "Complete the Cloudflare login" in result.stderr
+    assert "Preview access is ready for namespace sf-preview-pr-707." in result.stderr
+    assert "Cluster-wide commands are blocked." in result.stderr
     assert marker.exists()
     assert kubeconfig.stat().st_mode & 0o777 == 0o600
     request = curl_config.read_text()
