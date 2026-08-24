@@ -332,7 +332,9 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         logging.warning(
             "URL4_CLOUD_RUNNER is 'none' — this App bridges NATS but cannot schedule runs"
         )
-    connections = build_connections(settings)
+    # INVARIANT: deployed availability comes from the signed-in caller's profiles. The provider
+    # catalogue describes capability, not which operator-managed credentials this caller owns.
+    connections = build_connections(settings, listing_source="profiles")
     app = create_app(
         settings,
         stream=stream,

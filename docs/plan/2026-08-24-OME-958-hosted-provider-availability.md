@@ -1,0 +1,22 @@
+---
+title: Implement hosted provider availability from caller profiles
+ticket: OME-958
+status: approved
+date: 2026-08-24
+spec: ../spec/2026-08-24-OME-958-hosted-provider-availability.md
+---
+
+# Implement hosted provider availability from caller profiles
+
+1. Add adapter tests for caller-specific authenticated profiles, status precedence, malformed
+   profile payloads, identity forwarding, and the unchanged local connection-row path.
+2. Add composition tests pinning deployed Engine to profile listing and local Engine to managed
+   connection listing.
+3. Add a small explicit listing-source input to the AI Gateway adapter and strictly decode the
+   existing `/v1/auth/profiles` response behind it.
+4. Project profile state onto the existing secret-free `Connection` values without changing the
+   REST response model.
+5. Wire production and local composition to their respective sources.
+6. Run focused tests, the full ScreamingFace Engine gate runner, and a direct `origin/main...HEAD`
+   wisdom/confidence review.
+7. Record the outcome, commit with `Refs: OME-958`, and open the Engine PR before starting OME-960.

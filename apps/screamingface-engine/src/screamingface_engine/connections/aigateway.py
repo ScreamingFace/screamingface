@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, cast
@@ -21,24 +20,26 @@ from screamingface_engine.connections.port import (
     ConnectionConflict,
     ConnectionMethodUnsupported,
     ConnectionNotFound,
-    ConnectionRateLimited,
-    ConnectionRejected,
     ConnectionStatus,
     ConnectionTimeout,
     ConnectionUnavailable,
     OAuthAuthorization,
 )
+from screamingface_engine.connections.profile_availability import decode_profile_statuses
+from screamingface_engine.connections.provider_id import is_provider_id
+from screamingface_engine.connections.upstream_errors import raise_for_status
 
 logger = logging.getLogger(__name__)
 
 _PROVIDERS_PATH = "/v1/providers"
 _CONNECTIONS_PATH = "/v1/oauth/connections"
+_PROFILES_PATH = "/v1/auth/profiles"
 _API_KEY_PATH = f"{_CONNECTIONS_PATH}/api-key"
 # Inter-service contract: assigning this label explicitly designates a row for ScreamingFace
 # management. Rows under every other label remain outside this adapter's public projection.
 _MANAGED_LABEL = "screamingface"
 _MAX_OAUTH_EXPIRES_IN_SECONDS = 30 * 60
-_PROVIDER_ID = re.compile(r"[a-z0-9][a-z0-9_-]*\Z", re.ASCII)
+ListingSource = Literal["connections", "profiles"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,11 +65,23 @@ class _ConnectionRow:
 class AigatewayConnections:
     """Combine AI Gateway provider capabilities with caller-scoped connection state."""
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        listing_source: ListingSource = "connections",
+    ) -> None:
         self._client = client
+        self._listing_source = listing_source
 
     async def list(self, caller: Caller) -> tuple[Connection, ...]:
         providers = await self._providers(caller)
+        if self._listing_source == "profiles":
+            statuses = await self._profile_statuses(caller)
+            return tuple(
+                _profile_connection(provider, statuses.get(provider.id, "not_connected"))
+                for provider in providers
+            )
         rows = await self._rows(caller)
         return tuple(
             _disconnected(provider)
@@ -183,6 +196,12 @@ class AigatewayConnections:
             raise ConnectionBadResponse()
         return [_validate_row(row) for row in rows]
 
+    async def _profile_statuses(self, caller: Caller) -> dict[str, ConnectionStatus]:
+        response = await self._request("GET", _PROFILES_PATH, caller)
+        if response.status_code != 200:
+            raise ConnectionBadResponse()
+        return decode_profile_statuses(_decode_object(response))
+
     async def _request(
         self,
         method: str,
@@ -208,7 +227,7 @@ class AigatewayConnections:
                 "AI Gateway provider-connection transport failure (%s)", type(exc).__name__
             )
             raise ConnectionUnavailable() from exc
-        _raise_for_status(response)
+        raise_for_status(response)
         return response
 
 
@@ -234,6 +253,18 @@ def _disconnected(provider: _Provider) -> Connection:
         display_name=provider.display_name,
         auth_methods=provider.auth_methods,
         status="not_connected",
+    )
+
+
+def _profile_connection(
+    provider: _Provider,
+    status: ConnectionStatus,
+) -> Connection:
+    return Connection(
+        provider=provider.id,
+        display_name=provider.display_name,
+        auth_methods=provider.auth_methods,
+        status=status,
     )
 
 
@@ -273,8 +304,7 @@ def _validate_provider(value: object) -> _Provider:
     methods = value.get("auth_methods")
     if (
         value.get("object") != "provider"
-        or not isinstance(value.get("id"), str)
-        or _PROVIDER_ID.fullmatch(value["id"]) is None
+        or not is_provider_id(value.get("id"))
         or not isinstance(value.get("display_name"), str)
         or not value["display_name"].strip()
         or not isinstance(methods, list)
@@ -372,8 +402,7 @@ def _validate_row(value: object) -> _ConnectionRow:
     if (
         not isinstance(connection_id, str)
         or not _is_uuid(connection_id)
-        or not isinstance(provider, str)
-        or _PROVIDER_ID.fullmatch(provider) is None
+        or not is_provider_id(provider)
         or not isinstance(label, str)
         or not label.strip()
         or not isinstance(status, str)
@@ -408,25 +437,4 @@ def _account_label(value: object) -> str | None:
     return None
 
 
-def _raise_for_status(response: httpx.Response) -> None:
-    status = response.status_code
-    if status < 300:
-        return
-    error = {
-        # Provider capability is checked locally before a credential leaves the Engine.
-        # AI Gateway also uses 400 for malformed credentials, so an upstream 400 is a
-        # rejection—not evidence that the advertised method is unsupported.
-        400: ConnectionRejected,
-        401: ConnectionRejected,
-        403: ConnectionRejected,
-        404: ConnectionNotFound,
-        409: ConnectionConflict,
-        422: ConnectionRejected,
-        429: ConnectionRateLimited,
-        503: ConnectionUnavailable,
-        504: ConnectionTimeout,
-    }.get(status, ConnectionBadResponse)
-    raise error()
-
-
-__all__ = ["AigatewayConnections"]
+__all__ = ["AigatewayConnections", "ListingSource"]
