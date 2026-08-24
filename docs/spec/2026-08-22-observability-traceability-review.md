@@ -404,6 +404,13 @@ in `aigateway.sqlite3`, a live `owner_token` in `runtime.json`. Collection must 
 be **allow-list, never a directory sweep**, and must never capture frame locals around
 `connect()` (the API key is a keyword argument) or touch the `Cf-Access-Token`.
 
+**Delivery direction (pre-decision, `OME-973`).** The intended shape is a very small
+FastAPI service under `apps/`, which accepts the report and delivers it directly to Linear
+or to GitHub — so the reporter needs no account of their own, because the service holds the
+credential. Nothing is approved for implementation; the sink fork below is the open
+question, and the service is blocked on `OME-967` since until the client mints and retains
+a trace id it would accept reports that join to nothing.
+
 **Delivery is blocked on a rule amendment.** CLAUDE.md rule 9 — "API tokens / raw GraphQL
 are forbidden" — has no subject and on its literal wording catches product code calling
 Linear's API, not only agent tooling. Ranked options: an agent files via MCP during triage
