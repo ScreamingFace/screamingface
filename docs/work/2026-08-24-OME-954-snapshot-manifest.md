@@ -18,7 +18,7 @@ never the host checkout).
 ## Outcome
 
 - **Actual files:** `local_k8s_deployment.sh` (tracked for the first time — previously an
-  untracked local file), `.gitignore` (snapshot artifacts), this ledger, plan/mirror docs.
+  untracked local file), `.gitignore` (snapshot artifacts), this ledger, `docs/plan/2026-08-24-OME-954-snapshot-manifest.md`.
 - **Commits:** (see PR)
 - **Gates:** `bash -n` clean; LIVE end-to-end verified against the running kind stack:
   snapshot (204,765 rows) + manifest with matching revisions and sha256.
