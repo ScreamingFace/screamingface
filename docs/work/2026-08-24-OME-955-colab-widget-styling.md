@@ -49,15 +49,23 @@ evaluation table usable at narrow output widths without losing horizontal positi
 - Pin the actual runtime composition, focus ownership, and host precedence with regressions before
   updating the draft PR.
 
+## Colab visual follow-up
+
+- Keep Status to lifecycle plus elapsed time so long grading coverage cannot overflow into Cases.
+- Render incomplete grading coverage as a muted second line beneath the Score it qualifies.
+- Keep fully graded Score cells single-line and preserve the existing Cases execution meaning.
+
 ## Outcome
 
 - **Actual files:** shared notebook theme tokens, the runtime evaluation fragment projection, a
   focused live ipywidgets host, its internal observer import, focused UI/report regressions, and the
   OME-955 SDLC artifacts. Review follow-up removed the dead static panel composition and made the
-  stable table HTML widget the only scroll/focus owner.
+  stable table HTML widget the only scroll/focus owner. Colab visual follow-up moved result
+  qualifiers beneath Score so Status remains lifecycle plus elapsed time without column overlap.
 - **Commits:** `fix(screamingface): clean up Colab widget styling`;
-  `fix(screamingface): align Colab widget runtime semantics`
-- **Gates:** 94 focused evaluation/report tests pass; complete `screamingface` gate passes Ruff,
+  `fix(screamingface): align Colab widget runtime semantics`;
+  `fix(screamingface): keep grading coverage with Score`
+- **Gates:** 96 focused evaluation/report tests pass; complete `screamingface` gate passes Ruff,
   formatting, Pyright, the full pytest suite at the 95% coverage floor, notebook checks, package
   build, and distribution validation.
 - **Deviations:** the append-only assertion gate was skipped because this owner-approved ticket

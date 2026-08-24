@@ -57,6 +57,8 @@ _STYLE = (
 .sf-eval__status--timed_out .sf-eval__status-sq{background:var(--sf-danger-solid)}
 .sf-eval__cases{color:var(--sf-ink);white-space:nowrap}
 .sf-eval__unavailable{color:var(--sf-ink-2);white-space:nowrap}
+.sf-eval__score-detail{display:block;margin-top:4px;color:var(--sf-ink-2);font-size:11px;
+  line-height:1.2;white-space:nowrap}
 .sf-eval__receipt{margin-top:7px;min-height:1.45em;
   font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:11.5px;color:var(--sf-ink-2);font-variant-numeric:tabular-nums}
@@ -239,7 +241,7 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
         "timed_out": "Timed out",
         "not_run": "Not run",
     }[row.status]
-    details = [row.qualifier] if row.qualifier is not None else []
+    details: list[str] = []
     if row.status == "running" and elapsed is not None:
         started = row.started_elapsed_seconds or 0.0
         details.append(_duration(max(0.0, elapsed - started)))
@@ -253,6 +255,11 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
         if not row.score_available or row.score is None
         else f"{row.score:g}"
     )
+    score_detail = (
+        ""
+        if row.qualifier is None
+        else f"<span class='sf-eval__score-detail'>{escape(row.qualifier)}</span>"
+    )
     cost = "Not reported" if row.cost_usd is None else _money(row.cost_usd)
     cache = _cache_value(row)
     progress_html = _case_progress_html(row)
@@ -262,7 +269,7 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
         f"<td><span class='sf-eval__status sf-eval__status--{row.status}'>"
         f"<span class='sf-eval__status-sq' aria-hidden='true'></span>{status}{suffix}</span></td>"
         f"<td class='sf-eval__num'>{progress_html}</td>"
-        f"<td class='sf-eval__unavailable sf-eval__num'>{escape(score)}</td>"
+        f"<td class='sf-eval__unavailable sf-eval__num'>{escape(score)}{score_detail}</td>"
         f"<td class='sf-eval__unavailable sf-eval__num'>{escape(cost)}</td>"
         f"<td class='sf-eval__unavailable sf-eval__num'>{escape(cache)}</td></tr>"
     )

@@ -868,8 +868,47 @@ def test_partial_result_names_exact_graded_coverage_and_keeps_final_duration() -
     )
 
     html = _runtime_fragments_html(progress, "DRACO")
-    assert "Finished · 1/2 graded · 1m 10s" in html
+    assert "Finished · 1m 10s" in html
+    assert "1 / 2 graded" in html
     assert "Finished · Partial" not in html
+
+
+def test_partial_grading_qualifies_the_score_without_overflowing_status() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=2)
+    progress.reconcile(
+        report_for(
+            opus,
+            score=0.3799,
+            case_count=2,
+            graded_case_count=1,
+            completed_seconds=70,
+        )
+    )
+
+    html = _runtime_fragments_html(progress, "DRACO")
+    row = html.split("<tbody>", 1)[1].split("</tr>", 1)[0]
+    cells = row.split("</td>")
+
+    assert "Finished · 1m 10s" in cells[1]
+    assert "graded" not in cells[1]
+    assert "2 / 2" in cells[2]
+    assert "0.3799" in cells[3]
+    assert "1 / 2 graded" in cells[3]
+    assert "sf-eval__score-detail" in cells[3]
+
+
+def test_fully_graded_score_remains_single_line() -> None:
+    opus = candidate("opus")
+    progress = _EvaluationProgress(candidates=(opus,), case_count=2)
+    progress.reconcile(report_for(opus, score=0.3799, case_count=2))
+
+    html = _runtime_fragments_html(progress, "DRACO")
+    row = html.split("<tbody>", 1)[1].split("</tr>", 1)[0]
+    score_cell = row.split("</td>")[3]
+
+    assert "0.3799" in score_cell
+    assert "sf-eval__score-detail" not in score_cell
 
 
 def test_notebook_view_clock_advances_and_abort_leaves_a_frozen_panel(
