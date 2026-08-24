@@ -124,6 +124,8 @@ class K8sJobRunner(IdentityAwareJobRunner):
         env_configmap: str | None = None,
         env_secrets: Sequence[str] = (),
         resources: Mapping[str, Mapping[str, str]] | None = None,
+        node_selector: Mapping[str, str] | None = None,
+        tolerations: Sequence[Mapping[str, object]] = (),
         job_ttl_s: int | None = None,
         request_timeout_s: float | None = None,
         extra_models: Callable[[], Sequence[str]] | None = None,
@@ -136,6 +138,10 @@ class K8sJobRunner(IdentityAwareJobRunner):
         self._env_configmap = env_configmap
         self._env_secrets = list(env_secrets)
         self._resources = resources
+        # WHY snapshots: deployment settings can be caller-owned mutable objects. A later
+        # mutation must not redirect future Jobs or remove a required taint boundary.
+        self._node_selector = dict(node_selector or {})
+        self._tolerations = [dict(toleration) for toleration in tolerations]
         self._job_ttl_s = job_ttl_s
         # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows while
         # the app runs, and a model admitted a second ago must reach the very next Job.
@@ -346,6 +352,20 @@ class K8sJobRunner(IdentityAwareJobRunner):
             container["envFrom"] = env_from
         if self._resources is not None:
             container["resources"] = {k: dict(v) for k, v in self._resources.items()}
+        pod_spec: dict[str, object] = {
+            "restartPolicy": "Never",
+            "enableServiceLinks": False,
+            "automountServiceAccountToken": False,
+            "securityContext": {"seccompProfile": {"type": "RuntimeDefault"}},
+            "containers": [container],
+            "volumes": [{"name": "tmp", "emptyDir": {}}],
+        }
+        # INVARIANT: the operator owns placement through Helm. The adapter transports those
+        # Kubernetes-native values without embedding Preview or another environment's policy.
+        if self._node_selector:
+            pod_spec["nodeSelector"] = dict(self._node_selector)
+        if self._tolerations:
+            pod_spec["tolerations"] = [dict(toleration) for toleration in self._tolerations]
         spec: dict[str, object] = {
             "backoffLimit": 0,
             # WHY this is NOT `deadline_s`: the run self-terminates at `JOB_DEADLINE_S`, publishes
@@ -358,14 +378,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
             ),
             "template": {
                 "metadata": {"labels": RUNNER_LABELS},
-                "spec": {
-                    "restartPolicy": "Never",
-                    "enableServiceLinks": False,
-                    "automountServiceAccountToken": False,
-                    "securityContext": {"seccompProfile": {"type": "RuntimeDefault"}},
-                    "containers": [container],
-                    "volumes": [{"name": "tmp", "emptyDir": {}}],
-                },
+                "spec": pod_spec,
             },
         }
         if self._job_ttl_s is not None:

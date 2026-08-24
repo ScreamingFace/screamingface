@@ -385,6 +385,8 @@ runner:
 # after `helm dependency build`; otherwise reuse an existing NATS via `config.natsUrl`.
 nats:
   enabled: false
+  # The dependency schema requires a string even while the dependency is disabled.
+  fullnameOverride: ""
   # Passed through to the nats-io/k8s subchart when enabled. JetStream is required by the bus.
   config:
     jetstream:
