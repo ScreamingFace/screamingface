@@ -19,12 +19,17 @@ The Engine's `Connection.status` remains the source of truth. Hosted rows projec
 into concise user-facing language:
 
 - `connected` -> `Connected`, with source `Available via ScreamingFace`;
-- `not_connected` -> `Unavailable`, with no availability source claim;
-- `pending`, `needs_reauth`, and `error` retain their existing truthful status wording and make no
-  availability source claim.
+- `not_connected`, `pending`, `needs_reauth`, and `error` -> `Unavailable`, with no availability
+  source claim.
 
-Static HTML and ipywidgets use the same presentation helper. The plain representation exposes the
-same projected status, so it cannot claim a provider is connected when the visual panel does not.
+The non-connected wire states describe operator-owned credential lifecycle details. They are not
+actionable for a hosted caller, so the Client exposes only the caller-relevant availability fact.
+Local BYOK rows continue to expose their exact wire status because the local caller owns and can
+repair those credentials.
+
+One presentation projection owns status class/label and source together. Static HTML, ipywidgets,
+and plain representation all use that projection, so no rendering path can leak a different wire
+state or make an independent availability claim.
 
 ## Boundaries
 

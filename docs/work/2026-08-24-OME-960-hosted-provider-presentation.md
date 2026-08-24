@@ -24,7 +24,7 @@ provider mutation controls local-only.
 
 - Connected hosted providers remain Connected and carry the ScreamingFace availability source.
 - Hosted providers reported `not_connected` render Unavailable, never Connected.
-- Hosted pending/error states are preserved without availability claims.
+- Hosted pending/error/reauth states collapse to the caller-relevant Unavailable presentation.
 - Static HTML, widget text, and repr agree.
 - Hosted mutation controls remain absent; local loopback BYOK controls remain unchanged.
 
@@ -36,11 +36,30 @@ provider mutation controls local-only.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** task/spec/plan/ledger artifacts; shared connection-panel presentation and
-  SFDS status styling; focused hosted presentation coverage in `test_connection_panel.py`.
-- **Commits:** `feat(screamingface): show hosted provider availability` (this commit).
-- **Gates:** 38 focused connection-panel tests passed; complete `screamingface` gate runner passed
-  Ruff, format, Pyright, 95% coverage pytest, notebook checks, build, and distribution checks.
+- **Actual files:** task/spec/plan/ledger artifacts; one shared connection-panel presentation
+  projection; SFDS status styling; focused hosted presentation coverage in
+  `test_connection_panel.py`.
+- **Commits:** `feat(screamingface): show hosted provider availability`; review follow-up
+  `fix(screamingface): hide hosted credential lifecycle states` (this commit).
+- **Gates:** 39 focused connection-panel tests passed; complete `screamingface` gate runner passed
+  Ruff, format, Pyright, 95% coverage pytest, notebook checks, build, and distribution checks after
+  the review follow-up.
 - **Deviations:** the append-only test check was skipped after it correctly identified the
   intentional, owner-approved replacement of OME-883's obsolete all-hosted-connected assertion.
-  No test guard or gate configuration was changed.
+  It was skipped again for the reviewer-requested replacement of the weak pending/error substring
+  assertion with an exact cell contract. No test guard or gate configuration was changed.
+
+## Review follow-up
+
+### Planned changes
+
+- Strengthen hosted status tests to assert the exact status cell, class, label, source, and repr.
+- Replace the split `_provider_status`/`_provider_presentation` decisions with one projection.
+- Render every hosted non-connected Engine state as quiet, unactionable `Unavailable` while
+  preserving exact local BYOK states.
+
+### Test plan
+
+- RED: `pending`, `error`, and `needs_reauth` must produce the exact same hosted Unavailable cell as
+  `not_connected`, without availability source or raw wire vocabulary in repr.
+- GREEN: connected hosted and all local BYOK presentation/control tests remain unchanged.

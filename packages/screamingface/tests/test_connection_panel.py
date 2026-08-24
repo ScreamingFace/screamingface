@@ -912,8 +912,8 @@ def test_authenticated_hosted_provider_rows_show_caller_availability_without_con
     root.close()
 
 
-@pytest.mark.parametrize("status", ["pending", "needs_reauth", "error"])
-def test_hosted_provider_non_available_status_is_preserved_without_source(status: str) -> None:
+@pytest.mark.parametrize("status", ["not_connected", "pending", "needs_reauth", "error"])
+def test_hosted_non_connected_wire_states_project_to_unavailable(status: str) -> None:
     connection = sf.Connection(
         provider="future",
         display_name="Future Provider",
@@ -925,13 +925,16 @@ def test_hosted_provider_non_available_status_is_preserved_without_source(status
     panel = _hosted_panel(connection)
     root = panel.widget()
 
-    expected = status.replace("_", " ")
+    expected_cell = (
+        "<div class='sf-connections__status unavailable'><i class='sq'></i>Unavailable</div>"
+    )
+    widget_text = _text(root)
     html = panel._repr_html_()
-    assert expected in _text(root)
-    assert expected in html
-    assert "Available via ScreamingFace" not in _text(root)
+    assert widget_text.count(expected_cell) == 1
+    assert html.count(expected_cell) == 1
+    assert "Available via ScreamingFace" not in widget_text
     assert "Available via ScreamingFace" not in html
-    assert f"future={status}" in repr(panel)
+    assert "future=unavailable" in repr(panel)
     assert [button.description for button in _buttons(root)] == ["Log out"]
     root.close()
 

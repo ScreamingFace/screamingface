@@ -18,3 +18,12 @@ spec: ../spec/2026-08-24-OME-960-hosted-provider-presentation.md
 4. Run the focused connection-panel tests and the complete ScreamingFace gate suite.
 5. Review the `origin/main...HEAD` diff, fill the ledger outcome, and commit locally. Do not open a
    Client PR until the owner explicitly requests it.
+
+## Review follow-up
+
+6. Replace the weak substring assertions with exact hosted status-cell assertions for every
+   non-connected wire state.
+7. Consolidate hosted/local wire-state, label/class, and source decisions into one presentation
+   projection; remove the second branching helper.
+8. Collapse every hosted non-connected wire state to the quiet SFDS `Unavailable` presentation,
+   rerun focused and full gates, commit, and update draft PR #703.
