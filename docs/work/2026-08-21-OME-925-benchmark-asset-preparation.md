@@ -201,3 +201,41 @@ non-zero exit, which is the channel a build actually fails on. The new repo-root
   covered by their recorded approvals. Nothing was weakened: the replacement test additionally
   asserts the contract error is **not** a `BenchmarkAssetPreparationError` and that the CLI lets
   it through as a traceback.
+
+## Fourth pass — close the PR review findings
+
+### Intent
+
+Close four review findings without widening the unit: make the record's own no-abort promise
+true, make the HealthBench summary an observation rather than a restated constant, and stop the
+two guards from passing green on the shapes they exist to catch.
+
+### Changes
+
+- `benchmarks/prepare.py` — fence the encoder. `default=` is never consulted for dict KEYS and
+  cannot rescue a circular or over-deep summary, so the value-only guard left the documented
+  invariant (a reporting fault costs one record, never the remaining bundles) untrue. A failed
+  encode now emits `summary_unreportable` with the fault class; the bundle still reports having
+  completed.
+- `benchmarks/healthbench/prepare.py` — count what landed. `emit` already refuses any row count
+  but `PROFESSIONAL_CASE_COUNT`, so echoing its inputs produced a record that could never differ
+  between bakes. `professional_cases` and the new `rubric_files` are now read back off the
+  written bundle; the serve-time subset size is renamed `declared_worst30_cases` so an operator
+  cannot read a compile-time constant as evidence of this run.
+- `tests/unit/test_benchmark_deployment.py` — the family guard now also matches a computed
+  segment (`$b`, `${family}`, `{name}`); the SDK builds that exact path from a variable today, so
+  a literals-only guard passed on the likeliest reintroduction. The three guards that read files
+  outside this app now skip when those files are absent, which `packages/screamingface/justfile`
+  already anticipates via `SCREAMINGFACE_ENGINE_REPO`.
+
+### Outcome
+
+- **Tests:** two appended — an unserializable summary KEY leaving later bundles intact, and the
+  guard matching a computed family segment. Focused deployment suite 25 passed; the broader
+  `-k "prepare or benchmark or deployment or healthbench"` selection 249 passed.
+- **Gates:** `run_gates.py screamingface-engine --skip-append-only` — ruff check ✓ · ruff format ✓
+  · pyright ✓ · check_layering ✓ · pytest --cov (80% floor) ✓ — **ALL GREEN**.
+- **Deviations:** append-only skipped with owner approval (asked and granted this pass). The
+  edited lines are the guard's own regex and three `REPOSITORY_ROOT` reads — all added by this
+  branch's earlier passes, not inherited from `origin/main`. Nothing was weakened: both guards
+  now match strictly more, and no assertion was relaxed.

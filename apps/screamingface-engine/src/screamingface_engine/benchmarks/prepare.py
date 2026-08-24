@@ -34,10 +34,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         # WHY stream rather than print at the end: a refusal partway through must still leave
         # the completed bundles' evidence in the build log, which is the point of the record.
         record = {"root": str(args.root), "bundle": bundle, "summary": summary}
-        # WHY `default=str`: this runs inside the preparation loop, so a summary value json
-        # cannot encode would abort every bundle after this one. A reporting fault must cost
-        # fidelity in one record, never the assets the image is being built to carry.
-        print(json.dumps(record, default=str), flush=True)
+        # WHY `default=str` AND the guard: this runs inside the preparation loop, so a record
+        # json cannot encode would abort every bundle after this one. `default=` covers values
+        # but is NEVER consulted for keys, and cannot rescue a circular or over-deep summary
+        # either — so the encoder itself is fenced. A reporting fault must cost fidelity in one
+        # record, never the assets the image is being built to carry.
+        try:
+            line = json.dumps(record, default=str)
+        except (TypeError, ValueError, RecursionError) as exc:
+            # The bundle still completed; say so, and name the reporting fault instead.
+            line = json.dumps(
+                {
+                    "root": str(args.root),
+                    "bundle": bundle,
+                    "summary_unreportable": type(exc).__name__,
+                }
+            )
+        print(line, flush=True)
 
     try:
         prepare_builtin_assets(args.root, emit)

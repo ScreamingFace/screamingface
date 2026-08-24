@@ -228,10 +228,19 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
 
 
 def _prepare(out: Path) -> dict[str, Any]:
-    total, subset = emit(load_rows(), out)
+    emit(load_rows(), out)
+    # INVARIANT: count what LANDED, not what was declared. `emit` already refuses any row
+    # count but PROFESSIONAL_CASE_COUNT, so echoing its inputs would restate a constant the
+    # build enforced rather than report this bake — a record that can never differ is not
+    # evidence. Reading the written bundle back is the only observation available here.
+    cases = json.loads((out / "cases.json").read_text(encoding="utf-8"))
     return {
-        "professional_cases": total,
-        "worst30_cases": subset,
+        "professional_cases": len(cases),
+        "rubric_files": sum(1 for _ in (out / "rubrics").glob("*.json")),
+        # The worst-30% board is a serve-time SELECTION over frozen ids (see the module
+        # docstring), never its own bake. Named `declared_` so an operator reading the build
+        # log cannot mistake a compile-time constant for something this run produced.
+        "declared_worst30_cases": len(WORST30_CASE_IDS),
         "out": str(out),
     }
 
