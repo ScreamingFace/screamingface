@@ -3,6 +3,7 @@ title: Debugging & traceability review — inventory, gaps, phased roadmap
 ticket: OME-936
 status: approved
 date: 2026-08-22
+updated: 2026-08-24
 ---
 
 # Debugging & traceability review
@@ -21,6 +22,11 @@ store. The other three apps produce almost no signal at all. The single most sev
 finding is that a run's entire diagnostic record is destroyed ~60 seconds after the run
 ends, which by itself defeats any human-reporting channel: a report arrives hours after
 the evidence is gone.
+
+Sections 1–3 were written from a static reading of the code. **Section 4 records an
+empirical audit run on 2026-08-24** that drove the real code paths and captured real
+output; it confirms most of the reading, corrects it in several places, and supersedes it
+wherever the two disagree. Read §4 before acting on §1.
 
 ## 1. What exists, per component
 
@@ -103,9 +109,11 @@ is **deleted 60 s after the run ends**, deliberately, in a `finally`
 (`ttlSecondsAfterFinished`); artifact spills >1 MiB have a 48 h TTL but are **inert when
 deployed** — the chart mounts no shared volume (self-flagged at `job_env.py:236-238`,
 `OME-892`), so `GET /artifacts/{id}` 404s. A failed deployed run is not reconstructable
-after roughly two minutes. Compounding it: the run identifier (`topic`) is a bearer
-capability — the JWT `sub` — so it cannot be pasted into a ticket without leaking the
-right to stop/redeem the run; `trace_id` is never logged or returned over HTTP, so the
+after roughly two minutes. Compounding it: the run identifier (`topic`) is the JWT `sub`
+and is treated throughout the engine as a bearer capability, so the design intent is that
+it never be pasted into a ticket (**but see `OME-966` — it is already published for every
+submitted score, and §4 establishes that topic knowledge alone in fact authorizes
+nothing**); `trace_id` is never logged or returned over HTTP, so the
 topic↔trace_id↔Job-name correspondence is recorded nowhere; and
 `TerminatedData.error{code,message,permanent}` is discarded on the HTTP GET path — a
 synchronous caller gets a bare `502 "the run failed"` (`rest/routes.py:282-298`).
@@ -176,7 +184,119 @@ Connecting a report to evidence requires three legs, all absent today:
    human report lands hours later. Durable evidence is the prerequisite — without it every
    reporting channel dead-ends.
 
-## 4. Locked decisions (owner, 2026-08-22)
+## 4. Empirical verification (2026-08-24)
+
+Four probes drove the real code paths — aigateway through its own test fixtures, the
+engine through `create_app` + `InProcessJobRunner` + `InMemoryEventStream`, url4's
+streaming lifecycle directly, the scoreboard through a live app and DB — and captured
+real output rather than reading source. The question was narrow: **are traces and logs
+actually associated?**
+
+**The answer is no.** The engine's trace machinery is genuinely correct *inside one
+process*, and the trace never leaves that process.
+
+### What holds
+
+- **Adoption is strictly correct.** An inbound `traceparent` is adopted verbatim:
+  `00-4bf92f…4736-00f067aa0ba902b7-01` produced
+  `TraceContext(trace_id='4bf92f3577b34da6a3ce929d0e0e4736', root_span_id='0cbb06598aa3f6c6')`.
+  The W3C restart rule is *stricter* than expected — a valid trace id inside a
+  syntactically invalid header is discarded rather than salvaged, and all-zero trace,
+  all-zero span, version `01`, and uppercase hex are all rejected. 9/9 malformed cases
+  minted exactly one fresh valid id.
+- **One trace per tree, with real parent edges.** A 10-frame nested run yielded
+  `distinct trace ids: 1`, `distinct span ids: 7`, siblings sharing
+  `tracestate=url4.parent=34e9878e59cb4905`.
+- **No crosstalk under genuine interleaving**, not merely the serialized case.
+- **`url4.observe` is already an OTel-shaped stream** — `RunStarted` carrying
+  `(trace_id, root_span_id)`, matched `NodeStarted`/`NodeFinished` with explicit
+  `parent_span_id`, `RunFinished`, and injected identity adopted verbatim. The Phase 2
+  exporter is a small adapter, not a rewrite. Gap: node events carry no timestamps, only
+  `engine_seq`.
+
+### What is broken, with the observation that proves it
+
+- **Engine → aigateway carries no trace context.** During a run whose frames all carried
+  `4bf92f…4736`, the complete header set received by a capture server was
+  `Host, Accept, Accept-Encoding, Connection, User-Agent, X-User-Email, X-Profile,
+  Content-Length, Content-Type` — `traceparent present? False`. Same for the catalog and
+  connections paths; `/v1/providers` omits `X-Profile` too.
+- **aigateway never *reads* the header.** Instrumenting `Headers.get/__getitem__/
+  __contains__` showed the entire chat path looks up exactly two request headers:
+  `Authorization` and `X-Profile`. There is no half-built ingestion to finish.
+- **The client originates nothing.** Captured start-request header keys were
+  `['accept','accept-encoding','connection','content-length','host','user-agent']`;
+  `traceparent present? False` on both the HTTP start and the WS upgrade. → `OME-967`.
+- **url4's own outbound hops drop it too.** A real `HttpIOLayer` fetch under an explicit
+  trace sent `['accept','accept-encoding','connection','host','user-agent']` —
+  `ANY downstream request carried a traceparent? False`.
+- **No log record anywhere carries a trace id**, in any of the three services.
+- **The scoreboard emits no application log lines at all.** With
+  `SCOREBOARD_LOG_LEVEL=debug` and root forced to DEBUG, an unfiltered handler captured 25
+  records around a 201 — `records from a 'scoreboard.*' logger: 0`.
+- **`run_id` is not queryable.** `Score.filter(run_id=…)` → `FieldError: Unknown filter
+  param 'run_id'`; no column, no index on `metadata`. Its only indexed home is
+  `idempotency_keys.key` (PK, 24 h TTL, no route).
+- **The terminal HTTP path flattens the cause.** A real aigateway 402 through the whole
+  spine produced `HTTP 502 {"detail":"the run failed"}` with no `traceparent` header,
+  while the WS `terminated` frame held
+  `{"code":"aigateway_http_402","message":"aigateway request failed with status 402"}` —
+  and the gateway's own `"upstream provider is out of credit"` had already been dropped a
+  hop earlier. Diagnosis narrows twice.
+
+### What a code reading got wrong, optimistically
+
+These are the findings that justify running the audit rather than reading the source:
+
+- **A 500 can be completely silent.** A mapped litellm `APIConnectionError` returns
+  `provider_unavailable` and logs **zero** WARNING/ERROR records — an operator alerting on
+  WARNING+ sees nothing. `routes/chat.py` has an `except` block that logs, so the reading
+  says "logged"; the mapped branch never reaches it. → `OME-968`.
+- **A successful stream is entirely anonymous** — 0 records, no id in logs, SSE body, or
+  headers. A failed stream logs only the plugin class name, with HTTP status still 200.
+- **`AIGW_TAXONOMY_ENABLED` is an observability kill-switch, not a feature flag** —
+  flipping it false removes `call_` from logs, body, and headers simultaneously.
+- **`metadata` is unbounded on the public write path** — a 64 KB blob returned 201
+  (`stored metadata bytes=65570`), 10-level nesting returned 201; the bounding validator is
+  attached only to the operator baseline paths. → `OME-969`.
+- **Content-hash dedup asserts a false identity** — `RUN-SECOND`'s caller received `200`
+  with `run_id: "RUN-FIRST"`. `Idempotency-Key` and `metadata.run_id` are never
+  cross-checked; the scoreboard source contains zero occurrences of `run_id`. → `OME-970`.
+- **A load-bearing docstring is wrong.** `url4/streaming/protocol/envelope.py:25` says
+  `subject: """The run == <trace_id>."""`; the observed `subject` is the *topic*, and the
+  SDK maps `Event.run_id` from it — which is how the capability became public. → `OME-966`.
+- **The topic-in-logs "leak" is not a leak.** Every topic-referencing route reads the
+  topic out of a *verified* token, so topic knowledge alone authorizes nothing. Provable
+  only by trying to use it as a credential — which a code reading would not do.
+- **The client already holds the traceparent and nothing can use it.** It reaches
+  `sf.Event.traceparent` on every event; there are 5 occurrences in client source and
+  **zero read sites**; `ExecutionError` exposes only
+  `['code','details','hint','message','permanent','status']`.
+- **The sampled flag is silently forced** — an inbound `-00` is re-stamped `-01`, because
+  `format_traceparent` hardcodes `_SAMPLED = "01"`.
+- **Inbound span ids are discarded** — the trace id is adopted but a fresh root span is
+  minted, so a caller's parent span cannot be joined.
+
+### The limits of this audit
+
+Everything ran in-process on one laptop; there is no cluster context configured on this
+machine. Therefore **this audit speaks to code wiring only and cannot speak to deployment
+reality**. Specifically unobserved: the `K8sJobRunner` env hop
+(`URL4_CLOUD_TRACEPARENT`) — inferred correct from a repo unit test, not run; whether
+Cloudflare Access strips, rewrites, or *injects* `traceparent`/`cf-ray`; NATS/JetStream
+sequencing, retention, redelivery and gap behavior (all frames went through the in-memory
+stream); multi-replica topic routing (the engine itself logs that the reaper "assumes a
+single replica"); the production log formatter and level; **whether
+`AIGW_TAXONOMY_ENABLED` is actually true in deployed values**, which decides whether any
+request id exists at all; egress propagation to providers; per-plugin logging for the
+seven non-Anthropic providers; Postgres-side indexes (findings came from live SQLite DDL);
+cost attribution (`Usage`/`ModelResponse`/`scope="self"` events were never produced by the
+static IO layers); and the UI → aigateway hop, which no probe touched.
+
+One instrumentation blind spot is recorded rather than hidden: aigateway's header capture
+covers lookup by key, not iteration (`headers.items()`).
+
+## 5. Locked decisions (owner, 2026-08-22)
 
 - **Backend: SigNoz, self-hosted.** One OTLP-native system for traces+logs+metrics; a
   single chart fits the `charts.yml` gating model; it is the backend `DEPLOYMENT.md`
@@ -197,10 +317,18 @@ Connecting a report to evidence requires three legs, all absent today:
   Revisit ~90 days after Phase 3; if wanted then, self-hosted GlitchTip — provider text to
   a third-party SaaS is a hard no.
 
-## 5. Roadmap
+## 6. Roadmap
 
 Four phases, each an epic; every sub-issue is one SDLC unit and one PR. Phase 0 is filed
 (epic `OME-935`); Phases 1–3 are filed as separate epics when their turn comes.
+
+**Keystone, ahead of every phase: `OME-967` — the client originates the traceparent.**
+Because the trace id is currently minted inside the Runner Job and never returned, every
+failure occurring *before the first frame* (capability mint, run start, WS handshake) has
+no id of any kind and is unjoinable forever — and that class is a large share of what
+users actually hit. The engine already adopts an inbound traceparent, so this is a
+client-side change with no server work, and it is the precondition that makes both the
+correlation chain and any evidence bundle joinable by construction rather than by luck.
 
 **Phase 0 — existing signals become consumable** (no new infra, no cross-app contracts,
 all items independent): this spec (`OME-936`); scoreboard `logs.py` copying the engine
@@ -215,6 +343,13 @@ minimal BFF error logging (`OME-943`); scoreboard DB-aware readiness (`OME-944`)
 org-repoint hygiene fix, shipped first (`OME-945`); and the retention stopgap — Job TTL to
 1 h, failed-run streams kept 24 h via per-stream MaxAge instead of the explicit delete
 (`OME-946`).
+
+**Correction to `OME-946`:** a TTL change alone is insufficient. `_sweep_orphans`
+(`adapters/jetstream.py:166-179,194-230`) deletes terminal streams older than 60 s
+whenever the store is full, so 24 h retention silently degrades to 60 s exactly when the
+cluster is busy — which is when failures cluster. The sweep predicate must change too.
+Note also that `max_bytes` is a reservation charged at stream creation (~200 streams
+against the current store), so retention trades directly against run concurrency.
 
 **Phase 1 — one trace, end to end** (requires `OME-938`): engine emits `traceparent` on
 its three aigateway client paths; aigateway accepts it as untrusted input, joins it to the
@@ -240,7 +375,47 @@ showing a request id with a report link; the UI error page likewise; and a runbo
 "report trace_id → evidence" — with the `kubectl logs` grep crib pre-backend and the
 SigNoz query post-backend.
 
-## 6. Verification
+### Phase 3 direction: the reported unit is client-assembled
+
+The goal is a report that arrives as a single unit with its telemetry attached. Design
+research settled three things about how to get there.
+
+**Assemble client-side, not server-side.** The client is the only component present in
+every audience's failure. Server-side assembly (replaying frames for a given run) would
+require retention changes, a trace→topic index that exists nowhere, a second longer-lived
+read token, and the `OME-892` volume fix — and it walks into a real hazard: subscribing to
+a reclaimed topic recreates an empty stream holding a full byte reservation and then hangs,
+reachable merely by asking about a missing run. Phase 2's SigNoz export supersedes that
+path entirely and covers successful runs too.
+
+**Two content classes, and the class gates the destination.** Class S (shareable, default)
+carries envelope facts only — trace_id, versions, benchmark and spec ids, failure class and
+error code, timings, close code, and the event stream folded to *structure* (kinds,
+sequence, span names, `gen_ai.*` attributes, token counts, finish reasons) plus a
+structurally redacted url4 expression. Safe for a public issue. Class C adds prompt
+strings, log bodies, and error details, is opt-in per invocation, and may only reach the
+Access-gated sink — never a public issue tracker.
+
+Two hazards make this non-negotiable rather than fussy. The url4 expression carries prompt
+text *structurally* and travels as a GET query string, and uvicorn access logging is on in
+the local runtime, so **`runtime.log` already contains user prompts today**. And
+`~/.screamingface` holds live credentials — Claude Code OAuth access *and refresh* tokens
+in `aigateway.sqlite3`, a live `owner_token` in `runtime.json`. Collection must therefore
+be **allow-list, never a directory sweep**, and must never capture frame locals around
+`connect()` (the API key is a keyword argument) or touch the `Cf-Access-Token`.
+
+**Delivery is blocked on a rule amendment.** CLAUDE.md rule 9 — "API tokens / raw GraphQL
+are forbidden" — has no subject and on its literal wording catches product code calling
+Linear's API, not only agent tooling. Ranked options: an agent files via MCP during triage
+(zero credential, unambiguously compliant, but no ticket id back to the reporter); a GitHub
+App creates an issue that Linear's GitHub sync mirrors (real-time, short-lived
+installation token, needs `.github/ISSUE_TEMPLATE` and `OME-945` first); or product code
+calls `issueCreate` directly, which requires amending rule 9 in writing the way the
+traceback-posture amendment was recorded here. A public intake endpoint also introduces the
+repo's first unauthenticated write that reaches humans, in a codebase with no rate limiting
+anywhere — so rate limiting and a bot gate are part of that option, not a follow-up.
+
+## 7. Verification
 
 Phase 0: per-app `run_gates.py` green; behavior-named tests in house style ("a log record
 carries the gateway_call_id of the request that produced it"; "a terminated run leaves a
