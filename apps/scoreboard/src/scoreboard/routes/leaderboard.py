@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
+from scoreboard.routes.dependencies import ReadIdentity
 from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.frontier import compute_frontier
 from scoreboard.scores.models import Benchmark
@@ -24,6 +25,11 @@ from scoreboard.scores.store import ScoreStore, benchmark_to_schema
 MAX_LEADERBOARD_TOP = 200
 MAX_HISTORY_LIMIT = 100
 
+# INVARIANT (OME-894): ONE detail for every history miss on a private board. Another
+# participant's spec and a spec that never existed must be indistinguishable — a differing status
+# or body would let a caller enumerate specs, which are guessable model names.
+HISTORY_NOT_FOUND_DETAIL = "History not found"
+
 router = APIRouter(prefix="/v1")
 
 
@@ -36,7 +42,10 @@ class BenchmarksResponse(BaseModel):
 class RankedLeaderboardEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    rank: int
+    # WHY optional (OME-894): a private board suppresses rank. Telling a participant they are
+    # 4th tells them three people beat them, so it is omitted rather than computed-and-hidden.
+    # Always populated on a public board.
+    rank: int | None
     spec_id: str
     # WHY: the board ranks best-per-spec PER REVISION (OME-775), so one spec can legitimately
     # appear twice. Without this field a client cannot tell why the two are not competing.
@@ -65,6 +74,11 @@ class LeaderboardResponse(BaseModel):
 
     benchmark: BenchmarkSchema
     entries: list[RankedLeaderboardEntry]
+    # WHY this is not redundant with `benchmark.visibility` (OME-894): visibility says what the
+    # BOARD is; this says whether THIS listing was filtered to the caller. Without it an empty
+    # list is indistinguishable from "nobody has submitted", which is the difference between
+    # hidden-by-design and silently broken.
+    scoped_to_caller: bool
     # FEATURE: OME-322 — imported single-model "line to beat" baselines (LMArena /
     # Artificial Analysis), surfaced alongside community entries. Empty until a
     # baseline is imported via `python -m scoreboard.import_baselines`.
@@ -114,7 +128,7 @@ async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
     return benchmark_to_schema(benchmark)
 
 
-def _ranked_entry(rank: int, entry: LeaderboardEntry) -> RankedLeaderboardEntry:
+def _ranked_entry(rank: int | None, entry: LeaderboardEntry) -> RankedLeaderboardEntry:
     return RankedLeaderboardEntry(rank=rank, **entry.model_dump())
 
 
@@ -143,6 +157,7 @@ async def list_benchmarks(request: Request) -> BenchmarksResponse:
 async def get_leaderboard(
     benchmark_id: str,
     request: Request,
+    identity: ReadIdentity,
     top: Annotated[
         int,
         Query(
@@ -157,13 +172,36 @@ async def get_leaderboard(
     and requests above the public maximum are silently clamped to 200 entries.
     """
     benchmark = await _get_benchmark_or_404(benchmark_id)
+    is_private = benchmark.visibility == "private"
+    # Baselines stay visible on a private board: imported LMArena / Artificial Analysis
+    # single-model numbers are public third-party data, not participant submissions, and a
+    # participant needs the line to beat.
+    baselines = await _baseline_store(request).list_baselines(benchmark_id)
+
+    if is_private and identity is None:
+        # INVARIANT: short-circuit, and do NOT fall through to `leaderboard(owner=None)` —
+        # owner=None means UNSCOPED there, so passing an absent identity straight through would
+        # serve the entire private board to an anonymous caller. This is the leak the ticket
+        # exists to prevent, and it is one keyword argument away at all times.
+        return LeaderboardResponse(
+            benchmark=benchmark, entries=[], baselines=baselines, scoped_to_caller=True
+        )
+
     entries = await _score_store(request).leaderboard(
         benchmark_id=benchmark_id,
         top_n=min(top, MAX_LEADERBOARD_TOP),
+        owner=identity if is_private else None,
     )
-    ranked = [_ranked_entry(index, entry) for index, entry in enumerate(entries, start=1)]
-    baselines = await _baseline_store(request).list_baselines(benchmark_id)
-    return LeaderboardResponse(benchmark=benchmark, entries=ranked, baselines=baselines)
+    ranked = [
+        _ranked_entry(None if is_private else index, entry)
+        for index, entry in enumerate(entries, start=1)
+    ]
+    return LeaderboardResponse(
+        benchmark=benchmark,
+        entries=ranked,
+        baselines=baselines,
+        scoped_to_caller=is_private,
+    )
 
 
 @router.get(
@@ -175,6 +213,7 @@ async def get_spec_history(
     benchmark_id: str,
     spec_id: str,
     request: Request,
+    identity: ReadIdentity,
     limit: Annotated[
         int,
         Query(
@@ -189,12 +228,24 @@ async def get_spec_history(
     while unknown specs under known benchmarks return an empty submissions list.
     Requests above the public maximum are silently clamped to 100 submissions.
     """
-    await _get_benchmark_or_404(benchmark_id)
+    benchmark = await _get_benchmark_or_404(benchmark_id)
+    is_private = benchmark.visibility == "private"
+    if is_private and identity is None:
+        raise HTTPException(status_code=404, detail=HISTORY_NOT_FOUND_DETAIL)
+
     submissions = await _score_store(request).list_for_spec(
         benchmark_id=benchmark_id,
         spec_id=spec_id,
         limit=min(limit, MAX_HISTORY_LIMIT),
+        owner=identity if is_private else None,
     )
+    if is_private and not submissions:
+        # INVARIANT: 404, not 403, and the SAME 404 a nonexistent spec gets. A 403 would confirm
+        # the spec exists; a 200-with-empty-list (what a PUBLIC board returns for an unknown spec)
+        # would make "someone else's" distinguishable from "no such spec". Either one lets a
+        # caller enumerate other participants' spec ids, which are guessable model names.
+        raise HTTPException(status_code=404, detail=HISTORY_NOT_FOUND_DETAIL)
+
     return HistoryResponse(
         spec_id=spec_id,
         benchmark_id=benchmark_id,
@@ -213,7 +264,16 @@ async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
     time. Unknown benchmarks return 404. Deliberately benchmark-wide across every
     spec, not scoped per-spec like the ranked leaderboard above (spec §6).
     """
-    await _get_benchmark_or_404(benchmark_id)
+    benchmark = await _get_benchmark_or_404(benchmark_id)
+    if benchmark.visibility == "private":
+        # An aggregate over every participant by definition. It publishes the running-best score
+        # and when it changed, which is most of what a private challenge hides — so it is
+        # unavailable to participants too, not merely scoped. Nothing here to scope: a
+        # single-participant "frontier" would just restate their own best score under a name that
+        # implies a field.
+        raise HTTPException(
+            status_code=404, detail="Frontier is not available for a private benchmark"
+        )
     scores = await _score_store(request).list_all_for_benchmark(benchmark_id)
     baselines = await _baseline_store(request).list_baselines(benchmark_id)
     result = compute_frontier(scores=scores, baselines=baselines)
