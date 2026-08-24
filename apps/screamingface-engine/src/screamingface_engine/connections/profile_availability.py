@@ -13,7 +13,7 @@ _STATES = frozenset({"pending", "authenticated", "error"})
 
 def decode_profile_statuses(body: dict[str, Any]) -> dict[str, ConnectionStatus]:
     profiles = body.get("profiles")
-    if set(body) != {"profiles"} or not isinstance(profiles, list):
+    if not isinstance(profiles, list):
         raise ConnectionBadResponse()
 
     states_by_provider: dict[str, set[str]] = defaultdict(set)

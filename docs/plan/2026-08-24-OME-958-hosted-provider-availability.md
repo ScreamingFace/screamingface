@@ -20,3 +20,12 @@ spec: ../spec/2026-08-24-OME-958-hosted-provider-availability.md
 6. Run focused tests, the full ScreamingFace Engine gate runner, and a direct `origin/main...HEAD`
    wisdom/confidence review.
 7. Record the outcome, commit with `Refs: OME-958`, and open the Engine PR before starting OME-960.
+
+## Review follow-up
+
+8. Add failing tests proving profile-backed hosted mutation methods reject without any Gateway I/O
+   and profile decoding accepts unrelated envelope fields.
+9. Guard all mutations at the adapter boundary, relax only top-level sibling validation, and make
+   listing-source selection required at the production/local builder seam.
+10. Run focused tests and all Engine gates, update the ledger outcome, commit, and push the draft
+    PR without marking it ready.

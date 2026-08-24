@@ -46,13 +46,38 @@ Engine connection type.
 - No AI Gateway or public `/v1/connections` schema change is introduced.
 - ScreamingFace Engine gates pass at or above their existing coverage threshold.
 
+## Review follow-up
+
+### Planned changes
+
+- Reject connect, OAuth-start, and disconnect before any upstream request when profile-backed
+  hosted listing makes the adapter read-only.
+- Accept unknown sibling fields around the required `profiles` list.
+- Make `listing_source` required at the builder seam so production and local composition cannot
+  silently inherit a default; retain the adapter's legacy default for direct internal use.
+- Add append-only tests for all three hosted mutations, tolerant profile envelopes, and the
+  unchanged mutable local path.
+
+### Test plan
+
+- RED: each hosted mutation raises a safe 4xx connection error and sends zero Gateway requests.
+- RED: profile envelopes with harmless object/paging siblings still project availability.
+- GREEN: existing local list/connect/OAuth/disconnect tests and the full Engine suite remain
+  unchanged.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** the planned composition, adapter, profile projection, shared provider-ID
-  validation, upstream error translation, focused tests, and OME-957/958/960 SDLC artifacts.
-- **Commits:** this implementation commit — `feat(screamingface-engine): derive hosted provider availability`.
+  validation, upstream error translation, hosted read-only mutation guard, focused tests, and
+  OME-957/958/960 SDLC artifacts.
+- **Commits:** `feat(screamingface-engine): derive hosted provider availability`; review follow-up
+  `fix(screamingface-engine): reject hosted provider mutations` (this commit).
 - **Gates:** `run_gates.py screamingface-engine` — ALL GATES GREEN; full suite 2,007 passed,
-  6 skipped; focused connection suite 59 passed; Pyright 0 errors.
+  6 skipped on the initial implementation; review follow-up also passed the complete gate runner
+  and 57 focused adapter tests; Pyright 0 errors.
 - **Deviations:** extracted existing upstream status translation after the initial implementation
-  pushed `aigateway.py` above the 450-line focus limit; final adapter is 440 lines. No AI Gateway
-  or public Engine schema change was required.
+  pushed `aigateway.py` above the 450-line focus limit; final adapter remains within the limit.
+  The follow-up requires `listing_source` at the exported builder seam while retaining the
+  adapter's legacy default for direct internal construction; this preserved every prior test and
+  still makes both production composition omissions fail. No AI Gateway or public Engine success
+  schema change was required.

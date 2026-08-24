@@ -38,7 +38,7 @@ def _default_client(base_url: str) -> httpx.AsyncClient:
 def build_connections(
     settings: _ConnectionSettings,
     *,
-    listing_source: ListingSource = "connections",
+    listing_source: ListingSource,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
 ) -> Connections | None:
     """Build the AI Gateway adapter, or disable the endpoints when no upstream is configured."""

@@ -91,6 +91,7 @@ class AigatewayConnections:
         )
 
     async def connect(self, caller: Caller, provider: str, api_key: str) -> Connection:
+        self._require_mutable()
         selected_provider = _provider(await self._providers(caller), provider)
         if "api_key" not in selected_provider.auth_methods:
             raise ConnectionMethodUnsupported()
@@ -125,6 +126,7 @@ class AigatewayConnections:
         return _public(row, selected_provider)
 
     async def start_oauth(self, caller: Caller, provider: str) -> OAuthAuthorization:
+        self._require_mutable()
         selected_provider = _provider(await self._providers(caller), provider)
         if "oauth" not in selected_provider.auth_methods:
             raise ConnectionMethodUnsupported()
@@ -141,6 +143,7 @@ class AigatewayConnections:
         return _decode_oauth_authorization(response, provider)
 
     async def disconnect(self, caller: Caller, provider: str) -> Connection:
+        self._require_mutable()
         selected_provider = _provider(await self._providers(caller), provider)
         rows = await self._rows(caller, provider=provider)
         selected = _select(rows, provider)
@@ -162,6 +165,12 @@ class AigatewayConnections:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    def _require_mutable(self) -> None:
+        # INVARIANT: profile-backed hosted reads and caller-managed OAuth writes use separate
+        # Gateway stores. Never accept a credential into state this adapter cannot report or use.
+        if self._listing_source == "profiles":
+            raise ConnectionMethodUnsupported()
 
     async def _providers(self, caller: Caller) -> tuple[_Provider, ...]:
         response = await self._request("GET", _PROVIDERS_PATH, caller)

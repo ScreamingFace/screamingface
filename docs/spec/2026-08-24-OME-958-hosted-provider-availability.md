@@ -49,9 +49,10 @@ different authentication types and the hosted Client does not manage those crede
 
 ## Failure and privacy contract
 
-Profile payloads are untrusted upstream data. The collection shape, provider identifiers, and
-profile states are validated before projection. A malformed response fails through the existing
-secret-free `ConnectionBadResponse` mapping.
+Profile payloads are untrusted upstream data. The required `profiles` member, provider identifiers,
+and profile states are validated before projection. Unknown sibling members are ignored so an
+additive Gateway envelope change cannot disable the hosted connections route. A malformed required
+member fails through the existing secret-free `ConnectionBadResponse` mapping.
 
 Caller identity forwarding, `Cache-Control: private, no-store`, and `Vary: X-User-Email` remain
 unchanged. Two callers using the same Engine and catalogue may receive different statuses.
@@ -59,7 +60,10 @@ unchanged. Two callers using the same Engine and catalogue may receive different
 ## Compatibility and exclusions
 
 - Local BYOK list/connect/OAuth/disconnect behavior is unchanged.
+- Profile-backed hosted connections are read-only: connect, OAuth-start, and disconnect fail with
+  a safe 4xx before the adapter sends any Gateway request. This prevents the Engine from accepting
+  credentials into the separate OAuth connection store that hosted reads would never report or
+  use.
 - The public Engine response schema and Client wire decoder are unchanged.
 - This unit does not change AI Gateway, URL4, model execution, or benchmark behavior.
-- Direct hosted credential-mutation routes remain the explicit OME-883 limitation; OME-960 keeps
-  those controls absent from the hosted Client UI.
+- OME-960 also keeps hosted mutation controls absent from the Client UI.

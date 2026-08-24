@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from inspect import Parameter, signature
 
 import httpx
 import pytest
@@ -8,7 +9,11 @@ import pytest
 from screamingface_engine.config import Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.connections.aigateway import AigatewayConnections
-from screamingface_engine.connections.port import Caller, ConnectionBadResponse
+from screamingface_engine.connections.port import (
+    Caller,
+    ConnectionBadResponse,
+    ConnectionMethodUnsupported,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -193,3 +198,50 @@ async def test_builder_can_select_profile_availability_without_a_gateway_change(
         ("openrouter", "connected"),
     ]
     await adapter.aclose()
+
+
+async def test_profile_availability_accepts_additive_envelope_fields() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/providers":
+            return httpx.Response(200, json=_providers())
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "profiles": [_profile("openrouter", "authenticated")],
+                "has_more": False,
+            },
+        )
+
+    adapter, _ = _adapter(handler)
+
+    rows = await adapter.list(Caller(ALICE))
+
+    assert [(row.provider, row.status) for row in rows] == [
+        ("anthropic", "not_connected"),
+        ("openrouter", "connected"),
+    ]
+
+
+@pytest.mark.parametrize("operation", ["connect", "start_oauth", "disconnect"])
+async def test_profile_backed_mutations_are_rejected_before_gateway_io(operation: str) -> None:
+    def unexpected(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"hosted mutation reached AI Gateway: {request.method} {request.url}")
+
+    adapter, seen = _adapter(unexpected)
+
+    with pytest.raises(ConnectionMethodUnsupported) as failure:
+        if operation == "connect":
+            await adapter.connect(Caller(ALICE), "openrouter", "must-not-be-sent")
+        elif operation == "start_oauth":
+            await adapter.start_oauth(Caller(ALICE), "openrouter")
+        else:
+            await adapter.disconnect(Caller(ALICE), "openrouter")
+
+    assert failure.value.status == 400
+    assert seen == []
+    assert "must-not-be-sent" not in str(failure.value)
+
+
+async def test_listing_source_is_required_at_the_composition_seam() -> None:
+    assert signature(build_connections).parameters["listing_source"].default is Parameter.empty
