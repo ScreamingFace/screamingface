@@ -180,18 +180,19 @@ def preview_comment(
     components: Sequence[str],
     images: Sequence[str],
 ) -> str:
+    display_status = "active" if status == "preview" else status
     namespace = f"sf-preview-pr-{number}"
     component_text = ", ".join(components) or "none"
     image_text = ", ".join(images) or "none"
     lines = [
         COMMENT_MARKER,
-        f"## Preview: {status}",
+        f"## Preview: {display_status}",
         "",
         f"- Revision: `{sha}`",
         f"- Components: `{component_text}`",
         f"- Images: `{image_text}`",
     ]
-    if status == "active":
+    if display_status == "active":
         routes: list[str] = []
         if {"aigateway", "aigatewayUi", "engine"} & set(components):
             routes.append(

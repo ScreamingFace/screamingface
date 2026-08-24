@@ -141,13 +141,14 @@ def test_active_comment_contains_access_and_observability_contract() -> None:
     contract = load_contract()
 
     comment = contract.preview_comment(
-        status="active",
+        status="preview",
         number=123,
         sha="a" * 40,
         components=("engine",),
         images=("engine",),
     )
 
+    assert "## Preview: active" in comment
     assert "fusion-pr-123.preview.dev.screamingface.ai" in comment
     assert "kube-pr-123.preview.dev.screamingface.ai/kubeconfig" in comment
     assert "kubectl logs" in comment
