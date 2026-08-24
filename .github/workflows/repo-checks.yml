@@ -10,6 +10,8 @@ on:
       - ".github/workflows/repo-checks.yml"
       - ".github/workflows/preview-*.yml"
       - ".github/scripts/preview_contract.py"
+      - ".github/scripts/preview_access.sh"
+      - ".github/scripts/test_preview_access.py"
       - ".github/scripts/test_preview_contract.py"
       - ".github/dependabot.yml"
       - ".github/dependabot-ignores.yml"
@@ -20,6 +22,8 @@ on:
       - ".github/workflows/repo-checks.yml"
       - ".github/workflows/preview-*.yml"
       - ".github/scripts/preview_contract.py"
+      - ".github/scripts/preview_access.sh"
+      - ".github/scripts/test_preview_access.py"
       - ".github/scripts/test_preview_contract.py"
       - ".github/dependabot.yml"
       - ".github/dependabot-ignores.yml"
@@ -42,7 +46,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - name: Test Preview selection, security, and admission
-        run: uv run --project apps/screamingface-engine pytest .github/scripts/test_preview_contract.py -q
+        run: uv run --project apps/screamingface-engine pytest .github/scripts/test_preview_*.py -q
+      - name: Validate Preview access helper
+        run: bash -n .github/scripts/preview_access.sh
 
   loop-parity:
     runs-on: ubuntu-latest

@@ -151,6 +151,10 @@ def test_active_comment_contains_access_and_observability_contract() -> None:
     assert "## Preview: active" in comment
     assert "fusion-pr-123.preview.dev.screamingface.ai" in comment
     assert "kube-pr-123.preview.dev.screamingface.ai/kubeconfig" in comment
+    assert "preview_access.sh?ref=main" in comment
+    assert "bash -s -- 123" in comment
+    assert "cloudflared access token" not in comment
+    assert "CF_ACCESS_TOKEN" not in comment
     assert "kubectl logs" in comment
     assert "signoz.pulse.dev.openmined.org/logs-explorer" in comment
     assert 'k8s_namespace_name="sf-preview-pr-123"' in comment

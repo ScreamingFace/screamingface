@@ -54,3 +54,5 @@ the pull-request author exact access and observability instructions.
 - **External state:** All required status, component, and image labels exist in the tenant repo.
 - **Deviations:** Linear was unavailable. The owner-authorized OME-965 work item continues
   as the repository-wide Preview automation unit.
+- **Access follow-up:** Replace the error-prone token sequence with a trusted-main helper.
+  The helper handles Cloudflare login, GitHub identity, safe download, and kubeconfig validation.
