@@ -526,7 +526,7 @@ def _status_label(status: str) -> str:
     """Capitalise decisive states; transitional and diagnostic states stay quiet."""
 
     words = status.replace("_", " ")
-    return words.capitalize() if status in {"connected", "authenticated", "unavailable"} else words
+    return words.capitalize() if status in {"connected", "authenticated"} else words
 
 
 def _status_html(status: str, *, label: str | None = None) -> str:

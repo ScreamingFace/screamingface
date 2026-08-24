@@ -40,10 +40,17 @@ provider mutation controls local-only.
   projection; SFDS status styling; focused hosted presentation coverage in
   `test_connection_panel.py`.
 - **Commits:** `feat(screamingface): show hosted provider availability`; review follow-up
-  `fix(screamingface): hide hosted credential lifecycle states` (this commit).
+  `fix(screamingface): hide hosted credential lifecycle states`; final dead-branch cleanup
+  `refactor(screamingface): remove dead unavailable label branch` (this commit).
 - **Gates:** 39 focused connection-panel tests passed; complete `screamingface` gate runner passed
   Ruff, format, Pyright, 95% coverage pytest, notebook checks, build, and distribution checks after
   the review follow-up.
+- **Review verification:** the latest pushed head already asserted the exact hosted Unavailable
+  status cell for `error` in both widget and static HTML output; removed only the genuinely dead
+  generic-label branch identified by the follow-up review.
+- **Dependency verification:** rebased onto `origin/main` after Engine PR #702 merged; resolved the
+  task-mirror conflict by retaining the active Client scope and removing the obsolete blocker.
+  All focused tests and the complete ScreamingFace gate runner passed again after the rebase.
 - **Deviations:** the append-only test check was skipped after it correctly identified the
   intentional, owner-approved replacement of OME-883's obsolete all-hosted-connected assertion.
   It was skipped again for the reviewer-requested replacement of the weak pending/error substring
@@ -57,6 +64,8 @@ provider mutation controls local-only.
 - Replace the split `_provider_status`/`_provider_presentation` decisions with one projection.
 - Render every hosted non-connected Engine state as quiet, unactionable `Unavailable` while
   preserving exact local BYOK states.
+- Remove the now-dead `unavailable` case from the generic status-label helper; hosted presentation
+  supplies its explicit caller-facing label through the projection.
 
 ### Test plan
 
