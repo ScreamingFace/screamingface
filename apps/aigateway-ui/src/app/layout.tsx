@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 
 import { ThemeSwitch } from "./theme";
@@ -63,6 +64,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <header className="app-bar">
+          {/* Console navigation. Links, not client state: the browser handles routing and the
+              active page is simply where the operator already is — a server-rendered app bar has
+              no reliable way to know it without pathname plumbing that buys nothing here. */}
+          <nav className="app-bar-nav" aria-label="Console sections">
+            <Link href="/">Accounts</Link>
+            <Link href="/cache">Response cache</Link>
+          </nav>
           <span className="app-bar-mark">aigateway admin</span>
           <ThemeSwitch />
         </header>

@@ -17,13 +17,15 @@
 
 import { revalidatePath } from "next/cache";
 
-import type { AdminErrorKind, ProfileDefaults } from "@/lib/aigateway/client";
+import type { AdminCacheJob, AdminErrorKind, ProfileDefaults } from "@/lib/aigateway/client";
 import {
   AdminApiError,
   createAccount,
   deleteProfile,
+  listCacheJobs,
   patchAccount,
   setApiKey,
+  uploadCacheSnapshot,
 } from "@/lib/aigateway/client";
 import { describeFailure } from "@/lib/auth";
 
@@ -232,4 +234,61 @@ export async function deleteProfileAction(
 
   revalidateConsole();
   return { ok: true };
+}
+
+/**
+ * Upload one cache snapshot for the gateway to load (OME-953).
+ *
+ * The archive is read out of the FormData as a `File` and handed to the client whole — never
+ * logged, never echoed, and never held in the returned state. There is nothing secret IN a
+ * snapshot (cached provider responses), but it is other callers' data, and the one-way rule the
+ * key actions follow costs nothing to keep here too.
+ */
+export async function uploadCacheSnapshotAction(
+  _prevState: FormState,
+  formData: FormData,
+): Promise<ActionState> {
+  const mode = text(formData, "mode") || "merge";
+  const snapshot = formData.get("snapshot");
+  const manifest = formData.get("manifest");
+
+  if (mode !== "merge" && mode !== "replace") {
+    return { ok: false, error: "Choose a load mode: merge or replace.", field: "mode" };
+  }
+  if (!(snapshot instanceof File) || snapshot.size === 0) {
+    return { ok: false, error: "Attach the snapshot archive (.sql.gz).", field: "snapshot" };
+  }
+  if (snapshot.size > 512 * 1024 * 1024) {
+    // A courtesy bound so a wrong file (e.g. a database backup) fails before the upload; the
+    // gateway's own cap remains the authority and may differ per deployment.
+    return { ok: false, error: "That file is too large to be a snapshot archive.", field: "snapshot" };
+  }
+  if (manifest && !(manifest instanceof File)) {
+    return { ok: false, error: "The manifest must be a file.", field: "manifest" };
+  }
+
+  try {
+    await uploadCacheSnapshot({
+      mode,
+      force: formData.get("force") === "on" || formData.get("force") === "true",
+      acknowledgeLoss:
+        formData.get("acknowledge_loss") === "on" || formData.get("acknowledge_loss") === "true",
+      snapshot,
+      manifest: manifest instanceof File && manifest.size > 0 ? manifest : null,
+    });
+  } catch (error) {
+    return failure(error, "snapshot");
+  }
+
+  revalidateConsole();
+  return { ok: true };
+}
+
+/**
+ * Refresh the cache-job list for the poller. A query-shaped action: it mutates nothing, but
+ * running it as a server action keeps the gateway's address and the identity header server-side,
+ * exactly like every other read the console does.
+ */
+export async function listCacheJobsAction(): Promise<AdminCacheJob[]> {
+  return listCacheJobs();
 }

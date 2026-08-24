@@ -193,6 +193,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/cache/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cache Info */
+        get: operations["cache_info_v1_admin_cache_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/cache/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Snapshot */
+        post: operations["upload_snapshot_v1_admin_cache_snapshots_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/cache/snapshots/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Cache Jobs */
+        get: operations["list_cache_jobs_v1_admin_cache_snapshots_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/cache/snapshots/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Cache Job */
+        get: operations["get_cache_job_v1_admin_cache_snapshots_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/oauth/connections/api-key/validate": {
         parameters: {
             query?: never;
@@ -584,8 +652,67 @@ export interface paths {
         /**
          * List Models
          * @description OpenAI-compatible model listing, aggregated from all loaded provider plugins.
+         *
+         *     Each row carries the OME-479 locked hybrid summary (canonical dispatchable
+         *     ``id`` + effective ``supported_parameters``/``supported_tools`` + literal
+         *     ``reject`` + a same-origin detail URL), composed from each plugin's own
+         *     provider-local rule set.
          */
         get: operations["list_models_v1_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/models/admit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admit Model */
+        post: operations["admit_model_v1_models_admit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Providers
+         * @description List enabled model providers whose credentials a caller can manage.
+         */
+        get: operations["list_providers_v1_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/model-parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Model Parameters */
+        get: operations["model_parameters_v1_model_parameters_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -683,6 +810,79 @@ export interface components {
             /** Is Active */
             is_active: boolean;
         };
+        /**
+         * AdminCacheInfoOut
+         * @description Live state of the global response cache, for the console's cache section.
+         *
+         *     ``revisions`` are the constants every cache key embeds; a snapshot manifest that disagrees
+         *     with them would load rows the gateway can never serve, which is why the console shows the
+         *     live values beside the upload form.
+         */
+        AdminCacheInfoOut: {
+            /** Serving */
+            serving: boolean;
+            /** Row Count */
+            row_count: number;
+            /** Revisions */
+            revisions: {
+                [key: string]: string;
+            };
+        };
+        /** AdminCacheJobList */
+        AdminCacheJobList: {
+            /** Jobs */
+            jobs: components["schemas"]["AdminCacheJobOut"][];
+        };
+        /**
+         * AdminCacheJobOut
+         * @description One snapshot load attempt, as the console lists and polls it.
+         */
+        AdminCacheJobOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** State */
+            state: string;
+            /** Mode */
+            mode: string;
+            /** Actor */
+            actor: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Staged Rows */
+            staged_rows?: number | null;
+            /** Live Before */
+            live_before?: number | null;
+            /** Live After */
+            live_after?: number | null;
+            /** Inserted Rows */
+            inserted_rows?: number | null;
+            /** Updated Rows */
+            updated_rows?: number | null;
+            /**
+             * Manifest Present
+             * @default false
+             */
+            manifest_present: boolean;
+            /**
+             * Forced
+             * @default false
+             */
+            forced: boolean;
+            /** Warnings */
+            warnings?: string[];
+            /** Refusal */
+            refusal?: string | null;
+            /** Error */
+            error?: string | null;
+        };
         /** AdminProfileList */
         AdminProfileList: {
             /** Profiles */
@@ -741,6 +941,34 @@ export interface components {
          * @enum {string}
          */
         ApiKeyValidationState: "valid" | "invalid" | "expired" | "no_quota" | "permission_denied" | "rate_limited" | "unavailable" | "misconfigured";
+        /** Body_upload_snapshot_v1_admin_cache_snapshots_post */
+        Body_upload_snapshot_v1_admin_cache_snapshots_post: {
+            /**
+             * Snapshot
+             * @description gzip'd single-table pg_dump of the cache
+             */
+            snapshot: string;
+            /**
+             * Manifest
+             * @description the .manifest.json snapshot-cache emitted beside the archive
+             */
+            manifest?: string | null;
+            /**
+             * Mode
+             * @default merge
+             */
+            mode: string;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+            /**
+             * Acknowledge Loss
+             * @default false
+             */
+            acknowledge_loss: boolean;
+        };
         /** CreateAccountRequest */
         CreateAccountRequest: {
             /** Username */
@@ -1031,6 +1259,11 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** _AdmitRequest */
+        _AdmitRequest: {
+            /** Model Id */
+            model_id: string;
         };
     };
     responses: never;
@@ -1385,6 +1618,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cache_info_v1_admin_cache_info_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCacheInfoOut"];
+                };
+            };
+        };
+    };
+    upload_snapshot_v1_admin_cache_snapshots_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_snapshot_v1_admin_cache_snapshots_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCacheJobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_cache_jobs_v1_admin_cache_snapshots_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCacheJobList"];
+                };
+            };
+        };
+    };
+    get_cache_job_v1_admin_cache_snapshots_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCacheJobOut"];
                 };
             };
             /** @description Validation Error */
@@ -2228,6 +2565,96 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    admit_model_v1_models_admit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["_AdmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_providers_v1_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    model_parameters_v1_model_parameters_get: {
+        parameters: {
+            query: {
+                model: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
