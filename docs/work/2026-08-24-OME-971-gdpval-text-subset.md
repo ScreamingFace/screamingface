@@ -127,6 +127,27 @@ RED first, per `sdlc-python`.
     prototype's measurements exactly (99 / 209). Prototype-to-production drift here would have
     silently changed the answer key.
 
+### Task 2 — build-time reference extraction (DONE)
+
+- **Actual files:** `benchmarks/gdpval/ingestion.py`, `tests/unit/test_gdpval_ingestion.py`.
+- **Gates:** ALL GATES GREEN. 8 new tests, no prior test touched.
+- **Deviations:**
+  - **The reader is INJECTED rather than imported directly.** `pdfplumber` and `python-docx` are
+    build-time only — absent from the runtime AND the test environment, exactly as `datasets` is
+    for the other preparers — so a module that imported them directly could not be unit-tested at
+    all. The policy (viability floor, error identification, determinism) takes a `reader`
+    callable; `pdf_reader()` / `docx_reader()` are thin adapters exercised only at image build.
+    This is the hexagonal rule in CLAUDE.md applied to a dependency boundary that already existed.
+  - **`MIN_VIABLE_CHARS = 200` is derived, not guessed.** Measured over all 85 reference files of
+    the 109 prose-only tasks: the six unusable extractions clustered at 0, 0, 0, 0, 81 and 106
+    characters; the smallest genuine extraction was 261. Any threshold in (106, 261] separates the
+    two populations. A test asserts the constant stays inside that interval, so a later retune
+    cannot drift to a number nobody can re-derive.
+  - `extract_reference_text` catches broadly and re-raises as `IngestionError`. Deliberate and
+    annotated: readers fail in library-specific ways (python-docx raises XMLSyntaxError for a
+    malformed package), and what the operator needs is WHICH of 85 files broke. The original
+    exception is preserved as the cause.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** <vs planned>
