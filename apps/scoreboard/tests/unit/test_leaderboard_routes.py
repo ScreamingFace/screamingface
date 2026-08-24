@@ -650,3 +650,126 @@ async def test_list_benchmarks_exposes_the_focus_line(async_client: httpx.AsyncC
     by_id = {benchmark["id"]: benchmark for benchmark in response.json()["benchmarks"]}
     assert by_id["draco"]["focus"] == "Research reports with citations"
     assert by_id["hle"]["focus"] is None
+
+
+# --- OME-894 regression guard ----------------------------------------------------------------
+# INVARIANT: a PUBLIC benchmark read ANONYMOUSLY is unchanged by private-leaderboard work. The
+# risk in OME-894 is not failing to hide the private board — it is quietly breaking the public
+# one while doing so. These are written BEFORE any privacy behaviour exists, so they fail for
+# the right reason if a later step regresses the public path.
+#
+# WHY some assertions are supersets and others exact: the plan deliberately ADDS
+# `visibility` to the benchmark DTO and a private flag to the board response, so pinning those
+# key sets exactly would force editing this guard — a prior test — one step later. Superset
+# there still catches a REMOVED or renamed field, which is the regression that matters. Where
+# the plan adds nothing, the assertion is exact, because an unexpected new key on an entry is
+# exactly how participant data would leak.
+
+_PUBLIC_BENCHMARK_FIELDS = {
+    "created_at",
+    "dataset_url",
+    "description",
+    "display_name",
+    "focus",
+    "id",
+    "revision",
+}
+_PUBLIC_BOARD_ENTRY_FIELDS = {
+    "benchmark_revision",
+    "ran_with_providers",
+    "rank",
+    "run_cost_usd",
+    "score",
+    "spec_id",
+    "submitted_at",
+    "submitted_by",
+    "total_questions",
+    "url4_expression",
+    "verified_by_screamingface",
+}
+_PUBLIC_HISTORY_ITEM_FIELDS = {
+    "benchmark_revision",
+    "correct_questions",
+    "id",
+    "run_cost_usd",
+    "score",
+    "submitted_at",
+    "submitted_by",
+    "total_questions",
+    "verified_by_screamingface",
+}
+_PUBLIC_FRONTIER_FIELDS = {
+    "benchmark_id",
+    "closed_count",
+    "current",
+    "open_count",
+    "open_share",
+    "trend",
+}
+
+
+async def _seed_public_board(store: ScoreStore) -> None:
+    await _register_benchmark(store)
+    await store.submit(_submission(spec_id="spec-a", score=0.60, submitted_by="alice@example.test"))
+    await store.submit(_submission(spec_id="spec-b", score=0.90, submitted_by="bob@example.test"))
+
+
+async def test_ome894_guard_public_catalogue_is_unchanged_anonymously(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/benchmarks")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"benchmarks"}
+    assert _PUBLIC_BENCHMARK_FIELDS <= set(body["benchmarks"][0])
+    # The catalogue must never carry a score of any kind — it is the one path a private
+    # benchmark stays listed on (OME-894 D4), so a score here would leak on that path.
+    assert not {"score", "entries", "submissions"} & set(body["benchmarks"][0])
+
+
+async def test_ome894_guard_public_board_is_unchanged_anonymously(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {"benchmark", "entries", "baselines"} <= set(body)
+    entries = body["entries"]
+    assert len(entries) == 2
+    assert set(entries[0]) == _PUBLIC_BOARD_ENTRY_FIELDS
+    # Ranked, best first, numbered from 1 — an anonymous public read still gets real ranks.
+    assert [entry["rank"] for entry in entries] == [1, 2]
+    assert [entry["score"] for entry in entries] == [0.90, 0.60]
+    # INVARIANT (OME-834): the domain is never published, on any path.
+    assert [entry["submitted_by"] for entry in entries] == ["bob", "alice"]
+
+
+async def test_ome894_guard_public_history_is_unchanged_anonymously(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/leaderboard/hle/spec-a/history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"benchmark_id", "spec_id", "submissions"}
+    assert set(body["submissions"][0]) == _PUBLIC_HISTORY_ITEM_FIELDS
+    assert body["submissions"][0]["submitted_by"] == "alice"
+
+
+async def test_ome894_guard_public_frontier_is_unchanged_anonymously(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/leaderboard/hle/frontier")
+
+    assert response.status_code == 200
+    assert set(response.json()) == _PUBLIC_FRONTIER_FIELDS
