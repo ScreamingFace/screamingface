@@ -57,18 +57,31 @@ evaluation table usable at narrow output widths without losing horizontal positi
 - Raise the numeric alignment selector above the table-cell base rule so Cases, Score, Cost, and
   Cache Hit share a right edge in the rendered Colab table.
 
+## Theme ownership follow-up
+
+- Generate the browser, Colab, JupyterLab, and VS Code theme matrix from one shared helper while
+  retaining each surface's existing light/dark SFDS values.
+- Apply the shared matrix to the independent Leaderboard and notice token blocks and to the
+  connection panel's provider-logo variants.
+- Pin every independent notebook theme selector with one parameterized contract test.
+
 ## Outcome
 
-- **Actual files:** shared notebook theme tokens, the runtime evaluation fragment projection, a
+- **Actual files:** shared notebook theme tokens and host-rule generator, the runtime evaluation
+  fragment projection, a
   focused live ipywidgets host, its internal observer import, focused UI/report regressions, and the
   OME-955 SDLC artifacts. Review follow-up removed the dead static panel composition and made the
   stable table HTML widget the only scroll/focus owner. Colab visual follow-up moved result
   qualifiers beneath Score so Status remains lifecycle plus elapsed time without column overlap.
+  Theme follow-up brought Leaderboards, notices, and connection provider logos under the same host
+  matrix without changing their visual tokens.
 - **Commits:** `fix(screamingface): clean up Colab widget styling`;
   `fix(screamingface): align Colab widget runtime semantics`;
   `fix(screamingface): keep grading coverage with Score`;
-  `fix(screamingface): align numeric evaluation columns`
-- **Gates:** 97 focused evaluation/report tests pass; complete `screamingface` gate passes Ruff,
+  `fix(screamingface): align numeric evaluation columns`;
+  `fix(screamingface): unify notebook theme detection`
+- **Gates:** 101 focused Leaderboard/notice/connection/theme-contract tests pass; complete
+  `screamingface` gate passes Ruff,
   formatting, Pyright, the full pytest suite at the 95% coverage floor, notebook checks, package
   build, and distribution validation.
 - **Deviations:** the append-only assertion gate was skipped because this owner-approved ticket
