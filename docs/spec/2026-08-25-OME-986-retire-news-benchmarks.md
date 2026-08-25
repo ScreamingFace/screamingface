@@ -35,6 +35,9 @@ and that stops being true the moment a tester submits against one of them.
 | D1 | A **read-only-by-default operator module**, not a migration and not raw SQL | Owner call. Matches the `seed.py` / `import_baselines.py` / `export_private_submissions.py` precedent: `main(argv)`, no HTTP surface, run where database credentials already are. Reviewable and repeatable. |
 | D2 | It **refuses** when any score or baseline references the benchmark | F4 makes the database refuse anyway; the point is to report *which* rows block it, rather than surface an `IntegrityError` traceback at an operator. Never destroys submissions. |
 | D3 | Scope is exactly the three revision-less ids | Owner call. Precisely what Irina named, and precisely the set F5 identifies. The five Engine-published benchmarks are a different conversation, and retiring one of those would need Engine-side work too. |
+| D5 | The module is named `retire_benchmark`, and its docstring states plainly that it performs an irreversible DELETE | Owner call, 2026-08-25. Keeps the language the ticket and Irina used. The naming risk — "retire" reading as a reversible state the row does not get — is answered in the docstring rather than the filename. |
+| D6 | Deletion requires an explicit `--yes` | Owner call. Every other operator module here is additive or read-only; this is the first that destroys, so the destructive step is opt-in rather than the default outcome of a correct-looking command. |
+| D7 | An unknown benchmark id is refused with a non-zero exit | Owner call. "Already gone" and "you typed it wrong" must not look identical to someone cleaning up a live board. Matches `export_private_submissions`, which exits 2. |
 | D4 | Also remove the three from the chart seed list | Otherwise the next deploy recreates what the module just removed. Necessary but, per F2, not sufficient on its own. |
 
 ## 4. Explicitly rejected
@@ -60,7 +63,8 @@ deployed.
 
 ## 6. Acceptance
 
-- The module deletes a benchmark that has no scores and no baselines.
+- The module deletes a benchmark that has no scores and no baselines, **only** when `--yes` is given.
+- Without `--yes` it reports what it would do and deletes nothing.
 - It refuses, naming the blocker, when either exists — and the benchmark survives.
 - An unknown benchmark id is refused rather than reported as success.
 - The three ids are gone from the chart seed list.

@@ -1,7 +1,7 @@
 ---
 id: OME-986
 linear_url: https://linear.app/openmined/issue/OME-986/retire-the-legacy-news-demo-benchmarks-from-the-scoreboard-catalogue
-status: planned
+status: in_review
 type: task
 priority: P1
 labels: [scoreboard, agentic, autonomous, task]

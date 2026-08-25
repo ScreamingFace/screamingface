@@ -55,9 +55,14 @@ cleaning up a live board.
 **RED:** `main(["--benchmark", "hle"])` exits non-zero on a refusal and zero on success; it prints
 what it did.
 
+**RED, additionally:** without `--yes` it reports what it *would* delete and the benchmark still
+exists afterwards; with `--yes` it deletes.
+
 **GREEN:** `_build_parser` / `main(argv)`, shaped like `seed.py` and
 `export_private_submissions.py`. `parser.error` for refusals, so the exit code is non-zero without
-a traceback.
+a traceback. `--yes` gates the delete (spec D6): this is the first operator module here that
+destroys anything, so the destructive step is opt-in rather than the default outcome of a
+correct-looking command.
 
 ---
 
