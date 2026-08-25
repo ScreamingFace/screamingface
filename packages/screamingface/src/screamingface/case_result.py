@@ -27,6 +27,10 @@ type CheckOutcome = Literal["MET", "UNMET"]
 # `benchmarks/contract.py` CaseStatus.
 type CaseStatus = Literal["scored", "refused", "failed"]
 type StopReason = Literal["passed", "max_rounds"]
+# Which side refused a refused Case — derived from the two provider-verbatim signals
+# the Engine's runner classifies a refusal from (OME-745, `runner/model_response.py`);
+# never carried on the wire.
+type RefusalKind = Literal["provider_declined", "model_refusal"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +336,28 @@ class CaseResult:
     @property
     def metadata(self) -> Mapping[str, object]:
         return self._metadata
+
+    @property
+    def refusal_kind(self) -> RefusalKind | None:
+        """Which side refused: the provider declined, or the model answered by refusing.
+
+        The Engine classifies a refused turn from two provider-verbatim signals it
+        already publishes on every Case (OME-745, the Engine's
+        `runner/model_response.py`): a ``content_filter`` finish reason means the
+        provider's filter terminated the call, and a non-null ``refusal`` carries the
+        model's own refusal message. This property is the client's ONE reading of
+        that split, checked in the Engine classifier's own order — ``content_filter``
+        first, so a filtered turn that also carries refusal text still reads as the
+        provider declining. ``None`` for any non-refused Case, and for a refused Case
+        whose payload carries neither signal (older Engines) — unknown, never a
+        guess. Derived, never serialized: ``to_dict`` stays byte-identical.
+        """
+
+        if self.status != "refused":
+            return None
+        if self.finish_reason == "content_filter":
+            return "provider_declined"
+        return "model_refusal" if self.refusal is not None else None
 
     @property
     def conversation(self) -> tuple[tuple[str, str], ...] | None:
