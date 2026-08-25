@@ -1,12 +1,12 @@
 ---
 id: OME-963
 linear_url: https://linear.app/openmined/issue/OME-963/fail-ci-when-the-public-sdk-surface-changes
-status: backlog
+status: done
 type: feature
 priority: 3
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-24
-closed:
+closed: 2026-08-25
 ---
 
 # Fail CI when the public SDK surface changes
