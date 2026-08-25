@@ -1,5 +1,7 @@
 """Leaderboard discovery through the lazy default Client."""
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from uuid import UUID
 
