@@ -34,7 +34,7 @@ and that stops being true the moment a tester submits against one of them.
 |---|---|---|
 | D1 | A **read-only-by-default operator module**, not a migration and not raw SQL | Owner call. Matches the `seed.py` / `import_baselines.py` / `export_private_submissions.py` precedent: `main(argv)`, no HTTP surface, run where database credentials already are. Reviewable and repeatable. |
 | D2 | It **refuses** when any score or baseline references the benchmark | F4 makes the database refuse anyway; the point is to report *which* rows block it, rather than surface an `IntegrityError` traceback at an operator. Never destroys submissions. |
-| D3 | Scope is exactly the three revision-less ids | Owner call. Precisely what Irina named, and precisely the set F5 identifies. The five Engine-published benchmarks are a different conversation, and retiring one of those would need Engine-side work too. |
+| D3 | ~~Scope is exactly the three revision-less ids~~ — **superseded by D8** | Owner call. Precisely what Irina named, and precisely the set F5 identifies. The five Engine-published benchmarks are a different conversation, and retiring one of those would need Engine-side work too. |
 | D5 | The module is named `retire_benchmark`, and its docstring states plainly that it performs an irreversible DELETE | Owner call, 2026-08-25. Keeps the language the ticket and Irina used. The naming risk — "retire" reading as a reversible state the row does not get — is answered in the docstring rather than the filename. |
 | D6 | Deletion requires an explicit `--yes` | Owner call. Every other operator module here is additive or read-only; this is the first that destroys, so the destructive step is opt-in rather than the default outcome of a correct-looking command. |
 | D7 | An unknown benchmark id is refused with a non-zero exit | Owner call. "Already gone" and "you typed it wrong" must not look identical to someone cleaning up a live board. Matches `export_private_submissions`, which exits 2. |
@@ -70,3 +70,44 @@ deployed.
 - The three ids are gone from the chart seed list.
 - `GET /v1/benchmarks` no longer advertises them once the module has run.
 - Full gates green.
+
+
+## 7. Review round — 2026-08-25
+
+Three items from @HupBaHa on PR #726. He signed off explicitly on the FK protection, the dry-run
+default, the reference refusal and the check/delete race handling; these are the corrections.
+
+### D8 — `retire_benchmark` is a general operator command (supersedes D3)
+
+**Owner decision.** It retires any unreferenced benchmark, not only the three OME-986 legacy ids.
+D3 scoped the *ticket*; the tool built for it is reusable and the recorded intent now says so.
+
+Unchanged by this: the reference guard stays **unconditional**, `--include-engine-owned` stays for
+the stranded case where the Engine no longer publishes a benchmark, and the documentation keeps
+warning that an actively published Engine benchmark will simply be recreated by the next seed.
+
+### D9 — the delete must confirm it deleted
+
+`QuerySet.delete()` returns a row count and the first implementation discarded it, so a benchmark
+that vanished concurrently still printed `retired` — success reported for a no-op, the same family
+as the check/delete race already fixed and missed while fixing it.
+
+Three changes, all with tests that fail without them:
+
+* the row count is required to be exactly `1`, and anything else is a refusal;
+* `Benchmark.get()` became `get_or_none()` — the row disappearing between the existence check and
+  the revision read raised `DoesNotExist`, a third unhandled path `main()` does not catch;
+* **the Engine-ownership guard is repeated in the DELETE predicate**, not merely read beforehand.
+  A benchmark that gains a revision between the read and the write must not be removed by a call
+  that refused to touch Engine-owned rows, and a predicate is the only way to make that atomic.
+
+### D10 — the CLI boundary is tested
+
+`_build_parser`, `_run()` and `main()` had no coverage: the decision function was tested well and
+the boundary not at all. `tests/unit/test_retire_benchmark_cli.py` covers the dry-run default,
+`--yes`, exit code 2 without a traceback for both the unknown and the referenced case,
+`--include-engine-owned` wiring, and that the override alone does not delete without `--yes`.
+
+It runs against a real on-disk SQLite database rather than the `tortoise_db` fixture, deliberately:
+`main()` goes through `Settings()`, `init_db()` and `close_db()`, and a fixture-provided connection
+would hide whether the CLI opens and closes its own on both the success and the refusal path.

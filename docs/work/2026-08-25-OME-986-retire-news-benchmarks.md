@@ -113,6 +113,27 @@ public artifact files. Those are the portal's `PUBLIC_ARTIFACTS` allowlist, stil
 and still served — a separate concern from benchmark registration. Retiring the benchmark does not
 retire the artifact, and widening this unit to cover it would be scope creep.
 
+## Review round — 2026-08-25 (@HupBaHa, PR #726)
+
+Changes requested on three items; the safety core was signed off explicitly. Reasoning in spec §7
+(D8–D10).
+
+- **D8 — scope widened by owner decision.** `retire_benchmark` is a general operator command for
+  any unreferenced benchmark, not only the three legacy ids. The reference guard stays
+  unconditional and `--include-engine-owned` stays for the stranded case.
+- **D9 — the delete now confirms it deleted.** The row count was discarded, so a concurrently
+  vanished benchmark printed `retired`. Also fixed a third unhandled path (`get()` →
+  `get_or_none()`, which raised `DoesNotExist`), and moved the Engine-ownership guard into the
+  DELETE predicate so it holds at the write rather than only at the read.
+- **D10 — the CLI boundary is tested**, against a real on-disk database so the init/close paths are
+  genuinely exercised.
+
+Both new guards are mutation-proven: dropping the `--include-engine-owned` wiring fails two CLI
+tests, and ignoring the delete row count fails two decision tests.
+
+This is the second review round where the finding was **adjacent to something I had just fixed** —
+the row count sits directly beside the race I had hardened. Same pattern as OME-894's rounds.
+
 ## Owner-verify
 
 - **The config half may land nowhere.** The chart's seed list is now `[]`, but the deployed values

@@ -269,3 +269,73 @@ async def test_a_reference_added_after_the_check_is_a_refusal_not_a_traceback(
 
     assert "1 score" in str(refusal.value)
     assert await Benchmark.exists(id=BENCHMARK)
+
+
+# --- review round 2: the delete must confirm it actually deleted ------------------------------
+# Same family as the check/delete race already fixed: reporting success for something that did
+# not happen. Raised by @HupBaHa on PR #726.
+
+
+async def test_a_benchmark_vanishing_before_the_revision_read_is_a_refusal(
+    tortoise_db: None,
+) -> None:
+    # `Benchmark.get()` raises DoesNotExist if the row went while we were deciding — a third
+    # unhandled path alongside the two already covered, and main() catches neither.
+    store = ScoreStore()
+    await _register(store)
+    real_collect = retire_benchmark.__globals__["collect_blockers"]
+
+    async def _delete_it(benchmark_id: str):
+        await Benchmark.filter(id=benchmark_id).delete()
+        return Blockers(scores=0, baselines=0)
+
+    retire_benchmark.__globals__["collect_blockers"] = _delete_it
+    try:
+        with pytest.raises(RetirementRefused):
+            await retire_benchmark(BENCHMARK, confirmed=True)
+    finally:
+        retire_benchmark.__globals__["collect_blockers"] = real_collect
+
+
+async def test_a_delete_matching_no_rows_is_not_reported_as_retired(
+    tortoise_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: `QuerySet.delete()` returns a row count. Ignoring it means a benchmark that
+    # disappeared concurrently still prints "retired" — success reported for a no-op.
+    store = ScoreStore()
+    await _register(store)
+    stale = await Benchmark.get(id=BENCHMARK)
+
+    async def _stale_read(**kwargs: object):
+        # The guard read succeeds, then the row goes before the DELETE runs.
+        await Benchmark.filter(id=BENCHMARK).delete()
+        return stale
+
+    monkeypatch.setattr(Benchmark, "get_or_none", _stale_read)
+
+    with pytest.raises(RetirementRefused) as refusal:
+        await retire_benchmark(BENCHMARK, confirmed=True)
+
+    assert "matched 0 rows" in str(refusal.value)
+
+
+async def test_a_revision_appearing_after_the_guard_is_not_deleted(
+    tortoise_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: the Engine-ownership guard must hold at the DELETE, not only at the read. A
+    # benchmark that gains a revision in between must not be removed by a call that refused to
+    # touch Engine-owned rows.
+    store = ScoreStore()
+    await _register(store)
+    stale = await Benchmark.get(id=BENCHMARK)  # revision is None here
+
+    async def _stale_read(**kwargs: object):
+        await Benchmark.filter(id=BENCHMARK).update(revision="rev-appeared")
+        return stale
+
+    monkeypatch.setattr(Benchmark, "get_or_none", _stale_read)
+
+    with pytest.raises(RetirementRefused):
+        await retire_benchmark(BENCHMARK, confirmed=True)
+
+    assert await Benchmark.exists(id=BENCHMARK)

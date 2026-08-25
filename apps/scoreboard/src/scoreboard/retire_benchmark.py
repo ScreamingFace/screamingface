@@ -69,6 +69,43 @@ async def collect_blockers(benchmark_id: str) -> Blockers:
     )
 
 
+async def _delete_exactly_one(benchmark_id: str, *, include_engine_owned: bool) -> None:
+    """Delete the benchmark, or raise ``RetirementRefused`` explaining why it did not happen.
+
+    INVARIANT: the Engine-ownership guard is repeated in the DELETE predicate, not merely read
+    beforehand. A benchmark that gains a revision between the read and the write must not be
+    removed by a call that refused to touch Engine-owned rows, and a predicate is the only way to
+    make that atomic (raised in review of PR #726).
+
+    INVARIANT: `QuerySet.delete()` returns a row count, and ignoring it reports success for
+    something that did not happen. Anything but exactly one row is a refusal.
+    """
+    predicate: dict[str, object] = {"id": benchmark_id}
+    if not include_engine_owned:
+        predicate["revision"] = None
+
+    try:
+        deleted = await Benchmark.filter(**predicate).delete()
+    except IntegrityError as exc:
+        # A score or baseline inserted between the blockers check and this DELETE must surface as
+        # the same readable refusal, not the traceback this module exists to replace. The RESTRICT
+        # foreign key is what raises; re-read the counts so the message names what actually landed.
+        raced = await collect_blockers(benchmark_id)
+        raise RetirementRefused(
+            raced.describe(benchmark_id)
+            if raced
+            else f"refusing to retire {benchmark_id!r}: something began referencing it "
+            "while this ran."
+        ) from exc
+
+    if deleted != 1:
+        raise RetirementRefused(
+            f"refusing to report {benchmark_id!r} retired: the delete matched {deleted} rows. "
+            "It disappeared or became Engine-owned while this ran; re-run to see its current "
+            "state."
+        )
+
+
 async def retire_benchmark(
     benchmark_id: str, *, confirmed: bool = False, include_engine_owned: bool = False
 ) -> str:
@@ -91,7 +128,13 @@ async def retire_benchmark(
     if blockers:
         raise RetirementRefused(blockers.describe(benchmark_id))
 
-    benchmark = await Benchmark.get(id=benchmark_id)
+    benchmark = await Benchmark.get_or_none(id=benchmark_id)
+    if benchmark is None:
+        # It was there for the existence check and gone by now. get() would raise DoesNotExist,
+        # which main() does not catch — the traceback this module exists to replace.
+        raise RetirementRefused(
+            f"refusing to retire {benchmark_id!r}: it disappeared while this ran."
+        )
     if benchmark.revision is not None and not include_engine_owned:
         # WHY refuse rather than delete: an Engine-published benchmark is re-seeded from the
         # Engine catalogue on the next deploy, so deleting it here does not achieve what the
@@ -111,20 +154,7 @@ async def retire_benchmark(
     if not confirmed:
         return f"would retire {benchmark_id!r}: nothing references it. Re-run with --yes."
 
-    try:
-        await Benchmark.filter(id=benchmark_id).delete()
-    except IntegrityError as exc:
-        # INVARIANT: a score or baseline inserted between the check above and this DELETE must
-        # surface as the same readable refusal, not as the traceback this module exists to
-        # replace. The RESTRICT foreign key is what raises; re-read the counts so the message
-        # names what actually landed (found in review of PR #726).
-        raced = await collect_blockers(benchmark_id)
-        raise RetirementRefused(
-            raced.describe(benchmark_id)
-            if raced
-            else f"refusing to retire {benchmark_id!r}: something began referencing it "
-            "while this ran."
-        ) from exc
+    await _delete_exactly_one(benchmark_id, include_engine_owned=include_engine_owned)
     return f"retired {benchmark_id!r}"
 
 
