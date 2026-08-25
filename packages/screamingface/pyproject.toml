@@ -54,6 +54,7 @@ runtime = [
     "prometheus-client>=0.26.0",
     "pydantic-settings>=2.14.2",
     "pyjwt==2.13.0",
+    "python-multipart>=0.0.20",
     "tortoise-orm[asyncpg]==1.1.8",
     "uvicorn[standard]>=0.52.3",
 ]
