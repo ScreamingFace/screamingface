@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import subprocess
@@ -10,20 +9,56 @@ from pathlib import Path
 
 import pytest
 
-from screamingface._runtime import cli, runtime_logging, server
+from screamingface._runtime import cli, runtime_logging
 from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig
 
 
 def test_external_shutdown_waiter_can_be_cancelled_before_event_is_set() -> None:
-    async def cancel_waiter() -> None:
-        task = asyncio.create_task(server._wait_for_thread_event(threading.Event()))
-        await asyncio.sleep(0)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(task, timeout=1)
+    script = """
+import asyncio
+import contextlib
+import threading
 
-    asyncio.run(cancel_waiter())
+from screamingface._runtime import server
+
+
+class ObservedEvent(threading.Event):
+    def __init__(self) -> None:
+        super().__init__()
+        self.waiter_started = threading.Event()
+
+    def is_set(self) -> bool:
+        self.waiter_started.set()
+        return super().is_set()
+
+    def wait(self, timeout=None) -> bool:
+        self.waiter_started.set()
+        return super().wait(timeout)
+
+
+async def cancel_waiter() -> None:
+    event = ObservedEvent()
+    task = asyncio.create_task(server._wait_for_thread_event(event))
+    while not event.waiter_started.is_set():
+        await asyncio.sleep(0)
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
+asyncio.run(cancel_waiter())
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_parser_exposes_public_commands() -> None:
