@@ -1,5 +1,7 @@
 """Benchmark discovery through the lazy default Client."""
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 
 from screamingface._default_client import default_client
