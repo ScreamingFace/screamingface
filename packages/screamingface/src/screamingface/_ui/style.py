@@ -68,6 +68,8 @@ STYLE = f"""<style>
   font-size:13px;line-height:1.45;
 }}
 @media (prefers-color-scheme:dark){{.sf-ui{{{_DARK}}}}}
+:where(html[theme="light"]) .sf-ui{{{_LIGHT}}}
+:where(html[theme="dark"]) .sf-ui{{{_DARK}}}
 .jp-mod-theme-dark .sf-ui,[data-jp-theme-light="false"] .sf-ui,
 .vscode-dark .sf-ui,.vscode-high-contrast .sf-ui{{{_DARK}}}
 .jp-mod-theme-light .sf-ui,[data-jp-theme-light="true"] .sf-ui,

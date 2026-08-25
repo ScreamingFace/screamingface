@@ -3,16 +3,32 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 
-type BenchmarkAssetPreparer = Callable[[Path], None]
+type BenchmarkAssetSummary = Mapping[str, Any]
+type BenchmarkAssetPreparer = Callable[[Path], BenchmarkAssetSummary]
 
 _ASSET_BUNDLE_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
+
+
+class BenchmarkAssetPreparationError(RuntimeError):
+    """An expected, operator-readable refusal to prepare a benchmark asset bundle."""
+
+
+class BenchmarkAssetPreparerContractError(TypeError):
+    """A preparer broke the port contract — a defect in this codebase, not an asset refusal.
+
+    WHY a separate hierarchy: `BenchmarkAssetPreparationError` is the orchestrator CLI's exit-1
+    channel for dataset and answer-key drift, reported without a traceback. A wrongly-typed
+    preparer is a programming defect; laundering it through that channel sends an operator
+    hunting for dataset drift that does not exist. `TypeError` keeps it recognisable as one.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,22 +99,48 @@ class BenchmarkDeployment:
 
         return self._registrations
 
-    def prepare_assets(self, root: Path) -> tuple[Path, ...]:
-        """Prepare every unique required bundle beneath ``root``, in stable ID order."""
+    def prepare_assets(
+        self,
+        root: Path,
+        on_prepared: Callable[[str, BenchmarkAssetSummary], None] | None = None,
+    ) -> dict[str, BenchmarkAssetSummary]:
+        """Prepare every unique bundle and retain its audit summary in stable ID order.
+
+        WHY `on_prepared`: bundles write real files as they go, so a later bundle's refusal
+        must not erase the evidence for the ones that already landed. The callback fires as
+        each bundle completes, letting a caller stream its audit record before any failure —
+        while the I/O decision stays with the caller and out of this orchestrator.
+        """
 
         root.mkdir(parents=True, exist_ok=True)
-        prepared: list[Path] = []
+        prepared: dict[str, BenchmarkAssetSummary] = {}
         for bundle in self._asset_bundles:
             out = root / bundle.id
             out.mkdir(parents=True, exist_ok=True)
-            bundle.prepare(out)
-            prepared.append(out)
-        return tuple(prepared)
+            observed = bundle.prepare(out)
+            if not isinstance(observed, Mapping):
+                raise BenchmarkAssetPreparerContractError(
+                    f"bundle {bundle.id!r} preparer returned "
+                    f"{type(observed).__name__}, not a summary mapping"
+                )
+            # INVARIANT: snapshot the adapter's own top-level observations so a later mutation
+            # of the mapping it handed back cannot rewrite this bake's reported evidence.
+            # AIDEV-NOTE: shallow by design — a preparer must build its values fresh rather
+            # than hand back a container it keeps mutating. Deep-copying arbitrary adapter
+            # values would be the orchestrator guessing at their semantics.
+            summary = dict(observed)
+            prepared[bundle.id] = summary
+            if on_prepared is not None:
+                on_prepared(bundle.id, summary)
+        return prepared
 
 
 __all__ = [
     "BenchmarkAssetBundle",
     "BenchmarkAssetPreparer",
+    "BenchmarkAssetPreparationError",
+    "BenchmarkAssetPreparerContractError",
+    "BenchmarkAssetSummary",
     "BenchmarkDeployment",
     "BenchmarkRegistration",
 ]

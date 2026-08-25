@@ -81,6 +81,8 @@ def build_job_runner(
                 if name
             ),
             resources=settings.runner_resources,
+            node_selector=settings.runner_node_selector,
+            tolerations=settings.runner_tolerations,
             job_ttl_s=settings.effective_job_ttl_s,
             extra_models=extra_models,
         )

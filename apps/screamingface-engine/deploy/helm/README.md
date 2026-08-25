@@ -132,6 +132,8 @@ What the App schedules:
   at `/tmp` (required by `readOnlyRootFilesystem`)
 - `resources` from `runner.resources` — without them the Runner schedules **BestEffort**: placed
   blind, evicted first, free to OOM the node it shares
+- `nodeSelector` and `tolerations` from the chart's top-level placement values — the Runner and
+  Engine Deployment therefore use the same operator-owned node pool and taint policy
 - `ttlSecondsAfterFinished` — see the invariant below
 
 > **INVARIANT — the TTL floor.** The Job's deterministic *name* is the stateless single-use replay

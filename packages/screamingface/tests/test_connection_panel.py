@@ -95,6 +95,20 @@ def _panel(client: object) -> sf.ConnectionPanel:
     return sf.ConnectionPanel(cast(Any, client))
 
 
+def _hosted_panel(*connections: sf.Connection) -> sf.ConnectionPanel:
+    class Connections:
+        def list(self) -> tuple[sf.Connection, ...]:
+            return connections
+
+    class HostedClient:
+        engine_url = "https://fusion.dev.screamingface.ai"
+        authenticated = True
+        authenticating = False
+        connections = Connections()
+
+    return _panel(HostedClient())
+
+
 async def _wait_for_button(widget: widgets.Widget, description: str) -> None:
     for _ in range(100):
         if [button.description for button in _buttons(widget)] == [description]:
@@ -861,7 +875,7 @@ def test_non_screamingface_hosted_engine_shows_a_neutral_label_without_the_mark(
     root.close()
 
 
-def test_authenticated_hosted_provider_rows_show_managed_availability_without_controls() -> None:
+def test_authenticated_hosted_provider_rows_show_caller_availability_without_controls() -> None:
     connected = sf.Connection(
         provider="openrouter",
         display_name="OpenRouter",
@@ -878,34 +892,50 @@ def test_authenticated_hosted_provider_rows_show_managed_availability_without_co
         auth_method=None,
         account_label=None,
     )
-
-    class Connections:
-        def list(self) -> tuple[sf.Connection, ...]:
-            return (connected, caller_disconnected)
-
-    class HostedClient:
-        engine_url = "https://fusion.dev.screamingface.ai"
-        authenticated = True
-        authenticating = False
-        connections = Connections()
-
-    panel = _panel(HostedClient())
+    panel = _hosted_panel(connected, caller_disconnected)
     root = panel.widget()
 
     text = _text(root)
     html = panel._repr_html_()
     representation = repr(panel)
     assert [button.description for button in _buttons(root)] == ["Log out"]
-    assert "Available via ScreamingFace" in text
-    assert "Available via ScreamingFace" in html
-    assert text.count("Connected") == 2
-    assert "unavailable" not in text
-    assert "unavailable" not in html
+    assert text.count("Available via ScreamingFace") == 1
+    assert html.count("Available via ScreamingFace") == 1
+    assert text.count("Connected") == 1
+    assert "Unavailable" in text
+    assert "Unavailable" in html
     assert "private-account@example.com" not in text
     assert "private-account@example.com" not in html
     assert "openrouter=connected" in representation
-    assert "anthropic=connected" in representation
+    assert "anthropic=unavailable" in representation
     assert "not_connected" not in representation
+    root.close()
+
+
+@pytest.mark.parametrize("status", ["not_connected", "pending", "needs_reauth", "error"])
+def test_hosted_non_connected_wire_states_project_to_unavailable(status: str) -> None:
+    connection = sf.Connection(
+        provider="future",
+        display_name="Future Provider",
+        auth_methods=("oauth",),
+        status=cast(Any, status),
+        auth_method=None,
+        account_label=None,
+    )
+    panel = _hosted_panel(connection)
+    root = panel.widget()
+
+    expected_cell = (
+        "<div class='sf-connections__status unavailable'><i class='sq'></i>Unavailable</div>"
+    )
+    widget_text = _text(root)
+    html = panel._repr_html_()
+    assert widget_text.count(expected_cell) == 1
+    assert html.count(expected_cell) == 1
+    assert "Available via ScreamingFace" not in widget_text
+    assert "Available via ScreamingFace" not in html
+    assert "future=unavailable" in repr(panel)
+    assert [button.description for button in _buttons(root)] == ["Log out"]
     root.close()
 
 

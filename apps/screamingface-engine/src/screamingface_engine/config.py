@@ -146,6 +146,10 @@ class Settings(BaseSettings):
     # supplies the numbers. Shape is the k8s `resources` block verbatim, e.g.
     # {"requests": {"cpu": "200m", "memory": "256Mi"}, "limits": {"memory": "1Gi"}}.
     runner_resources: dict[str, dict[str, str]] | None = None
+    # INVARIANT: Runner Jobs use the same operator-owned placement as the Engine Deployment.
+    # The chart supplies Kubernetes-native structures, so this code stays environment-neutral.
+    runner_node_selector: dict[str, str] = Field(default_factory=dict)
+    runner_tolerations: list[dict[str, object]] = Field(default_factory=list)
     # --- model catalog (OME-625). The catalog endpoint forwards the CALLER's
     # credential, so there is deliberately NO credential setting here:
     # screamingface-engine holds no aigateway secret. `aigateway_base_url` above is

@@ -176,6 +176,25 @@ human contributors.** As a human, the list above is the whole contract: issue â†
 conventional commits â†’ PR. The agent contract is documented in
 [`.claude/README.md`](.claude/README.md).
 
+## Pull-request Preview environments
+
+A same-repository pull request receives a Preview only when it changes a deployable runtime.
+The automation builds only affected images. Engine changes also build the Engine benchmark image.
+
+The maintained `Preview` pull-request comment shows the current state and exact revision.
+It also shows application links, Kubernetes commands, and SigNoz links after admission.
+
+Preview states use these labels:
+
+- `preview-building`: Required images are not ready.
+- `preview-queued`: Images are ready, and the request waits for a slot.
+- `preview`: Argo CD deploys the request.
+- `preview-expired`: The 72-hour active period ended.
+- `no-preview`: The author disabled the Preview.
+
+Only three Preview environments can be active. The oldest ready request receives the next slot.
+Close the pull request to delete its Preview. Pull-request code receives no Kubernetes credential.
+
 ## Releases
 
 | Stack | How |
