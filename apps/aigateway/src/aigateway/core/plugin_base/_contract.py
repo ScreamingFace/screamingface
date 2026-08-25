@@ -51,8 +51,9 @@ class ModelDiscoverySource:
     """Identity + cache policy of a provider's live MODEL-LIST source (OME-972).
 
     # WHY a separate type from ``DiscoverySourceRef``: the model list is one
-    # deployment-wide document per provider, so its cache policy (how fresh the
-    # LISTING must be) is provider knowledge and rides on the declaration —
+    # process-local cached document per provider, shared across accounts, so
+    # its policy (how fresh the LISTING must be) is provider knowledge and rides
+    # on the declaration —
     # parameter evidence keys per model and takes its policy from app settings.
     # INVARIANT: declared BEFORE any fetch, like every discovery source ref —
     # the cache judges a stored snapshot by this ``revision`` without dialing.
@@ -274,9 +275,9 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
     def model_discovery_source(self) -> ModelDiscoverySource | None:
         """Identity + cache policy of this provider's live model-LIST source (OME-972).
 
-        The listing sibling of ``chat_discovery_source``: one deployment-wide
-        document per provider, declared before any fetch so the model catalog can
-        trust or expire a stored snapshot without dialing.
+        The listing sibling of ``chat_discovery_source``: one process-local cached
+        document per provider, shared across accounts and declared before any
+        fetch so the catalog can trust or expire a stored snapshot without dialing.
 
         INVARIANT: returning a source commits the provider to answering
         ``discover_live_models`` with entries or a sanitized ``DiscoveryError`` —

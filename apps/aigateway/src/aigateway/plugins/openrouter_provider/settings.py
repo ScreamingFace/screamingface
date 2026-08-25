@@ -57,9 +57,10 @@ ONLINE_VARIANT_SUFFIX = ":online"
 def is_online_variant(model: str) -> bool:
     """True for OpenRouter's implicit web-search model variant.
 
-    ONE predicate for two call sites that must never disagree: ``prepare_chat_body``
+    ONE predicate for three call sites that must never disagree: ``prepare_chat_body``
     REFUSES such a model (search is a provider-neutral Gateway parameter, and this suffix
-    is a second route around it), and the global-cache projection BYPASSES it. Both are
+    is a second route around it), the global-cache projection BYPASSES it, and
+    ``_validate_gateway_slug`` refuses to CONFIGURE one (OME-972). The first two are
     required, because the cache is consulted before dispatch — a guard only on the
     dispatch path would still let a stored entry answer 200 for a refused request.
 

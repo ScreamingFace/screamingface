@@ -28,7 +28,7 @@ from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSetti
 
 def test_discovery_source_pins_identity_and_cache_policy() -> None:
     # INVARIANT: the source identity/policy is declared BEFORE any fetch and is
-    # what the deployment-wide cache scopes TTLs to — changing it invalidates
+    # what the process-local cache scopes TTLs to — changing it invalidates
     # every stored snapshot, so the exact values are pinned here.
     assert LIVE_MODELS_DISCOVERY_SOURCE.key == "openrouter:models:list"
     assert LIVE_MODELS_DISCOVERY_SOURCE.revision == "openrouter:models:list-v1"
@@ -300,3 +300,32 @@ def test_listing_without_explicit_config_is_discovered_only() -> None:
         "openrouter/qwen/qwen3-coder",
     ]
     assert all(e.litellm_params == {"model": e.model_name} for e in entries)
+
+
+def test_the_real_envelope_shape_parses_with_all_its_extra_keys() -> None:
+    """STRICT must not mean BRITTLE: unknown keys are upstream's business.
+
+    WHY pinned: a live page (probed 2026-08-25) carries ~14 keys per row —
+    ``architecture``, ``pricing``, ``context_length``, ``canonical_slug`` and
+    more — and the envelope may grow siblings of ``total_count``. Requiring an
+    exact key set would turn any upstream addition into a total listing outage,
+    so the parser reads only what it needs and ignores the rest.
+    """
+    ids, next_url, total = parse_catalog_page(
+        {
+            "data": [
+                {
+                    "id": "openai/gpt-5",
+                    "canonical_slug": "openai/gpt-5",
+                    "name": "GPT-5",
+                    "context_length": 400_000,
+                    "architecture": {"modality": "text+image->text"},
+                    "pricing": {"prompt": "0.00000125"},
+                },
+            ],
+            "links": {"next": None, "prev": None},
+            "total_count": 1,
+            "some_future_field": {"unread": True},
+        }
+    )
+    assert (ids, next_url, total) == (("openai/gpt-5",), None, 1)

@@ -380,7 +380,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
     app.state.discovery_runtime = _build_discovery_runtime(settings)
-    # OME-972: the deployment-wide live model-listing catalog. Same kill switch
+    # OME-972: the app-lifetime, process-local live model-listing catalog. Same kill switch
     # as the runtime above — AIGW_DISCOVERY_ENABLED=false audits to zero
     # discovery egress of ANY kind. The catalog owns no transport; the models
     # route passes the runtime's client/limits per call.

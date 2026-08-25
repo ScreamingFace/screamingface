@@ -12,7 +12,7 @@ finished: 2026-08-25
 
 `GET /v1/models` currently lists compiled OpenRouter seeds frozen at deploy time. This unit adds
 provider-owned, bounded, async live discovery of OpenRouter's public model catalog behind a
-cached deployment-wide snapshot, so the gateway lists what OpenRouter actually serves now —
+process-local snapshot shared across accounts, so the gateway lists what OpenRouter actually serves now —
 default-on (`AIGW_OPENROUTER_LIVE_MODELS=true`), fail-closed, credential-free, with compiled
 seeds as the cold-failure fallback and explicitly configured operator models always preserved.
 Standalone task — not a child of OME-308.
@@ -218,3 +218,93 @@ a cohesive module. New files added by this unit are within limit (`live_models.p
   cap, `ModelListingProvider` vs the plugin-base port having no static conformance check, the
   three DRY items, and the boundary tests at exactly `_MAX_PAGES` / `_MAX_ID_LENGTH`.
 - `plugin.py` size violation above.
+
+
+## Verification round 2 — 2026-08-25
+
+The second verification pass found two acceptance tests that did not prove their stated
+invariants. Both tests were strengthened against the corresponding pre-fix behavior, and live
+catalog evidence was checked across both pagination pages.
+
+### C1 strictness validated against both live pages
+
+C1 made `links.next` and `total_count` mandatory on EVERY page, justified by a probe that had
+only ever seen a **single-page** response. With `limit=250` against ~420 text models, production
+dials a continuation page on every refresh — so if a continuation page omitted either field,
+every refresh would fail and the listing would be pinned to seeds forever, with the whole suite
+green. Probed both real pages on 2026-08-25:
+
+| Probe | keys | rows | `total_count` | `links.next` |
+|---|---|---|---|---|
+| `?output_modalities=text&limit=250` | `data, links, total_count` | 250 | 419 | `/api/v1/models?output_modalities=text&offset=250&limit=250` |
+| `…&limit=250&offset=250` | `data, links, total_count` | 168 | 418 | `null` |
+
+Conclusions: (1) continuation pages carry both completeness fields and an explicit `next: null`,
+so C1's strictness matches the live contract; (2) `links.next` echoes the pinned
+`output_modalities` filter required by `validate_next_url`; (3) `total_count` moved 418 → 419
+between two probes seconds apart, so cross-page equality can reject a refresh on benign census
+drift. The strict behavior fails safe, self-heals after the 30 s damping window, and is documented
+in DEPLOYMENT.md. A distinct reason token for drift remains a follow-up.
+
+### Fixed in this round
+
+- **The "never replaces the last good snapshot" test did not guard the fix.** Its
+  malformed body (`{"data": []}`) fails under the OLD lenient parser too, so it was green
+  either way. Replaced with a body the row-skipping parser would have SALVAGED into a
+  *different fresh snapshot* (one unusable row + one good id, with `links`/`total_count`
+  consistent with the salvageable count, so the completeness reconciliation cannot catch it and
+  only the all-or-nothing row rule can). Verified by injecting the pre-pass parser: the test now
+  FAILS without the fix and passes with it.
+- **The concurrency test's overlap assertion could not fail.** Client-side start stamps are all
+  ≈t0 because the pool launches all six threads at once, so `latest_start < earliest_end` held
+  even for a strictly serialized server — leaving `dialed == 1`, which plain caching satisfies.
+  Replaced with a server-side measurement: peak concurrent depth inside `ModelCatalog.entries_for`
+  must equal the caller count. Confirmed a real measurement (reports `6`, not a tautology) and
+  stable over 8 consecutive runs.
+- **A sibling canned client still laundered a stray dial into a silent seed fallback** —
+  `_ServingClient` in `test_live_models_resolvability.py` raised `KeyError`, the exact path C3
+  closed in `_openapi_document.py`; now raises `AssertionError`.
+- **DEPLOYMENT.md, six corrections**: the cache-scope sentence contradicted the per-replica
+  behavior; the variant bullet was still wrong (the
+  compiled seed FALLBACK also lists variants — several seeds are `:batch` slugs); logs carry the
+  exact upstream status code, not a "status class"; the `1–2 s` figure was an unmeasured estimate
+  and is now expressed as one fetch per page at the measured catalog size; added a **breaking
+  upgrade** note (a deployment with a `:online` slug in `AIGW_OPENROUTER_DEFAULT_MODELS` will not
+  boot after C2); added the census-drift note above.
+- **Two stale docstrings** the pass itself invalidated: `live_models.py` misstated cache scope
+  and still listed `:online` as reachable via operator config;
+  `is_online_variant` still claimed two call sites after C2 added a third.
+- **One test added**: the real envelope (14+ keys per row, extra top-level keys) must still
+  parse — strict must not mean brittle. Evidence-backed by the probe above; without it, a future
+  exact-key-set tightening would take the listing down. Parse suite 44 → 45 collected.
+
+### Remaining limitations and follow-ups
+
+- **Append-only against the merge base.** `run_gates.py aigateway --base origin/main` flags
+  **5** files: `_openapi_document.py`, `test_model_admission_route.py`,
+  `test_openrouter_openapi_endpoint_route.py`, `test_openrouter_catalog_route.py`, and
+  `test_openrouter_top_p_promotion.py`. All five changes are `live_models=False` setup amendments
+  or the loud-client change, with assertions untouched. **The PR needs an explicit waiver naming
+  these 5 files.**
+- `:online` rejection is **case-sensitive** (`:Online` still configures and is unpoliced at
+  dispatch). The fix belongs in the shared OME-712 `is_online_variant` predicate, which also
+  governs dispatch and the global-cache bypass — out of scope for a correction pass. Follow-up.
+- `LIVE_MODELS_DISCOVERY_SOURCE.revision` NOT bumped despite the parser contract change, against
+  the module's own stated policy. No live effect (the cache is process-local and dies with the
+  process, so a deploy already invalidates every snapshot); bumping would edit a same-unit test
+  assertion for zero runtime benefit. Bump if the cache ever becomes durable or shared.
+- `publishable_upstream_ids` still skips over-long ids rather than failing the refresh. It is a
+  publication FILTER (its job is to drop non-publishable shapes), not the census, so the
+  no-partial-catalog invariant is not weakened by it.
+- No `tier=` line when a provider declares no discovery source: for those providers a seed
+  listing is normal, not degraded, so logging it would be pure noise.
+
+### Round-2 gates (actually run)
+
+- `run_gates.py aigateway --skip-append-only`: ruff check ✓, ruff format --check ✓, pyright ✓
+  (0 errors), `check_no_enterprise.py` ✓, `pytest --cov=aigateway --cov-fail-under=80 -q` ✓ →
+  ALL GATES GREEN.
+- `run_gates.py aigateway --base origin/main`: append-only RED on the 5 files enumerated above
+  (waiver required, each justified).
+- Branch-only full non-live suite: **4102 collected, 4047 passed, 55 skipped, 0 failed**.
+- Focused OME-972 set (9 modules): 192 passed, then 193 with the added parse case.

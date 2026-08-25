@@ -124,7 +124,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         # OME-972: an id published from a healthy live snapshot must resolve on
         # its own contract endpoint. Lazy by construction — a known-set hit
         # above never pays for a listing read — and served from the same
-        # deployment-wide cache the /v1/models route fills.
+        # process-local cache the /v1/models route fills.
         if model not in await _live_catalog_ids(request, plugin):
             raise HTTPException(
                 status_code=404,

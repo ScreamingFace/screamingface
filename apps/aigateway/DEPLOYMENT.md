@@ -357,8 +357,8 @@ out of provider billing.
 ## Live OpenRouter Model Discovery (OME-972)
 
 `GET /v1/models` lists the models OpenRouter actually serves now, refreshed from its public
-catalog (`https://openrouter.ai/api/v1/models`, no credential attached) through one
-deployment-wide cached snapshot. Default **on**.
+catalog (`https://openrouter.ai/api/v1/models`, no credential attached) through a cached
+catalog snapshot, held per process (see the replica note below). Default **on**.
 
 - `AIGW_OPENROUTER_LIVE_MODELS=false` restores the static compiled-seed listing with **zero**
   catalog egress. `AIGW_DISCOVERY_ENABLED=false` (the discovery kill switch) silences the
@@ -376,14 +376,18 @@ deployment-wide cached snapshot. Default **on**.
   operator intent — they are listed first and survive every healthy snapshot. Leaving it unset
   means the compiled seeds are only the fallback.
 - **Variants are never discovered automatically.** Colon variants (`:free`, `:batch`) and tilde
-  aliases (`~`) are excluded from auto-publication; a variant reaches the listing only through
-  explicit `AIGW_OPENROUTER_DEFAULT_MODELS` configuration — **not** through
-  `POST /v1/models/admit`, which refuses the same shapes. Variants stay dispatchable directly
-  whether or not they are listed.
+  aliases (`~`) are excluded from auto-publication; a variant reaches the listing only by
+  being configured in `AIGW_OPENROUTER_DEFAULT_MODELS` or by sitting in the compiled seed
+  list that the fallback serves (some seeds are `:batch` slugs) — never from the catalog and
+  **not** through `POST /v1/models/admit`, which refuses the same shapes. Variants stay
+  dispatchable directly whether or not they are listed.
 - **`:online` is refused at startup.** Chat dispatch rejects the `:online` suffix
   (`unsupported_model_variant`) because web search is a provider-neutral Gateway parameter, so
   configuring one would publish a model whose every request fails. The settings validator now
   rejects it outright — use the Gateway's own web-search parameter instead.
+  **Breaking on upgrade:** a deployment that currently lists a `:online` slug in
+  `AIGW_OPENROUTER_DEFAULT_MODELS` fails to start after this change. Scrub the variant from
+  the env var before rolling out.
 - **Fail-closed catalog parsing.** A catalog page must carry `data`, `links.next` (string or
   null) and a non-negative integer `total_count`, and every row must carry a string `id`; the
   per-page `total_count` must agree across pages and with the number of rows collected. Any
@@ -391,8 +395,8 @@ deployment-wide cached snapshot. Default **on**.
   salvaged is ever cached as fresh, so an upstream schema drift degrades to the last good
   snapshot (then to seeds) instead of silently publishing a shrunken listing.
 - **Refresh latency is paid inline** by whichever request finds the snapshot cold or expired:
-  typically 1–2 s (one to two catalog pages), hard-bounded by a 10 s aggregate deadline across
-  the whole pagination chain. Concurrent callers share that one refresh (single-flight) and all
+  one fetch per catalog page (two pages at the current ~420-model catalog size), hard-bounded
+  by a 10 s aggregate deadline across the whole pagination chain. Concurrent callers share that one refresh (single-flight) and all
   receive the same answer; failures are damped to one attempt per 30 s, so an outage costs at
   most one slow request per damping window.
 - **Each replica caches independently.** The snapshot is process-local (no shared store), so
@@ -400,8 +404,14 @@ deployment-wide cached snapshot. Default **on**.
   tier than its peers during an upstream incident. Sizing note: N replicas ⇒ up to N catalog
   fetches per TTL.
 - Listing only: discovery never changes what is dispatchable — admission and chat dispatch are
-  untouched. Log lines carry counts, reason codes, the HTTP status class, and the served tier
+  untouched. Log lines carry counts, reason codes, the upstream HTTP status code, and the
+  served tier
   (`tier=fresh|stale|seeds`, logged on change) — never catalog content.
+- **A shifting census fails the refresh, by design.** `total_count` must agree across pages,
+  and upstream's count does move between page fetches (measured 418 → 419 seconds apart on
+  2026-08-25). Such a refresh is rejected as `model_catalog_truncated`, the previous snapshot
+  keeps serving, and the next attempt (after 30 s damping) normally succeeds. Fail-safe and
+  self-healing, but expect occasional truncation reasons in the logs that are drift, not loss.
 
 ## Operations Notes
 

@@ -1,4 +1,4 @@
-"""OME-972 — the deployment-wide live model-listing catalog.
+"""OME-972 — the app-lifetime, process-local live model-listing catalog.
 
 FEATURE: live model discovery — ``GET /v1/models`` consults this catalog per
 provider and lists the cached live snapshot when one is healthy, falling back
@@ -44,7 +44,7 @@ class ModelListingProvider(Protocol):
 
     # WHY a Protocol and not ``ProviderPluginBase``: the catalog needs exactly
     # these three members — depending on the full plugin contract would couple
-    # the deployment-wide cache to every unrelated provider hook and force test
+    # the app-lifetime cache to every unrelated provider hook and force test
     # doubles to carry the whole base class.
     """
 

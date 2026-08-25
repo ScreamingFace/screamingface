@@ -1,8 +1,8 @@
 """OME-972 — live discovery of the OpenRouter public model catalog.
 
 FEATURE: automatic model discovery — ``GET /v1/models`` lists what OpenRouter
-actually serves now (plain ids only), refreshed through a deployment-wide
-cached snapshot instead of compiled seeds frozen at deploy time.
+actually serves now (plain ids only), refreshed through a per-process cached
+snapshot instead of compiled seeds frozen at deploy time.
 
 INVARIANT (fail-closed, all-or-nothing): a catalog read that is incomplete,
 malformed, empty, over a cap, or paginated off-policy raises a sanitized
@@ -13,7 +13,9 @@ is dispatchable: dispatch admission (``admission.py``) is untouched.
 INVARIANT (auto-publish shape): only plain ``vendor/model`` ids pass — the
 same ``_admissible_upstream_id`` predicate the admission route enforces.
 Colon variants and tilde aliases stay reachable via explicit operator config
-(``AIGW_OPENROUTER_DEFAULT_MODELS``) or direct dispatch, never via listing.
+(``AIGW_OPENROUTER_DEFAULT_MODELS``) or direct dispatch, never via listing --
+except ``:online``, which ``settings.py`` now refuses to configure at all
+because dispatch refuses it (OME-972 correction pass).
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ from .settings import GATEWAY_MODEL_PREFIX, OpenRouterPluginSettings
 
 # WHY 250 (not the API maximum): each page must clear the §5.2 envelope's
 # 1 MB byte cap and 50k node cap with >2x headroom — a fatter page that
-# drifts over either cap would fail EVERY refresh at once, deployment-wide.
+# drifts over either cap would fail every refresh in the process.
 _PAGE_LIMIT = 250
 # WHY: 40 pages x 250 = the same 10_000-model bound the admission catalog
 # already enforces on the single-page read; more pages means a runaway or
@@ -59,7 +61,7 @@ _PINNED_QUERY = {"output_modalities": "text", "limit": str(_PAGE_LIMIT)}
 LIVE_MODELS_URL = f"{MODELS_URL}?output_modalities=text&limit={_PAGE_LIMIT}"
 
 # INVARIANT: identity + cache policy declared BEFORE any fetch (§5.3) — the
-# deployment-wide catalog judges a stored snapshot by this revision without
+# process-local catalog judges a stored snapshot by this revision without
 # dialing. Bumping the revision (e.g. on a parser change) invalidates every
 # stored snapshot at once.
 LIVE_MODELS_DISCOVERY_SOURCE = ModelDiscoverySource(

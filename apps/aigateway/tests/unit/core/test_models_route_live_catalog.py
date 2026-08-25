@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import cast
 
@@ -19,8 +18,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from aigateway.core.discovery_runtime import DiscoveryRuntime
-from aigateway.core.model_catalog import ModelCatalog
-from aigateway.core.parameter_discovery import DiscoveryError, DiscoveryLimits, RawResponse
+from aigateway.core.model_catalog import ModelCatalog, ModelListingProvider
+from aigateway.core.parameter_discovery import (
+    DiscoveryError,
+    DiscoveryHttpClient,
+    DiscoveryLimits,
+    RawResponse,
+)
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
 from aigateway.core.plugin_base import ModelEntry
 from aigateway.plugins.openrouter_provider import plugin as plugin_module
@@ -82,7 +86,7 @@ def _openrouter_ids(client: TestClient) -> list[str]:
 
 
 def test_app_wiring_installs_the_model_catalog(authenticated_client: TestClient) -> None:
-    # WHY: the catalog must be app-lifetime state (deployment-wide cache), not
+    # WHY: the catalog must be app-lifetime, process-local state, not
     # per-request — this pins the main.py wiring next to discovery_runtime.
     app = cast(FastAPI, authenticated_client.app)
     assert isinstance(app.state.model_catalog, ModelCatalog)
@@ -252,9 +256,27 @@ def test_a_malformed_refresh_never_replaces_the_last_good_snapshot(
 ) -> None:
     _enable_openrouter(monkeypatch, OpenRouterPluginSettings(enabled=True))
     clock = _MutableClock()
-    # Second dial answers 200 with a page missing its completeness metadata —
-    # the shape that silently looked like a complete catalog before this pass.
-    http = _ScriptedClient([_strict_body(["openai/gpt-5"]), json.dumps({"data": []})])
+    # WHY this exact second body: it is the shape a row-skipping parser would
+    # have SALVAGED — one unusable row plus one good id, and no completeness
+    # metadata at all. Lenient parsing publishes ``gpt-4.1-mini`` as a complete
+    # catalog and REPLACES the snapshot; strict parsing must reject the page.
+    # A body that fails both readings (e.g. ``{"data": []}``) would let this
+    # test pass without the fix, so it would not guard anything.
+    http = _ScriptedClient(
+        [
+            _strict_body(["openai/gpt-5"]),
+            json.dumps(
+                {
+                    "data": [{"name": "drifted-row-without-an-id"}, {"id": "openai/gpt-4.1-mini"}],
+                    "links": {"next": None},
+                    # Consistent with the SALVAGEABLE row count, so the
+                    # completeness reconciliation cannot catch this page —
+                    # only the all-or-nothing row rule can.
+                    "total_count": 1,
+                }
+            ),
+        ]
+    )
     app = cast(FastAPI, authenticated_client.app)
     app.state.discovery_runtime = DiscoveryRuntime(
         client=http,
@@ -273,9 +295,10 @@ def test_a_malformed_refresh_never_replaces_the_last_good_snapshot(
     clock.value += LIVE_MODELS_DISCOVERY_SOURCE.ttl_s + 1.0
     after = _openrouter_ids(authenticated_client)
 
-    # INVARIANT: a malformed catalog is a FAILED attempt, never a fresh empty
-    # one — the last good snapshot keeps serving inside the stale window.
+    # INVARIANT: a malformed catalog is a FAILED attempt, never a new snapshot —
+    # the last good one keeps serving inside the stale window.
     assert after == healthy
+    assert "openrouter/openai/gpt-4.1-mini" not in after
     assert len(http.dialed) == 2
 
 
@@ -326,24 +349,44 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
     )
     app.state.model_catalog = ModelCatalog(clock=_Clock())
 
-    def _timed_get(_n: int) -> tuple[int, float, float]:
-        started = time.monotonic()
-        response = authenticated_client.get("/v1/models")
-        return response.status_code, started, time.monotonic()
+    # WHY instrument the catalog instead of timing the client: every caller
+    # enters ``entries_for`` and all but the winner park on the single-flight,
+    # so its peak depth IS the concurrency. Client-side start stamps prove
+    # nothing — the pool launches all six threads at once, so they are all ~t0
+    # even if the server answered them strictly one after another.
+    depth = {"now": 0, "peak": 0}
+    unwrapped = ModelCatalog.entries_for
+
+    async def _counting_entries_for(
+        self: ModelCatalog,
+        plugin: ModelListingProvider,
+        *,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None,
+    ) -> tuple[ModelEntry, ...] | None:
+        depth["now"] += 1
+        depth["peak"] = max(depth["peak"], depth["now"])
+        try:
+            return await unwrapped(self, plugin, client=client, limits=limits)
+        finally:
+            depth["now"] -= 1
+
+    monkeypatch.setattr(ModelCatalog, "entries_for", _counting_entries_for)
+
+    def _get(_n: int) -> int:
+        return authenticated_client.get("/v1/models").status_code
 
     callers = 6
     with ThreadPoolExecutor(max_workers=callers) as pool:
-        results = list(pool.map(_timed_get, range(callers)))
+        statuses = list(pool.map(_get, range(callers)))
 
-    assert [status for status, _s, _e in results] == [200] * callers
+    assert statuses == [200] * callers
     # INVARIANT: single-flight — one refresh serves every contemporaneous caller,
     # so a burst of listings costs ONE upstream fetch chain, not N.
     assert http.dialed == [LIVE_MODELS_URL]
-    # ...and they really were contemporaneous: the last request to start did so
-    # before the first one finished (otherwise this would only prove caching).
-    latest_start = max(start for _s, start, _e in results)
-    earliest_end = min(end for _s, _st, end in results)
-    assert latest_start < earliest_end, "requests did not overlap; concurrency unproven"
+    # ...and all six really were in flight together, so the single dial is
+    # single-flight and not just a cache hit behind a serialized server.
+    assert depth["peak"] == callers
 
 
 def test_a_raising_discovery_source_stays_loud_on_the_listing_route(

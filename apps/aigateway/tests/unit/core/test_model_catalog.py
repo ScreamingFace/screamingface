@@ -1,4 +1,4 @@
-"""OME-972 U4 — the deployment-wide live model catalog over the observation cache.
+"""OME-972 U4 — the app-lifetime, process-local live model catalog.
 
 INVARIANT: the catalog never fabricates a listing. Healthy refreshes are cached
 fresh for one TTL; a failed refresh serves the last-good snapshot within the

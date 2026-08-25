@@ -65,6 +65,12 @@ class _ServingClient:
 
     async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
         self.dialed.append(url)
+        # AIDEV-NOTE: loud, not KeyError. ``ModelCatalog`` converts a stray
+        # exception into DiscoveryError("internal_error") -> seed fallback, so a
+        # KeyError here would let an unexpected dial pass as a green test that
+        # silently stopped exercising the live listing.
+        if url not in self._bodies:
+            raise AssertionError(f"canned client has no body for {url!r} — unexpected dial")
         return RawResponse(
             status=200, content_type="application/json", body=json.dumps(self._bodies[url])
         )
