@@ -1,7 +1,7 @@
 ---
 id: OME-894
 linear_url: https://linear.app/openmined/issue/OME-894/support-private-leaderboards-starting-with-healthbench-worst-30
-status: in_progress
+status: in_review
 type: task
 priority: P1
 labels: [scoreboard, agentic, autonomous]
