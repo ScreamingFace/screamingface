@@ -266,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"healthbench: baked {summary['professional_cases']} cases into {args.out} "
         f"— the professional board serves all {summary['professional_cases']}, "
-        f"worst30 serves {summary['worst30_cases']}"
+        f"worst30 serves {summary['declared_worst30_cases']}"
     )
     return 0
 

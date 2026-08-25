@@ -17,6 +17,7 @@ from screamingface_engine.benchmarks.healthbench.prepare import (
     PrepareError,
     case_messages,
     emit,
+    main,
     rubric_items,
 )
 from screamingface_engine.benchmarks.healthbench.subset import (
@@ -25,6 +26,27 @@ from screamingface_engine.benchmarks.healthbench.subset import (
 )
 
 _TOTAL_ROWS = 525
+
+
+def test_cli_renders_the_current_preparation_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "screamingface_engine.benchmarks.healthbench.prepare._prepare",
+        lambda _out: {
+            "professional_cases": 525,
+            "declared_worst30_cases": 157,
+            "out": str(tmp_path),
+        },
+    )
+
+    assert main(["--out", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == (
+        f"healthbench: baked 525 cases into {tmp_path} "
+        "— the professional board serves all 525, worst30 serves 157\n"
+    )
 
 
 def _synthetic_rows() -> list[dict[str, object]]:
