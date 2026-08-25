@@ -29,6 +29,7 @@ from .chat_credentials import _credential_target_for_chat, resolved_auth_mode
 
 if TYPE_CHECKING:
     from ..core.oauth.models import OAuthConnection
+    from ..core.plugin_base import ProviderPluginBase
     from ..core.profile_models import AuthMode, Profile
 
 router = APIRouter()
@@ -43,10 +44,12 @@ async def _discovery_outcome(
 ) -> DiscoveryOutcome:
     """Observe this provider's public evidence for ``model``, or report static-only.
 
-    # INVARIANT: this is the ONLY route that reaches the discovery runtime. The
-    # model reaching it has already been validated against the canonical
-    # inventory, so a caller cannot steer discovery at an arbitrary target — and
-    # no credential is in scope: the runtime reads PUBLIC catalogs only.
+    # INVARIANT: the runtime's transport also serves model admission (OME-879)
+    # and the live model catalog (OME-972), but this helper remains the only
+    # per-model OBSERVATION path. The model reaching it has already been
+    # validated against the canonical inventory, so a caller cannot steer
+    # discovery at an arbitrary target — and no credential is in scope: the
+    # runtime reads PUBLIC catalogs only.
     # OME-632: the RESOLVED auth mode is bound here, never caller-declared. A
     # provider whose modes reach different upstreams may publish a source for one
     # and none for the other; binding at this boundary keeps that decision with the
@@ -109,6 +112,8 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
 
     # Canonical-id lookup BEFORE any profile work: reject unknown/cross-provider
     # ids (an id owned by another plugin is simply not in this plugin's set).
+    # Seeded and admitted ids resolve OFFLINE; the live catalog is consulted
+    # lazily, only to rescue a would-be 404 (OME-972).
     known = {
         canonical_model_id(custom_llm_provider=provider, model_name=entry.model_name)
         for entry in plugin.register_models()
@@ -116,10 +121,15 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     # OME-879: dynamically admitted ids resolve like seeded ones — a model the
     # gateway agreed to serve must not 404 on its own contract endpoint.
     if model not in known and model not in request.app.state.admitted_models:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "model_not_found", "provider": provider, "model": model},
-        )
+        # OME-972: an id published from a healthy live snapshot must resolve on
+        # its own contract endpoint. Lazy by construction — a known-set hit
+        # above never pays for a listing read — and served from the same
+        # deployment-wide cache the /v1/models route fills.
+        if model not in await _live_catalog_ids(request, plugin):
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "model_not_found", "provider": provider, "model": model},
+            )
 
     profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
     # Reuse the chat resolution verbatim (raises the same 404/409 on a missing/
@@ -134,7 +144,8 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     auth_mode = resolved_auth_mode(profile, connection, plugin=plugin)
 
     # Observed LAST: a request that fails profile resolution must not have spent a
-    # fetch on a contract it will never serve.
+    # fetch on a contract it will never serve. (The lazy catalog consult above is
+    # the one earlier read, and only a would-be 404 pays for it.)
     discovered = await _discovery_outcome(request, plugin, model=model, auth_mode=auth_mode)
 
     # OME-629: the observed snapshot reaches the EVIDENCE argument and nothing else.
@@ -172,6 +183,19 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         # contract_id is not silently handed evidence with a different provenance.
         source_revision=discovered.snapshot.source_revision if discovered.snapshot else None,
     )
+
+
+async def _live_catalog_ids(request: Request, plugin: ProviderPluginBase[Any]) -> frozenset[str]:
+    """Gateway ids in the provider's live listing snapshot; empty when absent.
+
+    # WHY empty over raising: a degraded catalog must leave the 404 verdict to
+    # the offline inventory — this helper widens the known set, never gates it.
+    """
+    catalog = request.app.state.model_catalog
+    runtime: DiscoveryRuntime | None = request.app.state.discovery_runtime
+    if catalog is None or runtime is None:
+        return frozenset()
+    return await catalog.ids_for(plugin, client=runtime.client, limits=runtime.limits)
 
 
 @router.get("/v1/model-parameters")

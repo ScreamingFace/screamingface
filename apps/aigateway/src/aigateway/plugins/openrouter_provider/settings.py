@@ -186,6 +186,17 @@ def _validate_gateway_slug(slug: str) -> str:
             f"malformed OpenRouter model {slug!r}: expected "
             "'openrouter/<author>/<model>' with an optional single ':variant'"
         )
+    # OME-972: refuse at CONFIG time what dispatch will always refuse. Every
+    # listing path publishes explicitly configured slugs (they survive a healthy
+    # live snapshot by design), while ``prepare_chat_body`` rejects ``:online``
+    # with ``unsupported_model_variant`` — web search is a provider-neutral
+    # Gateway parameter and this suffix is a second route around it. Configuring
+    # one would publish a model whose every chat request fails.
+    if is_online_variant(slug):
+        raise ValueError(
+            f"OpenRouter ':online' model {slug!r} cannot be configured: chat dispatch refuses "
+            "the variant (use the provider-neutral web-search parameter instead)"
+        )
     return slug
 
 
@@ -206,6 +217,10 @@ class OpenRouterPluginSettings(PluginSettings):
     # OpenRouter catalog). Default ON — prod can pin a closed world by setting
     # AIGW_OPENROUTER_DYNAMIC=false without a breaking change.
     dynamic: bool = True
+    # OME-972: gates LIVE catalog discovery for the /v1/models LISTING (never
+    # dispatch). Default ON — AIGW_OPENROUTER_LIVE_MODELS=false restores the
+    # static compiled-seed listing with zero catalog egress.
+    live_models: bool = True
     default_models: list[str] = Field(default_factory=_default_model_slugs)
     validation_model: str = "openrouter/openrouter/free"
 

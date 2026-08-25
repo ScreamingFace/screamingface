@@ -29,6 +29,7 @@ from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
 from .core.discovery_runtime import DiscoveryRuntime
 from .core.loader import load_plugins
+from .core.model_catalog import build_model_catalog
 from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
 from .core.parameter_discovery_cache import (
     CacheLimits,
@@ -379,6 +380,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
     app.state.discovery_runtime = _build_discovery_runtime(settings)
+    # OME-972: the deployment-wide live model-listing catalog. Same kill switch
+    # as the runtime above — AIGW_DISCOVERY_ENABLED=false audits to zero
+    # discovery egress of ANY kind. The catalog owns no transport; the models
+    # route passes the runtime's client/limits per call.
+    app.state.model_catalog = build_model_catalog(enabled=settings.discovery_enabled)
     # OME-952: the admin cache-snapshot upload runner. app-state-only by the same reasoning
     # as `admitted_models` above: job REPORTS are deployment-lifetime, the loaded data and
     # the audit log are the durable truth.

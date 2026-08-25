@@ -19,6 +19,7 @@ contract half is the subclass rather than a mixin.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 # Runtime (not TYPE_CHECKING) import: the default transport capability and both
@@ -30,7 +31,7 @@ from ..chat_parameters import (
     overlay_tool_capabilities,
     stream_transport_capability,
 )
-from ._ports import PluginSettings
+from ._ports import ModelEntry, PluginSettings
 from ._provider import ProviderPluginCore
 
 if TYPE_CHECKING:
@@ -43,6 +44,25 @@ if TYPE_CHECKING:
     )
     from ..parameter_discovery import DiscoveryHttpClient, DiscoveryLimits, DiscoverySourceRef
     from ..profile_models import AuthMode
+
+
+@dataclass(frozen=True)
+class ModelDiscoverySource:
+    """Identity + cache policy of a provider's live MODEL-LIST source (OME-972).
+
+    # WHY a separate type from ``DiscoverySourceRef``: the model list is one
+    # deployment-wide document per provider, so its cache policy (how fresh the
+    # LISTING must be) is provider knowledge and rides on the declaration —
+    # parameter evidence keys per model and takes its policy from app settings.
+    # INVARIANT: declared BEFORE any fetch, like every discovery source ref —
+    # the cache judges a stored snapshot by this ``revision`` without dialing.
+    """
+
+    key: str
+    revision: str
+    ttl_s: float
+    stale_ttl_s: float
+    failure_ttl_s: float
 
 
 class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings]):
@@ -248,6 +268,50 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
 
         Default: None — no dynamic source; the caller relies on labelled-local
         observations alone.
+        """
+        return None
+
+    def model_discovery_source(self) -> ModelDiscoverySource | None:
+        """Identity + cache policy of this provider's live model-LIST source (OME-972).
+
+        The listing sibling of ``chat_discovery_source``: one deployment-wide
+        document per provider, declared before any fetch so the model catalog can
+        trust or expire a stored snapshot without dialing.
+
+        INVARIANT: returning a source commits the provider to answering
+        ``discover_live_models`` with entries or a sanitized ``DiscoveryError`` —
+        a ``None`` there is an inconsistency the catalog fails the attempt on
+        rather than caching (the same rule ``DiscoveryRuntime.observe`` enforces).
+
+        Default: None — no live model-list discovery; ``register_models()`` seeds
+        are the provider's whole listing.
+        """
+        return None
+
+    async def discover_live_models(
+        self,
+        *,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> tuple[ModelEntry, ...] | None:
+        """This provider's complete live LISTING from its fixed public catalog (OME-972).
+
+        Returns ready ``ModelEntry`` rows (the provider owns its own merge of
+        explicitly configured operator models with discovered ids), fetched
+        through the INJECTED bounded transport — never a raw client, never a
+        caller-supplied URL, never a credential. Never runs on the chat dispatch
+        path, and never changes what is dispatchable — only what is listed.
+
+        INVARIANT (three outcomes, same contract as
+        ``discover_chat_parameter_snapshot``): entries = the source was reached;
+        raises sanitized ``DiscoveryError`` = attempted and FAILED (the catalog
+        maps this to stale/fallback); ``None`` = NOT attempted, no connection.
+
+        AIDEV-NOTE: ``None`` must not be widened to cover failure — the cache
+        stores every normal return as a successful refresh, so a ``None``
+        returned for a failure would be stored labelled fresh and evict the last
+        good listing. ``ModelCatalog`` converts an inconsistent None into a
+        failed attempt for exactly this reason.
         """
         return None
 
