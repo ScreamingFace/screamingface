@@ -1,0 +1,18 @@
+# One recipe only: blessing e2e replay fixtures (OME-964). The local dev stack is
+# `screamingface up` (OME-1001) — never a justfile concern again.
+
+default:
+    @just --list
+
+# Bless one board's e2e replay fixtures from the owner-held recordings (OME-964):
+# capture → re-key → verified replay → slice → snapshot + manifest + golden under
+# tests/e2e/fixtures/. Needs docker and prepared benchmark assets
+# (`uv run screamingface prepare --all`); extra flags pass through (--limit,
+# --expect-score, --expect-coverage, --max-snapshot-mb, and the judge re-key
+# phases: --dump-judge-bodies / --judge-bodies / --judge-param).
+# Example:
+#   just e2e-bless draco-3pass openrouter/google/gemini-3-flash-preview \
+#       <cache-dump.sql.gz> <eval_results.eval.jsonl>
+e2e-bless board model dump answers *flags:
+    uv run python tests/e2e/fixtures/slice_snapshot.py --board {{board}} --model {{model}} \
+        --dump {{dump}} --answers {{answers}} {{flags}}

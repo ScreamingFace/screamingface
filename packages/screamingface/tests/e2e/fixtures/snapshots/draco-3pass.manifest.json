@@ -1,0 +1,10 @@
+{
+  "generated_at": "2026-08-25",
+  "revisions": {
+    "openrouter_adapter": "openrouter-global-cache-2026-08d",
+    "parameter_contract": "aigw-parameter-contract-2026-08b"
+  },
+  "row_count": 11902,
+  "schema": "screamingface.cache-snapshot.v1",
+  "sha256": "5210a2271d0d8203651220defe7d26451666412f7d6f426761bb02b5a01b1c3e"
+}
