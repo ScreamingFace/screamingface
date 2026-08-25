@@ -89,20 +89,25 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
             node.endpoint(route)(handler)
 
 
-def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
+def preflight(root: Path, case_ids: tuple[int, ...]) -> str:
     """Fail before the FIRST paid call when the baked assets cannot serve this exam.
 
     A broken asset is knowable before any model runs. Without this check it would surface in the
     reducer — AFTER paying for a full Candidate run and ~44 judge calls per Case — only to score
     None. The reducer re-checks the same conditions: defence in depth.
+
+    Returns the cases.json text it validated, so a caller that passes preflight never re-reads
+    the multi-MB file it was just handed.
     """
 
     problems: list[str] = []
+    raw = ""
     if not (root / "cases.json").is_file():
         problems.append(f"cases.json missing under {root}")
     else:
         try:
-            cases = json.loads((root / "cases.json").read_text(encoding="utf-8"))
+            raw = (root / "cases.json").read_text(encoding="utf-8")
+            cases = json.loads(raw)
             present = {case.get("id") for case in cases if isinstance(case, Mapping)}
             missing = [case_id for case_id in case_ids if case_id not in present]
             if missing:
@@ -114,13 +119,22 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
             problems.append(f"rubric asset for case {case_id} missing or invalid")
     if problems:
         raise _unavailable("GDPval assets failed preflight: " + "; ".join(problems[:8]))
+    return raw
 
 
 def _cases(root: Path, case_ids: tuple[int, ...]):
+    # WHY a memo: baked assets are immutable for the process lifetime, and cases.json is
+    # multi-MB — it embeds the flattened text of all 85 reference documents. Only a SUCCESSFUL
+    # payload is cached, so a broken asset re-checks (and re-fails loudly) on every call.
+    memo: dict[str, str] = {}
+
     def cases() -> str:
-        preflight(root, case_ids)
-        raw = _read(root / "cases.json", "GDPval cases")
-        return json.dumps(_select_cases(raw, case_ids), ensure_ascii=False, separators=(",", ":"))
+        if "payload" not in memo:
+            raw = preflight(root, case_ids)
+            memo["payload"] = json.dumps(
+                _select_cases(raw, case_ids), ensure_ascii=False, separators=(",", ":")
+            )
+        return memo["payload"]
 
     return cases
 
@@ -128,13 +142,26 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
 def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
     """The fan-out point: one Candidate submission in, N ready-to-send judge tasks out."""
 
+    # WHY memos: without them a 102-case run re-reads and re-parses the multi-MB cases.json
+    # ~204 times and re-opens every rubric file per submission. The baked assets never change
+    # within a process; failures are never cached, so a broken asset keeps failing visibly.
+    raw_memo: dict[str, str] = {}
+    text_memo: dict[int, str] = {}
+    items_memo: dict[int, list[dict[str, Any]]] = {}
+
     def rubric_tasks(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
             answer = candidate_answer(request.context)
-            raw_cases = _read(root / "cases.json", "GDPval cases")
-            work_request = _request_text(raw_cases, case_id)
-            items = _rubric_items(root, case_id)
+            if "cases" not in raw_memo:
+                raw_memo["cases"] = _read(root / "cases.json", "GDPval cases")
+            raw_cases = raw_memo["cases"]
+            if case_id not in text_memo:
+                text_memo[case_id] = _request_text(raw_cases, case_id)
+            work_request = text_memo[case_id]
+            if case_id not in items_memo:
+                items_memo[case_id] = _rubric_items(root, case_id)
+            items = items_memo[case_id]
             case_record = records.bind_case(raw_cases, case_id=case_id, candidate=answer)
             tasks: list[dict[str, str]] = []
             for item in items:

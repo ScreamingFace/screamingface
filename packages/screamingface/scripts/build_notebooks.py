@@ -1136,7 +1136,7 @@ A case the judge could not fully grade reports `None` rather than `0.0`. The two
 facts, and collapsing them would make a judge outage look like model weakness."""),
         nbformat.v4.new_code_cell("""\
 for case in fusion_report.candidates.only.cases:
-    print(case.id, case.status, case.grade.score if case.grade else None)"""),
+    print(case.case_id, case.status, case.grade.score if case.grade else None)"""),
     )
 
 

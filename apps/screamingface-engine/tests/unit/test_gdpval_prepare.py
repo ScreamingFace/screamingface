@@ -214,3 +214,127 @@ def test_prepare_returns_an_audit_summary(tmp_path, monkeypatch) -> None:
     # A summary showing 102 cases without saying any were dropped would hide that decision.
     assert summary["excluded_tasks"] == 7
     assert summary["dataset_revision"]
+
+
+class _Response:
+    def __init__(self, payload: bytes = b"content") -> None:
+        self._payload = payload
+
+    def __enter__(self) -> _Response:
+        return self
+
+    def __exit__(self, *_args: object) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._payload
+
+
+def test_fetch_writes_the_destination_only_by_atomic_replace(tmp_path, monkeypatch) -> None:
+    # INVARIANT: a download killed mid-write must not leave a truncated file. The cache-hit
+    # check is presence plus non-zero size, so a truncated file would be accepted FOREVER —
+    # baking truncated reference text into the answer key. The destination path may only ever
+    # appear complete: bytes land in a temp sibling, then rename into place atomically.
+    from pathlib import Path
+
+    from screamingface_engine.benchmarks.gdpval import prepare as module
+
+    monkeypatch.setattr(
+        module.urllib.request, "urlopen", lambda _url, timeout: _Response(b"content")
+    )
+    written: list[Path] = []
+    original = Path.write_bytes
+
+    def recording(self: Path, data: bytes) -> int:
+        written.append(Path(self))
+        return original(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", recording)
+    module._fetch("task-42", "ref.pdf", {"ref.pdf": "http://example"}, tmp_path)
+
+    destination = tmp_path / "ref.pdf"
+    assert destination.read_bytes() == b"content"
+    assert destination not in written  # never written in place — only renamed into place
+    assert not list(tmp_path.glob("*.part"))  # the temp never outlives a successful fetch
+
+
+def test_a_failed_download_leaves_no_cache_entry_at_all(tmp_path, monkeypatch) -> None:
+    from screamingface_engine.benchmarks.gdpval.ingestion import IngestionError
+    from screamingface_engine.benchmarks.gdpval.prepare import _fetch
+
+    class _Broken:
+        def __enter__(self) -> _Broken:
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            raise OSError("connection reset")
+
+    from screamingface_engine.benchmarks.gdpval import prepare as module
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", lambda _url, timeout: _Broken())
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    with pytest.raises(IngestionError):
+        _fetch("task-42", "ref.pdf", {"ref.pdf": "http://example"}, tmp_path)
+    assert list(tmp_path.rglob("*")) == []
+
+
+def test_ingestion_failures_surface_as_asset_preparation_errors(tmp_path, monkeypatch) -> None:
+    # INVARIANT (OME-925): `BenchmarkAssetPreparationError` is the Docker orchestrator's
+    # exit-1 channel. An `IngestionError` escaping `prepare` raw turns one flaky CDN download
+    # across 85 files into a red build with a traceback instead of the clean operator line.
+    from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
+    from screamingface_engine.benchmarks.gdpval import prepare as module
+    from screamingface_engine.benchmarks.gdpval.ingestion import IngestionError
+
+    rows = _all_rows()
+    rows[0]["reference_files"] = ["broken.pdf"]
+
+    def failing_reader(task_id: str, file_name: str) -> str:
+        raise IngestionError(f"task {task_id}: reference {file_name!r} could not be downloaded")
+
+    monkeypatch.setattr(module, "load_rows", lambda: rows)
+    monkeypatch.setattr(module, "_build_reader", lambda _cache, _urls: failing_reader)
+    with pytest.raises(BenchmarkAssetPreparationError, match="broken.pdf"):
+        module.prepare(tmp_path)
+
+
+def test_the_reference_cache_defaults_outside_the_served_assets(tmp_path, monkeypatch) -> None:
+    # WHY: `out` is copied wholesale into the Runner image (`/opt/benchmarks`), and the SDK's
+    # local assets dir ships the same tree. The references are already flattened into
+    # cases.json, so a cache under `out` ships all 85 original PDF/DOCX binaries for nothing.
+    from pathlib import Path
+
+    from screamingface_engine.benchmarks.gdpval import prepare as module
+
+    seen: dict[str, Path] = {}
+
+    def capture(cache: Path, _urls: object):
+        seen["cache"] = cache
+        return _reader
+
+    monkeypatch.setattr(module, "load_rows", _all_rows)
+    monkeypatch.setattr(module, "_build_reader", capture)
+    module.prepare(tmp_path)
+
+    cache = seen["cache"]
+    assert cache != tmp_path and tmp_path not in cache.parents
+
+
+def test_an_explicit_reference_cache_location_is_respected(tmp_path, monkeypatch) -> None:
+    from pathlib import Path
+
+    from screamingface_engine.benchmarks.gdpval import prepare as module
+
+    seen: dict[str, Path] = {}
+
+    def capture(cache: Path, _urls: object):
+        seen["cache"] = cache
+        return _reader
+
+    monkeypatch.setattr(module, "load_rows", _all_rows)
+    monkeypatch.setattr(module, "_build_reader", capture)
+    module.prepare(tmp_path / "out", assets_root=tmp_path / "refs")
+    assert seen["cache"] == tmp_path / "refs"

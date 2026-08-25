@@ -28,7 +28,9 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 import sys
+import tempfile
 import time
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -256,6 +258,12 @@ def _fetch(task_id: str, file_name: str, urls: Mapping[str, str], cache: Path) -
             f"task {task_id}: reference {file_name!r} has no download URL in the dataset"
         )
     destination.parent.mkdir(parents=True, exist_ok=True)
+    # INVARIANT: the destination path only ever appears COMPLETE. The cache-hit check above is
+    # presence plus non-zero size, so a download killed mid-write (Ctrl-C, disk full) would
+    # otherwise leave a truncated file that every later run accepts forever — and a truncated
+    # PDF that still parses past MIN_VIABLE_CHARS would bake truncated reference text into the
+    # answer key. Bytes land in a temp sibling; only a finished download is renamed into place.
+    part = destination.with_suffix(destination.suffix + ".part")
     # WHY retry: this fetches 85 files in sequence from a public CDN, and a single reset
     # ("Connection reset by peer") would otherwise abandon a multi-minute build. Bounded, so a
     # genuinely missing file still fails rather than looping.
@@ -263,25 +271,46 @@ def _fetch(task_id: str, file_name: str, urls: Mapping[str, str], cache: Path) -
     for attempt in range(_FETCH_ATTEMPTS):
         try:
             with urllib.request.urlopen(url, timeout=_FETCH_TIMEOUT_S) as response:
-                destination.write_bytes(response.read())
+                part.write_bytes(response.read())
         except OSError as exc:
             last = exc
             if attempt + 1 < _FETCH_ATTEMPTS:
                 time.sleep(_FETCH_BACKOFF_S * (attempt + 1))
         else:
+            os.replace(part, destination)
             return
+    part.unlink(missing_ok=True)
     raise IngestionError(
         f"task {task_id}: reference {file_name!r} could not be downloaded after "
         f"{_FETCH_ATTEMPTS} attempts: {last}"
     ) from last
 
 
+def _default_reference_cache() -> Path:
+    """Where downloaded reference binaries live when the caller names no location.
+
+    WHY outside ``out``: ``out`` IS the served asset tree — the Docker build copies
+    ``/opt/benchmarks`` wholesale into the Runner image, and the SDK keeps it as the local
+    assets dir. The references are already flattened into ``cases.json``, so a cache under
+    ``out`` would ship all 85 original PDF/DOCX binaries (tens of MB) for nothing. The dataset
+    revision is part of the path so a re-pin can never serve stale binaries from a prior pin.
+    """
+
+    return Path(tempfile.gettempdir()) / f"gdpval-references-{DATASET_REVISION[:12]}"
+
+
 def prepare(out: Path, *, assets_root: Path | None = None) -> dict[str, Any]:
     """Bake the GDPval text-subset assets into ``out``, returning its audit summary."""
 
     rows = load_rows()
-    cache = assets_root or (out / "_references")
-    cases = emit(rows, out, reader=_build_reader(cache, reference_urls(rows)))
+    cache = assets_root or _default_reference_cache()
+    try:
+        cases = emit(rows, out, reader=_build_reader(cache, reference_urls(rows)))
+    except IngestionError as exc:
+        # WHY translate: `BenchmarkAssetPreparationError` is the deployment orchestrator's
+        # exit-1 channel (OME-925). An IngestionError escaping raw would turn one flaky CDN
+        # download into a red image build with a traceback instead of the operator line.
+        raise PrepareError(str(exc)) from exc
     return {
         "cases": cases,
         # WHY the exclusions ride the summary: they are a scoring-relevant choice, not an

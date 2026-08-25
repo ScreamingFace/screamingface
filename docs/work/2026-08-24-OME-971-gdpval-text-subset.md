@@ -373,9 +373,50 @@ had the parsers available one way or another. The image build is the one environ
 installs its preparer dependencies explicitly, so it was the only place the omission could
 surface.
 
+### Task 11 — review-round fixes (DONE)
+
+The PR review confirmed nine findings; the seven quick-patch ones land in this round (the
+aggregate-clone and verdict-parser consolidation are deferred as follow-up by owner reply on
+the PR thread).
+
+- **`decode_case_evaluation` restored to the binders' strictness.** The decode gate accepted a
+  schema-valid envelope whose nested rubric/evidence disagreed on `rubric_id` — and the
+  aggregate keys checks on the row's id but verdicts on the evidence's, so the verified exploit
+  scored 0.625 where the honest outcome is a visible failure. Decode now enforces positive
+  unique `rubric_id` plus nested schema/case_id/rubric_id agreement, matching HealthBench.
+- **Reference downloads are atomic.** `_fetch` wrote the final path in place; a mid-write kill
+  left a truncated file the size>0 cache check accepted forever. Bytes now land in a `.part`
+  sibling and only a finished download is renamed into place.
+- **`IngestionError` is translated at the `prepare()` boundary** into `PrepareError`
+  (`BenchmarkAssetPreparationError`), so a flaky CDN download fails the image build with the
+  OME-925 operator line instead of a raw traceback.
+- **The reference cache moved out of the served asset tree** — default was `out/_references`,
+  which shipped all 85 original PDF/DOCX binaries in every Runner image despite the references
+  being flattened into cases.json. Default is now a temp-dir path keyed by dataset revision.
+- **Runtime handlers parse cases.json once per closure.** `preflight` returns the text it
+  validated; `_cases` and `_rubric_tasks` memoize successful reads only, so a broken asset
+  still fails loudly on every call.
+- **The notebook's per-case cell read `case.id`; the field is `case_id`.** Fixed in the
+  generator and patched surgically into `10_gdpval.ipynb` (outputs preserved — the notebook
+  gate deliberately ignores session state). A new SDK test asserts every `case.<attr>` in every
+  example notebook resolves on the real `CaseResult`, closing the class of bug.
+
+New tests: `test_gdpval_case_evaluation.py` (7), `test_gdpval_runtime.py` (2),
+5 added to `test_gdpval_prepare.py`, `test_example_notebooks.py` (parametrized over all
+examples). All RED-first; no prior test touched.
+
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** as planned across tasks 1–10 (the `benchmarks/gdpval/` package, registry
+  and deployment registrations, Dockerfile.benchmark pins, SDK CLI + `10_gdpval.ipynb`,
+  runtime-extra pins, four extended enumeration tests) — plus the task-11 review-round files:
+  `case_evaluation.py`, `prepare.py`, `runtime.py`, `build_notebooks.py`, the patched
+  notebook, and the four test files above.
+- **Commits:** `206c0f31`…`c88e8038` (12 commits, subset freeze → parsers in the image build)
+  plus the review-round fix commit.
+- **Gates:** `run_gates.py screamingface-engine` and `run_gates.py screamingface` — all green
+  at finish (engine: ruff, format, pyright, layering, pytest w/ coverage; SDK: ruff, format,
+  pyright, pytest w/ coverage, notebook determinism, build, distribution).
+- **Deviations:** no full graded run yet — a five-task pilot (~$3) remains the owner-gated
+  step before any score is published. The aggregate-reducer consolidation and the shared
+  judge-reply parser are deferred to follow-up tickets per the PR review thread.

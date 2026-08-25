@@ -129,7 +129,12 @@ def _decode_rubric_evaluations(
     values: Sequence[object],
     case_id: int,
 ) -> list[dict[str, Any]]:
+    # INVARIANT: nested identity agreement is enforced HERE, not just at write time. The
+    # aggregate keys its check index on the row's `rubric_id` but its verdict index on
+    # `evidence.rubric_id`, and the write-time binders are never called on the read path —
+    # so an envelope whose nested records disagree would score quietly wrong, not fail.
     decoded: list[dict[str, Any]] = []
+    seen: set[int] = set()
     for index, row in enumerate(values, start=1):
         label = f"Rubric evaluation {index}"
         if not isinstance(row, Mapping):
@@ -139,6 +144,28 @@ def _decode_rubric_evaluations(
         unknown = set(row) - _RUBRIC_EVALUATION_FIELDS
         if unknown:
             raise ValueError(f"{label} carries unknown fields {sorted(unknown)}")
+        rubric_id = row.get("rubric_id")
+        if isinstance(rubric_id, bool) or not isinstance(rubric_id, int) or rubric_id < 1:
+            raise ValueError(f"{label} rubric_id must be a positive integer")
+        if rubric_id in seen:
+            raise ValueError(f"duplicate rubric_id {rubric_id} in Case {case_id}")
+        seen.add(rubric_id)
+        rubric = row.get("rubric")
+        evidence = row.get("evidence")
+        if (
+            not isinstance(rubric, Mapping)
+            or rubric.get("schema") != RUBRIC_SCHEMA
+            or rubric.get("case_id") != case_id
+            or rubric.get("rubric_id") != rubric_id
+            or not isinstance(evidence, Mapping)
+            or evidence.get("schema") != VERDICT_SCHEMA
+            or evidence.get("case_id") != case_id
+            or evidence.get("rubric_id") != rubric_id
+        ):
+            raise ValueError(
+                f"inconsistent {label}: nested rubric and evidence must agree on schema, "
+                f"case_id and rubric_id"
+            )
         decoded.append(dict(row))
     return decoded
 
