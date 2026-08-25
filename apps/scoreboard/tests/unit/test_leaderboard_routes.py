@@ -864,6 +864,7 @@ async def test_anonymous_caller_sees_no_entries_on_a_private_board(
     assert response.status_code == 200
     body = response.json()
     assert body["entries"] == []
+    assert body["my_submissions"] == []
     # INVARIANT: a bare empty list is indistinguishable from "nobody has submitted". The response
     # says the listing was scoped, so a client can tell hidden-by-design from empty.
     assert body["scoped_to_caller"] is True
@@ -880,23 +881,32 @@ async def test_a_participant_sees_only_their_own_rows(
     )
 
     assert response.status_code == 200
-    entries = response.json()["entries"]
-    assert [entry["spec_id"] for entry in entries] == ["spec-alice"]
+    body = response.json()
+    # INVARIANT: `entries` is the RANKING, and a private board has none — so it is empty for
+    # everyone, including a participant. Their own rows are a different thing and live under a
+    # different key, which is why no rank has to be suppressed and no client contract changes.
+    assert body["entries"] == []
+    mine = body["my_submissions"]
+    assert [row["spec_id"] for row in mine] == ["spec-alice"]
     # Bob outscored Alice; nothing about that reaches her.
-    assert all(entry["submitted_by"] == "alice" for entry in entries)
+    assert all(row["submitted_by"] == "alice" for row in mine)
 
 
-async def test_a_private_board_suppresses_rank(
+async def test_a_private_board_carries_no_rank_at_all(
     header_mode_client: httpx.AsyncClient,
 ) -> None:
-    # Telling a participant they are 4th tells them three people beat them.
+    # Telling a participant they are 4th tells them three people beat them. The field is ABSENT
+    # rather than null: these rows were never ranked, so there is no rank to null out. That also
+    # keeps RankedLeaderboardEntry.rank a required int, so no client contract changes.
     await _seed_private_challenge()
 
     response = await header_mode_client.get(
         f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL)
     )
 
-    assert [entry["rank"] for entry in response.json()["entries"]] == [None]
+    mine = response.json()["my_submissions"]
+    assert mine
+    assert all("rank" not in row for row in mine)
 
 
 async def test_a_participant_sees_their_row_from_another_revision(
@@ -918,7 +928,7 @@ async def test_a_participant_sees_their_row_from_another_revision(
         f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL)
     )
 
-    assert sorted(entry["spec_id"] for entry in response.json()["entries"]) == [
+    assert sorted(row["spec_id"] for row in response.json()["my_submissions"]) == [
         "spec-alice",
         "spec-alice-old",
     ]
@@ -1010,4 +1020,5 @@ async def test_disabled_auth_mode_yields_nothing_on_a_private_board(
     )
 
     assert board.json()["entries"] == []
+    assert board.json()["my_submissions"] == []
     assert history.status_code == 404

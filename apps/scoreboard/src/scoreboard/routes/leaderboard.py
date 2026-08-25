@@ -42,10 +42,7 @@ class BenchmarksResponse(BaseModel):
 class RankedLeaderboardEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # WHY optional (OME-894): a private board suppresses rank. Telling a participant they are
-    # 4th tells them three people beat them, so it is omitted rather than computed-and-hidden.
-    # Always populated on a public board.
-    rank: int | None
+    rank: int
     spec_id: str
     # WHY: the board ranks best-per-spec PER REVISION (OME-775), so one spec can legitimately
     # appear twice. Without this field a client cannot tell why the two are not competing.
@@ -74,6 +71,15 @@ class LeaderboardResponse(BaseModel):
 
     benchmark: BenchmarkSchema
     entries: list[RankedLeaderboardEntry]
+    # FEATURE: OME-894 — the caller's own submissions on a private board.
+    # WHY a separate key rather than a nulled `rank` inside `entries`: on a private board there IS
+    # no ranking, so `entries` being empty is the truthful answer, and a participant's own rows are
+    # a different concept that never had a rank to suppress. Keeping them here leaves the
+    # `entries` contract untouched — no nullable rank, no SDK or portal change, and an older
+    # client sees an empty leaderboard rather than raising.
+    # Typed as LeaderboardEntry, which is RankedLeaderboardEntry minus `rank` — the shape already
+    # existed, so no fourth mirrored DTO is introduced.
+    my_submissions: list[LeaderboardEntry]
     # WHY this is not redundant with `benchmark.visibility` (OME-894): visibility says what the
     # BOARD is; this says whether THIS listing was filtered to the caller. Without it an empty
     # list is indistinguishable from "nobody has submitted", which is the difference between
@@ -128,7 +134,7 @@ async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
     return benchmark_to_schema(benchmark)
 
 
-def _ranked_entry(rank: int | None, entry: LeaderboardEntry) -> RankedLeaderboardEntry:
+def _ranked_entry(rank: int, entry: LeaderboardEntry) -> RankedLeaderboardEntry:
     return RankedLeaderboardEntry(rank=rank, **entry.model_dump())
 
 
@@ -184,23 +190,35 @@ async def get_leaderboard(
         # serve the entire private board to an anonymous caller. This is the leak the ticket
         # exists to prevent, and it is one keyword argument away at all times.
         return LeaderboardResponse(
-            benchmark=benchmark, entries=[], baselines=baselines, scoped_to_caller=True
+            benchmark=benchmark,
+            entries=[],
+            my_submissions=[],
+            baselines=baselines,
+            scoped_to_caller=True,
         )
 
-    entries = await _score_store(request).leaderboard(
+    rows = await _score_store(request).leaderboard(
         benchmark_id=benchmark_id,
         top_n=min(top, MAX_LEADERBOARD_TOP),
         owner=identity if is_private else None,
     )
-    ranked = [
-        _ranked_entry(None if is_private else index, entry)
-        for index, entry in enumerate(entries, start=1)
-    ]
+    if is_private:
+        # INVARIANT: `entries` is the public RANKING. A private board has none, so it is empty for
+        # everyone — including the participant, whose own rows go to `my_submissions` unranked.
+        return LeaderboardResponse(
+            benchmark=benchmark,
+            entries=[],
+            my_submissions=rows,
+            baselines=baselines,
+            scoped_to_caller=True,
+        )
+
     return LeaderboardResponse(
         benchmark=benchmark,
-        entries=ranked,
+        entries=[_ranked_entry(index, row) for index, row in enumerate(rows, start=1)],
+        my_submissions=[],
         baselines=baselines,
-        scoped_to_caller=is_private,
+        scoped_to_caller=False,
     )
 
 

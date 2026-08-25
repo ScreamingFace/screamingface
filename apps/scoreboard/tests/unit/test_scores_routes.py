@@ -447,3 +447,73 @@ async def test_openapi_schema_includes_new_endpoints(score_client: AsyncClient) 
     assert get_score["responses"]["503"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/MessageErrorResponse",
     )
+
+
+# --- OME-894: a private benchmark's scores are not readable by UUID --------------------------
+# The four leaderboard read paths were secured first; this one was missed. A score UUID is handed
+# out by the submission response and by per-spec history, so `GET /v1/scores/{id}` was a fifth
+# score-bearing path that returned a private submission's url4_expression and metadata to anyone
+# holding the id. Found in review of PR #719.
+
+PRIVATE_BENCHMARK = "healthbench-worst30"
+
+
+async def _private_score(client: AsyncClient, submitter: str) -> str:
+    await Benchmark.create(
+        id=PRIVATE_BENCHMARK,
+        display_name="HealthBench Worst-30% Challenge",
+        visibility="private",
+    )
+    payload = _valid_payload()
+    payload["benchmark_id"] = PRIVATE_BENCHMARK
+    created = await client.post("/v1/scores", json=payload, headers={"X-User-Email": submitter})
+    assert created.status_code == 201, created.text
+    return str(created.json()["id"])
+
+
+async def test_get_score_on_a_private_benchmark_is_404_for_an_anonymous_caller(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    score_id = await _private_score(cloudflare_score_client, "alice@example.test")
+
+    response = await cloudflare_score_client.get(f"/v1/scores/{score_id}")
+
+    # INVARIANT: the SAME 404 an unknown id gets. Holding a real id must not be confirmable.
+    assert response.status_code == 404
+    assert response.json() == {"detail": "score not found"}
+
+
+async def test_get_score_on_a_private_benchmark_is_404_for_another_participant(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    score_id = await _private_score(cloudflare_score_client, "alice@example.test")
+
+    response = await cloudflare_score_client.get(
+        f"/v1/scores/{score_id}", headers={"X-User-Email": "bob@example.test"}
+    )
+
+    assert response.status_code == 404
+
+
+async def test_get_score_on_a_private_benchmark_is_served_to_its_own_submitter(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    score_id = await _private_score(cloudflare_score_client, "alice@example.test")
+
+    response = await cloudflare_score_client.get(
+        f"/v1/scores/{score_id}", headers={"X-User-Email": "alice@example.test"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == score_id
+
+
+async def test_get_score_on_a_public_benchmark_stays_anonymous(
+    score_client: AsyncClient,
+) -> None:
+    # The regression guard: securing the private path must not close the public one.
+    created = await score_client.post("/v1/scores", json=_valid_payload())
+
+    response = await score_client.get(f"/v1/scores/{created.json()['id']}")
+
+    assert response.status_code == 200

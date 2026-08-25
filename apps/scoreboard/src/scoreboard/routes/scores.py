@@ -27,6 +27,7 @@ from scoreboard.core.auth.cloudflare_identity import (
     identity_from_headers,
     peer_in_networks,
 )
+from scoreboard.routes.dependencies import ReadIdentity
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
     FieldErrorDetail,
@@ -40,6 +41,9 @@ from scoreboard.scores.store import ScoreStore
 router = APIRouter(prefix="/v1", tags=["scores"])
 
 STORE_UNAVAILABLE_DETAIL = "score store unavailable"
+# INVARIANT (OME-894): one detail for a missing score AND for a private score the caller
+# may not read, so the two are indistinguishable.
+SCORE_NOT_FOUND_DETAIL = "score not found"
 UNTRUSTED_PEER_DETAIL = (
     "This service accepts header identity only from the networks it was configured to trust."
 )
@@ -177,7 +181,7 @@ async def submit_score(
 
 
 @router.get("/scores/{score_id}", response_model=ScoreSchema, responses=GET_SCORE_RESPONSES)
-async def get_score(score_id: UUID) -> ScoreSchema:
+async def get_score(score_id: UUID, identity: ReadIdentity) -> ScoreSchema:
     """Return a public score by id.
 
     ``verified_by_screamingface`` carries no verification claim yet: nothing re-runs
@@ -193,5 +197,20 @@ async def get_score(score_id: UUID) -> ScoreSchema:
         ) from exc
 
     if score is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="score not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SCORE_NOT_FOUND_DETAIL)
+
+    # FEATURE: OME-894 — a private benchmark's submissions belong to their submitter alone. This
+    # route is a score-bearing read path like the four on the leaderboard, and score UUIDs are
+    # handed out by the submission response and by per-spec history, so leaving it open would
+    # publish a private run's url4_expression and metadata to anyone holding an id.
+    # INVARIANT: the SAME 404 an unknown id gets, so holding a real id is not confirmable.
+    # `benchmark_id` is the foreign key's shadow column and is not a declared attribute, so it
+    # is read the same way scores/store.py reads it.
+    benchmark = await Benchmark.get_or_none(id=cast(str, getattr(score, "benchmark_id")))
+    private = benchmark is None or benchmark.visibility == "private"
+    if private and (identity is None or score.submitted_by != identity):
+        # `benchmark is None` cannot happen behind the RESTRICT foreign key; it fails closed
+        # rather than serving a score whose visibility could not be established.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SCORE_NOT_FOUND_DETAIL)
+
     return ScoreSchema.model_validate(score, from_attributes=True)

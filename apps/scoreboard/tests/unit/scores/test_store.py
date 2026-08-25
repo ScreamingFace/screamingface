@@ -1203,3 +1203,70 @@ async def test_list_all_for_benchmark_scoped_to_an_owner_returns_only_their_rows
     rows = await store.list_all_for_benchmark("hle", owner=ALICE)
 
     assert [row.submitted_by for row in rows] == [ALICE]
+
+
+# --- OME-894: dedup identity on a private board ----------------------------------------------
+# _content_hash deliberately excludes the submitter: identity is the RECIPE, not who ran it
+# (OME-391). On a public board that is right. On a private board it is harmful — two participants
+# who submit the same recipe collapse to one row, so the second sees nothing of their own while
+# the POST hands them the FIRST participant's stored url4, metadata and id. Found in review of
+# PR #719.
+
+
+def _same_recipe(submitted_by: str) -> ScoreSubmission:
+    return ScoreSubmission(
+        benchmark_id="hle",
+        spec_id="shared-spec",
+        url4_expression="url4://benchmark/shared",
+        submitted_by=submitted_by,
+        score=0.80,
+        total_questions=100,
+        correct_questions=80,
+        ran_with_providers=["openai"],
+    )
+
+
+async def test_two_participants_sharing_a_recipe_keep_separate_rows_when_private(
+    tortoise_db: None,
+) -> None:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+
+    first, first_created = await store.submit(_same_recipe(ALICE))
+    second, second_created = await store.submit(_same_recipe(BOB))
+
+    assert first_created is True
+    assert second_created is True
+    assert first.id != second.id
+    # INVARIANT: neither participant is handed the other's row.
+    assert first.submitted_by == ALICE
+    assert second.submitted_by == BOB
+
+
+async def test_one_participant_resubmitting_still_dedups_when_private(
+    tortoise_db: None,
+) -> None:
+    # Per-person idempotency survives: only the cross-person collapse is removed.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+
+    first, first_created = await store.submit(_same_recipe(ALICE))
+    again, again_created = await store.submit(_same_recipe(ALICE))
+
+    assert first_created is True
+    assert again_created is False
+    assert again.id == first.id
+
+
+async def test_a_public_board_still_dedups_across_participants(tortoise_db: None) -> None:
+    # INVARIANT: OME-391's recipe identity is untouched on a public board. Splitting it would
+    # let anyone resubmit an existing public recipe under their own name and duplicate the board.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    first, first_created = await store.submit(_same_recipe(ALICE))
+    second, second_created = await store.submit(_same_recipe(BOB))
+
+    assert first_created is True
+    assert second_created is False
+    assert second.id == first.id

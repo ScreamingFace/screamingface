@@ -15,8 +15,10 @@ import httpx
 import pytest
 
 from scoreboard.scores.models import Benchmark
+from scoreboard.scores.store import ScoreStore
 from scoreboard.seed import (
     EngineCatalogUnavailable,
+    SeedBenchmark,
     fetch_engine_benchmarks,
     load_benchmarks_json,
     seed_benchmarks,
@@ -607,3 +609,73 @@ async def test_an_entry_missing_its_identity_is_still_rejected() -> None:
 
     assert read.rows == []
     assert read.rejected == ["entry #0"]
+
+
+# --- OME-894: deployment-owned visibility on an Engine-published benchmark --------------------
+# The Engine does not publish a `visibility` — it is a Scoreboard concern, not an Engine one — so
+# a published row can only get one from deployment config. Without the merge below, the entry
+# challenge (healthbench-worst30, Engine-published) can never be made private, and a board flipped
+# by hand is reset to public by the next deploy. Found in review of PR #719.
+
+
+async def test_configured_visibility_is_merged_into_a_published_row(tortoise_db: None) -> None:
+    published = SeedBenchmark(
+        id="healthbench-worst30", display_name="HealthBench", revision="rev-1"
+    )
+    configured = SeedBenchmark(
+        id="healthbench-worst30", display_name="ignored", visibility="private"
+    )
+
+    report = await seed_from_sources(
+        configured=[configured], engine_url=None, engine_rows=[published]
+    )
+
+    seeded = {row.id: row for row in report.seeded}
+    assert seeded["healthbench-worst30"].visibility == "private"
+    # Still shadowed: the Engine remains the authority for TEXT. Only visibility is lifted.
+    assert report.shadowed == ["healthbench-worst30"]
+    assert seeded["healthbench-worst30"].display_name == "HealthBench"
+
+
+async def test_a_published_row_without_configured_visibility_keeps_what_is_stored(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: an omitted visibility means "leave it alone", never "reset to public". This is
+    # the guard that stops a routine deploy un-privating a live challenge.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="healthbench-worst30",
+        display_name="HealthBench",
+        revision="rev-1",
+        visibility="private",
+    )
+
+    published = SeedBenchmark(
+        id="healthbench-worst30", display_name="HealthBench", revision="rev-1"
+    )
+    report = await seed_from_sources(configured=[], engine_url=None, engine_rows=[published])
+
+    assert report.seeded[0].visibility == "private"
+
+
+async def test_configured_visibility_can_flip_a_board_back_to_public(tortoise_db: None) -> None:
+    # Recoverable in both directions: a mis-seeded private board must not be stuck.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="healthbench-worst30",
+        display_name="HealthBench",
+        revision="rev-1",
+        visibility="private",
+    )
+
+    published = SeedBenchmark(
+        id="healthbench-worst30", display_name="HealthBench", revision="rev-1"
+    )
+    configured = SeedBenchmark(
+        id="healthbench-worst30", display_name="ignored", visibility="public"
+    )
+    report = await seed_from_sources(
+        configured=[configured], engine_url=None, engine_rows=[published]
+    )
+
+    assert report.seeded[0].visibility == "public"

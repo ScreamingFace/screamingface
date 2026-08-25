@@ -128,7 +128,7 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
     }
 
 
-def _content_hash(submission: ScoreSubmission) -> str:
+def _content_hash(submission: ScoreSubmission, *, per_submitter: bool = False) -> str:
     # WHY: identity is the recipe (what was run + its result), not who ran it or
     # when — submitted_by/client_*/ran_at_local/metadata are deliberately excluded.
     # Provider order is kept as submitted (not sorted) since it's part of what
@@ -158,6 +158,24 @@ def _content_hash(submission: ScoreSubmission) -> str:
         "total_questions": submission.total_questions,
         "ran_with_providers": submission.ran_with_providers,
     }
+    if per_submitter:
+        # FEATURE: OME-894 — on a PRIVATE board the submitter is part of identity. Excluding it
+        # collapses two participants who ran the same recipe into one row, so the second sees
+        # nothing of their own while the response hands them the first participant's url4,
+        # metadata and id. Per-person idempotency still holds, because the same submitter
+        # resubmitting produces the same hash.
+        # INVARIANT: public boards are NOT affected. OME-391's identity-is-the-recipe rule stays
+        # exactly as it was there — splitting it would let anyone resubmit an existing public
+        # recipe under their own name and duplicate the board.
+        # AIDEV-NOTE: a benchmark that later changes visibility invalidates its stored hashes for
+        # future resubmissions, so a resubmitted old recipe creates a second row. Bounded, and
+        # the same no-backfill trade-off OME-775 recorded for benchmark_revision.
+        identity["submitted_by"] = submission.submitted_by
+        # AIDEV-NOTE: defaults to False so this stays the OME-391 recipe hash for every existing
+        # caller. `submit()` is the one production call site and resolves the flag from the
+        # benchmark itself, so a new call site cannot silently opt a private board back into
+        # cross-participant collapse by forgetting an argument — it would have to route around
+        # submit() entirely.
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -331,21 +349,22 @@ class ScoreStore:
         dataset_url: str | None = None,
         revision: str | None = None,
         focus: str | None = None,
-        visibility: Visibility = "public",
+        visibility: Visibility | None = None,
     ) -> BenchmarkSchema:
-        benchmark, _ = await Benchmark.update_or_create(
-            defaults={
-                "display_name": display_name,
-                "description": description,
-                "dataset_url": dataset_url,
-                "revision": revision,
-                "focus": focus,
-                # WHY in defaults, not only on create: seeding is idempotent, so a benchmark
-                # mis-seeded as private must be able to flip back (OME-894).
-                "visibility": visibility,
-            },
-            id=benchmark_id,
-        )
+        defaults: dict[str, object] = {
+            "display_name": display_name,
+            "description": description,
+            "dataset_url": dataset_url,
+            "revision": revision,
+            "focus": focus,
+        }
+        if visibility is not None:
+            # WHY conditional (OME-894): seeding runs on every deploy, and an omitted visibility
+            # must mean "leave it alone" rather than "reset to public" — otherwise a routine
+            # deploy silently un-privates a running challenge. Stated explicitly, it still writes,
+            # so a mis-seeded private board can be flipped back.
+            defaults["visibility"] = visibility
+        benchmark, _ = await Benchmark.update_or_create(defaults=defaults, id=benchmark_id)
         return benchmark_to_schema(benchmark)
 
     async def has_registered_revision(self) -> bool:
@@ -421,7 +440,11 @@ class ScoreStore:
         idempotency_key: str | None = None,
     ) -> SubmitOutcome:
         now_ts = datetime.now(UTC)
-        content_hash = _content_hash(submission)
+        # Looked up here rather than passed in: every caller of submit() must get the private-board
+        # identity rule, and a parameter is something a second call site can forget.
+        benchmark = await Benchmark.get_or_none(id=submission.benchmark_id)
+        per_submitter = benchmark is not None and benchmark.visibility == "private"
+        content_hash = _content_hash(submission, per_submitter=per_submitter)
 
         existing = await self._resolve_existing(idempotency_key, content_hash)
         if existing is not None:

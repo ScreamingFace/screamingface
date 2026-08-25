@@ -109,6 +109,29 @@ See spec §7.
    status code alone — re-opening the exact enumeration the 404-not-403 rule closes. Both cases
    now return the same 404 with the same body, pinned by a test.
 
+## Review round — 2026-08-25
+
+Five P1 findings on PR #719. Each was reproduced against the code before being acted on; all five
+were valid. Decisions and reasoning are in spec §8 (D9–D12).
+
+- **D9** migration adds nullable → backfills → tightens, with a mutation-checked test that applies
+  it to a populated database through the real runner.
+- **D10** deployment config owns `visibility` on Engine-published rows, and an omitted value means
+  "leave it alone" rather than "reset to public".
+- **D11** the submitter joins the dedup hash on private boards only; public identity is untouched.
+- **D12** supersedes D3 — a private board carries no ranking, so `entries` is `[]` and the caller's
+  rows move to `my_submissions`. `rank` goes back to a required `int`, which removes the
+  cross-cutting SDK change, the epic, and the release ordering entirely.
+
+Verified after the fixes: the migration applies to a populated database; a hand-set private board
+survives both a bare re-seed and a full deploy seed, and the chart can still flip it back;
+`GET /v1/scores/{id}` returns the same 404 for anonymous and non-owner callers; two participants
+submitting an identical recipe on a private board each keep their own row; and **the unmodified
+SDK decodes a private-board response** rather than raising. Public boards unchanged throughout.
+
+**No prior test was modified.** `_content_hash`'s new argument defaults to `False` specifically so
+the existing `test_content_hash_keys_on_the_submitted_score` keeps passing untouched.
+
 ## Owner-verify
 
 - **Confirm the runtime `authMode` with @Stephen before the challenge is announced.** The chart

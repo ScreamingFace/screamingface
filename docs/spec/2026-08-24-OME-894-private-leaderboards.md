@@ -43,7 +43,7 @@ F7 is the operational catch — see §5.
 |---|---|---|
 | D1 | `Benchmark.visibility`, `public` by default; existing rows backfill to `public` | ticket design |
 | D2 | **Fail closed under `auth_mode: "disabled"`** — no verified identity means nothing readable on a private board. No API escape hatch. | owner, 2026-08-24 |
-| D3 | `rank` becomes `int \| None`, null on a private board | owner, 2026-08-24 |
+| D3 | ~~`rank` becomes `int \| None`~~ — **superseded by D12**, see §8 | owner, 2026-08-24 |
 | D4 | A private benchmark **is** listed in the public catalogue, marked private | Irina, AGREED 2026-08-24 |
 | D5 | Participants see **no aggregate** — nothing beyond their own submissions | Irina, AGREED 2026-08-24 |
 | D6 | Staff access is a **read-only operator module**, never an admin API | owner, 2026-08-24 |
@@ -166,3 +166,81 @@ the submission path.
 - A caller's own rows appear even when measured against a non-registered revision (D8).
 - **Public boards are byte-identical to today for an anonymous caller** — the main regression risk.
 - Full gates green.
+
+
+## 8. Review round — 2026-08-25
+
+Five P1 findings on PR #719, all reproduced against the code before acting on any of them. Four
+were defects in this unit; the fifth dissolved once the design was reframed.
+
+| # | Finding | Reproduction |
+|---|---|---|
+| F-A | `0008` fails on any populated database | `Cannot add a NOT NULL column with default value NULL`, applying it to a table holding one row |
+| F-B | The seed path cannot persist private visibility | Hand-set `private`, ran the seed, read back `public` |
+| F-C | `GET /v1/scores/{id}` served private submissions | Anonymous and non-owner both returned `200` |
+| F-D | Dedup collapsed two participants into one row | Second submitter received `created=False` and the first's stored row |
+| F-E | The SDK raised on `rank: null` | `_integer(None)` raises; `LeaderboardEntry.rank: int`; and `leaderboard.py:220` requires ranks consecutive from 1 |
+
+### D9 — the migration adds nullable, backfills, then tightens
+
+Tortoise's `default=` is an ORM creation default only, so a single non-nullable `AddField` emits
+SQL with no database default and every populated table rejects it. Three operations instead.
+Backfilled to `public` because every pre-existing benchmark was already world-readable — that
+states what was true rather than inventing a posture.
+
+`tests/unit/test_migration_0008_visibility.py` applies the migration to a populated database
+through the real runner. It is mutation-checked: it fails against the original single-`AddField`
+form. Every other test builds its schema with `generate_schemas` on an empty database, so the
+deploy path was untested by construction.
+
+### D10 — deployment config owns visibility, and omission never clobbers
+
+The Engine publishes no `visibility`, so an Engine-published benchmark can only get one from the
+chart. `_with_configured_visibility` lifts that single field onto the published row; the Engine
+remains the sole authority for benchmark text (`OME-904`). Separately, `register_benchmark`
+treats `visibility=None` as *leave it alone* rather than *reset to public*, so a routine deploy
+cannot un-private a live challenge.
+
+Without both, the entry challenge — which is Engine-published — could never have been made
+private at all.
+
+### D11 — dedup identity gains the submitter on private boards only
+
+`_content_hash` excludes the submitter by design: identity is the recipe (`OME-391`). On a private
+board that collapses two participants who ran the same recipe into one row, so the second sees
+nothing of their own while the response hands them the first's `url4_expression`, `metadata` and
+`id`. The submitter now joins the hash **only when the benchmark is private**.
+
+Public boards are untouched. Splitting identity there would let anyone resubmit an existing public
+recipe under their own name and duplicate the board. `per_submitter` defaults to `False` and
+`submit()` resolves it from the benchmark itself, so a new call site cannot opt a private board
+back into cross-participant collapse by forgetting an argument.
+
+### D12 — a private board carries no `rank`, because it carries no ranking (supersedes D3)
+
+D3 nulled `rank` on a private board. That forced a cross-cutting contract change: the SDK would
+have needed a nullable rank and a relaxed consecutive-rank check, released ahead of any board
+being flipped, with a window where an older client raised.
+
+The reframing: **on a private board there is no ranking at all**, so `entries: []` is the truthful
+answer, and a participant's own rows are a different concept that never had a rank to suppress.
+They move to `my_submissions`, typed as `LeaderboardEntry` — which is `RankedLeaderboardEntry`
+minus `rank`, a shape that already existed, so no fourth mirrored DTO appears.
+
+Consequences: `RankedLeaderboardEntry.rank` stays a required `int`; no SDK change, no epic, no
+release ordering; the portal needs no special case. **Verified by decoding a real private-board
+response with the unmodified SDK** — it returns `Leaderboard('healthbench-worst30', entries=0)`
+rather than raising.
+
+The honest cost: a participant on an older SDK sees an empty board rather than their own rows
+until it learns the new key. Degraded, but correct — there genuinely is no public ranking — and it
+does not throw.
+
+### What the first round's verification missed
+
+Named because the gaps were systematic, not random. Seeding went through
+`register_benchmark(visibility="private")` directly, so **the seed path production actually uses
+was never exercised** — which is why F-B survived a real server run. `makemigrations` was checked
+for drift but `0008` was never applied to a populated database. The audit covered "the four read
+paths" because the ticket framed it that way, so `GET /v1/scores/{id}` fell outside the frame. And
+a response shape was changed without checking its in-repo SDK consumer.
