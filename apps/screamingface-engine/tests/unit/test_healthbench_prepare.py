@@ -140,3 +140,20 @@ def test_a_dataset_that_gained_a_row_fails_the_build(tmp_path: Path) -> None:
     )
     with pytest.raises(PrepareError, match="525"):
         emit(rows, tmp_path)
+
+
+def test_cli_summary_keys_match_real_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "screamingface_engine.benchmarks.healthbench.prepare.load_rows",
+        _synthetic_rows,
+    )
+
+    assert main(["--out", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == (
+        f"healthbench: baked 525 cases into {tmp_path} "
+        "— the professional board serves all 525, worst30 serves 157\n"
+    )

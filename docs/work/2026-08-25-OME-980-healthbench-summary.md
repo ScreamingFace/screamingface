@@ -41,3 +41,11 @@ Repair the post-preparation HealthBench CLI crash while preserving the honest
   `run_gates.py screamingface-engine` — append-only, Ruff check/format, Pyright, layering, and full
   pytest/coverage all green.
 - **Deviations:** none.
+
+## Review follow-up
+
+The first CLI test stubbed `_prepare()` with the same mapping expected by `main()`, so a future
+summary-key rename could make production fail post-bake while leaving the test green. An appended
+regression test now stubs only `load_rows()` and drives the CLI through the real `_prepare()`.
+Replaying the original stale lookup makes this test fail with the expected `KeyError`; restoring
+the fix returns the full Engine gate suite to green, including the append-only check.
