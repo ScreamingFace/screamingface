@@ -22,6 +22,13 @@ the Phase 1–3 epics to be filed later.
 
 - `docs/spec/2026-08-22-observability-traceability-review.md` — the review spec.
 - `docs/tasks/2026-08-22-*.md` — 12 mirrors (epic `OME-935` + sub-issues `OME-936`–`OME-946`).
+- `docs/observability-state-of-play.md` — team-facing brief derived from the spec, in the
+  house top-level idiom (`scream-lisbon-digest.md`, `positioning.md`): no frontmatter, a
+  `>` preamble naming audience and authority, cross-links to the spec and `ISSUES.md`.
+  Doubles as a Slack canvas, so its matrix stays a monospace block rather than a Markdown
+  table (canvases don't render tables).
+- Later mirrors for the issues found during the empirical audit and the payload inventory
+  (`OME-966`–`OME-970`, `OME-973`, `OME-976`).
 - This ledger.
 
 ## Test plan
