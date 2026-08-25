@@ -39,6 +39,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.draco.definition import (
     ASSET_BUNDLE_ID,
     CASE_COUNT,
@@ -75,7 +76,7 @@ copy baked into the image. Add HOSTS; anything longer is a 400.
 """
 
 
-class PrepareError(RuntimeError):
+class PrepareError(BenchmarkAssetPreparationError):
     """The dataset could not be turned into a declared world."""
 
 
@@ -237,10 +238,10 @@ def _prepare(out: Path, limit: int | None) -> dict[str, Any]:
     )
 
 
-def prepare(out: Path) -> None:
+def prepare(out: Path) -> dict[str, Any]:
     """Prepare the complete deployable DRACO asset bundle."""
 
-    _prepare(out, None)
+    return _prepare(out, None)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

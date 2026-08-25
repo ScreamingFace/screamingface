@@ -48,6 +48,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.ifeval.definition import (
     ASSET_BUNDLE_ID,
     CASE_COUNT,
@@ -57,7 +58,7 @@ from screamingface_engine.benchmarks.ifeval.definition import (
 from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 
 
-class PrepareError(RuntimeError):
+class PrepareError(BenchmarkAssetPreparationError):
     """The dataset could not be turned into a declared world."""
 
 
@@ -237,10 +238,10 @@ def _prepare(out: Path, limit: int | None) -> dict[str, Any]:
     return summary | prepare_nltk(out)
 
 
-def prepare(out: Path) -> None:
+def prepare(out: Path) -> dict[str, Any]:
     """Prepare the complete deployable IFEval asset bundle, including NLTK data."""
 
-    _prepare(out, None)
+    return _prepare(out, None)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

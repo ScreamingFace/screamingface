@@ -76,3 +76,31 @@ def test_k8s_runner_is_built_from_settings() -> None:
 def test_unknown_runner_is_rejected_at_settings_construction() -> None:
     with pytest.raises(ValueError):
         Settings(runner="kubernetes")  # type: ignore[arg-type]
+
+
+def test_k8s_runner_receives_deployment_scheduling() -> None:
+    settings = Settings(
+        runner="k8s",
+        runner_node_selector={"openmined.org/pool": "preview"},
+        runner_tolerations=[
+            {
+                "key": "workload",
+                "operator": "Equal",
+                "value": "preview",
+                "effect": "NoSchedule",
+            }
+        ],
+    )
+
+    runner = build_job_runner(settings, k8s_client_factory=_FakeBatchApi)
+
+    assert isinstance(runner, K8sJobRunner)
+    assert runner._node_selector == {"openmined.org/pool": "preview"}
+    assert runner._tolerations == [
+        {
+            "key": "workload",
+            "operator": "Equal",
+            "value": "preview",
+            "effect": "NoSchedule",
+        }
+    ]

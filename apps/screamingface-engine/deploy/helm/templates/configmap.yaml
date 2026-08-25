@@ -35,6 +35,14 @@ data:
   # verbatim instead of being flattened into a per-field env sprawl.
   URL4_CLOUD_RUNNER_RESOURCES: {{ toJson . | quote }}
   {{- end }}
+  {{- if .Values.nodeSelector }}
+  # Runner Jobs and the Engine Deployment use the same operator-owned node placement.
+  URL4_CLOUD_RUNNER_NODE_SELECTOR: {{ toJson .Values.nodeSelector | quote }}
+  {{- end }}
+  {{- if .Values.tolerations }}
+  # JSON preserves the Kubernetes toleration structure for each generated Runner Job.
+  URL4_CLOUD_RUNNER_TOLERATIONS: {{ toJson .Values.tolerations | quote }}
+  {{- end }}
   {{- with .Values.runner.jobTtlSeconds }}
   # Optional EXTENSION of how long a finished Runner Job is kept. Unset => the App derives the
   # floor: iatWindowS + a 60s clock-skew margin. It may only ever be raised — the Job's name is

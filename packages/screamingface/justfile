@@ -254,6 +254,4 @@ stack-logs:
 
 # One-time: download pinned benchmark assets into {{assets}}
 stack-prepare:
-    cd {{engine_repo}}/apps/screamingface-engine && uv run --with datasets python -m screamingface_engine.benchmarks.draco.prepare --out {{assets}}/draco
-    cd {{engine_repo}}/apps/screamingface-engine && uv run --with datasets python -m screamingface_engine.benchmarks.ifeval.prepare --out {{assets}}/ifeval
-    cd {{engine_repo}}/apps/screamingface-engine && uv run --with datasets python -m screamingface_engine.benchmarks.healthbench.prepare --out {{assets}}/healthbench
+    cd {{engine_repo}}/apps/screamingface-engine && uv run --with datasets python -m screamingface_engine.benchmarks.prepare --root {{assets}}

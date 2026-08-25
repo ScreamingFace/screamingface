@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from html import escape
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, assert_never
 
 from screamingface._ui.connection_state import _ConnectionPanelState
 from screamingface._ui.engine_origin import _is_screamingface_engine
@@ -110,7 +111,8 @@ _STYLE = (
   background:var(--sf-blind)}
 /* an inactive row recedes (the whole label dims) while a live one stays full ink — state
    reads from weight+square, never from hue alone, so a colour-blind reader still gets it */
-.sf-connections__status.not_connected,.sf-connections__status.login_required{
+.sf-connections__status.not_connected,.sf-connections__status.unavailable,
+.sf-connections__status.login_required{
   color:var(--sf-ink-3)}
 .sf-connections__source{font-size:14px;color:var(--sf-ink-3);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
@@ -433,30 +435,45 @@ def _source_html(text: str | None) -> str:
     return f"<span class='sf-connections__source'>{escape(text) if text else '—'}</span>"
 
 
+@dataclass(frozen=True, slots=True)
+class _ProviderPresentation:
+    status_class: str
+    status_label: str
+    source: str | None
+
+
 def _provider_presentation(
     connection: Connection,
     *,
     provider_mutations_enabled: bool,
-) -> tuple[str, str | None]:
-    status = _provider_status(
-        connection,
-        provider_mutations_enabled=provider_mutations_enabled,
-    )
+) -> _ProviderPresentation:
     if provider_mutations_enabled:
-        return status, connection.account_label
-    # On a hosted Engine the connection rows are caller-scoped BYOK state, not the
-    # operator-managed credentials used for execution. Every provider the hosted Engine
-    # advertises is therefore presented as managed availability; its caller status must not
-    # make a deployment credential look unavailable.
-    return status, "Available via ScreamingFace"
+        return _ProviderPresentation(
+            status_class=connection.status,
+            status_label=_status_label(connection.status),
+            source=connection.account_label,
+        )
 
-
-def _provider_status(connection: Connection, *, provider_mutations_enabled: bool) -> str:
-    return connection.status if provider_mutations_enabled else "connected"
+    # INVARIANT: hosted callers see only availability they can act on. Profile lifecycle states
+    # belong to the operator, so they must not leak into the caller-facing label or styling.
+    match connection.status:
+        case "connected":
+            return _ProviderPresentation(
+                status_class="connected",
+                status_label="Connected",
+                source="Available via ScreamingFace",
+            )
+        case "not_connected" | "pending" | "needs_reauth" | "error":
+            return _ProviderPresentation(
+                status_class="unavailable",
+                status_label="Unavailable",
+                source=None,
+            )
+    assert_never(connection.status)
 
 
 def _meta_html(connection: Connection, *, provider_mutations_enabled: bool) -> str:
-    status, source = _provider_presentation(
+    presentation = _provider_presentation(
         connection,
         provider_mutations_enabled=provider_mutations_enabled,
     )
@@ -466,8 +483,8 @@ def _meta_html(connection: Connection, *, provider_mutations_enabled: bool) -> s
         f"{_icon_html(connection.provider, connection.display_name)}"
         f"<span class='sf-connections__provider'>{escape(connection.display_name)}</span>"
         "</span>"
-        f"{_status_html(status)}"
-        f"{_source_html(source)}</div>"
+        f"{_status_html(presentation.status_class, label=presentation.status_label)}"
+        f"{_source_html(presentation.source)}</div>"
     )
 
 
@@ -506,16 +523,16 @@ def _access_meta_html(status: str, engine_url: str) -> str:
 
 
 def _status_label(status: str) -> str:
-    """Live states are capitalised; an inactive state stays lowercase and recedes."""
+    """Capitalise decisive states; transitional and diagnostic states stay quiet."""
 
     words = status.replace("_", " ")
     return words.capitalize() if status in {"connected", "authenticated"} else words
 
 
-def _status_html(status: str) -> str:
+def _status_html(status: str, *, label: str | None = None) -> str:
     return (
         f"<div class='sf-connections__status {status}'><i class='sq'></i>"
-        f"{escape(_status_label(status))}</div>"
+        f"{escape(_status_label(status) if label is None else label)}</div>"
     )
 
 

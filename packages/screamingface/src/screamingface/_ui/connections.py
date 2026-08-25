@@ -13,7 +13,7 @@ from screamingface._ui.connection_state import (
 )
 from screamingface._ui.connection_view import (
     _NotebookConnectionView,
-    _provider_status,
+    _provider_presentation,
     static_panel_html,
 )
 from screamingface._ui.engine_origin import _is_hosted_engine
@@ -173,7 +173,10 @@ class ConnectionPanel:
         provider_mutations_enabled = self._state.provider_mutations_enabled
         statuses = ", ".join(
             f"{item.provider}="
-            f"{_provider_status(item, provider_mutations_enabled=provider_mutations_enabled)}"
+            + _provider_presentation(
+                item,
+                provider_mutations_enabled=provider_mutations_enabled,
+            ).status_class
             for item in self._state.connections
         )
         access = (
