@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, assert_never
 from screamingface._ui.connection_state import _ConnectionPanelState
 from screamingface._ui.engine_origin import _is_screamingface_engine
 from screamingface._ui.provider_icons import provider_icon_html
-from screamingface._ui.style import STYLE
+from screamingface._ui.style import STYLE, _theme_rules
 
 if TYPE_CHECKING:
     from screamingface.connections import Connection
@@ -83,22 +83,19 @@ _STYLE = (
 .sf-tile-icon--logo{width:auto;height:auto;background:none;border:0}
 .sf-tile-icon--logo svg{display:block;width:1.35em;height:1.35em}
 .sf-tile-icon--logo .sf-icon-dark{display:none}
-@media(prefers-color-scheme:dark){.sf-tile-icon--logo .sf-icon-light{display:none}
-  .sf-tile-icon--logo .sf-icon-dark{display:block}}
-.jp-mod-theme-dark .sf-tile-icon--logo .sf-icon-light,
-[data-jp-theme-light="false"] .sf-tile-icon--logo .sf-icon-light,
-.vscode-dark .sf-tile-icon--logo .sf-icon-light,
-.vscode-high-contrast .sf-tile-icon--logo .sf-icon-light{display:none}
-.jp-mod-theme-dark .sf-tile-icon--logo .sf-icon-dark,
-[data-jp-theme-light="false"] .sf-tile-icon--logo .sf-icon-dark,
-.vscode-dark .sf-tile-icon--logo .sf-icon-dark,
-.vscode-high-contrast .sf-tile-icon--logo .sf-icon-dark{display:block}
-.jp-mod-theme-light .sf-tile-icon--logo .sf-icon-light,
-[data-jp-theme-light="true"] .sf-tile-icon--logo .sf-icon-light,
-.vscode-light .sf-tile-icon--logo .sf-icon-light{display:block}
-.jp-mod-theme-light .sf-tile-icon--logo .sf-icon-dark,
-[data-jp-theme-light="true"] .sf-tile-icon--logo .sf-icon-dark,
-.vscode-light .sf-tile-icon--logo .sf-icon-dark{display:none}
+"""
+    + _theme_rules(
+        ".sf-tile-icon--logo .sf-icon-light",
+        "display:block",
+        "display:none",
+    )
+    + "\n"
+    + _theme_rules(
+        ".sf-tile-icon--logo .sf-icon-dark",
+        "display:none",
+        "display:block",
+    )
+    + """
 .sf-connections__provider{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;min-width:0}
 .sf-connections__status{display:inline-flex;align-items:center;gap:8px;font-size:14px;
