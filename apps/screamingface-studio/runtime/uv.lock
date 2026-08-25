@@ -439,15 +439,6 @@ wheels = [
 ]
 
 [[package]]
-name = "iniconfig"
-version = "2.3.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/72/34/14ca021ce8e5dfedc35312d08ba8bf51fdd999c576889fc2c24cb97f4f10/iniconfig-2.3.0.tar.gz", hash = "sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730", size = 20503, upload-time = "2025-10-18T21:55:43.219Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cb/b1/3846dd7f199d53cb17f49cba7e651e9ce294d8497c8c150530ed11865bb8/iniconfig-2.3.0-py3-none-any.whl", hash = "sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12", size = 7484, upload-time = "2025-10-18T21:55:41.639Z" },
-]
-
-[[package]]
 name = "iso8601"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -729,15 +720,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pluggy"
-version = "1.6.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
-]
-
-[[package]]
 name = "prometheus-client"
 version = "0.26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -832,15 +814,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pygments"
-version = "2.20.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
-]
-
-[[package]]
 name = "pyinstaller"
 version = "6.22.0"
 source = { registry = "https://pypi.org/simple" }
@@ -899,21 +872,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pytest"
-version = "9.1.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "iniconfig", marker = "sys_platform == 'darwin'" },
-    { name = "packaging", marker = "sys_platform == 'darwin'" },
-    { name = "pluggy", marker = "sys_platform == 'darwin'" },
-    { name = "pygments", marker = "sys_platform == 'darwin'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/47/b9efed96c114afcfa3c9d3fe98a76a1d14c74a9e266d397cf6eb64be5e01/pytest-9.1.1.tar.gz", hash = "sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313", size = 1636369, upload-time = "2026-06-19T10:58:32.857Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl", hash = "sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c", size = 386536, upload-time = "2026-06-19T10:58:31.347Z" },
-]
-
-[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 source = { registry = "https://pypi.org/simple" }
@@ -932,6 +890,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
+]
+
+[[package]]
+name = "python-multipart"
+version = "0.0.32"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
 ]
 
 [[package]]
@@ -1019,7 +986,7 @@ wheels = [
 
 [[package]]
 name = "screamingface"
-version = "0.1.1.post1"
+version = "0.1.1.post5"
 source = { editable = "../../../packages/screamingface" }
 dependencies = [
     { name = "httpx", marker = "sys_platform == 'darwin'" },
@@ -1044,6 +1011,7 @@ runtime = [
     { name = "prometheus-client", marker = "sys_platform == 'darwin'" },
     { name = "pydantic-settings", marker = "sys_platform == 'darwin'" },
     { name = "pyjwt", marker = "sys_platform == 'darwin'" },
+    { name = "python-multipart", marker = "sys_platform == 'darwin'" },
     { name = "tortoise-orm", extra = ["asyncpg"], marker = "sys_platform == 'darwin'" },
     { name = "uvicorn", extra = ["standard"], marker = "sys_platform == 'darwin'" },
 ]
@@ -1057,20 +1025,17 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "immutabledict", marker = "extra == 'runtime'", specifier = ">=4.2.0" },
-    { name = "ipykernel", marker = "extra == 'notebook'", specifier = ">=6.29" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
-    { name = "jupyterlab", marker = "extra == 'notebook'", specifier = ">=4.6.3" },
     { name = "kubernetes", marker = "extra == 'runtime'", specifier = ">=31.0.0" },
     { name = "langdetect", marker = "extra == 'runtime'", specifier = ">=1.0.9" },
     { name = "litellm", marker = "extra == 'runtime'", specifier = "==1.97.0" },
     { name = "nats-py", marker = "extra == 'runtime'", specifier = ">=2.9.0" },
-    { name = "nbclient", marker = "extra == 'notebook'", specifier = ">=0.10" },
-    { name = "nbformat", marker = "extra == 'notebook'", specifier = ">=5.11.0" },
     { name = "nltk", marker = "extra == 'runtime'", specifier = ">=3.9.1" },
     { name = "prometheus-client", marker = "extra == 'runtime'", specifier = ">=0.26.0" },
     { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.14.2" },
     { name = "pyjwt", marker = "extra == 'runtime'", specifier = "==2.13.0" },
     { name = "pynacl", specifier = ">=1.5" },
+    { name = "python-multipart", marker = "extra == 'runtime'", specifier = ">=0.0.20" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "tortoise-orm", extras = ["asyncpg"], marker = "extra == 'runtime'", specifier = "==1.1.8" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'runtime'", specifier = ">=0.52.3" },
@@ -1080,37 +1045,37 @@ provides-extras = ["notebook", "runtime"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "ipykernel", specifier = ">=6.29" },
+    { name = "jupyterlab", specifier = ">=4.6.3" },
+    { name = "nbclient", specifier = ">=0.10" },
+    { name = "nbformat", specifier = ">=5.11.0" },
+    { name = "pydantic", specifier = ">=2.9" },
     { name = "pyright", specifier = ">=1.1.409" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.3,<2" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.16.3" },
+    { name = "testcontainers", extras = ["postgres"], specifier = ">=4.15,<5" },
 ]
 
 [[package]]
 name = "screamingface-runtime"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "screamingface", extra = ["runtime"], marker = "sys_platform == 'darwin'" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx", marker = "sys_platform == 'darwin'" },
     { name = "pyinstaller", marker = "sys_platform == 'darwin'" },
-    { name = "pytest", marker = "sys_platform == 'darwin'" },
 ]
 
 [package.metadata]
 requires-dist = [{ name = "screamingface", extras = ["runtime"], editable = "../../../packages/screamingface" }]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.28" },
-    { name = "pyinstaller", specifier = ">=6.16,<7" },
-    { name = "pytest", specifier = ">=9.0" },
-]
+dev = [{ name = "pyinstaller", specifier = ">=6.16,<7" }]
 
 [[package]]
 name = "setuptools"

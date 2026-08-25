@@ -1,128 +1,67 @@
-# ScreamingFace Studio runtime
+# ScreamingFace Studio sidecar
 
-This package provides the local backend for the ScreamingFace Studio desktop app. It runs the AI
-Gateway, Scoreboard, and ScreamingFace Engine as one supervised runtime backed by local SQLite and
-an in-memory event stream.
+This directory freezes the published `screamingface[runtime]` distribution for inclusion in the
+Tauri desktop app. Runtime composition, migrations, configuration, lifecycle behavior, and service
+APIs belong to the `screamingface` package; Studio does not maintain a separate implementation.
 
-The same package can run from Python during development or be built as a standalone PyInstaller
-sidecar for Tauri.
+The resulting `onedir` bundle contains one executable that runs:
 
-## Architecture
+| Service | Address |
+| --- | --- |
+| AI Gateway | `http://127.0.0.1:9105` |
+| Scoreboard | `http://127.0.0.1:9106` |
+| ScreamingFace Engine | `http://127.0.0.1:9108` |
 
-| Service | Address | Responsibility |
-| --- | --- | --- |
-| AI Gateway | `http://127.0.0.1:9105` | Provider credentials, model discovery, and inference routing |
-| Scoreboard | `http://127.0.0.1:9106` | Local leaderboard discovery and result storage |
-| ScreamingFace Engine | `http://127.0.0.1:9108` | REST/WebSocket API and URL4 execution |
+All services bind to loopback and store writable state below the data directory supplied by Tauri.
 
-The Engine runs URL4 jobs in-process and uses an in-memory event stream. AI Gateway stores its
-database, encryption key, and JWT secret below the runtime data directory. The ScreamingFace SDK
-is a client for the Engine; it is not another service or executable.
+## What lives here
 
-All HTTP services bind to loopback. AI Gateway authentication is disabled for this local-only
-deployment, so the runtime must not be exposed directly to a network.
+- `pyproject.toml` and `uv.lock` define the reproducible build environment.
+- `sidecar.py` is a minimal PyInstaller bootstrap for the packaged runtime CLI. It only translates
+  the frozen Scoreboard child marker into the CLI's private `_scoreboard` command.
+- `screamingface-runtime.spec` collects lazy imports, package data, metadata, and native libraries
+  that PyInstaller cannot discover statically.
+- `build-sidecar.sh` builds the frozen `onedir` artifact.
+- `verify-sidecar.sh` checks frozen startup, the three health endpoints, Engine model discovery,
+  graceful shutdown, and port release.
 
 ## Requirements
 
 - Python 3.12 or 3.13
 - [`uv`](https://docs.astral.sh/uv/)
-- macOS arm64 for the currently verified frozen build
+- macOS arm64 for the currently verified frozen target
 
-Use the committed `uv.lock`. In particular, the runtime pins `litellm==1.87.0` because newer
-resolutions may require a Rust toolchain when a compatible macOS wheel is unavailable.
-
-## Run from source
+## Run the packaged CLI during development
 
 ```sh
 cd apps/screamingface-studio/runtime
 uv sync --frozen
-.venv/bin/screamingface-runtime \
-  --data-dir ~/.screamingface-studio
+.venv/bin/screamingface --data-dir /tmp/screamingface-studio up --foreground
 ```
 
-The default data directory is `~/.screamingface-studio`. It can also be set with
-`SCREAMINGFACE_RUNTIME_DATA_DIR`.
-
-The packaged URL4 configuration is used automatically. To test a different configuration:
+The source-mode command and the frozen sidecar use the same runtime implementation. The frozen
+executable takes the same arguments:
 
 ```sh
-.venv/bin/screamingface-runtime \
-  --data-dir /tmp/screamingface-runtime \
-  --runner-config /path/to/url4.toml
+dist/screamingface-runtime/screamingface-runtime \
+  --data-dir /tmp/screamingface-studio up --foreground
 ```
 
-On startup, the launcher:
-
-1. creates the writable data directory;
-2. applies AI Gateway and Scoreboard migrations;
-3. starts the Gateway, Scoreboard, and Engine ASGI lifespans;
-4. announces readiness after all three ports are listening;
-5. supervises all services until `SIGINT` or `SIGTERM`.
-
-If any service exits unexpectedly, the launcher stops the others and exits non-zero.
-
-## Process contract
-
-Tauri and other process supervisors should consume the launcher's machine-readable output.
-
-Successful startup writes one line to stdout:
+Successful startup emits a timestamped log line containing the shared runtime readiness record:
 
 ```text
 SCREAMINGFACE_RUNTIME_READY {"services":{"engine":"http://127.0.0.1:9108","gateway":"http://127.0.0.1:9105","scoreboard":"http://127.0.0.1:9106"}}
 ```
 
-Startup is limited to 30 seconds. Migration, configuration, lifespan, and port-binding failures
-exit non-zero and write a concise line to stderr:
-
-```text
-SCREAMINGFACE_RUNTIME_ERROR <cause>
-```
-
-One `SIGINT` or `SIGTERM` shuts down all ASGI lifespans and the parent process.
-
-## Verify a running runtime
-
-Basic HTTP checks:
-
-```sh
-curl -fsS http://127.0.0.1:9105/healthz
-curl -fsS http://127.0.0.1:9108/healthz
-curl -fsS http://127.0.0.1:9108/v1/models
-curl -fsS http://127.0.0.1:9108/v1/connections
-```
-
-Run the credential-free API smoke test in another terminal:
-
-```sh
-cd apps/screamingface-studio/runtime
-.venv/bin/screamingface-runtime-smoke
-```
-
-Expected output:
-
-```text
-SCREAMINGFACE_RUNTIME_SMOKE_OK models=<count>
-```
-
-This diagnostic checks all service health endpoints and verifies that the Engine can return its
-real model catalog through the bundled AI Gateway. It does not call or charge a model provider.
-Full URL4 execution requires a configured provider credential and is tested separately. The smoke
-command is development tooling, not a second shipped sidecar.
-
-Run the unit tests with:
-
-```sh
-uv run --frozen pytest
-```
-
-## Build the sidecar
+## Build and verify
 
 ```sh
 cd apps/screamingface-studio/runtime
 ./build-sidecar.sh
+./verify-sidecar.sh
 ```
 
-The build produces a PyInstaller `onedir` bundle:
+The build output is:
 
 ```text
 dist/screamingface-runtime/
@@ -130,85 +69,28 @@ dist/screamingface-runtime/
 └── _internal/
 ```
 
-Run the frozen executable from any working directory:
+`onedir` avoids extracting an archive on every launch and lets release tooling sign nested native
+libraries before signing the executable. The verifier launches this artifact from a temporary
+working directory so it cannot accidentally rely on the repository checkout.
 
-```sh
-apps/screamingface-studio/runtime/dist/screamingface-runtime/screamingface-runtime \
-  --data-dir ~/.screamingface-studio
-```
+## Tauri integration
 
-Run the complete frozen startup, API smoke, shutdown, and port-release check with:
+Tauri starts the sidecar with its application data directory and `up --foreground`, waits for the
+readiness record, forwards output to the application log, monitors unexpected exits, and terminates
+the complete process group when the app exits.
 
-```sh
-apps/screamingface-studio/runtime/verify-sidecar.sh
-```
+During development, Tauri uses the frozen artifact when present and otherwise falls back to the
+environment's `screamingface` console script. Set `SCREAMINGFACE_RUNTIME_EXECUTABLE` to exercise a
+specific executable.
 
-`onedir` avoids extracting a one-file archive on every app launch and allows release tooling to
-sign nested native libraries before signing the main executable. The current macOS arm64 bundle
-is approximately 198 MB and is ad-hoc signed by PyInstaller for local development.
+For application builds, `src-tauri/before_build.sh` builds the sidecar and copies the complete
+`onedir` directory into `src-tauri/resources/screamingface-runtime`. Tauri then includes that
+directory as an application resource.
 
-The PyInstaller spec explicitly collects dependencies that static analysis cannot fully discover:
+## Current limitations
 
-- AI Gateway provider plugins and migrations;
-- LiteLLM, Tiktoken, Tortoise, URL4, and ScreamingFace Engine lazy imports;
-- the runner configuration, Engine diagrams, and LiteLLM model data;
-- distribution metadata used by plugin registries;
-- native libraries used by cryptography and Uvicorn's accelerated stack.
-
-## Tauri lifecycle
-
-The desktop process starts the runtime before creating its main window. It waits for the readiness
-record, forwards runtime output into the application log, records unexpected exits, and sends a
-graceful termination signal when Tauri exits. Runtime state is stored below Tauri's application
-data directory.
-
-Development builds look for the frozen executable first and fall back to the runtime virtual
-environment. Set `SCREAMINGFACE_RUNTIME_EXECUTABLE` to test a specific build explicitly.
-
-For application bundles, `src-tauri/before_build.sh` builds the PyInstaller `onedir` artifact and
-copies it into `src-tauri/resources/screamingface-runtime`. Tauri packages that directory as an
-application resource; the generated contents are ignored by Git.
-
-## Runtime resources
-
-The desktop sidecar uses the Engine configuration bundled by `screamingface[runtime]` from
-`apps/screamingface-engine/url4.toml`. A unit test compares the packaged configuration with that
-source so the desktop and deployed Engine model worlds cannot drift silently.
-
-AI Gateway migrations are Python modules and are bundled through PyInstaller's hidden imports.
-The SQLite database and generated secrets remain outside the application bundle in the writable
-data directory.
-
-## Debug the services separately
-
-Running the services independently can help isolate Gateway or Engine problems.
-
-Terminal 1:
-
-```sh
-cd apps/aigateway
-uv sync --frozen
-.venv/bin/aigateway migrate
-AIGW_AUTH_MODE=disabled .venv/bin/aigateway serve
-```
-
-Terminal 2:
-
-```sh
-cd apps/screamingface-engine
-uv sync --frozen
-.venv/bin/screamingface-engine serve --local
-```
-
-This split setup is for debugging only. The desktop app should use the combined runtime process.
-
-## Known limitations
-
-- Ports `9105`, `9106`, and `9108` are currently fixed. Starting a second local runtime reports an
-  occupied-port startup error.
-- Benchmark evaluation requires prepared benchmark assets configured through
-  `URL4_BENCHMARK_ASSETS`. Catalog, connection, and smoke APIs work without them.
-- The frozen bundle currently includes broad LiteLLM module and data collection. It favors
-  correctness over minimum bundle size.
-- Release code signing, notarization, target-triple naming, and builds for platforms other than
-  macOS arm64 are not yet configured here.
+- Only the macOS arm64 frozen artifact has been verified.
+- Studio currently uses the default runtime ports.
+- Provider credentials and downloaded benchmark assets remain user data and are never bundled.
+- Release code signing, notarization, target-triple naming, and other platform builds are separate
+  release-pipeline work.

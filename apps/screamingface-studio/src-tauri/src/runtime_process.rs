@@ -46,6 +46,8 @@ pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
   command
     .arg("--data-dir")
     .arg(&data_dir)
+    .arg("up")
+    .arg("--foreground")
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
   #[cfg(unix)]
@@ -72,7 +74,7 @@ pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
   thread::spawn(move || {
     for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-      if line.starts_with(READY_PREFIX) {
+      if line.contains(READY_PREFIX) {
         let _ = stdout_sender.send(StartupEvent::Ready);
       }
       log::info!(target: "screamingface_runtime", "{line}");
@@ -80,7 +82,7 @@ pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
   });
   thread::spawn(move || {
     for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-      if let Some(cause) = line.strip_prefix(ERROR_PREFIX) {
+      if let Some((_, cause)) = line.split_once(ERROR_PREFIX) {
         let _ = sender.send(StartupEvent::Error(cause.to_owned()));
         log::error!(target: "screamingface_runtime", "{line}");
       } else {
@@ -239,12 +241,12 @@ fn executable_name() -> &'static str {
 
 #[cfg(target_os = "windows")]
 fn venv_executable() -> &'static str {
-  ".venv/Scripts/screamingface-runtime.exe"
+  ".venv/Scripts/screamingface.exe"
 }
 
 #[cfg(not(target_os = "windows"))]
 fn venv_executable() -> &'static str {
-  ".venv/bin/screamingface-runtime"
+  ".venv/bin/screamingface"
 }
 
 #[cfg(unix)]

@@ -22,13 +22,13 @@ fi
 
 "$runtime_dir/.venv/bin/python" -c \
   'import os, sys; os.chdir(sys.argv[1]); os.setpgrp(); os.execv(sys.argv[2], sys.argv[2:])' \
-  "$verification_dir" "$executable" --data-dir "$verification_dir/data" \
+  "$verification_dir" "$executable" --data-dir "$verification_dir/data" up --foreground \
   >"$runtime_log" 2>&1 &
 runtime_pid=$!
 
 ready=false
 for _ in {1..180}; do
-  if grep -q '^SCREAMINGFACE_RUNTIME_READY ' "$runtime_log"; then
+  if grep -q 'SCREAMINGFACE_RUNTIME_READY ' "$runtime_log"; then
     ready=true
     break
   fi
@@ -45,7 +45,18 @@ if [[ "$ready" != true ]]; then
   exit 1
 fi
 
-"$runtime_dir/.venv/bin/screamingface-runtime-smoke"
+for service_url in \
+  http://127.0.0.1:9105/healthz \
+  http://127.0.0.1:9106/healthz \
+  http://127.0.0.1:9108/healthz; do
+  curl -fsS "$service_url" >/dev/null
+done
+model_count="$(
+  curl -fsS http://127.0.0.1:9108/v1/models |
+    "$runtime_dir/.venv/bin/python" -c \
+      'import json, sys; models = json.load(sys.stdin).get("data", []); assert models; print(len(models))'
+)"
+echo "SCREAMINGFACE_RUNTIME_SMOKE_OK models=$model_count"
 
 kill -TERM -- "-$runtime_pid"
 wait "$runtime_pid" || true

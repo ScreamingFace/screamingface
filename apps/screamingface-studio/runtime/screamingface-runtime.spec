@@ -28,7 +28,6 @@ LAZY_IMPORTS = (
 PACKAGES_WITH_DATA = (
     "litellm",
     "tiktoken",
-    "screamingface_runtime",
     "screamingface",
     "screamingface_engine",
     "scoreboard",
@@ -49,8 +48,8 @@ PACKAGES_WITH_BINARIES = (
 )
 
 analysis = Analysis(
-    [str(root / "src" / "screamingface_runtime" / "__main__.py")],
-    pathex=[str(root / "src")],
+    [str(root / "sidecar.py")],
+    pathex=[str(root)],
     binaries=[
         binary
         for package in PACKAGES_WITH_BINARIES
