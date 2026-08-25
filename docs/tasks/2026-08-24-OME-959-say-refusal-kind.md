@@ -1,12 +1,12 @@
 ---
 id: OME-959
 linear_url: https://linear.app/openmined/issue/OME-959/say-whether-a-refused-case-was-declined-by-the-provider-or-refused-by
-status: backlog
+status: done
 type: feature
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-24
-closed:
+closed: 2026-08-25
 ---
 
 # Say whether a refused case was declined by the provider or refused by the model
