@@ -73,7 +73,7 @@ def _notebook_observer(
     """
 
     try:
-        from screamingface._ui.evaluation_view import _NotebookEvaluationView
+        from screamingface._ui.evaluation_widget import _NotebookEvaluationView
 
         return _NotebookEvaluationView(
             candidates,

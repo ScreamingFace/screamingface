@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.cache_ports import CacheBypass
 from aigateway.core.parameter_discovery import DiscoverySourceRef
 from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
@@ -45,7 +46,13 @@ from .discovery import (
     STATIC_SOURCE,
     discover_huggingface_snapshot,
 )
+from .global_cache import project_global_cache_request
 from .parameters import huggingface_chat_parameter_rules, huggingface_chat_parameter_tools
+from .runtime_guard import (
+    global_cache_decline_reason,
+    log_decline_once,
+    reset_decline_log,  # noqa: F401  (re-exported: tests reset the guard's per-process memo)
+)
 from .settings import HuggingFacePluginSettings, pinned_router_target
 
 if TYPE_CHECKING:
@@ -228,6 +235,58 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         # first, then we set our own; this keeps litellm on the request-local path.
         out["api_base"] = self.settings.router_api_base
         return out
+
+    # ---- OME-791: global exact-response cache (OME-305) ------------------------------
+
+    def global_cache_projection(self, body: dict[str, Any]) -> dict[str, Any] | CacheBypass:
+        """Delegate to the PURE module; see ``global_cache.py`` for the invariants."""
+        return project_global_cache_request(body)
+
+    def participates_in_global_cache(self, model: object = None) -> bool:
+        """Whether THIS deployment's rows may be shared, given state the projection cannot see.
+
+        INVARIANT: the projection describes a request sent to the OFFICIAL router by a process
+        with no ambient LiteLLM interference. This hook is what makes that description true, by
+        declining whenever it would not be. A ``False`` answer is fail-safe and LOSSLESS — it
+        suppresses the lookup without invalidating, rewriting or re-keying any stored row.
+
+        WHY the port licenses this to read deployment-local state (``_provider.py:299-317``)
+        while the projection may not: the projection's output is hashed into a globally shared
+        key, so anything it reads must be identical everywhere. Participation is a local
+        yes/no that never enters a key.
+
+        INVARIANT: TOTAL in practice — ``global_plan.py:72-77`` swallows any raise here into
+        non-participation, and the guard must never be the thing that fails a request.
+
+        AIDEV-NOTE (M5): the decision itself lives in ``runtime_guard.py`` — ONE Hugging Face
+        source of truth for every ambient and configuration condition. This hook only supplies
+        the deployment-local value the guard may not read for itself and reports the outcome.
+
+        OME-884 passes the raw model through this port. HF deliberately keeps the existing
+        deployment-wide fail-closed predicate for now; narrowing individual alias-map entries is
+        a separate cross-provider runtime-guard follow-up.
+        """
+        del model
+        reason = global_cache_decline_reason(
+            configured_router_api_base=self.settings.router_api_base
+        )
+        if reason is None:
+            return True
+        log_decline_once(reason)
+        return False
+
+    def cache_reference_from_cached_response(self, cached: Mapping[str, Any]) -> None:
+        """No usage-accounting reference for HF — and saying so explicitly is REQUIRED.
+
+        AIDEV-NOTE: not decoration. ``plugins/taxonomy/session.py:374`` reaches this hook
+        through ``getattr`` inside a ``try/except Exception`` and there is no base-class
+        default, so a provider that simply omits it logs "cache-reference mapper failed
+        provider=huggingface" on EVERY hit — an operator-visible failure that never happened.
+        HF owns no usage-accounting strategy (unlike anthropic and openrouter, each of which has
+        a ``usage_accounting.py``), so there is nothing truthful to attach and ``None`` is the
+        honest answer. Building one is out of scope for OME-791.
+        """
+        return None
 
 
 PLUGIN = HuggingFaceProviderPlugin()

@@ -168,7 +168,9 @@ def create_local_app(
         max_history=settings.local_max_run_history,
         extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
     )
-    connections = build_connections(settings)
+    # INVARIANT: local mode keeps the caller-managed rows that back its BYOK controls; profile
+    # availability is the deployed Engine policy and must not replace this mutable state.
+    connections = build_connections(settings, listing_source="connections")
     app = create_app(
         settings,
         stream=stream,

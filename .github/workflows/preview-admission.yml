@@ -1,0 +1,30 @@
+name: Preview admission
+
+on:
+  workflow_run:
+    workflows: ["Preview images"]
+    types: [completed]
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: screamingface-preview-admission
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Expire active requests and admit the oldest queued requests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/preview_contract.py reconcile

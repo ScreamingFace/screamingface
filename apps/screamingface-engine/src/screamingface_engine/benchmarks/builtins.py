@@ -1,6 +1,8 @@
 """Concrete Benchmarks and immutable assets selected by this Engine deployment."""
 
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
@@ -24,24 +26,24 @@ from screamingface_engine.benchmarks.ifeval.definition import (
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 
 
-def _prepare_draco(out: Path) -> None:
+def _prepare_draco(out: Path) -> Mapping[str, Any]:
     # WHY lazy: image-building code and its optional dataset dependency stay out of the runtime
     # import graph. The deployment carries the adapter, but imports it only when building assets.
     from screamingface_engine.benchmarks.draco.prepare import prepare
 
-    prepare(out)
+    return prepare(out)
 
 
-def _prepare_ifeval(out: Path) -> None:
+def _prepare_ifeval(out: Path) -> Mapping[str, Any]:
     from screamingface_engine.benchmarks.ifeval.prepare import prepare
 
-    prepare(out)
+    return prepare(out)
 
 
-def _prepare_healthbench(out: Path) -> None:
+def _prepare_healthbench(out: Path) -> Mapping[str, Any]:
     from screamingface_engine.benchmarks.healthbench.prepare import prepare
 
-    prepare(out)
+    return prepare(out)
 
 
 DRACO_ASSETS = BenchmarkAssetBundle(id=DRACO_ASSET_BUNDLE_ID, prepare=_prepare_draco)
