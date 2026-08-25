@@ -184,15 +184,29 @@ async def get_leaderboard(
     # participant needs the line to beat.
     baselines = await _baseline_store(request).list_baselines(benchmark_id)
 
-    if is_private and identity is None:
-        # INVARIANT: short-circuit, and do NOT fall through to `leaderboard(owner=None)` —
-        # owner=None means UNSCOPED there, so passing an absent identity straight through would
-        # serve the entire private board to an anonymous caller. This is the leak the ticket
-        # exists to prevent, and it is one keyword argument away at all times.
+    if is_private:
+        # INVARIANT: `entries` is the public RANKING, and a private board has none — so it is empty
+        # for everyone, including a participant. Their own rows are a different concept and go to
+        # `my_submissions`, which is why nothing here has a rank to suppress.
+        #
+        # Sourced from list_owned_entries and NOT from leaderboard(): the ranking query collapses
+        # to best-per-spec and is bounded by `top`, so it would silently drop a participant's
+        # earlier submission to the same spec — the invisible-submission failure this ticket
+        # exists to avoid, one level down (found in review).
+        #
+        # Both cases return from inside this branch: no code below may run for a private
+        # benchmark, and an absent identity must yield nothing rather than falling through.
+        mine = (
+            []
+            if identity is None
+            else await _score_store(request).list_owned_entries(
+                benchmark_id=benchmark_id, owner=identity
+            )
+        )
         return LeaderboardResponse(
             benchmark=benchmark,
             entries=[],
-            my_submissions=[],
+            my_submissions=mine,
             baselines=baselines,
             scoped_to_caller=True,
         )
@@ -200,18 +214,7 @@ async def get_leaderboard(
     rows = await _score_store(request).leaderboard(
         benchmark_id=benchmark_id,
         top_n=min(top, MAX_LEADERBOARD_TOP),
-        owner=identity if is_private else None,
     )
-    if is_private:
-        # INVARIANT: `entries` is the public RANKING. A private board has none, so it is empty for
-        # everyone — including the participant, whose own rows go to `my_submissions` unranked.
-        return LeaderboardResponse(
-            benchmark=benchmark,
-            entries=[],
-            my_submissions=rows,
-            baselines=baselines,
-            scoped_to_caller=True,
-        )
 
     return LeaderboardResponse(
         benchmark=benchmark,

@@ -1089,9 +1089,10 @@ async def test_register_benchmark_can_flip_visibility_back(tortoise_db: None) ->
 
 
 # --- OME-894: owner-scoped reads -------------------------------------------------------------
-# Scoping lives in the QUERY, not in a post-filter over rows already fetched: a post-filter would
-# read every participant's row into memory to serve one person, and would interact silently with
-# top_n (ten rows fetched, one kept, nine of someone else's discarded after the fact).
+# Scoping lives in the QUERY, not in a post-filter over rows already fetched. The board's own
+# ranking query is NOT owner-scoped: a private board does not rank at all, so a participant's own
+# rows come from list_owned_entries instead (see below) and the ranking query keeps exactly the
+# shape OME-775 gave it.
 
 ALICE = "alice@example.test"
 BOB = "bob@example.test"
@@ -1139,16 +1140,6 @@ async def _two_participant_board() -> ScoreStore:
     return store
 
 
-async def test_leaderboard_scoped_to_an_owner_returns_only_their_rows(
-    tortoise_db: None,
-) -> None:
-    store = await _two_participant_board()
-
-    rows = await store.leaderboard("hle", owner=ALICE)
-
-    assert [row.spec_id for row in rows] == ["spec-alice"]
-
-
 async def test_leaderboard_without_an_owner_is_unchanged(tortoise_db: None) -> None:
     # The public path must not shift because the owner-scoping parameter exists.
     store = await _two_participant_board()
@@ -1156,31 +1147,6 @@ async def test_leaderboard_without_an_owner_is_unchanged(tortoise_db: None) -> N
     rows = await store.leaderboard("hle")
 
     assert [row.spec_id for row in rows] == ["spec-bob", "spec-alice"]
-
-
-async def test_an_owner_sees_their_row_measured_against_another_revision(
-    tortoise_db: None,
-) -> None:
-    # INVARIANT (OME-894 D8): a private board suppresses rank, so the registered-revision filter
-    # has no purpose there — it exists to stop incomparable numbers being RANKED against each
-    # other. Keeping it would hide a participant's own submission with no explanation, which is
-    # the invisible-submission failure that stranded a real DRACO run on 2026-08-19.
-    store = await _two_participant_board()
-    await store.submit(
-        _owned_submission(
-            submitted_by=ALICE,
-            spec_id="spec-alice-old",
-            score=0.55,
-            benchmark_revision="rev-obsolete",
-        )
-    )
-
-    scoped = await store.leaderboard("hle", owner=ALICE)
-    public = await store.leaderboard("hle")
-
-    assert sorted(row.spec_id for row in scoped) == ["spec-alice", "spec-alice-old"]
-    # The public board still refuses the obsolete revision — D8 changes the scoped read only.
-    assert "spec-alice-old" not in {row.spec_id for row in public}
 
 
 async def test_list_for_spec_scoped_to_an_owner_hides_another_participants_rows(
@@ -1193,24 +1159,6 @@ async def test_list_for_spec_scoped_to_an_owner_hides_another_participants_rows(
 
     assert [row.spec_id for row in mine] == ["spec-alice"]
     assert theirs == []
-
-
-async def test_list_all_for_benchmark_scoped_to_an_owner_returns_only_their_rows(
-    tortoise_db: None,
-) -> None:
-    store = await _two_participant_board()
-
-    rows = await store.list_all_for_benchmark("hle", owner=ALICE)
-
-    assert [row.submitted_by for row in rows] == [ALICE]
-
-
-# --- OME-894: dedup identity on a private board ----------------------------------------------
-# _content_hash deliberately excludes the submitter: identity is the RECIPE, not who ran it
-# (OME-391). On a public board that is right. On a private board it is harmful — two participants
-# who submit the same recipe collapse to one row, so the second sees nothing of their own while
-# the POST hands them the FIRST participant's stored url4, metadata and id. Found in review of
-# PR #719.
 
 
 def _same_recipe(submitted_by: str) -> ScoreSubmission:
@@ -1270,3 +1218,92 @@ async def test_a_public_board_still_dedups_across_participants(tortoise_db: None
     assert first_created is True
     assert second_created is False
     assert second.id == first.id
+
+
+# --- OME-894 round 2: cross-participant leaks and lost own rows ------------------------------
+
+
+async def test_a_shared_idempotency_key_does_not_cross_participants_when_private(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: the idempotency key is checked BEFORE the content hash and was keyed globally,
+    # so on a private board a second participant reusing a key received the first participant's
+    # stored row — url4, metadata and id included — and created nothing of their own. The
+    # per-submitter content hash could not help, because the key short-circuits ahead of it.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+
+    first, first_created = await store.submit(_same_recipe(ALICE), idempotency_key="shared")
+    second, second_created = await store.submit(_same_recipe(BOB), idempotency_key="shared")
+
+    assert first_created is True
+    assert second_created is True
+    assert second.id != first.id
+    assert second.submitted_by == BOB
+
+
+async def test_a_repeated_key_from_the_same_participant_still_dedups_when_private(
+    tortoise_db: None,
+) -> None:
+    # Per-person idempotency must survive the scoping: a retry is still a retry.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+
+    first, _ = await store.submit(_same_recipe(ALICE), idempotency_key="retry")
+    again, again_created = await store.submit(_same_recipe(ALICE), idempotency_key="retry")
+
+    assert again_created is False
+    assert again.id == first.id
+
+
+async def test_a_public_board_keeps_its_global_idempotency_key(tortoise_db: None) -> None:
+    # INVARIANT: unchanged on a public board. The key is a client's retry token there and its
+    # existing semantics are not this ticket's to alter.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    first, _ = await store.submit(_same_recipe(ALICE), idempotency_key="shared")
+    second, second_created = await store.submit(_same_recipe(BOB), idempotency_key="shared")
+
+    assert second_created is False
+    assert second.id == first.id
+
+
+async def test_owned_rows_include_every_submission_for_one_spec(tortoise_db: None) -> None:
+    # INVARIANT: a private view lists ALL the caller's rows. leaderboard() collapses to
+    # best-per-spec (rn == 1), so routing my_submissions through it silently dropped a
+    # participant's earlier submission to the same spec — reintroducing, within one spec, exactly
+    # the invisible-submission failure D8 exists to prevent.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="hle", display_name="HLE", revision="rev-1", visibility="private"
+    )
+    for score in (0.60, 0.80):
+        await store.submit(
+            ScoreSubmission(
+                benchmark_id="hle",
+                spec_id="spec-a",
+                url4_expression=f"url4://benchmark/spec-a/{score}",
+                submitted_by=ALICE,
+                score=score,
+                total_questions=100,
+                correct_questions=int(score * 100),
+                ran_with_providers=["openai"],
+                benchmark_revision="rev-1",
+            )
+        )
+
+    owned = await store.list_owned_entries("hle", owner=ALICE)
+
+    assert sorted(row.score for row in owned) == [0.60, 0.80]
+
+
+async def test_owned_rows_exclude_other_participants(tortoise_db: None) -> None:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    await store.submit(_same_recipe(ALICE))
+    await store.submit(_same_recipe(BOB))
+
+    owned = await store.list_owned_entries("hle", owner=ALICE)
+
+    assert [row.submitted_by for row in owned] == [ALICE]

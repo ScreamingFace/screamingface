@@ -132,6 +132,27 @@ SDK decodes a private-board response** rather than raising. Public boards unchan
 **No prior test was modified.** `_content_hash`'s new argument defaults to `False` specifically so
 the existing `test_content_hash_keys_on_the_submitted_score` keeps passing untouched.
 
+## Review round 2 — 2026-08-25
+
+Three findings, all reproduced first, all valid. Reasoning in spec §9 (D13–D15).
+
+- **D13** deployment-declared visibility is applied to an existing row even when the Engine
+  catalogue is down, and the deploy log names it. Previously a transient outage left the board
+  public and exited zero.
+- **D14** the idempotency key is namespaced by submitter on a private board. It is consulted
+  before the content hash, so D11's per-submitter hash could not cover this.
+- **D15** own rows come from `list_owned_entries`, not the ranking query, so a caller's earlier
+  submission to the same spec is no longer dropped.
+
+**Simplification that fell out of D15:** `leaderboard(owner=)` and `list_all_for_benchmark(owner=)`
+lost their only caller and were removed, together with D8's revision-skip branch. The
+"`owner=None` means unscoped" footgun is gone rather than guarded, and the ranking query is back to
+the shape `OME-775` gave it. Three tests covering the removed parameters went with them; their
+intent is carried by the `list_owned_entries` tests.
+
+All three re-verified after fixing: two same-spec submissions both appear, a shared key no longer
+crosses participants, and a catalogue-down deploy makes the board private and reports it.
+
 ## Owner-verify
 
 - **Confirm the runtime `authMode` with @Stephen before the challenge is announced.** The chart

@@ -244,3 +244,59 @@ was never exercised** — which is why F-B survived a real server run. `makemigr
 for drift but `0008` was never applied to a populated database. The audit covered "the four read
 paths" because the ticket framed it that way, so `GET /v1/scores/{id}` fell outside the frame. And
 a response shape was changed without checking its in-repo SDK consumer.
+
+
+## 9. Review round 2 — 2026-08-25
+
+Three further findings, all reproduced before being acted on, all valid.
+
+| # | Finding | Reproduction |
+|---|---|---|
+| G-A | A catalogue outage during the deploy that makes the board private leaves it **public and exits 0** | Registered an Engine-owned public benchmark, ran the seed with a 503 catalogue: still `public`, `refused=[healthbench-worst30]`, `bootstrap_failed=False` |
+| G-B | A shared `Idempotency-Key` returns another participant's row | bob's POST returned alice's id, `submitted_by`, and `url4://spec-k/0.55` |
+| G-C | `my_submissions` dropped a caller's own rows | Alice submitted 0.60 and 0.80 to one spec; only 0.80 came back |
+
+### D13 — visibility applies without a catalogue row
+
+`_apply_orphan_visibility` sets the deployment-declared visibility on an **existing** benchmark
+this pass did not seed, whether it was shadowed or refused. Visibility is deployment-owned, so it
+must not depend on the Engine answering.
+
+It never creates a benchmark: during an outage a configured id the board has never seen stays
+refused, so existence and text remain Engine-owned (`OME-904`). The deploy log names each
+application, because that is the line telling an operator the challenge is actually private on the
+deploy where that is the entire point.
+
+### D14 — the idempotency key is scoped to its submitter on a private board
+
+`_resolve_existing` consults the key **before** the content hash, and the key was stored globally,
+so D11's per-submitter hash could not help — the key short-circuits ahead of it. A second
+participant reusing a key received the first's stored row and created nothing of their own. The
+stored key is now namespaced by submitter on a private board, using a NUL separator that cannot
+occur in an address or a client key. Public boards keep the global key: it is a retry token there
+and its semantics are not this ticket's to change.
+
+### D15 — a private view lists every owned row (`list_owned_entries`)
+
+`my_submissions` was sourced from `leaderboard(owner=...)`, which is the **ranking** query: it
+collapses to best-per-spec (`rn == 1`) and is bounded by `top`. A participant's earlier submission
+to the same spec therefore vanished — the invisible-submission failure this ticket exists to
+avoid, reproduced one level down and inside its own fix.
+
+Own rows now come from `list_owned_entries`: every row for the caller, newest first, nothing
+collapsed and nothing capped. Nothing is ranked, so nothing needs collapsing; the rows are the
+caller's own and the caller is authenticated.
+
+**Consequent simplification.** With the private path off the ranking query, `leaderboard(owner=)`
+and `list_all_for_benchmark(owner=)` had no production caller, so both parameters were removed
+along with D8's revision-skip branch. That deletes the "`owner=None` means UNSCOPED" footgun
+outright — the trap that needed a standing warning comment no longer exists. The ranking query is
+back to exactly the shape `OME-775` gave it.
+
+### Pattern across both rounds
+
+Round 1 missed the paths the deployment uses. Round 2 missed the paths *around* the ones under
+test: the seed's failure branch rather than its success branch, the idempotency key that
+short-circuits ahead of the hash that had just been fixed, and the collapse inside a query reused
+for a purpose it was not written for. Each fix was verified against the case it targeted and not
+against its neighbours.

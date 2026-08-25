@@ -255,16 +255,26 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
+def _scoped_idempotency_key(
+    idempotency_key: str | None, submitted_by: str | None, *, per_submitter: bool
+) -> str | None:
+    """The key as stored: namespaced by submitter on a private board, verbatim on a public one.
+
+    A NUL separator is used because it cannot occur in an email address or in a client-supplied
+    key, so two distinct (submitter, key) pairs can never collide into one stored key.
+    """
+    if idempotency_key is None or not per_submitter:
+        return idempotency_key
+    return f"{submitted_by or ''}\x00{idempotency_key}"
+
+
 class SubmitOutcome(NamedTuple):
     score: ScoreSchema
     created: bool
 
 
 def _build_leaderboard_query(
-    benchmark_id: str,
-    top_n: int,
-    registered_revision: str | None,
-    owner: str | None = None,
+    benchmark_id: str, top_n: int, registered_revision: str | None
 ) -> QueryBuilder:
     scores = Score.get_table()
     # INVARIANT: every entry the board ranks was measured against the revision the benchmark is
@@ -305,18 +315,7 @@ def _build_leaderboard_query(
         )
         .where(scores.benchmark_id == benchmark_id)
     )
-    if owner is not None:
-        # FEATURE: OME-894 — a private board shows the caller their own submissions and nobody
-        # else's. Scoped in the QUERY: a post-filter would read every participant's row into
-        # memory to serve one person, and would collide with `top_n` below by counting rows it
-        # then discarded.
-        ranked = ranked.where(scores.submitted_by == owner)
-    if registered_revision is not None and owner is None:
-        # INVARIANT (OME-894 D8): the revision filter above exists to stop incomparable numbers
-        # being RANKED against each other. An owner-scoped read presents no ranking — a private
-        # board suppresses rank entirely — so the filter has no purpose there, and applying it
-        # would hide a participant's own submission with no explanation. That silent
-        # disappearance is the failure that stranded a real DRACO run on 2026-08-19 (OME-909).
+    if registered_revision is not None:
         ranked = ranked.where(scores.benchmark_revision == registered_revision)
     ranked = ranked.as_("ranked")
 
@@ -376,6 +375,17 @@ class ScoreStore:
         """
 
         return await Benchmark.filter(revision__isnull=False).exists()
+
+    async def set_visibility(self, benchmark_id: str, visibility: Visibility) -> bool:
+        """Set an EXISTING benchmark's visibility, touching nothing else. False if absent.
+
+        FEATURE: OME-894 — visibility is deployment-owned, so applying it must not depend on the
+        Engine catalogue answering. `register_benchmark` needs a display name and would create the
+        row; this updates one column of a row that already exists and never creates one, so
+        benchmark existence and text stay Engine-owned (OME-904).
+        """
+        updated = await Benchmark.filter(id=benchmark_id).update(visibility=visibility)
+        return bool(updated)
 
     async def list_benchmarks(self) -> list[BenchmarkSchema]:
         rows = await Benchmark.all().order_by("id")
@@ -445,18 +455,29 @@ class ScoreStore:
         benchmark = await Benchmark.get_or_none(id=submission.benchmark_id)
         per_submitter = benchmark is not None and benchmark.visibility == "private"
         content_hash = _content_hash(submission, per_submitter=per_submitter)
+        # INVARIANT (OME-894): on a private board the idempotency key is scoped to its submitter.
+        # `_resolve_existing` consults the key BEFORE the content hash, and the key is stored
+        # globally, so without this a second participant reusing a key — guessed, observed, or
+        # simply a client that reuses a constant — received the FIRST participant's stored row,
+        # url4 and metadata included, and created nothing of their own. The per-submitter content
+        # hash cannot help, because the key short-circuits ahead of it.
+        # Public boards keep the global key: it is a client's retry token there, and its existing
+        # semantics are not this ticket's to change.
+        stored_key = _scoped_idempotency_key(
+            idempotency_key, submission.submitted_by, per_submitter=per_submitter
+        )
 
-        existing = await self._resolve_existing(idempotency_key, content_hash)
+        existing = await self._resolve_existing(stored_key, content_hash)
         if existing is not None:
             return SubmitOutcome(score=_score_to_schema(existing), created=False)
 
         expires_at = now_ts + IDEMPOTENCY_TTL
         try:
             async with in_transaction() as connection:
-                if idempotency_key is not None:
+                if stored_key is not None:
                     await (
                         IdempotencyKey.filter(
-                            key=idempotency_key,
+                            key=stored_key,
                             expires_at__lte=now_ts,
                         )
                         .using_db(connection)
@@ -468,10 +489,10 @@ class ScoreStore:
                     **_submission_to_kwargs(submission, content_hash),
                 )
 
-                if idempotency_key is not None:
+                if stored_key is not None:
                     await IdempotencyKey.create(
                         using_db=connection,
-                        key=idempotency_key,
+                        key=stored_key,
                         score=score,
                         expires_at=expires_at,
                     )
@@ -497,19 +518,14 @@ class ScoreStore:
     async def cleanup_expired_idempotency_keys(self, now: datetime) -> int:
         return await IdempotencyKey.filter(expires_at__lte=now).delete()
 
-    async def leaderboard(
-        self, benchmark_id: str, top_n: int = 50, owner: str | None = None
-    ) -> list[LeaderboardEntry]:
+    async def leaderboard(self, benchmark_id: str, top_n: int = 50) -> list[LeaderboardEntry]:
         conn = Tortoise.get_connection("default")
         # The board is defined by the revision its benchmark is registered at; entries measured
         # against anything else are not comparable to it and do not rank (OME-775).
         benchmark = await Benchmark.get_or_none(id=benchmark_id)
         result = await execute_pypika(
             _build_leaderboard_query(
-                benchmark_id,
-                top_n,
-                benchmark.revision if benchmark else None,
-                owner,
+                benchmark_id, top_n, benchmark.revision if benchmark else None
             ),
             using_db=conn,
         )
@@ -532,19 +548,46 @@ class ScoreStore:
         rows = await query.order_by("-submitted_at").limit(limit)
         return [_score_to_schema(score) for score in rows]
 
-    async def list_all_for_benchmark(
-        self, benchmark_id: str, owner: str | None = None
-    ) -> list[ScoreSchema]:
+    async def list_owned_entries(self, benchmark_id: str, owner: str) -> list[LeaderboardEntry]:
+        """Every submission `owner` made to `benchmark_id`, newest first, nothing collapsed.
+
+        FEATURE: OME-894 — what a participant sees of their own work on a private board.
+
+        WHY not `leaderboard(owner=...)`: that query is the RANKING, so it collapses to
+        best-per-spec (`rn == 1`) and is bounded by the board's `top`. Routing a private view
+        through it silently dropped a participant's earlier submission to the same spec, which is
+        the invisible-submission failure this ticket exists to avoid — reintroduced one level
+        down. Nothing here is ranked, so nothing is collapsed and nothing is capped: these are the
+        caller's own rows and the caller is authenticated.
+        """
+        rows = (
+            await Score.filter(benchmark_id=benchmark_id, submitted_by=owner)
+            .order_by("-submitted_at")
+            .all()
+        )
+        return [
+            LeaderboardEntry(
+                spec_id=row.spec_id,
+                benchmark_revision=row.benchmark_revision,
+                score=row.score,
+                total_questions=row.total_questions,
+                ran_with_providers=row.ran_with_providers,
+                submitted_at=row.submitted_at,
+                submitted_by=row.submitted_by,
+                verified_by_screamingface=row.verified_by_screamingface,
+                url4_expression=row.url4_expression,
+                run_cost_usd=row.run_cost_usd,
+            )
+            for row in rows
+        ]
+
+    async def list_all_for_benchmark(self, benchmark_id: str) -> list[ScoreSchema]:
         """Every Score row for a benchmark, chronologically — unlike `leaderboard()`
         (best-per-spec only), this is what OME-323's frontier trend needs: the full
         submission history across all specs, deliberately benchmark-wide (spec §6's
         frontier-scope resolution).
         """
-        query = Score.filter(benchmark_id=benchmark_id)
-        if owner is not None:
-            # OME-894: scoped so no aggregate over other participants can be derived from it.
-            query = query.filter(submitted_by=owner)
-        rows = await query.order_by("submitted_at")
+        rows = await Score.filter(benchmark_id=benchmark_id).order_by("submitted_at")
         return [_score_to_schema(score) for score in rows]
 
     async def mark_verified(self, score_id: UUID | str) -> None:

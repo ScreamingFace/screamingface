@@ -679,3 +679,51 @@ async def test_configured_visibility_can_flip_a_board_back_to_public(tortoise_db
     )
 
     assert report.seeded[0].visibility == "public"
+
+
+async def test_visibility_still_applies_when_the_engine_catalog_is_unavailable(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: visibility is DEPLOYMENT-owned, so it must not depend on the Engine answering.
+    # Previously a transient catalogue failure left `published_rows` empty, the configured row was
+    # refused for claiming an Engine-owned id, and the job exited 0 — so the deploy meant to make
+    # the entry challenge private reported success while leaving every submission exposed.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="healthbench-worst30",
+        display_name="HealthBench",
+        revision="rev-1",
+        visibility="public",
+    )
+
+    report = await seed_from_sources(
+        configured=[
+            SeedBenchmark(id="healthbench-worst30", display_name="x", visibility="private")
+        ],
+        engine_url=ENGINE_URL,
+        client=_client(lambda request: httpx.Response(503)),
+        retry_delay=0,
+    )
+
+    assert report.engine_error is not None
+    assert (await store.list_benchmarks())[0].visibility == "private"
+
+
+async def test_an_unknown_benchmark_gets_no_visibility_row_of_its_own(
+    tortoise_db: None,
+) -> None:
+    # Applying visibility must never CREATE a benchmark. A configured id the board has never seen,
+    # during a catalogue outage, is still refused — text and existence stay Engine-owned.
+    store = ScoreStore()
+
+    report = await seed_from_sources(
+        configured=[
+            SeedBenchmark(id="ghost", display_name="x", visibility="private", revision="r")
+        ],
+        engine_url=ENGINE_URL,
+        client=_client(lambda request: httpx.Response(503)),
+        retry_delay=0,
+    )
+
+    assert report.refused == ["ghost"]
+    assert await store.list_benchmarks() == []
