@@ -1,6 +1,6 @@
 [project]
 name = "screamingface"
-version = "0.1.1.post4"
+version = "0.1.1.post5"
 description = "Evaluate Models and Fusions on URL4-native research benchmarks"
 readme = "README.md"
 requires-python = ">=3.12"
