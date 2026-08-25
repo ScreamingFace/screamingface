@@ -1,0 +1,39 @@
+{
+  "schema": "screamingface.replay-tape.v1",
+  "provenance": {
+    "board": "draco-3pass",
+    "revision": "authored-failure-rehearsal-2026-08",
+    "expression_sha": "42c81d34c07afc4fbb3eeabca171750111a4cc64fc64cdc2bc6aac4839dec27e",
+    "engine_sha": "authored — no engine rendered this tape",
+    "recorded_at": "2026-08-25T00:00:00Z",
+    "run_ref": "hand-authored for OME-962 (see tests/e2e/test_failures.py)",
+    "authored": true
+  },
+  "exchanges": [
+    {
+      "normalized": {
+        "provider": "openrouter",
+        "model": "openrouter/openai/gpt-5.5",
+        "fingerprint": "da75e6ddbef44ef88cff29897527cf1e9cecc90ad9b9c9922e224ed3e8877545"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "body": {
+          "model": "openrouter/openai/gpt-5.5",
+          "messages": [
+            {
+              "role": "user",
+              "content": "AUTHORED malformed_body candidate request for the OME-962 failure rehearsal. The FakeGateway matches by model, not by this body."
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "media_type": "text/html",
+        "body_b64": "PCFkb2N0eXBlIGh0bWw+PGh0bWw+PGhlYWQ+PHRpdGxlPlNpZ24gaW48L3RpdGxlPjwvaGVhZD48Ym9keT5TaWduIGluIHRvIGNvbnRpbnVlIHRvIHRoZSBnYXRld2F5PC9ib2R5PjwvaHRtbD4="
+      }
+    }
+  ]
+}
