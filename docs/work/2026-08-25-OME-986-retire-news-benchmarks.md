@@ -85,6 +85,34 @@ See spec §6.
    confirmation tests followed the code, which is why both were mutation-checked before being
    trusted.
 
+## Review round — 2026-08-25
+
+Three P2 findings, all reproduced before being acted on, all valid.
+
+- **Engine-owned benchmarks had no guard.** Reproduced something stronger than the report: the
+  deletion is not merely out of scope, it is **futile** — `retire draco` → `[]` → next seed →
+  `['draco']`. An Engine-published benchmark is re-seeded from the catalogue, so deleting it here
+  silently does not achieve what the operator asked. It is now refused, naming the revision.
+  **Not** an absolute block: if the Engine STOPS publishing a benchmark, seeding will not recreate
+  it but also never deletes it, so the row is stranded and this module is the only way out.
+  `--include-engine-owned` exists for exactly that case, and does not bypass the reference refusal.
+- **The check/delete race escaped as a traceback.** Reproduced with
+  `IntegrityError: FOREIGN KEY constraint failed` — `main()` catches only `LookupError` and
+  `RetirementRefused`, so a score landing between `collect_blockers()` and the `DELETE` handed the
+  operator the exact traceback this module exists to replace. The `IntegrityError` is now caught,
+  the counts re-read, and a readable refusal raised naming what actually landed.
+- **The docs went stale on my own change.** `DEPLOYMENT.md` claimed the default seed registers
+  HLE/Livetruth and its smoke check POSTed to `hle`, which now 404s on a fresh install;
+  `charts/README.md` said the list carries the legacy demos. Both rewritten: the default seeds
+  nothing, a real deployment points `engineUrl` at the Engine, and the smoke example uses a
+  `smoke` entry the reader is told to seed. Both now also state that seeding never deletes and
+  name the retire command.
+
+Checked and deliberately **not** changed: `DEPLOYMENT.md` still documents the three `livetruth-*`
+public artifact files. Those are the portal's `PUBLIC_ARTIFACTS` allowlist, still present on disk
+and still served — a separate concern from benchmark registration. Retiring the benchmark does not
+retire the artifact, and widening this unit to cover it would be scope creep.
+
 ## Owner-verify
 
 - **The config half may land nowhere.** The chart's seed list is now `[]`, but the deployed values

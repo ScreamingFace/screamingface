@@ -25,6 +25,8 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from tortoise.exceptions import IntegrityError
+
 from .config import Settings
 from .db import close_db, init_db
 from .scores.models import Baseline, Benchmark, Score
@@ -67,7 +69,9 @@ async def collect_blockers(benchmark_id: str) -> Blockers:
     )
 
 
-async def retire_benchmark(benchmark_id: str, *, confirmed: bool = False) -> str:
+async def retire_benchmark(
+    benchmark_id: str, *, confirmed: bool = False, include_engine_owned: bool = False
+) -> str:
     """Delete ``benchmark_id`` when ``confirmed``, or explain why it was not deleted.
 
     Returns a line describing what happened, for the operator running it.
@@ -87,10 +91,40 @@ async def retire_benchmark(benchmark_id: str, *, confirmed: bool = False) -> str
     if blockers:
         raise RetirementRefused(blockers.describe(benchmark_id))
 
+    benchmark = await Benchmark.get(id=benchmark_id)
+    if benchmark.revision is not None and not include_engine_owned:
+        # WHY refuse rather than delete: an Engine-published benchmark is re-seeded from the
+        # Engine catalogue on the next deploy, so deleting it here does not achieve what the
+        # operator asked for — it comes straight back. Demonstrated in review of PR #726.
+        # Silently performing a deletion that undoes itself is worse than refusing.
+        #
+        # WHY an override rather than an absolute block: if the Engine STOPS publishing a
+        # benchmark, seeding will not recreate it — but seeding never deletes either, so the row
+        # is stranded and this module is the only way to remove it. A blanket refusal on a
+        # non-null revision would make that legitimate case unreachable.
+        raise RetirementRefused(
+            f"refusing to retire {benchmark_id!r}: it carries Engine revision "
+            f"{benchmark.revision!r}, so the next seed will recreate it. If the Engine no "
+            "longer publishes it, pass --include-engine-owned."
+        )
+
     if not confirmed:
         return f"would retire {benchmark_id!r}: nothing references it. Re-run with --yes."
 
-    await Benchmark.filter(id=benchmark_id).delete()
+    try:
+        await Benchmark.filter(id=benchmark_id).delete()
+    except IntegrityError as exc:
+        # INVARIANT: a score or baseline inserted between the check above and this DELETE must
+        # surface as the same readable refusal, not as the traceback this module exists to
+        # replace. The RESTRICT foreign key is what raises; re-read the counts so the message
+        # names what actually landed (found in review of PR #726).
+        raced = await collect_blockers(benchmark_id)
+        raise RetirementRefused(
+            raced.describe(benchmark_id)
+            if raced
+            else f"refusing to retire {benchmark_id!r}: something began referencing it "
+            "while this ran."
+        ) from exc
     return f"retired {benchmark_id!r}"
 
 
@@ -104,16 +138,26 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Actually delete. Without it, report what would happen and change nothing.",
     )
+    parser.add_argument(
+        "--include-engine-owned",
+        action="store_true",
+        help=(
+            "Allow retiring a benchmark that carries an Engine revision. Only correct when the "
+            "Engine no longer publishes it; otherwise the next seed recreates it."
+        ),
+    )
     return parser
 
 
-async def _run(benchmark_id: str, *, confirmed: bool) -> str:
+async def _run(benchmark_id: str, *, confirmed: bool, include_engine_owned: bool) -> str:
     # Database lifecycle only. The decision lives in retire_benchmark so it is testable without
     # standing up a connection, and so there is ONE copy of it.
     settings = Settings()
     await init_db(settings.database_url)
     try:
-        return await retire_benchmark(benchmark_id, confirmed=confirmed)
+        return await retire_benchmark(
+            benchmark_id, confirmed=confirmed, include_engine_owned=include_engine_owned
+        )
     finally:
         await close_db()
 
@@ -122,7 +166,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
-        outcome = asyncio.run(_run(args.benchmark, confirmed=args.yes))
+        outcome = asyncio.run(
+            _run(
+                args.benchmark,
+                confirmed=args.yes,
+                include_engine_owned=args.include_engine_owned,
+            )
+        )
     except (LookupError, RetirementRefused) as exc:
         parser.error(str(exc))
     else:

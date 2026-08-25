@@ -118,27 +118,41 @@ Leaving `config.authMode` at its default (`disabled`) keeps today's behavior —
 
 The app chart runs `python -m scoreboard.seed` after install and upgrade. Seed data comes from `.Values.seedBenchmarks.benchmarks` and is passed through `SCOREBOARD_SEED_BENCHMARKS_JSON`.
 
-The default seed registers HLE plus the Livetruth public datasets:
+**The default seeds nothing.** `benchmarks` is `[]` and `engineUrl` is empty, so a fresh install registers no benchmark at all and `GET /v1/benchmarks` returns an empty list. The legacy `hle` / `livetruth` / `livetruth-latest` demo entries were removed in OME-986; they were leftovers from the previous SF project.
+
+A real deployment gets its benchmarks from the Engine, by pointing `engineUrl` at the Engine's **in-cluster** address:
+
+```yaml
+seedBenchmarks:
+  enabled: true
+  engineUrl: http://screamingface-engine.screamingface.svc.cluster.local:8000
+  benchmarks: []
+```
+
+To register a benchmark the Engine does not publish — a local smoke target, say — list it explicitly:
 
 ```yaml
 seedBenchmarks:
   enabled: true
   benchmarks:
-    - id: livetruth-latest
-      display_name: News Livetruth Latest
-      description: OpenMined Livetruth latest demo dataset
-      dataset_url: https://scoreboard.screamingface.ai/livetruth-latest.jsonl
-    - id: hle
-      display_name: News Hallucinations
-      description: OpenMined HLE benchmark
-      dataset_url: https://github.com/openmined/HLE.jsonl
-    - id: livetruth
-      display_name: News Livetruth
-      description: OpenMined Livetruth benchmark
-      dataset_url: https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
+    - id: smoke
+      display_name: Smoke
+      description: Local smoke target, not an Engine benchmark
 ```
 
-Re-running the Job is safe because benchmark registration is an upsert. Disable seeding with `--set seedBenchmarks.enabled=false`.
+An entry whose id the Engine also publishes is ignored and named in the Job's output; the Engine is the only place a published benchmark's text is written (OME-904).
+
+Re-running the Job is safe because benchmark registration is an upsert.
+
+**Seeding never deletes.** Removing an entry from this list stops it being recreated; it does not remove a row that already exists, which stays and is still served. To remove one:
+
+```bash
+python -m scoreboard.retire_benchmark --benchmark <id> --yes
+```
+
+It refuses while any score or baseline references the benchmark, and refuses an Engine-published one unless you also pass `--include-engine-owned` — which is only correct once the Engine has stopped publishing it, since otherwise the next seed recreates it.
+
+Disable seeding with `--set seedBenchmarks.enabled=false`.
 
 ## Smoke Checks
 
@@ -150,15 +164,15 @@ curl -fsS http://scoreboard.40.76.107.241.nip.io/healthz
 curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/benchmarks
 ```
 
-Submit a smoke score with an idempotency key. If `config.authMode=cloudflare_headers` is set, add `-H "X-User-Email: <email>"` (and submit from an allowed peer) or this 401s:
+Submit a smoke score with an idempotency key. **`benchmark_id` must name a benchmark this deployment actually registered** — the default seed list is empty, so pick one from the `/v1/benchmarks` call above or seed a `smoke` entry as shown under Benchmark Seeding. Submitting to an unregistered id returns 404. If `config.authMode=cloudflare_headers` is set, add `-H "X-User-Email: <email>"` (and submit from an allowed peer) or this 401s:
 
 ```bash
 curl -fsS -X POST http://scoreboard.40.76.107.241.nip.io/v1/scores \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: score-007-smoke-1" \
-  -d '{"version":1,"benchmark_id":"hle","spec_id":"score-007-smoke","url4_expression":"url4://smoke","submitted_by":"score-007","score":0.5,"total_questions":2,"ran_with_providers":["smoke"],"client":{"name":"curl","version":"0.1.0","platform":"k3s"}}'
+  -d '{"version":1,"benchmark_id":"smoke","spec_id":"score-007-smoke","url4_expression":"url4://smoke","submitted_by":"score-007","score":0.5,"total_questions":2,"ran_with_providers":["smoke"],"client":{"name":"curl","version":"0.1.0","platform":"k3s"}}'
 
-curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/leaderboard/hle
+curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/leaderboard/smoke
 ```
 
 The SCORE-007 initial task mentions POSTing from SF desktop, but current D-SCORE-006 in this repo is AIGateway desktop login, not scoreboard score publishing. Use the public API smoke above until a desktop submission task exists.

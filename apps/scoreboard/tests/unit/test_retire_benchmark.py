@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from scoreboard.retire_benchmark import (
+    Blockers,
     RetirementRefused,
     collect_blockers,
     retire_benchmark,
@@ -186,4 +187,85 @@ async def test_confirmation_does_not_override_a_refusal(tortoise_db: None) -> No
     with pytest.raises(RetirementRefused):
         await retire_benchmark(BENCHMARK, confirmed=True)
 
+    assert await Benchmark.exists(id=BENCHMARK)
+
+
+# --- review round: Engine-owned benchmarks and the check/delete race -------------------------
+
+
+async def test_an_engine_owned_benchmark_is_refused_by_default(tortoise_db: None) -> None:
+    # WHY refuse: deleting an Engine-published benchmark does not achieve what the operator
+    # asked for — the next seed reads the Engine catalogue and recreates it. Demonstrated in
+    # review. Silently performing a deletion that undoes itself is worse than refusing.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="draco", display_name="DRACO", revision="rev-1")
+
+    with pytest.raises(RetirementRefused) as refusal:
+        await retire_benchmark("draco", confirmed=True)
+
+    assert "Engine" in str(refusal.value)
+    assert await Benchmark.exists(id="draco")
+
+
+async def test_an_engine_owned_benchmark_can_be_retired_with_the_override(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: the override exists for the one legitimate case — the Engine STOPPED publishing
+    # it, so seeding will not recreate it, but seeding also never deletes, so the row would
+    # otherwise be stranded forever. A blanket refusal would make that unreachable.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="draco-3pass", display_name="DRACO 3-Pass", revision="rev-1"
+    )
+
+    outcome = await retire_benchmark("draco-3pass", confirmed=True, include_engine_owned=True)
+
+    assert "retired" in outcome
+    assert not await Benchmark.exists(id="draco-3pass")
+
+
+async def test_the_override_does_not_bypass_the_reference_refusal(tortoise_db: None) -> None:
+    # INVARIANT: no flag on this module is a route to destroying submitted data.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="draco", display_name="DRACO", revision="rev-1")
+    await store.submit(_submission("draco"))
+
+    with pytest.raises(RetirementRefused) as refusal:
+        await retire_benchmark("draco", confirmed=True, include_engine_owned=True)
+
+    assert "1 score" in str(refusal.value)
+    assert await Benchmark.exists(id="draco")
+
+
+async def test_a_reference_added_after_the_check_is_a_refusal_not_a_traceback(
+    tortoise_db: None,
+) -> None:
+    # The module exists to replace an IntegrityError traceback with a readable refusal. A score
+    # inserted between collect_blockers() and the DELETE would otherwise defeat that: the
+    # RESTRICT foreign key raises, and main() catches only LookupError and RetirementRefused.
+    store = ScoreStore()
+    await _register(store)
+
+    real_collect = retire_benchmark.__globals__["collect_blockers"]
+
+    calls = {"n": 0}
+
+    async def _stale_blockers(benchmark_id: str):
+        # First call reports "nothing references it" and races a submission in before the
+        # DELETE. Later calls tell the truth, so the re-check can name what actually landed —
+        # which is how a real race behaves.
+        calls["n"] += 1
+        if calls["n"] == 1:
+            await store.submit(_submission())
+            return Blockers(scores=0, baselines=0)
+        return await real_collect(benchmark_id)
+
+    retire_benchmark.__globals__["collect_blockers"] = _stale_blockers
+    try:
+        with pytest.raises(RetirementRefused) as refusal:
+            await retire_benchmark(BENCHMARK, confirmed=True)
+    finally:
+        retire_benchmark.__globals__["collect_blockers"] = real_collect
+
+    assert "1 score" in str(refusal.value)
     assert await Benchmark.exists(id=BENCHMARK)
