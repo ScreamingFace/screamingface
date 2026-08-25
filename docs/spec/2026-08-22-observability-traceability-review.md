@@ -411,16 +411,35 @@ credential. Nothing is approved for implementation; the sink fork below is the o
 question, and the service is blocked on `OME-967` since until the client mints and retains
 a trace id it would accept reports that join to nothing.
 
-**Delivery is blocked on a rule amendment.** CLAUDE.md rule 9 — "API tokens / raw GraphQL
-are forbidden" — has no subject and on its literal wording catches product code calling
-Linear's API, not only agent tooling. Ranked options: an agent files via MCP during triage
-(zero credential, unambiguously compliant, but no ticket id back to the reporter); a GitHub
-App creates an issue that Linear's GitHub sync mirrors (real-time, short-lived
-installation token, needs `.github/ISSUE_TEMPLATE` and `OME-945` first); or product code
-calls `issueCreate` directly, which requires amending rule 9 in writing the way the
-traceback-posture amendment was recorded here. A public intake endpoint also introduces the
-repo's first unauthenticated write that reaches humans, in a codebase with no rate limiting
-anywhere — so rate limiting and a bot gate are part of that option, not a follow-up.
+**Sink decided (owner, 2026-08-24): private Linear only, no public issues.** The
+GitHub-App-to-public-issue route is dropped, along with `.github/ISSUE_TEMPLATE` as a
+reporting surface. Everything a reporter submits lands in the private Linear workspace, and
+the reporter needs no account of any kind because only the service holds a credential.
+
+Two consequences follow, and they pull in opposite directions.
+
+*Rule 9 becomes a hard prerequisite* (`OME-976`, blocking `OME-973`). CLAUDE.md rule 9 —
+"API tokens / raw GraphQL are forbidden" — has no subject and on its literal wording
+catches product code calling Linear's API. With no intermediary left there is no way
+around it: either the rule is amended in writing (the way the traceback-posture amendment
+is recorded in §5), or the service ships with a `QueueSink` and an agent files via MCP
+during triage — still private Linear, but asynchronous and with no ticket id returned to
+the reporter.
+
+*Private is not self-hosted.* Linear is third-party SaaS, and §5's retention decision
+permits prompt-bearing bodies in SigNoz **specifically because that sink stays
+Cloudflare-Access-gated**, while the adjacent decision calls provider text to a third-party
+SaaS a hard no. Class C content therefore must not be inlined into Linear ticket bodies:
+the ticket carries the reference id, `trace_id`, and the envelope, and links to a bundle
+held in our own Access-gated store. Content class now governs *where the bundle lives and
+for how long* rather than *which tracker it reaches* — a cleaner rule than the one it
+replaces, and one that survives the vendor boundary.
+
+Abuse exposure remains the open question. If anonymous submission is permitted, this is the
+repo's first unauthenticated write that reaches human eyes, in a codebase with no rate
+limiting anywhere — so edge rate limiting and a bot gate are part of that option, not a
+follow-up. The stakes rose with this decision: spam now lands directly in the workspace the
+team works in, rather than a public tracker that could be moderated at arm's length.
 
 ## 7. Verification
 
