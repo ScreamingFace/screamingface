@@ -5,6 +5,7 @@ from __future__ import annotations
 from html import escape
 
 from screamingface._notices import ClientNotice
+from screamingface._ui.style import _theme_rules
 
 _WARNING_LIGHT = (
     "--sf-notice-ink:#9c4828;--sf-notice-solid:#f1622d;"
@@ -33,18 +34,8 @@ _STYLE = f"""<style>
 }}
 .sf-notice--warning{{{_WARNING_LIGHT}}}
 .sf-notice--info{{{_INFO_LIGHT}}}
-@media (prefers-color-scheme:dark){{
-  .sf-notice--warning{{{_WARNING_DARK}}}
-  .sf-notice--info{{{_INFO_DARK}}}
-}}
-.jp-mod-theme-dark .sf-notice--warning,[data-jp-theme-light="false"] .sf-notice--warning,
-.vscode-dark .sf-notice--warning,.vscode-high-contrast .sf-notice--warning{{{_WARNING_DARK}}}
-.jp-mod-theme-dark .sf-notice--info,[data-jp-theme-light="false"] .sf-notice--info,
-.vscode-dark .sf-notice--info,.vscode-high-contrast .sf-notice--info{{{_INFO_DARK}}}
-.jp-mod-theme-light .sf-notice--warning,[data-jp-theme-light="true"] .sf-notice--warning,
-.vscode-light .sf-notice--warning{{{_WARNING_LIGHT}}}
-.jp-mod-theme-light .sf-notice--info,[data-jp-theme-light="true"] .sf-notice--info,
-.vscode-light .sf-notice--info{{{_INFO_LIGHT}}}
+{_theme_rules(".sf-notice--warning", _WARNING_LIGHT, _WARNING_DARK)}
+{_theme_rules(".sf-notice--info", _INFO_LIGHT, _INFO_DARK)}
 .sf-notice__mark{{width:8px;height:8px;margin-top:5px;background:var(--sf-notice-solid)}}
 .sf-notice__title{{font-weight:600;line-height:1.35}}
 .sf-notice__body{{line-height:1.45;margin-top:2px}}

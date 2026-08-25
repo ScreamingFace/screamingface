@@ -59,6 +59,32 @@ FUSION_GRADIENT_FLOW = _flow(FUSION_GRADIENT)
 # (product-demos/widgets-view/widgets.css .w-rescell-score::before).
 FUSION_GRADIENT_Y = FUSION_GRADIENT.replace("linear-gradient(100deg", "linear-gradient(180deg")
 
+
+def _theme_rules(selector: str, light: str, dark: str) -> str:
+    dark_hosts = ",".join(
+        (
+            f".jp-mod-theme-dark {selector}",
+            f'[data-jp-theme-light="false"] {selector}',
+            f".vscode-dark {selector}",
+            f".vscode-high-contrast {selector}",
+        )
+    )
+    light_hosts = ",".join(
+        (
+            f".jp-mod-theme-light {selector}",
+            f'[data-jp-theme-light="true"] {selector}',
+            f".vscode-light {selector}",
+        )
+    )
+    return (
+        f"@media (prefers-color-scheme:dark){{{selector}{{{dark}}}}}\n"
+        f':where(html[theme="light"]) {selector}{{{light}}}\n'
+        f':where(html[theme="dark"]) {selector}{{{dark}}}\n'
+        f"{dark_hosts}{{{dark}}}\n"
+        f"{light_hosts}{{{light}}}"
+    )
+
+
 # INVARIANT: shared surfaces use solid gold; the Fusion gradient is card-scoped.
 STYLE = f"""<style>
 .sf-ui{{
@@ -67,13 +93,7 @@ STYLE = f"""<style>
   font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   font-size:13px;line-height:1.45;
 }}
-@media (prefers-color-scheme:dark){{.sf-ui{{{_DARK}}}}}
-:where(html[theme="light"]) .sf-ui{{{_LIGHT}}}
-:where(html[theme="dark"]) .sf-ui{{{_DARK}}}
-.jp-mod-theme-dark .sf-ui,[data-jp-theme-light="false"] .sf-ui,
-.vscode-dark .sf-ui,.vscode-high-contrast .sf-ui{{{_DARK}}}
-.jp-mod-theme-light .sf-ui,[data-jp-theme-light="true"] .sf-ui,
-.vscode-light .sf-ui{{{_LIGHT}}}
+{_theme_rules(".sf-ui", _LIGHT, _DARK)}
 .sf-ui,.sf-ui *{{box-sizing:border-box}}
 </style>"""
 
