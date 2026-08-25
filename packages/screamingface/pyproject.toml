@@ -91,6 +91,12 @@ testpaths = ["tests"]
 filterwarnings = [
     "error::DeprecationWarning:screamingface",
 ]
+markers = [
+    # OME-961: boots the real gateway (Postgres testcontainer) + engine as subprocesses.
+    # Gated like aigateway's needs_postgres lane: set SCREAMINGFACE_TEST_E2E=1 and have
+    # Docker running, or the tests skip loudly with the reason.
+    "e2e: end-to-end replay tests against the locally booted stack (docker + env-gated)",
+]
 
 [tool.coverage.run]
 # The SDK test job intentionally installs only the notebook extra. The optional
@@ -103,9 +109,11 @@ dev = [
     "jupyterlab>=4.6.3",
     "nbclient>=0.10",
     "nbformat>=5.11.0",
+    "pydantic>=2.9",
     "pyright>=1.1.409",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3,<2",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.3",
+    "testcontainers[postgres]>=4.15,<5",
 ]
