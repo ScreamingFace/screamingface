@@ -35,47 +35,56 @@ def _refused_payload(finish_reason: str | None, refusal: str | None) -> dict[str
     }
 
 
-def test_a_content_filter_decline_reads_as_the_provider_declining() -> None:
-    # WHY: `finish_reason == "content_filter"` is the provider's filter terminating
-    # the call — the exact signal the Engine's runner classifies a refusal from —
-    # and filter turns normally carry null refusal text.
-    case = _case_result(_refused_payload("content_filter", None))
-
-    assert case.refusal_kind == "provider_declined"
-
-
-def test_a_provider_refusal_field_reads_as_the_model_refusing() -> None:
-    # WHY: a non-null `refusal` is the provider `message.refusal` field — the
-    # model's own refusal message — so the model answered by refusing.
-    case = _case_result(_refused_payload("stop", "I can't help with that request."))
-
-    assert case.refusal_kind == "model_refusal"
-
-
-def test_a_refusal_message_without_a_finish_reason_still_reads_as_the_model() -> None:
-    # WHY: not every provider reports a finish reason with the refusal field
-    # (OME-745 captured them independently); the model's message alone decides.
-    case = _case_result(_refused_payload(None, "I can't help with that request."))
-
-    assert case.refusal_kind == "model_refusal"
-
-
-def test_both_signals_present_read_as_the_provider_declining() -> None:
-    # WHY: mirrors the Engine classifier's own check order (`content_filter` first)
-    # — a filtered turn was terminated by the provider even when refusal text
-    # tagged along.
-    case = _case_result(_refused_payload("content_filter", "exact refusal"))
-
-    assert case.refusal_kind == "provider_declined"
-
-
-def test_an_old_payload_without_either_signal_loads_with_unknown_kind() -> None:
-    # WHY: pre-OME-745 saved reports carry neither signal — they must still load,
-    # and the kind is unknown, never a crash and never a guess.
-    case = _case_result(_refused_payload(None, None))
+@pytest.mark.parametrize(
+    ("finish_reason", "refusal", "kind"),
+    [
+        pytest.param(
+            "content_filter",
+            None,
+            "provider_declined",
+            id="content-filter-is-the-provider-declining",
+        ),
+        pytest.param(
+            "stop",
+            "I can't help with that request.",
+            "model_refusal",
+            id="a-refusal-message-is-the-model-refusing",
+        ),
+        pytest.param(
+            None,
+            "I can't help with that request.",
+            "model_refusal",
+            id="the-message-alone-decides-without-a-finish-reason",
+        ),
+        pytest.param(
+            "content_filter",
+            "exact refusal",
+            "provider_declined",
+            id="both-signals-present-the-provider-wins",
+        ),
+        pytest.param(
+            None,
+            None,
+            None,
+            id="a-pre-OME-745-payload-loads-with-unknown-kind",
+        ),
+    ],
+)
+def test_the_kind_follows_the_engine_classifiers_signal_table(
+    finish_reason: str | None, refusal: str | None, kind: str | None
+) -> None:
+    # WHY: one row per line of the Engine classifier's own truth table
+    # (`runner/model_response.py`, OME-745): `content_filter` means the provider's
+    # filter terminated the call and is checked FIRST (so a filtered turn with
+    # refusal text tagging along still reads as the provider declining); a
+    # non-null `refusal` — the model's own refusal message — alone decides even
+    # without a finish reason (OME-745 captured the two independently); and a
+    # pre-OME-745 payload carrying neither signal still loads, with the kind
+    # unknown — never a crash and never a guess.
+    case = _case_result(_refused_payload(finish_reason, refusal))
 
     assert case.status == "refused"
-    assert case.refusal_kind is None
+    assert case.refusal_kind == kind
 
 
 def test_a_provider_402_failure_is_no_kind_of_refusal() -> None:

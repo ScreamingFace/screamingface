@@ -88,3 +88,4 @@ Failing tests first, each naming its invariant:
   `test_public_interface.py` with a snapshot pinning class-defined properties, so
   `refusal_kind` will appear in the snapshot — whichever branch merges second must
   regenerate it (owner-review confirmed).
+- **Review follow-up (2026-08-25):** the five classification tests collapsed into one parametrized signal-table test (owner-requested); count unchanged at 11.
