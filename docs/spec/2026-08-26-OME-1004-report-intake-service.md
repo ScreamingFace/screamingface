@@ -48,8 +48,18 @@ one bad database into a restart loop; `/readyz` is the one that may fail closed.
 
 ### 2.1 Request
 
-`Content-Type: application/json`. No form encoding — the client posts kernel-side from
-Python, never from a browser.
+`Content-Type: application/json` only. **No form encoding, from any client.** In the
+notebook that decision is load-bearing: an HTML `<form>` would serialize the report body
+and any credential into the saved `.ipynb`, and JupyterLab's sanitizer strips `action` and
+`name` from untrusted output anyway, so the notebook client posts kernel-side. Browser
+clients — the portal and aigateway-ui — post the same JSON with `fetch`; they are
+first-class callers, not an exception.
+
+Because browser callers are first-class, the service is CORS-relevant: JSON bodies are not
+simple requests, so every browser submission is preceded by a preflight. Allow the origins
+the clients actually run on, allow `Content-Type` and `Idempotency-Key`, and **do not**
+allow credentials — the mesh supplies identity, so no cookie ever needs to cross. An origin
+allowlist is not an authorization control and is not counted as one.
 
 | Header | Meaning |
 |---|---|
@@ -63,13 +73,19 @@ Python, never from a browser.
   "occurred_at": "2026-08-26T14:03:11.204Z",   // required, RFC 3339
 
   "client": {                                   // required
-    "name": "screamingface",
+    "name": "screamingface-python",             // the SDK or app, NOT the language
     "version": "0.1.1.post5",
-    "platform": "darwin",
-    "python": "3.13.1",
     "host": "notebook",                         // notebook | cli | studio | web
-    "frontend": "jupyterlab/4.5.3",             // nullable; browser-side, via widget comm
-    "user_agent": "..."                         // nullable; browser-side
+    "platform": "darwin",                       // darwin | linux | windows | browser
+    "runtime": {                                // the language runtime
+      "name": "cpython",                        // cpython | node | browser | …
+      "version": "3.13.1"
+    },
+    "frontend": {                               // nullable; browser-side, via widget comm
+      "name": "jupyterlab",
+      "version": "4.5.3"
+    },
+    "user_agent": "..."                         // nullable; browser-side, opaque
   },
 
   "error": {                                    // required
@@ -102,6 +118,36 @@ Python, never from a browser.
   "reply_to": "someone@example.org"             // nullable, self-asserted, never identity
 }
 ```
+
+**`client` is language-neutral by construction.** Three of the four client surfaces are not
+Python — Studio (Electron), aigateway-ui (Next.js), and the portal (browser JS) — so no
+field may name a language. `name` identifies the SDK or app; `runtime` identifies whatever
+executes it. The same `{name, version}` pair is reused for `client`, `runtime`, and
+`frontend` so that "which versions are failing?" is a group-by rather than a string parse.
+
+| Surface | `name` | `host` | `platform` | `runtime.name` |
+|---|---|---|---|---|
+| Python SDK | `screamingface-python` | `notebook` / `cli` | `darwin` / `linux` / `windows` | `cpython` |
+| Studio (Electron) | `screamingface-studio` | `studio` | `darwin` / `linux` / `windows` | `node` |
+| aigateway-ui | `aigateway-ui` | `web` | `browser` | `browser` |
+| Portal | `scoreboard-portal` | `web` | `browser` | `browser` |
+
+Studio reports as `node`, not `browser`: Electron's renderer cannot make the external call
+(CORS), so the submission runs in the main process. Studio is a click-through prototype
+today, so its row is the contract it will satisfy, not behaviour that exists.
+
+**The vocabularies are documented, not enforced.** `host`, `platform`, and `runtime.name`
+carry the values listed above, but an unrecognised value is **stored, not rejected** — it is
+triage metadata and routes nothing in v1. A client shipping before the service learns its
+name must still be able to report a bug. Each is a bounded string (§2.4) and is escaped at
+ticket-render time; nothing is ever branched on. Only *structural* violations reject.
+
+**Unknown keys: forbidden at the top level, preserved inside `client` and `context`.** The
+top level is a small stable set, so an unknown key there is a typo worth a `422`. `client`
+and `context` are the extension points, and clients in four languages will not ship in
+lockstep — a `node` client adding `electron_version` must not be rejected by a service that
+predates it. Unknown keys inside those two objects are stored verbatim, counted against the
+depth and key-count caps, and never interpreted.
 
 **`error.message` is carried verbatim and must not be "cleaned up" into structured
 fields.** In the current client the WebSocket close code and elapsed seconds exist *only*
@@ -169,13 +215,17 @@ Concrete, because "bounded" is how `OME-969` happened.
 | `error.traceback` | 32 KiB | truncate **head and tail kept**, mark |
 | `error.details` | 8 KiB | truncate, mark |
 | `notes[]` | 16 items | drop excess, mark |
+| any `client` / `context` string | 256 B | truncate, mark |
+| `user_agent` | 1 KiB | truncate, mark |
 | JSON depth | 6 | `422` |
 | object keys per node | 64 | `422` |
 
 Oversized *individual strings* are truncated with an explicit marker rather than rejected —
 a truncated report is worth more than no report. Only the total body cap and structural
 violations reject. Truncation keeps the head **and** tail of a traceback, because the
-innermost frame is usually the informative one.
+innermost frame is usually the informative one — and runtimes disagree about which end that
+is. CPython renders it last, V8's `Error.stack` renders it first. Keeping both ends means
+the truncator does not need to know which runtime produced the string.
 
 Control characters other than tab and newline are stripped from every free-text field.
 

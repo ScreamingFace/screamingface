@@ -49,6 +49,17 @@ Docs-only unit — no code, no tests. Verification is owner review against the t
   status codes used all appear in the error catalogue, and one real inconsistency was
   caught and fixed (`error.details` was bounded in the caps table but missing from the
   request schema).
+- **Review round 1 (owner, 2026-08-26):** the `client` block was Python-shaped — a required
+  `python` field, and a §2.1 sentence generalising the notebook's kernel-side posting rule
+  into "never from a browser". Both were wrong for three of the four client surfaces
+  (Studio/Electron, aigateway-ui/Next.js, portal/browser JS), and the second contradicted §7,
+  which already treats aigateway-ui as the only client that knows its user's email. Fixed:
+  `python` → `runtime {name, version}`; a surface→values table; documented-not-enforced
+  vocabularies for `host`/`platform`/`runtime.name`; unknown-key policy split (forbid at top
+  level, preserve inside `client`/`context`); a CORS paragraph the browser clients now
+  require; caps rows for the new strings; head/tail truncation rationale made runtime-neutral
+  (CPython renders the innermost frame last, V8 first). `error.traceback` is left named as-is
+  and raised with the owner as the one remaining language-specific field name.
 - **Deviations:** branched from `origin/main` at `5cba291b`, so the observability review
   spec (`docs/spec/2026-08-22-observability-traceability-review.md`, PR #688, still draft)
   is not present on this branch. This spec references it by path; the link resolves once
