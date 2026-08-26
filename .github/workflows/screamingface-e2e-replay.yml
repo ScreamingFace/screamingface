@@ -47,19 +47,16 @@ jobs:
         run: uv sync
 
       # The harness syncs the gateway and engine venvs itself (sync_project); only
-      # the benchmark asset bundles need preparing up front, exactly as
-      # `just stack-prepare` does locally.
+      # the benchmark asset bundles need preparing up front, via the same
+      # `screamingface prepare` a user runs (OME-1001).
       - name: Cache benchmark assets
         uses: actions/cache@v4
         with:
-          path: /tmp/screamingface-benchmark-assets
+          path: /tmp/screamingface-data/benchmark-assets
           key: benchmark-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine/benchmarks/**') }}
 
       - name: Prepare benchmark assets
-        working-directory: apps/screamingface-engine
-        run: >
-          uv run --with datasets python -m screamingface_engine.benchmarks.prepare
-          --root /tmp/screamingface-benchmark-assets
+        run: uv run screamingface prepare --all --data-dir /tmp/screamingface-data
 
       # synthetic.manifest.json is deliberately untracked — it carries the gateway's
       # LIVE revision constants, so a fresh checkout regenerates it with the gateway's
@@ -75,4 +72,5 @@ jobs:
       - name: Replay the e2e lane against the goldens
         env:
           SCREAMINGFACE_TEST_E2E: "1"
+          SCREAMINGFACE_E2E_ASSETS: /tmp/screamingface-data/benchmark-assets
         run: uv run pytest tests/e2e -rs -v

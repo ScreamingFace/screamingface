@@ -5,7 +5,7 @@ and freezes it as the official answer that all future test runs must match.
 Same idea as "golden file" — blessing is the act of stamping a file as golden.
 
 Run it from the SDK project (docker running, benchmark assets prepared once via
-``just stack-prepare``):
+``uv run screamingface prepare --all``):
 
     cd <repo>/packages/screamingface
     uv run python tests/e2e/fixtures/slice_snapshot.py \\
@@ -110,7 +110,14 @@ _ASSET_BUNDLE = {
 }
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
-_DEFAULT_ASSETS_ROOT = Path("/tmp/screamingface-benchmark-assets")
+
+
+def _default_assets_root() -> Path:
+    """Mirror test_boards._assets_root: where `screamingface prepare` writes (OME-1001)."""
+    from screamingface._runtime.config import default_data_dir
+
+    return default_data_dir() / "benchmark-assets"
+
 
 _DUMP_UPLOAD_TIMEOUT_SECONDS = 1800.0
 
@@ -1010,10 +1017,13 @@ def _write_fixtures(
 
 def _bless(args: argparse.Namespace) -> None:
     sys.path.insert(0, str(_E2E_DIR))
-    assets_root = Path(os.environ.get(_ASSETS_ENV, str(_DEFAULT_ASSETS_ROOT)))
+    configured = os.environ.get(_ASSETS_ENV)
+    assets_root = Path(configured) if configured else _default_assets_root()
     bundle = assets_root / _ASSET_BUNDLE[args.board]
     if not bundle.is_dir():
-        raise SystemExit(f"prepared assets missing at {bundle} — run `just stack-prepare` first")
+        raise SystemExit(
+            f"prepared assets missing at {bundle} — run `uv run screamingface prepare --all`"
+        )
     args.work_dir.mkdir(parents=True, exist_ok=True)
 
     # Stage 1 — parse the recordings.
