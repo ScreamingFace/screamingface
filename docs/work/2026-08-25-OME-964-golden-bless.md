@@ -277,3 +277,10 @@ them under new-protocol keys, and the verified replay proved the transform — 1
 scored, coverage 1.0, score 0.3593, all 11,902 slice rows touched. The delta was
 exactly `reasoning_effort=low`; nothing else enters the judge body. Snapshot header
 carries the INTERIM-RE-KEYED disclosure; the golden gate passes locally in 70s.
+
+### Onboarding doc (2026-08-26)
+
+Added `packages/screamingface/tests/e2e/README.md` — the visual-first "protect a new
+board" guide (none existed; the knowledge lived in docstrings + this ledger) — with
+two sf-dark diagrams in `docs/diagrams/`: the five-step onboarding pipeline and the
+bless data-flow.
