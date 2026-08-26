@@ -1,0 +1,159 @@
+{{/*
+The bundled S3-compatible object store for cache snapshots (OME-1021).
+
+Mirrors the Engine's bundled Garage (OME-929) deliberately: same self-configuring Garage
+v2.3.0, same single-node RWO posture, same one-way credential flow. Snapshots are tens of
+MiB weekly — a durability tier for paid-for cache answers, not a hand-off buffer, so the
+PVC default is generous and `persistence.enabled: false` is an explicit throwaway-cluster
+choice.
+
+SELF-CONFIGURING — no bootstrap step, no Helm hook, no operator commands. Garage v2.3.0's
+three `server` flags replace the whole manual sequence:
+
+  --single-node          creates the cluster layout itself
+  --default-access-key   adopts the snapshot Secret's access key
+  --default-bucket       creates the snapshot bucket
+
+WHY that matters: it inverts the data flow. The CHART states the key (in
+`snapshot-secret.yaml`) and Garage adopts it, so credentials flow one way and `helm
+template` fully describes the result. See the Engine's garage.yaml header for the full
+WHY.
+
+INVARIANT: one Secret, three consumers — this StatefulSet (env → GARAGE_DEFAULT_*), the
+gateway Deployment (envFrom → AIGW_CACHE_SNAPSHOT_S3_*), and the bucket they all name.
+*/}}
+{{- if and .Values.snapshot.enabled .Values.snapshot.garage.enabled }}
+{{- $name := printf "%s-garage" (include "aigateway.fullname" .) -}}
+{{- $secretName := include "aigateway.snapshotSecretName" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "aigateway.labels" . | nindent 4 }}
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "sqlite"
+    replication_factor = 1
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+    rpc_secret = {{ derivePassword 1 "long" (printf "%s-garage-rpc" .Release.Name) "garage" "screamingface" | sha256sum | quote }}
+
+    [s3_api]
+    s3_region = {{ .Values.snapshot.storage.region | quote }}
+    api_bind_addr = "[::]:3900"
+    root_domain = ".s3.garage"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "aigateway.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: s3
+      port: 3900
+      targetPort: s3
+      protocol: TCP
+  selector:
+    {{- include "aigateway.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: garage
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "aigateway.labels" . | nindent 4 }}
+spec:
+  # INVARIANT: 1. Two Garage processes on one metadata store is corruption, not contention.
+  replicas: {{ .Values.snapshot.garage.replicaCount }}
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- include "aigateway.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: garage
+  template:
+    metadata:
+      labels:
+        {{- include "aigateway.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: garage
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: garage
+          image: {{ .Values.snapshot.garage.image | quote }}
+          # `command` is NOT optional: dxflrs/garage:v2.3.0 ships no Entrypoint, so bare
+          # `args` would replace the image's Cmd and CrashLoopBackOff.
+          command: ["/garage"]
+          args:
+            - server
+            - --single-node
+            - --default-access-key
+            - --default-bucket
+          env:
+            - name: GARAGE_DEFAULT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY
+            - name: GARAGE_DEFAULT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY
+            - name: GARAGE_DEFAULT_BUCKET
+              value: {{ .Values.snapshot.storage.bucket | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+          ports:
+            - name: s3
+              containerPort: 3900
+              protocol: TCP
+            - name: rpc
+              containerPort: 3901
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/garage
+          resources:
+            {{- toYaml .Values.snapshot.garage.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        {{- if not .Values.snapshot.garage.persistence.enabled }}
+        # AIDEV-NOTE: emptyDir means every snapshot is lost on a Garage restart. Acceptable
+        # only for a throwaway test cluster.
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.snapshot.garage.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.snapshot.garage.persistence.accessModes | nindent 10 }}
+        {{- with .Values.snapshot.garage.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.snapshot.garage.persistence.size | quote }}
+  {{- end }}
+{{- end }}

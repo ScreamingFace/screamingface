@@ -49,6 +49,12 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "aigateway.fullname" . }}
+            {{- if .Values.snapshot.enabled }}
+            # The snapshot key pair: either the chart-owned Secret or the operator's
+            # existingSecret (the key names are the env vars the app reads).
+            - secretRef:
+                name: {{ if .Values.snapshot.storage.existingSecret }}{{ .Values.snapshot.storage.existingSecret }}{{ else }}{{ include "aigateway.snapshotSecretName" . }}{{ end }}
+            {{- end }}
           env:
             - name: AIGATEWAY_DATABASE_URL
               valueFrom:

@@ -79,3 +79,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "aigateway.authSecretName" -}}
 {{- required "auth.existingSecret is required" .Values.auth.existingSecret -}}
 {{- end -}}
+
+{{- define "aigateway.snapshotSecretName" -}}
+{{- printf "%s-snapshot-storage" (include "aigateway.fullname" .) -}}
+{{- end -}}
+
+{{- define "aigateway.snapshotEndpoint" -}}
+{{- /* The S3 endpoint the gateway signs against: the bundled Garage Service when enabled,
+     else the operator-declared external endpoint (the app fails fast if it is missing). */ -}}
+{{- if .Values.snapshot.garage.enabled -}}
+{{- printf "http://%s-garage:3900" (include "aigateway.fullname" .) -}}
+{{- else -}}
+{{- .Values.snapshot.storage.endpointUrl -}}
+{{- end -}}
+{{- end -}}
