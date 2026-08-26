@@ -5,6 +5,7 @@
 ### Features
 
 * **screamingface:** add bounded local diagnostic receipts for failed Evaluations
+* **screamingface:** render retained Evaluation diagnostics as local notebook panels
 
 ## 0.1.1 (2026-08-13)
 

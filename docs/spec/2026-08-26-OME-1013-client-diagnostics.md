@@ -1,6 +1,7 @@
 # OME-1013 — Local Client diagnostic receipts (spec)
 
-Status: approved by the owner on 2026-08-26 after the Client diagnostics design session.
+Status: approved by the owner on 2026-08-26 after the Client diagnostics design session; notebook
+presentation amendment approved on 2026-08-26.
 
 Related: `OME-1003` (Client-side reporting epic), `OME-967` (Client trace creation and retention),
 `OME-1002` (report-intake service), `OME-1004` (settled intake wire contract), and `OME-1014`
@@ -69,8 +70,8 @@ receipt.export("screamingface-diagnostic.json")
   selected file, and returns its `Path`.
 - Preview bytes and exported bytes are identical.
 - Export is the immediate recovery action, not a secondary convenience. Because the ring dies with
-  the process, terminal guidance names the exact export command on every retained receipt; the
-  future notebook card makes Export its primary local action.
+  the process, terminal guidance names the exact export command on every retained receipt and the
+  notebook panel makes Export its primary local action.
 - No public count or byte-limit tuning is introduced in v1. The store's limits are private and
   test-pinned so capacity can be tuned without a compatibility promise.
 
@@ -186,8 +187,25 @@ self-asserted contact information, never authorization.
 
 ## Presentation boundary
 
-`OME-1013` supplies receipt values, lookup/export and minimal honest Python representation. Full
-SFDS notebook report-card actions and HTTP submission remain `OME-1014`.
+`OME-1013` supplies receipt values, lookup/export and a local SFDS notebook panel. HTTP submission,
+intake shaping and the final Report action remain `OME-1014`.
+
+After a receipt has been retained, the Evaluation boundary may attach IPython's per-exception
+`_render_traceback_` protocol to that exact exception object. It never registers
+`InteractiveShell.set_custom_exc`, never handles unrelated notebook failures and never replaces the
+exception. IPython terminals retain concise text. In an ipykernel, the renderer delegates to a
+private notebook adapter that:
+
+- shows concise local error evidence, the diagnostic id and the accepted in-memory lifetime;
+- exposes Preview and Export as explicit actions;
+- keeps receipt JSON hidden until Preview is selected;
+- writes only after Export is selected;
+- tells the user `%tb` remains available for the original traceback;
+- renders with SFDS v2's app register in both light and dark hosts; and
+- returns to the pre-existing traceback renderer if imports, widget construction or display fail.
+
+The renderer is attached only after the store accepts the receipt. An oversized or otherwise
+declined receipt cannot advertise actions against an id that lookup will not resolve.
 
 In a terminal, the failure guidance may name the diagnostic reference and the exact export call:
 
@@ -195,8 +213,9 @@ In a terminal, the failure guidance may name the diagnostic reference and the ex
 sf.diagnostics.get("diag_...").export("screamingface-diagnostic.json")
 ```
 
-The normal exception remains visible. A diagnostic is additive evidence, not a replacement error
-screen.
+The normal exception remains available through `%tb` in notebooks and remains the ordinary raised
+exception everywhere. A diagnostic panel is additive presentation, not a replacement error
+contract.
 
 ## Non-goals
 
@@ -226,3 +245,6 @@ screen.
 8. Tests prove every forbidden content/secret source is absent from a representative receipt.
 9. A capture/store failure cannot change the operation exception observed by the caller.
 10. No network request or automatic filesystem write is possible from this unit.
+11. A retained notebook failure renders one accessible SFDS panel without a global exception hook;
+    Preview and Export require explicit actions and renderer failure restores ordinary traceback
+    presentation.

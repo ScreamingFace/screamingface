@@ -397,6 +397,13 @@ def _stage_diagnostic(context: _EvaluationDiagnostic, exc: BaseException) -> Non
         f'sf.diagnostics.get("{receipt.diagnostic_id}").export('
         '"screamingface-diagnostic.json")'
     )
+    try:
+        from screamingface._ui.diagnostic_view import _attach_notebook_renderer
+
+        _attach_notebook_renderer(exc, receipt)
+    except Exception:
+        # INVARIANT: notebook presentation is subordinate to the original operation exception.
+        _logger.debug("ScreamingFace diagnostic presentation unavailable", exc_info=True)
 
 
 def _observe_diagnostic(

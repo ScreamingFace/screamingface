@@ -15,8 +15,10 @@ Keep the public surface shallow and the implementation deep:
   context. It has no HTTP client and no report-intake dependency.
 - `_evaluation/runner.py` is the single integration boundary shared by default, explicit sync and
   async Clients. Public facades do not each grow their own exception wrapper.
-- Future `OME-1014` maps the receipt into presentation and intake adapters without changing
-  Evaluation execution.
+- `_ui/diagnostic_view.py` owns optional notebook presentation. Capture knows only that a retained
+  receipt can be attached to its original exception; the adapter owns IPython and ipywidgets.
+- Future `OME-1014` maps the receipt into the intake envelope and adds explicit send behavior
+  without changing Evaluation execution.
 
 ## Batches
 
@@ -56,8 +58,20 @@ Keep the public surface shallow and the implementation deep:
 ### 5 · minimal local handoff
 
 - RED first: terminal guidance names the reference/export API without replacing the exception.
-- GREEN: minimal Python representation only. Full SFDS notebook card and send actions stay in
-  `OME-1014`.
+- GREEN: minimal Python representation and exact local export guidance.
+- Run the full `screamingface` gate lane and the mandatory wisdom/confidence review.
+
+### 6 · per-exception notebook panel
+
+- RED first: retained typed and raw Evaluation failures attach one renderer to the original
+  exception; unrelated exceptions and declined receipts remain untouched.
+- RED first: Jupyter/Colab rendering shows one accessible SFDS app-register panel with concise
+  evidence, diagnostic identity, explicit Preview and Export actions, and `%tb` guidance.
+- RED first: JSON is absent before Preview; no file exists before Export; export success/failure is
+  reported locally; missing or broken notebook dependencies fall back to the prior renderer.
+- GREEN: a private `_ui` adapter lazily imports notebook dependencies and composes the existing
+  exception renderer rather than installing `set_custom_exc`.
+- Keep HTTP submission and browser fact collection in `OME-1014`.
 - Run the full `screamingface` gate lane and the mandatory wisdom/confidence review.
 
 ## Risks and controls
@@ -71,5 +85,7 @@ Keep the public surface shallow and the implementation deep:
 - **Service-contract churn:** no intake types or HTTP dependency; the local receipt is projected by
   a later adapter.
 - **Unbounded memory:** enforce count and encoded-byte budgets before insertion.
-- **UI scope creep:** only local values/export here; report-card interaction remains blocked behind
-  `OME-1014`.
+- **Notebook-global interception:** attach the IPython protocol only to exceptions with a retained
+  receipt; never register a process-wide handler.
+- **UI scope creep:** only local Preview/Export here; send, consent, intake authentication and
+  browser fact collection remain blocked behind `OME-1014`.
