@@ -62,7 +62,6 @@ JUDGE_MODEL = "openrouter/google/gemini-3.1-pro-preview"
 BOARD = "draco-3pass"
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
-_DEFAULT_ASSETS_ROOT = Path("/tmp/screamingface-benchmark-assets")
 
 #: Every authored failure scenario and its tape file. The names are the rehearsal's
 #: vocabulary — each maps one provider failure shape to one declared landing.
@@ -364,7 +363,13 @@ class _FailureStack:
 
 
 def _assets_root() -> Path:
-    return Path(os.environ.get(_ASSETS_ENV, str(_DEFAULT_ASSETS_ROOT)))
+    # Same default as test_boards: where `screamingface prepare` writes (OME-1001).
+    from screamingface._runtime.config import default_data_dir
+
+    configured = os.environ.get(_ASSETS_ENV)
+    if configured:
+        return Path(configured)
+    return default_data_dir() / "benchmark-assets"
 
 
 @pytest.fixture(scope="module")
@@ -381,7 +386,8 @@ def failure_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Failure
     if not (assets / "draco").is_dir():
         pytest.skip(
             f"the failure rehearsal drives the {BOARD} board and needs prepared draco "
-            f"assets at {assets / 'draco'} (run `just stack-prepare` or set {_ASSETS_ENV})"
+            f"assets at {assets / 'draco'} "
+            f"(run `screamingface prepare draco`, or point {_ASSETS_ENV} at them)"
         )
     fake = FakeGateway(load_tape(SCENARIO_TAPES["rate_limit_429"]))
     engine = EngineProcess(work_dir=tmp_path_factory.mktemp("failure-stack"), assets_dir=assets)
