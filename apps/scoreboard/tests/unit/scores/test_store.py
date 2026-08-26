@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from tortoise import Tortoise
+from tortoise.exceptions import IntegrityError
 
 from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
 from scoreboard.scores.schemas import ClientInfo, ScoreSubmission
-from scoreboard.scores.store import ScoreStore
+from scoreboard.scores.store import ScoreStore, _scoped_idempotency_key
 
 pytestmark = pytest.mark.asyncio
 
@@ -1307,3 +1309,76 @@ async def test_owned_rows_exclude_other_participants(tortoise_db: None) -> None:
     owned = await store.list_owned_entries("hle", owner=ALICE)
 
     assert [row.submitted_by for row in owned] == [ALICE]
+
+
+# --- review round 3: the scoped key must survive PostgreSQL, and the retry path must use it ---
+
+
+def test_a_scoped_idempotency_key_is_storable_in_a_varchar_column() -> None:
+    # INVARIANT: PostgreSQL rejects NUL in any character type — verified against postgres:16 with
+    # `ERROR: invalid byte sequence for encoding "UTF8": 0x00`. The first implementation joined
+    # submitter and key with "\x00", which SQLite accepted silently, so every private submission
+    # carrying an Idempotency-Key would have failed only in production. The stored key must also
+    # fit IdempotencyKey.key, which is VARCHAR(255).
+    scoped = _scoped_idempotency_key(
+        "retry-1", "a-very-long-address-" * 12 + "@example.test", per_submitter=True
+    )
+
+    assert scoped is not None
+    assert "\x00" not in scoped
+    assert scoped.isascii() and scoped.isprintable()
+    assert len(scoped) <= 255
+
+
+def test_a_scoped_key_separates_submitters_and_is_stable() -> None:
+    alice = _scoped_idempotency_key("k", "alice@example.test", per_submitter=True)
+    bob = _scoped_idempotency_key("k", "bob@example.test", per_submitter=True)
+
+    assert alice != bob
+    assert alice == _scoped_idempotency_key("k", "alice@example.test", per_submitter=True)
+
+
+def test_a_public_key_is_stored_verbatim() -> None:
+    assert _scoped_idempotency_key("k", "alice@example.test", per_submitter=False) == "k"
+
+
+async def test_the_concurrent_retry_path_resolves_with_the_scoped_key(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: the IntegrityError branch in submit() must consult the SCOPED key. Using the raw
+    # key there re-opens the cross-participant leak this PR closed, for exactly the concurrent
+    # case the branch exists to handle.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    await store.submit(_same_recipe(ALICE), idempotency_key="shared")
+
+    seen: list[str | None] = []
+    real_resolve = ScoreStore._resolve_existing
+    real_create = Score.create
+
+    async def _record(self, idempotency_key, content_hash):  # type: ignore[no-untyped-def]
+        seen.append(idempotency_key)
+        return await real_resolve(self, idempotency_key, content_hash)
+
+    raised = {"done": False}
+
+    async def _race_once(**kwargs):  # type: ignore[no-untyped-def]
+        # Force the concurrent-insert branch exactly once, which is the only way to reach the
+        # IntegrityError handler without a real race.
+        if not raised["done"]:
+            raised["done"] = True
+            raise IntegrityError("simulated concurrent insert")
+        return await real_create(**kwargs)
+
+    ScoreStore._resolve_existing = _record  # type: ignore[method-assign]
+    Score.create = _race_once  # type: ignore[method-assign]
+    try:
+        with contextlib.suppress(Exception):
+            await store.submit(_same_recipe(BOB), idempotency_key="shared")
+    finally:
+        ScoreStore._resolve_existing = real_resolve  # type: ignore[method-assign]
+        Score.create = real_create  # type: ignore[method-assign]
+
+    assert raised["done"], "the IntegrityError branch was never reached"
+    # Whatever it looked up, it must never have been the bare cross-participant key.
+    assert "shared" not in seen

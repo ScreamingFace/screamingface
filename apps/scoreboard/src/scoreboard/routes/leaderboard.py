@@ -4,10 +4,10 @@ from datetime import datetime
 from typing import Annotated, cast
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 
-from scoreboard.routes.dependencies import ReadIdentity
+from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS, ReadIdentity
 from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.frontier import compute_frontier
 from scoreboard.scores.models import Benchmark
@@ -29,6 +29,7 @@ MAX_HISTORY_LIMIT = 100
 # participant's spec and a spec that never existed must be indistinguishable — a differing status
 # or body would let a caller enumerate specs, which are guessable model names.
 HISTORY_NOT_FOUND_DETAIL = "History not found"
+
 
 router = APIRouter(prefix="/v1")
 
@@ -163,6 +164,7 @@ async def list_benchmarks(request: Request) -> BenchmarksResponse:
 async def get_leaderboard(
     benchmark_id: str,
     request: Request,
+    response: Response,
     identity: ReadIdentity,
     top: Annotated[
         int,
@@ -185,6 +187,7 @@ async def get_leaderboard(
     baselines = await _baseline_store(request).list_baselines(benchmark_id)
 
     if is_private:
+        response.headers.update(PRIVATE_CACHE_HEADERS)
         # INVARIANT: `entries` is the public RANKING, and a private board has none — so it is empty
         # for everyone, including a participant. Their own rows are a different concept and go to
         # `my_submissions`, which is why nothing here has a rank to suppress.
@@ -234,6 +237,7 @@ async def get_spec_history(
     benchmark_id: str,
     spec_id: str,
     request: Request,
+    response: Response,
     identity: ReadIdentity,
     limit: Annotated[
         int,
@@ -251,8 +255,12 @@ async def get_spec_history(
     """
     benchmark = await _get_benchmark_or_404(benchmark_id)
     is_private = benchmark.visibility == "private"
+    if is_private:
+        response.headers.update(PRIVATE_CACHE_HEADERS)
     if is_private and identity is None:
-        raise HTTPException(status_code=404, detail=HISTORY_NOT_FOUND_DETAIL)
+        raise HTTPException(
+            status_code=404, detail=HISTORY_NOT_FOUND_DETAIL, headers=PRIVATE_CACHE_HEADERS
+        )
 
     submissions = await _score_store(request).list_for_spec(
         benchmark_id=benchmark_id,
@@ -265,7 +273,9 @@ async def get_spec_history(
         # the spec exists; a 200-with-empty-list (what a PUBLIC board returns for an unknown spec)
         # would make "someone else's" distinguishable from "no such spec". Either one lets a
         # caller enumerate other participants' spec ids, which are guessable model names.
-        raise HTTPException(status_code=404, detail=HISTORY_NOT_FOUND_DETAIL)
+        raise HTTPException(
+            status_code=404, detail=HISTORY_NOT_FOUND_DETAIL, headers=PRIVATE_CACHE_HEADERS
+        )
 
     return HistoryResponse(
         spec_id=spec_id,
@@ -293,7 +303,9 @@ async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
         # single-participant "frontier" would just restate their own best score under a name that
         # implies a field.
         raise HTTPException(
-            status_code=404, detail="Frontier is not available for a private benchmark"
+            status_code=404,
+            detail="Frontier is not available for a private benchmark",
+            headers=PRIVATE_CACHE_HEADERS,
         )
     scores = await _score_store(request).list_all_for_benchmark(benchmark_id)
     baselines = await _baseline_store(request).list_baselines(benchmark_id)

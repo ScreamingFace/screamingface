@@ -260,12 +260,23 @@ def _scoped_idempotency_key(
 ) -> str | None:
     """The key as stored: namespaced by submitter on a private board, verbatim on a public one.
 
-    A NUL separator is used because it cannot occur in an email address or in a client-supplied
-    key, so two distinct (submitter, key) pairs can never collide into one stored key.
+    INVARIANT: the stored value must survive `IdempotencyKey.key`, a VARCHAR(255) column, on
+    PostgreSQL. An earlier version joined submitter and key with a literal NUL, which SQLite
+    accepts and PostgreSQL rejects outright — `invalid byte sequence for encoding "UTF8": 0x00`,
+    verified against postgres:16 — so every private submission carrying an Idempotency-Key would
+    have failed only in production. Concatenation could also exceed 255 characters.
+
+    Hashing solves both: the NUL separator survives only inside the digest input, never in the
+    stored value, and the result is a fixed 68 printable ASCII characters. The `sfp-` prefix keeps
+    a scoped key structurally distinct from a raw public one sharing the same column.
+
+    AIDEV-NOTE: the value is opaque by design. Nothing reads it back to recover the submitter —
+    `get_by_idempotency_key` has no production caller — so it is a lookup token, not a record.
     """
     if idempotency_key is None or not per_submitter:
         return idempotency_key
-    return f"{submitted_by or ''}\x00{idempotency_key}"
+    digest = hashlib.sha256(f"{submitted_by or ''}\x00{idempotency_key}".encode()).hexdigest()
+    return f"sfp-{digest}"
 
 
 class SubmitOutcome(NamedTuple):
@@ -500,7 +511,10 @@ class ScoreStore:
             return SubmitOutcome(score=_score_to_schema(score), created=True)
         except IntegrityError:
             # A concurrent request may have won the race on either constraint.
-            existing = await self._resolve_existing(idempotency_key, content_hash)
+            # INVARIANT: the SCOPED key, matching the pre-insert lookup above. Using the raw key
+            # here re-opened the cross-participant leak this ticket closed, for exactly the
+            # concurrent case this branch exists to handle (found in review of PR #719).
+            existing = await self._resolve_existing(stored_key, content_hash)
             if existing is not None:
                 return SubmitOutcome(score=_score_to_schema(existing), created=False)
             raise

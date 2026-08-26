@@ -1022,3 +1022,75 @@ async def test_disabled_auth_mode_yields_nothing_on_a_private_board(
     assert board.json()["entries"] == []
     assert board.json()["my_submissions"] == []
     assert history.status_code == 404
+
+
+# --- review round 3: identity-scoped responses must not be shared-cacheable -------------------
+# A private response varies by caller at a fixed URL. Without an explicit policy a shared cache
+# may reuse one participant's response for another. The current proxy may not cache these, but
+# keeping the policy at the privacy boundary stops a future proxy change becoming a data leak.
+
+CACHE_POLICY = "private, no-store"
+
+
+async def test_a_private_board_is_not_shared_cacheable(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.headers["cache-control"] == CACHE_POLICY
+    assert "X-User-Email" in response.headers["vary"]
+
+
+async def test_an_anonymous_private_board_read_is_not_shared_cacheable(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # The empty response is identity-dependent too — caching it for a participant would hide
+    # their own rows from them.
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+
+    assert response.headers["cache-control"] == CACHE_POLICY
+
+
+async def test_private_history_is_not_shared_cacheable(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/spec-alice/history", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.headers["cache-control"] == CACHE_POLICY
+
+
+async def test_the_privacy_preserving_404_is_not_shared_cacheable(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT: the refusal is identity-dependent as well — caching alice's 404 for bob's spec
+    # and replaying it to bob would deny him his own history.
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/spec-bob/history", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.status_code == 404
+    assert response.headers["cache-control"] == CACHE_POLICY
+
+
+async def test_a_public_board_carries_no_private_cache_policy(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Regression guard: a public board is identical for every caller and must stay ordinarily
+    # cacheable. Marking it no-store would quietly cost the board its caching.
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.headers.get("cache-control") != CACHE_POLICY

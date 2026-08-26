@@ -153,6 +153,45 @@ intent is carried by the `list_owned_entries` tests.
 All three re-verified after fixing: two same-spec submissions both appear, a shared key no longer
 crosses participants, and a catalogue-down deploy makes the board private and reports it.
 
+## Review round 3 — 2026-08-25 (@HupBaHa, PR #719)
+
+Four blockers, all reproduced before being acted on, all valid.
+
+- **Forged writes were a read primitive.** Under `auth_mode=disabled` the body's `submitted_by` is
+  trusted, so claiming a participant's address with a matching recipe returned their stored row —
+  url4, metadata and id. Reproduced. The route now refuses writes to a private benchmark whenever
+  authentication is disabled, **ahead of the store**, since refusing after the dedup lookup would
+  still tell a forged request whether a matching row exists. Reads already failed closed in this
+  mode (D2); writes now match, so a private board is inert in both directions rather than half-open.
+- **The scoped idempotency key could not exist on PostgreSQL.** It joined submitter and key with a
+  literal NUL, which SQLite accepts and PostgreSQL rejects — verified against `postgres:16` with
+  `invalid byte sequence for encoding "UTF8": 0x00`. Every private submission carrying an
+  `Idempotency-Key` would have failed only in production. Now a `sfp-`-prefixed sha256: 68
+  printable ASCII characters, well inside the VARCHAR(255) column, with the separator surviving
+  only inside the digest input.
+- **The concurrent-retry branch used the unscoped key.** `_resolve_existing` was called with the
+  raw `idempotency_key` in the `IntegrityError` handler, re-opening the cross-participant leak for
+  exactly the concurrent case that branch exists to handle. It uses `stored_key` now.
+- **Identity-scoped responses were shared-cacheable.** Private board, history, frontier and
+  direct-score responses now carry `Cache-Control: private, no-store` and
+  `Vary: X-User-Email, Origin`, refusals included — those are identity-dependent too, and
+  replaying one participant's 404 to another would deny them their own history.
+
+**A real PostgreSQL test now exists** (`tests/unit/scores/test_idempotency_postgres.py`). It opens
+its own connection rather than using `tortoise_db`, because that fixture routes through
+`postgres_schema_database_url`, which calls `asyncio.run()` inside a running loop and errors before
+any test body runs — the known OME-430 defect, confirmed still live. Mutation-proven: restoring the
+NUL separator fails it with the PostgreSQL error above.
+
+Two things found while fixing rather than reported:
+
+* My first PostgreSQL test called `Tortoise._drop_databases()` in cleanup, destroying the database
+  and making the test non-repeatable — it would have broken a shared CI PostgreSQL. Caught when a
+  mutation check could not reconnect. Cleanup is now scoped to the rows the test creates.
+* `Benchmark.exists()` is kept as the existence gate rather than folded into the visibility read,
+  because it is the seam `test_post_score_store_unavailable_returns_503` patches. That prior test
+  is untouched.
+
 ## Owner-verify
 
 - **Confirm the runtime `authMode` with @Stephen before the challenge is announced.** The chart

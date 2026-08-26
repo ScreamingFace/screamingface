@@ -517,3 +517,74 @@ async def test_get_score_on_a_public_benchmark_stays_anonymous(
     response = await score_client.get(f"/v1/scores/{created.json()['id']}")
 
     assert response.status_code == 200
+
+
+# --- review round 3: a private board cannot accept writes without verified identity -----------
+# In auth_mode=disabled `_resolve_submitter` trusts the body's `submitted_by`. Combined with
+# per-submitter dedup that becomes a READ primitive: forge a participant's address, submit a
+# matching recipe, and the dedup path returns their stored row — url4, metadata and id included.
+# Reproduced before fixing. Reads already fail closed under `disabled` (OME-894 D2); writes now
+# match, so a private board is inert in both directions until identity is real.
+
+
+async def test_a_private_benchmark_refuses_submissions_when_auth_is_disabled(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.create(id="private-x", display_name="Private", visibility="private")
+    payload = _valid_payload()
+    payload["benchmark_id"] = "private-x"
+
+    response = await score_client.post("/v1/scores", json=payload)
+
+    assert response.status_code == 403
+
+
+async def test_the_refusal_happens_before_any_dedup_lookup(
+    score_client: AsyncClient,
+) -> None:
+    # INVARIANT: the refusal must precede the store, or the forged request still learns whether a
+    # matching row exists from the response it gets back.
+    await Benchmark.create(id="private-x", display_name="Private", visibility="private")
+    victim = _valid_payload()
+    victim["benchmark_id"] = "private-x"
+    victim["submitted_by"] = "alice@example.test"
+    victim["metadata"] = {"notes": "alice internal"}
+    await Score.create(
+        benchmark_id="private-x",
+        spec_id=victim["spec_id"],
+        url4_expression=victim["url4_expression"],
+        submitted_by="alice@example.test",
+        score=victim["score"],
+        total_questions=victim["total_questions"],
+        ran_with_providers=victim["ran_with_providers"],
+        metadata={"notes": "alice internal"},
+    )
+
+    forged = await score_client.post("/v1/scores", json=victim)
+
+    assert forged.status_code == 403
+    assert "alice internal" not in forged.text
+
+
+async def test_a_public_benchmark_still_accepts_submissions_when_auth_is_disabled(
+    score_client: AsyncClient,
+) -> None:
+    # The regression guard: closing the private write path must not close the public one, which
+    # is how every existing deployment submits today.
+    response = await score_client.post("/v1/scores", json=_valid_payload())
+
+    assert response.status_code == 201
+
+
+async def test_a_private_benchmark_accepts_submissions_with_verified_identity(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    await Benchmark.create(id="private-x", display_name="Private", visibility="private")
+    payload = _valid_payload()
+    payload["benchmark_id"] = "private-x"
+
+    response = await cloudflare_score_client.post(
+        "/v1/scores", json=payload, headers={"X-User-Email": "alice@example.test"}
+    )
+
+    assert response.status_code == 201

@@ -22,7 +22,7 @@ from typing import Annotated, cast
 from fastapi import Depends, Request
 
 from scoreboard.config import Settings
-from scoreboard.core.auth.cloudflare_identity import optional_identity
+from scoreboard.core.auth.cloudflare_identity import HEADER_USER_EMAIL, optional_identity
 
 
 async def read_identity(request: Request) -> str | None:
@@ -37,3 +37,15 @@ async def read_identity(request: Request) -> str | None:
 
 
 ReadIdentity = Annotated[str | None, Depends(read_identity)]
+
+
+# INVARIANT (OME-894): a response scoped to one caller must never be reused for another. Private
+# responses vary by identity at a fixed URL, so a shared cache holding one participant's and
+# replaying it is a direct leak. The refusals carry it too — they are identity-dependent as well,
+# and replaying alice's 404 to bob would deny bob his own history.
+# Applied at the privacy boundary rather than relying on the current proxy not caching, so a
+# future proxy or configuration change cannot turn this into a data leak (review of PR #719).
+PRIVATE_CACHE_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "Vary": f"{HEADER_USER_EMAIL}, Origin",
+}

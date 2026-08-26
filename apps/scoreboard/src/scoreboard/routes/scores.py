@@ -27,7 +27,7 @@ from scoreboard.core.auth.cloudflare_identity import (
     identity_from_headers,
     peer_in_networks,
 )
-from scoreboard.routes.dependencies import ReadIdentity
+from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS, ReadIdentity
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
     FieldErrorDetail,
@@ -155,12 +155,40 @@ async def submit_score(
     # Scoreboard never recomputes, normalizes or second-guesses the submitted score.
 
     try:
+        # AIDEV-NOTE: `exists()` stays the existence gate rather than folding into the
+        # visibility read below. It is the seam `test_post_score_store_unavailable_returns_503`
+        # patches to prove an unavailable database yields 503 rather than a traceback, and that
+        # guarantee is worth one extra indexed lookup on a non-hot write path.
         if not await Benchmark.exists(id=submission.benchmark_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=_field_error_detail(
                     "benchmark_id",
                     f"unknown benchmark_id: {submission.benchmark_id!r}",
+                ),
+            )
+
+        # INVARIANT (OME-894): a private board cannot take a write without a VERIFIED submitter.
+        # In `disabled` mode `_resolve_submitter` trusts the body's `submitted_by`, and combined
+        # with per-submitter dedup that is a read primitive, not just a spoofing risk: forge a
+        # participant's address, submit a matching recipe, and the dedup path hands back their
+        # stored row — url4, metadata and id included. Reproduced in review of PR #719.
+        #
+        # This must stay AHEAD of `store.submit()`. Refusing after the dedup lookup would still
+        # tell a forged request whether a matching row exists.
+        #
+        # Reads already fail closed in this mode (D2); this makes writes match, so a private board
+        # is inert in both directions until identity is real rather than half-open.
+        settings = cast(Settings, request.app.state.settings)
+        visibility = await Benchmark.filter(id=submission.benchmark_id).values_list(
+            "visibility", flat=True
+        )
+        if visibility and visibility[0] == "private" and settings.auth_mode == "disabled":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "submissions to a private benchmark require a verified identity; this "
+                    "deployment runs with authentication disabled"
                 ),
             )
 
@@ -181,7 +209,7 @@ async def submit_score(
 
 
 @router.get("/scores/{score_id}", response_model=ScoreSchema, responses=GET_SCORE_RESPONSES)
-async def get_score(score_id: UUID, identity: ReadIdentity) -> ScoreSchema:
+async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) -> ScoreSchema:
     """Return a public score by id.
 
     ``verified_by_screamingface`` carries no verification claim yet: nothing re-runs
@@ -208,9 +236,17 @@ async def get_score(score_id: UUID, identity: ReadIdentity) -> ScoreSchema:
     # is read the same way scores/store.py reads it.
     benchmark = await Benchmark.get_or_none(id=cast(str, getattr(score, "benchmark_id")))
     private = benchmark is None or benchmark.visibility == "private"
+    if private:
+        # Identity-scoped, so it must not be shared-cacheable — including the refusal, which is
+        # equally identity-dependent (OME-894, raised in review of PR #719).
+        response.headers.update(PRIVATE_CACHE_HEADERS)
     if private and (identity is None or score.submitted_by != identity):
         # `benchmark is None` cannot happen behind the RESTRICT foreign key; it fails closed
         # rather than serving a score whose visibility could not be established.
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SCORE_NOT_FOUND_DETAIL)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=SCORE_NOT_FOUND_DETAIL,
+            headers=PRIVATE_CACHE_HEADERS,
+        )
 
     return ScoreSchema.model_validate(score, from_attributes=True)
