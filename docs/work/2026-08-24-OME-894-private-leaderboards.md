@@ -441,14 +441,38 @@ content-hash note distinguishes the private case (hash carries the submitter) fr
 **Gates:** all green. 464 passed, 3 skipped. No prior test modified — the append-only gate is the
 proof.
 
-### Owner decision still open
+### F3 — the reserve approach is kept, and the reason is now measured
 
-**F3 was fixed the conservative way.** Reserving both prefixes closes the collision completely. The
-alternative the review offered — hash EVERY public key into `sfu-<digest>` — is stronger, because it
-removes the notion of a client-occupiable key space entirely rather than reserving two prefixes from
-it. It requires editing `test_a_public_key_is_stored_verbatim` (`test_store.py:1394`), which asserts
-the current representation, so it is a rule-5 change needing sign-off. Say the word and it is a
-small follow-up.
+**Asked whether hashing every public key would be better. Measured, and no.** The conservative fix
+already closes the finding: probing the reachable key space gives 30 distinct stored values, 0
+cross-source collisions, and 0 of the 24 generated tokens reachable by supplying it verbatim.
+
+**The rule-5 cost was four prior tests, not one.** Only
+`test_a_public_key_is_stored_verbatim` is about the representation. The other three —
+`test_submit_with_expired_idempotency_key_creates_new_score`,
+`test_get_by_idempotency_key_respects_expiry_and_cleanup` and
+`test_post_score_with_expired_idempotency_key_creates_new_row` — plant or expire `IdempotencyKey`
+rows ADDRESSED BY THE RAW KEY, so changing the stored form makes their fixtures invisible and their
+premise evaporate. Rewriting three unrelated expiry tests buys nothing measurable today.
+
+**What hashing everything WOULD have bought is now machine-checked instead.** Its only real
+advantage was structural: a reserve list is a denylist, and a future third namespace could be added
+without updating it. `test_no_generated_storage_token_is_a_fixed_point_of_the_public_path` asserts
+the property directly — no value the function generates may be storable verbatim — so that omission
+goes red instead of quiet.
+
+**The first version of that guard had the bug it was written to catch.** It selected server tokens
+by `startswith(("sfp-", "sfu-"))`, so the `sfx-` mutation was filtered out of its own check and the
+test passed. Caught by the mutation, not by review. It now selects any output that differs from its
+input, and both mutations go red:
+
+- reserve only `sfp-` → `'sfu-5fd830a1…' is a server-generated storage token a client can supply verbatim`
+- rename the private prefix to `sfx-` → `'sfx-49256ab6…'` same
+
+**Process note.** One mutation restore appeared to fail, showing `sfx-` in a later gate run with the
+source already clean. It was stale `__pycache__`: the mutated module had been compiled and the
+restored source reused its bytecode. Every mutation probe now clears `__pycache__` first, and the
+restore is confirmed with `git diff HEAD` rather than by reading the file.
 
 ## Owner-verify
 

@@ -1576,3 +1576,32 @@ async def test_an_escaped_public_key_cannot_be_supplied_as_a_raw_key(
 
     assert created, "a distinct client key must not resolve to another caller's mapping"
     assert second.id != first.id
+
+
+def test_no_generated_storage_token_is_a_fixed_point_of_the_public_path() -> None:
+    # INVARIANT: no value this function GENERATES may be supplied by a client and stored
+    # unchanged. That is the whole of the namespace separation, expressed without naming any
+    # prefix — so adding a third namespace and forgetting `_RESERVED_KEY_PREFIXES` turns this red
+    # instead of silently reopening the collision that review round 8 found.
+    #
+    # WHY this rather than hashing every public key: hashing is the structural fix, but it edits
+    # three prior expiry tests that address IdempotencyKey rows by their raw key, and buys nothing
+    # measurable today. This keeps the conservative fix honest instead (review of PR #719).
+    # AIDEV-NOTE: a server token is any output that DIFFERS from its input. Selecting them by
+    # prefix would rebuild the very denylist this test exists to police — a third namespace would
+    # be filtered out of the check and the test would pass while the collision reopened. Verified:
+    # renaming the private prefix to `sfx-` leaves a prefix-filtered version green.
+    tokens = set()
+    for raw in ("k", "retry-1", "sfp-x", "sfu-x", ""):
+        for who in (ALICE, BOB):
+            for per in (True, False):
+                produced = _scoped_idempotency_key(raw, who, per_submitter=per)
+                if produced is not None and produced != raw:
+                    tokens.add(produced)
+
+    assert tokens, "the probe generated no server-owned tokens — the fixture is wrong, not the code"
+    for token in tokens:
+        assert _scoped_idempotency_key(token, "carol@example.test", per_submitter=False) != token, (
+            f"{token!r} is a server-generated storage token a client can supply verbatim; "
+            "add its prefix to _RESERVED_KEY_PREFIXES"
+        )
