@@ -1271,6 +1271,49 @@ async def test_a_public_board_keeps_its_global_idempotency_key(tortoise_db: None
     assert second.id == first.id
 
 
+async def test_a_public_raw_key_cannot_resolve_a_private_scoped_key(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: client-controlled public keys and server-derived private keys occupy disjoint
+    # stored namespaces. Before both sides were namespaced, a caller could compute the victim's
+    # `sfp-<sha256>` token, send that exact string as a public raw key, and receive the victim's
+    # private score and metadata from the key-first lookup.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="private", display_name="Private", visibility="private"
+    )
+    await store.register_benchmark(benchmark_id="public", display_name="Public")
+
+    private_submission = _same_recipe(ALICE).model_copy(
+        update={
+            "benchmark_id": "private",
+            "metadata": {"secret": "victim-only"},
+        }
+    )
+    victim, victim_created = await store.submit(
+        private_submission, idempotency_key="predictable-key"
+    )
+    private_stored_key = _scoped_idempotency_key("predictable-key", ALICE, per_submitter=True)
+    assert private_stored_key is not None
+
+    public_submission = _same_recipe(BOB).model_copy(
+        update={
+            "benchmark_id": "public",
+            "metadata": {"source": "public"},
+        }
+    )
+    public, public_created = await store.submit(
+        public_submission, idempotency_key=private_stored_key
+    )
+
+    assert victim_created is True
+    assert public_created is True
+    assert public.id != victim.id
+    assert public.benchmark_id == "public"
+    assert public.submitted_by == BOB
+    assert public.metadata == {"source": "public"}
+
+
 async def test_owned_rows_include_every_submission_for_one_spec(tortoise_db: None) -> None:
     # INVARIANT: a private view lists ALL the caller's rows. leaderboard() collapses to
     # best-per-spec (rn == 1), so routing my_submissions through it silently dropped a
@@ -1336,6 +1379,16 @@ def test_a_scoped_key_separates_submitters_and_is_stable() -> None:
 
     assert alice != bob
     assert alice == _scoped_idempotency_key("k", "alice@example.test", per_submitter=True)
+
+
+async def test_public_and_private_keys_use_disjoint_stored_namespaces() -> None:
+    private = _scoped_idempotency_key("k", ALICE, per_submitter=True)
+    assert private is not None
+    public = _scoped_idempotency_key(private, BOB, per_submitter=False)
+
+    assert public is not None and public.startswith("sfu-")
+    assert private.startswith("sfp-")
+    assert public != private
 
 
 def test_a_public_key_is_stored_verbatim() -> None:

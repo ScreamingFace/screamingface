@@ -258,7 +258,7 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _scoped_idempotency_key(
     idempotency_key: str | None, submitted_by: str | None, *, per_submitter: bool
 ) -> str | None:
-    """The key as stored: namespaced by submitter on a private board, verbatim on a public one.
+    """Return a bounded, domain-separated storage token for a client idempotency key.
 
     INVARIANT: the stored value must survive `IdempotencyKey.key`, a VARCHAR(255) column, on
     PostgreSQL. An earlier version joined submitter and key with a literal NUL, which SQLite
@@ -266,17 +266,29 @@ def _scoped_idempotency_key(
     verified against postgres:16 — so every private submission carrying an Idempotency-Key would
     have failed only in production. Concatenation could also exceed 255 characters.
 
-    Hashing solves both: the NUL separator survives only inside the digest input, never in the
-    stored value, and the result is a fixed 68 printable ASCII characters. The `sfp-` prefix keeps
-    a scoped key structurally distinct from a raw public one sharing the same column.
+    Hashing solves both: separators survive only inside the digest input, never in the stored
+    value, and the result is fixed-length printable ASCII. Public keys remain verbatim unless a
+    caller tries to occupy the reserved `sfp-` private namespace. Such keys are escaped to a
+    bounded `sfu-` token; otherwise a caller could submit the predictable private token as its raw
+    public key and the key-first lookup would return the linked private score. This preserves the
+    established global public-key representation while making private storage unreachable from
+    client-controlled public values.
 
     AIDEV-NOTE: the value is opaque by design. Nothing reads it back to recover the submitter —
     `get_by_idempotency_key` has no production caller — so it is a lookup token, not a record.
     """
-    if idempotency_key is None or not per_submitter:
+    if idempotency_key is None:
+        return None
+    if per_submitter:
+        namespace = f"private\x00{submitted_by or ''}"
+        prefix = "sfp-"
+    elif idempotency_key.startswith("sfp-"):
+        namespace = "public"
+        prefix = "sfu-"
+    else:
         return idempotency_key
-    digest = hashlib.sha256(f"{submitted_by or ''}\x00{idempotency_key}".encode()).hexdigest()
-    return f"sfp-{digest}"
+    digest = hashlib.sha256(f"{namespace}\x00{idempotency_key}".encode()).hexdigest()
+    return f"{prefix}{digest}"
 
 
 class SubmitOutcome(NamedTuple):
@@ -521,8 +533,9 @@ class ScoreStore:
 
     async def get_by_idempotency_key(self, key: str) -> ScoreSchema | None:
         now_ts = datetime.now(UTC)
+        stored_key = _scoped_idempotency_key(key, None, per_submitter=False)
         linked = await IdempotencyKey.get_or_none(
-            key=key,
+            key=stored_key,
             expires_at__gt=now_ts,
         ).prefetch_related("score")
         if linked is None:

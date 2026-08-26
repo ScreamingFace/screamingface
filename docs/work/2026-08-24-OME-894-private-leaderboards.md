@@ -192,6 +192,36 @@ Two things found while fixing rather than reported:
   because it is the seam `test_post_score_store_unavailable_returns_503` patches. That prior test
   is untouched.
 
+## Review round 4 — 2026-08-26 (@HupBaHa, PR #719)
+
+Two P1 findings remain after round 3.
+
+- **Idempotency namespaces are now disjoint.** The reviewer's exact exploit was reproduced first:
+  a public raw key equal to Alice's derived private key returned Alice's private row and metadata.
+  `sfp-` is now reserved for server-derived private tokens; a public raw key attempting to occupy
+  it is deterministically escaped to `sfu-<sha256>`. Ordinary public keys remain verbatim and
+  globally replayable, preserving the existing contract and every prior test. Migration `0009`
+  removes only legacy `sfp-` mappings at the format boundary; ordinary public mappings and all
+  score rows survive, proven through the real migration runner.
+- **The PostgreSQL regression is isolated without rewriting it.** The repository's append-only
+  gate correctly rejected the first narrow-row rewrite because that test was already committed.
+  A directory fixture now gives that one test a UUID PostgreSQL schema, so its existing `all()`
+  assertion and cleanup see only its own tables even when `SCOREBOARD_TEST_DATABASE_URL` names a
+  shared database. A pure regression pins preservation of existing URL query parameters and
+  per-schema separation.
+
+**RED evidence:** four focused failures — the exact metadata leak, public/private namespace
+collision, unsafe whole-table PostgreSQL access, and absent legacy cleanup migration.
+
+**Verification:** affected suites `104 passed / 3 skipped`; full Scoreboard suite `426 passed / 3
+skipped / 3 deselected`, 86.56% coverage. The complete `run_gates.py scoreboard` lane is green:
+append-only check, Ruff check, Ruff format check, Pyright, full pytest coverage, and the Node portal
+suite. The PostgreSQL-only runtime test remains skipped locally because
+`SCOREBOARD_TEST_DATABASE_URL` is unavailable; its schema URL/isolation logic and migration path
+run in the default suite.
+
+**Commit:** pending — `fix(scoreboard): isolate private idempotency namespaces` (`Refs: OME-894`).
+
 ## Owner-verify
 
 - **Confirm the runtime `authMode` with @Stephen before the challenge is announced.** The chart
