@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="640" viewBox="0 0 980 640" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a5568"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="980" height="640" fill="#ffffff"/>
+  <text x="490" y="30" text-anchor="middle" font-size="18" font-weight="bold" fill="#1a202c">OME-908 — Fair scheduling of concurrent Engine runs</text>
+  <text x="490" y="50" text-anchor="middle" font-size="12" fill="#718096">One gateway provider queue, 4 slots. Two DRACO-size runs. Same gateway, same slots — the engine shapes arrivals.</text>
+
+  <!-- ======================= BEFORE ======================= -->
+  <text x="40" y="86" font-size="14" font-weight="bold" fill="#c53030">BEFORE — run A monopolizes the FIFO queue</text>
+
+  <!-- Engine box -->
+  <rect x="40" y="100" width="300" height="190" rx="8" fill="#f7fafc" stroke="#cbd5e0"/>
+  <text x="190" y="120" text-anchor="middle" font-size="13" font-weight="bold" fill="#2d3748">Engine (no run budgets)</text>
+  <rect x="60" y="135" width="260" height="52" rx="6" fill="#fff5f5" stroke="#fc8181"/>
+  <text x="190" y="155" text-anchor="middle" font-size="12" fill="#2d3748">Run A — DRACO (judge)</text>
+  <text x="190" y="172" text-anchor="middle" font-size="11" fill="#c53030">32 calls in flight, continuous</text>
+  <rect x="60" y="200" width="260" height="52" rx="6" fill="#f0fff4" stroke="#68d391"/>
+  <text x="190" y="220" text-anchor="middle" font-size="12" fill="#2d3748">Run B — starts later</text>
+  <text x="190" y="237" text-anchor="middle" font-size="11" fill="#2f855a">32 in flight — waits behind A</text>
+  <text x="190" y="280" text-anchor="middle" font-size="10" fill="#a0aec0">url4.dag run-wide cap 32 per run</text>
+
+  <line x1="340" y1="161" x2="428" y2="185" stroke="#c53030" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="340" y1="226" x2="428" y2="215" stroke="#2f855a" stroke-width="3" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text x="384" y="158" text-anchor="middle" font-size="10" fill="#c53030">flood</text>
+  <text x="384" y="242" text-anchor="middle" font-size="10" fill="#2f855a">starved</text>
+
+  <!-- Gateway box -->
+  <rect x="430" y="120" width="260" height="170" rx="8" fill="#fffff0" stroke="#d69e2e"/>
+  <text x="560" y="140" text-anchor="middle" font-size="13" font-weight="bold" fill="#2d3748">AIGateway — provider queue</text>
+  <text x="560" y="157" text-anchor="middle" font-size="11" fill="#718096">asyncio.Semaphore(4), FIFO, no run identity</text>
+  <rect x="450" y="168" width="220" height="34" rx="4" fill="#fed7d7" stroke="#fc8181"/>
+  <text x="560" y="189" text-anchor="middle" font-size="11" fill="#742a2a">queue: A A A A A A A ··· B B B</text>
+  <rect x="450" y="212" width="48" height="34" rx="4" fill="#c53030"/>
+  <rect x="506" y="212" width="48" height="34" rx="4" fill="#c53030"/>
+  <rect x="562" y="212" width="48" height="34" rx="4" fill="#c53030"/>
+  <rect x="618" y="212" width="48" height="34" rx="4" fill="#c53030"/>
+  <text x="560" y="234" text-anchor="middle" font-size="11" fill="#ffffff" font-weight="bold">4 slots — all A</text>
+  <text x="560" y="268" text-anchor="middle" font-size="10" fill="#a0aec0">slot held across retry; cache hits skip the queue</text>
+
+  <line x1="690" y1="229" x2="760" y2="229" stroke="#4a5568" stroke-width="3" marker-end="url(#arrow)"/>
+  <rect x="762" y="196" width="178" height="66" rx="8" fill="#ebf8ff" stroke="#63b3ed"/>
+  <text x="851" y="220" text-anchor="middle" font-size="12" font-weight="bold" fill="#2c5282">openrouter</text>
+  <text x="851" y="238" text-anchor="middle" font-size="11" fill="#2b6cb0">gemini judge ×20k</text>
+
+  <rect x="40" y="302" width="900" height="30" rx="5" fill="#fff5f5" stroke="#feb2b2"/>
+  <text x="490" y="321" text-anchor="middle" font-size="11" fill="#742a2a">B's calls wait, time out (60 s config), retry to the back of the queue — little or no progress until A drains</text>
+
+  <!-- ======================= AFTER ======================= -->
+  <text x="40" y="368" font-size="14" font-weight="bold" fill="#2f855a">AFTER — engine fair budgets (this unit) + gateway fair queue (companion)</text>
+
+  <rect x="40" y="382" width="300" height="190" rx="8" fill="#f7fafc" stroke="#cbd5e0"/>
+  <text x="190" y="402" text-anchor="middle" font-size="13" font-weight="bold" fill="#2d3748">Engine (per-run budgets)</text>
+  <rect x="60" y="417" width="260" height="52" rx="6" fill="#ebf8ff" stroke="#63b3ed"/>
+  <text x="190" y="437" text-anchor="middle" font-size="12" fill="#2d3748">Run A — budget 16 in flight</text>
+  <text x="190" y="454" text-anchor="middle" font-size="11" fill="#2c5282">local: work-conserving DRR gate (32 shared)</text>
+  <rect x="60" y="482" width="260" height="52" rx="6" fill="#ebf8ff" stroke="#63b3ed"/>
+  <text x="190" y="502" text-anchor="middle" font-size="12" fill="#2d3748">Run B — budget 16 in flight</text>
+  <text x="190" y="519" text-anchor="middle" font-size="11" fill="#2c5282">k8s: URL4_CLOUD_IO_CONCURRENCY env, default 16</text>
+  <text x="190" y="560" text-anchor="middle" font-size="10" fill="#a0aec0">solo run keeps full speed (work-conserving)</text>
+
+  <line x1="340" y1="443" x2="428" y2="467" stroke="#2c5282" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="340" y1="508" x2="428" y2="497" stroke="#2c5282" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="384" y="440" text-anchor="middle" font-size="10" fill="#2c5282">½ arrivals</text>
+  <text x="384" y="524" text-anchor="middle" font-size="10" fill="#2c5282">½ arrivals</text>
+
+  <rect x="430" y="402" width="260" height="170" rx="8" fill="#fffff0" stroke="#d69e2e"/>
+  <text x="560" y="422" text-anchor="middle" font-size="13" font-weight="bold" fill="#2d3748">AIGateway — provider queue</text>
+  <text x="560" y="439" text-anchor="middle" font-size="11" fill="#718096">V1: same FIFO — fair arrivals ≈ 50/50</text>
+  <rect x="450" y="450" width="220" height="34" rx="4" fill="#e6fffa" stroke="#38b2ac"/>
+  <text x="560" y="471" text-anchor="middle" font-size="11" fill="#234e52">companion: round-robin by identity header</text>
+  <rect x="450" y="494" width="48" height="34" rx="4" fill="#3182ce"/>
+  <rect x="506" y="494" width="48" height="34" rx="4" fill="#319795"/>
+  <rect x="562" y="494" width="48" height="34" rx="4" fill="#3182ce"/>
+  <rect x="618" y="494" width="48" height="34" rx="4" fill="#319795"/>
+  <text x="560" y="516" text-anchor="middle" font-size="11" fill="#ffffff" font-weight="bold">interleaved A B A B</text>
+  <text x="560" y="550" text-anchor="middle" font-size="10" fill="#a0aec0">work-conserving: idle share flows to active runs</text>
+
+  <line x1="690" y1="511" x2="760" y2="511" stroke="#4a5568" stroke-width="3" marker-end="url(#arrow)"/>
+  <rect x="762" y="478" width="178" height="66" rx="8" fill="#ebf8ff" stroke="#63b3ed"/>
+  <text x="851" y="502" text-anchor="middle" font-size="12" font-weight="bold" fill="#2c5282">openrouter</text>
+  <text x="851" y="520" text-anchor="middle" font-size="11" fill="#2b6cb0">A and B both progress</text>
+
+  <rect x="40" y="584" width="900" height="30" rx="5" fill="#f0fff4" stroke="#9ae6b4"/>
+  <text x="490" y="603" text-anchor="middle" font-size="11" fill="#22543d">Layer 0 first: engine dispatch counters + ops checklist confirm the gateway queue is the locus (not k8s Pending / quota)</text>
+</svg>
