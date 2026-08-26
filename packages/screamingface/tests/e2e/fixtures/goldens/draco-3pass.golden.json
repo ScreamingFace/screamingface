@@ -6,7 +6,7 @@
     "openrouter/google/gemini-3-flash-preview"
   ],
   "limit": null,
-  "expression_sha": "21a30cd02d18cb57a1cb4d926f7fc5a044d7317304d01b9e503fb24b6c48c390",
+  "expression_sha": "df2cfd7bf16da7aebc88998d06db62bc91f28802ecf33c025a5d8e2bb1bfa3f0",
   "final_score": "0.3593",
   "case_count": 100,
   "gradeable_count": 100,

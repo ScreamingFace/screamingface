@@ -233,3 +233,19 @@ along). One `golden-replay` job on ubuntu-latest: uv sync → cached
 job, so spend stays impossible; `-rs` keeps fixture-less boards' skip reasons
 visible in the log. Verified locally before wiring: the draco-3pass board test
 PASSES in 72s under the same env/flag from the committed fixtures.
+
+### Re-bless after rebase onto main (2026-08-26)
+
+The first CI run of the new e2e-replay workflow caught exactly what the gate exists
+for: main had moved (fail-fast grading fan-outs + url4 error-payload fixes) and the
+merge run failed rung 1 — "expression changed, goldens stale" (21a30cd0… →
+df2cfd7b…). Branch rebased onto main and draco-3pass re-blessed from the same two
+owner-held recordings (shas verified against the committed provenance header before
+use). First re-bless attempt was REFUSED (score 0.3451, coverage 0.91, 9 failed
+cases) — diagnosed as ~30 local request timeouts under machine load, not protocol
+drift (CI's own replay under new main served 100/100 at coverage 1.0). Quiet-machine
+retry: 0 timeouts, 100/100 scored, score 0.3593 exactly — the published number never
+moved, only the expression string. New fixtures verified green through the real gate
+(70s). Observation for a follow-up nit: a timeout-degraded replay and a genuine
+score drift currently produce the same BLESS REFUSED message; coverage < 1.0 could
+name the environmental case.
