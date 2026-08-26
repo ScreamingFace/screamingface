@@ -1,0 +1,64 @@
+{
+  "schema": "screamingface.replay-tape.v1",
+  "provenance": {
+    "board": "draco-3pass",
+    "revision": "authored-failure-rehearsal-2026-08",
+    "expression_sha": "42c81d34c07afc4fbb3eeabca171750111a4cc64fc64cdc2bc6aac4839dec27e",
+    "engine_sha": "authored \u2014 no engine rendered this tape",
+    "recorded_at": "2026-08-26T00:00:00Z",
+    "run_ref": "hand-authored for OME-993 (see tests/e2e/test_failures.py)",
+    "authored": true
+  },
+  "exchanges": [
+    {
+      "normalized": {
+        "provider": "openrouter",
+        "model": "openrouter/openai/gpt-5.5",
+        "fingerprint": "777d0e54c08f53ded541b9d51bdd5498dee92c6cbe7661a6585a1eab8c5d6ab3"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "body": {
+          "model": "openrouter/openai/gpt-5.5",
+          "messages": [
+            {
+              "role": "user",
+              "content": "AUTHORED judge_token_cap candidate request for the OME-993 failure rehearsal. The FakeGateway matches by model, not by this body."
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "media_type": "application/json",
+        "body_b64": "eyJpZCI6ICJjaGF0Y21wbC1vbWU5OTMtdG9rZW5jYXAtY2FuZGlkYXRlLTEiLCAib2JqZWN0IjogImNoYXQuY29tcGxldGlvbiIsICJjcmVhdGVkIjogMTc4NzM1NjgwMCwgIm1vZGVsIjogIm9wZW5haS9ncHQtNS41IiwgImNob2ljZXMiOiBbeyJpbmRleCI6IDAsICJtZXNzYWdlIjogeyJyb2xlIjogImFzc2lzdGFudCIsICJjb250ZW50IjogIkFVVEhPUkVEIGNhbmRpZGF0ZSBhbnN3ZXIgZm9yIHRoZSBPTUUtOTkzIHJlaGVhcnNhbHM6IGEgc2hvcnQgcmVzZWFyY2ggc3VtbWFyeSB3aXRoIGEgc2luZ2xlIGNpdGF0aW9uIFsxXS4ifSwgImZpbmlzaF9yZWFzb24iOiAic3RvcCJ9XSwgInVzYWdlIjogeyJwcm9tcHRfdG9rZW5zIjogMCwgImNvbXBsZXRpb25fdG9rZW5zIjogMCwgInRvdGFsX3Rva2VucyI6IDB9fQ=="
+      }
+    },
+    {
+      "normalized": {
+        "provider": "openrouter",
+        "model": "openrouter/google/gemini-3.1-pro-preview",
+        "fingerprint": "683d8f60e3619e0df947f9a4bcf5faab1906636daa24b8f7d87bcf3adac03f62"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "body": {
+          "model": "openrouter/google/gemini-3.1-pro-preview",
+          "messages": [
+            {
+              "role": "user",
+              "content": "AUTHORED judge_token_cap judge request for the OME-993 failure rehearsal. The FakeGateway matches by model, not by this body."
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "media_type": "application/json",
+        "body_b64": "eyJpZCI6ICJjaGF0Y21wbC1vbWU5OTMtdG9rZW5jYXAtanVkZ2UtMSIsICJvYmplY3QiOiAiY2hhdC5jb21wbGV0aW9uIiwgImNyZWF0ZWQiOiAxNzg3MzU2ODAwLCAibW9kZWwiOiAiZ29vZ2xlL2dlbWluaS0zLjEtcHJvLXByZXZpZXciLCAiY2hvaWNlcyI6IFt7ImluZGV4IjogMCwgIm1lc3NhZ2UiOiB7InJvbGUiOiAiYXNzaXN0YW50IiwgImNvbnRlbnQiOiAiIn0sICJmaW5pc2hfcmVhc29uIjogImxlbmd0aCJ9XSwgInVzYWdlIjogeyJwcm9tcHRfdG9rZW5zIjogMCwgImNvbXBsZXRpb25fdG9rZW5zIjogMCwgInRvdGFsX3Rva2VucyI6IDB9fQ=="
+      }
+    }
+  ]
+}
