@@ -236,3 +236,66 @@ def test_top_k_zero_survives_installed_litellm_openrouter_transform() -> None:
         headers={},
     )
     assert wire.get("top_k") == 0
+
+
+# --- OME-993 (§9): validated reasoning_effort for the OpenRouter provider ------------
+
+
+def test_reasoning_effort_is_accepted_and_reaches_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    # STORY: the DRACO judge is a reasoning model — without a validated low-effort
+    # throttle it can burn its whole token budget thinking (GH #740). The standard
+    # field projects direct and reaches dispatch verbatim.
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"reasoning_effort": "low"})
+    assert resp.status_code == 200, resp.text
+    assert captured["reasoning_effort"] == "low"
+
+
+def test_reasoning_effort_outside_the_proven_ladder_rejects_fail_closed(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    # WHY a provider-local schema: only low/medium/high are proven through the
+    # installed transform for OpenRouter — "none"/"minimal" are other providers'
+    # spellings and fail closed here rather than dispatching an unproven value.
+    _create_connection(authenticated_client)
+    for value in ("none", "minimal", "banana", 3):
+        captured: dict = {}
+        with patch("litellm.acompletion", _fake_acompletion(captured)):
+            resp = _post_chat(authenticated_client, {"reasoning_effort": value})
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"]["rejected"] == {"reasoning_effort": "malformed"}
+        assert captured == {}  # fail closed: no provider call happened
+
+
+def test_reasoning_effort_survives_installed_litellm_openrouter_transform() -> None:
+    # FINAL-TRANSFORM PROOF (plan §6.1/§12): the rule is enabled only because the
+    # INSTALLED litellm openrouter transform carries reasoning_effort onto the wire
+    # body top-level for reasoning-capable models (OpenRouter's OpenAI-compat field).
+    # If litellm changes this, the rule must be re-reviewed — this is the tripwire.
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+    from litellm.utils import get_optional_params
+
+    upstream = "google/gemini-3.1-pro-preview"  # DRACO's pinned judge
+    optional = get_optional_params(
+        model=upstream, custom_llm_provider="openrouter", reasoning_effort="low"
+    )
+    assert optional.get("reasoning_effort") == "low"
+    wire = OpenrouterConfig().transform_request(
+        model=upstream,
+        messages=[{"role": "user", "content": "hi"}],
+        optional_params=dict(optional),
+        litellm_params={},
+        headers={},
+    )
+    assert wire.get("reasoning_effort") == "low"
+
+
+def test_reasoning_effort_is_advertised_in_the_summary() -> None:
+    plugin = OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=True))
+    rules = plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key")
+    summary = set(inline_supported_parameters(rules, available_auth_modes=("api_key",)))
+    assert "reasoning_effort" in summary

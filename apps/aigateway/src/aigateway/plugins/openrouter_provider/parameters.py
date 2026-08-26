@@ -64,6 +64,15 @@ _REVISION = "openrouter-2026-07"
 # (minimum=1) — Anthropic and Gemini still bind it and their top-k lower bound is 1.
 OPENROUTER_TOP_K_SCHEMA = ParameterSchema(type="integer", minimum=0)
 
+# WHY (OME-993): only the low/medium/high ladder is proven through the installed
+# litellm openrouter transform (§9 probe: the value reaches the wire top-level for
+# reasoning-capable models) — "none"/"minimal" are other providers' spellings and
+# stay fail-closed rather than dispatching an unproven value. Do NOT bind the shared
+# ``REASONING_EFFORT_SCHEMA`` here; its wider enum belongs to the providers that
+# proved it. litellm raises UnsupportedParamsError for non-reasoning models at
+# dispatch — a named upstream error, not a gateway fail-open.
+OPENROUTER_REASONING_EFFORT_SCHEMA = ParameterSchema(type="string", enum=("low", "medium", "high"))
+
 # OME-305: the ONE spelling of where `top_k` lands upstream, shared with
 # ``global_cache`` so the rule's target and the cache projection cannot drift.
 #
@@ -162,6 +171,17 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         "max_tokens",
         auth_modes=_AUTH,
         schema=MAX_TOKENS_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REVISION,
+    ),
+    # OME-993: the DRACO judge's reasoning throttle. Direct passthrough — the installed
+    # litellm openrouter transform forwards the standard field verbatim onto the wire
+    # (§9 probe, tripwire in test_openrouter_parameter_projection). Output-affecting,
+    # so keyed like every other sampling control.
+    direct_rule(
+        "reasoning_effort",
+        auth_modes=_AUTH,
+        schema=OPENROUTER_REASONING_EFFORT_SCHEMA,
         cache_behavior="keyed",
         projection_revision=_REVISION,
     ),

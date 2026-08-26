@@ -69,9 +69,16 @@ JUDGE_PARAMS = (
     # request remains eligible for the exact-response cache.
     ("web_search", "false"),
     ("temperature", "0.2"),
-    # The official low-reasoning setting is added once AI Gateway exposes a validated
-    # OpenRouter parameter for it. Unknown fields fail closed, so guessing here breaks every
-    # judge call rather than producing a documented protocol deviation.
+    # WHY (OME-993, GH #740): the Judge is a reasoning model, and thinking tokens count
+    # against max_tokens — unthrottled, it can burn the whole budget thinking and return
+    # a blank `length` turn, failing the grading while still billing the tokens. The
+    # official low effort (DRACO paper §4.2) is now a validated AI Gateway OpenRouter
+    # parameter. max_tokens stays at the paper's 4096 — owner decision: reproduce the
+    # DRACO parametrization exactly, even if occasional token-cap errors remain (they
+    # now surface honestly and retry as designed). Both values are hashed into the
+    # board revision and the judge cache key — changing either moves every route and
+    # re-records the judge cache seeds, so change them together, rarely.
+    ("reasoning_effort", "low"),
     ("max_tokens", "4096"),
 )
 # The pass criterion of the mid-run check surface (OME-829/830). Declared here rather
@@ -200,6 +207,10 @@ def build_draco_protocol(routes: Routes, case_count: int, judge_passes: int) -> 
             ),
             name=f"verdict_{run}",
             weight=0.0,
+            # WHY (OME-993): a transient judge failure (429/5xx) must not fail the
+            # whole Case — url4 retries transient errors only (permanent ones, e.g. a
+            # token-cap turn, never retry); a retry that succeeds is cached normally.
+            retry=2,
         )
         for run in range(1, judge_passes + 1)
     )
