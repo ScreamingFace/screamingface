@@ -61,6 +61,15 @@ jobs:
           uv run --with datasets python -m screamingface_engine.benchmarks.prepare
           --root /tmp/screamingface-benchmark-assets
 
+      # synthetic.manifest.json is deliberately untracked — it carries the gateway's
+      # LIVE revision constants, so a fresh checkout regenerates it with the gateway's
+      # own code (single-authority rule) instead of committing a copy that goes stale.
+      - name: Generate the synthetic plumbing fixture
+        working-directory: apps/aigateway
+        run: |
+          uv sync
+          .venv/bin/python ../../packages/screamingface/tests/e2e/fixtures/generate_synthetic.py
+
       # -rs so a skipped board prints its loud reason ("no recorded fixtures yet")
       # in the CI log instead of hiding inside a green run.
       - name: Replay the e2e lane against the goldens
