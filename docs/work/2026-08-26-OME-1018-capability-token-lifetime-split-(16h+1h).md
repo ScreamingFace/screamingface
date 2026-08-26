@@ -38,7 +38,7 @@ Full engine unit suite green; the 60 s age rejection no longer exists anywhere.
 
 - **Actual files:** as planned (jwt.py, config.py, 3 call sites, test_auth.py + 14
   mechanical test patches).
-- **Commits:** (added by commit step)
+- **Commits:** `8b0b2d81` — feat(screamingface-engine): split capability-token lifetime from mint freshness
 - **Gates:** engine unit suite 2037 passed / 5 skipped; full stack gates at epic end
 - **Deviations:** none — the 14 other construction sites in tests were patched
   mechanically (uniform `LIFETIME_S` constant); no semantic flips outside test_auth.py

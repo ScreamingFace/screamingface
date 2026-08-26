@@ -38,7 +38,7 @@ later flips it.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned (2 files).
-- **Commits:** (added by commit step)
+- **Commits:** `f2a0e9e3` — test: characterize today's fatal 1012 and dead abort sweep
 - **Gates:** unit-level only; full stack gates run at epic end
 - **Deviations:** none — HTTP/1.0 default on the stub handler needed an explicit
   `protocol_version` (websockets refuses HTTP/1.0 handshakes), a harness detail, not a plan deviation.

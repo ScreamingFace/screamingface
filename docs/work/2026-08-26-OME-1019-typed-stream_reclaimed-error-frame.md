@@ -42,7 +42,7 @@ Full engine + url4 suites green; a resume attach on a reclaimed topic answers
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned (1 port file + exports, 2 adapters, bridge, 3 test files).
-- **Commits:** (added by commit step)
+- **Commits:** `a38f06c2` — feat(screamingface-engine): typed stream_reclaimed answer for reclaimed streams
 - **Gates:** engine 2059 passed / 5 skipped; url4 1164 passed; full stack gates at epic end
 - **Deviations:** the pre-existing `test_attach_from_sequence_bounds` conformance test
   needed its documented precondition updated (ensure the stream before subscribing) —

@@ -46,7 +46,7 @@ budget (disconnect-diagnosis tests use the 0.2 s seam).
 
 - **Actual files:** as planned (3 SDK source files + tests; disconnect-diagnosis tests
   got the 0.2 s budget seam so they keep testing DIAGNOSIS, not pacing).
-- **Commits:** (added by commit step)
+- **Commits:** `4e2df695` — feat(screamingface): reconnect state machine — resume runs from the stream cursor
 - **Gates:** SDK 1198 passed / 17 skipped; engine + url4 suites re-run at epic end
 - **Deviations:** (1) the reconnect notice is a log line, not a widget event — the Event
   set is closed and versioned; a widget line would be a public API addition (out of
