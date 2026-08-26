@@ -79,6 +79,26 @@ def test_iat_window_exceeded_rejected() -> None:
         _codec().verify(token, T0 + timedelta(seconds=WINDOW_S + 1))
 
 
+def test_old_iat_rejected_even_when_exp_future() -> None:
+    """PIN (OME-1017, spec §2): the age check — not `exp` — is the lifetime rule today.
+
+    A token whose `iat` is far in the past is rejected by the iat window even when its
+    `exp` is still in the future. This is the lifetime/freshness conflation R2 removes:
+    after R2, `exp` alone decides lifetime and this exact token verifies.
+    """
+    forged = pyjwt.encode(
+        {
+            "sub": "topic",
+            "iat": int(T0.timestamp()) - 3600,
+            "exp": int(T0.timestamp()) + 3600,
+        },
+        SECRET,
+        algorithm="HS256",
+    )
+    with pytest.raises(IatWindowExceeded):
+        _codec().verify(forged, T0)
+
+
 def test_exp_boundary_rejected() -> None:
     token = _codec().sign("topic", T0)
     with pytest.raises(TokenExpired):
