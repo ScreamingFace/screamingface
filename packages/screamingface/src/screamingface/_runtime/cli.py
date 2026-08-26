@@ -97,8 +97,12 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
     try:
         # WHY before dispatch: every command that imports runtime apps (up/serve
         # children, status, doctor, prepare) must see the live checkout code, not a
-        # stale build-time copy in site-packages (OME-1001).
-        runtime_source.activate(runtime_source.resolve_source(os.environ))
+        # stale build-time copy in site-packages (OME-1001). `down` and `logs` are
+        # exempt: they import no runtime apps, and a broken SCREAMINGFACE_RUNTIME_SOURCE
+        # must never lock the user out of recovery (mirrors the recovery-command rule
+        # for invalid port environments in _config).
+        if args.command not in {"down", "logs"}:
+            runtime_source.activate(runtime_source.resolve_source(os.environ))
         config = _config(args)
         if args.command == "up":
             _up(config, foreground=args.foreground)
@@ -172,9 +176,12 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     state = _read_state(config)
     owned = bool(state and _verify_owner(state))
     if owned:
+        # WHY before the health split: the partially-healthy advice below points at
+        # `restart`, which tears the stack down — another checkout's stack must be
+        # refused on EVERY owned branch, not only the all-healthy one.
+        _ensure_adoptable(state)
         health = _health(_state_services(state))
         if all(health.values()):
-            _ensure_adoptable(state)
             print("ScreamingFace is already running.")
             _print_urls(_state_services(state), config.log_path)
             return
@@ -320,6 +327,10 @@ def _down(config: RuntimeConfig) -> None:
 
 def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: bool) -> None:
     state = _read_state(config)
+    # INVARIANT: restart = down + up, so it must refuse a foreign stack the same way
+    # `up` does — otherwise it silently replaces another checkout's running services.
+    if state and _verify_owner(state):
+        _ensure_adoptable(state)
     if state:
         services = _state_services(state)
         stored = {name: _url_port(url) for name, url in services.items()}

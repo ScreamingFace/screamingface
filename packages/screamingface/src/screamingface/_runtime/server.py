@@ -16,7 +16,12 @@ from typing import Any, Protocol
 from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig, scoreboard_assets
 from screamingface._runtime.runtime_logging import log_service
-from screamingface._runtime.source import RuntimeSource, activate, resolve_source
+from screamingface._runtime.source import (
+    RuntimeSource,
+    activate,
+    resolve_source,
+    verify_live_modules,
+)
 
 STARTUP_TIMEOUT_SECONDS = 90.0
 
@@ -38,14 +43,24 @@ def require_runtime_extra() -> RuntimeSource:
     # AI Gateway plugins, whose module-level instances capture provider settings at import time.
     enable_local_providers(os.environ)
     try:
-        import aigateway  # noqa: F401
-        import scoreboard  # noqa: F401
-        import screamingface_engine  # noqa: F401
+        import aigateway
+        import scoreboard
+        import screamingface_engine
+        import url4
         import uvicorn  # pyright: ignore[reportMissingImports]  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
             'Local runtime dependencies are missing. Install "screamingface[runtime]".'
         ) from exc
+    verify_live_modules(
+        source,
+        {
+            "aigateway": aigateway,
+            "scoreboard": scoreboard,
+            "screamingface_engine": screamingface_engine,
+            "url4": url4,
+        },
+    )
     return source
 
 

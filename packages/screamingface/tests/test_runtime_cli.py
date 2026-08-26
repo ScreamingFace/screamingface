@@ -290,36 +290,35 @@ def test_local_runtime_enables_openrouter_without_overriding_an_explicit_choice(
     enable_local_providers(default_environment)
     enable_local_providers(disabled_environment)
 
-    # WHY no exact-dict assert since OME-1001: the local defaults grew when the
-    # justfile's environment moved into the runtime; this test keeps guarding only
-    # its original invariant — the default enables, an explicit choice survives.
+    # WHY no exact-dict assert since OME-1001: the local default set grew; this test
+    # keeps guarding only its original invariant — the default enables, an explicit
+    # choice survives.
     assert default_environment["AIGW_OPENROUTER_ENABLED"] == "true"
     assert disabled_environment["AIGW_OPENROUTER_ENABLED"] == "false"
 
 
-def test_local_gateway_defaults_carry_the_justfile_environment() -> None:
-    # FEATURE: one stack command (OME-1001) — the deleted justfile's env exports
-    # live on as runtime defaults, or local evals regress the moment it is gone.
+def test_local_gateway_defaults_provide_exactly_the_required_environment() -> None:
+    # FEATURE: one stack command (OME-1001) — the runtime itself supplies the env the
+    # local stack needs, or local evals regress the moment it starts any other way.
     environment: dict[str, str] = {}
 
     enable_local_providers(environment)
 
     assert environment == {
         "AIGW_OPENROUTER_ENABLED": "true",
-        # WHY: re-activates stored provider profiles at boot; without it a restarted
-        # gateway exposes no openrouter/* models.
-        "AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE": "1",
         # WHY 32: one Engine run fans out up to 32 concurrent model calls but the
         # gateway's per-provider default admits 4 — queued calls burn the Engine's
         # 600s per-call budget and full HealthBench evals die (OME-889).
         "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": '{"openrouter": 32}',
     }
+    # INVARIANT: provider credential bootstrap stays opt-in — the gateway's own
+    # consent rule; the runtime never defaults AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE.
+    assert "AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE" not in environment
 
 
 def test_local_gateway_defaults_never_override_an_explicit_operator_choice() -> None:
     explicit = {
         "AIGW_OPENROUTER_ENABLED": "false",
-        "AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE": "0",
         "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": '{"openrouter": 4}',
     }
 
@@ -396,6 +395,63 @@ def test_up_still_adopts_state_written_before_source_records_existed(
     cli._up(config, foreground=False)
 
     assert "already running" in capsys.readouterr().out
+
+
+def test_up_refuses_a_partially_healthy_stack_owned_by_a_different_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: covering only the all-healthy branch would walk the user into `restart`
+    # via the partially-healthy advice — silently replacing the other checkout's
+    # stack.
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, {"mode": "checkout", "root": "/somewhere/else"})
+    _stub_runtime_extra(monkeypatch)
+    monkeypatch.setattr(cli, "_verify_owner", lambda _state: True)
+    monkeypatch.setattr(cli, "_health", lambda services: dict.fromkeys(services, False))
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+
+    with pytest.raises(RuntimeError, match="screamingface down"):
+        cli._up(config, foreground=False)
+
+
+def test_restart_refuses_to_tear_down_another_checkouts_stack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: restart = down + up, so it must refuse a foreign stack the same way
+    # `up` does — otherwise it silently replaces another checkout's running services.
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, {"mode": "checkout", "root": "/somewhere/else"})
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path), "restart"])
+
+    with pytest.raises(RuntimeError, match="screamingface down"):
+        cli._restart(config, args, foreground=False)
+
+    # Refusal means the other stack was left untouched.
+    assert config.state_path.exists()
+
+
+def test_recovery_commands_ignore_an_invalid_runtime_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # WHY: `down` and `logs` are how a user recovers from a broken environment; a
+    # typoed SCREAMINGFACE_RUNTIME_SOURCE must not lock them out (mirrors the
+    # recovery-command rule for invalid port environments above).
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "editable")
+
+    cli.main(["--data-dir", str(tmp_path), "down"])
+
+    assert "not running" in capsys.readouterr().out
+
+
+def test_up_surfaces_an_invalid_runtime_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "editable")
+
+    with pytest.raises(SystemExit, match="SCREAMINGFACE_RUNTIME_SOURCE"):
+        cli.main(["--data-dir", str(tmp_path), "up"])
 
 
 def test_prepare_children_inherit_the_live_checkout_sources(

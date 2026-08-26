@@ -118,10 +118,36 @@ def source_directories(source: RuntimeSource) -> tuple[str, ...]:
 def activate(source: RuntimeSource) -> None:
     """Make the checkout's live code win over any installed build-time copy."""
 
-    # INVARIANT: idempotent — supervisor, serve child, and scoreboard child may each
-    # activate; sys.path must not accumulate duplicates.
-    additions = [entry for entry in source_directories(source) if entry not in sys.path]
-    sys.path[:0] = additions
+    # INVARIANT: precedence, not mere presence — an editable install's .pth can put a
+    # source dir on sys.path already, but BEHIND site-packages where the stale
+    # vendored copy still wins. Idempotent: repeated activation never accumulates
+    # duplicates.
+    for entry in reversed(source_directories(source)):
+        while entry in sys.path:
+            sys.path.remove(entry)
+        sys.path.insert(0, entry)
+
+
+def verify_live_modules(source: RuntimeSource, modules: Mapping[str, object]) -> None:
+    """Fail loudly if checkout mode imported anything outside the checkout.
+
+    WHY: the boot log claims "runtime source: checkout" — if a stale installed copy
+    slipped past activation, benchmarks would silently test the wrong code, which is
+    the exact failure OME-1001 exists to kill.
+    """
+
+    if source.mode != MODE_CHECKOUT or source.root is None:
+        return
+    prefix = str(source.root) + os.sep
+    stale = {
+        name: file
+        for name, module in modules.items()
+        if (file := getattr(module, "__file__", None)) and not str(Path(file)).startswith(prefix)
+    }
+    if stale:
+        raise RuntimeError(
+            f"checkout mode is active but stale installed copies were imported: {stale}"
+        )
 
 
 def child_environment(source: RuntimeSource, environment: Mapping[str, str]) -> dict[str, str]:

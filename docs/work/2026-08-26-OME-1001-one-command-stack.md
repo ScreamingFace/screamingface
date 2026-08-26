@@ -93,3 +93,35 @@ justfile is deleted.
     engine test self-skips now that the file is gone, and
     `screamingface-engine-tests.yml` still lists the deleted justfile in its `paths:`
     filters (harmless dead entries). Follow-up ticket proposed at close to retire both.
+
+## Review response (same unit, second commit)
+
+Owner-run code review returned 9 findings; fixes applied on the branch:
+
+- **Provider credential bootstrap is no longer defaulted at all** (owner decision,
+  supersedes the plan's "move all justfile env defaults"): the gateway documents
+  `AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE` as consent/opt-in, so the runtime never sets
+  it — an operator exports it themselves. Dev consequence: a restarted gateway boots
+  with an empty profile index until re-authorized. Tests pin the flag's absence.
+- Adoption guard now runs on every owned branch of `up` AND in `restart` — the
+  partially-healthy path advised `restart`, which would have silently torn down
+  another checkout's stack.
+- `down`/`logs` skip runtime-source resolution: a typoed `SCREAMINGFACE_RUNTIME_SOURCE`
+  must never lock the user out of recovery (mirrors the recovery-port rule).
+- `activate()` enforces sys.path precedence (an editable .pth can hold a source dir
+  BEHIND site-packages), and `verify_live_modules` fails boot loudly if checkout mode
+  imported any stale installed copy.
+- e2e assets default now derives from the runtime data dir (where
+  `screamingface prepare` writes); the old `/tmp` default had no remaining filler.
+- `public-docs` leaderboard guide: `just stack-up` → `screamingface up`.
+- Engine (cross-landing fallout, mechanical): deleted the two dead justfile guard
+  tests, removed the workflow's dead justfile `paths:` entries, scrubbed the word
+  from test text (owner instruction). Engine gate suite green.
+- Rejected with reasoning (in PR discussion): adoption-identity granularity
+  (bundled↔bundled adoption equals pre-existing behavior), port-scan teardown
+  fallback (real gap, needs a portability design — follow-up candidate),
+  `SCREAMINGFACE_ENGINE_REPO` stacked-dev override (dead workflow, intentional drop).
+- Verified: both gate suites green (`screamingface` 1181 passed / 17 skipped ≥95% cov;
+  `screamingface-engine` all green); fresh-dir boot logs checkout mode with live-module
+  verification active; foreign-source `up` refused on healthy AND partial stacks;
+  clean `down`.

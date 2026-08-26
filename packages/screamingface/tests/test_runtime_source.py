@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -126,6 +127,48 @@ def test_activation_prepends_the_live_source_directories_once(
     # installed in site-packages, and repeat activation must not stack duplicates.
     assert sys.path[: len(expected)] == expected
     assert sys.path[len(expected) :] == ["kept-first"]
+
+
+def test_activation_promotes_a_source_directory_stuck_behind_site_packages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: an editable install (e.g. url4's .pth) can put a source dir on sys.path
+    # ALREADY — but after site-packages, where the stale vendored copy still wins.
+    # Presence is not precedence; activation must move it to the front.
+    root = _checkout(tmp_path)
+    resolved = source.resolve_source({}, anchor=_anchor(root))
+    stuck = str(root / "packages/url4/src")
+    monkeypatch.setattr(sys, "path", ["site-packages", stuck])
+
+    source.activate(resolved)
+
+    assert sys.path.index(stuck) < sys.path.index("site-packages")
+    assert sys.path.count(stuck) == 1
+
+
+def test_live_module_verification_names_the_stale_import(tmp_path: Path) -> None:
+    root = _checkout(tmp_path)
+    resolved = source.resolve_source({}, anchor=_anchor(root))
+    live = types.ModuleType("aigateway")
+    live.__file__ = str(root / "apps/aigateway/src/aigateway/__init__.py")
+    stale = types.ModuleType("url4")
+    stale.__file__ = "/venv/site-packages/url4/__init__.py"
+
+    source.verify_live_modules(resolved, {"aigateway": live})
+
+    # INVARIANT: "runtime source: checkout" in the boot log must be TRUE — a stale
+    # site-packages copy slipping through activation fails loudly, by module name.
+    with pytest.raises(RuntimeError, match="url4"):
+        source.verify_live_modules(resolved, {"aigateway": live, "url4": stale})
+
+
+def test_live_module_verification_is_a_no_op_for_the_installed_package() -> None:
+    stale = types.ModuleType("url4")
+    stale.__file__ = "/venv/site-packages/url4/__init__.py"
+
+    source.verify_live_modules(
+        source.RuntimeSource(mode=source.MODE_BUNDLED, root=None), {"url4": stale}
+    )
 
 
 def test_bundled_activation_leaves_the_import_path_alone(
