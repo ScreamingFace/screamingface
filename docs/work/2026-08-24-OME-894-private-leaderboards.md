@@ -314,6 +314,41 @@ test was touched.
 
 **No schema change**, so stack rule S1 does not apply and no migration was added.
 
+## Review round 7 — 2026-08-26
+
+**[P2] Round 4's fix for the destructive PostgreSQL test was silently fragile.** The isolation
+fixture keys off a hardcoded test NAME (`conftest.py:39`), while the guarded test keeps its
+unfiltered `IdempotencyKey.all()` assertion and `.delete()` cleanup
+(`test_idempotency_postgres.py:66,73`). Two ordinary edits unguard that cleanup against the
+configured database — renaming the test, so the fixture stops matching and yields, or adding a
+second PostgreSQL test in the same style, never matched at all.
+
+Both failures are SILENT: the suite stays green while wiping a shared table. That is the round-4
+finding reopening itself with no signal. `test_idempotency_postgres_safety.py` did not cover it —
+it only exercised `_with_schema`, the URL builder, and never asserted the guarded name resolves.
+
+One assertion closes both: the module must define exactly the test the fixture guards. A rename
+changes the name it sees; an addition changes the count.
+
+### Outcome — DONE
+
+A guard for a condition that already holds cannot go red on its own, so it was mutation-proved
+instead of RED-first, both ways:
+
+- Renamed the guarded test → `Fixture guards '...round_trips_on_postgres'; module defines
+  ['...with_a_key_round_trips_on_postgres']`.
+- Added a second unfiltered PostgreSQL test → `module defines [..., 'test_a_second_unisolated_
+  postgres_test']`.
+
+Both restored; guard green. The failure message names the fixture's expectation and what the
+module actually defines, so the next author sees the fix, not just the break.
+
+**Files:** `apps/scoreboard/tests/unit/scores/test_idempotency_postgres_safety.py` only — test
+code, no production change. The prior test and the fixture are both untouched, so the append-only
+contract holds.
+
+**Gates:** all green.
+
 ## Owner-verify
 
 - **Confirm the runtime `authMode` with @Stephen before the challenge is announced.** The chart
