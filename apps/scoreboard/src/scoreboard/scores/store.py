@@ -443,6 +443,40 @@ class ScoreStore:
             await self._bind_idempotency_key(idempotency_key, existing, now_ts)
         return existing
 
+    async def _resolve_owned(
+        self,
+        idempotency_key: str | None,
+        content_hash: str,
+        *,
+        per_submitter: bool,
+        submitted_by: str | None,
+    ) -> Score | None:
+        # INVARIANT (OME-894): on a private board a KEY-resolved row must belong to the caller.
+        # `_scoped_idempotency_key` reserves the `sfp-` namespace going forward, and `0009` clears
+        # what was already there, but neither can vouch for the ROLLOUT WINDOW: the migrate Job is
+        # a `pre-upgrade` hook, so it completes before the new pods roll, and old replicas keep
+        # storing client keys verbatim until they terminate. A row written in that window outlives
+        # the migration. Checking ownership here makes the isolation hold whatever the table
+        # contains, which the prefix alone cannot (review of PR #719).
+        #
+        # WHY a wrapper rather than parameters on `_resolve_existing`: that method is the shared
+        # primitive for the pre-insert check and the IntegrityError handler, and its signature is
+        # pinned by a prior test. The ownership rule belongs to the private-board caller anyway,
+        # not to key resolution in general.
+        existing = await self._resolve_existing(idempotency_key, content_hash)
+        if existing is None or not per_submitter or existing.submitted_by == submitted_by:
+            return existing
+        # AIDEV-NOTE: passing None for the key deliberately re-runs the SAME method down its
+        # content-hash branch — the only other way in, and per-submitter here, so it can match
+        # nobody but the caller. It also skips the re-bind, which must not move a mapping that
+        # points at another participant's score.
+        #
+        # Residual, accepted: when the caller has no row of their own, the insert below then
+        # collides with the stale mapping and the submission is REFUSED. Failing closed on a
+        # corrupt slot beats answering with another participant's data; reclaiming the slot is a
+        # write and is deliberately not done from a resolve.
+        return await self._resolve_existing(None, content_hash)
+
     async def _bind_idempotency_key(
         self,
         idempotency_key: str,
@@ -492,7 +526,12 @@ class ScoreStore:
             idempotency_key, submission.submitted_by, per_submitter=per_submitter
         )
 
-        existing = await self._resolve_existing(stored_key, content_hash)
+        existing = await self._resolve_owned(
+            stored_key,
+            content_hash,
+            per_submitter=per_submitter,
+            submitted_by=submission.submitted_by,
+        )
         if existing is not None:
             return SubmitOutcome(score=_score_to_schema(existing), created=False)
 
@@ -528,7 +567,12 @@ class ScoreStore:
             # INVARIANT: the SCOPED key, matching the pre-insert lookup above. Using the raw key
             # here re-opened the cross-participant leak this ticket closed, for exactly the
             # concurrent case this branch exists to handle (found in review of PR #719).
-            existing = await self._resolve_existing(stored_key, content_hash)
+            existing = await self._resolve_owned(
+                stored_key,
+                content_hash,
+                per_submitter=per_submitter,
+                submitted_by=submission.submitted_by,
+            )
             if existing is not None:
                 return SubmitOutcome(score=_score_to_schema(existing), created=False)
             raise

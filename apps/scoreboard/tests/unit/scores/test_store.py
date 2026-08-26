@@ -1435,3 +1435,95 @@ async def test_the_concurrent_retry_path_resolves_with_the_scoped_key(
     assert raised["done"], "the IntegrityError branch was never reached"
     # Whatever it looked up, it must never have been the bare cross-participant key.
     assert "shared" not in seen
+
+
+# --- review round 6: the reserved namespace survives a Helm rollout window -------------------
+# `0009` clears `sfp-%`, but the migrate Job is a `pre-upgrade` hook — it runs BEFORE the new
+# pods roll. Old replicas keep serving through that window and keep storing client keys
+# verbatim, so a row written then outlives the migration. The migration cannot close this; the
+# lookup has to. Found in review of PR #719.
+
+
+async def _stale_reserved_mapping(store: ScoreStore, *, owner: str, victim: str) -> Score:
+    """Bind `owner`'s derived private key to a score submitted by `victim`.
+
+    This is exactly the row an old replica writes when it accepts `Idempotency-Key: sfp-<...>`
+    verbatim, which is what the pre-`0009` code did.
+    """
+    victim_score = await Score.create(
+        benchmark_id="hle",
+        spec_id="victim-spec",
+        url4_expression="url4://benchmark/victim",
+        submitted_by=victim,
+        score=0.99,
+        total_questions=100,
+        correct_questions=99,
+        ran_with_providers=["openai"],
+        content_hash="victim-hash",
+        metadata={"secret": "victim-only"},
+    )
+    stored_key = _scoped_idempotency_key("rollout-key", owner, per_submitter=True)
+    assert stored_key is not None and stored_key.startswith("sfp-")
+    await IdempotencyKey.create(
+        key=stored_key,
+        score=victim_score,
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    )
+    return victim_score
+
+
+async def test_a_private_key_hit_owned_by_another_participant_is_not_served(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: on a private board a key-resolved row must belong to the caller. The prefix
+    # reserves the namespace going forward; it cannot vouch for what is already in the table.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    victim_score = await _stale_reserved_mapping(store, owner=ALICE, victim=BOB)
+
+    outcome = None
+    # Fails closed when there is nothing of her own to fall back to: the corrupt slot is ALICE's
+    # own derived key and is not rebound on a read, so the submission is refused rather than
+    # answered with another participant's row. Refusing is acceptable here; answering is not.
+    with contextlib.suppress(IntegrityError):
+        outcome, _ = await store.submit(_same_recipe(ALICE), idempotency_key="rollout-key")
+
+    if outcome is not None:
+        assert outcome.submitted_by == ALICE
+        assert outcome.id != victim_score.id
+        assert outcome.metadata != {"secret": "victim-only"}
+    # BOB's row must survive either way — nothing here may delete another participant's score.
+    assert await Score.get_or_none(id=victim_score.id) is not None
+
+
+async def test_a_corrupt_reserved_slot_still_replays_the_callers_own_row(
+    tortoise_db: None,
+) -> None:
+    # The fallback that makes the fix usable rather than merely safe: ignoring the foreign row
+    # drops through to the per-submitter content hash, which can only ever match the caller.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    await _stale_reserved_mapping(store, owner=ALICE, victim=BOB)
+    mine, created = await store.submit(_same_recipe(ALICE))
+    assert created
+
+    replay, replay_created = await store.submit(_same_recipe(ALICE), idempotency_key="rollout-key")
+
+    assert not replay_created
+    assert replay.id == mine.id
+    assert replay.submitted_by == ALICE
+
+
+async def test_a_public_board_still_replays_a_global_key_across_submitters(
+    tortoise_db: None,
+) -> None:
+    # The regression guard: the owner test must apply ONLY to private boards. A public
+    # idempotency key is a global retry token and that semantics is not this ticket's to change.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    first, _ = await store.submit(_same_recipe(ALICE), idempotency_key="global")
+    second, second_created = await store.submit(_same_recipe(BOB), idempotency_key="global")
+
+    assert not second_created
+    assert second.id == first.id
