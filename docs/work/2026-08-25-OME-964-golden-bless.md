@@ -269,3 +269,11 @@ produced WITHOUT `reasoning_effort=low` and without retry. The golden therefore 
 the PIPELINE (rendering, transport, parsing, aggregation) under the new protocol,
 NOT the score the new-protocol judge would produce. The next paid run (planned as
 5-pass, serving OME-977 too) replaces this interim with a true recording.
+
+Outcome of the interim re-key: Phase A captured 11,802 judge bodies (exactly the
+known judge-row count) under the dump's protocol with the verified 0.3593 replay;
+Phase B on the rebased branch matched all 11,802 old keys to dump payloads, spliced
+them under new-protocol keys, and the verified replay proved the transform — 100/100
+scored, coverage 1.0, score 0.3593, all 11,902 slice rows touched. The delta was
+exactly `reasoning_effort=low`; nothing else enters the judge body. Snapshot header
+carries the INTERIM-RE-KEYED disclosure; the golden gate passes locally in 70s.
