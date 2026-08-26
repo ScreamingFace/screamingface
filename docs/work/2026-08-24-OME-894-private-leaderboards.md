@@ -349,6 +349,107 @@ contract holds.
 
 **Gates:** all green.
 
+## Review round 8 — 2026-08-26
+
+Three owner findings, all three reproduced in code before any fix.
+
+**[P1] A public key is honoured after its score became private** (`store.py:466-468`). The
+ownership test branches on the REQUEST's `per_submitter`, not on what the mapping points AT. Flip a
+board public → private while a pre-flip raw mapping is still live (24h TTL), and any caller reusing
+that key on ANY public benchmark takes the `not per_submitter` short-circuit: the linked private
+score is returned unchecked, and `POST /v1/scores` publishes its id, url4 expression and metadata.
+The key lookup is global, not per-benchmark, so the leak crosses boards.
+
+Fixed by testing the LINKED row instead of the request: a mapping is honoured only when the caller
+may read what it points at. That subsumes round 6 — the private-board case is the same rule with
+the board in question being the request's own.
+
+**[P2] A visibility-only override creates the row it was meant to override**
+(`seed.py:356-359`). `_apply_orphan_visibility` documents the invariant — *"this never creates a
+benchmark… a configured id the board has never seen stays refused"* — but `_classify_configured`
+runs earlier and breaks it. A NEW Engine-published private board is represented in the chart by a
+visibility entry with no revision (that is the shape `_with_configured_visibility` requires). During
+a catalogue outage its id is in neither `published` nor `engine_owned`, so it falls through to
+`allowed` and is CREATED: revisionless, carrying the chart's placeholder text, marked private, and
+accepting submissions. `seeded_before` is true on a populated board, so the deploy exits 0.
+
+`test_an_unknown_benchmark_gets_no_visibility_row_of_its_own` asserts exactly this invariant and
+misses exactly this case — its fixture passes `revision="r"`, which is refused one branch earlier.
+
+Fixed by making that invariant total: a configured row declaring `visibility` never creates a
+benchmark. It overrides a published row, or an existing one, or it is refused.
+
+**[P2] The escaped public namespace is not reserved** (`store.py:287-291`). A public key beginning
+`sfp-` is escaped to `sfu-<digest>`, but a client may send that exact digest as an ordinary raw key
+and the `else` stores it verbatim. Two distinct client keys then address one mapping and the second
+POST replays the first caller's score.
+
+**Approach chosen deliberately.** The reviewer offered two: reserve the generated tokens, or hash
+every public key into an unoccupiable namespace. Hashing everything is the more thorough fix, but
+`test_a_public_key_is_stored_verbatim` (`test_store.py:1394`) asserts the verbatim representation —
+changing it is a rule-5 edit to a prior test and needs owner sign-off. Reserving both prefixes
+closes the collision completely without that: any raw key that could collide now starts with
+`sfu-`, so it is itself escaped. Flagged below in case the stronger form is wanted.
+
+### Planned changes
+
+- `store.py` — `_resolve_owned` checks the linked row's board; `_scoped_idempotency_key` reserves
+  `sfu-` alongside `sfp-`.
+- `seed.py` — `_classify_configured` refuses a visibility-declaring row whose target is not
+  established.
+- Tests appended to `tests/unit/scores/test_store.py` and `tests/unit/test_seed_engine_catalog.py`.
+
+No schema change, so stack rule S1 does not apply.
+
+### Test plan
+
+- A raw mapping made private by a board flip is not replayed to another caller on a public board.
+- A public board still replays a global key across submitters — the regression guard.
+- An escaped `sfu-` token supplied as a raw key creates a new row rather than replaying.
+- A revisionless visibility-only row for an unseen id is refused during a catalogue outage and the
+  board stays empty.
+- Both prior seed paths still work: an outage still flips an EXISTING board, and a published row
+  still receives configured visibility.
+
+### Outcome — DONE
+
+All three reproduced red first, all four changes mutation-checked after.
+
+- **F1**: BOB's public submit returned `created=False` and ALICE's now-private score.
+- **F2**: `assert [] == ['healthbench-entry']` — the row was created instead of refused.
+- **F3**: the escaped digest, sent as a raw key, replayed ALICE's score.
+
+**One change beyond the plan — and the reason for it.** Closing F1 initially traded the leak for a
+`UNIQUE constraint failed` on BOB's insert: the stale mapping was correctly refused, then the write
+collided with it. For an ORDINARY PUBLIC submission that is a denial for the whole 24h TTL,
+triggered by nothing worse than a config change, so it is not an acceptable price. Reaching that
+insert means `_resolve_owned` found nothing honourable, which means any mapping still standing was
+refused on purpose — so the write now reclaims its own slot and the expiry condition on that delete
+is gone. Mutation-checked in its own right (restoring the condition re-fails the test with the
+IntegrityError).
+
+Evicting a mapping is not a new capability: a caller who could reach that key could already REPLAY
+the linked score through it, which is strictly more than evicting it. The original client loses only
+the fast path — the content hash still dedupes their retry, so no duplicate row.
+
+**This supersedes the round-6 residual.** That entry recorded a refusal as accepted fail-closed
+behaviour; it no longer happens, and the stale comment saying so was removed rather than left to
+mislead the next reader. Two other comments in `_resolve_owned` were corrected in the same pass:
+the opening invariant now says *readable by this caller* rather than *private board*, and the
+content-hash note distinguishes the private case (hash carries the submitter) from the public one.
+
+**Gates:** all green. 464 passed, 3 skipped. No prior test modified — the append-only gate is the
+proof.
+
+### Owner decision still open
+
+**F3 was fixed the conservative way.** Reserving both prefixes closes the collision completely. The
+alternative the review offered — hash EVERY public key into `sfu-<digest>` — is stronger, because it
+removes the notion of a client-occupiable key space entirely rather than reserving two prefixes from
+it. It requires editing `test_a_public_key_is_stored_verbatim` (`test_store.py:1394`), which asserts
+the current representation, so it is a rule-5 change needing sign-off. Say the word and it is a
+small follow-up.
+
 ## Owner-verify
 
 - **Confirm the runtime `authMode` with @Stephen before the challenge is announced.** The chart

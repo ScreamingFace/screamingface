@@ -1527,3 +1527,52 @@ async def test_a_public_board_still_replays_a_global_key_across_submitters(
 
     assert not second_created
     assert second.id == first.id
+
+
+# --- review round 8: what the mapping POINTS AT decides, not what the request is ------------
+# The round-6 test branched on the request's `per_submitter`. A board that flips public -> private
+# leaves its pre-flip raw mappings live for the 24h TTL, and the key lookup is global rather than
+# per-benchmark, so reusing such a key on ANY public board took the `not per_submitter`
+# short-circuit and returned the now-private score. Found in review of PR #719.
+
+
+async def test_a_raw_mapping_is_not_replayed_after_its_board_turned_private(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: a mapping is honoured only when the caller may READ what it points at.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    alice_score, _ = await store.submit(_same_recipe(ALICE), idempotency_key="shared")
+
+    # The config change the ticket exists to enable — and the moment the stale mapping turns toxic.
+    await store.set_visibility("hle", "private")
+    await store.register_benchmark(benchmark_id="other", display_name="Other")
+
+    bob = _owned_submission(submitted_by=BOB, spec_id="bob-spec").model_copy(
+        update={"benchmark_id": "other"}
+    )
+    replayed, created = await store.submit(bob, idempotency_key="shared")
+
+    assert created, "BOB must get his own row, not a replay of a now-private score"
+    assert replayed.id != alice_score.id
+    assert replayed.submitted_by == BOB
+
+
+async def test_an_escaped_public_key_cannot_be_supplied_as_a_raw_key(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: no client-supplied value may address a SERVER-generated storage token. Escaping
+    # `sfp-` produced `sfu-<digest>` and stored ordinary keys verbatim, so sending that digest back
+    # as a raw key addressed the same mapping and replayed the first caller's score.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    escaped = _scoped_idempotency_key("sfp-collide", ALICE, per_submitter=False)
+    assert escaped is not None and escaped.startswith("sfu-")
+
+    first, _ = await store.submit(_same_recipe(ALICE), idempotency_key="sfp-collide")
+    second, created = await store.submit(
+        _owned_submission(submitted_by=BOB, spec_id="bob-spec"), idempotency_key=escaped
+    )
+
+    assert created, "a distinct client key must not resolve to another caller's mapping"
+    assert second.id != first.id

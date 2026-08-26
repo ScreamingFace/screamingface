@@ -341,6 +341,7 @@ def _classify_configured(
     configured: Sequence[SeedBenchmark],
     published: set[str],
     engine_owned: set[str],
+    existing_ids: set[str],
     report: SeedReport,
 ) -> list[SeedBenchmark]:
     """Split configured rows into the ones this pass may seed, recording why the rest were not.
@@ -354,6 +355,15 @@ def _classify_configured(
         if row.id in published:
             report.shadowed.append(row.id)
         elif row.revision is not None or row.id in engine_owned:
+            report.refused.append(row.id)
+        elif row.visibility is not None and row.id not in existing_ids:
+            # INVARIANT: a row declaring `visibility` OVERRIDES; it never brings a board into
+            # being. `_apply_orphan_visibility` already documents this, but it runs later, so
+            # during a catalogue outage a NEW Engine-published private board — configured with
+            # visibility and no revision, which is the shape `_with_configured_visibility`
+            # requires — reached neither `published` nor `engine_owned` and was CREATED here:
+            # revisionless, carrying the chart's placeholder text, and accepting submissions,
+            # while the deploy exited 0 (review of PR #719).
             report.refused.append(row.id)
         else:
             allowed.append(row)
@@ -442,7 +452,9 @@ async def seed_from_sources(
     store = ScoreStore()
     # Stage 1 — read the prior state before this pass can contribute to it.
     seeded_before = await store.has_registered_revision()
-    engine_owned = {row.id for row in await store.list_benchmarks() if row.revision is not None}
+    existing_rows = await store.list_benchmarks()
+    engine_owned = {row.id for row in existing_rows if row.revision is not None}
+    existing_ids = {row.id for row in existing_rows}
 
     report = SeedReport()
     published_rows: list[SeedBenchmark] = list(engine_rows) if engine_rows is not None else []
@@ -458,7 +470,7 @@ async def seed_from_sources(
     published_rows = _with_configured_visibility(published_rows, configured)
 
     allowed = _classify_configured(
-        configured, {row.id for row in published_rows}, engine_owned, report
+        configured, {row.id for row in published_rows}, engine_owned, existing_ids, report
     )
 
     report.seeded = await seed_benchmarks([*published_rows, *allowed])

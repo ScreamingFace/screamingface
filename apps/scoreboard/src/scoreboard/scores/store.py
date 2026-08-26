@@ -257,6 +257,9 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
+_RESERVED_KEY_PREFIXES = ("sfp-", "sfu-")
+
+
 def _scoped_idempotency_key(
     idempotency_key: str | None, submitted_by: str | None, *, per_submitter: bool
 ) -> str | None:
@@ -284,7 +287,13 @@ def _scoped_idempotency_key(
     if per_submitter:
         namespace = f"private\x00{submitted_by or ''}"
         prefix = "sfp-"
-    elif idempotency_key.startswith("sfp-"):
+    elif idempotency_key.startswith(_RESERVED_KEY_PREFIXES):
+        # INVARIANT: BOTH server-owned prefixes are reserved, not just the private one. Escaping
+        # only `sfp-` left the escaped form itself client-suppliable: a caller could send the
+        # generated `sfu-<digest>` as an ordinary raw key, the `else` below stored it verbatim, and
+        # two distinct client keys addressed ONE mapping — so the second POST replayed the first
+        # caller's score. Any value that could collide now begins `sfu-` and is escaped in turn,
+        # which makes the fixed point unreachable (review of PR #719).
         namespace = "public"
         prefix = "sfu-"
     else:
@@ -451,8 +460,9 @@ class ScoreStore:
         per_submitter: bool,
         submitted_by: str | None,
     ) -> Score | None:
-        # INVARIANT (OME-894): on a private board a KEY-resolved row must belong to the caller.
-        # `_scoped_idempotency_key` reserves the `sfp-` namespace going forward, and `0009` clears
+        # INVARIANT (OME-894): a KEY-resolved row is returned only when this caller may READ it.
+        # `_scoped_idempotency_key` reserves the server-owned namespaces going forward, and `0009`
+        # clears
         # what was already there, but neither can vouch for the ROLLOUT WINDOW: the migrate Job is
         # a `pre-upgrade` hook, so it completes before the new pods roll, and old replicas keep
         # storing client keys verbatim until they terminate. A row written in that window outlives
@@ -464,18 +474,35 @@ class ScoreStore:
         # pinned by a prior test. The ownership rule belongs to the private-board caller anyway,
         # not to key resolution in general.
         existing = await self._resolve_existing(idempotency_key, content_hash)
-        if existing is None or not per_submitter or existing.submitted_by == submitted_by:
+        if existing is None or existing.submitted_by == submitted_by:
+            return existing
+        # INVARIANT: what the mapping POINTS AT decides, not what this request is. Branching on the
+        # request's `per_submitter` alone left a board that flips public -> private leaking through
+        # its own pre-flip mappings: they stay live for the TTL, the key lookup is global rather
+        # than per-benchmark, so ANY public submission reusing such a key took the `not
+        # per_submitter` path and was handed the now-private score (review of PR #719).
+        if not per_submitter and not await self._links_to_a_private_board(existing):
+            # A public row reached by a public global key — the established retry semantics, and
+            # not this ticket's to change.
             return existing
         # AIDEV-NOTE: passing None for the key deliberately re-runs the SAME method down its
-        # content-hash branch — the only other way in, and per-submitter here, so it can match
-        # nobody but the caller. It also skips the re-bind, which must not move a mapping that
-        # points at another participant's score.
+        # content-hash branch — the only other way in. On a private board that hash carries the
+        # submitter, so it can match nobody but the caller; on a public one it is the ordinary
+        # recipe hash and matching a public row is correct. Either way it skips the re-bind, which
+        # must not move a mapping pointing at a row this caller could not read.
         #
-        # Residual, accepted: when the caller has no row of their own, the insert below then
-        # collides with the stale mapping and the submission is REFUSED. Failing closed on a
-        # corrupt slot beats answering with another participant's data; reclaiming the slot is a
-        # write and is deliberately not done from a resolve.
+        # Returning None from here is not a dead end: `submit()` then reclaims this key's slot
+        # inside its insert transaction, precisely because a mapping surviving to that point has
+        # been refused here. See the delete in `submit()` for why it carries no expiry condition.
         return await self._resolve_existing(None, content_hash)
+
+    async def _links_to_a_private_board(self, score: Score) -> bool:
+        # `benchmark_id` is the foreign key's shadow column and not a declared attribute, so it is
+        # read the way every other call site in this module reads it.
+        benchmark = await Benchmark.get_or_none(id=cast(str, getattr(score, "benchmark_id")))
+        # Fails closed: a row whose board cannot be established is treated as private rather than
+        # served. Unreachable behind the RESTRICT foreign key, kept so it cannot become reachable.
+        return benchmark is None or benchmark.visibility == "private"
 
     async def _bind_idempotency_key(
         self,
@@ -539,14 +566,17 @@ class ScoreStore:
         try:
             async with in_transaction() as connection:
                 if stored_key is not None:
-                    await (
-                        IdempotencyKey.filter(
-                            key=stored_key,
-                            expires_at__lte=now_ts,
-                        )
-                        .using_db(connection)
-                        .delete()
-                    )
+                    # WHY no expiry condition: reaching this insert means `_resolve_owned` found
+                    # NOTHING honourable — neither a usable mapping nor a matching content hash.
+                    # A mapping that survives to here was therefore refused on purpose (expired,
+                    # or pointing at a row this caller may not read), so the write reclaims its own
+                    # slot instead of colliding with it.
+                    #
+                    # Filtering on expiry made a board flipping public -> private DENY ordinary
+                    # public submissions for the whole TTL: the stale raw mapping was correctly
+                    # refused, then the insert hit its UNIQUE constraint and the submission failed.
+                    # Closing the leak must not cost availability (review of PR #719).
+                    await IdempotencyKey.filter(key=stored_key).using_db(connection).delete()
 
                 score = await Score.create(
                     using_db=connection,
