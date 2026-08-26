@@ -220,7 +220,8 @@ suite. The PostgreSQL-only runtime test remains skipped locally because
 `SCOREBOARD_TEST_DATABASE_URL` is unavailable; its schema URL/isolation logic and migration path
 run in the default suite.
 
-**Commit:** pending — `fix(scoreboard): isolate private idempotency namespaces` (`Refs: OME-894`).
+**Commit:** `084536a2` — `fix(scoreboard): isolate private idempotency namespaces`
+(`Refs: OME-894`).
 
 ## Owner-verify
 
