@@ -260,16 +260,23 @@ def test_panel_starts_concise_accessible_and_without_receipt_json() -> None:
     assert "Evaluation failed" in html
     assert "benchmark is required" in html
     assert "diag_example" in html
-    assert "Nothing has been sent" in html
+    assert "local only" in html
+    assert "aria-label='Local only; cleared when this kernel restarts'" in html
     assert "%tb" in html
+    assert "sf-diagnostic__eyebrow" not in html
+    assert "Nothing has been sent" not in html
+    assert "Run <code>%tb</code>" not in html
     assert receipt.to_json() not in unescape(html)
     assert "role='alert'" in html
     assert "aria-live='polite'" in html
     assert set(view.widget._dom_classes) >= {"sf-ui", "sf-diagnostic-widget"}
     # INVARIANT: container tooltips crash JupyterLab's VBoxView because VBox has no description.
     assert view.widget.tooltip is None
-    assert _button(view.widget, "Export diagnostic").tooltip
-    assert _button(view.widget, "Preview diagnostic").tooltip
+    assert _button(view.widget, "Export").tooltip
+    assert _button(view.widget, "Preview").tooltip
+    assert any(
+        "sf-diagnostic__footer" in getattr(item, "_dom_classes", ()) for item in _walk(view.widget)
+    )
 
 
 @pytest.mark.parametrize(
@@ -301,16 +308,16 @@ def test_preview_reveals_the_exact_receipt_only_after_a_click() -> None:
     receipt = _receipt()
     view = _NotebookDiagnosticView(TypeError("failed"), receipt)
 
-    preview = _button(view.widget, "Preview diagnostic")
+    preview = _button(view.widget, "Preview")
     assert receipt.to_json() not in unescape(_html_values(view.widget))
 
     preview.click()
 
     assert receipt.to_json() in unescape(_html_values(view.widget))
-    assert preview.description == "Hide diagnostic"
+    assert preview.description == "Hide"
     preview.click()
     assert receipt.to_json() not in unescape(_html_values(view.widget))
-    assert preview.description == "Preview diagnostic"
+    assert preview.description == "Preview"
 
 
 def test_export_writes_only_after_an_explicit_click(
@@ -323,7 +330,7 @@ def test_export_writes_only_after_an_explicit_click(
     selected = tmp_path / "screamingface-diagnostic.json"
 
     assert not selected.exists()
-    _button(view.widget, "Export diagnostic").click()
+    _button(view.widget, "Export").click()
 
     assert selected.read_text(encoding="utf-8") == receipt.to_json()
     assert "Exported screamingface-diagnostic.json" in _html_values(view.widget)
@@ -339,7 +346,7 @@ def test_export_failure_is_reported_inside_the_panel(
     monkeypatch.setattr(DiagnosticReceipt, "export", unavailable_export)
     view = _NotebookDiagnosticView(TypeError("failed"), _receipt())
 
-    _button(view.widget, "Export diagnostic").click()
+    _button(view.widget, "Export").click()
 
     html = _html_values(view.widget)
     assert "Could not export the diagnostic" in html
@@ -351,5 +358,8 @@ def test_panel_uses_sfds_app_tokens_and_colab_theme_contract() -> None:
     assert "var(--sf-danger-solid)" in _STYLE
     assert "var(--sf-accent)" in _STYLE
     assert "background:var(--sf-gain)" not in _STYLE
+    assert ".sf-diagnostic__footer.widget-hbox" in _STYLE
+    assert ".sf-diagnostic__footer-meta>div>div" in _STYLE
+    assert "height:28px!important" in _STYLE
     assert ':where(html[theme="light"]) .sf-ui' in _STYLE
     assert ':where(html[theme="dark"]) .sf-ui' in _STYLE

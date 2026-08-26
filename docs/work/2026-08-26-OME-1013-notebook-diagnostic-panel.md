@@ -25,6 +25,8 @@ exception handler.
 - Update the ScreamingFace changelog for the notebook presentation behavior.
 - Remove unsupported tooltips from root `VBox` containers after a real JupyterLab frontend
   reproduction showed that its widget manager dereferences a nonexistent `description` field.
+- Compact the default panel so the error remains primary and the diagnostic receipt reads as
+  supporting evidence rather than a second full error screen.
 
 ## Test plan
 
@@ -37,6 +39,8 @@ exception handler.
 - Run the full `screamingface` gate lane after focused tests pass.
 - RED: root `VBox` containers do not publish a tooltip trait, while supported control/table
   tooltips and the panel's HTML accessibility name remain intact.
+- RED: the default panel has no diagnostic eyebrow or repeated lifetime/traceback prose; receipt
+  identity, `local only`, `%tb`, Preview and Export share one compact footer.
 
 ## Acceptance
 
@@ -53,9 +57,12 @@ exception handler.
   `_ui/diagnostic_view.py` notebook adapter; attached it at the existing Evaluation diagnostic
   boundary; added append-only notebook renderer, action, fallback, accessibility and SFDS tests;
   updated the package changelog; and removed unsupported root-`VBox` tooltips from both diagnostic
-  and Evaluation widgets after a live JupyterLab reproduction identified the shared frontend crash.
+  and Evaluation widgets after a live JupyterLab reproduction identified the shared frontend
+  crash. The final notebook presentation is one compact alert with an inline receipt/action footer;
+  repeated diagnostic labels and lifetime/traceback prose were removed.
 - **Commits:** `feat(screamingface): render notebook diagnostics`; and
-  `fix(screamingface): avoid notebook container tooltip crash` (this follow-up).
+  `fix(screamingface): avoid notebook container tooltip crash`; and
+  `fix(screamingface): compact notebook diagnostic panel` (final presentation pass).
 - **Gates:** Ruff lint and formatting, Pyright (0 errors), complete package pytest suite (1,237
   passed, 17 skipped, 95.04% coverage), focused widget suites (57 passed), wheel/sdist build and
   distribution validation all passed. The new adapter has 100% focused statement coverage.

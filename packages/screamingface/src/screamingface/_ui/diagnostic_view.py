@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import traceback
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from html import escape
 from typing import Any, cast
 
@@ -18,39 +18,41 @@ _STYLE = (
     STYLE
     + """<style>
 .sf-diagnostic-widget.widget-vbox{width:100%!important;max-width:920px!important;
-  margin:0!important;border:0!important;box-shadow:none!important}
-.sf-diagnostic__panel{--sf-diagnostic-solid:var(--sf-danger-solid);
+  --sf-diagnostic-solid:var(--sf-danger-solid);
   --sf-diagnostic-bg:var(--sf-blind-bg);--sf-diagnostic-text:var(--sf-blind);
-  display:grid;grid-template-columns:10px minmax(0,1fr);gap:12px;padding:14px 16px;
+  gap:0!important;margin:0!important;padding:10px 12px!important;
   border:1px solid var(--sf-line-2);border-left:2px solid var(--sf-diagnostic-solid);
-  border-radius:0;background:var(--sf-diagnostic-bg);color:var(--sf-ink)}
-.sf-diagnostic__panel.sf-diagnostic--stopped{--sf-diagnostic-solid:var(--sf-warning-solid);
+  border-radius:0!important;box-shadow:none!important;
+  background:var(--sf-diagnostic-bg);color:var(--sf-ink)}
+.sf-diagnostic-widget.sf-diagnostic--stopped{--sf-diagnostic-solid:var(--sf-warning-solid);
   --sf-diagnostic-bg:var(--sf-warning-bg);--sf-diagnostic-text:var(--sf-warning)}
-.sf-diagnostic__mark{width:10px;height:10px;margin-top:5px;background:var(--sf-diagnostic-solid)}
-.sf-diagnostic__eyebrow{font:600 11px/1.4 "IBM Plex Mono",ui-monospace,monospace;
-  text-transform:uppercase;letter-spacing:.08em;color:var(--sf-diagnostic-text)}
-.sf-diagnostic__title{margin-top:4px;font-size:20px;font-weight:600;line-height:1.25}
-.sf-diagnostic__message{margin-top:5px;font-size:14px;line-height:1.45;white-space:pre-wrap}
-.sf-diagnostic__receipt{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;
-  font:500 12px/1.45 "IBM Plex Mono",ui-monospace,monospace;color:var(--sf-ink-2)}
-.sf-diagnostic__receipt code,.sf-diagnostic__trace code{font:inherit;color:var(--sf-ink)}
-.sf-diagnostic__meta,.sf-diagnostic__trace{margin-top:5px;color:var(--sf-ink-2);
-  font-size:12px;line-height:1.45}
+.sf-diagnostic__summary{display:grid;grid-template-columns:10px minmax(0,1fr);gap:10px}
+.sf-diagnostic__mark{width:10px;height:10px;margin-top:4px;background:var(--sf-diagnostic-solid)}
+.sf-diagnostic__title{font-size:16px;font-weight:600;line-height:1.3}
+.sf-diagnostic__message{margin-top:2px;font-size:14px;line-height:1.4;white-space:pre-wrap}
+.sf-diagnostic__footer.widget-hbox{display:flex!important;flex-flow:row wrap!important;
+  align-items:center!important;justify-content:space-between!important;gap:6px 12px!important;
+  margin:7px 0 0 20px!important}
+.sf-diagnostic__footer-meta{flex:1 1 300px!important;min-width:0!important}
+.sf-diagnostic__footer-meta>div>div{display:flex;flex-wrap:wrap;gap:6px;
+  font:500 12px/1.4 "IBM Plex Mono",ui-monospace,monospace;color:var(--sf-ink-2)}
+.sf-diagnostic__footer-meta code{font:inherit;color:var(--sf-ink)}
 .sf-diagnostic__controls.widget-hbox{display:flex!important;flex-flow:row wrap!important;
-  gap:6px!important;margin:10px 0 0!important}
-.sf-diagnostic-widget .widget-button{height:32px!important;width:auto!important;
-  padding:0 12px!important;
+  gap:4px!important;margin:0!important}
+.sf-diagnostic-widget .widget-button{height:28px!important;width:auto!important;
+  padding:0 9px!important;
   border:1px solid var(--sf-line-2)!important;border-radius:0!important;box-shadow:none!important;
   background:transparent!important;background-image:none!important;color:var(--sf-ink-2)!important;
-  font:600 13px/1 "IBM Plex Mono",ui-monospace,monospace!important;white-space:nowrap}
+  font:600 12px/1 "IBM Plex Mono",ui-monospace,monospace!important;white-space:nowrap}
 .sf-diagnostic-widget .widget-button:hover{background:var(--sf-surface)!important;
   border-color:var(--sf-ink-2)!important;color:var(--sf-ink)!important}
 .sf-diagnostic-widget .sf-diagnostic__export{background:var(--sf-accent)!important;
   border-color:var(--sf-accent)!important;color:var(--sf-accent-contrast)!important}
 .sf-diagnostic-widget .sf-diagnostic__export:hover{background:var(--sf-accent-hover)!important;
   border-color:var(--sf-accent-hover)!important;color:var(--sf-accent-contrast)!important}
-.sf-diagnostic__status{min-height:18px;margin-top:6px;color:var(--sf-ink-2);
+.sf-diagnostic__status{margin:5px 0 0 20px;color:var(--sf-ink-2);
   font:500 12px/1.45 "IBM Plex Mono",ui-monospace,monospace}
+.sf-diagnostic__status:empty{display:none}
 .sf-diagnostic__status--ok{color:var(--sf-success)}
 .sf-diagnostic__status--bad{color:var(--sf-blind)}
 .sf-diagnostic__preview{margin-top:8px;border:1px solid var(--sf-line-2);
@@ -61,10 +63,8 @@ _STYLE = (
 .sf-diagnostic__preview pre{max-height:280px;margin:0;padding:10px;overflow:auto;
   background:var(--sf-surface-2);color:var(--sf-ink);white-space:pre-wrap;overflow-wrap:anywhere;
   font:500 12px/1.5 "IBM Plex Mono",ui-monospace,monospace}
-@media(max-width:560px){.sf-diagnostic__panel{padding:12px}.sf-diagnostic__controls.widget-hbox{
-  flex-direction:column!important;align-items:stretch!important}
-  .sf-diagnostic-widget .widget-button{
-  width:100%!important}}
+@media(max-width:560px){.sf-diagnostic__footer.widget-hbox{align-items:flex-start!important}
+  .sf-diagnostic__footer-meta{flex-basis:100%!important}}
 </style>"""
 )
 
@@ -79,36 +79,42 @@ class _NotebookDiagnosticView:
         self._preview_visible = False
         self._summary: Any = widgets.HTML(value=f"{_STYLE}{_summary_html(error, receipt)}")
         self._export: Any = widgets.Button(
-            description="Export diagnostic",
+            description="Export",
             tooltip="Save this diagnostic as a local JSON file",
         )
         self._export.add_class("sf-diagnostic__export")
         self._export.on_click(self._export_receipt)
         self._preview_button: Any = widgets.Button(
-            description="Preview diagnostic",
+            description="Preview",
             tooltip="Show the exact diagnostic JSON held in this kernel",
         )
         self._preview_button.on_click(self._toggle_preview)
         self._controls: Any = widgets.HBox(children=(self._export, self._preview_button))
         self._controls.add_class("sf-diagnostic__controls")
+        self._footer_meta: Any = widgets.HTML(value=_footer_html(receipt))
+        self._footer_meta.add_class("sf-diagnostic__footer-meta")
+        self._footer: Any = widgets.HBox(children=(self._footer_meta, self._controls))
+        self._footer.add_class("sf-diagnostic__footer")
         self._status: Any = widgets.HTML(value=_status_html())
         self._preview: Any = widgets.HTML(value="")
         # INVARIANT: VBox has no description; a truthy tooltip crashes JupyterLab's VBoxView.
         self.widget: Any = widgets.VBox(
-            children=(self._summary, self._controls, self._status, self._preview),
+            children=(self._summary, self._footer, self._status, self._preview),
         )
         self.widget.add_class("sf-ui")
         self.widget.add_class("sf-diagnostic-widget")
+        if receipt.outcome in {"interrupted_by_user", "cancelled"}:
+            self.widget.add_class("sf-diagnostic--stopped")
 
     def _toggle_preview(self, _: object) -> None:
         self._preview_visible = not self._preview_visible
         if self._preview_visible:
             self._preview.value = _preview_html(self._receipt)
-            self._preview_button.description = "Hide diagnostic"
+            self._preview_button.description = "Hide"
             self._preview_button.tooltip = "Hide the diagnostic JSON preview"
         else:
             self._preview.value = ""
-            self._preview_button.description = "Preview diagnostic"
+            self._preview_button.description = "Preview"
             self._preview_button.tooltip = "Show the exact diagnostic JSON held in this kernel"
 
     def _export_receipt(self, _: object) -> None:
@@ -172,30 +178,28 @@ def _display_notebook_diagnostic(
 
 
 def _summary_html(error: BaseException, receipt: DiagnosticReceipt) -> str:
-    stopped = receipt.outcome in {"interrupted_by_user", "cancelled"}
-    state_class = " sf-diagnostic--stopped" if stopped else ""
     title = _outcome_title(receipt.outcome)
     message = _local_message(error)
-    error_document = receipt.to_dict().get("error")
-    code = error_document.get("code") if isinstance(error_document, Mapping) else None
-    identity = (
-        type(error).__name__ if not isinstance(code, str) else f"{type(error).__name__} · {code}"
-    )
     title_id = f"sf-diagnostic-title-{receipt.diagnostic_id}"
     return (
-        f"<div class='sf-diagnostic__panel{state_class}' role='alert' "
+        f"<div class='sf-diagnostic__summary' role='alert' "
         f"aria-labelledby='{escape(title_id, quote=True)}'>"
         "<span class='sf-diagnostic__mark' aria-hidden='true'></span><div>"
-        "<div class='sf-diagnostic__eyebrow'>Diagnostic</div>"
         f"<div class='sf-diagnostic__title' id='{escape(title_id, quote=True)}'>"
         f"{escape(title)}</div>"
         f"<div class='sf-diagnostic__message'>{escape(message)}</div>"
-        f"<div class='sf-diagnostic__receipt'><span>{escape(identity)}</span>"
-        f"<span>·</span><code>{escape(receipt.diagnostic_id)}</code></div>"
-        "<div class='sf-diagnostic__meta'>Nothing has been sent. This receipt is held only in "
-        "this kernel; restarting discards it.</div>"
-        "<div class='sf-diagnostic__trace'>Run <code>%tb</code> to inspect the original "
-        "traceback.</div></div></div>"
+        "</div></div>"
+    )
+
+
+def _footer_html(receipt: DiagnosticReceipt) -> str:
+    return (
+        "<div>"
+        f"<code>{escape(receipt.diagnostic_id)}</code>"
+        "<span>·</span><span aria-label='Local only; cleared when this kernel restarts'>"
+        "local only</span><span>·</span>"
+        "<code title='Inspect the original traceback'>%tb</code>"
+        "</div>"
     )
 
 
