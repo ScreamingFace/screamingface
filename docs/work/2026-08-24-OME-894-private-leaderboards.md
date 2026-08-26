@@ -474,6 +474,29 @@ source already clean. It was stale `__pycache__`: the mutated module had been co
 restored source reused its bytecode. Every mutation probe now clears `__pycache__` first, and the
 restore is confirmed with `git diff HEAD` rather than by reading the file.
 
+## Known residual — the concurrent-retry success return
+
+`store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s
+`IntegrityError` handler — is **not covered**, and round 8 rerouted that branch through
+`_resolve_owned`. The reviewer named this in round 3: *"This branch is currently uncovered, and the
+PostgreSQL concurrency tests are skipped without `SCOREBOARD_TEST_DATABASE_URL`."* It is still true.
+
+**Two attempts, and why they cannot work here.** Reaching that line requires a racer to COMMIT
+between this caller's resolve and its insert — nothing else gets there, because the pre-insert
+resolve otherwise finds the row and returns early. The suite's `tortoise_db` fixture is
+single-connection in-memory SQLite, so a row created "off the transaction" is rolled back with
+everything else and the handler finds nothing, exactly as if no racer existed. Forcing it produced a
+test that fails on the suite's own engine.
+
+Left uncovered deliberately rather than papered over with an assertion that re-tests the pre-insert
+path and merely touches the line. Closing it honestly needs `SCOREBOARD_TEST_DATABASE_URL` and a
+real second connection, which is `OME-430`'s ground.
+
+Everything reachable on that branch IS covered: the key it consults
+(`test_the_concurrent_retry_path_resolves_with_the_scoped_key`) and the ownership rule it now
+applies (`test_a_private_key_hit_owned_by_another_participant_is_not_served`). Only the final return
+is unexecuted.
+
 ## Owner-verify
 
 - **Confirm the runtime `authMode` with @Stephen before the challenge is announced.** The chart
