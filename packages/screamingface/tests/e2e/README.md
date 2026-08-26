@@ -3,7 +3,7 @@
 One paid run becomes a permanent free regression test: CI replays the whole benchmark
 from committed fixtures and goes red when the published number drifts.
 
-<img src="../../../../docs/diagrams/e2e-board-onboarding.png" width="900">
+<img src="../../../../docs/diagrams/e2e-board-onboarding.png" width="1300">
 
 ## The five steps
 
@@ -23,7 +23,7 @@ SCREAMINGFACE_TEST_E2E=1 uv run pytest tests/e2e -rs        # opt-in, needs dock
 
 ## How the bless run moves the data
 
-<img src="../../../../docs/diagrams/e2e-replay-data-flow.png" width="900">
+<img src="../../../../docs/diagrams/e2e-replay-data-flow.png" width="1200">
 
 Everything below the recordings runs in throwaway Docker containers with **no API
 keys** — a cache miss is a loud failure, never a live call. Full mechanics: the

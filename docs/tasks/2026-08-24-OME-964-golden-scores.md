@@ -1,12 +1,12 @@
 ---
 id: OME-964
 linear_url: https://linear.app/openmined/issue/OME-964/fail-ci-when-a-change-shifts-a-published-benchmark-score
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [py-screamingface, agentic, deferred]
 created: 2026-08-24
-closed:
+closed: 2026-08-26
 ---
 
 # Turn one real benchmark run into a free CI replay that fails when the published score drifts
