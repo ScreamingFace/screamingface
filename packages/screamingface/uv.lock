@@ -3341,11 +3341,8 @@ runtime = [
     { name = "prometheus-client" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
-<<<<<<< HEAD
-    { name = "python-multipart" },
-=======
     { name = "python-docx" },
->>>>>>> b734a099 (build(screamingface): ship GDPval's document parsers in the runtime extra)
+    { name = "python-multipart" },
     { name = "tortoise-orm", extra = ["asyncpg"] },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -3385,11 +3382,8 @@ requires-dist = [
     { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.14.2" },
     { name = "pyjwt", marker = "extra == 'runtime'", specifier = "==2.13.0" },
     { name = "pynacl", specifier = ">=1.5" },
-<<<<<<< HEAD
-    { name = "python-multipart", marker = "extra == 'runtime'", specifier = ">=0.0.20" },
-=======
     { name = "python-docx", marker = "extra == 'runtime'", specifier = "==1.2.0" },
->>>>>>> b734a099 (build(screamingface): ship GDPval's document parsers in the runtime extra)
+    { name = "python-multipart", marker = "extra == 'runtime'", specifier = ">=0.0.20" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "tortoise-orm", extras = ["asyncpg"], marker = "extra == 'runtime'", specifier = "==1.1.8" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'runtime'", specifier = ">=0.52.3" },
