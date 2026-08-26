@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
+import shutil
 import time
 from contextlib import asynccontextmanager
 from typing import cast
@@ -29,6 +31,7 @@ from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
 from .core.discovery_runtime import DiscoveryRuntime
 from .core.loader import load_plugins
+from .core.object_store import S3ObjectStore, S3ObjectStoreConfig
 from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
 from .core.parameter_discovery_cache import (
     CacheLimits,
@@ -38,9 +41,12 @@ from .core.parameter_discovery_cache import (
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
+from .core.request_cache.snapshot_export import CacheSnapshotExporter, postgres_connect
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.upload_job import CacheUploadRunner
 from .core.secrets.factory import build_secret_store, set_active_secret_store
+from .core.sigv4 import Credentials
+from .core.snapshot_scheduler import CacheSnapshotScheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
 from .plugins.taxonomy.plugin import TaxonomyPlugin
@@ -156,6 +162,58 @@ def _configure_fake_codex_oauth(app: FastAPI) -> None:
     app.state.codex_http_factory = _factory
 
 
+def _build_snapshot_scheduler(settings: Settings) -> CacheSnapshotScheduler:
+    """Wire the weekly cache-snapshot export: exporter + store + publish-then-clean run.
+
+    The exporter opens its OWN database connection per run (never the request-path pool),
+    the store PUTs the archive and its manifest under the unique ``cache-snapshots/`` keys,
+    and the spool directory is removed in ``finally`` either way. Only called from
+    ``_lifespan`` when the feature is enabled — the storage keys are guaranteed present by
+    ``Settings._validate_cache_snapshot`` (fail-fast at construction).
+    """
+
+    access_key = settings.cache_snapshot_s3_access_key
+    secret_key = settings.cache_snapshot_s3_secret_key
+    endpoint = settings.cache_snapshot_s3_endpoint_url
+    assert access_key is not None and secret_key is not None and endpoint  # Settings validated
+    exporter = CacheSnapshotExporter(
+        lambda: postgres_connect(settings.database_url.get_secret_value()),
+        max_bytes=settings.cache_snapshot_max_bytes,
+    )
+    store = S3ObjectStore(
+        S3ObjectStoreConfig(
+            endpoint_url=endpoint,
+            bucket=settings.cache_snapshot_s3_bucket,
+            credentials=Credentials(
+                access_key=access_key.get_secret_value(),
+                secret_key=secret_key.get_secret_value(),
+                region=settings.cache_snapshot_s3_region,
+            ),
+            timeout_s=settings.cache_snapshot_timeout_s,
+        )
+    )
+
+    async def _run() -> None:
+        export = await exporter.export()
+        prefix = f"cache-snapshots/{export.stamp}"
+        try:
+            await store.put(f"{prefix}.sql.gz", export.archive_path, sha256_hex=export.sha256_hex)
+            manifest_sha = hashlib.sha256(export.manifest_path.read_bytes()).hexdigest()
+            await store.put(
+                f"{prefix}.manifest.json", export.manifest_path, sha256_hex=manifest_sha
+            )
+        finally:
+            shutil.rmtree(export.archive_path.parent, ignore_errors=True)
+        logger.info(
+            "cache snapshot published rows=%d sha256=%s stamp=%s (archive + manifest)",
+            export.row_count,
+            export.sha256_hex[:12],
+            export.stamp,
+        )
+
+    return CacheSnapshotScheduler(_run)
+
+
 @asynccontextmanager
 async def _lifespan(app):
     database_url = app.state.settings.database_url.get_secret_value()
@@ -218,8 +276,22 @@ async def _lifespan(app):
             build_accounting_handler
         )
 
+        # Weekly cache-snapshot to Garage (OME-1021): armed only when enabled, owned by
+        # this lifespan — started here, cancelled and awaited in the finally below.
+        if app.state.settings.cache_snapshot_enabled:
+            app.state.cache_snapshot_scheduler = _build_snapshot_scheduler(app.state.settings)
+            app.state.cache_snapshot_scheduler.start()
+            logger.info(
+                "cache snapshot scheduler armed (weekly Friday 05:00 UTC, bucket=%s)",
+                app.state.settings.cache_snapshot_s3_bucket,
+            )
+
         yield
     finally:
+        # The scheduler's owned task must never outlive the app: cancel and await it.
+        scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+        if scheduler is not None:
+            await scheduler.stop()
         # §9.12: closed explicitly here rather than left to __del__, which is not
         # guaranteed to run and cannot await. An unclosed handler leaks its connection
         # pool across TestClient lifecycles and across a reload in dev.
