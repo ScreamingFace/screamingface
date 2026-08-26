@@ -249,3 +249,23 @@ moved, only the expression string. New fixtures verified green through the real 
 (70s). Observation for a follow-up nit: a timeout-degraded replay and a genuine
 score drift currently produce the same BLESS REFUSED message; coverage < 1.0 could
 name the environmental case.
+
+### Interim judge re-key (owner-directed 2026-08-26) — INTERIM FIXTURE, pipeline pin
+
+PR #742 (OME-993) added `reasoning_effort=low` to the DRACO judge params, which by
+design re-keys every judge cache seed — the production dump's 202k judge rows can
+never match the new protocol. Owner decision after full disclosure: extend the bless
+tool to re-key JUDGES the way it re-keys candidates, as an explicitly-declared
+interim. Mechanism: Phase A replays the board under the pre-#742 protocol (which the
+dump matches, proven by today's verified re-bless), captures every judge request
+body via the proxy, and records each body's key from the old gateway's own key math.
+Phase B (on the rebased branch) applies the declared param delta to each old body,
+computes the new key with the new gateway's key math, and splices the OLD verdict
+payload under the NEW key; the verified replay is the proof — any wrong transform
+assumption is a cache miss and a refusal, never a silent pass.
+
+DISCLOSURE (also in the snapshot header + PR): the spliced judge verdicts were
+produced WITHOUT `reasoning_effort=low` and without retry. The golden therefore pins
+the PIPELINE (rendering, transport, parsing, aggregation) under the new protocol,
+NOT the score the new-protocol judge would produce. The next paid run (planned as
+5-pass, serving OME-977 too) replaces this interim with a true recording.

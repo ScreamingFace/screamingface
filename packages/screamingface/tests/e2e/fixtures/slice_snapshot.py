@@ -1,7 +1,7 @@
 """Bless one board's replay fixtures from the owner-held recordings (OME-964).
 
 Bless = a human looks at an output once, decides "yes, this is the correct answer,"
-and freezes it as the official answer that all future test runs must match. 
+and freezes it as the official answer that all future test runs must match.
 Same idea as "golden file" — blessing is the act of stamping a file as golden.
 
 Run it from the SDK project (docker running, benchmark assets prepared once via
@@ -79,7 +79,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -222,6 +222,69 @@ def splice_copy_line(*, key_hash: str, model: str, payload: str) -> str:
             "0",
         )
     )
+
+
+def parse_judge_param(text: str) -> tuple[str, Any]:
+    """One ``--judge-param key=value`` flag → a typed (key, value) pair.
+
+    Values that parse as JSON scalars keep their type (``4096`` → int, ``0.2`` →
+    float); everything else stays a string (``low`` → ``"low"``). The typing matters
+    because the transformed body is hashed by the gateway's key math — ``"4096"`` and
+    ``4096`` are different bytes and therefore different cache keys.
+    """
+    key, sep, raw = text.partition("=")
+    if not sep or not key:
+        raise ValueError(f"--judge-param must be key=value, got {text!r}")
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = raw
+    return key, value
+
+
+def apply_judge_params(body: Mapping[str, Any], extra: Iterable[tuple[str, Any]]) -> dict[str, Any]:
+    """A recorded judge body + the declared protocol delta → the new-protocol body.
+
+    Adds fields only. A key the recording already carries refuses: overwriting would
+    silently rewrite the recorded request instead of re-keying it, and the verified
+    replay could no longer prove the transform preserved the recording's meaning.
+    """
+    new_body = json.loads(json.dumps(body))  # deep copy; the recording stays untouched
+    for key, value in extra:
+        if key in new_body:
+            raise ValueError(
+                f"recorded judge body already carries {key!r}; a transform may only ADD "
+                f"the new protocol's fields, never overwrite recorded ones"
+            )
+        new_body[key] = value
+    return new_body
+
+
+def collect_payloads_for_keys(
+    rows: Iterator[list[str]], *, model: str, wanted_keys: set[str]
+) -> dict[str, str]:
+    """Stream COPY rows once, keeping the payloads for exactly ``wanted_keys``.
+
+    Refuses at the end if any wanted key never appeared: a hole means the
+    old-protocol capture rendered a request the dump never recorded, and splicing
+    around it would bless a fixture that silently cannot serve one call.
+    """
+    payloads: dict[str, str] = {}
+    remaining = set(wanted_keys)
+    for columns in rows:
+        if columns[4] == model and columns[1] in remaining:
+            payloads[columns[1]] = copy_unescape(columns[5])
+            remaining.discard(columns[1])
+            if not remaining:
+                break
+    if remaining:
+        sample = ", ".join(sorted(remaining)[:3])
+        raise ValueError(
+            f"{len(remaining)} captured judge key(s) have no row in the dump "
+            f"(e.g. {sample}) — the dump does not record the old protocol these "
+            f"bodies were rendered under; refusing to splice a fixture with holes"
+        )
+    return payloads
 
 
 def snapshot_gzip(text: str) -> bytes:
@@ -562,13 +625,29 @@ def _cross_check(candidate: Any, expect_score: str | None, expect_coverage: str 
         )
 
 
-def _snapshot_header(board: str, dump_sha: str, answers_sha: str) -> list[str]:
+def _snapshot_header(
+    board: str, dump_sha: str, answers_sha: str, judge_params: list[str] | None = None
+) -> list[str]:
     # Provenance rule: sources are described generically + shas — NEVER local paths.
+    if judge_params:
+        # INTERIM disclosure: these verdicts were produced under the OLD protocol and
+        # re-keyed; the golden pins the PIPELINE, not the new-protocol score.
+        judge_line = (
+            "-- Judge rows INTERIM-RE-KEYED: verdict payloads from the owner-held "
+            f"production cache dump (content sha256 {dump_sha}), recorded under the "
+            f"pre-change protocol, re-keyed with the delta {sorted(judge_params)}. "
+            "Pipeline pin, NOT a new-protocol score pin — replace with a true "
+            "recording at the next paid run."
+        )
+    else:
+        judge_line = (
+            "-- Judge rows verbatim from the owner-held production cache dump "
+            f"(content sha256 {dump_sha})."
+        )
     return [
         "--",
         f"-- Sliced replay fixture for board '{board}' (OME-964; see slice_snapshot.py).",
-        "-- Judge rows verbatim from the owner-held production cache dump "
-        f"(content sha256 {dump_sha}).",
+        judge_line,
         "-- Candidate rows re-keyed from the owner-held original-run archive "
         f"(sha256 {answers_sha}).",
         "--",
@@ -608,6 +687,30 @@ def _parse_args() -> argparse.Namespace:
         default=Path("/tmp/screamingface-e2e-bless"),
         help="scratch dir for service logs and oversized output",
     )
+    parser.add_argument(
+        "--dump-judge-bodies",
+        type=Path,
+        help="PHASE A of a judge re-key: after the verified replay, write every "
+        "captured judge request body + its cache key (this checkout's gateway math) "
+        "to this JSON file, and write NO fixtures. Run on the checkout whose "
+        "protocol the dump was recorded under.",
+    )
+    parser.add_argument(
+        "--judge-bodies",
+        type=Path,
+        help="PHASE B of a judge re-key: a --dump-judge-bodies file recorded under "
+        "the OLD protocol; each body is re-keyed under THIS checkout's protocol "
+        "(after applying every --judge-param) and its old verdict payload spliced "
+        "under the new key. The verified replay is the proof of the transform.",
+    )
+    parser.add_argument(
+        "--judge-param",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="protocol delta applied to each recorded judge body in phase B "
+        "(repeatable), e.g. reasoning_effort=low; may only ADD fields",
+    )
     return parser.parse_args()
 
 
@@ -646,6 +749,83 @@ def _splice_candidates(
     job = _upload_snapshot(gateway_url, "bless-splice.snapshot.gz", snapshot_gzip(splice_text))
     print(
         f"[re-key] spliced {len(lines)} candidate rows "
+        f"(inserted={job.get('inserted_rows')}, updated={job.get('updated_rows')})",
+        flush=True,
+    )
+
+
+def _run_helper_keys_chunked(bodies: list[dict[str, Any]], chunk: int = 2000) -> list[str]:
+    """Key every body via the gateway helper, chunked so stdin stays bounded."""
+    keys: list[str] = []
+    for start in range(0, len(bodies), chunk):
+        keys.extend(json.loads(_run_helper("keys", json.dumps(bodies[start : start + chunk]))))
+    return keys
+
+
+def _distinct_judge_bodies(
+    records: list[dict[str, Any]], candidate_model: str
+) -> list[dict[str, Any]]:
+    """Every distinct non-candidate (= judge) body the proxy saw, both passes."""
+    seen: set[str] = set()
+    bodies: list[dict[str, Any]] = []
+    for record in records:
+        body = record.get("request_body")
+        if not body or body.get("model") == candidate_model:
+            continue
+        fingerprint = json.dumps(body, sort_keys=True)
+        if fingerprint not in seen:
+            seen.add(fingerprint)
+            bodies.append(body)
+    return bodies
+
+
+def _write_judge_bodies(out: Path, records: list[dict[str, Any]], candidate_model: str) -> None:
+    """Phase A output: [{key, body}] for every judge request, keyed by THIS gateway."""
+    bodies = _distinct_judge_bodies(records, candidate_model)
+    if not bodies:
+        raise SystemExit("no judge bodies captured — did the verified replay run?")
+    keys = _run_helper_keys_chunked(bodies)
+    out.write_text(
+        json.dumps([{"key": key, "body": body} for key, body in zip(keys, bodies, strict=True)])
+    )
+    print(f"[judge-bodies] wrote {len(bodies)} judge bodies + old keys → {out}", flush=True)
+
+
+def _splice_judges(
+    gateway_url: str,
+    entries: list[dict[str, Any]],
+    judge_params: list[str],
+    payload_by_old_key: dict[str, str],
+) -> None:
+    """Phase B — re-key judges: old verdict payloads under new-protocol keys.
+
+    Mirrors the candidate splice exactly: the transform only ADDS the declared
+    protocol delta to each recorded body, the NEW gateway's own key math computes
+    where the row files, and the verified replay afterwards is the only accepted
+    proof the transform matched what the engine now renders.
+    """
+    extra = [parse_judge_param(flag) for flag in judge_params]
+    new_bodies = [apply_judge_params(entry["body"], extra) for entry in entries]
+    new_keys = _run_helper_keys_chunked(new_bodies)
+    if len(set(new_keys)) != len(new_keys):
+        raise SystemExit("judge re-key produced duplicate new keys — transform is degenerate")
+    lines: list[str] = []
+    for entry, new_key, new_body in zip(entries, new_keys, new_bodies, strict=True):
+        lines.append(
+            splice_copy_line(
+                key_hash=new_key,
+                model=str(new_body["model"]),
+                payload=payload_by_old_key[entry["key"]],
+            )
+        )
+    splice_text = "\n".join(
+        [f"COPY public.request_cache_entries ({_COPY_COLUMNS}) FROM stdin;", *lines, "\\.", ""]
+    )
+    job = _upload_snapshot(
+        gateway_url, "bless-judge-splice.snapshot.gz", snapshot_gzip(splice_text)
+    )
+    print(
+        f"[re-key] spliced {len(lines)} judge rows under new-protocol keys "
         f"(inserted={job.get('inserted_rows')}, updated={job.get('updated_rows')})",
         flush=True,
     )
@@ -709,6 +889,8 @@ def _replay_and_slice(
     answers: dict[str, str],
     payload_by_answer: dict[str, str],
     assets_root: Path,
+    judge_entries: list[dict[str, Any]] | None = None,
+    payload_by_old_key: dict[str, str] | None = None,
 ) -> _ReplayEvidence:
     """Stages 2–6: boot, seed, capture, re-key, verify, slice — one gateway lifetime.
 
@@ -731,10 +913,20 @@ def _replay_and_slice(
         bodies = _capture_pass(engine_url, proxy, args)
 
         _splice_candidates(gateway_url, bodies, answers, payload_by_answer, args.model)
+        if args.judge_bodies is not None:
+            _splice_judges(
+                gateway_url,
+                judge_entries or [],
+                args.judge_param,
+                payload_by_old_key or {},
+            )
 
         # Baseline BEFORE the verified replay, so the slice can observe movement.
         _psql(backend._container, _BASELINE_SQL)
         report, statuses = _verified_replay(engine_url, args)
+
+        if args.dump_judge_bodies is not None:
+            _write_judge_bodies(args.dump_judge_bodies, proxy.records, args.model)
 
         # Stage 6 — slice by observation: exactly the rows the replay touched.
         slice_output = _psql(backend._container, _SLICE_SQL)
@@ -760,7 +952,12 @@ def _write_fixtures(
     print(f"[slice] {len(evidence.slice_rows)} rows touched by the verified replay", flush=True)
     snapshot_text = "\n".join(
         [
-            *_snapshot_header(args.board, dump_sha, answers_sha),
+            *_snapshot_header(
+                args.board,
+                dump_sha,
+                answers_sha,
+                args.judge_param if args.judge_bodies is not None else None,
+            ),
             f"COPY public.request_cache_entries ({_COPY_COLUMNS}) FROM stdin;",
             *evidence.slice_rows,
             "\\.",
@@ -829,8 +1026,38 @@ def _bless(args: argparse.Namespace) -> None:
     payload_by_answer = index_payloads_by_content(payloads)
     print(f"[parse] archive cases for {archive_model}: {len(answers)}", flush=True)
 
-    evidence = _replay_and_slice(args, answers, payload_by_answer, assets_root)
+    judge_entries, payload_by_old_key = _load_judge_rekey_inputs(args)
+
+    evidence = _replay_and_slice(
+        args, answers, payload_by_answer, assets_root, judge_entries, payload_by_old_key
+    )
+    if args.dump_judge_bodies is not None:
+        print("[phase-a] judge bodies recorded; fixtures deliberately NOT written", flush=True)
+        return
     _write_fixtures(args, evidence, dump_sha, answers_sha)
+
+
+def _load_judge_rekey_inputs(
+    args: argparse.Namespace,
+) -> tuple[list[dict[str, Any]] | None, dict[str, str] | None]:
+    """Phase B input — recorded judge bodies + their old keys → old verdict payloads."""
+    if args.judge_bodies is None:
+        return None, None
+    entries: list[dict[str, Any]] = json.loads(args.judge_bodies.read_text())
+    old_keys = {str(entry["key"]) for entry in entries}
+    judge_models = {str(entry["body"]["model"]) for entry in entries}
+    if len(judge_models) != 1:
+        raise SystemExit(f"judge bodies span {len(judge_models)} models: {judge_models}")
+    with gzip.open(args.dump, "rt", encoding="utf-8") as stream:
+        payload_by_old_key = collect_payloads_for_keys(
+            iter_copy_rows(stream), model=judge_models.pop(), wanted_keys=old_keys
+        )
+    print(
+        f"[parse] judge re-key: {len(entries)} recorded bodies, "
+        f"{len(payload_by_old_key)} dump payloads matched",
+        flush=True,
+    )
+    return entries, payload_by_old_key
 
 
 def main() -> None:

@@ -20,12 +20,15 @@ import json
 
 import pytest
 from fixtures.slice_snapshot import (
+    apply_judge_params,
     author_golden,
+    collect_payloads_for_keys,
     copy_escape,
     copy_unescape,
     index_payloads_by_content,
     iter_copy_rows,
     match_case_question,
+    parse_judge_param,
     snapshot_gzip,
     splice_copy_line,
 )
@@ -208,3 +211,43 @@ def test_author_golden_keeps_a_scoreless_run_null() -> None:
     )
     assert golden["final_score"] is None
     assert GoldenReport.model_validate(golden).gradeable_count == 0
+
+
+def test_parse_judge_param_types_numbers_and_keeps_strings() -> None:
+    assert parse_judge_param("reasoning_effort=low") == ("reasoning_effort", "low")
+    assert parse_judge_param("max_tokens=4096") == ("max_tokens", 4096)
+    assert parse_judge_param("temperature=0.2") == ("temperature", 0.2)
+    with pytest.raises(ValueError):
+        parse_judge_param("no-equals-sign")
+
+
+def test_apply_judge_params_adds_fields_without_mutating_the_recording() -> None:
+    old = {"model": "m", "messages": [], "seed": 1}
+    new = apply_judge_params(old, (("reasoning_effort", "low"),))
+    assert new == {"model": "m", "messages": [], "seed": 1, "reasoning_effort": "low"}
+    assert old == {"model": "m", "messages": [], "seed": 1}  # recording untouched
+
+
+def test_apply_judge_params_refuses_overwriting_a_recorded_field() -> None:
+    # Overwriting would silently rewrite history: the recorded body already made
+    # this choice, and a transform that changes it is a different request, not a
+    # re-keying of the same one.
+    with pytest.raises(ValueError, match="already carries"):
+        apply_judge_params({"seed": 1}, (("seed", 2),))
+
+
+def test_collect_payloads_for_keys_streams_only_wanted_judge_rows() -> None:
+    rows = [
+        ["id1", "k1", "k1", "openrouter", "judge/model", copy_escape('{"a": 1}'), "8"],
+        ["id2", "k2", "k2", "openrouter", "other/model", copy_escape('{"b": 2}'), "8"],
+        ["id3", "k3", "k3", "openrouter", "judge/model", copy_escape('{"c": 3}'), "8"],
+    ]
+    got = collect_payloads_for_keys(iter(rows), model="judge/model", wanted_keys={"k1", "k3"})
+    assert got == {"k1": '{"a": 1}', "k3": '{"c": 3}'}
+
+
+def test_collect_payloads_for_keys_refuses_a_key_the_dump_cannot_serve() -> None:
+    # A missing key means the old-protocol capture rendered a request the dump
+    # never recorded — splicing the rest would bless a fixture with a hole in it.
+    with pytest.raises(ValueError, match="k9"):
+        collect_payloads_for_keys(iter([]), model="judge/model", wanted_keys={"k9"})
