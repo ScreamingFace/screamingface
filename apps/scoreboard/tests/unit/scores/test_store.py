@@ -4,14 +4,21 @@ import asyncio
 import contextlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError
 
+from scoreboard.purge_reserved_idempotency_keys import purge_reserved_idempotency_keys
 from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
 from scoreboard.scores.schemas import ClientInfo, ScoreSubmission
-from scoreboard.scores.store import ScoreStore, _scoped_idempotency_key
+from scoreboard.scores.store import (
+    RESERVED_KEY_PREFIXES,
+    ScoreStore,
+    _scoped_idempotency_key,
+    _to_python_rows,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -1581,7 +1588,7 @@ async def test_an_escaped_public_key_cannot_be_supplied_as_a_raw_key(
 def test_no_generated_storage_token_is_a_fixed_point_of_the_public_path() -> None:
     # INVARIANT: no value this function GENERATES may be supplied by a client and stored
     # unchanged. That is the whole of the namespace separation, expressed without naming any
-    # prefix — so adding a third namespace and forgetting `_RESERVED_KEY_PREFIXES` turns this red
+    # prefix — so adding a third namespace and forgetting `RESERVED_KEY_PREFIXES` turns this red
     # instead of silently reopening the collision that review round 8 found.
     #
     # WHY this rather than hashing every public key: hashing is the structural fix, but it edits
@@ -1603,5 +1610,303 @@ def test_no_generated_storage_token_is_a_fixed_point_of_the_public_path() -> Non
     for token in tokens:
         assert _scoped_idempotency_key(token, "carol@example.test", per_submitter=False) != token, (
             f"{token!r} is a server-generated storage token a client can supply verbatim; "
-            "add its prefix to _RESERVED_KEY_PREFIXES"
+            "add its prefix to RESERVED_KEY_PREFIXES"
         )
+
+
+# --- review round 9: privacy is decided BEFORE ownership, and ownership is not a claim ------
+# Round 8 put the owner-match short-circuit ahead of the privacy check, so the check never ran when
+# the names agreed. Under `auth_mode=disabled` the body's `submitted_by` is trusted, which turned
+# that short-circuit into a read primitive for private rows. Found in review of PR #719.
+
+
+async def test_claiming_the_owners_name_does_not_yield_a_private_row(tortoise_db: None) -> None:
+    # INVARIANT: ownership by unverified string gates nothing. A private target is refused on the
+    # strength of the TARGET, never on who the caller says they are.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    victim, _ = await store.submit(_same_recipe(ALICE), idempotency_key="stale")
+    await store.set_visibility("hle", "private")
+    await store.register_benchmark(benchmark_id="pub", display_name="Pub")
+
+    attacker = _owned_submission(submitted_by=ALICE, spec_id="attacker").model_copy(
+        update={"benchmark_id": "pub"}
+    )
+    got, created = await store.submit(attacker, idempotency_key="stale")
+
+    assert created, "the attacker must get their own row, never the private one"
+    assert got.id != victim.id
+
+
+async def test_a_private_target_is_refused_even_for_its_genuine_owner(tortoise_db: None) -> None:
+    # The cost of dropping the ownership comparison, asserted so it stays a known quantity: the
+    # real owner loses only the KEY fast path. The per-submitter content hash still replays.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    mine, created = await store.submit(_same_recipe(ALICE), idempotency_key="mine")
+    assert created
+
+    replay, replay_created = await store.submit(_same_recipe(ALICE), idempotency_key="mine")
+
+    assert not replay_created
+    assert replay.id == mine.id
+
+
+async def test_a_legacy_row_in_the_reserved_namespace_cannot_leak_a_private_score(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: reserving a namespace obliges us to purge it. `main` stores client keys verbatim,
+    # so a crafted `sfu-<digest>` mapping can already exist, and round 8 made the escape path emit
+    # exactly that namespace.
+    #
+    # AIDEV-NOTE: what is enforceable AT THE LOOKUP is the privacy half. A legacy `sfu-` row is
+    # byte-indistinguishable from one this code wrote, so the runtime cannot reject it on identity
+    # alone — and rejecting it on content-hash mismatch would break idempotency itself, since
+    # replaying a DIFFERENT recipe under the same key is the contract. Existing rows are cleared by
+    # `0009` and rows written during the rollout window by `purge_reserved_idempotency_keys`. The
+    # residual is therefore a wrong replay of a PUBLIC score inside that window; a private one
+    # cannot be reached, which is what this test pins.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    victim = await Score.create(
+        benchmark_id="hle",
+        spec_id="victim",
+        url4_expression="url4://victim",
+        submitted_by=BOB,
+        score=0.99,
+        total_questions=100,
+        correct_questions=99,
+        ran_with_providers=["openai"],
+        content_hash="victim-hash",
+        metadata={"secret": "victim-only"},
+    )
+    legacy = _scoped_idempotency_key("sfp-X", ALICE, per_submitter=False)
+    assert legacy is not None and legacy.startswith("sfu-")
+    await IdempotencyKey.create(
+        key=legacy, score=victim, expires_at=datetime.now(UTC) + timedelta(hours=24)
+    )
+
+    got, _ = await store.submit(_same_recipe(ALICE), idempotency_key="sfp-X")
+
+    assert got.id != victim.id
+    assert got.metadata != {"secret": "victim-only"}
+
+
+def test_migration_0009_clears_both_reserved_namespaces() -> None:
+    # Reserving `sfu-` in round 8 without purging it left the finding open for existing data.
+    source = (
+        Path(__file__).resolve().parents[3]
+        / "src/scoreboard/scores/migrations/0009_idempotency_key_namespaces.py"
+    ).read_text()
+
+    assert "sfp-%" in source
+    assert "sfu-%" in source, "the reserved sfu- namespace is emitted but never purged"
+
+
+async def test_the_purge_clears_both_reserved_namespaces(tortoise_db: None) -> None:
+    # `0009` cleans what was already in the table; this module cleans what the ROLLOUT WINDOW adds,
+    # because the migrate Job is a pre-upgrade hook and old replicas keep writing verbatim keys
+    # until they terminate (review of PR #719).
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    kept, _ = await store.submit(_same_recipe(ALICE), idempotency_key="ordinary")
+    victim = await Score.get(id=kept.id)
+    expires = datetime.now(UTC) + timedelta(hours=24)
+    for key in ("sfp-crafted", "sfu-crafted"):
+        await IdempotencyKey.create(key=key, score=victim, expires_at=expires)
+
+    removed = await purge_reserved_idempotency_keys()
+
+    assert removed == {"sfp-": 1, "sfu-": 1}
+    assert sorted(row.key for row in await IdempotencyKey.all()) == ["ordinary"]
+    # INVARIANT: the foreign key points FROM this table TO scores, so purging a mapping must never
+    # remove a submission.
+    assert await Score.get_or_none(id=kept.id) is not None
+
+
+async def test_the_purge_dry_run_counts_without_deleting(tortoise_db: None) -> None:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    kept, _ = await store.submit(_same_recipe(ALICE), idempotency_key="ordinary")
+    await IdempotencyKey.create(
+        key="sfp-crafted",
+        score=await Score.get(id=kept.id),
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    )
+
+    removed = await purge_reserved_idempotency_keys(dry_run=True)
+
+    assert removed == {"sfp-": 1, "sfu-": 0}
+    assert await IdempotencyKey.filter(key="sfp-crafted").exists()
+
+
+def test_the_purge_covers_every_reserved_prefix() -> None:
+    # INVARIANT: the purge and the key generator share ONE definition of the reserved namespaces.
+    # Reserving a third prefix without purging it is precisely the finding this round fixed, so the
+    # coupling is asserted rather than left to a reader to maintain.
+    source = (
+        Path(__file__).resolve().parents[3] / "src/scoreboard/purge_reserved_idempotency_keys.py"
+    ).read_text()
+
+    assert "RESERVED_KEY_PREFIXES" in source, "the purge must not hardcode its own prefix list"
+    migration = (
+        Path(__file__).resolve().parents[3]
+        / "src/scoreboard/scores/migrations/0009_idempotency_key_namespaces.py"
+    ).read_text()
+    for prefix in RESERVED_KEY_PREFIXES:
+        assert f"{prefix}%" in migration, f"0009 does not clear the reserved {prefix} namespace"
+
+
+def test_a_raw_row_missing_a_typed_field_is_left_alone() -> None:
+    # `_to_python_rows` coerces the columns a raw query returns as strings. A projection that does
+    # not SELECT one of them must be passed through untouched rather than KeyError'd — the branch
+    # that skips an absent field had no test.
+    rows = _to_python_rows([{"spec_id": "s", "score": 0.5}])
+
+    assert rows == [{"spec_id": "s", "score": 0.5}]
+
+
+async def test_a_private_scoped_key_pointing_at_a_public_row_is_not_replayed(
+    tortoise_db: None,
+) -> None:
+    # The round-9 reorder moved the private-target case ahead of the ownership test, which left THIS
+    # branch — private request, PUBLIC target, not the caller's — uncovered. The key lookup is
+    # global, so a stale mapping can point off the board the request is aimed at.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="pub", display_name="Pub")
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    someone_elses = await Score.create(
+        benchmark_id="pub",
+        spec_id="theirs",
+        url4_expression="url4://theirs",
+        submitted_by=BOB,
+        score=0.99,
+        total_questions=100,
+        correct_questions=99,
+        ran_with_providers=["openai"],
+        content_hash="theirs-hash",
+    )
+    scoped = _scoped_idempotency_key("k", ALICE, per_submitter=True)
+    assert scoped is not None
+    await IdempotencyKey.create(
+        key=scoped, score=someone_elses, expires_at=datetime.now(UTC) + timedelta(hours=24)
+    )
+
+    got, created = await store.submit(_same_recipe(ALICE), idempotency_key="k")
+
+    assert created
+    assert got.id != someone_elses.id
+    assert got.submitted_by == ALICE
+
+
+async def test_the_concurrent_retry_branch_replays_what_the_race_winner_bound(
+    tortoise_db: None,
+) -> None:
+    # The round-3 review flagged this handler as uncovered and round 8 rerouted it through
+    # `_resolve_owned`; its success RETURN was still never executed.
+    #
+    # AIDEV-NOTE: driven at the SEAM, not through the database. Reaching that return needs a racer
+    # to COMMIT between this caller's precheck and its insert, and the suite's fixture is
+    # single-connection in-memory SQLite — a row written "outside" the transaction is rolled back
+    # with it, so no ordering of real writes gets there. Controlling what the re-resolve returns
+    # tests the handler's own contract: on IntegrityError, look again, and replay what is found.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    winner, _ = await store.submit(_same_recipe(BOB), idempotency_key="winner")
+
+    real_resolve = ScoreStore._resolve_existing
+    real_create = Score.create
+    calls = {"resolve": 0}
+    raised = {"done": False}
+
+    async def _empty_then_found(self, idempotency_key, content_hash):  # type: ignore[no-untyped-def]
+        calls["resolve"] += 1
+        if calls["resolve"] == 1:
+            return None  # the precheck sees nothing; the racer has not committed yet
+        return await Score.get_or_none(id=winner.id)
+
+    async def _lose_the_race(**kwargs):  # type: ignore[no-untyped-def]
+        if not raised["done"]:
+            raised["done"] = True
+            raise IntegrityError("simulated concurrent insert")
+        return await real_create(**kwargs)
+
+    ScoreStore._resolve_existing = _empty_then_found  # type: ignore[method-assign]
+    Score.create = _lose_the_race  # type: ignore[method-assign]
+    try:
+        replayed, created = await store.submit(_same_recipe(ALICE), idempotency_key="loser")
+    finally:
+        ScoreStore._resolve_existing = real_resolve  # type: ignore[method-assign]
+        Score.create = real_create  # type: ignore[method-assign]
+
+    assert raised["done"], "the IntegrityError branch was never reached"
+    # INVARIANT: the loser of the race REPLAYS rather than erroring — that is the handler's reason
+    # to exist, and it had no test proving it.
+    assert not created
+    assert replayed.id == winner.id
+
+
+async def test_binding_a_key_tolerates_a_concurrent_identical_bind(tortoise_db: None) -> None:
+    # `_bind_idempotency_key` swallows IntegrityError because a concurrent request winning the same
+    # bind leaves the desired end state either way. That swallow was uncovered, so nothing proved
+    # the caller still gets its row instead of a 500.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    original, _ = await store.submit(_same_recipe(ALICE))
+
+    real_create = IdempotencyKey.create
+
+    async def _already_bound(**kwargs):  # type: ignore[no-untyped-def]
+        raise IntegrityError("simulated concurrent bind")
+
+    IdempotencyKey.create = _already_bound  # type: ignore[method-assign]
+    try:
+        # No mapping exists, so this resolves by CONTENT HASH and then tries to bind the key.
+        replay, created = await store.submit(_same_recipe(ALICE), idempotency_key="late-bind")
+    finally:
+        IdempotencyKey.create = real_create  # type: ignore[method-assign]
+
+    assert not created
+    assert replay.id == original.id
+
+
+async def test_the_reclaim_leaves_a_mapping_a_concurrent_writer_just_bound(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: this request may clear an EXPIRED mapping, or the exact row it observed and
+    # refused — never a live mapping some other request bound. An unconditional delete let two
+    # requests sharing a key but carrying different recipes BOTH insert and BOTH report `created`,
+    # with the key left on the last writer, breaking same-key-replays-original.
+    #
+    # AIDEV-NOTE: driven at the seam. The race is "both prechecks miss, then the winner commits",
+    # and single-connection in-memory SQLite cannot interleave two real transactions. Blinding only
+    # the FIRST `_resolve_existing` call reproduces exactly that ordering: the precheck sees
+    # nothing, and the handler's re-resolve afterwards sees the winner's committed mapping.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    winner, created = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="a"), idempotency_key="race"
+    )
+    assert created
+
+    real_resolve = ScoreStore._resolve_existing
+    calls = {"n": 0}
+
+    async def _blind_precheck(self, idempotency_key, content_hash):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return await real_resolve(self, idempotency_key, content_hash)
+
+    ScoreStore._resolve_existing = _blind_precheck  # type: ignore[method-assign]
+    try:
+        loser, loser_created = await store.submit(
+            _owned_submission(submitted_by=BOB, spec_id="b"), idempotency_key="race"
+        )
+    finally:
+        ScoreStore._resolve_existing = real_resolve  # type: ignore[method-assign]
+
+    assert not loser_created, "the loser must replay, not create a second row under the same key"
+    assert loser.id == winner.id
+    bound = await IdempotencyKey.get_or_none(key="race").prefetch_related("score")
+    assert bound is not None and bound.score.id == winner.id, "the key was rebound away"

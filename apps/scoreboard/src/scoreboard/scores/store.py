@@ -13,6 +13,7 @@ from pypika_tortoise.enums import Order
 from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
+from tortoise.expressions import Q
 from tortoise.query_api import execute_pypika
 from tortoise.transactions import in_transaction
 
@@ -257,7 +258,11 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
-_RESERVED_KEY_PREFIXES = ("sfp-", "sfu-")
+# INVARIANT: the single definition of the server-owned namespaces. `0009` and
+# `purge_reserved_idempotency_keys` clear exactly these, so a third prefix added here must not
+# be forgotten there — `test_no_generated_storage_token_is_a_fixed_point_of_the_public_path`
+# and `test_the_purge_covers_every_reserved_prefix` are what turn that omission red.
+RESERVED_KEY_PREFIXES = ("sfp-", "sfu-")
 
 
 def _scoped_idempotency_key(
@@ -287,7 +292,7 @@ def _scoped_idempotency_key(
     if per_submitter:
         namespace = f"private\x00{submitted_by or ''}"
         prefix = "sfp-"
-    elif idempotency_key.startswith(_RESERVED_KEY_PREFIXES):
+    elif idempotency_key.startswith(RESERVED_KEY_PREFIXES):
         # INVARIANT: BOTH server-owned prefixes are reserved, not just the private one. Escaping
         # only `sfp-` left the escaped form itself client-suppliable: a caller could send the
         # generated `sfu-<digest>` as an ordinary raw key, the `else` below stored it verbatim, and
@@ -459,7 +464,7 @@ class ScoreStore:
         *,
         per_submitter: bool,
         submitted_by: str | None,
-    ) -> Score | None:
+    ) -> tuple[Score | None, Score | None]:
         # INVARIANT (OME-894): a KEY-resolved row is returned only when this caller may READ it.
         # `_scoped_idempotency_key` reserves the server-owned namespaces going forward, and `0009`
         # clears
@@ -474,27 +479,36 @@ class ScoreStore:
         # pinned by a prior test. The ownership rule belongs to the private-board caller anyway,
         # not to key resolution in general.
         existing = await self._resolve_existing(idempotency_key, content_hash)
-        if existing is None or existing.submitted_by == submitted_by:
-            return existing
-        # INVARIANT: what the mapping POINTS AT decides, not what this request is. Branching on the
-        # request's `per_submitter` alone left a board that flips public -> private leaking through
-        # its own pre-flip mappings: they stay live for the TTL, the key lookup is global rather
-        # than per-benchmark, so ANY public submission reusing such a key took the `not
-        # per_submitter` path and was handed the now-private score (review of PR #719).
-        if not per_submitter and not await self._links_to_a_private_board(existing):
-            # A public row reached by a public global key — the established retry semantics, and
-            # not this ticket's to change.
-            return existing
+        if existing is None:
+            return None, None
+        # INVARIANT: PRIVACY IS DECIDED FIRST, and a private target is refused outright — the
+        # caller's claimed ownership never enters into it. An earlier version short-circuited on
+        # `existing.submitted_by == submitted_by` before this test, and under `auth_mode=disabled`
+        # the body's `submitted_by` is trusted, so naming the victim was enough to be handed their
+        # private row through a stale public mapping (review of PR #719).
+        #
+        # The genuine owner loses only the KEY fast path: the per-submitter content hash below can
+        # match nobody but them, so their retry still replays. That is a far smaller price than
+        # trusting an unverified string, and it needs no verified-identity plumbing down here.
+        #
+        # `and` keeps the privacy read FIRST, which is the whole point of the ordering. The second
+        # clause is the established global-public-key retry semantics, not this ticket's to change;
+        # it is safe on a private board too, because writes there fail closed without verified
+        # identity, so `submitted_by` is real by the time it is compared.
+        honour = not await self._links_to_a_private_board(existing) and (
+            existing.submitted_by == submitted_by or not per_submitter
+        )
+        if honour:
+            return existing, None
         # AIDEV-NOTE: passing None for the key deliberately re-runs the SAME method down its
         # content-hash branch — the only other way in. On a private board that hash carries the
         # submitter, so it can match nobody but the caller; on a public one it is the ordinary
         # recipe hash and matching a public row is correct. Either way it skips the re-bind, which
         # must not move a mapping pointing at a row this caller could not read.
         #
-        # Returning None from here is not a dead end: `submit()` then reclaims this key's slot
-        # inside its insert transaction, precisely because a mapping surviving to that point has
-        # been refused here. See the delete in `submit()` for why it carries no expiry condition.
-        return await self._resolve_existing(None, content_hash)
+        # Returning the refused row alongside the fallback is what lets `submit()` reclaim THIS
+        # key's slot without clobbering a mapping some concurrent request bound in the meantime.
+        return await self._resolve_existing(None, content_hash), existing
 
     async def _links_to_a_private_board(self, score: Score) -> bool:
         # `benchmark_id` is the foreign key's shadow column and not a declared attribute, so it is
@@ -553,7 +567,7 @@ class ScoreStore:
             idempotency_key, submission.submitted_by, per_submitter=per_submitter
         )
 
-        existing = await self._resolve_owned(
+        existing, refused = await self._resolve_owned(
             stored_key,
             content_hash,
             per_submitter=per_submitter,
@@ -566,17 +580,27 @@ class ScoreStore:
         try:
             async with in_transaction() as connection:
                 if stored_key is not None:
-                    # WHY no expiry condition: reaching this insert means `_resolve_owned` found
-                    # NOTHING honourable — neither a usable mapping nor a matching content hash.
-                    # A mapping that survives to here was therefore refused on purpose (expired,
-                    # or pointing at a row this caller may not read), so the write reclaims its own
-                    # slot instead of colliding with it.
+                    # Clear only what this request is entitled to clear: an EXPIRED mapping, or the
+                    # exact row `_resolve_owned` observed and refused.
                     #
-                    # Filtering on expiry made a board flipping public -> private DENY ordinary
-                    # public submissions for the whole TTL: the stale raw mapping was correctly
-                    # refused, then the insert hit its UNIQUE constraint and the submission failed.
-                    # Closing the leak must not cost availability (review of PR #719).
-                    await IdempotencyKey.filter(key=stored_key).using_db(connection).delete()
+                    # WHY not simply `filter(key=stored_key).delete()`: two requests sharing a key
+                    # but carrying different recipes both clear the precheck, and an unconditional
+                    # delete lets the second remove the mapping the first just bound — both insert,
+                    # both report `created`, and the key ends up on the last writer, breaking
+                    # same-key-replays-original. Narrowing to the observed row leaves a concurrent
+                    # rebind standing, so this insert trips the unique constraint and replays it
+                    # through the handler below, which is the correct outcome (review of PR #719).
+                    #
+                    # WHY expiry is still cleared unconditionally: an expired mapping is nobody's,
+                    # and leaving it would deny the write for the rest of its TTL.
+                    reclaimable = Q(expires_at__lte=now_ts)
+                    if refused is not None:
+                        reclaimable = reclaimable | Q(score_id=refused.pk)
+                    await (
+                        IdempotencyKey.filter(reclaimable, key=stored_key)
+                        .using_db(connection)
+                        .delete()
+                    )
 
                 score = await Score.create(
                     using_db=connection,
@@ -597,7 +621,7 @@ class ScoreStore:
             # INVARIANT: the SCOPED key, matching the pre-insert lookup above. Using the raw key
             # here re-opened the cross-participant leak this ticket closed, for exactly the
             # concurrent case this branch exists to handle (found in review of PR #719).
-            existing = await self._resolve_owned(
+            existing, _ = await self._resolve_owned(
                 stored_key,
                 content_hash,
                 per_submitter=per_submitter,

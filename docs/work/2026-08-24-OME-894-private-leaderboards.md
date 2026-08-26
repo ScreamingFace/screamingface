@@ -474,6 +474,113 @@ source already clean. It was stale `__pycache__`: the mutated module had been co
 restored source reused its bytecode. Every mutation probe now clears `__pycache__` first, and the
 restore is confirmed with `git diff HEAD` rather than by reading the file.
 
+## Review round 9 — 2026-08-26
+
+Three owner findings against the round-8 head. **The P1 is a regression I introduced in round 8.**
+
+**[P1] A claimed owner name bypasses the privacy check** (`store.py:476-478`). Round 8 put the
+owner-match short-circuit BEFORE `_links_to_a_private_board`, so the privacy check never runs when
+the names agree — and under `auth_mode=disabled` the body's `submitted_by` is trusted. An attacker
+POSTs to any PUBLIC board with a stale key and the victim's address in the body, and receives the
+private row's id, url4 and metadata. Private READS fail closed in that mode (round 3); this write
+path did not.
+
+Reproduced: `same=True`, the attacker's response carried the victim's score id.
+
+Fixed by ordering privacy first and dropping the ownership comparison for a private target
+entirely: **a mapping pointing at a private-board row is never honoured.** An unverified string
+cannot gate anything, and the genuine owner loses nothing — the per-submitter content hash still
+finds their row. Simpler than plumbing verified-identity down into `submit()`, and it cannot be
+bypassed by claiming a name.
+
+**[P2] The reclaim deletes a mapping a concurrent winner just bound** (`store.py:579`). Two
+requests with the same stored key and different recipes both clear `_resolve_owned`, the first
+commits its mapping, and the second's unconditional delete removes it — both insert, both report
+`created`, and the key ends up on the last writer, breaking same-key-replays-original.
+
+**Valid by inspection, NOT reproduced.** The scenario needs both requests to finish their precheck
+before either inserts; a single-threaded test completes the first submit entirely before starting
+the second. Recorded as inspected rather than demonstrated, and the fixture work below is what makes
+it testable.
+
+Fixed by narrowing the delete to expired rows OR the exact row this request observed and refused, so
+a concurrent rebind survives, trips the unique constraint, and replays.
+
+**[P2] The newly reserved `sfu-` namespace is not purged** (`store.py:260`). `0009` clears only
+`sfp-%`, but `main` stores client keys verbatim, so a crafted `sfu-<digest>` mapping can already
+exist — and round 8 made the escape path EMIT that namespace. Reproduced: an escaped key resolved a
+legacy `sfu-` row and returned an unrelated score.
+
+`0009` now clears both prefixes. The rollout window is closed separately — see below.
+
+### Owner decision taken
+
+**A post-upgrade purge script** (owner, 2026-08-26). Extending `0009` cleans existing data, but the
+migrate Job is a `pre-upgrade` hook, so old replicas keep writing verbatim keys after it runs. A
+`post-upgrade` operator module re-runs the purge once the rollout has completed, which closes the
+window rather than bounding it to the TTL. Follows the `seed.py` / `retire_benchmark.py` precedent:
+`main(argv)`, no HTTP surface, run where the credentials already are.
+
+Rejected alternative: reserving a character class clients cannot send, with `Idempotency-Key` header
+validation. Structural, but it adds validation to the write path and would reject keys currently
+accepted.
+
+### Planned changes
+
+- `store.py` — privacy before ownership; `_resolve_owned` reports the refused target; the reclaim
+  narrows to it.
+- `migrations/0009_*.py` — clear `sfu-%` as well.
+- `purge_reserved_idempotency_keys.py` (new) + a `post-upgrade` chart Job.
+- A file-backed SQLite fixture giving tests a SECOND connection — `tortoise_db` is
+  `sqlite://:memory:`, which is one connection by definition, and that is why the race branch and
+  the clobber above cannot be tested today.
+- Tests appended; no prior test modified.
+
+### Test plan
+
+- A claimed owner name does not yield a private-board row.
+- A private target is refused even for its genuine owner, who still replays via the content hash.
+- A legacy `sfu-` mapping is not resolved by an escaped key.
+- `0009` clears both reserved prefixes.
+- The purge module deletes both namespaces and reports what it removed.
+- A concurrent rebind survives the reclaim, and the race branch replays.
+
+### Outcome — DONE
+
+Two of the three reproduced; the third was fixed on inspection and is now tested. Five mutations
+bind.
+
+- **P1 reproduced:** the attacker's response carried the victim's score id (`same=True`).
+- **P2 (`sfu-`) reproduced:** an escaped key resolved a legacy row and returned an unrelated score.
+- **P2 (clobber)** could not be reproduced — see below.
+
+**The `sfu-` finding has an enforceable half and a residual, and the test now says which.** A legacy
+`sfu-<digest>` row is byte-indistinguishable from one this code wrote, so the LOOKUP cannot reject it
+on identity. Rejecting on content-hash mismatch was considered and refused: replaying a different
+recipe under the same key IS the idempotency contract, so that check would break the feature to
+patch a window. What the lookup does enforce is that such a row cannot reach a PRIVATE score, which
+is what `test_a_legacy_row_in_the_reserved_namespace_cannot_leak_a_private_score` pins. Existing rows
+go to `0009`; rollout-window rows go to the new post-upgrade purge. The residual is a wrong replay of
+a PUBLIC score inside that window.
+
+**The clobber fix was untested until a mutation said so.** Reverting the narrowed reclaim to an
+unconditional delete changed nothing — three tests passed. The scenario is "both prechecks miss, then
+the winner commits", and single-connection in-memory SQLite cannot interleave two real transactions.
+Blinding only the FIRST `_resolve_existing` call reproduces exactly that ordering, and the test now
+fails under the mutation (*"the loser must replay, not create a second row under the same key"*).
+Recorded because a fix nobody can break is a fix nobody is holding.
+
+**`store.py` reached 100% statement coverage**, closing the gap the reviewer named in round 3.
+Reaching the race handler's success return needs a racer to commit mid-transaction, which this
+fixture cannot do, so it is driven at the seam — the handler's own contract (on IntegrityError, look
+again, replay what is found) rather than a simulated database race. The reorder also silently
+un-covered the private-request/public-target branch; that has its own test now.
+
+**`PLR0911` was restructured, not silenced.** The two refusal returns collapsed into one `honour`
+expression, and `and` keeps the privacy read first — the ordering is the fix, so it is load-bearing.
+
+**Gates:** all green. 483 passed, 3 skipped. `store.py` 100%, `purge_reserved_idempotency_keys.py` 97% — the one uncovered line is the `if __name__ == "__main__"` guard.
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s
