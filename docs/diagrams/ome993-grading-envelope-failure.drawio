@@ -71,15 +71,15 @@
           <mxGeometry x="365" y="80" width="250" height="130" as="geometry" />
         </mxCell>
 
-        <mxCell id="fJudge" value="Judge gemini-3.1-pro-preview&#xa;&#xa;FIX 2 -  reasoning_effort=low (paper 4.2)&#xa;FIX 3 -  max_tokens 4096 -&gt; 8192&#xa;FIX 4 -  retry=2 on 429/5xx&#xa;(permanent failures never retried)&#xa;-&gt; verdicts complete" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
+        <mxCell id="fJudge" value="Judge gemini-3.1-pro-preview&#xa;&#xa;FIX 2 -  reasoning_effort=low (paper 4.2)&#xa;max_tokens stays paper&#39;s 4096&#xa;(owner: exact DRACO repro)&#xa;FIX 3 -  retry=2 on 429/5xx&#xa;(permanent failures never retried)&#xa;-&gt; verdicts complete" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
           <mxGeometry x="725" y="80" width="300" height="150" as="geometry" />
         </mxCell>
 
-        <mxCell id="fCollect" value="url4 fan-out - on_error=&quot;fail&quot;&#xa;(OME-924)&#xa;&#xa;FIX 5 -  first judge failure&#xa;propagates AS ITSELF&#xa;error rows keep {code, retryable}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
+        <mxCell id="fCollect" value="url4 fan-out - on_error=&quot;fail&quot;&#xa;(OME-924)&#xa;&#xa;FIX 4 -  first judge failure&#xa;propagates AS ITSELF&#xa;error rows keep {code, retryable}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
           <mxGeometry x="1135" y="80" width="280" height="140" as="geometry" />
         </mxCell>
 
-        <mxCell id="fCaseEval" value="per-Case boundary collects&#xa;&#xa;FIX 6 -  original failure lands at&#xa;stage=grading, candidate kept&#xa;(belt: case-eval route re-raises&#xa;any stray {&quot;error&quot;:...} row)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
+        <mxCell id="fCaseEval" value="per-Case boundary collects&#xa;&#xa;FIX 5 -  original failure lands at&#xa;stage=grading, candidate kept&#xa;(belt: case-eval route re-raises&#xa;any stray {&quot;error&quot;:...} row)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
           <mxGeometry x="1525" y="80" width="270" height="140" as="geometry" />
         </mxCell>
 
@@ -91,7 +91,7 @@
           <mxGeometry x="750" y="280" width="250" height="100" as="geometry" />
         </mxCell>
 
-        <mxCell id="fRevision" value="HUMAN STEPS - judge params are hashed into the board identity:&#xa;revision 66a463248586b277 -&gt; fe291f4cdc670208&#xa;deploy AI Gateway BEFORE the Engine | re-seed scoreboard&#xa;re-record judge cache seeds + re-bless goldens ($$ paid, owner)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=12;dashed=1;" vertex="1" parent="laneFix">
+        <mxCell id="fRevision" value="HUMAN STEPS - judge params are hashed into the board identity:&#xa;revision 66a463248586b277 -&gt; 62718f04ea1a980f&#xa;deploy AI Gateway BEFORE the Engine | re-seed scoreboard&#xa;re-record judge cache seeds + re-bless goldens ($$ paid, owner)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=12;dashed=1;" vertex="1" parent="laneFix">
           <mxGeometry x="1180" y="270" width="600" height="120" as="geometry" />
         </mxCell>
 

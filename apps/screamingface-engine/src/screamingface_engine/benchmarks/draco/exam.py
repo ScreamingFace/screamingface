@@ -73,11 +73,13 @@ JUDGE_PARAMS = (
     # against max_tokens — unthrottled, it can burn the whole budget thinking and return
     # a blank `length` turn, failing the grading while still billing the tokens. The
     # official low effort (DRACO paper §4.2) is now a validated AI Gateway OpenRouter
-    # parameter; 8192 doubles the pre-OME-993 budget as headroom. Both values are hashed
-    # into the board revision and the judge cache key — changing either moves every
-    # route and re-records the judge cache seeds, so change them together, rarely.
+    # parameter. max_tokens stays at the paper's 4096 — owner decision: reproduce the
+    # DRACO parametrization exactly, even if occasional token-cap errors remain (they
+    # now surface honestly and retry as designed). Both values are hashed into the
+    # board revision and the judge cache key — changing either moves every route and
+    # re-records the judge cache seeds, so change them together, rarely.
     ("reasoning_effort", "low"),
-    ("max_tokens", "8192"),
+    ("max_tokens", "4096"),
 )
 # The pass criterion of the mid-run check surface (OME-829/830). Declared here rather
 # than imported from check_policy, which reads this module for the judge pinning.
