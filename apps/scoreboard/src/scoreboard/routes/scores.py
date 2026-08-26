@@ -240,7 +240,14 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
         ) from exc
 
     if score is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SCORE_NOT_FOUND_DETAIL)
+        # INVARIANT: carries the private policy even though nothing private is involved. The
+        # refusal below is byte-identical BY DESIGN, and a header only one of the two emits is
+        # itself the discriminator — it confirms a real private score id exists (review of #719).
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=SCORE_NOT_FOUND_DETAIL,
+            headers=PRIVATE_CACHE_HEADERS,
+        )
 
     # INVARIANT: the SAME 404 an unknown id gets, so holding a real id is not confirmable.
     private = benchmark is None or benchmark.visibility == "private"

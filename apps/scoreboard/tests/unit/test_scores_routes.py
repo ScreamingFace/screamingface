@@ -608,3 +608,39 @@ async def test_a_database_failure_on_the_visibility_lookup_is_a_503(
 
     assert response.status_code == 503
     assert response.json() == {"detail": "score store unavailable"}
+
+
+# --- review round 6: the two 404s must be indistinguishable ---------------------------------
+# `get_score` raises the same status and detail for an unknown id and for a private score the
+# caller may not read, and the invariant comment says so. The private refusal carried
+# `PRIVATE_CACHE_HEADERS` and the unknown-id 404 did not, so the response headers alone
+# confirmed that a real private score id existed. Found in review of PR #719.
+
+
+async def test_the_unknown_id_404_is_indistinguishable_from_the_private_refusal(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    score_id = await _private_score(cloudflare_score_client, "alice@example.test")
+
+    refused = await cloudflare_score_client.get(
+        f"/v1/scores/{score_id}", headers={"X-User-Email": "bob@example.test"}
+    )
+    unknown = await cloudflare_score_client.get(
+        f"/v1/scores/{uuid4()}", headers={"X-User-Email": "bob@example.test"}
+    )
+
+    assert refused.status_code == unknown.status_code == 404
+    assert refused.json() == unknown.json()
+    # INVARIANT: the discriminator must not survive in the headers either.
+    assert refused.headers.get("cache-control") == unknown.headers.get("cache-control")
+    assert refused.headers.get("vary") == unknown.headers.get("vary")
+
+
+async def test_an_unknown_score_id_is_not_shared_cacheable(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    # Asserted on its own so the pair above cannot pass by BOTH responses losing the policy.
+    response = await cloudflare_score_client.get(f"/v1/scores/{uuid4()}")
+
+    assert response.status_code == 404
+    assert response.headers["cache-control"] == "private, no-store"

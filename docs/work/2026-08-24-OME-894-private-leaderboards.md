@@ -246,6 +246,74 @@ Two findings, both reproduced first, both valid.
   a transient disconnect between the two reads escaped as an unhandled 500 on an endpoint that
   documents 503. Both reads are now in one boundary. Mutation-checked by moving the read back out.
 
+## Review round 6 — 2026-08-26
+
+Two findings raised by the owner against the round-5 head, both reproduced before any fix.
+
+**[P1] The reserved private namespace is re-openable during a Helm rollout.** `0009` clears
+`sfp-%`, but `job-migrate.yaml:9` is `pre-install,pre-upgrade`, so it runs BEFORE the new pods
+roll. Old replicas keep serving through the window and keep storing client keys verbatim, so a
+row written then survives the migration. `_resolve_existing` (`store.py:428-434`) returns the
+key-linked score with no ownership test, so on a private board a participant can be handed a row
+that is not theirs. The migration cannot fix this — it has already run by the time the window
+opens.
+
+Fixed at the lookup instead of the migration, so the isolation holds regardless of what the table
+contains: on a private board a key-resolved row must belong to the caller, or it is ignored and
+the per-submitter content hash decides.
+
+**[P2] The two 404s in `get_score` are distinguishable.** `scores.py:241` raises without headers;
+`:254-258` raises the same status and detail WITH `PRIVATE_CACHE_HEADERS`. The invariant comment at
+`:244` claims they are identical, so a caller could confirm a real private score id from the
+response headers alone. The unknown-id 404 gets the same headers.
+
+### Planned changes
+
+- `apps/scoreboard/src/scoreboard/scores/store.py` — `_resolve_existing` gains `per_submitter` /
+  `submitted_by`; both `submit()` call sites pass them.
+- `apps/scoreboard/src/scoreboard/routes/scores.py` — the unknown-id 404 carries
+  `PRIVATE_CACHE_HEADERS`.
+- `apps/scoreboard/tests/unit/scores/test_store.py` — new tests, appended.
+- `apps/scoreboard/tests/unit/test_scores_routes.py` — new test, appended.
+
+No schema change, so no migration this cycle (stack rule S1 does not apply).
+
+### Test plan
+
+- A private board with a stale `sfp-` mapping bound to ANOTHER participant's score does not hand
+  that score to the caller.
+- The same lookup still replays the caller's OWN row for their own key.
+- A public board still replays a global key verbatim — the regression guard.
+- `GET /v1/scores/{unknown}` carries byte-identical headers to the private refusal.
+
+### Outcome — DONE
+
+Both reproduced red before any fix, both mutation-checked after.
+
+- **The leak, demonstrated:** ALICE's private submit with a colliding key returned BOB's row —
+  `assert 'bob@example.test' == 'alice@example.test'`. Reverting the ownership test re-fails both
+  store tests; restoring it re-passes them.
+- **The header discriminator, demonstrated:** `'private, no-store' == None` between the refusal
+  and the unknown-id 404. Removing `headers=` again re-fails both route tests.
+
+**Actual files** — as planned, plus nothing else. `_resolve_existing` was left untouched: a prior
+test (`test_the_concurrent_retry_path_resolves_with_the_scoped_key`) monkeypatches it with a
+three-argument function, so adding parameters would have edited a prior test to make new code pass
+(rule 5). The rule went into a `_resolve_owned` wrapper instead, which is the better home for it
+anyway — ownership belongs to the private-board caller, not to key resolution in general.
+
+**Residual, accepted and commented in code:** when the reserved slot is corrupt AND the caller has
+no row of their own for that recipe, the insert collides with the stale mapping and the submission
+is REFUSED rather than served. Reclaiming the slot would be a write from a resolve path, so it is
+deliberately not done. Reaching this at all needs the rollout window plus a guessed scoped key, and
+the mapping expires in 24 hours.
+
+**Gates:** all green — append-only check, ruff check, ruff format, pyright, pytest (coverage over
+80), portal node tests. The append-only gate passing is the machine-checked proof that no prior
+test was touched.
+
+**No schema change**, so stack rule S1 does not apply and no migration was added.
+
 ## Owner-verify
 
 - **Confirm the runtime `authMode` with @Stephen before the challenge is announced.** The chart
