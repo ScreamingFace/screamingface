@@ -22,18 +22,43 @@ _lock = Lock()
 
 
 def default_client() -> Client:
-    """Return the process-wide Client, constructing it on first use."""
+    """Return the process-wide Client, constructing it on first use.
+
+    Engine selection precedence (OME-998):
+
+    1. `SCREAMINGFACE_ENGINE_URL` — explicit always wins, silently.
+    2. A running, liveness-checked local `screamingface up` stack — announced with an
+       info line naming the chosen URL and the override env var.
+    3. The hosted default — silent, unchanged behavior.
+    """
 
     global _client
     if _client is not None:
         return _client
     with _lock:
         if _client is None:
+            engine_url = os.environ.get("SCREAMINGFACE_ENGINE_URL")
+            scoreboard_url = os.environ.get("SCREAMINGFACE_SCOREBOARD_URL")
+            if engine_url is None:
+                from screamingface._runtime.detect import running_local_services
+
+                local = running_local_services()
+                if local is not None:
+                    engine_url = local["engine"]
+                    # WHY both URLs: `screamingface up` tells users to export BOTH env
+                    # vars; adopting only the engine would invent a hybrid state
+                    # (local engine + hosted leaderboard) the documented flow never
+                    # produces. Each env var individually keeps precedence.
+                    if scoreboard_url is None:
+                        scoreboard_url = local["scoreboard"]
+                    print(
+                        f"connected to the local stack at {engine_url} — "
+                        "set SCREAMINGFACE_ENGINE_URL to override"
+                    )
             _client = Client(
-                engine_url=os.environ.get("SCREAMINGFACE_ENGINE_URL", DEFAULT_ENGINE_URL),
-                scoreboard_url=os.environ.get(
-                    "SCREAMINGFACE_SCOREBOARD_URL",
-                    DEFAULT_SCOREBOARD_URL,
+                engine_url=engine_url if engine_url is not None else DEFAULT_ENGINE_URL,
+                scoreboard_url=(
+                    scoreboard_url if scoreboard_url is not None else DEFAULT_SCOREBOARD_URL
                 ),
             )
     return _client
