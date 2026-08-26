@@ -1,20 +1,17 @@
-"""Characterization (OME-1017): today's run-control failures, pinned before R2–R4.
+"""Run-resume behavior: characterization (OME-1017) flipped by the OME-1020 reconnect loop.
 
-These tests record the INCIDENT behavior this epic removes:
+History of this file:
 
-1. An Engine that closes the run stream with WS close 1012 (Service Restart — exactly
-   what a deployment rollout sends) kills the Run on the client: fatal
-   `websocket_disconnected`, one connection attempt, no resume.
-2. `cancel_active()` cannot stop a Run whose capability token the server rejects — the
-   abort sweep's `DELETE /` 401s and the engine keeps spending (the orphan mechanism of
-   the 2026-08-26 incident).
-3. The evaluation-level abort path records that sweep failure as a note on the original
-   error and the server-side Run continues.
+- OME-1017 pinned the INCIDENT behavior: close 1012 mid-Run was fatal
+  (`websocket_disconnected`, one connection attempt) and the abort sweep's `DELETE /`
+  401'd on a capability older than 60 s, orphaning paid Runs.
+- OME-1018 made the capability live for the whole Run (16 h + 1 h).
+- OME-1020 (spec §6 S3) added the reconnect state machine. The 1012 pin FLIPS here: a
+  Service Restart is now a recoverable disconnect — the client backs off (full jitter,
+  bounded budget) and resumes from the stream cursor; only budget exhaustion or a typed
+  `stream_reclaimed` ends the Run.
 
-R4 flips the first; R2 flips the second and third (the token then lives for the whole
-Run, so the sweep's `DELETE /` succeeds).
-
-Self-contained by design (sdlc rule 5): this stub serves only the scenarios above.
+Self-contained by design (sdlc rule 5): the stub serves exactly these scenarios.
 """
 
 from __future__ import annotations
@@ -30,10 +27,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
 
-import httpx
 import pytest
 
 from screamingface._evaluation.model import (
@@ -42,21 +38,25 @@ from screamingface._evaluation.model import (
     _compiled_operation,
 )
 from screamingface._evaluation.runner import _run_candidates_sync
-from screamingface._engine.transport import Url4CloudTransport
+from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 from screamingface.errors import AuthenticationError, ExecutionError
 
 _WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 _CANDIDATE_URL4 = "(@)!'hello'"
 
+Mode = Literal["restart", "reclaim_after_restart", "always_1012"]
+
 
 @dataclass
 class EngineState:
-    close_code: int | None
+    mode: Mode
     delete_rejected: bool = False
     attached: threading.Event = field(default_factory=threading.Event)
     started: threading.Event = field(default_factory=threading.Event)
     handshakes: int = 0
+    deletes: int = 0
     minted_tokens: list[str] = field(default_factory=list)
+    resume_from: int | None = None
 
 
 @dataclass
@@ -81,6 +81,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, {"token": token})
 
     def do_DELETE(self) -> None:  # noqa: N802 — stdlib handler API
+        self.server.state.deletes += 1
         if self.server.state.delete_rejected:
             self._json(
                 HTTPStatus.UNAUTHORIZED,
@@ -110,16 +111,53 @@ class _Handler(BaseHTTPRequestHandler):
         self.server.state.started.set()
 
     def _websocket(self) -> None:
+        state = self.server.state
+        state.handshakes += 1
         if not self._accept_websocket():
             return
-        if not self._read_attach():
+        attach = self._read_attach()
+        if attach is None:
             return
-        self.server.state.attached.set()
-        if self.server.state.started.wait(timeout=5):
-            self._send_close(self.server.state.close_code)
+        from_sequence = attach.get("from_sequence")
+        if not state.started.wait(timeout=5):
+            return
+        if state.handshakes == 1:
+            # First connection: deliver frames 1..2, then the deploy-style restart (1012).
+            _send_server_text_frame(
+                self.wfile, json.dumps(_frame("ai.url4.started", {"url4": _CANDIDATE_URL4}, 1))
+            )
+            _send_server_text_frame(
+                self.wfile, json.dumps(_frame("ai.url4.log", {"severity_text": "INFO", "severity_number": 9, "body": "working"}, 2))
+            )
+            _send_server_close(self.wfile, 1012)
+            return
+        # Reconnect: record the resume cursor the client asked for.
+        state.resume_from = from_sequence
+        if state.mode == "reclaim_after_restart":
+            _send_server_text_frame(
+                self.wfile,
+                json.dumps(_error_frame("stream_reclaimed", "the run's stream was reclaimed")),
+            )
+            return
+        if state.mode == "always_1012":
+            _send_server_text_frame(
+                self.wfile, json.dumps(_frame("ai.url4.log", {"severity_text": "INFO", "severity_number": 9, "body": "still going"}, 3))
+            )
+            _send_server_close(self.wfile, 1012)
+            return
+        # restart: complete the run from the resume point.
+        _send_server_text_frame(
+            self.wfile,
+            json.dumps(
+                _frame("ai.url4.result", {"body": "restart-result", "media_type": "application/json"}, 3)
+            ),
+        )
+        _send_server_text_frame(
+            self.wfile,
+            json.dumps(_frame("ai.url4.terminated", {"status": "succeeded", "error": None}, 4)),
+        )
 
     def _accept_websocket(self) -> bool:
-        self.server.state.handshakes += 1
         key = self.headers.get("Sec-WebSocket-Key")
         if key is None:
             self.send_error(HTTPStatus.BAD_REQUEST)
@@ -136,15 +174,20 @@ class _Handler(BaseHTTPRequestHandler):
         self.close_connection = True
         return True
 
-    def _read_attach(self) -> bool:
+    def _read_attach(self) -> dict[str, object] | None:
+        """Parse the client's attach frame; None ONLY on an unparseable frame.
+
+        A FRESH attach (`from_sequence` absent/None) is a valid attach — returning it as a
+        dict is what distinguishes it from a parse failure.
+        """
         try:
             event = json.loads(_read_client_text_frame(self.rfile))
         except (AssertionError, IndexError, json.JSONDecodeError):
-            return False
-        return isinstance(event, dict) and event.get("type") == "ai.url4.attach"
-
-    def _send_close(self, code: int) -> None:
-        _send_server_close(self.wfile, code)
+            return None
+        if not isinstance(event, dict) or event.get("type") != "ai.url4.attach":
+            return None
+        data = event.get("data")
+        return data if isinstance(data, dict) else {}
 
     def _json(
         self, status: HTTPStatus, value: object, *, media_type: str = "application/json"
@@ -170,6 +213,35 @@ class _Server(ThreadingHTTPServer):
         self.state = state
 
 
+def _frame(kind: str, data: dict[str, object], sequence: int) -> dict[str, object]:
+    return {
+        "specversion": "1.0",
+        "id": f"event_{sequence}",
+        "source": "/trace/run_resume/node/root",
+        "subject": "run_resume",
+        "time": datetime.now(UTC).isoformat(),
+        "type": kind,
+        "datacontenttype": "application/json",
+        "sequence": str(sequence),
+        "sequencetype": "Integer",
+        "data": data,
+    }
+
+
+def _error_frame(code: str, message: str) -> dict[str, object]:
+    # Advisory frames carry no broker sequence (spec §6 S2, OME-1019).
+    return {
+        "specversion": "1.0",
+        "id": "err_reclaimed",
+        "source": "/trace/run_resume/node/root",
+        "subject": "run_resume",
+        "time": datetime.now(UTC).isoformat(),
+        "type": "ai.url4.error",
+        "datacontenttype": "application/json",
+        "data": {"code": code, "message": message},
+    }
+
+
 def _read_client_text_frame(stream: Any) -> str:
     header = stream.read(2)
     length = header[1] & 0x7F
@@ -184,6 +256,18 @@ def _read_client_text_frame(stream: Any) -> str:
     return payload.decode()
 
 
+def _send_server_text_frame(stream: Any, value: str) -> None:
+    payload = value.encode()
+    if len(payload) < 126:
+        header = bytes((0x81, len(payload)))
+    elif len(payload) < 65536:
+        header = bytes((0x81, 126)) + struct.pack("!H", len(payload))
+    else:
+        header = bytes((0x81, 127)) + struct.pack("!Q", len(payload))
+    stream.write(header + payload)
+    stream.flush()
+
+
 def _send_server_close(stream: Any, code: int) -> None:
     # RFC 6455 close frame: FIN + opcode 8, two-byte status. Server frames are unmasked.
     payload = struct.pack("!H", code)
@@ -192,8 +276,10 @@ def _send_server_close(stream: Any, code: int) -> None:
 
 
 @contextmanager
-def _engine(*, close_code: int | None, delete_rejected: bool = False) -> Iterator[Engine]:
-    state = EngineState(close_code=close_code, delete_rejected=delete_rejected)
+def _engine(
+    *, mode: Mode, delete_rejected: bool = False
+) -> Iterator[Engine]:
+    state = EngineState(mode=mode, delete_rejected=delete_rejected)
     server = _Server(("127.0.0.1", 0), state)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -219,36 +305,87 @@ def _candidate() -> Candidate:
     )
 
 
-def test_close_1012_mid_run_is_fatal_today() -> None:
-    """PIN: an engine Service Restart (close 1012) kills the Run today.
+def test_restart_resumes_from_cursor_and_completes() -> None:
+    """OME-1020 (spec §6 S3): a deploy-style restart is RECOVERABLE.
 
-    The client makes ONE connection attempt, surfaces `websocket_disconnected`, and never
-    re-attaches. R4 flips this: the Run resumes from the JetStream cursor on a new socket.
+    First connection receives frames 1..2, then the server closes 1012 (Service Restart).
+    The client re-attaches with `from_sequence = 3` (last accepted 2 + 1) on a NEW socket,
+    replays the missed frames, and returns the normal Report.
     """
-    with _engine(close_code=1012) as eng:
+    with _engine(mode="restart") as eng:
+        transport = Url4CloudTransport(eng.url)
+        try:
+            outcome = transport.run(_candidate(), None)
+        finally:
+            transport.close()
+    assert outcome.result_body == "restart-result"
+    assert eng.state.handshakes == 2
+    assert eng.state.resume_from == 3
+
+
+def test_reclaimed_stream_after_restart_is_run_result_lost() -> None:
+    """OME-1019+1020: a stream reclaimed while we were away is FINAL.
+
+    The Run finished and the Runner deleted the stream (grace elapsed). The engine answers
+    the resume attach with `stream_reclaimed`; the client raises `run_result_lost`,
+    permanent — reconnecting cannot change that.
+    """
+    with _engine(mode="reclaim_after_restart") as eng:
         transport = Url4CloudTransport(eng.url)
         try:
             with pytest.raises(ExecutionError) as caught:
                 transport.run(_candidate(), None)
         finally:
             transport.close()
+    assert caught.value.code == "run_result_lost"
+    assert caught.value.permanent is True
+    assert eng.state.resume_from == 3
+
+
+def test_reconnect_budget_exhaustion_sweeps_then_fails() -> None:
+    """FLIP of the OME-1017 pin: a persistently-restarting engine is not fatal at once.
+
+    The client backs off and retries within its budget, then — with the budget spent —
+    stops every Run it owns (the `DELETE /` sweep, which the long-lived token makes
+    succeed) and surfaces `websocket_disconnected`.
+    """
+    with _engine(mode="always_1012") as eng:
+        transport = Url4CloudTransport(
+            eng.url, reconnect_budget_s=0.3, reconnect_base_delay_s=0.01
+        )
+        try:
+            with pytest.raises(ExecutionError) as caught:
+                transport.run(_candidate(), None)
+        finally:
+            transport.close()
     assert caught.value.code == "websocket_disconnected"
-    assert "1012" in str(caught.value)
-    # One connection attempt, no resume: the fatal behavior R4 replaces.
-    assert eng.state.handshakes == 1
+    assert eng.state.handshakes >= 2  # it tried to reconnect, not one-shot fatal
+    assert eng.state.deletes >= 1  # the sweep's DELETE reached the engine
+
+
+@pytest.mark.asyncio
+async def test_async_restart_resumes_from_cursor_and_completes() -> None:
+    """The async twin resumes identically from the stream cursor."""
+    with _engine(mode="restart") as eng:
+        transport = AsyncUrl4CloudTransport(eng.url)
+        try:
+            outcome = await transport.run(_candidate(), None)
+        finally:
+            await transport.close()
+    assert outcome.result_body == "restart-result"
+    assert eng.state.resume_from == 3
 
 
 def test_cancel_active_raises_when_delete_is_rejected() -> None:
-    """PIN: the abort sweep cannot stop a Run whose capability the server rejects.
+    """PIN (OME-1017, still true): the sweep raises when the server rejects the DELETE.
 
-    `DELETE /` 401s — the capability is older than its 60 s window for a real long run —
-    so `cancel_active()` raises and the engine keeps spending. R2 (long-lived capability)
-    makes this `DELETE /` succeed for the whole Run life.
+    R2 makes this impossible for real long runs (the token now lives for the whole Run),
+    so this pins the RESULT the sweep must not produce: an un-stoppable Run surfaces as
+    an error, not as silent continued spend.
     """
-    with _engine(close_code=1012, delete_rejected=True) as eng:
+    with _engine(mode="always_1012", delete_rejected=True) as eng:
         transport = Url4CloudTransport(eng.url)
         try:
-            # R4 changes this surface; today the sweep stops whatever is registered.
             transport._active_tokens.add("stale-capability")  # noqa: SLF001
             with pytest.raises(ExceptionGroup) as caught:
                 transport.cancel_active()
@@ -259,13 +396,8 @@ def test_cancel_active_raises_when_delete_is_rejected() -> None:
 
 
 def test_abort_sweep_records_note_when_stop_rejected() -> None:
-    """PIN: the evaluation abort path swallows a failed sweep as a note.
-
-    Today's orphan mechanism: `_run_candidates_sync` catches any Run failure, calls
-    `cancel_active()`, and — because the sweep itself raised (server rejected the stale
-    capability) — records it as a note and re-raises the original error. The engine-side
-    Run continues spending with no consumer.
-    """
+    """PIN (OME-1017, still honored): the evaluation abort path records a failed sweep
+    as a note on the original error."""
 
     class _FakeTransport:
         def __init__(self) -> None:

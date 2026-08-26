@@ -327,7 +327,7 @@ def test_a_result_at_the_engine_cap_reaches_the_researcher() -> None:
     # the envelope around a capped body always overflowed it: the Client refused the frame
     # with close 1009 and every large Evaluation died as `websocket_disconnected`.
     with engine(mode="oversize_result") as stub:
-        with closing(Url4CloudTransport(stub.url)) as transport:
+        with closing(Url4CloudTransport(stub.url, reconnect_budget_s=0.2, reconnect_base_delay_s=0.01)) as transport:
             outcome = transport.run(_candidate(), None)
 
     assert outcome.result_body is not None
@@ -337,7 +337,7 @@ def test_a_result_at_the_engine_cap_reaches_the_researcher() -> None:
 @pytest.mark.asyncio
 async def test_a_result_at_the_engine_cap_reaches_an_async_researcher() -> None:
     with engine(mode="oversize_result") as stub:
-        transport = AsyncUrl4CloudTransport(stub.url)
+        transport = AsyncUrl4CloudTransport(stub.url, reconnect_budget_s=0.2, reconnect_base_delay_s=0.01)
         try:
             outcome = await transport.run(_candidate(), None)
         finally:
@@ -354,7 +354,7 @@ def test_an_access_challenge_retries_with_a_freshly_minted_capability() -> None:
     # handshake and the whole Evaluation failed on a successful login.
     auth = _StubAccessAuth()
     with engine(mode="access_challenge") as stub:
-        with closing(Url4CloudTransport(stub.url, auth)) as transport:
+        with closing(Url4CloudTransport(stub.url, auth, reconnect_budget_s=0.2, reconnect_base_delay_s=0.01)) as transport:
             outcome = transport.run(_candidate(), None)
 
     assert auth.reauthentications == 1
@@ -366,7 +366,7 @@ def test_an_access_challenge_retries_with_a_freshly_minted_capability() -> None:
 async def test_an_access_challenge_retries_with_a_fresh_capability_when_async() -> None:
     auth = _StubAccessAuth()
     with engine(mode="access_challenge") as stub:
-        transport = AsyncUrl4CloudTransport(stub.url, auth)
+        transport = AsyncUrl4CloudTransport(stub.url, auth, reconnect_budget_s=0.2, reconnect_base_delay_s=0.01)
         try:
             outcome = await transport.run(_candidate(), None)
         finally:
@@ -383,7 +383,7 @@ def test_a_dropped_stream_reports_its_close_code_and_elapsed_time() -> None:
     # all read identically otherwise, which is what made these causes indistinguishable in
     # production for weeks.
     with engine(mode="abrupt_disconnect") as stub:
-        with closing(Url4CloudTransport(stub.url)) as transport:
+        with closing(Url4CloudTransport(stub.url, reconnect_budget_s=0.2, reconnect_base_delay_s=0.01)) as transport:
             with pytest.raises(sf.ExecutionError) as caught:
                 transport.run(_candidate(), None)
 
