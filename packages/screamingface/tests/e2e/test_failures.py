@@ -18,11 +18,12 @@ The declared policy chain, with the code that declares it:
   (``runner/model_response.py::raise_if_unusable``).
 - a failed CANDIDATE call errors the whole Case row; the board's cases fan out with
   ``on_error="collect"`` (``benchmarks/protocol.py``), so the row becomes
-  ``{"error": {"kind", "message"}}`` (url4 ``dag/nodes.py::_error_payload``) and DRACO's
+  ``{"error": {"kind", "message", "code", "retryable"}}`` (url4
+  ``dag/nodes.py::_error_payload``) and DRACO's
   aggregate maps it to a ``stage="candidate"`` Failure via ``public_error``
-  (``benchmarks/draco/aggregate.py::_row_failure``). The wire row carries no code, so
-  the Failure code is the declared default ``case_execution_failed`` and the
-  gateway-authored MESSAGE is what names the provider failure.
+  (``benchmarks/draco/aggregate.py::_row_failure``). The wire row carries the connector's
+  own code/retryable (OME-924), so the Failure code and retryability are the upstream
+  ones and the gateway-authored MESSAGE names the provider failure.
 - a judge that answers but is cut off (truncated verdict JSON) never errors the row:
   every verdict is bound invalid (``benchmarks/draco/verdict.py::bind``) and the case
   lands as a ``stage="grading"`` Failure, code ``no_valid_judge_verdict``
@@ -399,9 +400,10 @@ def test_a_provider_429_lands_as_a_candidate_provider_failure_never_malformed(
     assert failure.stage == "candidate"
     assert "rate limiting" in failure.message
     assert "malformed" not in failure.message.lower()
-    # Declared today: the collect row strips the connector's code/permanent, so the
-    # Failure code is DRACO's default for an errored case row (public_error fallback).
-    assert failure.code == "case_execution_failed"
+    # OME-924: the collect row keeps the connector's code/retryable, so the Failure
+    # carries the upstream rate-limit code instead of the DRACO default.
+    assert failure.code == "rate_limited"
+    assert failure.retryable is True
 
 
 @pytest.mark.e2e

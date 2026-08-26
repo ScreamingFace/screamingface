@@ -239,6 +239,14 @@ def build_draco_protocol(routes: Routes, case_count: int, judge_passes: int) -> 
         ),
         body=(src(criterion_evaluation, name="evaluated", weight=0.0),),
         intent=Text("$evaluated"),
+        # WHY fail, not the collect default (OME-924): a judge branch that fails (e.g. an
+        # upstream 429) must surface as ITS OWN error at the case-execution boundary, not be
+        # collected into the criterion list — where the case-evaluation route would decode
+        # the error object as a typed grading record and mask the real failure with
+        # "invalid Criterion envelope". The shared preserve_candidate_outcome() boundary
+        # below still collects this error per Case, so one bad judge pass fails only that
+        # Case, with the Candidate answer intact.
+        on_error="fail",
     )
     case_evaluation = expr(
         src(criteria, name="criteria", weight=0.0),
