@@ -1,0 +1,69 @@
+# The golden-replay guard (OME-964): replay every fixture-pinned board from the
+# committed cache snapshot on a throwaway stack and fail when the published score
+# drifts. Its own workflow — not a job in screamingface-tests.yml — because paths:
+# is workflow-level and this lane must ALSO fire on engine/gateway changes (the main
+# drift sources) without dragging the whole SDK matrix along with them.
+#
+# Spend is impossible by construction: the gateway boots with no provider keys; a
+# cache miss is a loud test failure, never a live call.
+name: ScreamingFace E2E Replay
+
+on:
+  push:
+    paths:
+      - "packages/screamingface/**"
+      - "packages/url4/**"
+      - "apps/screamingface-engine/**"
+      - "apps/aigateway/**"
+      - ".github/workflows/screamingface-e2e-replay.yml"
+  pull_request:
+    paths:
+      - "packages/screamingface/**"
+      - "packages/url4/**"
+      - "apps/screamingface-engine/**"
+      - "apps/aigateway/**"
+      - ".github/workflows/screamingface-e2e-replay.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/screamingface
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install SDK dependencies
+        run: uv sync
+
+      # The harness syncs the gateway and engine venvs itself (sync_project); only
+      # the benchmark asset bundles need preparing up front, exactly as
+      # `just stack-prepare` does locally.
+      - name: Cache benchmark assets
+        uses: actions/cache@v4
+        with:
+          path: /tmp/screamingface-benchmark-assets
+          key: benchmark-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine/benchmarks/**') }}
+
+      - name: Prepare benchmark assets
+        working-directory: apps/screamingface-engine
+        run: >
+          uv run --with datasets python -m screamingface_engine.benchmarks.prepare
+          --root /tmp/screamingface-benchmark-assets
+
+      # -rs so a skipped board prints its loud reason ("no recorded fixtures yet")
+      # in the CI log instead of hiding inside a green run.
+      - name: Replay the e2e lane against the goldens
+        env:
+          SCREAMINGFACE_TEST_E2E: "1"
+        run: uv run pytest tests/e2e -rs -v

@@ -218,3 +218,18 @@ snapshot `5210a227…`, manifest `56e8004a…`, golden `eee8b582…`).
    the raised error. Verified live against a Postgres testcontainer (COPY stdout
    clean with NOTICE-emitting statements; error path carries the psql message);
    reproducible-gzip contract test still green.
+
+### Scope addition (owner-approved 2026-08-26) — the CI workflow job
+
+The "CI workflow job running the e2e lane" bullet moved from *Out of scope* into this
+unit: the owner directed it into PR #722 directly. Added
+`.github/workflows/screamingface-e2e-replay.yml` — a standalone path-filtered
+workflow (NOT a job inside `screamingface-tests.yml`, because `paths:` is
+workflow-level and this lane must also fire on `apps/screamingface-engine/**` and
+`apps/aigateway/**`, the main score-drift sources, without dragging the SDK matrix
+along). One `golden-replay` job on ubuntu-latest: uv sync → cached
+`benchmarks.prepare` asset bundles (same command as `just stack-prepare`) →
+`SCREAMINGFACE_TEST_E2E=1 pytest tests/e2e -rs`. No provider keys anywhere in the
+job, so spend stays impossible; `-rs` keeps fixture-less boards' skip reasons
+visible in the log. Verified locally before wiring: the draco-3pass board test
+PASSES in 72s under the same env/flag from the committed fixtures.
