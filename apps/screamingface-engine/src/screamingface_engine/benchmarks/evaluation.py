@@ -64,10 +64,16 @@ def case_evaluation_endpoint(
             raw_items = json_array(request.context, label)
             if not raw_items:
                 raise ValueError(f"{label} must be a non-empty JSON array")
-            items = [
-                json_object(item, f"{item_name} {index}")
-                for index, item in enumerate(raw_items, start=1)
-            ]
+            items = []
+            for index, item in enumerate(raw_items, start=1):
+                decoded = json_object(item, f"{item_name} {index}")
+                # WHY (OME-993, GH #740): a one-key `{"error": ...}` item is url4's
+                # `on_error=collect` capture of an UPSTREAM failure (e.g. a Judge call
+                # that 429'd or ran out of tokens) — re-raise that original cause here.
+                # Treating it as an evaluator record would reject its SHAPE instead
+                # ("invalid Criterion envelope"), burying the real failure.
+                _raise_collected_failure(decoded, f"{item_name} {index}")
+                items.append(decoded)
             result = bind(case_id, items)
         except (OSError, TypeError, ValueError) as exc:
             detail = str(exc)
@@ -145,6 +151,33 @@ def compact_json(value: object) -> str:
     """Encode a deterministic endpoint result without ASCII loss or padding."""
 
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _raise_collected_failure(decoded: JsonObject, item_label: str) -> None:
+    """Re-raise a url4 collected-error row as its original failure.
+
+    INVARIANT: the detection mirrors the case-execution decoder's strictness — ONLY the
+    exact one-key ``{"error": {...}}`` shape is a collected failure; anything else stays
+    an evaluator record for the binder to validate. The re-raised error keeps the row's
+    ``code`` and ``permanent`` (present since OME-993's url4 change) so retryability
+    survives to the public CaseResult; a lean row (kind+message only) defaults to a
+    retryable ``grading_dependency_failed``.
+    """
+    if set(decoded) != {"error"}:
+        return
+    error = decoded.get("error")
+    if not isinstance(error, dict):
+        return
+    kind = error.get("kind")
+    message = error.get("message")
+    detail = message if isinstance(message, str) and message.strip() else str(kind or "unknown")
+    code = error.get("code")
+    permanent = error.get("permanent")
+    raise ResolutionError(
+        f"{item_label} failed upstream: {detail}",
+        code=code if isinstance(code, str) and code else "grading_dependency_failed",
+        permanent=permanent if isinstance(permanent, bool) else False,
+    )
 
 
 def benchmark_unavailable(detail: str) -> ResolutionError:

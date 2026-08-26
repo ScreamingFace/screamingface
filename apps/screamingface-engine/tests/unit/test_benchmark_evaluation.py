@@ -100,3 +100,96 @@ def test_candidate_answer_preserves_completion_and_exposes_exact_refusal_for_gra
     assert refused.output is None
     assert refused.refusal == "exact refusal"
     assert refused.finish_reason == "content_filter"
+
+
+# --- OME-993: a collected upstream failure must propagate, never misdiagnose ---------
+
+
+@pytest.mark.asyncio
+async def test_a_collected_error_item_reraises_the_original_failure() -> None:
+    # INVARIANT: an `{"error": ...}` row that url4's `on_error=collect` put into the
+    # evaluator-record array is an UPSTREAM failure (e.g. a Judge call that 429'd),
+    # not an evaluator record — the route must surface that original cause verbatim
+    # instead of rejecting the row's shape ("invalid Criterion envelope", GH #740).
+    node = Url4Node("case-evaluation")
+    bound: list[object] = []
+
+    def bind(case_id: int, items: list[dict[str, object]]) -> dict[str, object]:
+        bound.append(items)
+        return {"case_id": case_id}
+
+    node.endpoint("/draco/case")(
+        case_evaluation_endpoint(
+            label="DRACO Case evaluation",
+            item_name="Criterion evaluation",
+            bind=bind,
+        )
+    )
+    context = json.dumps(
+        [
+            {"value": 1},
+            {
+                "error": {
+                    "kind": "ResolutionError",
+                    "message": "aigateway request failed with status 429",
+                    "code": "aigateway_http_429",
+                    "permanent": False,
+                }
+            },
+        ]
+    )
+
+    with pytest.raises(ResolutionError) as caught:
+        await node.evaluate(_call("/draco/case", context, "7"))
+
+    assert caught.value.code == "aigateway_http_429"
+    assert caught.value.permanent is False
+    assert "aigateway request failed with status 429" in str(caught.value)
+    assert "Criterion evaluation 2" in str(caught.value)
+    assert "envelope" not in str(caught.value)
+    assert bound == []
+
+
+@pytest.mark.asyncio
+async def test_a_lean_error_item_still_propagates_message_with_a_default_code() -> None:
+    # A collected row from a non-Url4Error carries only kind+message; the route still
+    # propagates the message and stays retryable (the upstream cause is unknown).
+    node = Url4Node("case-evaluation")
+    node.endpoint("/hb/case")(
+        case_evaluation_endpoint(
+            label="HealthBench Case evaluation",
+            item_name="Rubric evaluation",
+            bind=lambda case_id, items: {"case_id": case_id},
+        )
+    )
+    context = json.dumps([{"error": {"kind": "ValueError", "message": "boom"}}])
+
+    with pytest.raises(ResolutionError) as caught:
+        await node.evaluate(_call("/hb/case", context, "3"))
+
+    assert caught.value.code == "grading_dependency_failed"
+    assert caught.value.permanent is False
+    assert "boom" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_an_item_merely_containing_an_error_key_is_not_an_error_row() -> None:
+    # Same strictness as the case-execution decoder: ONLY the exact one-key
+    # `{"error": {...}}` shape is a collected failure; anything else stays an
+    # evaluator record for the binder to judge.
+    node = Url4Node("case-evaluation")
+    node.endpoint("/draco/case")(
+        case_evaluation_endpoint(
+            label="DRACO Case evaluation",
+            item_name="Criterion evaluation",
+            bind=lambda case_id, items: {"case_id": case_id, "items": items},
+        )
+    )
+    context = json.dumps([{"error": {"kind": "X"}, "value": 2}, {"error": "text"}])
+
+    result = json.loads((await node.evaluate(_call("/draco/case", context, "7"))).text)
+
+    assert result == {
+        "case_id": 7,
+        "items": [{"error": {"kind": "X"}, "value": 2}, {"error": "text"}],
+    }

@@ -165,3 +165,34 @@ def test_candidate_contract_rejects_derived_coverage_drift_and_metrics_coverage(
         CandidateResult(**{**values, "coverage": 1.0})
     with pytest.raises(ValidationError, match="metrics.coverage"):
         CandidateResult(**{**values, "metrics": {"coverage": 0.5}})
+
+
+def test_a_grading_failure_row_propagates_the_original_code_and_retryability() -> None:
+    # OME-993 chain pin: the case-evaluation seam re-raises a collected upstream
+    # failure, url4 collects it WITH code+permanent, and this fold must publish that
+    # original cause — code, message, retryable — on the grading-stage Failure.
+    from screamingface_engine.benchmarks.aggregation import grading_failure_case_result
+
+    answer = candidate_answer(encode_candidate_invocation("the answer", "stop", None))
+    case = grading_failure_case_result(
+        selected_case=SelectedCase(case_id=4, input="question", metadata={}),
+        candidate=answer,
+        error={
+            "kind": "ResolutionError",
+            "message": "Criterion evaluation 2 failed upstream: aigateway request "
+            "failed with status 429",
+            "code": "aigateway_http_429",
+            "permanent": False,
+        },
+        method="rubric",
+        default_code="draco_grading_failed",
+        default_message="the DRACO grader could not grade this Case",
+    )
+
+    (failure,) = case.failures
+    assert failure.stage == "grading"
+    assert failure.code == "aigateway_http_429"
+    assert failure.retryable is True
+    assert "429" in failure.message
+    assert failure.metadata["error_kind"] == "ResolutionError"
+    assert case.output == "the answer"
