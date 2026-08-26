@@ -56,7 +56,9 @@ jobs:
           key: benchmark-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine/benchmarks/**') }}
 
       - name: Prepare benchmark assets
-        run: uv run screamingface prepare --all --data-dir /tmp/screamingface-data
+        # --extra runtime: `screamingface prepare` imports the embedded-server module,
+        # whose deps (uvicorn et al.) live in the user-facing runtime extra.
+        run: uv run --extra runtime screamingface prepare --all --data-dir /tmp/screamingface-data
 
       # synthetic.manifest.json is deliberately untracked — it carries the gateway's
       # LIVE revision constants, so a fresh checkout regenerates it with the gateway's
