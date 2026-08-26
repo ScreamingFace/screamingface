@@ -8,6 +8,7 @@ addresses and the evidence cardinality differ.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -39,9 +40,16 @@ from url4.peer.server import Request, Url4Node
 
 
 def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
-    """Register the routes referenced by one DRACO board."""
-    cases_json, selected_cases, rubrics = _protocol_assets(root)
-    node.data(exam.routes.cases, cases_json, media_type="application/json")
+    """Register the routes referenced by one DRACO board.
+
+    INVARIANT (OME-999): install registers LAZY providers and reads no asset. A Runner world
+    carries every registered board, so an eager read here would make every other board's run
+    require DRACO's assets — the shared lazy-install contract HealthBench's install documents.
+    Assets load on the first resolution of one of THIS board's routes; only successes are
+    memoized, so a missing asset fails identically — and loudly — on every resolution.
+    """
+    assets = _lazy_protocol_assets(root)
+    node.data(exam.routes.cases, _cases(assets), media_type="application/json")
     node.endpoint(exam.routes.tasks)(_task_rows(root))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
@@ -65,20 +73,49 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
     node.endpoint(exam.routes.aggregate)(
         aggregate_endpoint(
             label="DRACO",
-            available_case_count=len(selected_cases),
+            # WHY the constant: the lazy load validates len(cases) == CASE_COUNT on first
+            # resolution, so the eager `len(selected_cases)` this replaced was always equal.
+            available_case_count=CASE_COUNT,
             aggregate=_aggregate(
-                selected_cases,
-                rubrics,
+                assets,
                 exam,
             ),
         )
     )
 
 
+ProtocolAssets = tuple[str, list[dict[str, object]], dict[int, dict[str, Any]]]
+
+
+def _lazy_protocol_assets(root: Path) -> Callable[[], ProtocolAssets]:
+    """A memoized accessor for the board's shared assets — loaded on first use, never at install.
+
+    Baked assets are immutable for the process lifetime, so one successful load serves every
+    later resolution. A FAILED load is never cached: the next resolution re-reads and re-fails
+    with the same named error, keeping missing-asset failures loud rather than one-shot.
+    """
+
+    memo: dict[str, ProtocolAssets] = {}
+
+    def load() -> ProtocolAssets:
+        if "assets" not in memo:
+            memo["assets"] = _protocol_assets(root)
+        return memo["assets"]
+
+    return load
+
+
+def _cases(assets: Callable[[], ProtocolAssets]):
+    def cases() -> str:
+        return assets()[0]
+
+    return cases
+
+
 def _protocol_assets(
     root: Path,
-) -> tuple[str, list[dict[str, object]], dict[int, dict[str, Any]]]:
-    """Load and validate DRACO's shared assets before registering any route."""
+) -> ProtocolAssets:
+    """Load and validate DRACO's shared assets before serving any route."""
 
     raw = _read(root / "cases.json", "DRACO cases")
     selected = _parse_cases(raw)
@@ -205,11 +242,11 @@ def _criterion_evaluation(judge_passes: int):
 
 
 def _aggregate(
-    selected_cases: list[dict[str, object]],
-    rubrics: dict[int, dict[str, Any]],
+    assets: Callable[[], ProtocolAssets],
     exam: DracoExam,
 ):
     def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
+        _cases_json, selected_cases, rubrics = assets()
         return scoring.aggregate(
             case_evaluations,
             rubrics,
