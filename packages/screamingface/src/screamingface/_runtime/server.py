@@ -16,6 +16,12 @@ from typing import Any, Protocol
 from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig, scoreboard_assets
 from screamingface._runtime.runtime_logging import log_service
+from screamingface._runtime.source import (
+    RuntimeSource,
+    activate,
+    resolve_source,
+    verify_live_modules,
+)
 
 STARTUP_TIMEOUT_SECONDS = 90.0
 
@@ -27,23 +33,43 @@ class Server(Protocol):
     async def serve(self) -> None: ...
 
 
-def require_runtime_extra() -> None:
+def require_runtime_extra() -> RuntimeSource:
+    # INVARIANT (OME-1001): the runtime source activates before ANY runtime app
+    # import — in a checkout, the live apps/ code must shadow the stale build-time
+    # copies a dev venv carries in site-packages.
+    source = resolve_source(os.environ)
+    activate(source)
     # Configure provider discovery before importing URL4 Cloud: its compiled model world may load
     # AI Gateway plugins, whose module-level instances capture provider settings at import time.
     enable_local_providers(os.environ)
     try:
-        import aigateway  # noqa: F401
-        import scoreboard  # noqa: F401
-        import screamingface_engine  # noqa: F401
+        import aigateway
+        import scoreboard
+        import screamingface_engine
+        import url4
         import uvicorn  # pyright: ignore[reportMissingImports]  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
             'Local runtime dependencies are missing. Install "screamingface[runtime]".'
         ) from exc
+    verify_live_modules(
+        source,
+        {
+            "aigateway": aigateway,
+            "scoreboard": scoreboard,
+            "screamingface_engine": screamingface_engine,
+            "url4": url4,
+        },
+    )
+    return source
 
 
 async def run(config: RuntimeConfig, shutdown_event: threading.Event | None = None) -> None:
-    require_runtime_extra()
+    source = require_runtime_extra()
+    # WHY logged at boot: whether a stack serves the live checkout or the installed
+    # package decides what a benchmark actually tests — it must be auditable in the
+    # runtime log (OME-1001).
+    print(f"runtime source: {source.describe()}", flush=True)
     config.data_dir.mkdir(parents=True, exist_ok=True)
     await _migrate(config)
     gateway, engine = _build_apps(config)

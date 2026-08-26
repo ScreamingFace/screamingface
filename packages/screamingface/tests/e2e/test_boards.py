@@ -13,8 +13,9 @@ missing; it never fake-passes. Three prerequisites per board:
 - ``fixtures/snapshots/<board>.snapshot.gz`` — sliced cache dump (the owner records
   these from a seeded deployment; draco is the tracer board),
 - ``fixtures/goldens/<board>.golden.json`` — the blessed expected outcome,
-- prepared benchmark assets under ``$SCREAMINGFACE_E2E_ASSETS`` (default
-  ``/tmp/screamingface-benchmark-assets``, the ``just stack-prepare`` location).
+- prepared benchmark assets: ``screamingface prepare --all`` fills the default
+  location (``<data-dir>/benchmark-assets``); ``$SCREAMINGFACE_E2E_ASSETS``
+  overrides it.
 """
 
 from __future__ import annotations
@@ -40,7 +41,6 @@ BOARDS = (
 )
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
-_DEFAULT_ASSETS_ROOT = Path("/tmp/screamingface-benchmark-assets")
 
 #: Which prepared-asset bundle each board reads (bundles are shared across variants).
 _ASSET_BUNDLE = {
@@ -53,7 +53,14 @@ _ASSET_BUNDLE = {
 
 
 def _assets_root() -> Path:
-    return Path(os.environ.get(_ASSETS_ENV, str(_DEFAULT_ASSETS_ROOT)))
+    # WHY this default: it is where `screamingface prepare` writes, so the assets a
+    # dev prepares for the stack are the assets these tests find (OME-1001).
+    from screamingface._runtime.config import default_data_dir
+
+    configured = os.environ.get(_ASSETS_ENV)
+    if configured:
+        return Path(configured)
+    return default_data_dir() / "benchmark-assets"
 
 
 def _require_board_fixtures(board: str) -> tuple[Path, Path | None, GoldenReport]:
@@ -71,7 +78,7 @@ def _require_board_fixtures(board: str) -> tuple[Path, Path | None, GoldenReport
     if not assets.is_dir():
         pytest.skip(
             f"board '{board}' needs prepared benchmark assets at {assets} "
-            f"(run `just stack-prepare` or set {_ASSETS_ENV})"
+            f"(run `screamingface prepare --all`, or point {_ASSETS_ENV} at them)"
         )
     manifest = SNAPSHOTS_DIR / f"{board}.manifest.json"
     return snapshot, (manifest if manifest.exists() else None), load_golden(golden_path)

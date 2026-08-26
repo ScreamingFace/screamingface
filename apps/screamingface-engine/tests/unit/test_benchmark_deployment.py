@@ -30,11 +30,9 @@ from screamingface_engine.benchmarks.ifeval.prepare import PrepareError as IFEva
 from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 from url4 import Text
 
-# WHY resolved + checked: these three guards read files OUTSIDE this app (the SDK justfile and
-# the workflow). `packages/screamingface/justfile` itself supports pointing at a separate engine
-# checkout via `SCREAMINGFACE_ENGINE_REPO`, so that split is anticipated, not hypothetical. In it
-# the monorepo siblings are simply absent, and a guard that cannot see its subject must say so
-# rather than fail as if the subject were wrong.
+# WHY resolved + checked: the workflow guard reads a file OUTSIDE this app. In a standalone
+# engine checkout the monorepo siblings are simply absent, and a guard that cannot see its
+# subject must say so rather than fail as if the subject were wrong.
 REPOSITORY_ROOT = Path(__file__).parents[4].resolve()
 BENCHMARKS_PACKAGE = Path(__file__).parents[2] / "src" / "screamingface_engine" / "benchmarks"
 # INVARIANT: the family segment is derived from the family packages that exist on disk, so the
@@ -48,7 +46,7 @@ FAMILY_PACKAGES = tuple(
 )
 # WHY the two non-literal branches: reintroduction does not have to spell a family out. The
 # SDK already builds this exact path from a variable (`_runtime/cli.py`), and a shell loop
-# (`for b in draco ifeval healthbench`) is the natural way back into a Dockerfile or justfile.
+# (`for b in draco ifeval healthbench`) is the natural way back into a Dockerfile or script.
 # A guard that only matches literals would pass green on precisely the shapes most likely to
 # return, so a computed family segment counts as a family-specific invocation too.
 _COMPUTED_FAMILY = r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\{[A-Za-z_][A-Za-z0-9_]*\}"
@@ -220,16 +218,6 @@ def test_benchmark_image_invokes_only_the_registered_asset_orchestrator() -> Non
     assert _FAMILY_PREPARER.search(body) is None
 
 
-def test_local_stack_prepare_uses_the_registered_asset_orchestrator() -> None:
-    justfile = REPOSITORY_ROOT / "packages" / "screamingface" / "justfile"
-    if not justfile.is_file():
-        pytest.skip("engine checked out apart from the monorepo; the SDK justfile is absent")
-    body = justfile.read_text(encoding="utf-8")
-
-    assert "-m screamingface_engine.benchmarks.prepare --root {{assets}}" in body
-    assert _FAMILY_PREPARER.search(body) is None
-
-
 def test_benchmark_image_ci_names_the_complete_build() -> None:
     workflow = REPOSITORY_ROOT / ".github" / "workflows" / "screamingface-engine-tests.yml"
     if not workflow.is_file():
@@ -347,17 +335,6 @@ def test_a_preparer_contract_defect_reaches_the_operator_as_a_traceback(
 
     with pytest.raises(BenchmarkAssetPreparerContractError, match="summary mapping"):
         prepare_module.main(["--root", str(tmp_path)])
-
-
-def test_the_engine_workflow_runs_when_the_guarded_justfile_changes() -> None:
-    """INVARIANT: a guard that cannot run on its own subject is worse than no guard."""
-
-    workflow = REPOSITORY_ROOT / ".github" / "workflows" / "screamingface-engine-tests.yml"
-    if not workflow.is_file():
-        pytest.skip("engine checked out apart from the monorepo; the workflow is absent")
-    body = workflow.read_text(encoding="utf-8")
-
-    assert body.count('- "packages/screamingface/justfile"') == 2
 
 
 def test_an_unserializable_summary_value_does_not_abort_the_remaining_bundles(
