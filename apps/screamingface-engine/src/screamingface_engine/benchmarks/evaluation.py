@@ -159,9 +159,11 @@ def _raise_collected_failure(decoded: JsonObject, item_label: str) -> None:
     INVARIANT: the detection mirrors the case-execution decoder's strictness — ONLY the
     exact one-key ``{"error": {...}}`` shape is a collected failure; anything else stays
     an evaluator record for the binder to validate. The re-raised error keeps the row's
-    ``code`` and ``permanent`` (present since OME-993's url4 change) so retryability
+    ``code`` and ``retryable`` (present since OME-924's url4 change) so retryability
     survives to the public CaseResult; a lean row (kind+message only) defaults to a
-    retryable ``grading_dependency_failed``.
+    retryable ``grading_dependency_failed``. With OME-924's fail-fast fan-outs an
+    error row should no longer reach this route for the built-in benchmarks — this
+    seam is the belt-and-braces guard for any other collect boundary.
     """
     if set(decoded) != {"error"}:
         return
@@ -172,11 +174,11 @@ def _raise_collected_failure(decoded: JsonObject, item_label: str) -> None:
     message = error.get("message")
     detail = message if isinstance(message, str) and message.strip() else str(kind or "unknown")
     code = error.get("code")
-    permanent = error.get("permanent")
+    retryable = error.get("retryable")
     raise ResolutionError(
         f"{item_label} failed upstream: {detail}",
         code=code if isinstance(code, str) and code else "grading_dependency_failed",
-        permanent=permanent if isinstance(permanent, bool) else False,
+        permanent=(not retryable) if isinstance(retryable, bool) else False,
     )
 
 

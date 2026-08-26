@@ -133,7 +133,7 @@ async def test_a_collected_error_item_reraises_the_original_failure() -> None:
                     "kind": "ResolutionError",
                     "message": "aigateway request failed with status 429",
                     "code": "aigateway_http_429",
-                    "permanent": False,
+                    "retryable": True,
                 }
             },
         ]
