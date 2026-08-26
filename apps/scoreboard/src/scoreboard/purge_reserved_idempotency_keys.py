@@ -10,9 +10,12 @@ serving — and keep storing client keys verbatim — until they terminate, and 
 window outlives the migration. `0009` cleans what was already there; this cleans what the window
 adds, which is why it runs `post-upgrade`.
 
-The mapping table holds no score data and every row expires within 24 hours, so deleting one costs
-a client its idempotency fast path and nothing else — the content hash still dedupes the retry. The
-foreign key points FROM this table TO scores, so no submission is ever removed.
+This is deliberately INDISCRIMINATE: a crafted legacy row and one this code wrote are
+byte-identical, so the purge cannot tell them apart and removes both. That is affordable because the
+mapping table holds no score data, every row expires within 24 hours, and losing a mapping costs a
+client only its idempotency fast path — the content hash still dedupes the retry, so no duplicate
+submission results. The foreign key points FROM this table TO scores, so no submission is ever
+removed.
 
 INVARIANT: this only ever deletes from `idempotency_keys`, and only rows whose key sits in a
 reserved namespace. It is idempotent and safe to re-run.

@@ -1910,3 +1910,21 @@ async def test_the_reclaim_leaves_a_mapping_a_concurrent_writer_just_bound(
     assert loser.id == winner.id
     bound = await IdempotencyKey.get_or_none(key="race").prefetch_related("score")
     assert bound is not None and bound.score.id == winner.id, "the key was rebound away"
+
+
+async def test_the_unowned_key_lookup_will_not_serve_a_private_score(tortoise_db: None) -> None:
+    # INVARIANT: every score-bearing read is owner-scoped. This helper takes no identity, so it
+    # cannot scope anything — it must refuse a private row rather than hand it to whoever holds the
+    # key. It has no production caller today, which is the only reason this was not already a leak,
+    # and precisely why it must not be left as a loaded gun for the next route to pick up
+    # (self-review of PR #719).
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    victim, _ = await store.submit(_same_recipe(ALICE), idempotency_key="victim-key")
+    assert await store.get_by_idempotency_key("victim-key") is not None
+
+    await store.set_visibility("hle", "private")
+
+    assert await store.get_by_idempotency_key("victim-key") is None
+    # The row itself is untouched — this refuses a READ, it does not delete anything.
+    assert await Score.get_or_none(id=victim.id) is not None

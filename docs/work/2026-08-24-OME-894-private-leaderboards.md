@@ -581,6 +581,42 @@ expression, and `and` keeps the privacy read first — the ordering is the fix, 
 
 **Gates:** all green. 483 passed, 3 skipped. `store.py` 100%, `purge_reserved_idempotency_keys.py` 97% — the one uncovered line is the `if __name__ == "__main__"` guard.
 
+## Review round 10 — 2026-08-26 (self-review)
+
+Adversarial pass over the round-9 changes, run because three of the previous four rounds found a
+defect in code written to fix the round before. Five attack shapes probed; two findings, one of
+them real.
+
+**[P1] `get_by_idempotency_key` ignores visibility entirely.** Probed: after a board flips to
+private, `store.get_by_idempotency_key(victim_key)` returns the victim's private score. The method
+takes no identity, performs no ownership test, and consults no visibility — it hands back any score
+whose key you hold.
+
+It has **no production caller** today, which is the only reason this is not a live leak. That is
+also exactly what makes it dangerous: a public method on the store, in the PR whose entire purpose
+is making score reads owner-scoped, that silently bypasses every check the rest of this work added.
+Wiring it to a route later reopens `OME-894` with no diff that looks suspicious.
+
+Made to fail closed: a linked score on a private board returns `None`. The method has no caller
+identity and therefore cannot serve private rows at all; the docstring now says so and points at
+the owner-aware paths.
+
+Deleting it as dead code was the alternative — the precedent exists in this same PR, where
+`leaderboard(owner=)` and `list_all_for_benchmark(owner=)` were removed. Two prior tests exercise
+this one, so removal is a rule-5 decision; failing it closed is additive and breaks neither.
+
+**[P3, not fixed] The privacy lookup runs on every dedup hit.** `_links_to_a_private_board` is now
+consulted whenever the key or hash resolves ANYTHING, including a caller replaying their own row on
+a public board — measured at one extra query per dedup hit. It is a primary-key read on a tiny
+table, and the obvious optimisations (trusting the request's own benchmark, or short-circuiting on
+ownership) are precisely the shapes that produced the round-8 and round-9 defects. Recorded rather
+than optimised: the ordering is load-bearing and worth a cheap query.
+
+**Checked and clean:** an attacker reproducing the victim's exact recipe after a flip does NOT reach
+the row (the per-submitter hash diverges); a private scoped key pointing at a public row is refused;
+the purge removes legitimate live mappings as well as crafted ones, and the affected client still
+replays through the content hash, which is the documented cost.
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

@@ -632,13 +632,22 @@ class ScoreStore:
             raise
 
     async def get_by_idempotency_key(self, key: str) -> ScoreSchema | None:
+        """Return the score a live public idempotency key points at, if any.
+
+        INVARIANT (OME-894): this takes NO caller identity, so it cannot scope a read to an owner —
+        and therefore it must never serve a private board's row. A caller that needs private access
+        has an identity and belongs on `get_score` or `list_owned_entries`, both of which compare
+        it. Left unguarded this was a public store method returning any score to whoever held its
+        key, bypassing every check the rest of this work added; it has no production caller, which
+        is the only reason that was not already a leak (self-review of PR #719).
+        """
         now_ts = datetime.now(UTC)
         stored_key = _scoped_idempotency_key(key, None, per_submitter=False)
         linked = await IdempotencyKey.get_or_none(
             key=stored_key,
             expires_at__gt=now_ts,
         ).prefetch_related("score")
-        if linked is None:
+        if linked is None or await self._links_to_a_private_board(linked.score):
             return None
         return _score_to_schema(linked.score)
 
