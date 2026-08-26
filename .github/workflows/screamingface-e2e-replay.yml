@@ -1,0 +1,78 @@
+# The golden-replay guard (OME-964): replay every fixture-pinned board from the
+# committed cache snapshot on a throwaway stack and fail when the published score
+# drifts. Its own workflow — not a job in screamingface-tests.yml — because paths:
+# is workflow-level and this lane must ALSO fire on engine/gateway changes (the main
+# drift sources) without dragging the whole SDK matrix along with them.
+#
+# Spend is impossible by construction: the gateway boots with no provider keys; a
+# cache miss is a loud test failure, never a live call.
+name: ScreamingFace E2E Replay
+
+on:
+  push:
+    paths:
+      - "packages/screamingface/**"
+      - "packages/url4/**"
+      - "apps/screamingface-engine/**"
+      - "apps/aigateway/**"
+      - ".github/workflows/screamingface-e2e-replay.yml"
+  pull_request:
+    paths:
+      - "packages/screamingface/**"
+      - "packages/url4/**"
+      - "apps/screamingface-engine/**"
+      - "apps/aigateway/**"
+      - ".github/workflows/screamingface-e2e-replay.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/screamingface
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install SDK dependencies
+        run: uv sync
+
+      # The harness syncs the gateway and engine venvs itself (sync_project); only
+      # the benchmark asset bundles need preparing up front, via the same
+      # `screamingface prepare` a user runs (OME-1001).
+      - name: Cache benchmark assets
+        uses: actions/cache@v4
+        with:
+          path: /tmp/screamingface-data/benchmark-assets
+          key: benchmark-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine/benchmarks/**') }}
+
+      - name: Prepare benchmark assets
+        # --extra runtime: `screamingface prepare` imports the embedded-server module,
+        # whose deps (uvicorn et al.) live in the user-facing runtime extra.
+        run: uv run --extra runtime screamingface prepare --all --data-dir /tmp/screamingface-data
+
+      # synthetic.manifest.json is deliberately untracked — it carries the gateway's
+      # LIVE revision constants, so a fresh checkout regenerates it with the gateway's
+      # own code (single-authority rule) instead of committing a copy that goes stale.
+      - name: Generate the synthetic plumbing fixture
+        working-directory: apps/aigateway
+        run: |
+          uv sync
+          .venv/bin/python ../../packages/screamingface/tests/e2e/fixtures/generate_synthetic.py
+
+      # -rs so a skipped board prints its loud reason ("no recorded fixtures yet")
+      # in the CI log instead of hiding inside a green run.
+      - name: Replay the e2e lane against the goldens
+        env:
+          SCREAMINGFACE_TEST_E2E: "1"
+          SCREAMINGFACE_E2E_ASSETS: /tmp/screamingface-data/benchmark-assets
+        run: uv run pytest tests/e2e -rs -v

@@ -24,6 +24,8 @@ repos:
         exclude: '(^|/)templates/.*\.ya?ml$'   # Helm templates use Go-template syntax, not valid YAML
       - id: check-toml
       - id: check-added-large-files
+        # Blessed e2e replay fixtures (owner-approved): a board's cache slice is ~1 MB
+        exclude: 'tests/e2e/fixtures/snapshots/.*\.snapshot\.gz$'
       - id: check-merge-conflict
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.0

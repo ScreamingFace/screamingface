@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="bless-data-flow">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" background="#0a0f1c" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ===== Lane 1: PRODUCTION ===== -->
+        <mxCell id="lane1" value="PRODUCTION — read-only source, NEVER written back" style="swimlane;startSize=30;html=1;fillColor=#1a2233;strokeColor=#8b98ab;swimlaneFillColor=#0d1424;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="1480" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="prodDB" value="production Postgres — request_cache_entries&#xa;~204,765 rows: every raw paid model reply,&#xa;each stored under a key_hash (sha256 of its request)" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane1">
+          <mxGeometry x="560" y="45" width="380" height="105" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Lane 2: OWNER-HELD RECORDINGS ===== -->
+        <mxCell id="lane2" value="OWNER-HELD RECORDINGS — private files on the owner's disk, NEVER committed" style="swimlane;startSize=30;html=1;fillColor=#2e250f;strokeColor=#d7b357;swimlaneFillColor=#0d1424;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="270" width="1480" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="archive" value="archive eval JSONL (.eval.jsonl)&#xa;the original run's results:&#xa;question → candidate answer text" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane2">
+          <mxGeometry x="200" y="50" width="360" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="dump" value="production cache dump (.sql.gz)&#xa;full pg_dump, 204,765 rows —&#xa;judge replies usable as-is; candidate rows&#xa;keyed by a legacy harness (wrong keys)" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane2">
+          <mxGeometry x="1100" y="50" width="340" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Lane 3: BLESS RUN ===== -->
+        <mxCell id="lane3" value="BLESS RUN — slice_snapshot.py, everything local + throwaway (Docker on your machine)" style="swimlane;startSize=30;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;swimlaneFillColor=#0d1424;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="520" width="1480" height="560" as="geometry" />
+        </mxCell>
+        <mxCell id="parse" value="Stage 1 PARSE&#xa;stream the dump's COPY rows once;&#xa;index payloads by answer text;&#xa;archive → question→answer map" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane3">
+          <mxGeometry x="40" y="60" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="engine" value="real benchmark engine + SDK&#xa;runs the board KEYLESSLY&#xa;(twice: capture, then verify)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane3">
+          <mxGeometry x="430" y="60" width="250" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="proxy" value="recording proxy (loopback)&#xa;records every rendered&#xa;candidate request body" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane3">
+          <mxGeometry x="760" y="60" width="250" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="gateway" value="real AI Gateway (local, loopback)&#xa;NO API KEYS — cannot reach providers,&#xa;cannot spend a cent; serves cache only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#33240a;strokeColor=#e8b339;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane3">
+          <mxGeometry x="1100" y="60" width="310" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="helper" value="gateway's OWN key math&#xa;build_global_cache_plan&#xa;(subprocess in the aigateway venv —&#xa;hashing never re-implemented)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane3">
+          <mxGeometry x="760" y="330" width="290" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="pg" value="FRESH throwaway Postgres&#xa;Docker testcontainer on your machine —&#xa;created for this run, DELETED at the end" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane3">
+          <mxGeometry x="1100" y="330" width="310" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="slice" value="Stage 6 SLICE (observation, not curation)&#xa;rows whose hit_count moved during the&#xa;verified replay = the fixture&#xa;(11,902 of 204,765)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane3">
+          <mxGeometry x="430" y="360" width="280" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="refuse" value="Stage 5 cross-check:&#xa;replay score ≠ saved report&#xa;→ BLESS REFUSED (aborts)" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane3">
+          <mxGeometry x="40" y="360" width="300" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Lane 4: COMMITTED FIXTURES ===== -->
+        <mxCell id="lane4" value="COMMITTED FIXTURES — the only public output, lands in the repo" style="swimlane;startSize=30;html=1;fillColor=#0a2b1e;strokeColor=#34d399;swimlaneFillColor=#0d1424;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1150" width="1480" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="snapshot" value="draco-3pass.snapshot.gz&#xa;1.12 MB, 11,902 rows&#xa;gzip mtime=0, no local paths" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane4">
+          <mxGeometry x="200" y="50" width="340" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="manifest" value="draco-3pass.manifest.json&#xa;sha256 of the .gz + row count&#xa;+ live cache revisions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane4">
+          <mxGeometry x="620" y="50" width="340" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="golden" value="draco-3pass.golden.json&#xa;frozen scorecard FROM the&#xa;Stage-5 verified replay" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane4">
+          <mxGeometry x="1080" y="50" width="300" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Lane 5: CI ===== -->
+        <mxCell id="lane5" value="CI — every pull request, forever" style="swimlane;startSize=30;html=1;fillColor=#1a2233;strokeColor=#8b98ab;swimlaneFillColor=#0d1424;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1400" width="1480" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="cistack" value="NEW throwaway Postgres testcontainer&#xa;+ keyless gateway, per CI run —&#xa;seeded from snapshot.gz, destroyed after" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane5">
+          <mxGeometry x="200" y="50" width="480" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="citest" value="test_boards.py&#xa;replay the board → score MUST equal golden.json&#xa;any drift fails the build, loudly" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lane5">
+          <mxGeometry x="880" y="50" width="460" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- caption -->
+        <mxCell id="caption" value="Data flows ONE WAY, top to bottom — nothing ever writes back to production; neither the bless run nor CI holds an API key." style="text;html=1;align=left;verticalAlign=middle;fontColor=#8b98ab;fontFamily=Courier New;fontSize=12;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="360" y="1630" width="1000" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- legend -->
+        <mxCell id="legend" value="Legend" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#8b98ab;verticalAlign=top;fontStyle=1;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1630" width="280" height="178" as="geometry" />
+        </mxCell>
+        <mxCell id="leg1" value="" style="rounded=1;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="30" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg1t" value="pipeline / engine" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="28" width="220" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg2" value="" style="shape=cylinder3;html=1;fillColor=#221a33;strokeColor=#a78bfa;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="54" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg2t" value="Postgres database" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="52" width="220" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg3" value="" style="rounded=1;html=1;fillColor=#33240a;strokeColor=#e8b339;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="78" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg3t" value="AI Gateway (keyless)" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="76" width="220" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg4" value="" style="rounded=1;dashed=1;html=1;fillColor=#2e250f;strokeColor=#d7b357;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="102" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg4t" value="private file / human step" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="100" width="220" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg5" value="" style="rounded=1;html=1;fillColor=#0a2b1e;strokeColor=#34d399;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="126" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg5t" value="committed fixture / key authority" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="124" width="220" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg6" value="" style="rounded=1;dashed=1;html=1;fillColor=#2c1218;strokeColor=#e06c75;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="150" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg6t" value="loud refusal path" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="148" width="220" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Edges ===== -->
+        <mxCell id="e1" value="a HUMAN runs pg_dump ONCE&#xa;read-only export, by hand" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d7b357;dashed=1;fontColor=#d7b357;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="prodDB" target="dump">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="790" y="245" />
+              <mxPoint x="1310" y="245" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e2" value="Stage 1 — stream the COPY rows" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="dump" target="parse">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1225" y="470" />
+              <mxPoint x="230" y="470" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e3" value="Stage 1 — question→answer map" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="archive" target="parse">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="420" y="500" />
+              <mxPoint x="320" y="500" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e4" value="Stage 2 SEED — merge-upload the&#xa;FULL dump (admin snapshot route)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="dump" target="gateway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="every request of the board&#xa;(Stage 3 capture run · Stage 5 verify run)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="engine" target="proxy">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" x="0" y="95" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" value="forwards on loopback&#xa;Stage 3: candidates 404 LOUDLY&#xa;Stage 5: everything HITS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.35;entryDx=0;entryDy=0;" edge="1" parent="1" source="proxy" target="gateway">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" x="0" y="-52" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" value="cache lookups / row inserts" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="gateway" target="pg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="Stage 3 — captured request bodies" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="proxy" target="helper">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="answer text + verbatim payloads" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="parse" target="helper">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="230" y="800" />
+              <mxPoint x="775" y="800" />
+              <mxPoint x="775" y="900" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" value="Stage 4 RE-KEY — new key_hash&#xa;+ archived answer payload&#xa;→ 2nd merge upload" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.8;entryDx=0;entryDy=0;" edge="1" parent="1" source="helper" target="gateway">
+          <mxGeometry x="0" relative="1" as="geometry">
+            <mxPoint as="offset" x="-150" y="30" />
+            <Array as="points">
+              <mxPoint x="1115" y="900" />
+              <mxPoint x="1115" y="660" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e11" value="Stage 6 — COPY touched rows TO STDOUT&#xa;(hit_count moved vs baseline)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="pg" target="slice">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1217" y="1000" />
+              <mxPoint x="610" y="1000" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e12" value="Stage 7 WRITE — behind the 10 MB size gate" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.2;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="slice" target="snapshot">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="526" y="1120" />
+              <mxPoint x="410" y="1120" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e13" value="sha256 + row count pin" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="snapshot" target="manifest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" value="seeds the throwaway cache" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="snapshot" target="cistack">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" value="the frozen answer key" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="golden" target="citest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" value="board replays — all cache hits,&#xa;zero keys, zero spend" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="cistack" target="citest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
