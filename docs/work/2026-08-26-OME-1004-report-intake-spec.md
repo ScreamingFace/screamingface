@@ -60,6 +60,21 @@ Docs-only unit — no code, no tests. Verification is owner review against the t
   require; caps rows for the new strings; head/tail truncation rationale made runtime-neutral
   (CPython renders the innermost frame last, V8 first). `error.traceback` is left named as-is
   and raised with the owner as the one remaining language-specific field name.
+- **Review round 2 (owner, 2026-08-26):** the owner settled both forks the spec recorded as
+  open, so §9 and §7 were stating an undecided posture that no longer existed. Landed as one
+  amendment rather than a row: §2.3 gains `403` (bot gate not satisfied) and `503` extends to
+  cover an unevaluable gate — split deliberately, because `403` means *fetch a new token* and
+  `503` means *retry unchanged*, and collapsing them makes one client behaviour wrong. §7
+  rewritten around two caller classes with the two binding constraints (rate-limit key must
+  not be attacker-controlled; the gate never covers `/healthz`). §8 gains both gate rows. §9
+  became "Decisions", recording `QueueSink`-for-v1 with `LinearSink` deferred behind
+  `OME-976`, and anonymous-admitted with the cost stated plainly. §6 marks `QueueSink` as v1
+  and adds the port-level content argument. §10 gains five verification lines.
+  Self-review caught two stale spots a targeted edit would have missed: the
+  `Cf-Turnstile-Response` header row still read "present only if anonymous submission is
+  admitted", and the preamble still claimed "the service holds the credential" — false under
+  `QueueSink`, where the reporter-needs-no-account property comes from the service standing
+  between reporter and tracker, not from holding a key.
 - **Deviations:** branched from `origin/main` at `5cba291b`, so the observability review
   spec (`docs/spec/2026-08-22-observability-traceability-review.md`, PR #688, still draft)
   is not present on this branch. This spec references it by path; the link resolves once

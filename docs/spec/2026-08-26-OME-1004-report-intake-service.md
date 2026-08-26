@@ -9,9 +9,13 @@ date: 2026-08-26
 
 `apps/report-intake` accepts an error report from a ScreamingFace client, persists it, and
 files it into the **private** Linear workspace. Its reason to exist is that a reporter
-should need no account of their own — the service holds the credential, so a researcher in
-a notebook can send a diagnosable bug report without a GitHub login, a Linear seat, or an
-email we can verify.
+should need no account of their own: a researcher in a notebook can send a diagnosable bug
+report without a GitHub login, a Linear seat, or an email we can verify.
+
+In v1 the service itself holds no Linear credential either — `QueueSink` stores the report
+and an agent files it via MCP during triage (§9). The reporter-needs-no-account property
+comes from the service standing between the reporter and the tracker, not from the service
+holding a key.
 
 Epic: `OME-1002`. The decisions behind it are recorded in
 `docs/spec/2026-08-22-observability-traceability-review.md` §6 Phase 3 and in the
@@ -65,7 +69,7 @@ allowlist is not an authorization control and is not counted as one.
 |---|---|
 | `Idempotency-Key` | client-minted; recommended. Absent means the service cannot dedupe a retry. |
 | `X-User-Email` | **honoured only when injected by the mesh.** Any client-supplied copy is stripped at the edge. |
-| `Cf-Turnstile-Response` | present only if anonymous submission is admitted — see §7. |
+| `Cf-Turnstile-Response` | **required for anonymous callers**; ignored for mesh-verified ones — see §7. |
 
 ```jsonc
 {
@@ -195,13 +199,23 @@ RFC 9457 `application/problem+json`, matching the engine's existing convention i
 | Status | Cause |
 |---|---|
 | `400` | malformed JSON; unknown `schema` **major** |
+| `403` | bot gate not satisfied — anonymous caller, missing or invalid Turnstile token |
 | `413` | body over cap — `detail` **names the cap** |
 | `422` | schema violation (field pointers), or content rejected (§4) |
 | `429` | rate limited |
-| `503` | storage unavailable |
+| `503` | storage unavailable, **or** the bot gate could not be evaluated |
 
 A `503` is meaningful to the client: it means *nothing was stored*, so the client must fall
 back to writing the report to disk rather than assuming delivery.
+
+**`403` and `503` split the two ways a gate can stop a report, because the client must do
+different things.** A `403` says *your token was missing or rejected* — obtain a fresh one
+and retry; retrying the same token is pointless. A `503` says *we could not reach
+siteverify* — nothing was stored, so back off and retry unchanged, exactly as for storage.
+Collapsing both into one status would make one of those two behaviours wrong.
+
+A mesh-verified caller never sees `403`: identity satisfies the gate, so the Turnstile path
+is not reached (§7).
 
 ### 2.4 Caps
 
@@ -292,9 +306,13 @@ for idempotency, retry, and operational forensics.
 `TicketSink` is a port. Core defines it; core never imports an adapter; wiring happens in a
 registry.
 
-- **`LinearSink`** — creates the issue directly. Requires the `OME-976` amendment.
-- **`QueueSink`** — the fallback: mark the record ready and let an agent file it via MCP
-  during triage. Still private Linear, but asynchronous and with no ticket id returned.
+- **`QueueSink`** — **v1.** Mark the record ready and let an agent file it via MCP during
+  triage. Still private Linear, but asynchronous and with no ticket id returned.
+- **`LinearSink`** — **deferred**, gated on `OME-976`. Creates the issue directly. See §9.
+
+A sink receives already-rendered ticket content, never a report object. An adapter cannot
+leak a payload it was never handed, which is what keeps the §4 content rule enforceable at
+the port rather than by convention inside each adapter.
 
 **Ticket content:** the envelope, `trace_id`, `ref`, the reporter's note, `reply_to` when
 present, and the caller email when the mesh supplied one. **Never** prompt-bearing content
@@ -307,7 +325,15 @@ limits.
 
 ## 7. Identity and auth
 
-Settled regardless of the open fork:
+**Anonymous submission is admitted** (owner, 2026-08-26 — see §9). Two caller classes reach
+the same endpoint:
+
+- **Mesh-verified** — Envoy injected `X-User-Email` after re-verifying the Cloudflare Access
+  assertion. The bot gate is skipped; identity already answers the question the gate asks.
+- **Anonymous** — no mesh identity. A valid Cloudflare Turnstile token is required (`403`
+  without one) and an edge rate limit applies (`429`).
+
+Settled for both classes:
 
 - `X-User-Email` is trusted **only** when Envoy injects it after re-verifying the
   Cloudflare Access assertion, exactly as aigateway does. Client-supplied copies are
@@ -319,7 +345,16 @@ Settled regardless of the open fork:
 - **Nothing is ever authorized by `trace_id` or `run_id`.** An id in a report is a claim,
   not a credential (`OME-966`).
 
-The rest depends on the `OME-973` fork — see §9.
+Two consequences of admitting anonymous callers, both binding on implementation:
+
+- **The rate-limit key must not be attacker-controlled.** Trusting `CF-Connecting-IP`
+  whenever the peer is inside the trusted networks means trusting it always, since the mesh
+  proxy is always the peer. Key on the verified connection, strip inbound copies of
+  `CF-Connecting-IP` at the edge alongside `X-User-Email`, and make key-table overflow refuse
+  new keys as throttled rather than evicting old ones — filling the table must fail closed.
+- **The bot gate never gates liveness.** `/healthz` and `/readyz` answer regardless of caller
+  class or auth posture. A probe endpoint behind an auth check is how a pod ends up failing
+  its own kubelet probe.
 
 ## 8. Failure modes
 
@@ -332,34 +367,53 @@ The rest depends on the `OME-973` fork — see §9.
 | over body cap | `413` naming the cap | truncate and retry once, else disk |
 | content present | `422` | drop content, resend envelope |
 | rate limited | `429` | back off, offer disk fallback |
+| no/invalid bot token | `403`, nothing stored | fetch a fresh token, retry once, else disk |
+| siteverify unreachable | `503`, nothing stored | back off and retry unchanged, else disk |
 
 The client rule behind this table: **a report is never lost.** Every terminal failure path
 ends with the report on the user's disk and a path printed.
 
-## 9. Open decisions
+## 9. Decisions
 
-Both block implementation, not this spec.
+Both forks that blocked implementation were settled by the owner on 2026-08-26. Recorded
+here rather than only in a ticket, because an unwritten amendment is the thing that gets
+re-litigated in six months.
 
-**`OME-976` — rule 9.** As written, CLAUDE.md rule 9 forbids product code from calling
-Linear's API. Amending it selects `LinearSink`; declining selects `QueueSink` and the
-reporter stops getting a ticket id. The amendment must also state where the credential
-lives and who rotates it — a long-lived Linear API key in a deployed service is a new
-secret class for this repo.
+**Sink — `QueueSink` for v1; `LinearSink` deferred.** CLAUDE.md rule 9 forbids product code
+from calling Linear's API. Rather than amend the rule to unblock this service, v1 ships the
+`TicketSink` port with `QueueSink` only: the service marks a record ready and an agent files
+it via MCP during triage. Reports still reach private Linear; the reporter gets a `ref` but
+no ticket id, which the success shape already models as `delivery.state: "pending"`.
 
-**`OME-973` — anonymous or authenticated.** This decides whether the abuse surface exists
-at all.
+This keeps `OME-976` off the critical path and introduces no new secret class — no long-lived
+Linear API key in a deployed service. `LinearSink` remains a follow-up gated on `OME-976`
+landing *and* on a decision about where that credential lives and who rotates it. Because
+the port is the seam, adding it later is one adapter plus one registry entry.
 
-| | Authenticated | Anonymous |
+**Auth — anonymous submission is admitted**, with Turnstile and an edge rate limit;
+mesh-verified callers bypass the gate.
+
+| | Mesh-verified | Anonymous |
 |---|---|---|
-| gate | none | Turnstile + edge rate limit |
+| gate | none — identity suffices | Turnstile (`403`) + edge rate limit (`429`) |
 | `X-User-Email` | mesh-injected | absent |
-| `reply_to` | ignored | accepted, unverified |
+| `reply_to` | accepted, but identity is already known | accepted, unverified |
 | content | rejected | rejected |
 
-Admitting anonymous callers makes this the repo's first unauthenticated write that reaches
-human eyes, in a codebase with no rate limiting anywhere. The stakes rose when reports were
-routed to private Linear: spam lands in the workspace the team works in, rather than a
-public tracker that could be moderated at arm's length.
+This was chosen knowing it is the larger surface. The reason is that the client producing the
+richest reports is the one that cannot authenticate: the Python SDK holds a Cloudflare Access
+token but parses only `exp` from it, so it has no email and no way to present one.
+Authenticated-only would have made the best reports unsendable.
+
+The cost is real and is accepted: this becomes the repo's **first unauthenticated write that
+reaches human eyes**, in a codebase with no rate limiting anywhere today, and spam lands in
+the private workspace the team works in rather than a public tracker moderated at arm's
+length. Turnstile and the edge rate limit are therefore part of the work, not a follow-up —
+see the two binding constraints in §7.
+
+**Still open, and owned elsewhere:** `OME-967` (client-minted trace id) is a degradation, not
+a blocker. `correlation` is all-nullable by design, so a report without a trace id is weaker,
+not invalid — until it lands, reports join on *(endpoint, approximate timestamp)* only.
 
 ## 10. Verification
 
@@ -373,5 +427,12 @@ public tracker that could be moderated at arm's length.
 - The same `Idempotency-Key` twice produces one row and one ticket.
 - Storage down returns `503` and creates nothing.
 - A forged `X-User-Email` from outside the mesh is not honoured.
+- An anonymous request with no Turnstile token is `403` and creates nothing; with a valid
+  token it is accepted; a mesh-verified request is accepted with no token at all.
+- With siteverify unreachable, the response is `503` and not `403` — the client must be told
+  to retry unchanged rather than to fetch a new token.
+- Rotating the client-IP header does not reset the rate-limit budget, and filling the key
+  table throttles rather than releasing budgets.
+- `/healthz` answers 200 from a non-loopback caller in every auth posture.
 - `helm template` renders for default and prod values; `verify_chart_wiring.py` asserts
   something real about this chart; liveness and readiness point at **different** endpoints.
