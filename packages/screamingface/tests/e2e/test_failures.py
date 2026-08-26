@@ -381,7 +381,8 @@ def failure_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Failure
     if not (assets / "draco").is_dir():
         pytest.skip(
             f"the failure rehearsal drives the {BOARD} board and needs prepared draco "
-            f"assets at {assets / 'draco'} (run `just stack-prepare` or set {_ASSETS_ENV})"
+            f"assets at {assets / 'draco'} "
+            f"(run `screamingface prepare draco` and set {_ASSETS_ENV})"
         )
     fake = FakeGateway(load_tape(SCENARIO_TAPES["rate_limit_429"]))
     engine = EngineProcess(work_dir=tmp_path_factory.mktemp("failure-stack"), assets_dir=assets)

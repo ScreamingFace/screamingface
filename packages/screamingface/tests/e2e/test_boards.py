@@ -14,7 +14,8 @@ missing; it never fake-passes. Three prerequisites per board:
   these from a seeded deployment; draco is the tracer board),
 - ``fixtures/goldens/<board>.golden.json`` — the blessed expected outcome,
 - prepared benchmark assets under ``$SCREAMINGFACE_E2E_ASSETS`` (default
-  ``/tmp/screamingface-benchmark-assets``, the ``just stack-prepare`` location).
+  ``/tmp/screamingface-benchmark-assets``; ``screamingface prepare --all`` fills
+  ``~/.screamingface/benchmark-assets`` — point the variable there).
 """
 
 from __future__ import annotations
@@ -71,7 +72,7 @@ def _require_board_fixtures(board: str) -> tuple[Path, Path | None, GoldenReport
     if not assets.is_dir():
         pytest.skip(
             f"board '{board}' needs prepared benchmark assets at {assets} "
-            f"(run `just stack-prepare` or set {_ASSETS_ENV})"
+            f"(run `screamingface prepare --all` and set {_ASSETS_ENV})"
         )
     manifest = SNAPSHOTS_DIR / f"{board}.manifest.json"
     return snapshot, (manifest if manifest.exists() else None), load_golden(golden_path)

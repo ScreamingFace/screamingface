@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import threading
+import types
 from pathlib import Path
 
 import pytest
@@ -289,8 +290,144 @@ def test_local_runtime_enables_openrouter_without_overriding_an_explicit_choice(
     enable_local_providers(default_environment)
     enable_local_providers(disabled_environment)
 
-    assert default_environment == {"AIGW_OPENROUTER_ENABLED": "true"}
-    assert disabled_environment == {"AIGW_OPENROUTER_ENABLED": "false"}
+    # WHY no exact-dict assert since OME-1001: the local defaults grew when the
+    # justfile's environment moved into the runtime; this test keeps guarding only
+    # its original invariant — the default enables, an explicit choice survives.
+    assert default_environment["AIGW_OPENROUTER_ENABLED"] == "true"
+    assert disabled_environment["AIGW_OPENROUTER_ENABLED"] == "false"
+
+
+def test_local_gateway_defaults_carry_the_justfile_environment() -> None:
+    # FEATURE: one stack command (OME-1001) — the deleted justfile's env exports
+    # live on as runtime defaults, or local evals regress the moment it is gone.
+    environment: dict[str, str] = {}
+
+    enable_local_providers(environment)
+
+    assert environment == {
+        "AIGW_OPENROUTER_ENABLED": "true",
+        # WHY: re-activates stored provider profiles at boot; without it a restarted
+        # gateway exposes no openrouter/* models.
+        "AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE": "1",
+        # WHY 32: one Engine run fans out up to 32 concurrent model calls but the
+        # gateway's per-provider default admits 4 — queued calls burn the Engine's
+        # 600s per-call budget and full HealthBench evals die (OME-889).
+        "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": '{"openrouter": 32}',
+    }
+
+
+def test_local_gateway_defaults_never_override_an_explicit_operator_choice() -> None:
+    explicit = {
+        "AIGW_OPENROUTER_ENABLED": "false",
+        "AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE": "0",
+        "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": '{"openrouter": 4}',
+    }
+
+    environment = dict(explicit)
+    enable_local_providers(environment)
+
+    assert environment == explicit
+
+
+def _running_state(config: RuntimeConfig, source_record: dict[str, object] | None) -> None:
+    state: dict[str, object] = {
+        "schema_version": 1,
+        "pid": 42,
+        "owner_token": "secret",
+        "services": config.services,
+    }
+    if source_record is not None:
+        state["source"] = source_record
+    cli._write_state(config, state)
+
+
+def _stub_runtime_extra(monkeypatch: pytest.MonkeyPatch) -> None:
+    # WHY a sys.modules stub: the server module imports uvicorn at import time, and
+    # the SDK test environment deliberately installs no runtime extra.
+    module = types.ModuleType("screamingface._runtime.server")
+    module.require_runtime_extra = lambda: None  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "screamingface._runtime.server", module)
+
+
+def _healthy_owned_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_runtime_extra(monkeypatch)
+    monkeypatch.setattr(cli, "_verify_owner", lambda _state: True)
+    monkeypatch.setattr(cli, "_health", lambda services: dict.fromkeys(services, True))
+
+
+def test_up_adopts_a_healthy_stack_from_the_same_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, {"mode": "bundled", "root": None})
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+
+    cli._up(config, foreground=False)
+
+    assert "already running" in capsys.readouterr().out
+
+
+def test_up_refuses_a_healthy_stack_owned_by_a_different_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT (OME-1001): two worktrees must not silently share one stack — a
+    # benchmark would run another branch's code and produce results that look
+    # right but aren't.
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, {"mode": "checkout", "root": "/somewhere/else"})
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+
+    with pytest.raises(RuntimeError, match="screamingface down"):
+        cli._up(config, foreground=False)
+
+
+def test_up_still_adopts_state_written_before_source_records_existed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # WHY: a stack started by a pre-OME-1001 build carries no source record; there
+    # is no identity to compare, so adoption keeps working across the upgrade.
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, None)
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+
+    cli._up(config, foreground=False)
+
+    assert "already running" in capsys.readouterr().out
+
+
+def test_prepare_children_inherit_the_live_checkout_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from screamingface._runtime import source as runtime_source
+
+    config = RuntimeConfig(data_dir=tmp_path)
+    checkout = runtime_source.RuntimeSource(
+        mode=runtime_source.MODE_CHECKOUT, root=tmp_path / "monorepo"
+    )
+    recorded: dict[str, object] = {}
+
+    def record_run(command: list[str], *, check: bool, env: dict[str, str]) -> None:
+        recorded["env"] = env
+
+    _stub_runtime_extra(monkeypatch)
+    monkeypatch.setattr(runtime_source, "resolve_source", lambda _environment: checkout)
+    monkeypatch.setattr(cli, "_benchmark_status", lambda _config, _name: "missing")
+    monkeypatch.setattr(cli, "_validate_benchmark_output", lambda _name, _out: ["cases.json"])
+    monkeypatch.setattr(cli, "_benchmark_fingerprint", lambda _name: "draco:revision")
+    monkeypatch.setattr(cli.subprocess, "run", record_run)
+
+    cli._prepare(config, "draco", all_benchmarks=False)
+
+    # INVARIANT: the preparer child is a fresh interpreter with no sys.path
+    # activation of its own — PYTHONPATH is how the live engine code reaches it.
+    environment = recorded["env"]
+    assert isinstance(environment, dict)
+    assert str(tmp_path / "monorepo" / "apps/screamingface-engine/src") in environment[
+        "PYTHONPATH"
+    ].split(os.pathsep)
 
 
 def test_scoreboard_seed_is_derived_from_engine_benchmark_identity() -> None:
