@@ -223,6 +223,55 @@ async def test_iteration_on_error_collect_captures_failures() -> None:
 
 
 @pytest.mark.asyncio
+async def test_iteration_collect_preserves_code_and_retryable() -> None:
+    # OME-924: a collected row must keep the exception's own diagnostics (code +
+    # retryable), so a collect-boundary consumer can render the ORIGINAL upstream
+    # failure instead of falling back to a default code. ``permanent`` travels as
+    # ``retryable`` (its inverse) — permanent errors must not be retried.
+    from url4.core.errors import ResolutionError
+
+    def rate_limited(_context: str, _intent: str) -> str:
+        raise ResolutionError("rate limit reached", code="rate_limited", permanent=False)
+
+    rows = json.dumps([{"q": "x"}])
+    resolver = StaticIOLayer(
+        fetch_map={"https://data": rows},
+        routes={"/solve": rate_limited},
+    )
+    ctx = ExecutionContext(resolver, strict_fields=True)
+    node = Iteration(collection=Url("https://data"), body="/solve($q)!go")
+    result = await run(node, ctx=ctx)
+    (row,) = json.loads(result)
+    assert row == {
+        "error": {
+            "kind": "ResolutionError",
+            "code": "rate_limited",
+            "message": "rate limit reached",
+            "retryable": True,
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_iteration_collect_leaves_retryable_unset_without_permanent() -> None:
+    # A non-URL4 exception carries no ``code``/``permanent``: the payload keeps the
+    # legacy kind/message pair so older readers stay byte-compatible.
+    def broken(_context: str, _intent: str) -> str:
+        raise RuntimeError("boom")
+
+    rows = json.dumps([{"q": "x"}])
+    resolver = StaticIOLayer(
+        fetch_map={"https://data": rows},
+        routes={"/solve": broken},
+    )
+    ctx = ExecutionContext(resolver, strict_fields=True)
+    node = Iteration(collection=Url("https://data"), body="/solve($q)!go")
+    result = await run(node, ctx=ctx)
+    (row,) = json.loads(result)
+    assert row == {"error": {"kind": "RuntimeError", "message": "boom"}}
+
+
+@pytest.mark.asyncio
 async def test_empty_collection_resolves_to_empty_array() -> None:
     # Spec §5.3.9 — zero elements is a SUCCESS with an empty result collection.
     resolver = StaticIOLayer(fetch_map={"https://data": "[]"})
