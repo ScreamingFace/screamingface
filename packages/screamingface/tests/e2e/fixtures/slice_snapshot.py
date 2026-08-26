@@ -1,5 +1,9 @@
 """Bless one board's replay fixtures from the owner-held recordings (OME-964).
 
+Bless = a human looks at an output once, decides "yes, this is the correct answer,"
+and freezes it as the official answer that all future test runs must match. 
+Same idea as "golden file" — blessing is the act of stamping a file as golden.
+
 Run it from the SDK project (docker running, benchmark assets prepared once via
 ``just stack-prepare``):
 
