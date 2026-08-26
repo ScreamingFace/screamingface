@@ -52,7 +52,25 @@ artifacts. Strictly next-Friday (no catch-up), keep-all, schedule-only. Spec (ap
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** spec/plan/mirrors (docs/) + `core/request_cache/snapshot_export.py`,
+  `core/sigv4.py`, `core/object_store.py`, `core/snapshot_scheduler.py`, `config.py`
+  fields+validator, `main.py` lifespan wiring, chart (`values.yaml`, `_helpers.tpl`,
+  `snapshot-secret.yaml`, `garage.yaml`, `configmap.yaml`, `deployment.yaml`); tests:
+  `test_snapshot_export.py`, `test_cache_snapshot_export_postgres.py`,
+  `test_sigv4.py`, `test_object_store.py`, `test_snapshot_scheduler.py`,
+  `test_cache_snapshot_settings.py`, `test_cache_snapshot_wiring.py`
+- **Commits:**
+  - `3509987a` docs: spec, plan, and OME-1021 mirrors
+  - `2b73c7ab` feat: cache snapshot exporter — OME-952 byte emitter
+  - `80ff458c` test: export round-trip vs real Postgres
+  - `fd63bbcb` feat: PUT-only SigV4 object store
+  - `5a645f21` feat: weekly cache-snapshot scheduler
+  - `157a2531` feat: AIGW_CACHE_SNAPSHOT_* settings, fail-fast
+  - `fff359bc` feat: arm the scheduler in the lifespan
+  - `74d3d2af` feat: chart wiring (Garage, secret, env)
+- **Gates:** `run_gates.py aigateway --base origin/main` — ALL GATES GREEN (ruff,
+  format, pyright, check_no_enterprise, pytest 92%+ cov); helm lint + `helm template`
+  in all three modes + values-prod render + `verify_chart_wiring.py` 31/31
+- **Deviations:** `pg_dump` is absent in this dev environment, so the pre-existing
+  `test_cache_snapshot_upload_postgres.py` cannot run locally (CI has it); the new
+  export Postgres tests (no pg_dump dependency) pass. No plan deviations.
