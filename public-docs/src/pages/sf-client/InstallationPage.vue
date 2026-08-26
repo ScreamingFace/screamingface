@@ -78,8 +78,8 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
     <CodeBlock :code="pypiTerminal" language="bash" />
 
     <p>
-      The <code>[notebook]</code> extra pulls in ipywidgets and jupyterlab, so
-      <code>sf.connect()</code> renders a live panel; drop it for scripts. Everything else,
+      The <code>[notebook]</code> extra pulls in ipywidgets, so <code>sf.connect()</code> renders a
+      live panel in whatever Jupyter frontend you already use; drop it for scripts. Everything else,
       including <RouterLink to="/learn/url4"><code>url4</code></RouterLink
       >, resolves automatically. A quick check that it worked:
     </p>
