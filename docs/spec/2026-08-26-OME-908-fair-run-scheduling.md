@@ -2,8 +2,9 @@
 
 - **Linear:** https://linear.app/openmined/issue/OME-908/fair-schedule-concurrent-engine-runs-so-one-large-benchmark-run-doesnt
 - **Landing:** `apps/screamingface-engine`
-- **Status:** input to the design session named by the Linear labels. Nothing below is
-  implemented. Implementation starts only after the owner approves in plain words.
+- **Status:** approved and implemented. The owner approved this spec in session on 2026-08-26
+  (decision points resolved below); implementation is PR #750. Post-approval amendments are
+  dated inline.
 - **Related:** OME-907 (cache prefill misses on first-time runs), OME-931 (sequential Case
   admission — the origin of the per-Case serial shape), OME-886 (gateway admission telemetry).
 
@@ -132,7 +133,10 @@ V1 and is the reason Layer 2 exists.
 **Local mode — dynamic, work-conserving.** `InProcessJobRunner` owns one shared
 `FairShareGate` with capacity `Settings.local_io_capacity` (default 32). Each run's executor
 receives an I/O wrapper that asks the gate for a permit per fetch, instead of URL4's per-run
-`BoundedIOLayer`. The gate is a deficit-round-robin scheduler over active runs:
+`BoundedIOLayer`. The gate is a fewest-in-flight scheduler over active runs (each grant goes to the waiting
+run holding the fewest permits, ties by earliest arrival — equal-weight max-min fairness;
+amended 2026-08-26: an earlier draft named this "deficit-round-robin", which is a different
+mechanism — no deficit counters exist):
 
 - Permit grant is a synchronous critical section (no `await` between check and grant — the same
   discipline `url4.dag.executor._run` documents for its memo table).
@@ -154,8 +158,9 @@ V1 (a weight field is a deliberate non-goal until a product need exists).
 Replace the per-provider FIFO `asyncio.Semaphore` with a round-robin waiter queue keyed by the
 caller identity header the gateway already reads, plus per-class slot-wait telemetry. Exact
 work-conserving max-min at the bottleneck; works for every engine replica; no contract change.
-Filed as a separate ticket per the cross-cutting rule (one sub-issue per app). This unit does
-not touch `apps/aigateway`.
+A separate ticket per the cross-cutting rule (one sub-issue per app) — the ticket text is
+drafted in the work ledger (2026-08-26), filing pending the owner (Linear writes are
+owner/MCP actions). This unit does not touch `apps/aigateway`.
 
 ### Layer 3 — ops guidance (documentation only in this unit)
 
@@ -200,8 +205,11 @@ Document in the engine chart and README:
   removed and successor woken; error path releases the permit; run completion hands the share
   over on the next admission decision.
 - **Plumbing tests:** env present → `url4_run` receives the value; env absent → the call shape
-  is unchanged (pin the kwarg absence); `K8sJobRunner` manifest carries the env only when the
-  setting is set; local mode injects the shared gate; deployed mode does not.
+  is unchanged (pin the kwarg absence); `K8sJobRunner` manifest carries the env on every Job
+  (amended 2026-08-26, implementation review: `runner_io_concurrency` is a required setting
+  with default 16, so no "unset" branch exists — and an explicit entry on every Job beats a
+  stale `envFrom` copy, the same invariant `EXTRA_MODELS` carries); local mode injects the
+  shared gate; deployed mode does not.
 - **Integration (local spine):** two in-process runs through the mock gateway with a slow
   endpoint; both progress concurrently and both complete; a solo run's completion order and
   frame counts stay unchanged against a recorded baseline.
@@ -233,6 +241,45 @@ Document in the engine chart and README:
 2. Two concurrent local runs each hold a bounded, near-equal share of downstream calls, and
    both complete; the invariant tests pass deterministically.
 3. A solo local run's dispatch ceiling and completion behavior are unchanged from main.
-4. K8s Jobs carry `URL4_CLOUD_IO_CONCURRENCY` when configured; nothing changes when unset.
+4. K8s Jobs carry `URL4_CLOUD_IO_CONCURRENCY` on every Job. (Amended 2026-08-26,
+   implementation review: the setting is required with default 16, so "when unset" is
+   unreachable — and an explicit entry on every Job is what keeps a stale ConfigMap copy from
+   reaching a Job through `envFrom`.)
 5. The full `screamingface-engine` gate suite passes.
 6. The companion ticket and the ops note exist before this unit closes.
+
+## Decisions (D0–D5) — recorded 2026-08-26
+
+The owner approved this spec in session on 2026-08-26. The resolutions below are recorded
+from that approval and the implementation review:
+
+- **D0 — locus:** the code-level analysis (Problem §1–4) was accepted as the locus evidence;
+  the ops checklist was not run. Residual: if the symptom recurs, run the Layer 0 checklist
+  before re-touching the scheduler.
+- **D1 — default on:** Layer 1 ships enabled (k8s 16 static, local 32 dynamic), with one
+  setting to revert (`config.runnerIoConcurrency: 32`).
+- **D2 — the 16:** confirmed from the code-verified capacity math; revisit alongside the D0
+  residual if openrouter overrides or gateway worker counts change.
+- **D3 — deadline:** no batch deadline bump; consequence (b) holds — OME-907 prefill is the
+  lever that matters at the slow end.
+- **D4 — companion split:** approved; ticket text drafted in the work ledger, filing pending
+  the owner.
+- **D5 — weights:** equal weights for V1.
+
+## Acceptance criteria — resolution (recorded 2026-08-26)
+
+1. Met by equivalent evidence: the verified code analysis names the locus; dispatch counters
+   shipped totals-only (`screamingface_engine_fair_share_*`) — per-run labels were dropped
+   for cardinality discipline (topics are unbounded and mintable), and timeout/retry counters
+   plus span events were not added. The ops checklist is the D0 residual above.
+2. Met: `test_fair_share_gate.py` (14 invariants) and the two-run interleave test in
+   `test_runner_io_concurrency.py` pin it deterministically.
+3. Met at the dispatch-ceiling level (solo saturation is pinned at gate level and through the
+   executor pair); the plan's recorded-baseline frame pin was not implemented — deviation
+   recorded in the work ledger. A solo run's path differs from main only by the wrapper's
+   permit acquire/release around each fetch.
+4. Amended — see the criterion above (unconditional write).
+5. Met: the full gate suite is green (the two in-place test modifications carry an explicit
+   owner approval, recorded in the work ledger).
+6. Partial: the ops note exists (engine README "Fair scheduling"; chart runner-block comment
+   added 2026-08-26); the companion ticket is drafted, not yet filed (owner action).

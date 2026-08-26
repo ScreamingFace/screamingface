@@ -371,6 +371,10 @@ runner:
   # responses) — with nothing set it schedules BestEffort: placed blind, evicted first, and
   # free to OOM the node it shares. Memory limit always; no CPU limit, so a run can burst into
   # idle CPU instead of being CFS-throttled mid-inference.
+  # CO-SCHEDULING (OME-908 Layer 3): size these so at least two benchmark Jobs fit at once.
+  # If the cluster admits only one at a time, a second run sits `Pending` until the first
+  # exits — the same caller-visible symptom as gateway queue starvation, but the fix is
+  # capacity (requests/quotas/tolerations), never `config.runnerIoConcurrency`.
   resources:
     requests:
       cpu: 200m

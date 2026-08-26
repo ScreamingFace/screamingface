@@ -31,7 +31,9 @@ Expected: all fail (no `fair_share` module exists yet).
 
 New file `apps/screamingface-engine/src/screamingface_engine/runner/fair_share.py`:
 
-- `FairShareGate(capacity: int)` — deficit-round-robin over per-run FIFO queues; grant is a
+- `FairShareGate(capacity: int)` — fewest-in-flight grant over per-run FIFO queues, ties by
+  earliest arrival — equal-weight max-min fairness (amended 2026-08-26: the earlier
+  "deficit-round-robin" named a different mechanism; no deficit counters exist); grant is a
   synchronous critical section; `release` is the only wakeup point; close cancels waiters.
 - `FairShareIOLayer(inner, gate, run_id)` — a URL4 `IOLayer` wrapper that acquires a permit
   per `fetch`/`fetch_ex` and forwards capability ports exactly like
@@ -63,14 +65,22 @@ Expected: all fail.
 - `src/screamingface_engine/config.py`: add `runner_io_concurrency: int = 16` and
   `local_io_capacity: int = 32` (validated ≥ 1), each with the alias comment pattern the file
   already uses.
-- `src/screamingface_engine/adapters/k8s.py`: in `_env(...)`, append the env entry when the
-  setting is set; omit it when unset.
+- `src/screamingface_engine/adapters/k8s.py`: in `_env(...)`, append the env entry
+  UNCONDITIONALLY (amended 2026-08-26, implementation review: `runner_io_concurrency` is a
+  required setting with default 16, so no "unset" branch exists — and an explicit entry on
+  every Job beats a stale `envFrom` copy, the same invariant `EXTRA_MODELS` carries).
 - `src/screamingface_engine/adapters/factory.py`: pass `runner_io_concurrency` into
   `K8sJobRunner`.
 - `src/screamingface_engine/runner/main.py` (`build_executor`) and
-  `runner/executor.py` (`Url4Executor`): read the env; thread an optional
-  `io_concurrency: int | None` and an optional shared gate into the executor; pass
-  `concurrency=io_concurrency` to `url4_run` only when it is not `None`.
+  `runner/executor.py` (`Url4Executor`): read the env; thread an optional `io_concurrency`
+  and an optional io-wrapper (the gate binding) into the executor. Amended 2026-08-26 — the
+  `url4_run` kwarg is TRI-state: OMITTED when unconfigured (pre-OME-908 byte-identical),
+  `concurrency=N` when the env carries a budget, and an EXPLICIT `concurrency=None` when the
+  gate wraps the run's io (the gate replaces, not stacks under, URL4's per-run
+  `BoundedIOLayer` — the two-state instruction here would have stacked it).
+- `src/screamingface_engine/adapters/inprocess.py` (added 2026-08-26, implementation
+  review): pop any ambient `URL4_CLOUD_IO_CONCURRENCY` from a local run's env — local's
+  bound is the shared gate, never a static env, even one exported in an operator's shell.
 - `src/screamingface_engine/local.py` (`create_local_app`): build one `FairShareGate`
   (capacity `local_io_capacity`), hand it to the runner factory's executor builds, and close
   it on app shutdown next to the existing shutdown hooks.
@@ -87,8 +97,14 @@ Layering note: `fair_share.py` lives under `runner/` (run-mode infrastructure, l
 - Add a solo-run pin to `tests/unit/test_inprocess_runner.py`: with one active run, the
   executor's dispatch ceiling equals the full gate capacity, and the recorded frame sequence
   for a fixed expression is unchanged.
-- Add the k8s manifest assertion to the existing runner manifest test file: env present when
-  configured, absent when not.
+- Add the k8s manifest assertion to the existing runner manifest test file: the env is
+  present on every Job (the default-16 and override variants; amended 2026-08-26 — see §4:
+  the write is unconditional).
+
+Placement amendment (2026-08-26): the two-run interleave and the solo saturation pins live
+in `tests/unit/test_runner_io_concurrency.py` — two real executors against one mock gateway
+with parked requests — which exercises the same invariants without the spine harness; the
+recorded-frame baseline pin was not implemented. Deviation recorded in the work ledger.
 
 ## 6. Observability slice (small, engine-only)
 
@@ -116,6 +132,13 @@ Layering note: `fair_share.py` lives under `runner/` (run-mode infrastructure, l
 - The gate adds one `await` point per fetch. The wrapper must not wrap the inner layer's
   non-I/O capability declarations (route listing is not I/O — same rule `BoundedIOLayer`
   applies).
-- Rollback: set `runner_io_concurrency` unset and `local_io_capacity` to the per-run default
-  path (gate skipped when capacity is unset) — one settings change, no redeploy of URL4 or
-  the gateway.
+- Rollback (amended 2026-08-26, implementation review — the recipe below named knobs that do
+  not exist: both settings are required ints and the gate has no skip path): deployed mode —
+  set `config.runnerIoConcurrency: 32` in the chart; every Job then runs exactly its
+  pre-OME-908 width. Local mode has no off-switch by design: `local_io_capacity` is always
+  ≥ 1, a solo run's ceiling and speed are unchanged, and interleaving concurrent runs IS the
+  feature — lower the capacity to shape local arrivals. No redeploy of URL4 or the gateway
+  in either case.
+- Original (kept for the record, superseded above): set `runner_io_concurrency` unset and
+  `local_io_capacity` to the per-run default path (gate skipped when capacity is unset) —
+  one settings change, no redeploy of URL4 or the gateway.

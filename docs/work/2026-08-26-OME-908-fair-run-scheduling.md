@@ -59,14 +59,51 @@ approved by the owner in session after the gate halted:
 2. `test_url4_executor.py` — `_ALLOWED_RUNNER_IMPORTERS` gains
    `runner/fair_share.py` (an io-port adapter in `connector.py`'s sense).
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
 - **Actual files:** as planned, plus `deploy/helm/values.yaml`, `values.schema.json`,
   `templates/configmap.yaml`, `README.md`, spec/plan/task/work/diagram docs.
-- **Commits:** f31e701a (docs: spec + plan) and this commit (implementation) — `Refs: OME-908`
-- **Gates:** ruff check/format clean · pyright 0 errors · check_layering OK ·
-  append-only OK post-approval · pytest 2070+ passed (unit+integration), coverage ≥ 80
-  (final line recorded in the PR run)
-- **Deviations:** none from the spec. One discovered necessity: `FairShareIOLayer`
-  forwards `default_route` (unlike URL4's `BoundedIOLayer`, which never needs to) —
-  documented in-code.
+- **Commits:** f31e701a (docs: spec + plan), 56596c6c (implementation), and the post-review
+  documentation-alignment commit — all `Refs: OME-908`.
+- **Gates:** ALL GREEN (`run_gates.py screamingface-engine`): append-only (approval below),
+  ruff check/format, pyright, layering, pytest + coverage ≥ 80.
+- **Deviations from the written spec/plan** (spec and plan amended 2026-08-26 to match;
+  D0–D5 resolutions and per-criterion status live in the spec):
+  1. The Job env is written UNCONDITIONALLY, not "when the setting is set" — the setting is
+     required (default 16), and an explicit entry on every Job beats a stale `envFrom` copy
+     (the `EXTRA_MODELS` invariant).
+  2. Metrics are totals-only (`screamingface_engine_fair_share_*`): no per-run labels (topics
+     are unbounded and mintable — cardinality discipline), no timeout/retry counters, no span
+     events.
+  3. The scheduler rule is fewest-in-flight/earliest-arrival (equal-weight max-min), not the
+     "deficit-round-robin" the early drafts named.
+  4. The `url4_run` kwarg is tri-state (omitted / `N` / explicit `None`); the plan's
+     two-state instruction would have stacked `BoundedIOLayer` under the gate.
+  5. The two-run interleave and solo saturation pins landed in
+     `tests/unit/test_runner_io_concurrency.py` (real executors on a parking mock gateway)
+     instead of extending the integration spine; the recorded-frame baseline pin was not
+     implemented.
+  6. The chart's co-scheduling note landed in the README first; the values.yaml runner-block
+     comment was added post-review.
+  Discovered during implementation: `FairShareIOLayer` forwards `default_route` (unlike
+  URL4's `BoundedIOLayer`, which binds after ctx creation and never needs to) — documented
+  in-code.
+
+## Companion ticket draft (Layer 2 — filing pending the owner)
+
+The cross-cutting rule makes the gateway half its own sub-issue; Linear writes are
+owner/MCP actions, so the text sits here until filed. When filed, link it from the spec's
+Layer 2 and from OME-908.
+
+- **Title:** Fair per-identity provider semaphore at the aigateway (OME-908 Layer 2)
+- **App:** `apps/aigateway` (one sub-issue per app)
+- **Problem:** the per-provider admission is a FIFO `asyncio.Semaphore`
+  (`AIGW_PROVIDER_MAX_CONCURRENCY`, default 4, `core/concurrency.py`) with no caller class,
+  so one wide run's continuously arriving calls starve a concurrent run even after
+  OME-908's engine-side shaping (which only shapes arrivals, never the queue order).
+- **Design:** replace the FIFO waiter list with a round-robin queue keyed by the caller
+  identity header the gateway already receives on every engine call
+  (`runner/connector.py` sends it); add per-class slot-wait telemetry (OME-886-adjacent).
+  Exact work-conserving max-min at the true bottleneck; works for every engine replica; no
+  contract change.
+- **Refs:** `docs/spec/2026-08-26-OME-908-fair-run-scheduling.md` Layer 2; decision D4.

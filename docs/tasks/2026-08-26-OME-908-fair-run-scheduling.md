@@ -24,13 +24,18 @@ Analysis (verified in code) and the proposed layered fix live in
 1. Layer 0 — measure first: engine per-run dispatch counters plus an ops checklist, to
    confirm the gateway queue (not k8s Job co-scheduling) is the locus.
 2. Layer 1 — engine-side fair budgets: a per-run `URL4_CLOUD_IO_CONCURRENCY` budget for
-   deployed Jobs (static, default 16) and a shared work-conserving deficit-round-robin gate
-   for local in-process runs (default capacity 32). Solo runs keep today's full speed.
+   deployed Jobs (static, default 16) and a shared work-conserving fewest-in-flight gate for
+   local in-process runs (default capacity 32). Solo runs keep today's full speed.
 3. Layer 2 — companion ticket on the gateway: fair (identity-keyed) provider semaphore plus
    slot-wait telemetry. The gateway already receives the identity header, so no contract
    change is needed.
 4. Layer 3 — ops notes: `timeout_s` guidance, the existing openrouter concurrency override,
    and runner co-scheduling requirements.
 
-The Linear issue carries the `design-session` label: nothing is implemented until the owner
-picks among the spec's decision points D0–D5.
+The owner approved the spec in session on 2026-08-26; the D0–D5 resolutions are recorded in
+the spec. Implementation (Layer 1 + the Layer 3 docs) is PR #750: a static per-run budget on
+every Runner Job (`URL4_CLOUD_IO_CONCURRENCY`, default 16 — written unconditionally, like
+`EXTRA_MODELS`, so a stale ConfigMap copy can never reach a Job) and a shared
+work-conserving fewest-in-flight gate for local runs (`local_io_capacity`, default 32).
+Layer 2 remains the companion gateway ticket — text drafted in the work ledger, filing
+pending the owner (Linear writes are owner/MCP actions).
