@@ -109,7 +109,14 @@ async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -
         "intent": "aggregate:2",
         "case_evaluations": [
             {"case_id": 11, "output": "first"},
-            {"error": {"kind": "ResolutionError", "message": "candidate failed"}},
+            {
+                "error": {
+                    "kind": "ResolutionError",
+                    "message": "candidate failed",
+                    "code": "candidate_failed",
+                    "retryable": False,
+                }
+            },
         ],
     }
 
@@ -217,7 +224,16 @@ async def test_case_execution_preserves_candidate_invocation_when_grading_fails(
         "schema": CASE_EXECUTION_SCHEMA,
         "case_id": "case-1",
         "candidate_invocation": encode_candidate_invocation("", "content_filter", "exact refusal"),
-        "grading": [{"error": {"kind": "ResolutionError", "message": "checker unavailable"}}],
+        "grading": [
+            {
+                "error": {
+                    "kind": "ResolutionError",
+                    "message": "checker unavailable",
+                    "code": "checker_failed",
+                    "retryable": False,
+                }
+            }
+        ],
     }
 
 
@@ -235,11 +251,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        (DRACO, "fe91990b18cf4672d9eccc412fca7bf533de1cb33de38bee589d37302c04d8dc"),
+        (DRACO, "7fdef3acb7f97ff14d91c1c7eb1937bc58681367555cfa4206d615cb4bb69f87"),
         (IFEVAL, "c272779623671772ad8c2629e320e283837f34e3b270c693643285174794e4f8"),
         (
             HEALTHBENCH_WORST30,
-            "963cbe2cbffed4ff4123adf6b667af4191ab5337f774bbd43e0ec547d3f6b3e9",
+            "bc4c584c826b5fa40ff0b563b4470cb89790712f08e92f0c0aeff151f3210102",
         ),
     ),
 )

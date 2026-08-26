@@ -177,7 +177,26 @@ def _media_type_of(payload: Payload) -> str | None:
 
 
 def _error_payload(exc: BaseException) -> dict:
-    return {"error": {"kind": type(exc).__name__, "message": str(exc) or repr(exc)}}
+    """One collected row's wire error object (spec §5.3.6 ``collect``).
+
+    Preserves the exception's URL4 diagnostics — ``code`` and ``permanent`` — beside the
+    kind/message pair, so a ``collect``-boundary consumer (a benchmark's outcome envelope,
+    the SDK report) can render the ORIGINAL upstream failure instead of falling back to a
+    default code. ``permanent`` travels as ``retryable`` (its inverse): permanent errors
+    must not be retried, and every reader of this payload already keys on retryability
+    (``screamingface_engine.benchmarks.aggregation.public_error``).
+    """
+    payload: dict[str, object] = {
+        "kind": type(exc).__name__,
+        "message": str(exc) or repr(exc),
+    }
+    code = getattr(exc, "code", None)
+    if isinstance(code, str) and code:
+        payload["code"] = code
+    permanent = getattr(exc, "permanent", None)
+    if isinstance(permanent, bool):
+        payload["retryable"] = not permanent
+    return {"error": payload}
 
 
 def _wire_params(params: Params) -> list[tuple[str, str]]:
