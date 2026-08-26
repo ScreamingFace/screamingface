@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from threading import Lock
-from typing import TYPE_CHECKING, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Client
 
@@ -126,14 +126,14 @@ def evaluate(
 
     client = default_client()
     if isinstance(candidates, str):
-        if benchmark is not None:
-            raise TypeError("benchmark must not be passed when evaluating a complete URL4")
-        if limit is not None:
-            raise TypeError("limit must not be passed when evaluating a complete URL4")
-        return client.evaluate(candidates, on_event=on_event, progress=progress)
-    if benchmark is None:
-        raise TypeError("benchmark is required when evaluating Recipes")
-    return client.evaluate(
+        return cast(Any, client).evaluate(
+            candidates,
+            benchmark=benchmark,
+            limit=limit,
+            on_event=on_event,
+            progress=progress,
+        )
+    return cast(Any, client).evaluate(
         candidates,
         benchmark=benchmark,
         limit=limit,

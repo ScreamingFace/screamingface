@@ -192,7 +192,7 @@ class _FakeTransport:
         self._result_payload = deepcopy(result_payload)
 
     def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
-        assert on_event is None
+        assert on_event is None or callable(on_event)
         self.calls.append(candidate.name)
         self.url4s.append(candidate.url4)
         return _RunOutcome(

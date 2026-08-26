@@ -14,6 +14,7 @@
       "Connection",
       "ConnectionPanel",
       "CorrectiveLoop",
+      "DiagnosticReceipt",
       "EngineUnavailableError",
       "EvaluationWarning",
       "Event",
@@ -54,6 +55,7 @@
       "configure",
       "connect",
       "connections",
+      "diagnostics",
       "disconnect",
       "evaluate",
       "events",
@@ -247,6 +249,18 @@
           "members": "field",
           "name": "field",
           "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+        }
+      },
+      "DiagnosticReceipt": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self) -> 'None'",
+          "diagnostic_id": "property",
+          "export": "method (self, path: 'str | PathLike[str]' = 'diagnostic.json') -> 'Path'",
+          "outcome": "property",
+          "session_id": "property",
+          "to_dict": "method (self) -> 'dict[str, Any]'",
+          "to_json": "method (self) -> 'str'"
         }
       },
       "EngineUnavailableError": {
@@ -695,6 +709,10 @@
       "connections": {
         "kind": "module",
         "module": "screamingface.connections"
+      },
+      "diagnostics": {
+        "kind": "module",
+        "module": "screamingface.diagnostics"
       },
       "disconnect": {
         "kind": "function",

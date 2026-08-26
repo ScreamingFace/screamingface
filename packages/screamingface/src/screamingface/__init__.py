@@ -1,12 +1,13 @@
 """ScreamingFace — evaluate composable Candidate Recipes on research Benchmarks."""
 
-from screamingface import benchmarks, connections, events, leaderboards, models
+from screamingface import benchmarks, connections, diagnostics, events, leaderboards, models
 from screamingface._default_client import close, configure, connect, disconnect, evaluate
 from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
+from screamingface.diagnostic import DiagnosticReceipt
 from screamingface.discovery import (
     Benchmark,
     BenchmarkInfo,
@@ -78,6 +79,8 @@ __all__ = [
     "connect",
     "connections",
     "disconnect",
+    "DiagnosticReceipt",
+    "diagnostics",
     "Evidence",
     "EvidenceProducer",
     "Event",

@@ -1,0 +1,374 @@
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Generator
+from typing import Any, NoReturn, cast
+
+import pytest
+from _evaluation_diagnostic_fixtures import (
+    RESOURCE as _RESOURCE,
+)
+from _evaluation_diagnostic_fixtures import (
+    TRACE_ID as _TRACE_ID,
+)
+from _evaluation_diagnostic_fixtures import (
+    AsyncFailingTransport as _AsyncFailingTransport,
+)
+from _evaluation_diagnostic_fixtures import (
+    FailingTransport as _FailingTransport,
+)
+from _evaluation_diagnostic_fixtures import (
+    PartialTransport as _PartialTransport,
+)
+from _evaluation_diagnostic_fixtures import (
+    candidate as _candidate,
+)
+from _evaluation_diagnostic_fixtures import (
+    load_benchmark as _load_benchmark,
+)
+from _evaluation_diagnostic_fixtures import (
+    load_benchmark_async as _load_benchmark_async,
+)
+from _evaluation_diagnostic_fixtures import (
+    load_catalog as _load_catalog,
+)
+from _evaluation_diagnostic_fixtures import (
+    load_catalog_async as _load_catalog_async,
+)
+from _evaluation_diagnostic_fixtures import (
+    load_details as _load_details,
+)
+from _evaluation_diagnostic_fixtures import (
+    load_details_async as _load_details_async,
+)
+from _evaluation_diagnostic_fixtures import (
+    started as _started,
+)
+
+import screamingface as sf
+from screamingface._diagnostics.store import _STORE
+from screamingface._evaluation.model import Candidate
+from screamingface._evaluation.runner import evaluate_async, evaluate_sync
+from screamingface._evaluation.url4 import evaluate_url4_sync
+from screamingface.errors import ExecutionError
+
+
+@pytest.fixture(autouse=True)
+def _empty_diagnostics() -> Generator[None, None, None]:
+    _STORE.clear()
+    yield
+    _STORE.clear()
+
+
+def test_sync_evaluation_failure_stages_one_receipt_and_preserves_exception() -> None:
+    error = ExecutionError(
+        "The Engine disconnected.",
+        code="websocket_disconnected",
+        permanent=False,
+    )
+
+    with pytest.raises(ExecutionError) as caught:
+        evaluate_sync(
+            _load_benchmark,
+            _FailingTransport(error),
+            _load_catalog,
+            _load_details,
+            _candidate(),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://user:secret@engine.example/private?token=secret",
+        )
+
+    assert caught.value is error
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert error.__notes__ == [
+        f"Diagnostic: {receipt.diagnostic_id}. Export with "
+        f'sf.diagnostics.get("{receipt.diagnostic_id}").export('
+        '"screamingface-diagnostic.json")'
+    ]
+    assert error.__notes__[0] in error._render_traceback_()[0]
+    document = receipt.to_dict()
+    assert document["operation"] == "evaluate"
+    assert document["outcome"] == "failed"
+    assert isinstance(document["elapsed_seconds"], float)
+    assert document["elapsed_seconds"] >= 0
+    assert document["context"]["engine"] == {"host": "engine.example", "mode": "hosted"}
+    assert document["context"]["benchmark"] == {
+        "id": "draco",
+        "revision": "fixture-revision",
+        "case_count": 1,
+    }
+    assert document["context"]["candidates"][0]["parameters"] == [
+        {
+            "operation_id": "op_model_1",
+            "model": "provider/opus",
+            "values": {"max_tokens": 64},
+        }
+    ]
+    assert document["executions"] == [
+        {
+            "candidate": "opus",
+            "status": "running",
+            "run_id": "internal-stream-topic",
+            "trace_id": _TRACE_ID,
+        }
+    ]
+    encoded = receipt.to_json()
+    assert "private answer instruction" not in encoded
+    assert "user:secret" not in encoded
+    assert "token=secret" not in encoded
+
+
+def test_plain_argument_error_stages_a_degraded_receipt() -> None:
+    with pytest.raises(TypeError) as caught:
+        evaluate_sync(
+            _load_benchmark,
+            _FailingTransport(AssertionError("transport must not run")),
+            _load_catalog,
+            _load_details,
+            cast(Any, object()),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    error = receipt.to_dict()["error"]
+    assert error["type"] == "TypeError"
+    assert "code" not in error
+    assert "message" not in error
+    assert receipt.diagnostic_id in caught.value.__notes__[0]
+
+
+def test_public_client_input_validation_stages_a_degraded_receipt() -> None:
+    with sf.Client(
+        engine_url="https://engine.example",
+        run_transport=_FailingTransport(AssertionError("transport must not run")),
+    ) as client:
+        with pytest.raises(TypeError, match="benchmark is required"):
+            cast(Any, client).evaluate(_candidate())
+
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert receipt.to_dict()["error"]["type"] == "TypeError"
+
+
+def test_unvalidated_benchmark_object_is_not_captured() -> None:
+    class PrivateBenchmark:
+        def __repr__(self) -> str:
+            return "private-benchmark-value"
+
+    with sf.Client(
+        engine_url="https://engine.example",
+        run_transport=_FailingTransport(AssertionError("transport must not run")),
+    ) as client:
+        with pytest.raises(ValueError, match="benchmark"):
+            cast(Any, client).evaluate(_candidate(), benchmark=PrivateBenchmark())
+
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert "private-benchmark-value" not in receipt.to_json()
+
+
+@pytest.mark.asyncio
+async def test_async_evaluation_failure_uses_the_same_receipt_contract() -> None:
+    error = ExecutionError("Async failed.", code="async_failed", permanent=True)
+
+    with pytest.raises(ExecutionError) as caught:
+        await evaluate_async(
+            _load_benchmark_async,
+            _AsyncFailingTransport(error),
+            _load_catalog_async,
+            _load_details_async,
+            _candidate(),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    assert caught.value is error
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert receipt.to_dict()["executions"] == [
+        {
+            "candidate": "opus",
+            "status": "running",
+            "run_id": "internal-stream-topic",
+            "trace_id": _TRACE_ID,
+        }
+    ]
+
+
+def test_malformed_trace_context_is_not_fabricated() -> None:
+    class InvalidTraceTransport(_FailingTransport):
+        def run(self, candidate: Candidate, on_event: object) -> NoReturn:
+            if callable(on_event):
+                on_event(_started(candidate, traceparent="00-invalid-parent-01"))
+            raise self.error
+
+    with pytest.raises(ExecutionError):
+        evaluate_sync(
+            _load_benchmark,
+            InvalidTraceTransport(ExecutionError("Failed.")),
+            _load_catalog,
+            _load_details,
+            _candidate(),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert "trace_id" not in receipt.to_dict()["executions"][0]
+
+
+def test_url4_replay_failure_uses_the_same_diagnostic_boundary() -> None:
+    from screamingface._evaluation.compilation import compile_evaluation
+
+    error = ExecutionError("Replay failed.", code="replay_failed")
+    replay_url4 = compile_evaluation((_candidate(),), _RESOURCE, 1).candidates[0].url4
+
+    with pytest.raises(ExecutionError) as caught:
+        evaluate_url4_sync(
+            _FailingTransport(error),
+            replay_url4,
+            None,
+            None,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    assert caught.value is error
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    document = receipt.to_dict()
+    assert document["context"]["mode"] == "url4_replay"
+    assert replay_url4 not in receipt.to_json()
+
+
+def test_keyboard_interrupt_stages_observable_state_and_is_reraised() -> None:
+    interruption = KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt) as caught:
+        evaluate_sync(
+            _load_benchmark,
+            _FailingTransport(interruption),
+            _load_catalog,
+            _load_details,
+            _candidate(),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    assert caught.value is interruption
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert receipt.outcome == "interrupted_by_user"
+    assert receipt.to_dict()["executions"][0]["status"] == "running"
+    assert "hung" not in receipt.to_json().lower()
+
+
+@pytest.mark.asyncio
+async def test_async_cancellation_stages_cancelled_state_and_is_reraised() -> None:
+    cancellation = asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError) as caught:
+        await evaluate_async(
+            _load_benchmark_async,
+            _AsyncFailingTransport(cancellation),
+            _load_catalog_async,
+            _load_details_async,
+            _candidate(),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    assert caught.value is cancellation
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert receipt.outcome == "cancelled"
+
+
+@pytest.mark.parametrize("signal", [SystemExit(2), GeneratorExit()])
+def test_process_control_exceptions_bypass_diagnostics(signal: BaseException) -> None:
+    with pytest.raises(type(signal)):
+        evaluate_sync(
+            _load_benchmark,
+            _FailingTransport(signal),
+            _load_catalog,
+            _load_details,
+            _candidate(),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    assert sf.diagnostics.last() is None
+
+
+def test_partial_report_with_case_failures_stages_no_diagnostic() -> None:
+    report = evaluate_sync(
+        _load_benchmark,
+        _PartialTransport(),
+        _load_catalog,
+        _load_details,
+        _candidate(),
+        "draco",
+        1,
+        None,
+        False,
+        engine_url="https://engine.example",
+    )
+
+    assert report.failures[0].code == "case_not_graded"
+    assert sf.diagnostics.last() is None
+
+
+def test_capture_failure_never_replaces_the_operation_error(monkeypatch) -> None:
+    error = ExecutionError("Original failure.", code="original")
+
+    def broken_capture(context: object, raised: BaseException) -> NoReturn:
+        del context, raised
+        raise RuntimeError("diagnostic capture failed")
+
+    monkeypatch.setattr(
+        "screamingface._diagnostics.evaluation._EvaluationDiagnostic.stage",
+        broken_capture,
+    )
+
+    with pytest.raises(ExecutionError) as caught:
+        evaluate_sync(
+            _load_benchmark,
+            _FailingTransport(error),
+            _load_catalog,
+            _load_details,
+            _candidate(),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    assert caught.value is error
+    assert sf.diagnostics.last() is None
