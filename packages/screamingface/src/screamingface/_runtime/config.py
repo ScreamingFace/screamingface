@@ -4,6 +4,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+# INVARIANT: the one name for the supervisor's state record — `screamingface up` writes
+# it, `screamingface status` and default-client discovery (detect.py) read it.
+STATE_FILENAME = "runtime.json"
+
 
 def default_data_dir() -> Path:
     configured = os.getenv("SCREAMINGFACE_DATA_DIR")
@@ -52,7 +56,7 @@ class RuntimeConfig:
 
     @property
     def state_path(self) -> Path:
-        return self.data_dir / "runtime.json"
+        return self.data_dir / STATE_FILENAME
 
     @property
     def log_path(self) -> Path:
