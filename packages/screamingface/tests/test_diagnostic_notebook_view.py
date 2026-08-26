@@ -266,6 +266,8 @@ def test_panel_starts_concise_accessible_and_without_receipt_json() -> None:
     assert "role='alert'" in html
     assert "aria-live='polite'" in html
     assert set(view.widget._dom_classes) >= {"sf-ui", "sf-diagnostic-widget"}
+    # INVARIANT: container tooltips crash JupyterLab's VBoxView because VBox has no description.
+    assert view.widget.tooltip is None
     assert _button(view.widget, "Export diagnostic").tooltip
     assert _button(view.widget, "Preview diagnostic").tooltip
 

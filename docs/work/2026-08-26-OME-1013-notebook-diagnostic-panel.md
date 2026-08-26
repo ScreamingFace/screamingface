@@ -23,6 +23,8 @@ exception handler.
 - Add append-only behavior tests for typed and raw exceptions, fallback behavior, privacy-safe
   preview, explicit export, accessibility, and SFDS light/dark styling.
 - Update the ScreamingFace changelog for the notebook presentation behavior.
+- Remove unsupported tooltips from root `VBox` containers after a real JupyterLab frontend
+  reproduction showed that its widget manager dereferences a nonexistent `description` field.
 
 ## Test plan
 
@@ -33,6 +35,8 @@ exception handler.
 - RED: missing/broken IPython or ipywidgets falls back to the pre-existing traceback renderer.
 - RED: unrelated exceptions and successful/partial Evaluations are unaffected.
 - Run the full `screamingface` gate lane after focused tests pass.
+- RED: root `VBox` containers do not publish a tooltip trait, while supported control/table
+  tooltips and the panel's HTML accessibility name remain intact.
 
 ## Acceptance
 
@@ -48,18 +52,22 @@ exception handler.
 - **Actual files:** amended the approved OME-1013 spec and plan; added the private
   `_ui/diagnostic_view.py` notebook adapter; attached it at the existing Evaluation diagnostic
   boundary; added append-only notebook renderer, action, fallback, accessibility and SFDS tests;
-  and updated the package changelog.
-- **Commits:** `feat(screamingface): render notebook diagnostics` (this unit).
+  updated the package changelog; and removed unsupported root-`VBox` tooltips from both diagnostic
+  and Evaluation widgets after a live JupyterLab reproduction identified the shared frontend crash.
+- **Commits:** `feat(screamingface): render notebook diagnostics`; and
+  `fix(screamingface): avoid notebook container tooltip crash` (this follow-up).
 - **Gates:** Ruff lint and formatting, Pyright (0 errors), complete package pytest suite (1,237
-  passed, 17 skipped, 95.03% coverage), focused diagnostic suite (38 passed), wheel/sdist build and
+  passed, 17 skipped, 95.04% coverage), focused widget suites (57 passed), wheel/sdist build and
   distribution validation all passed. The new adapter has 100% focused statement coverage.
 - **Deviations:** the official gate wrapper's Ruff phase also inspected an unrelated, owner-edited
   `examples/00_quickstart.ipynb` and stopped on that notebook's pre-existing undefined
   `leaderboard` name. The owner file was preserved and excluded from this commit; the equivalent
-  source/test/type/build/distribution gates were run directly. Browser-based visual verification
-  could not run because no Browser plugin session was available, so the owner notebook check
-  remains the visual confirmation step.
+  source/test/type/build/distribution gates were run directly. A headless Chrome reproduction
+  confirmed the original `VBoxView` creation failure; the owner notebook rerun after a kernel
+  restart remains the final visual confirmation of the corrected model.
 - **Review:** the renderer is attached only to the retained exception instance, preserves the same
   exception and traceback, never installs a global IPython hook, performs no network or automatic
   filesystem action, and falls back to the previous traceback renderer if optional notebook
-  presentation fails. The intake contract, consent and Send action remain isolated to OME-1014.
+  presentation fails. Removing the root tooltip is the minimum compatible fix: supported button
+  and table tooltips remain, while accessibility naming stays in the panel HTML and live regions.
+  The intake contract, consent and Send action remain isolated to OME-1014.

@@ -93,9 +93,9 @@ class _NotebookDiagnosticView:
         self._controls.add_class("sf-diagnostic__controls")
         self._status: Any = widgets.HTML(value=_status_html())
         self._preview: Any = widgets.HTML(value="")
+        # INVARIANT: VBox has no description; a truthy tooltip crashes JupyterLab's VBoxView.
         self.widget: Any = widgets.VBox(
             children=(self._summary, self._controls, self._status, self._preview),
-            tooltip="ScreamingFace diagnostic",
         )
         self.widget.add_class("sf-ui")
         self.widget.add_class("sf-diagnostic-widget")
