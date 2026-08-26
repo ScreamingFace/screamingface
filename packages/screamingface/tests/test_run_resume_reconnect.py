@@ -28,17 +28,17 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Literal
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 import pytest
 
+from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 from screamingface._evaluation.model import (
     Candidate,
     _compiled_candidate,
     _compiled_operation,
 )
 from screamingface._evaluation.runner import _run_candidates_sync
-from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 from screamingface.errors import AuthenticationError, ExecutionError
 
 _WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -66,6 +66,7 @@ class Engine:
 
 
 class _Handler(BaseHTTPRequestHandler):
+    server: _Server
     protocol_version = "HTTP/1.1"  # websockets refuses an HTTP/1.0 handshake
 
     def log_message(self, *_args: object) -> None:  # noqa: ARG002 - stdlib handler API
@@ -116,32 +117,34 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._accept_websocket():
             return
         attach = self._read_attach()
-        if attach is None:
-            return
-        from_sequence = attach.get("from_sequence")
-        if not state.started.wait(timeout=5):
+        if attach is None or not state.started.wait(timeout=5):
             return
         if state.handshakes == 1:
-            # First connection: deliver frames 1..2, then the deploy-style restart (1012).
-            _send_server_text_frame(
-                self.wfile, json.dumps(_frame("ai.url4.started", {"url4": _CANDIDATE_URL4}, 1))
-            )
-            _send_server_text_frame(
-                self.wfile, json.dumps(_frame("ai.url4.log", {"severity_text": "INFO", "severity_number": 9, "body": "working"}, 2))
-            )
-            _send_server_close(self.wfile, 1012)
-            return
-        # Reconnect: record the resume cursor the client asked for.
+            self._stream_first_connection()
+        else:
+            cursor = attach.get("from_sequence")
+            resume = cursor if cursor is None or isinstance(cursor, int) else None
+            self._stream_reconnect(state, resume)
+
+    def _stream_first_connection(self) -> None:
+        # Deliver frames 1..2, then the deploy-style restart (close 1012).
+        _send_server_text_frame(
+            self.wfile, json.dumps(_frame("ai.url4.started", {"url4": _CANDIDATE_URL4}, 1))
+        )
+        _send_server_text_frame(
+            self.wfile, json.dumps(_frame("ai.url4.log", LOG_FRAME("working"), 2))
+        )
+        _send_server_close(self.wfile, 1012)
+
+    def _stream_reconnect(self, state: EngineState, from_sequence: int | None) -> None:
+        # Record the resume cursor the client asked for.
         state.resume_from = from_sequence
         if state.mode == "reclaim_after_restart":
-            _send_server_text_frame(
-                self.wfile,
-                json.dumps(_error_frame("stream_reclaimed", "the run's stream was reclaimed")),
-            )
+            _send_server_text_frame(self.wfile, json.dumps(_error_frame("stream_reclaimed")))
             return
         if state.mode == "always_1012":
             _send_server_text_frame(
-                self.wfile, json.dumps(_frame("ai.url4.log", {"severity_text": "INFO", "severity_number": 9, "body": "still going"}, 3))
+                self.wfile, json.dumps(_frame("ai.url4.log", LOG_FRAME("still going"), 3))
             )
             _send_server_close(self.wfile, 1012)
             return
@@ -149,7 +152,11 @@ class _Handler(BaseHTTPRequestHandler):
         _send_server_text_frame(
             self.wfile,
             json.dumps(
-                _frame("ai.url4.result", {"body": "restart-result", "media_type": "application/json"}, 3)
+                _frame(
+                    "ai.url4.result",
+                    {"body": "restart-result", "media_type": "application/json"},
+                    3,
+                )
             ),
         )
         _send_server_text_frame(
@@ -213,6 +220,10 @@ class _Server(ThreadingHTTPServer):
         self.state = state
 
 
+def LOG_FRAME(body: str) -> dict[str, object]:
+    return {"severity_text": "INFO", "severity_number": 9, "body": body}
+
+
 def _frame(kind: str, data: dict[str, object], sequence: int) -> dict[str, object]:
     return {
         "specversion": "1.0",
@@ -228,7 +239,7 @@ def _frame(kind: str, data: dict[str, object], sequence: int) -> dict[str, objec
     }
 
 
-def _error_frame(code: str, message: str) -> dict[str, object]:
+def _error_frame(code: str) -> dict[str, object]:
     # Advisory frames carry no broker sequence (spec §6 S2, OME-1019).
     return {
         "specversion": "1.0",
@@ -238,7 +249,7 @@ def _error_frame(code: str, message: str) -> dict[str, object]:
         "time": datetime.now(UTC).isoformat(),
         "type": "ai.url4.error",
         "datacontenttype": "application/json",
-        "data": {"code": code, "message": message},
+        "data": {"code": code, "message": f"advisory {code}"},
     }
 
 
@@ -276,9 +287,7 @@ def _send_server_close(stream: Any, code: int) -> None:
 
 
 @contextmanager
-def _engine(
-    *, mode: Mode, delete_rejected: bool = False
-) -> Iterator[Engine]:
+def _engine(*, mode: Mode, delete_rejected: bool = False) -> Iterator[Engine]:
     state = EngineState(mode=mode, delete_rejected=delete_rejected)
     server = _Server(("127.0.0.1", 0), state)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -350,9 +359,7 @@ def test_reconnect_budget_exhaustion_sweeps_then_fails() -> None:
     succeed) and surfaces `websocket_disconnected`.
     """
     with _engine(mode="always_1012") as eng:
-        transport = Url4CloudTransport(
-            eng.url, reconnect_budget_s=0.3, reconnect_base_delay_s=0.01
-        )
+        transport = Url4CloudTransport(eng.url, reconnect_budget_s=0.3, reconnect_base_delay_s=0.01)
         try:
             with pytest.raises(ExecutionError) as caught:
                 transport.run(_candidate(), None)

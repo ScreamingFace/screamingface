@@ -38,7 +38,9 @@ T0 = datetime(2026, 8, 13, 9, 0, 0, tzinfo=UTC)
 
 
 def _token(topic: str) -> str:
-    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0)
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(
+        topic, T0
+    )
 
 
 def _app(stream: InMemoryEventStream | None, *, heartbeat_s: float = 30.0) -> FastAPI:

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import cast
 
 import pytest
 from _fakes import take
@@ -6,7 +7,7 @@ from _fakes import take
 from screamingface_engine.adapters.jetstream import JetStreamConsumer, JetStreamPublisher
 from screamingface_engine.testing import InMemoryEventStream
 from url4.streaming.interfaces import EventConsumer, EventPublisher, StreamNotFoundError
-from url4.streaming.protocol import LogData, LogEvent, SpanData, SpanEvent
+from url4.streaming.protocol import LogData, LogEvent, OutboundFrame, SpanData, SpanEvent
 
 TOPIC = "cap-topic"
 
@@ -36,8 +37,10 @@ async def test_resume_cursor_on_missing_stream_is_stream_not_found() -> None:
 @pytest.mark.asyncio
 async def test_fresh_attach_on_missing_stream_creates_and_delivers() -> None:
     """The fresh-attach side of the rule: cursor None creates the stream and delivers."""
+    from collections.abc import AsyncGenerator
+
     stream = InMemoryEventStream()
-    frames = stream.subscribe("fresh-topic", None)
+    frames = cast(AsyncGenerator[OutboundFrame], stream.subscribe("fresh-topic", None))
     try:
         first = anext(frames)
         await stream.publish("fresh-topic", _log_event(1))

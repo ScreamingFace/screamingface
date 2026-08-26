@@ -99,4 +99,10 @@ def validate_from_sequence(from_sequence: int | None) -> None:
         )
 
 
-__all__ = ["EventConsumer", "EventPublisher", "EventStream", "StreamNotFoundError", "validate_from_sequence"]
+__all__ = [
+    "EventConsumer",
+    "EventPublisher",
+    "EventStream",
+    "StreamNotFoundError",
+    "validate_from_sequence",
+]

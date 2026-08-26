@@ -75,7 +75,11 @@ def _make_app(stream: InMemoryEventStream, runner: MockRunnerJobRunner) -> FastA
 
 
 def _topic_of(token: str) -> str:
-    return str(JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).verify(token, T0)["sub"])
+    return str(
+        JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).verify(
+            token, T0
+        )["sub"]
+    )
 
 
 def _attach() -> dict[str, Any]:

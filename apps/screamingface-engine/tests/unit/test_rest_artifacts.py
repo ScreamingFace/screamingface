@@ -35,7 +35,11 @@ T0 = datetime(2026, 8, 18, 9, 0, 0, tzinfo=UTC)
 
 
 def _cap(topic: str) -> dict[str, str]:
-    return {"URL4-Capability": JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0)}
+    return {
+        "URL4-Capability": JwtCodec(
+            secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S
+        ).sign(topic, T0)
+    }
 
 
 def _make_app(

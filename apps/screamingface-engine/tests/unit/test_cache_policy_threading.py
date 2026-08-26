@@ -289,7 +289,9 @@ async def _start(runner: _CacheRecordingRunner, topic: str, **headers: str) -> h
             "/",
             params={"q": "gpt(hi)"},
             headers={
-                "URL4-Capability": JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0),
+                "URL4-Capability": JwtCodec(
+                    secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S
+                ).sign(topic, T0),
                 "Prefer": "respond-async",
                 **headers,
             },

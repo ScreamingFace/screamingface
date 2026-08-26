@@ -44,7 +44,9 @@ OPT_IN = CachePolicy(participate=True)
 
 
 def _token(topic: str) -> str:
-    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0)
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(
+        topic, T0
+    )
 
 
 def _make_app(*, stream: InMemoryEventStream) -> FastAPI:

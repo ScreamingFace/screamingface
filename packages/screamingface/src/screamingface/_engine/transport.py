@@ -69,7 +69,9 @@ _RECONNECT_MAX_DELAY_S = 15.0
 _logger = logging.getLogger(__name__)
 
 
-def _reconnect_delay(attempt: int, base_s: float, *, max_s: float = _RECONNECT_MAX_DELAY_S) -> float:
+def _reconnect_delay(
+    attempt: int, base_s: float, *, max_s: float = _RECONNECT_MAX_DELAY_S
+) -> float:
     """Full-jitter backoff (AWS): uniform in [0, min(cap, base * 2^attempt)]."""
     cap = min(max_s, base_s * (2**attempt))
     return random.random() * cap
@@ -184,33 +186,56 @@ class Url4CloudTransport:
                 # stop-on-interrupt arm into writing to a dead connection.
                 return _materialize_sync(self._http, outcome)
             except InvalidStatus as exc:
-                if _is_access_websocket_rejection(exc):
-                    self._remint_after_challenge(minted)
-                    attempts += 1
-                    continue
-                if run_started:
-                    # The Run is live server-side but this client can never get back to
-                    # it: dead credentials. Stop it rather than orphan it (G3).
-                    self._sweep_after_disconnect()
-                raise
-            except (WebSocketException, OSError, TimeoutError) as exc:
-                # WHY the abort check first: the owner's sweep (`cancel_active`) has
-                # already stopped every Run this client owns — reconnecting now is
-                # pointless and only delays the abort the user already chose (the
-                # SIGINT lands on the main thread; worker threads learn of it here).
-                if self._aborted or time.monotonic() >= budget_deadline:
-                    if not self._aborted:
-                        _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
-                        self._sweep_after_disconnect()
-                    raise _disconnected(exc, time.monotonic() - started) from exc
-                delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
-                _logger.warning(
-                    "SF Engine connection lost; reconnecting in %.1fs (attempt %d)",
-                    delay,
-                    attempts + 1,
-                )
+                self._on_handshake_rejection(exc, minted, run_started)
                 attempts += 1
-                time.sleep(delay)
+                continue
+            except (WebSocketException, OSError, TimeoutError) as exc:
+                attempts = self._on_stream_failure(exc, attempts, budget_deadline, started)
+                continue
+
+    def _on_handshake_rejection(
+        self, exc: InvalidStatus, minted: list[str], run_started: bool
+    ) -> None:
+        """Classify a refused handshake: Access challenge remints; anything else is FATAL.
+
+        A non-Access 401/403 means dead credentials — retrying cannot help and no probe
+        is needed on a single-engine fleet (D5). If the Run already started, stop it
+        rather than orphan it (G3).
+        """
+        if _is_access_websocket_rejection(exc):
+            self._remint_after_challenge(minted)
+            return
+        if run_started:
+            self._sweep_after_disconnect()
+        raise exc
+
+    def _on_stream_failure(
+        self,
+        exc: WebSocketException | OSError | TimeoutError,
+        attempts: int,
+        budget_deadline: float,
+        started: float,
+    ) -> int:
+        """Sleep the backoff delay, or raise the terminal disconnect error.
+
+        WHY the abort check first: the owner's sweep (`cancel_active`) has already
+        stopped every Run this client owns — reconnecting now is pointless and only
+        delays the abort the user already chose (the SIGINT lands on the main thread;
+        worker threads learn of it here).
+        """
+        if self._aborted or time.monotonic() >= budget_deadline:
+            if not self._aborted:
+                _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
+                self._sweep_after_disconnect()
+            raise _disconnected(exc, time.monotonic() - started) from exc
+        delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
+        _logger.warning(
+            "SF Engine connection lost; reconnecting in %.1fs (attempt %d)",
+            delay,
+            attempts + 1,
+        )
+        time.sleep(delay)
+        return attempts + 1
 
     def _sweep_after_disconnect(self) -> None:
         """Stop every Run this client owns after a reconnect gives up (G3, OME-1020).
@@ -354,10 +379,9 @@ class AsyncUrl4CloudTransport:
         self._active_tokens.add(minted[0])
         cancelled = False
         started = time.monotonic()
+        lifecycle = _Lifecycle(candidate)
         try:
-            return await self._run_reconnecting(
-                lifecycle := _Lifecycle(candidate), minted, candidate, on_event, started
-            )
+            return await self._run_reconnecting(lifecycle, minted, candidate, on_event, started)
         # WHY: a cancelled Run keeps its capability registered so the Evaluation's sweep can
         # still stop it. asyncio.gather cancels its children and only re-raises once they have
         # all unwound, so by the time the sweep runs every Run here has already finished its
@@ -411,38 +435,51 @@ class AsyncUrl4CloudTransport:
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
-                if _is_access_websocket_rejection(exc):
-                    await self._caller_auth.reauthenticate_async()
-                    # WHY a NEW capability rather than the one already in hand: a
-                    # re-authentication can take minutes, and the challenge may predate the
-                    # last mint. Minting is unauthenticated and per-Run, so replacing the
-                    # token is cheaper than widening any window.
-                    minted.append(await _mint_async(self._http))
-                    self._active_tokens.add(minted[-1])
-                    attempts += 1
-                    continue
-                if run_started:
-                    # The Run is live server-side but this client can never get back to
-                    # it: dead credentials. Stop it rather than orphan it (G3).
-                    self._sweep_after_disconnect()
-                raise
-            except (WebSocketException, OSError, TimeoutError) as exc:
-                # WHY the abort check first: the owner's sweep (`cancel_active`) has
-                # already stopped every Run this client owns — reconnecting now is
-                # pointless and only delays the abort the caller already chose.
-                if self._aborted or time.monotonic() >= budget_deadline:
-                    if not self._aborted:
-                        _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
-                        self._sweep_after_disconnect()
-                    raise _disconnected(exc, time.monotonic() - started) from exc
-                delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
-                _logger.warning(
-                    "SF Engine connection lost; reconnecting in %.1fs (attempt %d)",
-                    delay,
-                    attempts + 1,
-                )
+                await self._on_handshake_rejection(exc, minted, run_started)
                 attempts += 1
-                await asyncio.sleep(delay)
+                continue
+            except (WebSocketException, OSError, TimeoutError) as exc:
+                attempts = await self._on_stream_failure(exc, attempts, budget_deadline, started)
+                continue
+
+    async def _on_handshake_rejection(
+        self, exc: InvalidStatus, minted: list[str], run_started: bool
+    ) -> None:
+        """Async twin of the sync handshake classification — see its docstring (D5, G3)."""
+        if _is_access_websocket_rejection(exc):
+            await self._caller_auth.reauthenticate_async()
+            # WHY a NEW capability rather than the one already in hand: a
+            # re-authentication can take minutes, and the challenge may predate the
+            # last mint. Minting is unauthenticated and per-Run, so replacing the
+            # token is cheaper than widening any window.
+            minted.append(await _mint_async(self._http))
+            self._active_tokens.add(minted[-1])
+            return
+        if run_started:
+            await self._sweep_after_disconnect()
+        raise exc
+
+    async def _on_stream_failure(
+        self,
+        exc: WebSocketException | OSError | TimeoutError,
+        attempts: int,
+        budget_deadline: float,
+        started: float,
+    ) -> int:
+        """Async twin of the sync backoff/terminal decision — see its docstring."""
+        if self._aborted or time.monotonic() >= budget_deadline:
+            if not self._aborted:
+                _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
+                await self._sweep_after_disconnect()
+            raise _disconnected(exc, time.monotonic() - started) from exc
+        delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
+        _logger.warning(
+            "SF Engine connection lost; reconnecting in %.1fs (attempt %d)",
+            delay,
+            attempts + 1,
+        )
+        await asyncio.sleep(delay)
+        return attempts + 1
 
     async def _sweep_after_disconnect(self) -> None:
         """Stop every Run this client owns after a reconnect gives up (G3, OME-1020).

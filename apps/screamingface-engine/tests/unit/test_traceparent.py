@@ -155,7 +155,9 @@ async def test_all_zero_inbound_traceparent_mints_a_fresh_trace() -> None:
 
 
 def _token(topic: str) -> str:
-    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0)
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(
+        topic, T0
+    )
 
 
 def _app(job_runner: RecordingJobRunner) -> FastAPI:
