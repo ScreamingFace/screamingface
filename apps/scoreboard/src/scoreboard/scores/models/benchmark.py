@@ -32,7 +32,13 @@ class BaseBenchmark(BaseScoreboardModel):
     # WHY a default and NOT nullable: an unknown visibility must not resolve to private by
     # accident (the entry challenge becomes unreadable) or public by accident (it leaks).
     # `public` preserves today's behaviour for every existing row, so no backfill is needed.
-    visibility = fields.CharField(max_length=16, default="public")
+    # WHY nullable despite always being written: tightening this to NOT NULL has no native
+    # SQLite equivalent, so Tortoise rebuilds the table and DROPs the old one — which fails with
+    # "FOREIGN KEY constraint failed" on any board that already holds a score or baseline
+    # (reproduced in review of PR #719). The constraint bought nothing: `default` guarantees a
+    # value on every write, and a NULL from a pre-migration row reads as public, which is exactly
+    # what the backfill asserts. Readers coerce via benchmark_to_schema.
+    visibility = fields.CharField(max_length=16, default="public", null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
 
 

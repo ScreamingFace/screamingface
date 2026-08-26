@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 REPO_APP = Path(__file__).resolve().parents[2]
 
@@ -50,6 +51,19 @@ def test_visibility_migration_applies_to_a_populated_database(tmp_path: Path) ->
     connection.execute(
         "INSERT INTO benchmarks (id, display_name, created_at) VALUES (?, ?, ?)",
         ("hle", "Humanity's Last Exam", "2026-01-01 00:00:00"),
+    )
+    # INVARIANT: a CHILD row is what makes this test real. Tightening a column to NOT NULL has no
+    # native SQLite equivalent, so Tortoise rebuilds the table and DROPs the old one; with a
+    # foreign key pointing at `benchmarks`, that DROP fails with "FOREIGN KEY constraint failed".
+    # An earlier version of this test inserted only the benchmark and therefore passed against a
+    # migration that broke every populated board (found in review of PR #719).
+    connection.execute(
+        """INSERT INTO scores
+           (id, version, spec_id, url4_expression, submitted_at, total_questions,
+            ran_with_providers, benchmark_id, verified_by_screamingface, score)
+           VALUES (?, 1, 's1', 'url4://x', '2026-01-01 00:00:00', 100,
+                   '["openai"]', 'hle', 0, 0.5)""",
+        (str(uuid4()),),
     )
     connection.commit()
     connection.close()

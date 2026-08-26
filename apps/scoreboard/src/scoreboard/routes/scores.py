@@ -218,6 +218,21 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
 
     try:
         score = await Score.get_or_none(id=score_id)
+        # FEATURE: OME-894 — a private benchmark's submissions belong to their submitter alone.
+        # This route is a score-bearing read path like the four on the leaderboard, and score
+        # UUIDs are handed out by the submission response and by per-spec history, so leaving it
+        # open would publish a private run's url4_expression and metadata to anyone holding an id.
+        # `benchmark_id` is the foreign key's shadow column and is not a declared attribute, so
+        # it is read the same way scores/store.py reads it.
+        #
+        # INVARIANT: this second read sits INSIDE the same error boundary as the first. It used to
+        # follow the try block, so a transient disconnect between the two reads escaped as an
+        # unhandled 500 on an endpoint that documents 503 (found in review of PR #719).
+        benchmark = (
+            None
+            if score is None
+            else await Benchmark.get_or_none(id=cast(str, getattr(score, "benchmark_id")))
+        )
     except OperationalError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -227,14 +242,7 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
     if score is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SCORE_NOT_FOUND_DETAIL)
 
-    # FEATURE: OME-894 — a private benchmark's submissions belong to their submitter alone. This
-    # route is a score-bearing read path like the four on the leaderboard, and score UUIDs are
-    # handed out by the submission response and by per-spec history, so leaving it open would
-    # publish a private run's url4_expression and metadata to anyone holding an id.
     # INVARIANT: the SAME 404 an unknown id gets, so holding a real id is not confirmable.
-    # `benchmark_id` is the foreign key's shadow column and is not a declared attribute, so it
-    # is read the same way scores/store.py reads it.
-    benchmark = await Benchmark.get_or_none(id=cast(str, getattr(score, "benchmark_id")))
     private = benchmark is None or benchmark.visibility == "private"
     if private:
         # Identity-scoped, so it must not be shared-cacheable — including the refusal, which is

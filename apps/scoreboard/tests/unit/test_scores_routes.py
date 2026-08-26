@@ -588,3 +588,23 @@ async def test_a_private_benchmark_accepts_submissions_with_verified_identity(
     )
 
     assert response.status_code == 201
+
+
+async def test_a_database_failure_on_the_visibility_lookup_is_a_503(
+    score_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: this endpoint documents 503 for database failures. The OME-894 visibility lookup
+    # is a SECOND read after the score fetch, so a transient disconnect between the two escaped
+    # the existing handler as an unhandled 500 (found in review of PR #719). Both reads belong
+    # inside one error boundary.
+    created = await score_client.post("/v1/scores", json=_valid_payload())
+
+    async def _disconnected(*args: object, **kwargs: object) -> None:
+        raise OperationalError("connection lost")
+
+    monkeypatch.setattr("scoreboard.routes.scores.Benchmark.get_or_none", _disconnected)
+
+    response = await score_client.get(f"/v1/scores/{created.json()['id']}")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "score store unavailable"}

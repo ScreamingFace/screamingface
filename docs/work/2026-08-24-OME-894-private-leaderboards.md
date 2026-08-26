@@ -223,6 +223,29 @@ run in the default suite.
 **Commit:** `084536a2` — `fix(scoreboard): isolate private idempotency namespaces`
 (`Refs: OME-894`).
 
+## Review round 5 — 2026-08-26
+
+Two findings, both reproduced first, both valid.
+
+- **[P1] `0008` broke every populated SQLite board.** Tightening `visibility` to NOT NULL has no
+  native SQLite equivalent, so Tortoise rebuilds the table and DROPs the old one; with a foreign
+  key pointing at `benchmarks`, that DROP fails with `FOREIGN KEY constraint failed`. Reproduced
+  against a database holding one benchmark and one score.
+
+  **The tightening is gone rather than worked around.** The column stays nullable, and
+  `benchmark_to_schema` coerces a legacy NULL to `public`. The constraint bought nothing: the model
+  `default` supplies a value on every write, and a NULL from a pre-migration row reads as public,
+  which is exactly what the backfill asserts. No rebuild, no dialect-specific SQL.
+
+  **Why the earlier test missed it:** it inserted only a benchmark. The failure needs a CHILD row.
+  Round 1 proved the migration applies to a populated table; it never asked *populated with what*.
+  The test now inserts a score too, and is mutation-checked against the restored `AlterField`.
+
+- **[P2] The visibility lookup sat outside the 503 boundary.** `get_score` catches
+  `OperationalError` around the score fetch, but the OME-894 benchmark read followed the `try`, so
+  a transient disconnect between the two reads escaped as an unhandled 500 on an endpoint that
+  documents 503. Both reads are now in one boundary. Mutation-checked by moving the read back out.
+
 ## Owner-verify
 
 - **Confirm the runtime `authMode` with @Stephen before the challenge is announced.** The chart

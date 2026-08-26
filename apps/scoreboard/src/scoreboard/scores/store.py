@@ -53,7 +53,9 @@ def benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
         focus=model.focus,
         dataset_url=model.dataset_url,
         revision=model.revision,
-        visibility=cast(Visibility, model.visibility),
+        # A pre-migration row can carry NULL; it was world-readable before the column existed,
+        # so it reads as public. The column stays nullable so 0008 need not rebuild the table.
+        visibility=cast(Visibility, model.visibility or "public"),
         created_at=model.created_at,
     )
 

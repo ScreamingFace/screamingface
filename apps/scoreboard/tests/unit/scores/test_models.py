@@ -144,5 +144,9 @@ def test_benchmark_model_visibility_defaults_to_public() -> None:
     visibility_field = cast(Any, Benchmark._meta.fields_map["visibility"])
 
     assert visibility_field.default == "public"
-    assert visibility_field.null is False
     assert visibility_field.max_length == 16
+    # INVARIANT: nullable on purpose. Tightening it to NOT NULL makes SQLite rebuild and DROP the
+    # table, which fails with "FOREIGN KEY constraint failed" on any board holding a score
+    # (reproduced in review of PR #719). `default` supplies a value on every write, and readers
+    # coerce a legacy NULL to public.
+    assert visibility_field.null is True
