@@ -31,12 +31,13 @@ from url4.streaming.protocol import (
 
 SECRET = "ws-unit-secret"
 WINDOW_S = 60
+LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 SUBPROTOCOL = "cloudevents.json"
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
 
 
 def _token(topic: str) -> str:
-    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0)
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0)
 
 
 def _make_app(

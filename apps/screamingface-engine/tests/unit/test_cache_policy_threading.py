@@ -55,6 +55,7 @@ from url4.streaming.protocol import CachePolicy
 
 SECRET = "cache-threading-secret"
 WINDOW_S = 60
+LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 T0 = datetime(2026, 8, 5, 9, 0, 0, tzinfo=UTC)
 MODEL = "anthropic/claude-haiku-4-5"
 TAVILY_TOKEN = "tvly-threading"  # noqa: S105 - not a real credential
@@ -288,7 +289,7 @@ async def _start(runner: _CacheRecordingRunner, topic: str, **headers: str) -> h
             "/",
             params={"q": "gpt(hi)"},
             headers={
-                "URL4-Capability": JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0),
+                "URL4-Capability": JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0),
                 "Prefer": "respond-async",
                 **headers,
             },

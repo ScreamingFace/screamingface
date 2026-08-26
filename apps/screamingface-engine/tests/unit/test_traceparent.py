@@ -28,6 +28,7 @@ _TP_RE = re.compile(r"^00-([0-9a-f]{32})-([0-9a-f]{16})-01$")
 
 SECRET = "traceparent-unit-secret"
 WINDOW_S = 60
+LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
 
 
@@ -154,7 +155,7 @@ async def test_all_zero_inbound_traceparent_mints_a_fresh_trace() -> None:
 
 
 def _token(topic: str) -> str:
-    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0)
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0)
 
 
 def _app(job_runner: RecordingJobRunner) -> FastAPI:

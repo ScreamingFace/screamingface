@@ -21,11 +21,12 @@ from url4.streaming.protocol import (
 
 SECRET = "rest-unit-secret"
 WINDOW_S = 60
+LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
 
 
 def _token(topic: str) -> str:
-    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0)
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0)
 
 
 def _cap(topic: str) -> dict[str, str]:
@@ -88,7 +89,7 @@ async def test_post_token_returns_a_verifiable_token() -> None:
         resp = await client.post("/token")
     assert resp.status_code == 200
     token = resp.json()["token"]
-    claims = JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).verify(token, T0)
+    claims = JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).verify(token, T0)
     assert isinstance(claims["sub"], str) and len(str(claims["sub"])) == 64
 
 
@@ -100,7 +101,7 @@ async def test_post_token_uses_default_clock_when_none_injected() -> None:
         resp = await client.post("/token")
     assert resp.status_code == 200
     token = resp.json()["token"]
-    claims = JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).verify(token, datetime.now(UTC))
+    claims = JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).verify(token, datetime.now(UTC))
     assert isinstance(claims["sub"], str)
 
 

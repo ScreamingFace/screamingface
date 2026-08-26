@@ -28,13 +28,14 @@ from url4.streaming.protocol import ResultData, ResultEvent
 
 SECRET = "rest-artifacts-secret"
 WINDOW_S = 60
+LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 # WHY a past instant: pyjwt refuses an `iat` in the future, so the fake clock must lag
 # real UTC or every minted capability is rejected before our own window checks run.
 T0 = datetime(2026, 8, 18, 9, 0, 0, tzinfo=UTC)
 
 
 def _cap(topic: str) -> dict[str, str]:
-    return {"URL4-Capability": JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0)}
+    return {"URL4-Capability": JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(topic, T0)}
 
 
 def _make_app(
