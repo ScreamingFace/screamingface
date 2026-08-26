@@ -1,9 +1,9 @@
 ---
 ticket: OME-993
 stack: screamingface-engine + aigateway + url4 + screamingface (cross-stack, owner-approved single PR)
-status: in_progress
+status: done
 started: 2026-08-26
-finished:
+finished: 2026-08-26
 ---
 
 # OME-993 — Fix benchmark grading that fails every case while still billing the run
@@ -65,11 +65,37 @@ error. This unit implements all five ticket fixes in one PR (owner-approved scop
 - Draft PR open; revision-bump consequences (scoreboard prod seeds, cache-seed
   re-record, golden re-bless) named in the PR body as owner follow-ups.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:** single PR spans four stacks (owner instruction overriding the
-  cross-cutting epic rule); frozen canonical DRACO revision moves (owner-approved via
-  ticket fix #3).
+- **Actual files:** as planned, plus revision-pin fallout the plan anticipated
+  generically: `tests/unit/test_benchmark_protocol.py` (2 collected-row shape pins +
+  the canonical template sha), `tests/unit/test_draco_3pass_definition.py` (frozen
+  revision pin + new judge-resilience pin), `tests/unit/data/
+  draco_corrective_loop_candidate.url4`, `apps/scoreboard/tests/fixtures/
+  engine_catalog.json`, `benchmarks/draco/definition.py` (invariant text),
+  `openrouter_provider/discovery.py` (reviewed evidence),
+  `tests/unit/openrouter/test_openrouter_global_cache_keys.py` (key proof),
+  `tests/unit/test_benchmark_failure_policy.py` (chain pin).
+- **Commits:** ad2aa425 (url4+engine error propagation) · 9f86160f (judge throttle +
+  retry + revision move) · f2e0310c (gateway reasoning_effort) · + e2e tapes commit.
+- **Gates:** run_gates.py ALL GATES GREEN for url4, screamingface-engine, aigateway,
+  screamingface, scoreboard. Gated e2e failure lane run locally: 43 passed
+  (FakeGateway + real engine; both new judge-failure scenarios land as stage=grading
+  with the original cause).
+- **Deviations:**
+  - Single PR spans four stacks — owner instruction overriding the cross-cutting
+    epic rule.
+  - Frozen canonical DRACO revision moved deliberately 66a463248586b277 →
+    fe291f4cdc670208 (owner-approved ticket fix #3); prior pins updated in place.
+  - Prior tests altered (row-shape pins, revision/template pins, e2e 429 code
+    expectation): each is the direct intended consequence of an approved fix and
+    documented at the assertion site.
+  - judge max_tokens chosen as 8192 (2x pre-incident) alongside reasoning_effort=low;
+    both hashed values changed in ONE revision bump per the change-once decision.
+  - `_rehearse` gained `tolerate_aborted` (model-less refusals from url4 cancelling
+    sibling judge passes mid-request are cancellation artifacts, not improvisation).
+- **Owner follow-ups (not in this PR):** deploy aigateway BEFORE the engine (engine
+  sends the new param; an old gateway fails it closed); re-seed production scoreboard
+  benchmarks at the new revision; re-record judge cache seeds and re-bless goldens
+  (paid runs); server-log correlation of the 4 GH #740 run_ids remains open to name
+  which trigger fired that day.
