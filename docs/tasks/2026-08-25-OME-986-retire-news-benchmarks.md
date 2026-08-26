@@ -1,12 +1,12 @@
 ---
 id: OME-986
 linear_url: https://linear.app/openmined/issue/OME-986/retire-the-legacy-news-demo-benchmarks-from-the-scoreboard-catalogue
-status: in_review
+status: done
 type: task
 priority: P1
 labels: [scoreboard, agentic, autonomous, task]
 created: 2026-08-25
-closed:
+closed: 2026-08-26
 ---
 
 `hle`, `livetruth` and `livetruth-latest` are leftovers from the previous SF project and still

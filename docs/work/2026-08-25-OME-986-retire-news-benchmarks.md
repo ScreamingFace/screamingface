@@ -1,9 +1,9 @@
 ---
 ticket: OME-986
 stack: scoreboard
-status: in_review
+status: done
 started: 2026-08-25
-finished:
+finished: 2026-08-26
 ---
 
 # OME-986 — Retire the legacy news demo benchmarks
