@@ -125,21 +125,16 @@ seedBenchmarks:
   #
   # Left empty, the job seeds only the entries listed below.
   engineUrl: ""
-  # Retained legacy demo entries (OME-775 D2). They predate the Engine benchmark catalogue and
-  # have no Engine definition, so their text has nowhere else to live.
-  benchmarks:
-    - id: livetruth-latest
-      display_name: News Livetruth Latest
-      description: OpenMined Livetruth latest demo dataset
-      dataset_url: https://scoreboard.screamingface.ai/livetruth-latest.jsonl
-    - id: hle
-      display_name: News Hallucinations
-      description: OpenMined HLE benchmark
-      dataset_url: https://github.com/openmined/HLE.jsonl
-    - id: livetruth
-      display_name: News Livetruth
-      description: OpenMined Livetruth benchmark
-      dataset_url: https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
+  # OME-986: the legacy news demo entries (hle, livetruth, livetruth-latest) were removed here.
+  # They were leftovers from the previous SF project, carried no Engine revision, and were still
+  # advertised on the public catalogue.
+  #
+  # AIDEV-NOTE: emptying this list only stops them being RE-CREATED. Seeding registers and
+  # updates; it never deletes, so any row already in a database stays and is still served by
+  # GET /v1/benchmarks. Removing an existing benchmark is a separate, deliberate step:
+  #   python -m scoreboard.retire_benchmark --benchmark <id> --yes
+  # which refuses while any score or baseline references it.
+  benchmarks: []
 networkPolicy:
   enabled: false
   ingressCIDRs: []
