@@ -18,11 +18,12 @@ The declared policy chain, with the code that declares it:
   (``runner/model_response.py::raise_if_unusable``).
 - a failed CANDIDATE call errors the whole Case row; the board's cases fan out with
   ``on_error="collect"`` (``benchmarks/protocol.py``), so the row becomes
-  ``{"error": {"kind", "message"}}`` (url4 ``dag/nodes.py::_error_payload``) and DRACO's
+  ``{"error": {"kind", "message", "code", "retryable"}}`` (url4
+  ``dag/nodes.py::_error_payload``) and DRACO's
   aggregate maps it to a ``stage="candidate"`` Failure via ``public_error``
-  (``benchmarks/draco/aggregate.py::_row_failure``). The wire row carries no code, so
-  the Failure code is the declared default ``case_execution_failed`` and the
-  gateway-authored MESSAGE is what names the provider failure.
+  (``benchmarks/draco/aggregate.py::_row_failure``). The wire row carries the connector's
+  own code/retryable (OME-924), so the Failure code and retryability are the upstream
+  ones and the gateway-authored MESSAGE names the provider failure.
 - a judge that answers but is cut off (truncated verdict JSON) never errors the row:
   every verdict is bound invalid (``benchmarks/draco/verdict.py::bind``) and the case
   lands as a ``stage="grading"`` Failure, code ``no_valid_judge_verdict``
@@ -61,7 +62,6 @@ JUDGE_MODEL = "openrouter/google/gemini-3.1-pro-preview"
 BOARD = "draco-3pass"
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
-_DEFAULT_ASSETS_ROOT = Path("/tmp/screamingface-benchmark-assets")
 
 #: Every authored failure scenario and its tape file. The names are the rehearsal's
 #: vocabulary — each maps one provider failure shape to one declared landing.
@@ -71,6 +71,10 @@ SCENARIO_TAPES = {
     "malformed_body": FAILURES_DIR / "malformed_body.tape.json",
     "blank_completion": FAILURES_DIR / "blank_completion.tape.json",
     "judge_cutoff": FAILURES_DIR / "judge_cutoff.tape.json",
+    # OME-993 (GH #740): the two judge-side transport failures that used to be
+    # misreported as "invalid Criterion envelope".
+    "judge_token_cap": FAILURES_DIR / "judge_token_cap.tape.json",
+    "judge_429": FAILURES_DIR / "judge_429.tape.json",
 }
 
 
@@ -320,6 +324,35 @@ def test_the_judge_cutoff_tape_pairs_a_good_candidate_with_a_truncated_judge() -
         json.loads(judge_text)
 
 
+def test_the_judge_token_cap_tape_pairs_a_good_candidate_with_a_blank_length_turn() -> None:
+    # The GH #740 shape: the judge (a reasoning model) burns its whole budget
+    # thinking — finish_reason=length with NO text — which the engine classifies as
+    # model_token_cap (runner/model_response.py), a judge-side, non-retryable failure.
+    tape = load_tape(SCENARIO_TAPES["judge_token_cap"])
+    by_model = {exchange.normalized.model: exchange for exchange in tape.exchanges()}
+    assert set(by_model) == {CANDIDATE_MODEL, JUDGE_MODEL}
+
+    candidate_choice = json.loads(by_model[CANDIDATE_MODEL].response.body)["choices"][0]
+    assert candidate_choice["finish_reason"] == "stop"
+    assert candidate_choice["message"]["content"].strip()
+
+    judge_choice = json.loads(by_model[JUDGE_MODEL].response.body)["choices"][0]
+    assert judge_choice["finish_reason"] == "length"
+    assert not judge_choice["message"]["content"].strip()
+
+
+def test_the_judge_429_tape_rate_limits_only_the_judge() -> None:
+    # Same gateway-authored detail envelope as the candidate 429 scenario, but on the
+    # JUDGE model — the failure must land at stage grading, never on the candidate.
+    tape = load_tape(SCENARIO_TAPES["judge_429"])
+    by_model = {exchange.normalized.model: exchange for exchange in tape.exchanges()}
+    assert set(by_model) == {CANDIDATE_MODEL, JUDGE_MODEL}
+    assert by_model[CANDIDATE_MODEL].response.status == 200
+    judge = by_model[JUDGE_MODEL].response
+    assert judge.status == 429
+    assert json.loads(judge.body)["detail"]["code"] == "rate_limited"
+
+
 # ---- End-to-end scenarios (e2e lane: real engine + SDK vs the FakeGateway) ----
 @dataclass(frozen=True, slots=True)
 class _FailureStack:
@@ -330,7 +363,13 @@ class _FailureStack:
 
 
 def _assets_root() -> Path:
-    return Path(os.environ.get(_ASSETS_ENV, str(_DEFAULT_ASSETS_ROOT)))
+    # Same default as test_boards: where `screamingface prepare` writes (OME-1001).
+    from screamingface._runtime.config import default_data_dir
+
+    configured = os.environ.get(_ASSETS_ENV)
+    if configured:
+        return Path(configured)
+    return default_data_dir() / "benchmark-assets"
 
 
 @pytest.fixture(scope="module")
@@ -347,7 +386,8 @@ def failure_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Failure
     if not (assets / "draco").is_dir():
         pytest.skip(
             f"the failure rehearsal drives the {BOARD} board and needs prepared draco "
-            f"assets at {assets / 'draco'} (run `just stack-prepare` or set {_ASSETS_ENV})"
+            f"assets at {assets / 'draco'} "
+            f"(run `screamingface prepare draco`, or point {_ASSETS_ENV} at them)"
         )
     fake = FakeGateway(load_tape(SCENARIO_TAPES["rate_limit_429"]))
     engine = EngineProcess(work_dir=tmp_path_factory.mktemp("failure-stack"), assets_dir=assets)
@@ -360,11 +400,17 @@ def failure_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Failure
         fake.stop_sync()
 
 
-def _rehearse(stack: _FailureStack, scenario: str):
+def _rehearse(stack: _FailureStack, scenario: str, *, tolerate_aborted: bool = False):
     """Play one authored failure tape through a real one-case board run.
 
     Returns the single CaseResult of the single candidate — the surface where the
     board's declared failure policy must land.
+
+    ``tolerate_aborted`` (OME-993): when one judge pass fails permanently, url4's
+    TaskGroup CANCELS the sibling passes mid-request — the fake then reads a half
+    body and records a refusal with ``model=None`` before the broken pipe. Those are
+    cancellation artifacts, not improvisation; a genuinely untaped model always
+    arrives with its model string, so only ``model=None`` rows are tolerated.
     """
     import screamingface as sf
 
@@ -377,9 +423,10 @@ def _rehearse(stack: _FailureStack, scenario: str):
     # answered from the taped surface — no untaped model call (improvisation) and no
     # off-surface route either (an engine quietly running degraded against 404'd
     # discovery routes would rehearse a stack that does not exist).
-    assert not stack.fake.refusals, (
-        f"the engine made requests the taped surface does not hold: {stack.fake.refusals}"
-    )
+    refusals = stack.fake.refusals
+    if tolerate_aborted:
+        refusals = tuple(r for r in refusals if r.model is not None)
+    assert not refusals, f"the engine made requests the taped surface does not hold: {refusals}"
     candidate = report.candidates.only
     (case,) = candidate.cases
     return case
@@ -399,9 +446,10 @@ def test_a_provider_429_lands_as_a_candidate_provider_failure_never_malformed(
     assert failure.stage == "candidate"
     assert "rate limiting" in failure.message
     assert "malformed" not in failure.message.lower()
-    # Declared today: the collect row strips the connector's code/permanent, so the
-    # Failure code is DRACO's default for an errored case row (public_error fallback).
-    assert failure.code == "case_execution_failed"
+    # OME-924: the collect row keeps the connector's code/retryable, so the Failure
+    # carries the upstream rate-limit code instead of the DRACO default.
+    assert failure.code == "rate_limited"
+    assert failure.retryable is True
 
 
 @pytest.mark.e2e
@@ -466,3 +514,42 @@ def test_a_judge_cut_off_mid_batch_lands_as_grading_never_candidate(
     assert case.failures, "the cut-off judge must be reported, not silently ungraded"
     assert all(failure.stage == "grading" for failure in case.failures)
     assert any(failure.code == "no_valid_judge_verdict" for failure in case.failures)
+
+
+@pytest.mark.e2e
+def test_a_token_capped_judge_lands_as_a_named_grading_failure_never_an_envelope_error(
+    failure_stack: _FailureStack,
+) -> None:
+    # THE OME-993 regression pin (GH #740): a judge that burned its budget thinking
+    # used to surface as "invalid Criterion envelope" — the collected error row's
+    # shape, not its cause. The failure must now land at stage="grading" carrying the
+    # ORIGINAL model_token_cap cause, with the candidate's answer preserved.
+    case = _rehearse(failure_stack, "judge_token_cap", tolerate_aborted=True)
+
+    assert str(case.status) == "failed"
+    assert case.output, "the candidate's completed answer must be preserved"
+    (failure,) = case.failures
+    assert failure.stage == "grading"
+    assert failure.code == "model_token_cap"
+    assert "ran out of tokens" in failure.message
+    assert failure.retryable is False
+    assert "envelope" not in failure.message.lower()
+
+
+@pytest.mark.e2e
+def test_a_rate_limited_judge_lands_as_a_retryable_grading_failure(
+    failure_stack: _FailureStack,
+) -> None:
+    # The other GH #740 trigger: a judge-side 429 must propagate the gateway-authored
+    # cause and stay retryable — after the bounded in-run retries (;retry=2 on every
+    # verdict source) are exhausted against the still-rate-limiting fake.
+    case = _rehearse(failure_stack, "judge_429", tolerate_aborted=True)
+
+    assert str(case.status) == "failed"
+    assert case.output, "the candidate's completed answer must be preserved"
+    (failure,) = case.failures
+    assert failure.stage == "grading"
+    assert failure.code == "rate_limited"
+    assert "rate limiting" in failure.message
+    assert failure.retryable is True
+    assert "envelope" not in failure.message.lower()

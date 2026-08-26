@@ -1,6 +1,6 @@
 """Boot the real engine against a replay backend, notebook-shaped (OME-961).
 
-Mental model: this module is ``just stack-up`` for one test — the engine runs exactly
+Mental model: this module is ``screamingface up`` for one test — the engine runs exactly
 as local mode ships it (``screamingface_engine.local:create_local_app`` under uvicorn,
 in-process runs, in-memory event stream), pointed at whatever base URL the
 ``ReplayBackend`` handed back. The SDK then connects to the engine the way a notebook

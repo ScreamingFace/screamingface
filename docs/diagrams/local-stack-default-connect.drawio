@@ -1,0 +1,96 @@
+<mxfile host="Electron" modified="2026-08-26T00:00:00.000Z" version="31.3.1">
+  <diagram id="ome998-before-after" name="local-stack-default-connect">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="800" math="0" shadow="0" background="#0a0f1c">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ============ TODAY lane (danger) ============ -->
+        <mxCell id="laneToday" value="TODAY — sf.connect() targets the hosted engine while the local stack is running" style="swimlane;startSize=34;rounded=0;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=14;fontStyle=1;swimlaneFillColor=#0a0f1c;horizontalAlign=left;spacingLeft=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="1420" height="330" as="geometry" />
+        </mxCell>
+        <mxCell id="tDev" value="dev runs&#10;screamingface up" style="rounded=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneToday">
+          <mxGeometry x="40" y="70" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tStack" value="local stack RUNNING&#10;engine :9108 healthy&#10;(completely ignored)" style="rounded=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneToday">
+          <mxGeometry x="360" y="65" width="210" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="tNotebook" value="notebook&#10;sf.connect()" style="rounded=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneToday">
+          <mxGeometry x="40" y="220" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tDefault" value="_default_client.py&#10;env var, else&#10;hosted default" style="rounded=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneToday">
+          <mxGeometry x="360" y="215" width="210" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="tHosted" value="hosted engine&#10;fusion.dev.screamingface.ai&#10;panel stuck: waiting / Authorize" style="rounded=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneToday">
+          <mxGeometry x="760" y="215" width="290" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="tHuman" value="only escape: a human exports&#10;SCREAMINGFACE_ENGINE_URL&#10;BY HAND before Jupyter" style="rounded=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneToday">
+          <mxGeometry x="1130" y="215" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="tE1" value="starts" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;" edge="1" parent="laneToday" source="tDev" target="tStack">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tE2" value="builds default Client" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;" edge="1" parent="laneToday" source="tNotebook" target="tDefault">
+          <mxGeometry x="-0.3" relative="1" as="geometry">
+            <mxPoint x="0" y="-14" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="tE3" value="no env var →&#10;hosted, silently" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;" edge="1" parent="laneToday" source="tDefault" target="tHosted">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tE4" value="never consulted" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=11;dashed=1;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="laneToday" source="tDefault" target="tStack">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tE5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=11;dashed=1;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;" edge="1" parent="laneToday" source="tHosted" target="tHuman">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============ AFTER lane (success) ============ -->
+        <mxCell id="laneAfter" value="AFTER OME-998 — a running, liveness-checked local stack is preferred and announced" style="swimlane;startSize=34;rounded=0;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#34d399;fontFamily=Courier New;fontSize=14;fontStyle=1;swimlaneFillColor=#0a0f1c;horizontalAlign=left;spacingLeft=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="1420" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="aDev" value="dev runs&#10;screamingface up" style="rounded=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneAfter">
+          <mxGeometry x="40" y="70" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="aState" value="~/.screamingface/&#10;runtime.json" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#a78bfa;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneAfter">
+          <mxGeometry x="360" y="55" width="210" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="aHosted" value="hosted default — unchanged, silent&#10;(no state / stale state / dead port)" style="rounded=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneAfter">
+          <mxGeometry x="760" y="65" width="290" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="aNotebook" value="notebook&#10;sf.connect()" style="rounded=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneAfter">
+          <mxGeometry x="40" y="230" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="aDefault" value="_default_client.py&#10;1 env var → 2 local&#10;→ 3 hosted" style="rounded=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneAfter">
+          <mxGeometry x="360" y="225" width="210" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="aDetect" value="_runtime/detect.py&#10;reads runtime.json,&#10;probes engine /healthz (0.3s)" style="rounded=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneAfter">
+          <mxGeometry x="760" y="225" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="aLocal" value="local engine http://127.0.0.1:9108&#10;terminal: connected to the local stack …&#10;set SCREAMINGFACE_ENGINE_URL to override" style="rounded=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#34d399;fontFamily=Courier New;fontSize=12;whiteSpace=wrap;html=1;" vertex="1" parent="laneAfter">
+          <mxGeometry x="1090" y="215" width="310" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="aE1" value="writes on up,&#10;removed on down" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;" edge="1" parent="laneAfter" source="aDev" target="aState">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aE2" value="builds default Client" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;" edge="1" parent="laneAfter" source="aNotebook" target="aDefault">
+          <mxGeometry x="-0.3" relative="1" as="geometry">
+            <mxPoint x="0" y="-14" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="aE3" value="no env var →&#10;discover" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#34d399;fontColor=#34d399;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;" edge="1" parent="laneAfter" source="aDefault" target="aDetect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aE4" value="same record&#10;status reads" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#a78bfa;fontColor=#a78bfa;fontFamily=Courier New;fontSize=11;dashed=1;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;exitX=0.25;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="laneAfter" source="aDetect" target="aState">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aE5" value="alive →&#10;connect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#34d399;fontColor=#34d399;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;" edge="1" parent="laneAfter" source="aDetect" target="aLocal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aE6" value="probe fails →&#10;fall back" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;dashed=1;endArrow=classic;endFill=1;labelBackgroundColor=#0a0f1c;exitX=0.75;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="laneAfter" source="aDetect" target="aHosted">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

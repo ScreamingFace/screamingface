@@ -223,6 +223,14 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
         ),
         body=(src(rubric_evaluation, name="evaluated", weight=0.0),),
         intent=Text("$evaluated"),
+        # WHY fail, not the collect default (OME-924): a failed rubric-item judge branch
+        # (e.g. an upstream 429, or judge_reply_invalid after its bounded retries) must
+        # surface as ITS OWN error at the case-execution boundary, not be collected into
+        # the rubric-row list — where the case-evaluation route would decode the error
+        # object as a typed grading record and mask the real failure. The shared
+        # preserve_candidate_outcome() boundary still collects this error per Case, so one
+        # bad rubric item fails only that Case, with the Candidate answer intact.
+        on_error="fail",
     )
     # Stage 4a — roll a Case's rubric rows up into one per-Case score.
     case_evaluation = expr(
