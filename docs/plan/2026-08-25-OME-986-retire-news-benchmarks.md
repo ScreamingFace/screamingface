@@ -41,12 +41,18 @@ cleaning up a live board.
 
 ---
 
-### Step 3 — delete an unreferenced benchmark
+### Step 3 — delete an unreferenced benchmark, and confirm it happened
 
 **RED:** a benchmark with no scores and no baselines is deleted and disappears from
 `list_benchmarks()`; a second run reports it unknown rather than crashing.
 
 **GREEN:** the delete, reachable only past Steps 1 and 2.
+
+**Revised after review (spec D9).** The delete must also *confirm* it deleted: `QuerySet.delete()`
+returns a row count, and discarding it reported `retired` for a benchmark that had vanished
+concurrently. The count is required to be exactly one, the revision read uses `get_or_none()`
+because the row can disappear before it, and the Engine-ownership guard is repeated in the DELETE
+predicate so it holds at the write rather than only at the read.
 
 ---
 
@@ -97,5 +103,11 @@ comment per the card's `close_template` · close the `docs/tasks/` mirror.
 
 ## Out of scope
 
-The five Engine-published benchmarks · any seed-job pruning behaviour (spec §4) · `OME-894` ·
-anything touching the Engine catalogue.
+Any seed-job pruning behaviour (spec §4) · `OME-894` · anything touching the Engine catalogue ·
+retiring an Engine benchmark **on the Engine side**.
+
+**Revised after review (spec D8).** This previously said "the five Engine-published benchmarks".
+That was the scope of the *ticket*, not of the tool: `retire_benchmark` is a general operator
+command for any unreferenced benchmark, and `--include-engine-owned` exists precisely for an
+Engine-owned row the Engine has stopped publishing. What stays out is changing what the Engine
+itself publishes.
