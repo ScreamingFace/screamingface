@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="OME-993 grading failure">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" background="#0a0f1c" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ══════════════ LANE 1 - TODAY (bug) ══════════════ -->
+        <mxCell id="laneBug" value="TODAY (GH #740) - 8/8 gradings fail: draco_grading_failed &quot;invalid Criterion envelope&quot; | run fully billed | zero scores" style="swimlane;startSize=36;horizontal=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=15;fontStyle=1;html=1;swimlaneFillColor=#10141f;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="2420" height="280" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bCand" value="4 Candidate models&#xa;&#xa;all answer normally&#xa;finish_reason=stop&#xa;$$ answer tokens billed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneBug">
+          <mxGeometry x="25" y="80" width="230" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bEngine" value="ScreamingFace Engine&#xa;DRACO grading&#xa;&#xa;url4 fan-out: 1 judge call&#xa;per criterion x 3 passes&#xa;iterate(on_error = unset)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneBug">
+          <mxGeometry x="365" y="80" width="250" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bGateway" value="AI Gateway -&gt; OpenRouter&#xa;&#xa;BUG 1 -  NO validated reasoning&#xa;param - the low-effort knob&#xa;fails closed, can&#39;t be sent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneBug">
+          <mxGeometry x="725" y="80" width="250" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bJudge" value="Judge gemini-3.1-pro-preview&#xa;&#xa;BUG 2 -  reasoning UNTHROTTLED&#xa;thinks away all max_tokens=4096&#xa;-&gt; blank &quot;length&quot; turn - or 429&#xa;$$ judge tokens billed anyway" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneBug">
+          <mxGeometry x="1085" y="80" width="280" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bCollect" value="url4 silent default &quot;collect&quot;&#xa;&#xa;BUG 3 -  failed criterion becomes a&#xa;row: {&quot;error&quot;: {kind, message}}&#xa;code + permanent LOST&#xa;no retry ever attempted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneBug">
+          <mxGeometry x="1475" y="80" width="270" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bCaseEval" value="case-evaluation route&#xa;&#xa;BUG 4 -  rejects the row&#39;s SHAPE:&#xa;&quot;invalid Criterion envelope&quot;&#xa;real cause DESTROYED" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneBug">
+          <mxGeometry x="1855" y="80" width="250" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bReport" value="REPORT&#xa;&#xa;score=None | coverage=0.0&#xa;error blames the wrong layer&#xa;$$ full bill, nothing to show" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneBug">
+          <mxGeometry x="2215" y="80" width="180" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="be1" value="answers" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneBug" source="bCand" target="bEngine">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be2" value="judge call" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneBug" source="bEngine" target="bGateway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be3" value="no throttle" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneBug" source="bGateway" target="bJudge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be4" value="ResolutionError" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneBug" source="bJudge" target="bCollect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be5" value="error row inside array" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneBug" source="bCollect" target="bCaseEval">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="be6" value="misdiagnosis" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneBug" source="bCaseEval" target="bReport">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ══════════════ LANE 2 - AFTER (fix) ══════════════ -->
+        <mxCell id="laneFix" value="AFTER OME-993 (PR #742) + OME-924 (PR #741) - a billed run ends in scores, or an honest failure naming the real cause" style="swimlane;startSize=36;horizontal=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#34d399;fontFamily=Courier New;fontSize=15;fontStyle=1;html=1;swimlaneFillColor=#10141f;" vertex="1" parent="1">
+          <mxGeometry x="40" y="370" width="2420" height="410" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fCand" value="4 Candidate models&#xa;&#xa;answer normally&#xa;(cached answers replay free)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
+          <mxGeometry x="25" y="80" width="230" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fGateway" value="AI Gateway -&gt; OpenRouter&#xa;&#xa;FIX 1 -  NEW validated param&#xa;reasoning_effort in&#xa;{low, medium, high}&#xa;fail-closed | cache-keyed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#33240a;strokeColor=#e8b339;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
+          <mxGeometry x="365" y="80" width="250" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fJudge" value="Judge gemini-3.1-pro-preview&#xa;&#xa;FIX 2 -  reasoning_effort=low (paper 4.2)&#xa;FIX 3 -  max_tokens 4096 -&gt; 8192&#xa;FIX 4 -  retry=2 on 429/5xx&#xa;(permanent failures never retried)&#xa;-&gt; verdicts complete" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
+          <mxGeometry x="725" y="80" width="300" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fCollect" value="url4 fan-out - on_error=&quot;fail&quot;&#xa;(OME-924)&#xa;&#xa;FIX 5 -  first judge failure&#xa;propagates AS ITSELF&#xa;error rows keep {code, retryable}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
+          <mxGeometry x="1135" y="80" width="280" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fCaseEval" value="per-Case boundary collects&#xa;&#xa;FIX 6 -  original failure lands at&#xa;stage=grading, candidate kept&#xa;(belt: case-eval route re-raises&#xa;any stray {&quot;error&quot;:...} row)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
+          <mxGeometry x="1525" y="80" width="270" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fReport" value="REPORT&#xa;&#xa;score OK - or an honest Failure:&#xa;stage=grading&#xa;code=model_token_cap | rate_limited&#xa;retryable yes | candidate answer kept&#xa;&quot;envelope&quot; unreachable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneFix">
+          <mxGeometry x="1905" y="80" width="300" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fCache" value="gateway response cache&#xa;key = exact request body&#xa;(params included)" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;boundedLbl=1;" vertex="1" parent="laneFix">
+          <mxGeometry x="750" y="280" width="250" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fRevision" value="HUMAN STEPS - judge params are hashed into the board identity:&#xa;revision 66a463248586b277 -&gt; fe291f4cdc670208&#xa;deploy AI Gateway BEFORE the Engine | re-seed scoreboard&#xa;re-record judge cache seeds + re-bless goldens ($$ paid, owner)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=12;dashed=1;" vertex="1" parent="laneFix">
+          <mxGeometry x="1180" y="270" width="600" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fe1" value="answers" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneFix" source="fCand" target="fGateway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fe2" value="throttled judge call" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#34d399;fontColor=#34d399;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneFix" source="fGateway" target="fJudge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fe3" value="verdicts (or a typed error)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#34d399;fontColor=#34d399;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneFix" source="fJudge" target="fCollect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fe4" value="rows" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#34d399;fontColor=#34d399;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneFix" source="fCollect" target="fCaseEval">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fe5" value="real cause, end to end" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#34d399;fontColor=#34d399;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;" edge="1" parent="laneFix" source="fCaseEval" target="fReport">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fe6" value="new params -&gt; new cache slots" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#a78bfa;fontColor=#a78bfa;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="laneFix" source="fJudge" target="fCache">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fe7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=11;endArrow=classic;endFill=1;dashed=1;" edge="1" parent="laneFix" source="fCache" target="fRevision">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
