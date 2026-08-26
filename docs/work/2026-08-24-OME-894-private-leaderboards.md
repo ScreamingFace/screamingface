@@ -617,6 +617,49 @@ the row (the per-submitter hash diverges); a private scoped key pointing at a pu
 the purge removes legitimate live mappings as well as crafted ones, and the affected client still
 replays through the content hash, which is the documented cost.
 
+## Review rounds 11-12 — 2026-08-26 (self-review)
+
+**Round 11 — route layer. Nothing blocking.** Probed the actual attack surface rather than the
+store, where the previous rounds had concentrated. All clean, measured not assumed:
+
+| Probe | Result |
+|---|---|
+| History: another participant's spec vs a nonexistent one | byte-identical, headers included |
+| History: anonymous vs foreign-spec | byte-identical |
+| Private leaderboard as a participant | `entries=0`, own row only, no other submitter anywhere in the body |
+| Private leaderboard anonymous | 200, nothing owned, no address of any kind |
+| POST the same recipe as two participants on a private board | two rows, no replay |
+| Untrusted peer under `cloudflare_headers` | write 403, read yields nothing owned |
+
+The frontier's private 404 IS distinguishable from an unknown benchmark's, and that is correct
+rather than a leak: D4 publishes every private board in the catalogue, so its existence was never
+secret. The same reasoning covers the differing history details.
+
+**[P3, recorded not fixed] Every private check is `== "private"`, so an unexpected value fails
+OPEN.** The column is a plain `CharField` with no constraint, and `'Private'` or any typo reads as
+public at `store.py:519`, `store.py:556`, `leaderboard.py:183/257/299` and `scores.py:186/253`.
+Both supported write paths are validated — `SeedBenchmark.visibility` is a Pydantic `Literal`, and
+`BenchmarkSchema` rejects a bad value on the read path (loudly, with a 500) — so reaching this needs
+an out-of-band `UPDATE`. Not fixed deliberately: inverting to `(visibility or "public") != "public"`
+touches seven privacy comparisons and turns every legacy NULL row private if the coalesce is wrong,
+which is exactly the shape of defect the last three rounds produced. Better as its own unit with its
+own tests.
+
+**Round 12 — migrations. One finding, fixed.**
+
+**The round-9 `sfu-%` clause had no executing test.** `test_migration_0009_*` seeds an `sfp-` row
+and a raw row; it never seeded an `sfu-` one, so the only thing holding that change was
+`test_migration_0009_clears_both_reserved_namespaces`, which greps the SQL for the string. A
+source-text assertion passes on a malformed clause — demonstrated: appending `AND 1=0` to the new
+`OR` keeps the literal `sfu-%` in the file and the grep test stays green.
+
+Now RUN rather than grepped, with a row in each reserved namespace plus two that must survive
+(`sfx-not-reserved`, `ordinary-retry` — this clears two prefixes, not a table). Both mutations bind:
+dropping the clause, and the precedence trap the grep test accepted.
+
+The grep tests are kept alongside it: they catch a THIRD prefix being reserved without updating the
+migration, which the behaviour test — hardcoding two — would not.
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

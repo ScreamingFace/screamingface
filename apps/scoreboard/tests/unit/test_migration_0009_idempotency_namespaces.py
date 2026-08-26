@@ -74,3 +74,45 @@ def test_idempotency_namespace_migration_discards_only_temporary_mappings(tmp_pa
     # invalid under the new storage format and may be discarded; unrelated durable rows survive.
     assert mappings == [("legacy-raw-key",)]
     assert benchmark == ("sentinel",)
+
+
+def test_the_migration_clears_the_escaped_public_namespace_too(tmp_path: Path) -> None:
+    # `sfu-` became server-owned when the escape path started EMITTING it, but `0009` still deleted
+    # only `sfp-%`, so a crafted legacy row in the new namespace survived and an escaped request
+    # resolved it (review of PR #719).
+    #
+    # AIDEV-NOTE: this RUNS the migration rather than grepping its SQL. The clause is a compound
+    # `LIKE ... OR LIKE ...`; a source-text assertion passes on a malformed one, which is how a fix
+    # ships without a test that holds it.
+    database = tmp_path / "scoreboard.sqlite3"
+    url = f"sqlite://{database}"
+
+    to_0008 = _migrate(url, "0008_benchmark_visibility")
+    assert to_0008.returncode == 0, to_0008.stdout + to_0008.stderr
+
+    connection = sqlite3.connect(database)
+    connection.executemany(
+        """INSERT INTO idempotency_keys (key, expires_at, score_id)
+           VALUES (?, ?, ?)""",
+        (
+            ("sfu-crafted-legacy", "2026-08-27 00:00:00", "00000000-0000-0000-0000-000000000003"),
+            ("sfp-crafted-legacy", "2026-08-27 00:00:00", "00000000-0000-0000-0000-000000000004"),
+            # Neither reserved namespace, and both must survive: this clears two
+            # prefixes, not a table.
+            ("sfx-not-reserved", "2026-08-27 00:00:00", "00000000-0000-0000-0000-000000000005"),
+            ("ordinary-retry", "2026-08-27 00:00:00", "00000000-0000-0000-0000-000000000006"),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    applied = _migrate(url)
+    assert applied.returncode == 0, applied.stdout + applied.stderr
+
+    connection = sqlite3.connect(database)
+    survivors = sorted(
+        row[0] for row in connection.execute("SELECT key FROM idempotency_keys").fetchall()
+    )
+    connection.close()
+
+    assert survivors == ["ordinary-retry", "sfx-not-reserved"]
