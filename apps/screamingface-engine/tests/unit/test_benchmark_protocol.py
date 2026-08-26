@@ -251,7 +251,9 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        (DRACO, "7fdef3acb7f97ff14d91c1c7eb1937bc58681367555cfa4206d615cb4bb69f87"),
+        # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low,
+        # max_tokens=8192, and a bounded ;retry=2 on every verdict source.
+        (DRACO, "RECOMPUTE_ME"),
         (IFEVAL, "c272779623671772ad8c2629e320e283837f34e3b270c693643285174794e4f8"),
         (
             HEALTHBENCH_WORST30,

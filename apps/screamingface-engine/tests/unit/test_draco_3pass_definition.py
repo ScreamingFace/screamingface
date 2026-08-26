@@ -41,7 +41,11 @@ from url4.peer.server import Url4Node
 # INVARIANT: the canonical board's address may not move by accident. Every route it
 # serves carries this hash and the scoreboard seeds it; a refactor that reshuffles the
 # revision math must land on the SAME value (healthbench-worst30 precedent).
-CANONICAL_REVISION = "66a463248586b277"
+# OME-993 moved it DELIBERATELY (from 66a463248586b277): the judge now pins
+# reasoning_effort=low + max_tokens=8192, and judge params are hashed into the board
+# identity — a different exam is a different revision. Scoreboard seeds, cache seeds,
+# and goldens re-record against this value.
+CANONICAL_REVISION = "fe291f4cdc670208"
 
 
 def _url4(benchmark, limit: int | None = None) -> str:
@@ -343,3 +347,20 @@ def test_a_fourth_pass_aborts_as_protocol_corruption() -> None:
             selected_cases=_selected_cases(1),
             judge_passes=3,
         )
+
+
+# ── OME-993: judge resilience pins ---------------------------------------------------
+
+
+def test_the_judge_calls_pin_low_reasoning_a_raised_budget_and_bounded_retry() -> None:
+    # INVARIANT: the Judge is a reasoning model — without a reasoning throttle it can
+    # burn its whole token budget thinking and return a blank `length` turn (GH #740).
+    # The board pins the official low effort (DRACO paper §4.2), a 2x budget, and a
+    # bounded retry so a transient 429/5xx does not fail the whole Case (url4 never
+    # retries permanent failures).
+    expression = render(DRACO_3PASS.build(1))
+
+    assert expression.count("reasoning_effort=low") == 3
+    assert expression.count("max_tokens=8192") == 3
+    assert "max_tokens=4096" not in expression
+    assert expression.count(";retry=2") == 3

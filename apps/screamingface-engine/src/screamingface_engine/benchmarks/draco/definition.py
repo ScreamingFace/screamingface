@@ -17,8 +17,10 @@ Everything else is shared and cannot drift: the dataset and judge pinning live i
 ``exam.py``, and the revision math, route layout, and url4 expression tree live in
 ``exam.py`` too. Each board below is one call to ``draco_benchmark``.
 
-INVARIANT: canonical ``draco``'s revision is FROZEN at ``66a463248586b277``
-(``test_draco_3pass_definition.py``). Its routes carry it and the scoreboard seeds it,
+INVARIANT: canonical ``draco``'s revision is FROZEN at ``fe291f4cdc670208``
+(``test_draco_3pass_definition.py``; OME-993 moved it deliberately from
+``66a463248586b277`` when the judge gained reasoning_effort=low + max_tokens=8192).
+Its routes carry it and the scoreboard seeds it,
 so an accidental change would orphan every existing submission. The 3-pass board is a
 separate identity by construction — a different revision is a different benchmark, so
 its scores are never compared against the five-pass ones (OME-775).

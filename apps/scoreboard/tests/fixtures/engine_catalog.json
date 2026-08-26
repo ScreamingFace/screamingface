@@ -6,12 +6,12 @@
       "id": "draco",
       "title": "DRACO",
       "description": "A 100-task DRACO reproduction with official score arithmetic. It uses the successor Judge model, provider-default reasoning, mixed native/Tavily retrieval, and a host-only approximation of the reference blocklist, so its scores are not paper-identical. Every answer is judged five times — the paper's stability protocol.",
-      "revision": "66a463248586b277",
+      "revision": "fe291f4cdc670208",
       "case_count": 100,
       "focus": "Research reports with citations",
       "dataset_url": "https://huggingface.co/datasets/perplexity-ai/draco",
       "check_surface": {
-        "check_route": "/benchmarks/draco/66a463248586b277/check-surface/draco-pass.v1",
+        "check_route": "/benchmarks/draco/fe291f4cdc670208/check-surface/draco-pass.v1",
         "feedback_intent": "feedback",
         "expected_check_cost": "paid"
       },
