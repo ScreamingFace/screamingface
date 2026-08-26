@@ -85,6 +85,22 @@ def test_any_pump_failure_reaches_the_client_as_an_error_frame() -> None:
     assert frame["data"]["code"] == "stream_failed"
 
 
+def test_resume_attach_on_reclaimed_stream_is_stream_reclaimed() -> None:
+    """OME-1019: a resume cursor with no stream is FINAL — the Run finished and the
+    Runner reclaimed the stream — and is typed distinctly from a transient failure."""
+    topic = "ws-reclaimed"
+    # The topic was never published to: no stream exists, so a resume cursor has nothing
+    # to resume from (the reclaimed case). A fresh attach would create it (covered by the
+    # adapter parity tests).
+    app = _make_app(InMemoryEventStream())
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
+            ws.send_json(_raw_attach(3))
+            frame = ws.receive_json()
+    assert frame["type"] == "ai.url4.error"
+    assert frame["data"]["code"] == "stream_reclaimed"
+
+
 def test_pump_failure_nack_does_not_leak_the_broker_message() -> None:
     topic = "ws-pump-leak"
     app = _make_app(ExplodingBus())

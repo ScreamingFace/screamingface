@@ -4,6 +4,16 @@ from collections.abc import AsyncIterator
 from url4.streaming.protocol import OutboundFrame
 
 
+class StreamNotFoundError(LookupError):
+    """The topic's stream does not exist — the Run finished and its stream was reclaimed.
+
+    Raised by a consumer's :meth:`EventConsumer.subscribe` ONLY on a resume attach
+    (``from_sequence`` set): a fresh attach legitimately precedes the Run's first publish,
+    so it may create the stream. A resume cursor with no stream to resume from means the
+    Run ended and the reclaim grace elapsed — the client can stop reconnecting (OME-1019).
+    """
+
+
 class EventPublisher(ABC):
     @abstractmethod
     async def ensure_stream(self, topic: str) -> None:
@@ -89,4 +99,4 @@ def validate_from_sequence(from_sequence: int | None) -> None:
         )
 
 
-__all__ = ["EventConsumer", "EventPublisher", "EventStream", "validate_from_sequence"]
+__all__ = ["EventConsumer", "EventPublisher", "EventStream", "StreamNotFoundError", "validate_from_sequence"]

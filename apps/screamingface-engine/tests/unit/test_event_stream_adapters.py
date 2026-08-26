@@ -5,7 +5,7 @@ from _fakes import take
 
 from screamingface_engine.adapters.jetstream import JetStreamConsumer, JetStreamPublisher
 from screamingface_engine.testing import InMemoryEventStream
-from url4.streaming.interfaces import EventConsumer, EventPublisher
+from url4.streaming.interfaces import EventConsumer, EventPublisher, StreamNotFoundError
 from url4.streaming.protocol import LogData, LogEvent, SpanData, SpanEvent
 
 TOPIC = "cap-topic"
@@ -18,6 +18,33 @@ def _log_event(n: int) -> LogEvent:
         subject="t",
         data=LogData(severity_number=9, severity_text="INFO", body=f"msg-{n}"),
     )
+
+
+@pytest.mark.asyncio
+async def test_resume_cursor_on_missing_stream_is_stream_not_found() -> None:
+    """OME-1019: a resume cursor with no stream to resume from is a RECLAIMED stream.
+
+    Fresh attaches may create the stream; a resume cursor never can — that is exactly
+    the signal the bridge uses to answer `stream_reclaimed`.
+    """
+    stream = InMemoryEventStream()
+    with pytest.raises(StreamNotFoundError):
+        async for _ in stream.subscribe("never-created", from_sequence=3):
+            pass  # pragma: no cover - the generator raises before yielding
+
+
+@pytest.mark.asyncio
+async def test_fresh_attach_on_missing_stream_creates_and_delivers() -> None:
+    """The fresh-attach side of the rule: cursor None creates the stream and delivers."""
+    stream = InMemoryEventStream()
+    frames = stream.subscribe("fresh-topic", None)
+    try:
+        first = anext(frames)
+        await stream.publish("fresh-topic", _log_event(1))
+        frame = await first
+        assert frame is not None
+    finally:
+        await frames.aclose()
 
 
 @pytest.mark.asyncio
