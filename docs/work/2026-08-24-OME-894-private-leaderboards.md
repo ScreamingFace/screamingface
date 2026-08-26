@@ -695,6 +695,36 @@ NOT done here: it is a refactor of the private read path during review, and the 
 have shown what late restructuring costs. The guard makes the drift impossible to ship silently,
 which is what matters now.
 
+## Review rounds 15-16 — 2026-08-26 (self-review)
+
+**Round 15 — data escape paths. Nothing blocking.** Two angles not previously touched:
+
+- **The email trim covers every read DTO.** `SubmittedBy` carries a `when_used="json"` serializer,
+  and both `LeaderboardEntry` and `ScoreSchema` use it — verified live: JSON yields `alice`, python
+  mode yields the full address. `my_submissions` is therefore trimmed like everything else. The one
+  `str | None` submitter is on `ScoreSubmission`, the WRITE DTO, where no trim applies or is wanted.
+- **Every `model_dump()` call is safe.** `_ranked_entry` splats in python mode ON PURPOSE — the
+  target field re-applies the serializer — and the frontier and field-error dumps carry no
+  participant data. `export_private_submissions` keeps the full address deliberately.
+- **Nothing is logged.** No log or `print` in `src/` interpolates a submitter, address, metadata or
+  url4 expression; the operator modules emit benchmark ids and counts only.
+
+**Round 16 — process artifacts. One finding, drafted not applied.**
+
+All four SDLC artifacts exist for OME-894 — spec, plan, task mirror and this ledger.
+
+**The PR description had gone stale in a way that matters.** It described `rank: null` on a private
+board with the caller's rows in `entries` — the D3 design, superseded by D12 six review rounds ago.
+The implementation returns `entries: []` with the caller's rows in `my_submissions`, and `rank` is a
+required `int`. The body also predated the entire submission-path half of the work: the reserved key
+namespaces, `0009`, and the post-upgrade purge were absent from it.
+
+That is the artifact a reviewer reads before the diff, and it misdescribed the response shape.
+
+**Rewritten but NOT posted.** Editing the PR body is outward-facing, and the commits it describes
+are not pushed — publishing it now would document code that is not on the branch. The draft is
+ready to apply alongside the push.
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s
