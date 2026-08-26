@@ -19,7 +19,7 @@ from bisect import bisect_left
 from collections.abc import AsyncIterator
 
 from url4.streaming.codec import decode, encode
-from url4.streaming.interfaces import EventStream, validate_from_sequence
+from url4.streaming.interfaces import EventStream, StreamNotFoundError, validate_from_sequence
 from url4.streaming.protocol import OutboundFrame
 
 DEFAULT_MAX_FRAMES_PER_TOPIC = 10_000
@@ -74,6 +74,11 @@ class InMemoryEventStream(EventStream):
         """Yields events for `topic` from `from_sequence` (or the start), then blocks and keeps
         yielding as new events are published — never terminates on its own."""
         validate_from_sequence(from_sequence)
+        if from_sequence is not None and topic not in self._log:
+            # Resume on a topic with no history: the Run finished and the stream was
+            # reclaimed (OME-1019). A FRESH attach may create the stream — the same rule
+            # as the broker adapter, mirrored for behavioral parity.
+            raise StreamNotFoundError(topic)
         await self.ensure_stream(topic)
         cond = self._conds[topic]
         cursor = 1 if from_sequence is None else from_sequence

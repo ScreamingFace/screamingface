@@ -28,6 +28,7 @@ from url4.streaming.protocol import (
 
 SECRET = "e2e-secret"
 WINDOW_S = 60
+LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 SUBPROTOCOL = "cloudevents.json"
 EXPR = "(gpt,claude)!'hi'"
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
@@ -74,7 +75,11 @@ def _make_app(stream: InMemoryEventStream, runner: MockRunnerJobRunner) -> FastA
 
 
 def _topic_of(token: str) -> str:
-    return str(JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).verify(token, T0)["sub"])
+    return str(
+        JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).verify(
+            token, T0
+        )["sub"]
+    )
 
 
 def _attach() -> dict[str, Any]:
