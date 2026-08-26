@@ -12,7 +12,7 @@ from tortoise.exceptions import IntegrityError
 
 from scoreboard.purge_reserved_idempotency_keys import purge_reserved_idempotency_keys
 from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
-from scoreboard.scores.schemas import ClientInfo, ScoreSubmission
+from scoreboard.scores.schemas import ClientInfo, LeaderboardEntry, ScoreSubmission
 from scoreboard.scores.store import (
     RESERVED_KEY_PREFIXES,
     ScoreStore,
@@ -1928,3 +1928,29 @@ async def test_the_unowned_key_lookup_will_not_serve_a_private_score(tortoise_db
     assert await store.get_by_idempotency_key("victim-key") is None
     # The row itself is untouched — this refuses a READ, it does not delete anything.
     assert await Score.get_or_none(id=victim.id) is not None
+
+
+async def test_owned_entries_project_every_declared_field_from_the_row(tortoise_db: None) -> None:
+    # INVARIANT: `list_owned_entries` hand-builds `LeaderboardEntry` field by field, which is a
+    # SECOND projection of a DTO the ranking query also constructs (`LeaderboardEntry(**row)`).
+    # That is the OME-852 shape the codebase warns about at `_get_benchmark_or_404`: the two drift,
+    # and here the casualty would be a 500 on the private read path this ticket exists to protect —
+    # `extra="forbid"` plus a required field means an omitted one raises rather than degrades.
+    #
+    # Asserted GENERICALLY against `model_fields` rather than a hand-listed set, so a field added to
+    # the DTO and not to the projection fails here on its own: it would hold the DTO's default
+    # instead of this row's distinctive value.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    submission = _owned_submission(submitted_by=ALICE, spec_id="mine", benchmark_revision="rev-9")
+    await store.submit(submission)
+    row = await Score.get(spec_id="mine")
+
+    entries = await store.list_owned_entries(benchmark_id="hle", owner=ALICE)
+
+    assert len(entries) == 1
+    for name in LeaderboardEntry.model_fields:
+        assert getattr(entries[0], name) == getattr(row, name), (
+            f"{name!r} is declared on LeaderboardEntry but list_owned_entries does not carry it "
+            "from the Score row"
+        )

@@ -660,6 +660,41 @@ dropping the clause, and the precedence trap the grep test accepted.
 The grep tests are kept alongside it: they catch a THIRD prefix being reserved without updating the
 migration, which the behaviour test — hardcoding two — would not.
 
+## Review rounds 13-14 — 2026-08-26 (self-review)
+
+**Round 13 — chart, prod values, export module. Nothing blocking.** The chart renders under
+`values-prod.yaml` with all three Jobs including the new purge. `values-prod.yaml` overrides
+nothing, which is the direct confirmation of the `authMode` item under Owner-verify: prod inherits
+`disabled`. The export module applies no visibility filter, which is correct — it is the staff
+path, has no HTTP surface, and exists precisely to read what participants cannot.
+
+Also checked and clean: the purge Job matches the seed Job's hook shape, weight and `backoffLimit`,
+so it introduces no new failure class into a release; and the round-8 seed refusal cannot strand a
+live board — every path that could un-private one is covered by an existing test.
+
+**Round 14 — DTO projections. One latent defect, guarded.**
+
+**`list_owned_entries` hand-builds `LeaderboardEntry` field by field**, which is a SECOND projection
+of a DTO the ranking query also constructs via `LeaderboardEntry(**row)`. That is the OME-852 shape
+the codebase warns about at `_get_benchmark_or_404` — *"use the store's single mapper, never a
+second hand-written projection"* — and `RankedLeaderboardEntry` already carries an AIDEV-NOTE about
+the same coupling.
+
+All ten fields are projected today, so there is **no live defect**. The hazard is what happens next:
+`LeaderboardEntry` is `extra="forbid"` with required fields, so a field added to the DTO and not to
+this projection raises rather than degrades, and the casualty is a **500 on the private read path
+this ticket exists to protect**. The ranked DTO's version of this coupling is caught by the splat in
+`_ranked_entry`; this one had nothing.
+
+Guarded generically — the test walks `LeaderboardEntry.model_fields` and asserts each value came
+from the Score row, so a new unprojected field fails on its own by holding the DTO's default instead
+of the row's value. No hand-listed field set to maintain. Mutation-checked.
+
+Restructuring the projection to share one mapper is the better long-term answer and is deliberately
+NOT done here: it is a refactor of the private read path during review, and the last several rounds
+have shown what late restructuring costs. The guard makes the drift impossible to ship silently,
+which is what matters now.
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s
