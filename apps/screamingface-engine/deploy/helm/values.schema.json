@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "screamingface-engine chart values",
-  "description": "Validated at `helm lint`/`helm install` time. WHY this file exists: a chart's values are an API, and without a schema they are an UNTYPED one \u2014 `runner.backend` was a free-form string that only screamingface_engine.config.Settings validated, at container startup, i.e. after a successful deploy reported success. Everything encoded here fails before anything is applied to a cluster.",
+  "description": "Validated at `helm lint`/`helm install` time. WHY this file exists: a chart's values are an API, and without a schema they are an UNTYPED one — `runner.backend` was a free-form string that only screamingface_engine.config.Settings validated, at container startup, i.e. after a successful deploy reported success. Everything encoded here fails before anything is applied to a cluster.",
   "type": "object",
   "properties": {
     "replicaCount": {
@@ -55,12 +55,17 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 57600,
-          "description": "Job activeDeadlineSeconds. INVARIANT: the 16h ceiling is spec \u00a73."
+          "description": "Job activeDeadlineSeconds. INVARIANT: the 16h ceiling is spec §3."
         },
         "orphanGraceS": {
           "type": "number",
           "minimum": 0,
-          "description": "Seconds a run may keep going with no WebSocket subscriber before the App stops it (OME-890); 0 disables the reaper. INVARIANT: the audience count is in-process, so replicaCount must stay 1 while this is non-zero \u2014 a second replica would answer \"nobody is listening\" for runs another replica is streaming. Keep it above uvicorn's WS ping window (~40s), which is what closes a partitioned client's socket in the first place."
+          "description": "Seconds a run may keep going with no WebSocket subscriber before the App stops it (OME-890); 0 disables the reaper. INVARIANT: the audience count is in-process, so replicaCount must stay 1 while this is non-zero — a second replica would answer \"nobody is listening\" for runs another replica is streaming. Keep it above uvicorn's WS ping window (~40s), which is what closes a partitioned client's socket in the first place."
+        },
+        "runnerIoConcurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-run downstream in-flight budget written onto every Runner Job as URL4_CLOUD_IO_CONCURRENCY (OME-908). 16 interleaves concurrent runs at the gateway's per-provider queue; 32 restores the pre-OME-908 width. Local mode ignores this value (its runs share the process fair-share gate)."
         },
         "aigatewayBaseUrl": {
           "type": "string"
@@ -71,7 +76,7 @@
         }
       },
       "additionalProperties": false,
-      "$comment": "`port` was removed deliberately: the App serves on a hardcoded 9108 (cli.py) and reads no port from its environment, so the value only ever moved the containerPort away from the listening port \u2014 a render that lint and install both accepted while the probes and the Service targetPort pointed at nothing. additionalProperties:false now rejects it at install time instead."
+      "$comment": "`port` was removed deliberately: the App serves on a hardcoded 9108 (cli.py) and reads no port from its environment, so the value only ever moved the containerPort away from the listening port — a render that lint and install both accepted while the probes and the Service targetPort pointed at nothing. additionalProperties:false now rejects it at install time instead."
     },
     "runner": {
       "type": "object",
@@ -105,7 +110,7 @@
             "integer",
             "string"
           ],
-          "description": "Empty string = derive iatWindowS + a 60s clock-skew margin. A value below iatWindowS is refused by Settings at startup: reclaiming a Job while its token is still within `exp` deletes the name that is the single-use replay guard. It deliberately does NOT include jobDeadlineS \u2014 ttlSecondsAfterFinished counts from completion, so the guard must outlive the token, not the run."
+          "description": "Empty string = derive iatWindowS + a 60s clock-skew margin. A value below iatWindowS is refused by Settings at startup: reclaiming a Job while its token is still within `exp` deletes the name that is the single-use replay guard. It deliberately does NOT include jobDeadlineS — ttlSecondsAfterFinished counts from completion, so the guard must outlive the token, not the run."
         }
       },
       "required": [
@@ -205,7 +210,7 @@
             "required": [
               "existingSecret"
             ],
-            "description": "auth.create=false means the JWT signing secret must come from somewhere \u2014 without existingSecret the Deployment references a Secret that was never created."
+            "description": "auth.create=false means the JWT signing secret must come from somewhere — without existingSecret the Deployment references a Secret that was never created."
           }
         }
       ],
@@ -493,7 +498,7 @@
     },
     "garage": {
       "type": "object",
-      "description": "The bundled single-node S3-compatible store. Default-disabled: an existing endpoint can be named with artifactStorage.s3.endpointUrl instead. Needs a one-time bootstrap after install \u2014 see templates/garage.yaml.",
+      "description": "The bundled single-node S3-compatible store. Default-disabled: an existing endpoint can be named with artifactStorage.s3.endpointUrl instead. Needs a one-time bootstrap after install — see templates/garage.yaml.",
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -544,5 +549,5 @@
     "runner"
   ],
   "additionalProperties": false,
-  "$comment": "additionalProperties:false is the point of this file \u2014 it turns a stale or misspelled key (a `podDisruptionBudget` block left behind after the template was deleted, a `runner.resource` typo) into an install-time error instead of a value that is silently ignored while the operator believes it took effect. `global` is allowed because Helm injects it for subcharts."
+  "$comment": "additionalProperties:false is the point of this file — it turns a stale or misspelled key (a `podDisruptionBudget` block left behind after the template was deleted, a `runner.resource` typo) into an install-time error instead of a value that is silently ignored while the operator believes it took effect. `global` is allowed because Helm injects it for subcharts."
 }

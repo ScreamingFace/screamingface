@@ -129,6 +129,11 @@ class K8sJobRunner(IdentityAwareJobRunner):
         job_ttl_s: int | None = None,
         request_timeout_s: float | None = None,
         extra_models: Callable[[], Sequence[str]] | None = None,
+        # FEATURE (OME-908): the per-run downstream in-flight budget, written onto every Job
+        # from `Settings.runner_io_concurrency` and enforced by the run's own URL4 layer.
+        # Default matches the setting's default so a directly-constructed runner (tests) is
+        # honest about what a scheduled run actually gets.
+        io_concurrency: int = 16,
     ) -> None:
         self._client = client
         self._request_timeout_s = request_timeout_s
@@ -146,6 +151,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
         # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows while
         # the app runs, and a model admitted a second ago must reach the very next Job.
         self._extra_models = extra_models
+        self._io_concurrency = io_concurrency
 
     async def schedule(
         self,
@@ -304,6 +310,10 @@ class K8sJobRunner(IdentityAwareJobRunner):
         overlay = () if self._extra_models is None else self._extra_models()
         rendered = job_env.extra_models_to_env(overlay).get(job_env.EXTRA_MODELS, "")
         env.append({"name": job_env.EXTRA_MODELS, "value": rendered})
+        # FEATURE (OME-908): written UNCONDITIONALLY, exactly like EXTRA_MODELS — an explicit
+        # env entry beats `envFrom`, which is what keeps a stale copy in the Helm ConfigMap
+        # from leaking a different budget onto a Job.
+        env.append({"name": job_env.IO_CONCURRENCY, "value": str(self._io_concurrency)})
         return env
 
     def _env_from(self) -> list[dict[str, object]]:

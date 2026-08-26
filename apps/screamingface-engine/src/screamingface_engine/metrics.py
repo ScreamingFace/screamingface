@@ -195,3 +195,47 @@ class _ReaperCollector:
 def register_reaper_metrics(metrics: Metrics, get_reaper: Callable[[], Any]) -> None:
     """Register a `_ReaperCollector` for `get_reaper` on `metrics.registry`."""
     metrics.registry.register(_ReaperCollector(get_reaper))
+
+
+class _FairShareCollector:
+    """A `prometheus_client` custom collector for the local fair-share gate (OME-908).
+
+    WHY no per-run labels: topics are unbounded and attacker-mintable (`POST /token` needs no
+    credential), so labeling by run would let anyone mint permanent gauge children — the same
+    cardinality discipline `_route_label` enforces for the request counter. The snapshot carries
+    per-run detail for tests and logs; the scrape surface stays totals-only.
+    """
+
+    def __init__(self, get_gate: Callable[[], Any]) -> None:
+        self._get_gate = get_gate
+
+    def collect(self) -> Iterable[Any]:
+        gate = self._get_gate()
+        if gate is None:
+            return
+        snapshot = gate.snapshot()
+        yield CounterMetricFamily(
+            "screamingface_engine_fair_share_granted_total",
+            "Downstream fetch permits the local fair-share gate has granted.",
+            value=snapshot.granted_total,
+        )
+        yield GaugeMetricFamily(
+            "screamingface_engine_fair_share_in_flight",
+            "Downstream fetch permits currently held by local runs.",
+            value=float(snapshot.in_flight),
+        )
+        yield GaugeMetricFamily(
+            "screamingface_engine_fair_share_waiting",
+            "Local-run fetches currently queued for a fair-share permit.",
+            value=float(sum(entry.waiting for entry in snapshot.runs)),
+        )
+        yield GaugeMetricFamily(
+            "screamingface_engine_fair_share_active_runs",
+            "Local runs currently holding or waiting on fair-share permits.",
+            value=float(len(snapshot.runs)),
+        )
+
+
+def register_fair_share_metrics(metrics: Metrics, get_gate: Callable[[], Any]) -> None:
+    """Register a `_FairShareCollector` for `get_gate` on `metrics.registry`."""
+    metrics.registry.register(_FairShareCollector(get_gate))

@@ -445,3 +445,27 @@ async def test_runner_job_omits_empty_scheduling() -> None:
     pod = _pod(client, name)
     assert "nodeSelector" not in pod
     assert "tolerations" not in pod
+
+
+async def test_the_job_carries_the_per_run_io_concurrency() -> None:
+    """OME-908: every Job states its downstream budget explicitly, beating `envFrom` staleness."""
+    client = FakeBatchV1()
+    await _runner(client).schedule(TOPIC, "chat(hi)", 60)
+
+    env = _container_env(client, job_name(TOPIC))
+    assert env[job_env.IO_CONCURRENCY] == "16"  # the ctor/Settings default
+
+
+async def test_an_overridden_io_concurrency_reaches_the_job() -> None:
+    client = FakeBatchV1()
+    runner = K8sJobRunner(
+        client,
+        image="registry/screamingface-engine:1",
+        namespace="url4",
+        io_concurrency=9,
+    )
+
+    await runner.schedule(TOPIC, "chat(hi)", 60)
+
+    env = _container_env(client, job_name(TOPIC))
+    assert env[job_env.IO_CONCURRENCY] == "9"

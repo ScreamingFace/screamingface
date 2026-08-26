@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -27,6 +28,7 @@ from screamingface_engine.benchmarks.candidate_adapter import install_candidate_
 from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
+from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
 from screamingface_engine.world_config import WorldConfig, WorldConfigError, load_config
 from url4.streaming.lifecycle import run
 
@@ -207,6 +209,7 @@ def build_executor(
     tavily_client: httpx.AsyncClient | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     benchmark_assets_root: Path | None = None,
+    io_gate: FairShareGate | None = None,
 ) -> Url4Executor:
     """Wire an executor over the DECLARED world — without building it yet.
 
@@ -287,12 +290,26 @@ def build_executor(
         return world.node, world.aclose
 
     inline_cap, hard_cap, artifact_store = result_delivery_from_env(env)
+    # FEATURE (OME-908): the run's downstream admission policy. `io_gate` is LOCAL mode's
+    # shared fair-share gate; when present, the run's world io is wrapped into it under the
+    # run's TOPIC key and `url4_run` states `concurrency=None` explicitly (the gate replaces
+    # the per-run bound). Deployed mode passes no gate and instead reads the static budget the
+    # App wrote onto the Job; `None` from a clean env omits the kwarg and URL4's default holds.
+    run_key = env.get(job_env.TOPIC)
+    # WHY `Any` and not `IOLayer`: `runner.main` is not an engine-importing module
+    # (pinned by `test_only_engine_extensions_import_url4`); the callable's precise
+    # type lives where it is defined, in `runner.executor`.
+    io_wrap: Callable[[Any], Any] | None = None
+    if io_gate is not None and run_key:
+        io_wrap = lambda io: FairShareIOLayer(io, io_gate, run_key)  # noqa: E731 - binding read
     return Url4Executor(
         world_factory=_world,
         result_cap=inline_cap,
         hard_cap=hard_cap,
         memory_budget=bridge_budget_from_env(env),
         artifact_store=artifact_store,
+        io_wrap=io_wrap,
+        io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
     )
 
 
