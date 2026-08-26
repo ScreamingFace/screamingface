@@ -150,6 +150,45 @@ class Settings(BaseSettings):
         default=268_435_456, gt=0, validation_alias="AIGW_CACHE_UPLOAD_MAX_BYTES"
     )
 
+    # Weekly response-cache snapshot to Garage (OME-1021). Opt-in by default: the archive
+    # lands in a blob bucket shared by every deployment's snapshots, so the posture is
+    # deliberate — the chart turns it on where it deploys a bundled Garage. Storage is
+    # required when enabled (refused below, fail-fast at construction).
+    cache_snapshot_enabled: bool = Field(
+        default=False, validation_alias="AIGW_CACHE_SNAPSHOT_ENABLED"
+    )
+    # The weekly UTC schedule the snapshot runs on. v1 accepts exactly this one form and
+    # refuses anything else at construction — an unsupported schedule must never silently
+    # become no schedule at all.
+    cache_snapshot_cron: str = Field(
+        default="0 5 * * 5", validation_alias="AIGW_CACHE_SNAPSHOT_CRON"
+    )
+    cache_snapshot_s3_endpoint_url: str | None = Field(
+        default=None, validation_alias="AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL"
+    )
+    # The dedicated snapshot bucket and prefix are fixed by design (spec §1): snapshots can
+    # never collide with the Engine's artifact keys, so the bucket default is stable.
+    cache_snapshot_s3_bucket: str = Field(
+        default="screamingface-cache-snapshots",
+        validation_alias="AIGW_CACHE_SNAPSHOT_S3_BUCKET",
+    )
+    cache_snapshot_s3_region: str = Field(
+        default="garage", validation_alias="AIGW_CACHE_SNAPSHOT_S3_REGION"
+    )
+    cache_snapshot_s3_access_key: SecretStr | None = Field(
+        default=None, validation_alias="AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY"
+    )
+    cache_snapshot_s3_secret_key: SecretStr | None = Field(
+        default=None, validation_alias="AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY"
+    )
+    cache_snapshot_timeout_s: float = Field(
+        default=600.0, gt=0, allow_inf_nan=False, validation_alias="AIGW_CACHE_SNAPSHOT_TIMEOUT_S"
+    )
+    # Spool cap for one archive — protects the pod temp directory shared with the database.
+    cache_snapshot_max_bytes: int = Field(
+        default=512 * 1024 * 1024, gt=0, validation_alias="AIGW_CACHE_SNAPSHOT_MAX_BYTES"
+    )
+
     # Bounded public-catalog discovery behind /v1/model-parameters (OME-479 §5.2,
     # §5.3). Enabled by default: the evidence it gathers can only RESTRICT what a
     # contract claims, so running without it is the more permissive state, not the
@@ -307,3 +346,41 @@ class Settings(BaseSettings):
         ``ValidationError(input_value=…)`` and leak it into startup logs (SF-221 review #5).
         """
         return None if value == "" else value
+
+    @model_validator(mode="after")
+    def _validate_cache_snapshot(self) -> Settings:
+        """Refuse an unsupported schedule, and refuse an enabled snapshot without storage.
+
+        Both fail at construction, which is the startup path (``create_app`` builds
+        ``Settings``): an enabled-but-unconfigured snapshot must never boot into a feature
+        that silently does nothing every Friday, and an unknown cron must never become no
+        schedule at all.
+        """
+        cron = self.cache_snapshot_cron.strip()
+        if cron != "0 5 * * 5":
+            raise ValueError(
+                "AIGW_CACHE_SNAPSHOT_CRON must be '0 5 * * 5' (every Friday 05:00 UTC); "
+                f"got {cron!r}"
+            )
+        if not self.cache_snapshot_enabled:
+            return self
+        missing: list[str] = []
+        if not (self.cache_snapshot_s3_endpoint_url or "").strip():
+            missing.append("AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL")
+        if (
+            self.cache_snapshot_s3_access_key is None
+            or not (self.cache_snapshot_s3_access_key.get_secret_value() or "").strip()
+        ):
+            missing.append("AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY")
+        if (
+            self.cache_snapshot_s3_secret_key is None
+            or not (self.cache_snapshot_s3_secret_key.get_secret_value() or "").strip()
+        ):
+            missing.append("AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY")
+        if missing:
+            raise ValueError(
+                "cache snapshot export is enabled but its storage is not configured: "
+                + ", ".join(missing)
+                + " — set the keys or disable AIGW_CACHE_SNAPSHOT_ENABLED"
+            )
+        return self
