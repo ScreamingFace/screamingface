@@ -159,7 +159,13 @@ database is gone, or one bad database becomes a cluster-wide restart loop.
 
 ### 2.6 Problem catalogue
 
-`{400, 403, 413, 422, 429, 503}`. The `403` is new — see §10, it needs a spec amendment.
+`{400, 403, 413, 422, 429, 503}` — matching the spec's §2.3 table as amended (§12).
+
+`403` and `503` are **not** interchangeable, and the split is the reason `403` exists at all:
+`403` means the Turnstile token was missing or rejected, so the client fetches a fresh one;
+`503` means siteverify was unreachable, so nothing was stored and the client retries
+unchanged. One constructor each — `bot_gate_required()` and `bot_gate_unverifiable()` — and
+neither is raised ad hoc at a route.
 A new status means a new constructor in `problem_catalogue.py`; no item raises
 `ProblemException` with an ad-hoc status at a route.
 
@@ -401,15 +407,21 @@ reviewers reading the repo rather than the drafts.
 | 17 | `OME-1010 ⇄ OME-1012` circular dependency | `1010 → 1012` only (§1) |
 | 18 | Inline delivery timeout 3 s vs 10 s | 3 s, the spec's number (§7) |
 
-## 12. Spec amendment required
+## 12. Spec amendment — landed
 
-`OME-1011` introduces **`403`** ("bot gate not satisfied"), which spec §2.3's table does not
+`OME-1011` introduces **`403`** ("bot gate not satisfied"), which spec §2.3's table did not
 list. The client SDK codes against that table, and an undocumented status is what turns
 "my retry stopped working" into a support question.
 
-Add a `403` row to §2.3 on the `OME-1004` branch before `OME-1011` starts, and extend
-`PROBLEM_CATALOGUE` to `{400, 403, 413, 422, 429, 503}` in the same change that adds the
-constructors. `OME-1006`'s catalogue-exactness test is updated in that PR, not left to redden.
+**Amended on the `OME-1004` branch (PR #748, `a53f812a`).** §2.3 now carries the `403` row
+and extends `503` to an unevaluable gate; §7 is rewritten around the two caller classes; §9
+records both settled forks; §8 and §10 gain the matching rows. Nothing in this plan is
+waiting on it.
+
+Implementation still owes the code side: extend `PROBLEM_CATALOGUE` to
+`{400, 403, 413, 422, 429, 503}` in the same change that adds `bot_gate_required()` and
+`bot_gate_unverifiable()`, and update `OME-1006`'s catalogue-exactness test in that PR rather
+than leaving it to redden.
 
 ## 13. Verification
 
