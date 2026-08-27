@@ -79,6 +79,17 @@ def test_the_expression_nests_the_judge_for_retry() -> None:
     assert JUDGE_MODEL.removeprefix("/") in rendered
 
 
+def test_the_judge_route_throttles_thinking_and_doubles_the_verdict_budget() -> None:
+    # INVARIANT: the judge is a reasoning model and its thinking tokens count against
+    # max_tokens — unthrottled, it can spend the whole budget thinking and return a blank
+    # `length` turn (OME-993 saw exactly this on DRACO). GDPval pins low effort AND, unlike
+    # DRACO (whose 4096 reproduces the paper), owner-approved 8192 headroom: there is no
+    # paper parametrization to reproduce here, so the bound prefers verdicts over cap errors.
+    rendered = render(GDPVAL_TEXT.build(5))
+    assert "reasoning_effort=low" in rendered
+    assert "max_tokens=8192" in rendered
+
+
 def test_a_partial_run_slices_without_changing_the_address() -> None:
     five = render(GDPVAL_TEXT.build(5))
     full = render(GDPVAL_TEXT.build(TEXT_CASE_COUNT))

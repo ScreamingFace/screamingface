@@ -34,9 +34,9 @@ PREPARER_REVISION = "text-subset-v1"
 
 # WHY this judge: GDPval's official grading is blinded expert PAIRWISE comparison against a human
 # professional's deliverable — unreachable here — and OpenAI's automated stand-in is a hosted
-# service, not a model we can call. So the judge is OUR choice, and this board reuses DRACO's pin
-# rather than inventing a third: one judge across two rubric-graded boards is one variable to
-# reason about when scores move. Named as a deviation in the board description.
+# service, not a model we can call. So the judge is OUR choice. It is currently the same model
+# DRACO pins, but pinned INDEPENDENTLY (owner decision): this board may move to another judge
+# later without touching DRACO. Named as a deviation in the board description.
 JUDGE_MODEL = "openrouter/google/gemini-3.1-pro-preview"
 JUDGE_PARAMS = (
     # INVARIANT: grading is retrieval-free. The same model may serve as a Candidate elsewhere;
@@ -48,9 +48,17 @@ JUDGE_PARAMS = (
     # identically; 0.2 redraws a fresh sample while staying near-deterministic. Copied from
     # DRACO, where the same reasoning applies.
     ("temperature", "0.2"),
-    # Engine-side safety bound. A verdict is a sentence and a boolean; this only stops a
-    # runaway generation from billing without limit.
-    ("max_tokens", "4096"),
+    # WHY (mirrors DRACO's OME-993 lesson): the judge is a reasoning model and its thinking
+    # tokens count against max_tokens — left at provider default it can spend the whole budget
+    # thinking and return a blank `length` turn, billing tokens while failing the verdict. A
+    # MET/UNMET call against one written criterion does not need deep reasoning; low keeps
+    # ~4.5k judge calls per candidate cheap.
+    ("reasoning_effort", "low"),
+    # WHY 8192 where DRACO holds 4096: DRACO's bound reproduces its paper's parametrization;
+    # GDPval has no paper judge to reproduce (see WHY above), so the bound is ours to set and
+    # doubling it prefers a completed verdict over an occasional token-cap failure. Still an
+    # engine-side safety stop — a verdict is a sentence and a boolean.
+    ("max_tokens", "8192"),
 )
 # WHY 2: the reference loops forever on malformed replies. A GDPval run makes ~4,498 judge calls
 # per candidate, so an unbounded retry on a systematically broken prompt would burn a run's
