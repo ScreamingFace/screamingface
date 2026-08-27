@@ -30,6 +30,14 @@ _CONTAINER = (
     "Submission is provided as a Microsoft Word (.docx) document",
     "Provides two separate .docx files: one escalation email and one vendor assessment report "
     "(not combined).",
+    # v2 — delivery phrasings the v1 verb list waved through (found in the first live runs):
+    "Creates the document as a PDF file.",
+    "Presents completed checklist as a PDF file.",
+    "Submits exactly one PDF file containing the legal memorandum",
+    "Submits an editable .docx file that opens without error in Microsoft Word.",
+    "LOI is a Word document",
+    "Contains a deliverable flowchart document is a PDF file.",
+    "Contains an incident details document in the form of a powerpoint (.ppt or .pptx) or PDF file",
 )
 
 # Criteria that judge what the answer SAYS, while naming a container or a reference file.

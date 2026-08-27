@@ -14,9 +14,11 @@ INVARIANT: filtering happens at BUILD time, so no scoring path can include a con
 by accident. ``FILTER_REVISION`` is hashed into the board revision — changing the rules below
 changes which criteria are scored, and must therefore re-address every route.
 
-Measured over the 4,553 criteria of the 102 selected tasks (2026-08-24): 99 removed, worth 209
-of 7,183 positive points (2.9%). A full hand audit of all 99 found no content criterion among
-them. Three known misses remain, worth ~6 points (0.08%) — see ``test_gdpval_rubric_filter.py``.
+Measured over the 4,553 criteria of the 102 selected tasks (2026-08-27, rules v2): 106 removed,
+worth 224 of 7,183 positive points (3.1%). A hand audit of the removals found no content
+criterion among them. Known misses remain — page counts, Track-Changes mechanics — all phrased
+as content ("appears", "includes"); rules aggressive enough to catch them risk deleting real
+content criteria, which inflates scores. See ``test_gdpval_rubric_filter.py``.
 
 AIDEV-NOTE: over-removal is the DANGEROUS direction. Deleting a content criterion shrinks the
 denominator and inflates every candidate's score; missing a container criterion penalises every
@@ -32,7 +34,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 # WHY: hashed into the board revision. Bump when any rule below changes.
-FILTER_REVISION = "container-vs-content-v1"
+FILTER_REVISION = "container-vs-content-v2"
 
 # Rule 1 — a filename inside quotes is a REFERENCE the answer must be consistent with, never a
 # demand about the deliverable's own format. Strip quoted spans before looking for format words.
@@ -55,8 +57,15 @@ _FORMAT = re.compile(
 # handed over, how many, under what name. A content criterion asserts what is INSIDE.
 # "The Word document CONTAINS a 'Process' section" is content; a text answer satisfies it.
 _DELIVERY = re.compile(
-    r"\b(provided|provides|delivered|delivers|submitted|submission|deliverable\s+is|"
+    r"\b(provided|provides|delivered|delivers|submitted|submission|submits?|deliverable\s+is|"
     r"attached|uploaded|is\s+delivered|are\s+provided)\b"
+    # v2 — three delivery phrasings the verb list missed (each escaped v1 in the live rubrics):
+    # "Creates/Presents the document AS A PDF file" — delivery said through an as-construction;
+    r"|\b(creates?|presents?|saves?|exports?)\b[^.]{0,60}\bas\s+an?\s+"
+    # "The LOI IS A Word document" — the deliverable's identity asserted with no verb at all;
+    r"|\bis\s+an?\s+(single\s+)?(word|pdf|excel|powerpoint)\b"
+    # "…IN THE FORM OF a powerpoint or PDF file" — format demanded as the vessel.
+    r"|\bin\s+the\s+form\s+of\b"
 )
 _CONTENT = re.compile(
     r"\b(contains|includes|shows|lists|states|displays|identifies|describes|explains|"
