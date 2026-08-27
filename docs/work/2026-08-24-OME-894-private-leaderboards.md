@@ -1083,6 +1083,51 @@ nothing), and the caller must be replaying their OWN row for the replay exit —
 is refused by the privacy gate first.
 
 
+## Review round 25 — 2026-08-27 (sweep re-run, keyed on EXITS)
+
+Round 23's sweep asked *does this return revalidate*. It should have asked *does every path out of
+this branch revalidate* — which is why it found the replay exit and missed the `raise` beside it,
+and why round 24 was needed at all. Re-run properly.
+
+**Method:** for every function that reads `visibility` or takes a decision derived from it, walk the
+statement tree and, for each `return`/`raise`, determine whether a revalidation MUST have executed
+first — propagating the flag through `if` / `try` / `with` rather than reading the code in order.
+
+**Two blind spots in the first attempt, both confirmed as false negatives** rather than defects:
+
+- a guard in an `if` TEST whose body always exits means the fall-through path IS revalidated — the
+  check ran and reported no change. That covers `get_leaderboard:250`, `get_spec_history:315`,
+  `get_frontier:354` and `get_score:314`.
+- a revalidation inside an `async with` body dominates everything after the block, because the body
+  must finish before control leaves it. That covers `submit:745`, the successful-insert return.
+
+**No new live gaps.** All 28 remaining unguarded exits are restrictive (return the private shape or
+refuse), pure, writers of visibility rather than readers, helpers whose CALLER guards every path
+out, functions that read visibility fresh at call time, or config-driven seed code.
+
+### The sweep is now a test, not an exercise
+
+`tests/unit/guards/test_visibility_exit_guard.py` runs the analysis and asserts the unguarded set
+against an allowlist that records WHY each entry is safe. A new unguarded exit fails it; so does an
+entry that has since been guarded, so the list shrinks instead of quietly over-permitting.
+
+Keyed on `(function, exit kind, count)` and never on line numbers, because a guard nobody can keep
+green gets deleted.
+
+Proven to catch regressions rather than assumed to. Four shapes, all caught: removing `submit()`'s
+retry revalidation, removing the persist-path revalidation, removing the leaderboard re-decision,
+and adding a brand-new unguarded early return.
+
+The analyser itself cost four rounds with the linter — `C901`, `PLR0912`, `PLR0911`, then pyright on
+the dispatch table. Every one was restructured rather than suppressed: one small method per
+statement kind, a dispatch table instead of a chain of returns, and narrowing inside the handlers
+rather than a `type: ignore`. A guard carrying suppressions is a guard the next person deletes.
+
+**This is the answer to the actual problem.** Four rounds of this were the same class found at
+different layers, and each fix addressed the instance. A test that fails on the shape is the only
+version of that work which survives me not being here.
+
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

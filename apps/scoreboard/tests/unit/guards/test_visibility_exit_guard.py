@@ -1,0 +1,217 @@
+"""Every exit of a visibility-dependent function is guarded, or listed here with a reason.
+
+FEATURE: OME-894 — `visibility` is the only authorisation input in this app that another process
+can change while a request is in flight, so a decision taken from it goes stale. Four review rounds
+found the same defect at four layers: the write path, then every read path, then a response body
+carrying a stale copy, then one exit of one branch. Each time the named instance was fixed and the
+CLASS was not.
+
+This is the class, asserted. The analysis walks every function that reads `visibility` or takes a
+decision derived from it, and for each `return`/`raise` asks whether a revalidation must have run
+first. Exits that legitimately need no guard are enumerated below with the reason. A NEW unguarded
+exit fails this test, and the author has to either guard it or argue it onto the list.
+
+AIDEV-NOTE: keyed on (function, exit kind, count), never line numbers — those move with every edit
+and a guard nobody can keep green gets deleted.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+SRC = Path(__file__).resolve().parents[3] / "src/scoreboard"
+REVAL = ("_revalidate_visibility", "turned_private")
+
+# Each entry: (function, exit kind) -> how many exits legitimately need no revalidation.
+#
+# RESTRICTIVE — returns the private shape or refuses. Going stale can only mean the board OPENED,
+# so the caller receives less than it could have, never more.
+#   _private_leaderboard / get_leaderboard   the private response itself
+#   get_spec_history / get_frontier          the 404s a private board answers with
+#   get_score                                404 for a private row, 404 unknown id, 503 store down
+#   submit                                   PrivateBoardRequiresIdentity
+#
+# PURE — no request, no I/O, nothing to go stale between.
+#   benchmark_to_schema, _content_hash, _scoped_idempotency_key
+#
+# WRITER — visibility is an INPUT here, not a decision read back.
+#   register_benchmark, set_visibility
+#
+# CALLER-GUARANTEED — a helper whose caller revalidates before ITS exits.
+#   _resolve_owned (submit() guards every path out)
+#
+# READS IT FRESH — consults `visibility` at call time, so it cannot hold a stale value.
+#   _readable_by, _links_to_a_private_board
+#
+# CONFIG-DRIVEN — reads visibility from deployment configuration, immutable within a seed pass.
+#   the seed.py functions
+EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
+    ("leaderboard.py::_private_leaderboard", "Return"): 1,
+    ("leaderboard.py::get_leaderboard", "Return"): 1,
+    ("leaderboard.py::get_spec_history", "Raise"): 2,
+    ("leaderboard.py::get_frontier", "Raise"): 1,
+    ("scores.py::get_score", "Raise"): 3,
+    ("store.py::benchmark_to_schema", "Return"): 1,
+    ("store.py::_content_hash", "Return"): 1,
+    ("store.py::_scoped_idempotency_key", "Return"): 3,
+    ("store.py::register_benchmark", "Return"): 1,
+    ("store.py::set_visibility", "Return"): 1,
+    ("store.py::_resolve_owned", "Return"): 3,
+    ("store.py::_readable_by", "Return"): 3,
+    ("store.py::_links_to_a_private_board", "Return"): 1,
+    ("store.py::submit", "Raise"): 1,
+    ("seed.py::_apply_orphan_visibility", "Return"): 1,
+    ("seed.py::_classify_configured", "Return"): 1,
+    ("seed.py::_with_configured_visibility", "Return"): 1,
+    ("seed.py::seed_from_sources", "Return"): 1,
+    ("seed.py::seed_benchmarks", "Return"): 1,
+}
+
+
+def _revalidates(node: ast.AST) -> bool:
+    return any(name in ast.unparse(node) for name in REVAL)
+
+
+def _always_exits(body: list[ast.stmt]) -> bool:
+    return any(isinstance(st, ast.Return | ast.Raise) for st in body)
+
+
+_SIMPLE = (ast.Expr, ast.Assign, ast.AugAssign, ast.AnnAssign)
+_LOOPS = (ast.For, ast.AsyncFor, ast.While)
+
+
+class _ExitWalker:
+    """Collect the exits a revalidation does NOT dominate.
+
+    Split into one small method per statement kind because the flat version tripped `C901`, and the
+    limit is right: the propagation rules are the substance of this guard and each deserves reading
+    on its own.
+    """
+
+    def __init__(self) -> None:
+        self.unguarded: list[str] = []
+
+    def walk(self, stmts: list[ast.stmt], revalidated: bool) -> None:
+        for st in stmts:
+            revalidated = self._visit(st, revalidated)
+
+    def _visit(self, st: ast.stmt, revalidated: bool) -> bool:
+        # A dispatch table rather than a chain of `return`s: the chain tripped `PLR0911`, and the
+        # limit is fair — the interesting part is each rule, not the branching to reach it.
+        for kinds, handler in (
+            (ast.Return | ast.Raise, self._visit_exit),
+            (_SIMPLE, self._visit_simple),
+            (ast.If, self._visit_if),
+            (ast.Try, self._visit_try),
+            (ast.With | ast.AsyncWith, self._visit_with),
+            (_LOOPS, self._visit_loop),
+        ):
+            if isinstance(st, kinds):
+                return handler(st, revalidated)
+        return revalidated
+
+    def _visit_exit(self, st: ast.stmt, revalidated: bool) -> bool:
+        if not revalidated:
+            self.unguarded.append(type(st).__name__)
+        return revalidated
+
+    def _visit_simple(self, st: ast.stmt, revalidated: bool) -> bool:
+        return revalidated or _revalidates(st)
+
+    def _visit_loop(self, st: ast.stmt, revalidated: bool) -> bool:
+        assert isinstance(st, _LOOPS)
+        self.walk(st.body, revalidated)
+        return revalidated
+
+    def _visit_if(self, st: ast.stmt, revalidated: bool) -> bool:
+        assert isinstance(st, ast.If)
+        guard = _revalidates(st.test)
+        self.walk(st.body, revalidated or guard)
+        self.walk(st.orelse, revalidated)
+        # A guard in the TEST whose body always exits means falling through IS the revalidated
+        # path: the check ran and reported no change.
+        return revalidated or (guard and _always_exits(st.body))
+
+    def _visit_try(self, st: ast.stmt, revalidated: bool) -> bool:
+        assert isinstance(st, ast.Try)
+        for block in (st.body, st.orelse, st.finalbody):
+            self.walk(block, revalidated)
+        for handler in st.handlers:
+            self.walk(handler.body, revalidated)
+        return revalidated
+
+    def _visit_with(self, st: ast.stmt, revalidated: bool) -> bool:
+        assert isinstance(st, ast.With | ast.AsyncWith)
+        self.walk(st.body, revalidated)
+        # The body must finish before control leaves the block, so a revalidation inside it
+        # dominates everything after — this is how the insert path is guarded.
+        return revalidated or any(
+            isinstance(s, ast.Expr | ast.Assign) and _revalidates(s) for s in st.body
+        )
+
+
+def _unguarded_exits(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    walker = _ExitWalker()
+    walker.walk(fn.body, False)
+    return walker.unguarded
+
+
+def _visibility_dependent(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    if any(marker in fn.name for marker in ("revalidate", "turned_private")):
+        return False
+    body = ast.unparse(fn)
+    params = {arg.arg for arg in fn.args.args + fn.args.kwonlyargs}
+    return (
+        "visibility" in body
+        or "is_private" in body
+        or bool(params & {"per_submitter", "identity_verified"})
+    )
+
+
+def _survey() -> dict[tuple[str, str], int]:
+    counts: dict[tuple[str, str], int] = {}
+    for path in sorted(SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if not _visibility_dependent(node):
+                continue
+            for kind in _unguarded_exits(node):
+                counts[(f"{path.name}::{node.name}", kind)] = (
+                    counts.get((f"{path.name}::{node.name}", kind), 0) + 1
+                )
+    return counts
+
+
+def test_no_visibility_dependent_exit_is_unguarded_without_a_recorded_reason() -> None:
+    actual = _survey()
+
+    new = {k: v for k, v in actual.items() if k not in EXPECTED_UNGUARDED}
+    grown = {
+        k: (EXPECTED_UNGUARDED[k], v)
+        for k, v in actual.items()
+        if k in EXPECTED_UNGUARDED and v > EXPECTED_UNGUARDED[k]
+    }
+    assert not new, (
+        "a visibility-dependent function gained an UNGUARDED exit: "
+        f"{sorted(new)}. Either revalidate before it, or add it to EXPECTED_UNGUARDED with the "
+        "reason it needs no guard."
+    )
+    assert not grown, (
+        f"these functions gained further unguarded exits: {grown}. Same choice: guard them, or "
+        "record why they are safe."
+    )
+
+
+def test_the_recorded_reasons_have_not_gone_stale() -> None:
+    # The other direction: an entry that no longer matches means an exit was guarded or removed, and
+    # the list should shrink rather than quietly over-permit the next one.
+    actual = _survey()
+    stale = {k: v for k, v in EXPECTED_UNGUARDED.items() if actual.get(k, 0) != v}
+
+    assert not stale, (
+        f"EXPECTED_UNGUARDED is out of date: {stale}. Each key maps to how many unguarded exits "
+        "that function is allowed; lower it when one gets guarded."
+    )
