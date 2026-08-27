@@ -3,7 +3,7 @@ ticket: OME-1009
 stack: report-intake
 status: done
 started: 2026-08-26
-finished: 2026-08-26
+finished: 2026-08-27
 ---
 
 # OME-1009 — `TicketSink` port and the `QueueSink` adapter
@@ -164,5 +164,234 @@ session is forbidden from touching Linear, so it is recorded here instead and ne
 whoever owns the board. The code side is ready for it: one adapter file plus one line in
 `delivery/registry.py`, with `Delivered` and the `ticket_id`/`ticket_url` columns already
 exercised by tests.
-</content>
-</invoke>
+
+---
+
+## 2026-08-27 — follow-up pass: `LinearSink`, the adapter this item deferred
+
+The section above closes with a follow-up this session could not file: `LinearSink`, "one adapter
+file plus one line in `delivery/registry.py`". This pass builds it. It is the same unit of work
+and the same port, so it lands in this ledger rather than a new one.
+
+### What is new, and what it deliberately does not change
+
+- **`src/report_intake/delivery/linear_sink.py`** — an httpx adapter implementing the EXISTING
+  `TicketSink` port. One `issueCreate` mutation per report, inside a deadline, answering
+  `Delivered(ticket_id=<identifier>, ticket_url=<url>)`. `delivery/ports.py` is untouched: the
+  signature, `SinkResult`, and the `Retryable`/`Permanent` taxonomy are what this adapter was
+  built to fit, not the other way round.
+- **`delivery/registry.py`** — `linear` beside `queue`, plus two contract changes this needed:
+  a factory now takes `Settings` (an adapter talking to a third party needs credentials, and
+  this is the one module allowed to know which fields those are), and `close_sink()` closes a
+  sink holding a connection pool through a structural `ClosingSink` Protocol.
+- **`config.py`** — `linear_api_key` (`SecretStr`), `linear_team_id`, `linear_api_url`
+  (defaulted), `linear_timeout_s`. No `NoDecode` on any of them: none is a collection, and
+  `NoDecode` exists on the two tuple fields only because pydantic-settings JSON-decodes complex
+  types read from the environment.
+- **`main.py` — two lines.** `build_sink(settings)` in place of `build_sink(settings.ticket_sink)`,
+  and `await close_sink(app.state.ticket_sink)` in the lifespan's `finally`. The composition root
+  still does not import an adapter, still does not know which ones exist, and
+  `test_create_app_wires_the_named_sink_rather_than_importing_one` still holds.
+- **The chart** — three ConfigMap keys, one optional `secretKeyRef`, a `linear:` values block, and
+  a render-time refusal mirroring the boot guard. Forced by the equality between the chart and
+  `Settings`, not optional: a field the chart never renders can only ever hold its declared
+  default in production, which is exactly what `test_chart_environment.py` exists to catch.
+- **Plan §2.4's frozen surface** — amended in the plan document as well as in the test that
+  transcribes it, with the four names and why they are inert. The list is frozen, not sealed;
+  what it forbids is a field arriving with neither entry.
+
+### CLAUDE.md rule 9 — said in the code, not worked around
+
+Rule 9 says product code reaches Linear through MCP only, and `OME-976` has not amended it. This
+pass does not amend it either — the file says so in its module docstring, and the design makes
+that statement structural rather than decorative: nothing imports the adapter except one line of
+the registry's name table, `queue` is still the default, and `build_sink` refuses to start a
+`linear` deployment with no API key or no team id. **Shipping the adapter is not selecting it.
+Selecting it is the decision rule 9 governs**, it costs an operator a credential and a team id,
+and both the chart and the app stop when it is made halfway.
+
+### Decisions worth carrying forward
+
+- **HTTP 200 is not success, and that is the whole reason this adapter needs care.** GraphQL
+  answers `200` for a request it refused: the response carries an `errors` array, and
+  `data.issueCreate.success` can be `false`, both under a healthy status line. An adapter that
+  checked `response.status_code` alone would mark the row `delivered` with a null `ticket_id`,
+  alarm nothing, and lose a report the reporter was already told `202` about. Both are checked,
+  `errors` BEFORE `data` (a GraphQL response may legitimately carry both, and a reader that
+  trusts `data` first reports a refused mutation as a filed ticket), and each has its own test.
+- **The retryable/permanent split was decided case by case, not with a catch-all.** Retryable: a
+  transport failure or timeout, `5xx`, `429`, `408`, and a rate-limit or server-error
+  `extensions.code`. Permanent: `401`/`403`, any other `4xx` (this adapter builds the same
+  request every time), a non-transient GraphQL error, and `success: false`. **Anything
+  unclassifiable is retryable**, per `ports.py`'s own rule — and the retry budget running out
+  turns persistent uncertainty into `failed` on its own, so "unsure" still ends up alarmed.
+- **A rate limit is matched on a NORMALIZED code.** The reference page publishes no thresholds
+  and no code enumeration, so `RATE_LIMITED`, `RATELIMITED` and `rate-limited` all have to mean
+  the same thing. Generous on exactly the one condition a healthy deployment actually meets.
+- **`success: true` with an unnameable issue is permanent, not retried.** The issue very probably
+  exists, so a retry would file a duplicate of a ticket nobody can name. `failed` sends a human
+  to look, and what they find is this adapter and Linear's response shape having stopped
+  agreeing — a defect in this repo rather than an outage.
+- **The API key never reaches a log record, a `repr`, or an exception message.** It is held in one
+  private attribute, set once as a client header, and `__repr__` is written by hand so a future
+  `@dataclass` on the class cannot start printing it. The transport-failure message names the
+  exception's TYPE rather than repeating its text. Three tests assert it rather than trusting it:
+  over every failure path's exception, over every log record the DISPATCHER writes while driving
+  the adapter (formatted, so a `%s` argument cannot hide), and over the `repr`. The registry's
+  boot refusal is covered too — it is the other place the value is in scope.
+- **No `linear.enabled` chart flag.** `config.ticketSink` is the switch; a second one could
+  disagree with it, and both directions are bad — a credential mounted for nobody, or a pod that
+  starts and files nothing. The Deployment names the Secret in every render with `optional: true`,
+  so the Secret NOT existing is the normal state, the Pod starts without it, and the app's boot
+  guard is what refuses the half-made selection.
+- **`close_sink` is structural, never an `isinstance` against an adapter class.** That is what
+  lets the composition root close an HTTP connection pool it does not know exists, and what keeps
+  `QueueSink` and every test stub out of it.
+
+### Gates (run from `apps/report-intake`)
+
+`uv run pytest -q` **495 passed** (438 → 495; +57) · `uv run ruff check` clean ·
+`uv run ruff format --check` 83 files · `uv run pyright` **0 errors, 0 warnings**.
+`python3 .github/scripts/verify_chart_wiring.py` from the repo root: **78/78** (75 → 78; the
+three added assert the two render-time refusals and that the Linear key comes from an optional
+Secret with no literal). `helm lint` clean.
+
+### Deviations
+
+- **The plan's frozen environment surface grew by four names.** Unavoidable: an adapter that
+  talks to a third party needs credentials, and `Settings` is the sole authority on this
+  service's environment. Recorded in plan §2.4 rather than only in the test.
+- **The chart was edited, which this pass's brief did not name.** Also unavoidable: the
+  chart-vs-`Settings` equality is asserted from both sides, so four new fields with no chart
+  lines is a red gate, and rendering a credential into a ConfigMap would have been the wrong way
+  to make it green.
+- **`docs/complexity-baseline.md` refreshed in full.** Its `file:line` marks had drifted from
+  earlier passes (whole rows missing for the `identity` package, `caps.py` lines stale) and
+  `create_app` had reached 24 before this pass. Regenerated with the command the file documents;
+  no headline number moved for `linear_sink.py` itself.
+
+---
+
+## 2026-08-27 — second follow-up pass: a drain path for the queue
+
+`QueueSink` marks a row `queued` and stops there. Nothing in this service could then name those
+rows: `cli.py` ran uvicorn and nothing else, spec §1 removed `GET /v1/reports/{ref}`, and plan
+§13's verification step — "confirm `queue list` shows it, file it via MCP" — described a command
+that did not exist. A queued report was findable by grepping pod logs or opening the database, so
+the sink this item shipped had no way to be emptied. Same unit of work, same adapter, so it lands
+in this ledger rather than a new one.
+
+### What is new
+
+- **`src/report_intake/queue_cli.py`** — the three commands, their rendering, and their exit
+  codes. `queue list` (the rows awaiting triage, newest received first, `--limit`), `queue show
+  <ref>` (the ticket body an agent pastes into Linear), `queue mark-filed <ref> --ticket-id
+  --ticket-url` (the row is somebody's now). No SQL: it calls `ReportStore` and `render_ticket`.
+- **`src/report_intake/cli.py`** — an argparse subcommand tree on the existing console script.
+  **argparse, not typer**: this app's runtime dependencies are fastapi / httpx / pydantic /
+  pydantic-settings / tortoise / uvicorn, and neither aigateway nor scoreboard pulls typer either,
+  so a CLI framework would be a new dependency in a deployed image for one parser.
+- **`reports/store.py`** — `awaiting_triage(limit=…)`, `read_for_triage(ref)`,
+  `mark_filed(ref, …)`, plus the `TriageReport` row they answer with. Every one keeps the module's
+  existing contract: bounded by `STORAGE_TIMEOUT_S`, and any ORM failure leaves as
+  `StorageUnavailable`.
+- **`delivery/render.py`** — `_one_line` is now public as `one_line(value, *, limit=…)`. The only
+  change to that module, and additive: `render_ticket`'s signature, plan §2's frozen contract, is
+  untouched.
+- **Tests** — `test_queue_console.py` (23, driving the real `cli.main(["queue", …])` against a
+  migrated database), `test_triage_read_containment.py` (2), plus 11 store tests and 2 entrypoint
+  tests appended to the existing files. 495 → 531.
+
+### Decisions worth carrying forward
+
+- **`report-intake` with no arguments still runs uvicorn, and that is a contract rather than a
+  default.** It is the container's `ENTRYPOINT`, so a subcommand made mandatory at the top level
+  is every pod in the fleet failing to start. `add_subparsers` is left optional and the top-level
+  parser carries `run=_serve`; `required=True` appears only under `queue`, where a bare invocation
+  has no sensible fallback. Two tests hold it: one drives `main()` with `sys.argv` set to the bare
+  command (the console-script wrapper's actual path), and one asserts an unrecognised argument is
+  argparse's exit 2 rather than a web server started inside a `kubectl exec` session.
+- **This is a command, and a containment test is what keeps it one.** Spec §1 removed
+  `GET /v1/reports/{ref}` on its merits — `POST /v1/reports` is unauthenticated, so a by-ref read
+  makes a guessable `ref` worth guessing — and three new store reads are exactly how that endpoint
+  comes back under another name. `test_triage_read_containment.py` asserts the three are called
+  from `reports/store.py` and `queue_cli.py` only, and separately that no `routes/` module so much
+  as mentions one. The store method is `read_for_triage` rather than `read` precisely so that scan
+  can be exact instead of a guess about which `.read(` was meant.
+- **`mark_filed` is a separate store method from `record_delivery`, because of one column.**
+  `record_delivery` increments `attempts`, which is the retry backoff's only input and reads as
+  "how hard did THIS SERVICE try". A person filing a ticket by hand is not the sink having been
+  called, so a flag on the existing method would make that column lie to whoever reads it next.
+  Asserted from both sides — the store test and the console test.
+- **Whether a mark is allowed is the console's decision; the store writes.** The same division
+  `claim_due` already keeps, where the backoff producing `due_before` is retry policy and the
+  store is not where policy lives. The console refuses only one case: a row already `delivered`
+  under a *different* ticket id. The ticket columns are the ticket's address, so overwriting one
+  erases the only pointer this service holds to an issue that exists, and two ids on one report
+  means one bug was filed twice — visible, not tidied away. Re-running with the SAME id is
+  idempotent, because an agent repeating itself is not a second ticket.
+- **Every table cell goes through `render.one_line`, and that is the same defence `render.py`
+  already makes.** `trace_id` is client-controlled and §2.4 caps it nowhere, so a newline inside
+  one ends its row and prints the rest as a second one — a report forged into the listing an agent
+  triages from. The test seeds that payload straight into the store, past `bind()`, deliberately:
+  the console must not depend on intake having stripped anything. ANSI escapes need no handling
+  here because `bind()` control-strips the payload at intake and keeps only tab and newline, both
+  of which the flattener collapses — stated in the module docstring so the next reader does not
+  add a redundant pass.
+- **`show` prints the body VERBATIM, and it is the one place nothing is reshaped.** It is what
+  gets pasted into Linear, so it has to be what the sink would have been handed, byte for byte —
+  asserted against `render_ticket(...).body` directly. The header block above it is labels whose
+  values are one line by construction (`ref` server-minted, `state` one of four literals, `title`
+  already collapsed by `render._title`, and a ticket reference only reaches the columns through a
+  check that refuses whitespace), so "the body is everything after the first blank line" holds.
+- **`--ticket-id` / `--ticket-url` are bounded at the CLI, before the database is opened.** For
+  `ReportDocument.reply_to`'s reason: every ORM failure leaves the store as `StorageUnavailable`,
+  so a value past the column width would be answered as a database outage — telling an operator to
+  retry something that will never work.
+- **stdout is the table; stderr is the commentary; the exit codes are distinguishable.** `0` fine,
+  `1` refused (a fact about the data), `2` argparse's usage error, `3` storage would not answer.
+  `1` and `3` are separate on purpose: a script retrying a transient outage must not also retry a
+  mistyped `ref`. An unmigrated database — the ordinary state of a freshly deployed pod, since
+  this service never migrates itself — is `3` and an empty stderr-free stdout, never an empty
+  queue. stdout is flushed before each stderr note, because the two buffer differently the moment
+  either is redirected and `queue list > file` otherwise printed the footer above its table.
+- **`list` shows `queued` and nothing else**, which is `_due`'s reading from the other side.
+  `pending` still belongs to the retry queue, `delivered` is done, and `failed` is an alert
+  `retry.py` already logs at error rather than a backlog somebody scrolls. Ordered on `created_at`
+  — the server's clock — because `occurred_at` is the client's claim and a reporter that could
+  choose it could pin itself to the top of an operator's screen.
+- **A row whose payload no longer validates still appears, with its payload-derived cells marked
+  `?`.** It is still awaiting triage, and the one report this service can no longer read is the
+  one a human most needs to see. `queue show` refuses it with the reason rather than crashing.
+  The `_document` helper is deliberately NOT shared with `retry.py`'s namesake: that one logs at
+  error and marks the row terminally `failed`, and a listing with a side effect is not a listing.
+
+### Gates (run from `apps/report-intake`)
+
+`uv run pytest -q` **531 passed** (495 → 531; +36) · `uv run ruff check` clean ·
+`uv run ruff format --check` 86 files · `uv run pyright` **0 errors, 0 warnings**.
+
+### Deviations
+
+- **`delivery/render.py` grew a public name.** `_one_line` → `one_line(value, *, limit=…)`,
+  because the console renders the same client-controlled values into a terminal table and the
+  identical trick has the identical cause. Additive: `render_ticket` — the contract plan §2 froze
+  — is unchanged, and the `limit` parameter exists only because a table column is narrower than a
+  bullet, not because the rule differs.
+- **One existing test was edited.** `test_the_entrypoint_serves_the_app_on_the_configured_address`
+  called `cli.main()` with no argv, which now reaches argparse's `sys.argv` fallback — under
+  pytest that is the test session's own arguments. It now pins `sys.argv` to `["report-intake"]`,
+  which makes it a STRONGER assertion than before: it exercises the real console-script path
+  rather than a signature that used to ignore argv entirely.
+- **`docs/complexity-baseline.md` refreshed.** No headline number moved (C901 7, PLR0915 24,
+  PLR0912 6, PLR0911 3) and `create_app` is untouched, but `store.py`'s `file:line` marks shifted
+  and the two new modules enter the tables — `cli.py:_parser` at PLR0915 16 is the largest thing
+  this pass added, eight under the threshold.
+- **Nothing else was touched.** No `Settings` field, so plan §2.4's environment surface is still
+  23 names and the chart is unchanged; `test_chart_environment.py` passes untouched. No Linear, no
+  `CLAUDE.md`. `.github/scripts/verify_chart_wiring.py` could not be run in this session's
+  environment (no PyYAML on the interpreter it resolves to) — it is unaffected either way, and the
+  chart-vs-`Settings` equality it mirrors is asserted from the app's own suite.
+- **Two stray lines were removed from this ledger.** The previous pass left `</content>` and
+  `</invoke>` — leaked tool markup — between its own section and the `LinearSink` one. Deleted;
+  no prose changed.

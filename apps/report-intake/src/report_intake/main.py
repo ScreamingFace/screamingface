@@ -25,7 +25,7 @@ from .core.local_only import LoopbackOnlyMiddleware
 from .core.problem import install_problem_handlers
 from .db import close_db, init_db
 from .delivery.dispatch import TicketDispatcher
-from .delivery.registry import build_sink
+from .delivery.registry import build_sink, close_sink
 from .identity.rate_limit import TokenBucketLimiter
 from .identity.turnstile import TURNSTILE_RESPONSE_HEADER, HttpTurnstileVerifier
 from .reports.caps import MAX_BODY_BYTES
@@ -266,6 +266,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         verifier = app.state.turnstile_verifier
         if isinstance(verifier, HttpTurnstileVerifier):
             await verifier.aclose()
+        # Structural, not by class: the composition root goes on not knowing which adapters
+        # exist, so `close_sink` closes a sink that has an `aclose` — an HTTP connection pool —
+        # and leaves `QueueSink` and every stub a test installed alone.
+        await close_sink(app.state.ticket_sink)
         await close_db()
 
 
@@ -327,9 +331,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # The readiness seam (plan §2.5). One assignment, and `routes/ready.py` is untouched.
     app.state.readiness_check = store.is_reachable
     # Named, never imported: the composition root asks the registry for the configured adapter and
-    # does not know `QueueSink` exists. `build_sink` refuses an unknown name here, at boot, rather
-    # than letting a misconfigured service accept reports and file none of them.
-    sink = build_sink(settings.ticket_sink)
+    # does not know `QueueSink` exists. `build_sink` refuses HERE, at boot, rather than letting a
+    # misconfigured service accept reports and file none of them — on an unknown name, and on a
+    # `linear` selection whose credential is missing. It is handed the whole `Settings` because an
+    # adapter that talks to a third party needs one, and the registry is the module allowed to
+    # know which fields that is.
+    sink = build_sink(settings)
     app.state.ticket_sink = sink
     # ONE dispatcher, shared by the request path and the retry loop. A retry that built its own
     # would be a second delivery path — a second renderer, a second fail-closed re-check, a second

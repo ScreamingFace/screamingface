@@ -12,6 +12,10 @@ DEFAULT_DATABASE_URL = "sqlite://./report-intake.sqlite3"
 
 DEFAULT_TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
+DEFAULT_LINEAR_API_URL = "https://api.linear.app/graphql"
+"""Linear's one GraphQL endpoint. A default rather than a required value, because there is
+exactly one of them and an operator who had to type it could only get it wrong."""
+
 AuthMode = Literal["disabled", "mesh_or_turnstile"]
 """The two postures this service runs in (plan §2.4).
 
@@ -101,6 +105,58 @@ class Settings(BaseSettings):
     It bounds how long a reporter waits for a sink that may be slow or gone. Past it the row stays
     `pending`, the response is still `202`, and the retry queue owns the report — so raising this
     number does not make delivery more likely, it only makes a bug report slower to file.
+    """
+
+    # --- the `linear` sink's four fields ------------------------------------------------------
+    #
+    # ALL FOUR ARE INERT unless `ticket_sink` names `linear`. Nothing reads them otherwise: the
+    # registry builds one adapter, and `queue` is the default (spec §9). They are declared here
+    # anyway rather than being read from the environment behind `Settings`' back, because this
+    # class is the sole authority on this service's environment and `create_app` refuses to start
+    # on a `REPORT_INTAKE_*` name no field reads — so the field and its reader land together or
+    # neither does. CLAUDE.md rule 9 governs *selecting* that sink; see `delivery/linear_sink.py`.
+    #
+    # NO `NoDecode` on any of them: none is a collection. `NoDecode` exists on the two tuple
+    # fields below because pydantic-settings JSON-decodes complex types read from the environment,
+    # and a scalar is never JSON-decoded.
+
+    linear_api_key: SecretStr = SecretStr("")
+    """The Linear API key, from a Secret. Never logged, never in a `repr`, never in an exception.
+
+    `SecretStr` for the same reason :attr:`turnstile_secret` is: the value has to survive being
+    near a `repr` of these settings — a traceback, a debug dump, a startup log line — and the type
+    is what makes that safe rather than a rule every future reader has to remember. Read it with
+    `.get_secret_value()`, which is spelled out in exactly one place (`delivery/registry.py`).
+
+    A PERSONAL/scoped API key, which Linear authenticates with a bare `Authorization: <key>`
+    header — no `Bearer` prefix, which is an OAuth token's spelling and is silently rejected here.
+
+    Empty by default, and empty is what keeps the adapter inert: `build_sink` refuses to start a
+    `ticket_sink=linear` deployment that has no key rather than accepting reports and filing none
+    of them behind a healthy `/readyz`.
+    """
+
+    linear_team_id: str = ""
+    """The Linear team every issue is created in — `IssueCreateInput.teamId`, a UUID.
+
+    Not a team KEY (`OME`): the mutation takes an id, and a key posted as one is a validation
+    error on every report rather than a boot failure on none. Required alongside the key, and
+    checked at boot for the same reason.
+    """
+
+    linear_api_url: str = DEFAULT_LINEAR_API_URL
+    """Where the mutation is posted. A field rather than a constant so a test — and a future
+    air-gapped or proxied deployment — can point it somewhere else without patching a module,
+    exactly as :attr:`turnstile_verify_url` is."""
+
+    linear_timeout_s: float = 3.0
+    """How long the outbound call to Linear has, on its own.
+
+    Matches :attr:`delivery_timeout_s`, which is the OUTER bound the dispatcher already imposes
+    (`asyncio.wait_for`). This one exists so the HTTP client gives up by itself rather than being
+    cancelled mid-flight, and so the adapter is bounded when something other than the dispatcher
+    calls it. Raising it past `delivery_timeout_s` buys nothing: the dispatcher's deadline still
+    fires first and the row stays `pending` for the retry queue either way.
     """
 
     # WHY `NoDecode` on every list/tuple field: pydantic-settings JSON-decodes complex field

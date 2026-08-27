@@ -26,7 +26,9 @@ Two rendering rules follow from the input being client-controlled free text:
   the mesh-verified address is stated.
 - **Nothing else is reshaped.** The title is one bounded line because a tracker requires it, and
   the fenced blocks carry their text verbatim — so the fail-closed re-check in `dispatch.py`
-  still sees what would travel.
+  still sees what would travel. The one thing this module ADDS is a label: a `reply_to` that does
+  not look like an address is labelled as such (see :func:`_reporter_bullets`). The value beside
+  it is untouched, and so is `TicketContent.reply_to`, which a sink routes on.
 
 INVARIANT: this renders from `ReportDocument` — a typed view of the PERSISTED payload — and not
 from `BoundedReport`. `OME-1010` re-delivering a stored row (`ReportDocument.model_validate(
@@ -61,7 +63,7 @@ Linear allows far more; a title nobody can scan is not a better title."""
 BULLET_MAX_CHARS = 256
 """Ample for every field rendered as a bullet — §2.4 already caps the `client` and `context`
 strings at 256 bytes — and a bound for the three that §2.4 caps nowhere: `error.type` and the
-`correlation` ids. See :func:`_one_line`."""
+`correlation` ids. See :func:`one_line`."""
 
 _BACKTICKS = re.compile("`+")
 _WHITESPACE = re.compile(r"\s+")
@@ -183,12 +185,51 @@ def _correlation_bullets(correlation: Correlation) -> str:
 
 def _reporter_bullets(reply_to: str | None, caller_email: str | None) -> str:
     """Two addresses that mean different things, labelled so a responder cannot confuse them:
-    one is whatever the client typed, the other is what the mesh verified."""
+    one is whatever the client typed, the other is what the mesh verified.
+
+    The reply address carries a SECOND label when it does not look like an address at all. That is
+    this service's half of spec §9's "accepted, unverified": `reply_to` is deliberately never
+    syntax-checked at the route (see :attr:`ReportDocument.reply_to`), because refusing a typo
+    would lose a whole diagnosable report over the one field nothing is authoritative on — so the
+    ticket is where the cost is paid. Without the mark the failure is silent in the worst
+    direction: `bob@openmindorg` reads as an address at a glance, a triager answers it, the mail
+    bounces into somebody's sent folder days later, and by then the report is closed and the
+    reporter is still waiting.
+    """
     return _bullets(
         (
-            ("reply-to (self-asserted)", reply_to),
+            (_reply_to_label(reply_to), reply_to),
             ("mesh-verified caller", caller_email),
         )
+    )
+
+
+def _reply_to_label(reply_to: str | None) -> str:
+    """Which of the two reply-to labels this value gets. `None` never renders a bullet at all —
+    `_bullets` drops it — so the ordinary label is the safe answer there."""
+    if reply_to is None or _looks_like_an_address(reply_to.strip()):
+        return "reply-to (self-asserted)"
+    return "reply-to (self-asserted, does not look like an address)"
+
+
+def _looks_like_an_address(value: str) -> bool:
+    """A shape check, and the wording of the label says so — this is NOT validation and must never
+    become it. Nothing branches on the answer except which label is printed.
+
+    Deliberately calibrated to over-flag rather than under-flag. An exotic-but-legal address (a
+    quoted local part with a space in it, a domain literal) is marked, and that costs a triager
+    one second of double-checking; an unmarked typo costs the reporter their answer. RFC 5322 is
+    not the standard being applied here and pulling in a validator that implemented it would trade
+    that calibration for someone else's.
+    """
+    local, separator, domain = value.partition("@")
+    return bool(
+        separator
+        and local
+        and domain
+        and "@" not in domain
+        and "." in domain.strip(".")
+        and _WHITESPACE.search(value) is None
     )
 
 
@@ -214,11 +255,11 @@ def _bullets(pairs: Iterable[tuple[str, object | None]]) -> str:
     rather than rendered as `none`: spec §2.1 makes almost everything nullable, so a report full
     of `none` bullets buries the three lines that say what happened."""
     return "\n".join(
-        f"- {label}: {_one_line(value)}" for label, value in pairs if value not in (None, "")
+        f"- {label}: {one_line(value)}" for label, value in pairs if value not in (None, "")
     )
 
 
-def _one_line(value: object) -> str:
+def one_line(value: object, *, limit: int = BULLET_MAX_CHARS) -> str:
     """A bullet's value, flattened and bounded — because a bullet IS one line, by definition.
 
     THIS IS THE FENCE FOR THE FIELDS THAT CANNOT HAVE ONE. `_quoted` fences the three free-text
@@ -235,11 +276,17 @@ def _one_line(value: object) -> str:
     legitimate value, since a value that needs more than one line was never going to survive as a
     bullet. The length bound covers the members §2.4 gives no cap at all — `error.type` and the
     three `correlation` ids — which are otherwise limited only by the 64 KiB body.
+
+    PUBLIC because `queue_cli.py` renders the same client-controlled values into a terminal
+    table, where the identical trick has the identical cause: a newline inside a `trace_id` ends
+    the row and the rest of the value prints as another one, forging a report in the listing an
+    agent triages from. `limit` is a parameter rather than the module constant only because a
+    table column is narrower than a bullet — the rule being applied is the same one.
     """
     collapsed = _WHITESPACE.sub(" ", str(value)).strip()
-    if len(collapsed) <= BULLET_MAX_CHARS:
+    if len(collapsed) <= limit:
         return collapsed
-    return collapsed[: BULLET_MAX_CHARS - 1].rstrip() + "…"
+    return collapsed[: limit - 1].rstrip() + "…"
 
 
 def _quoted(heading: str, text: str | None) -> str | None:
@@ -269,4 +316,4 @@ def _joined(blocks: Iterable[str | None]) -> str:
     return "\n\n".join(block for block in blocks if block)
 
 
-__all__ = ["TITLE_MAX_CHARS", "render_ticket"]
+__all__ = ["BULLET_MAX_CHARS", "TITLE_MAX_CHARS", "one_line", "render_ticket"]

@@ -114,6 +114,41 @@ def test_the_ticket_sink_is_named_in_the_environment(monkeypatch: pytest.MonkeyP
     assert Settings().ticket_sink == "queue"
 
 
+def test_the_linear_credentials_are_empty_until_a_deployment_supplies_them() -> None:
+    """Empty is what keeps the adapter inert. CLAUDE.md rule 9 governs selecting it, and shipping
+    the code must not select it: `build_sink` refuses to start a `linear` deployment that has no
+    credential rather than accepting reports and filing none of them."""
+    settings = Settings()
+
+    assert settings.linear_api_key.get_secret_value() == ""
+    assert settings.linear_team_id == ""
+
+
+def test_the_linear_api_key_does_not_survive_a_repr_of_these_settings() -> None:
+    """`SecretStr`, like the Turnstile secret: a long-lived token to the private tracker the team
+    works in has to be safe near a traceback or a debug dump, rather than relying on nobody ever
+    printing `Settings`."""
+    settings = _settings(linear_api_key="lin_api_notreal")
+
+    assert "lin_api_notreal" not in repr(settings)
+    assert settings.linear_api_key.get_secret_value() == "lin_api_notreal"
+
+
+def test_the_linear_endpoint_is_defaulted_rather_than_asked_for() -> None:
+    """There is exactly one of them, so an operator who had to type it could only get it wrong.
+    A field rather than a constant so a test — or a proxied deployment — can move it."""
+    assert Settings().linear_api_url == "https://api.linear.app/graphql"
+
+
+def test_the_linear_deadline_matches_the_inline_delivery_one() -> None:
+    """The dispatcher's `asyncio.wait_for` is the outer bound; this one exists so the HTTP client
+    gives up by itself rather than being cancelled mid-flight. Raising it past the delivery
+    timeout buys nothing — the outer deadline still fires first."""
+    settings = Settings()
+
+    assert settings.linear_timeout_s == settings.delivery_timeout_s
+
+
 def test_the_inline_delivery_deadline_defaults_to_the_specs_three_seconds() -> None:
     """Spec §2.2 and §6, not the drafting pass's 10 s (plan §11 conflict 18). Past the deadline
     the row stays `pending` and the response is still `202`, so a larger number does not make
@@ -226,10 +261,21 @@ _PLAN_ENVIRONMENT_SURFACE = frozenset(
         "REPORT_INTAKE_ANON_RATE_WINDOW_S",
         "REPORT_INTAKE_ANON_RATE_MAX_KEYS",
         "REPORT_INTAKE_ANON_RATE_BURST",
+        # OME-1009's amendment, recorded in plan §2.4 rather than only here: the four fields the
+        # `linear` sink reads. All four are inert unless `TICKET_SINK` names it, and the chart
+        # renders all four regardless — a field the chart never renders can only ever hold its
+        # declared default in production, which is the failure this equality exists to catch.
+        "REPORT_INTAKE_LINEAR_API_KEY",
+        "REPORT_INTAKE_LINEAR_TEAM_ID",
+        "REPORT_INTAKE_LINEAR_API_URL",
+        "REPORT_INTAKE_LINEAR_TIMEOUT_S",
     }
 )
 """Plan §2.4's frozen list, transcribed. `FORWARDED_ALLOW_IPS` is deliberately absent: it is
-uvicorn's own, unprefixed, and is the one name this service cares about that is not a field."""
+uvicorn's own, unprefixed, and is the one name this service cares about that is not a field.
+
+The list is frozen, not sealed: a name is added HERE and in plan §2.4 together, by the item that
+adds the field. What it forbids is a field arriving with neither."""
 
 
 def test_the_environment_surface_is_exactly_the_one_the_plan_froze() -> None:

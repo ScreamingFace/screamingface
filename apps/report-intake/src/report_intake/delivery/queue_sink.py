@@ -3,9 +3,12 @@
 **The `reports` table is the queue.** Marking the row `queued` and letting an agent file it
 through MCP during triage is not a placeholder for `LinearSink`; it is the shape spec §9 settled
 on for v1, and it is what keeps a Linear API token out of this service's environment, out of its
-pod, and out of the threat model entirely. `LinearSink` is a follow-up gated on `OME-976` *and*
-on a decision about where that credential lives and who rotates it — one adapter file and one
-registry line, on the day both answers exist.
+pod, and out of the threat model entirely.
+
+`LinearSink` now exists beside this adapter (`linear_sink.py`), and this one is still the
+default and still the one every deployment runs: selecting the other costs an operator a
+credential and a decision CLAUDE.md rule 9 governs, which `OME-976` has not yet amended. Nothing
+about that file changes what this one is for.
 
 No ticket id comes back, which spec §2.2's success shape already models: `state` is `queued` and
 `ticket` is null. A caller that needed an id to exist synchronously would be asking for

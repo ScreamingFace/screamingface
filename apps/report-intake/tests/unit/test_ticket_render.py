@@ -188,6 +188,33 @@ def test_the_two_addresses_are_labelled_apart_in_the_body() -> None:
     assert "mesh-verified caller: engineer@openmined.org" in content.body
 
 
+def test_a_reply_to_that_does_not_look_like_an_address_says_so_in_the_ticket() -> None:
+    """The other half of the decision to accept a typo'd address rather than `422` the whole
+    report (`ReportDocument.reply_to`; spec §9 calls it "accepted, unverified"). Accepting is only
+    the better trade if the ticket admits what it is holding: `bob@openmindorg` reads as an
+    address at a glance, so a triager answers it, the mail bounces days later into somebody's sent
+    folder, and the reporter is still waiting on a report that is already closed.
+
+    The mark stays rare on purpose — an ordinary address is unmarked — because a warning printed
+    on every report is a warning nobody reads.
+    """
+    marked = _rendered(a_report(reply_to="not-an-email"))
+    ordinary = _rendered(a_report(reply_to="reporter@example.org"))
+
+    assert "- reply-to (self-asserted, does not look like an address): not-an-email" in marked.body
+    assert "does not look like an address" not in ordinary.body
+
+
+def test_marking_a_reply_to_labels_it_and_never_rewrites_it() -> None:
+    """A label, not a repair. The value stays verbatim in the body and beside it — a sink routes
+    on `TicketContent.reply_to`, and a renderer that "fixed" or dropped an address would leave an
+    adapter filing a ticket nobody can trace back to what the reporter actually typed."""
+    content = _rendered(a_report(reply_to="not-an-email"))
+
+    assert content.reply_to == "not-an-email"
+    assert content.body.count("not-an-email") == 1
+
+
 def test_the_title_is_one_bounded_line_even_when_the_message_is_neither() -> None:
     """A tracker title is neither multi-line nor unbounded, and `error.message` is carried
     verbatim with an 8 KiB cap — so this is the one place a value is reshaped."""

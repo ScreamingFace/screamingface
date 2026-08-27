@@ -54,11 +54,13 @@ class Admission:
 
     The strongest value this service can honestly produce, which differs by caller class: a
     mesh-verified caller is scoped by the address the mesh verified, and an anonymous one by the
-    same value the rate limiter counts against. Read the anonymous case for what it is — in a
-    deployment the mesh proxy is the peer on every request, so anonymous callers share one scope
-    unless the edge is trusted for a client address. It is not weaker than today's behaviour
-    (which had no scope at all), and it removes the cross-caller leak entirely for the class this
-    service can actually tell apart.
+    same value the rate limiter counts against. **Read the anonymous case for what it is: in a
+    deployment the mesh proxy is the peer on every request and the public route strips
+    `CF-Connecting-IP`, so every anonymous caller on earth shares this one scope.** It is a
+    namespace, not a separator, and it is not what makes an anonymous replay safe —
+    `scoped_dedup_key` mixes the report's own digest in for a caller with no verified identity,
+    which is the half that binds a replay to something the caller cannot share. This field alone
+    is enough only for the class this service can actually tell apart.
     """
 
 

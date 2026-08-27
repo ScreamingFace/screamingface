@@ -66,7 +66,7 @@ class TicketDispatcher:
     ) -> DeliveryOutcome:
         """Render this report and try to file it once. Never raises."""
         content = render_ticket(ref=ref, document=document, caller_email=caller_email)
-        refusal = _content_in(content)
+        refusal = content_in(content)
         if refusal is None:
             return await self._attempt(content)
         # Terminal, not retryable: a retry renders the same body from the same row and reaches the
@@ -106,11 +106,17 @@ def _outcome(result: SinkResult) -> DeliveryOutcome:
     return DeliveryOutcome("queued")
 
 
-def _content_in(content: TicketContent) -> str | None:
+def content_in(content: TicketContent) -> str | None:
     """The reason a rendered ticket carries content, or None.
 
     Each string is scanned on its own (`TicketContent.texts`), so the answer is about what a sink
     would actually receive rather than about a join this code invented.
+
+    PUBLIC because there are two paths from a stored report to a ticket body, and both have to
+    make the same decision. This one ends at a sink; `queue_cli._print_ticket` ends at an operator
+    who pastes the body into Linear by hand, which is the same thing arriving by a different road.
+    Exported and called rather than reimplemented there: two spellings of a fail-closed check are
+    two things to keep in step, and the one that drifts looks exactly like the one that does not.
     """
     for text in content.texts():
         reason = scan_text(text)
@@ -145,4 +151,4 @@ def _log_retryable(ref: str, exc: BaseException) -> None:
     )
 
 
-__all__ = ["DeliveryOutcome", "TicketDispatcher"]
+__all__ = ["DeliveryOutcome", "TicketDispatcher", "content_in"]
