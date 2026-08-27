@@ -1044,6 +1044,13 @@ scoring, because a text submission can never satisfy them. So a `gdpval-text` sc
 "does the fusion beat the solo model here?" — never "how do we compare to the GDPval
 leaderboard?"."""),
         nbformat.v4.new_markdown_cell("""\
+<img src="assets/gdpval-benchmark.svg" width="1200"
+  alt="GDPval-text at a glance: 220 open gold tasks filtered to 102 prose cases, reference
+  documents parsed once at build time, one judge call per rubric criterion (median 44 per
+  task, roughly 4,500 per full run), case score = earned points over positive points with
+  negatives subtracting and no clamp, board score = plain mean over 102 cases — deliberately
+  not the official pairwise-vs-human GDPval metric"/>"""),
+        nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
 From a terminal:
@@ -1071,15 +1078,12 @@ Worth knowing before you do: grading fans out **one judge call per rubric criter
 rubrics carry a median of 44 after filtering. A full 102-task run is roughly 4,500 judge calls
 per candidate, so rehearse with `limit` before committing to a full sweep."""),
         nbformat.v4.new_code_cell("""\
-PARAMS = {"max_tokens": 32768, "temperature": 0.0}
-
-deepseek = sf.Model(
-    model="openrouter/deepseek/deepseek-v4-pro",
-    params=PARAMS,
-)"""),
-        nbformat.v4.new_code_cell("""\
-deepseek_report = sf.evaluate(deepseek, benchmark="gdpval-text", limit=1)
-deepseek_report"""),
+gem_flash = sf.Model(
+    model="openrouter/google/gemini-3-flash-preview",  # fast, cheap model
+    params={"max_tokens": 8192, "temperature": 0.0},
+)
+report = sf.evaluate(gem_flash, benchmark="gdpval-text", limit=3)
+report"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Define a Fusion of open-source models and evaluate it
 
@@ -1087,6 +1091,14 @@ GDPval rubrics reward breadth, structure and completeness — a median of 44 sep
 criteria per task. That is union-of-coverage territory: each member contributes partial credit
 the others miss, and the synthesiser's job is to keep all of it."""),
         nbformat.v4.new_code_cell("""\
+PARAMS = {"max_tokens": 32768, "temperature": 0.0}
+
+deepseek = sf.Model(
+    model="openrouter/deepseek/deepseek-v4-pro",
+    params=PARAMS,
+)
+deepseek
+
 qwen = sf.Model(
     model="openrouter/qwen/qwen3.8-2.4t-a95b",
     params=PARAMS,
@@ -1123,7 +1135,7 @@ kimi = sf.Model(
 
 open_panel = sf.Fusion(members=[deepseek, qwen, glm], name="open_panel", synthesizer=kimi)"""),
         nbformat.v4.new_code_cell("""\
-fusion_report = sf.evaluate(open_panel, benchmark="gdpval-text", limit=1)
+fusion_report = sf.evaluate(open_panel, benchmark="gdpval-text", limit=2)
 fusion_report"""),
         nbformat.v4.new_markdown_cell("""\
 ## 3. Read the per-case scores
