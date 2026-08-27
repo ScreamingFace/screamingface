@@ -37,6 +37,8 @@ Event behavior.
   that owner's accounting.
 - Preserve an explicit all-null operation list for a multi-operation Candidate when no call can be
   attributed, while keeping a solo nested Recipe's envelope absent.
+- Render each DRACO criterion's grading context and invariant Judge intent once, then reuse those
+  exact bytes across its seeded judge-pass registrations.
 
 ## Test plan
 
@@ -57,6 +59,8 @@ Event behavior.
 - RED regressions for full-precision cost sums, multiple unique request keys per Evidence owner,
   and an all-unattributed multi-operation Candidate; characterize malformed omission metadata as
   deliberately unavailable rather than partially trusted.
+- RED regression that a five-pass DRACO criterion renders its context and intent once rather than
+  once per pass.
 - Run `uv run ../../.claude/scripts/run_gates.py screamingface-engine` from the repository root.
 
 ## Acceptance
@@ -82,7 +86,8 @@ Event behavior.
   calls by request key instead of rescanning the run ledger for each verdict. Final review follow-up
   makes fixed-point cost sums independent of ambient Decimal precision, aggregates every uniquely
   owned request key for revised grading evidence, and preserves explicit null entries when a
-  multi-operation Candidate cannot be attributed.
+  multi-operation Candidate cannot be attributed. The final efficiency follow-up renders each
+  DRACO criterion prompt once and reuses the exact bytes across its seeded Judge passes.
 - **Commits:** this implementation commit — `feat(screamingface-engine): retain operation
   accounting`.
 - **Gates:** `python3 .claude/scripts/run_gates.py screamingface-engine --skip-append-only` — ALL
@@ -90,7 +95,8 @@ Event behavior.
   append-only exception is the explicit owner approval recorded below. Review regressions: 22
   focused accounting/operation-output tests and 38 benchmark vertical-slice tests passed. Final
   review regressions: 51 focused accounting and board tests passed; the full Engine gate passed
-  again.
+  again. The DRACO prompt-render regression failed at five calls before the hoist, passed at one
+  afterward, and the full Engine gate passed once more.
 - **Deviations:** Candidate invocation needed a separate `isolate_operation_calls` switch so its
   model-call ledger is isolated from grading without discarding the existing nested Candidate
   outcome capture. This preserves the published behavior while enforcing the planned ownership

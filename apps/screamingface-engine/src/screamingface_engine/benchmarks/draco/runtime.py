@@ -169,6 +169,13 @@ def _task_rows(
                 candidate=answer,
             )
             for index, row in enumerate(result):
+                request_context = judge_context(
+                    criterion_type=row["criterion_type"],
+                    criterion=row["criterion"],
+                    question=row["question"],
+                    answer=row["answer"],
+                )
+                request_intent = judge_intent()
                 for sequence in range(1, exam.judge_passes + 1):
                     register_grading_request(
                         GradingEvidenceOwner(
@@ -179,13 +186,8 @@ def _task_rows(
                         ),
                         path="/" + JUDGE_MODEL.removeprefix("/"),
                         params={**dict(JUDGE_PARAMS), "seed": str(sequence)},
-                        context=judge_context(
-                            criterion_type=row["criterion_type"],
-                            criterion=row["criterion"],
-                            question=row["question"],
-                            answer=row["answer"],
-                        ),
-                        intent=judge_intent(),
+                        context=request_context,
+                        intent=request_intent,
                     )
                 row["case_record"] = (
                     json.dumps(case_record, ensure_ascii=False, separators=(",", ":"))
