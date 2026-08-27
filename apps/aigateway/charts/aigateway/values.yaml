@@ -274,6 +274,9 @@ snapshot:
     enabled: true
     image: dxflrs/garage:v2.3.0
     replicaCount: 1
+    # When networkPolicy.enabled (chart default), a Garage-scoped NetworkPolicy admits ONLY
+    # the gateway's snapshot PUTs on 3900 — Garage's sole client. Set networkPolicy.enabled,
+    # not a garage-local flag, to drop it.
     persistence:
       enabled: true
       size: 10Gi

@@ -88,6 +88,34 @@ async def test_a_refused_upload_raises_a_sanitized_error(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", [301, 307, 308])
+async def test_a_redirect_is_a_failure_not_a_stored_object(tmp_path: Path, status: int) -> None:
+    """A 3xx answer must fail the PUT, never pass as stored.
+
+    httpx does not follow redirects, so before the non-2xx check a redirect returned from
+    ``put()`` — the caller then deleted the spool and the scheduler logged ``published`` for
+    an object that was never stored. The signature is bound to the signed host and path, so
+    following (and re-sending the Authorization) is not an option either; the error names
+    the target the operator should point the endpoint at.
+    """
+    archive = tmp_path / "snapshot.sql.gz"
+    archive.write_bytes(b"x")
+    seen: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(status, headers={"Location": "https://elsewhere:3900/bucket/key"})
+
+    with pytest.raises(S3StorageError) as excinfo:
+        await _store(handler).put(_KEY, archive, sha256_hex=_SHA256)
+    message = str(excinfo.value)
+    assert str(status) in message
+    assert "https://elsewhere:3900/bucket/key" in message  # actionable: names the target
+    assert _SECRET not in message  # still no credential material
+    assert len(seen) == 1  # never followed, never re-signed
+
+
+@pytest.mark.asyncio
 async def test_a_transport_failure_is_wrapped(tmp_path: Path) -> None:
     archive = tmp_path / "snapshot.sql.gz"
     archive.write_bytes(b"x")

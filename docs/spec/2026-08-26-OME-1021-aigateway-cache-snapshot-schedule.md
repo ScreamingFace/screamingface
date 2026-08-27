@@ -108,8 +108,9 @@ Out of scope:
 
 Typed error hierarchy (`SnapshotExportError` subclasses: DB unreachable, COPY refused,
 disk full/spool overflow, store refused, store unreachable). A `cache_snapshot_max_bytes`
-cap (default 512 MiB) protects the spool dir; exceeding it fails the run loudly rather
-than filling the pod disk.
+cap (default 256 MiB — equal to the OME-952 upload cap, so a published snapshot is always
+restorable through the default restore path) protects the spool dir; exceeding it fails the
+run loudly rather than filling the pod disk.
 
 ### 4.2 Object store — `core/object_store.py` (+ `core/sigv4.py`)
 
@@ -150,7 +151,8 @@ than filling the pod disk.
 - `cache_snapshot_s3_endpoint_url` (required when enabled), `…_bucket` (default
   `screamingface-cache-snapshots`), `…_region` (default `garage`, mirroring the Engine),
   `…_access_key` / `…_secret_key` (SecretStr, never logged).
-- `cache_snapshot_timeout_s` (default 600), `cache_snapshot_max_bytes` (default 512 MiB).
+- `cache_snapshot_timeout_s` (default 600), `cache_snapshot_max_bytes` (default 256 MiB,
+  validated `<= cache_upload_max_bytes` — the restore contract).
 - Fail-fast at startup when enabled but missing endpoint/keys — the same refusal shape as
   the Engine's `runner="k8s"` + filesystem check.
 

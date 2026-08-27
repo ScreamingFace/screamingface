@@ -156,4 +156,37 @@ spec:
           requests:
             storage: {{ .Values.snapshot.garage.persistence.size | quote }}
   {{- end }}
+---
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "aigateway.labels" . | nindent 4 }}
+spec:
+  # WHY this policy exists: the gateway's NetworkPolicy (templates/networkpolicy.yaml)
+  # selects `component: gateway` Pods ONLY — without a Garage-scoped counterpart, tightening
+  # it would leave Garage's ingress unrestricted. Garage's one client is the gateway itself,
+  # PUTting the weekly snapshot pair on the S3 API port; everything else is denied. Ingress
+  # only: egress stays unrestricted, matching the gateway policy's own egress posture.
+  podSelector:
+    matchLabels:
+      {{- include "aigateway.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: garage
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 3900
+      from:
+        # The gateway Pods of THIS release (same namespace, so a bare podSelector peer):
+        # name+instance scoping keeps another release's gateway out; the component label is
+        # the one selector the tightened gateway policy guarantees names exactly them.
+        - podSelector:
+            matchLabels:
+              {{- include "aigateway.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: gateway
+{{- end }}
 {{- end }}

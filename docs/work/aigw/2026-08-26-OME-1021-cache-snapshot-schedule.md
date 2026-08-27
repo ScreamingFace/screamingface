@@ -74,3 +74,32 @@ artifacts. Strictly next-Friday (no catch-up), keep-all, schedule-only. Spec (ap
 - **Deviations:** `pg_dump` is absent in this dev environment, so the pre-existing
   `test_cache_snapshot_upload_postgres.py` cannot run locally (CI has it); the new
   export Postgres tests (no pg_dump dependency) pass. No plan deviations.
+
+## Review round 1 — P1 fixes (HupBaHa review, 2026-08-27)
+
+- **C1 (P1) false-success redirects:** `object_store.put()` accepted any status below 400,
+  so a 301/307/308 (httpx does not follow redirects) returned as success — the spool was
+  deleted and `published` logged for an object never stored. Now every non-2xx fails;
+  redirects get a dedicated error naming the `Location` target and the endpoint variable
+  (the signature is bound to the signed host and path, so redirects are never followed).
+  Tests: 301/307/308 assert failure, actionable message, no credential leak, exactly one
+  request.
+- **C3 (P1) export/restore cap mismatch:** `cache_snapshot_max_bytes` defaulted to 512 MiB
+  against the OME-952 upload cap of 256 MiB — a 300 MiB archive published fine and was
+  unrestorable. Default lowered to 256 MiB (both caps count the COMPRESSED archive — the
+  review's "uncompressed COPY bytes" note was corrected during verification), plus a
+  Settings validator refusing `snapshot_max > upload_max` when snapshots are enabled.
+  `DEFAULT_MAX_SNAPSHOT_BYTES` aligned; spec §4.1/§4.4 updated to stay truthful.
+- **C0 (P1) NetworkPolicy captured bundled Garage:** selectorLabels (name+instance) matched
+  Garage Pods too, so the default 9105-only policy denied the gateway's PUTs to
+  Garage:3900. Gateway Deployment now carries `component: gateway` (matching the migrate
+  Job's existing pattern); NetworkPolicy and Service selectors tightened to it; new
+  Garage-scoped policy (renders with `snapshot.enabled && garage.enabled &&
+  networkPolicy.enabled`) admits only this release's gateway Pods on 3900.
+  `verify_chart_wiring.py`: +11 checks (42/42) incl. the policy/label pair and the
+  no-policy render.
+- **Gates:** focused 41 passed; full non-live suite 4094 passed; ruff, pyright (0 errors),
+  check_no_enterprise, helm lint, `verify_chart_wiring.py` 42/42 all green.
+- **Not addressed here (P2s, next commits):** external-store credential minting (C4),
+  SQLite fail-late (C5), endpoint canonicalization (C6), main.py size (C7), and the
+  downgraded-to-P2 replica guard (C2).

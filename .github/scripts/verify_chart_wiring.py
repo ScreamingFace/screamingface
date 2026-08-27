@@ -89,6 +89,16 @@ def find(docs: list[dict], kind: str) -> dict:
     raise AssertionError(f"no {kind} in the rendered chart")
 
 
+def find_named(docs: list[dict], kind: str, name: str) -> dict:
+    """The document of `kind` named `name`. The aigateway chart can render TWO NetworkPolicies
+    (gateway + bundled Garage), and garage.yaml sorts before networkpolicy.yaml — so `find`
+    would silently return whichever renders first. Policies are looked up by name."""
+    for doc in docs:
+        if doc.get("kind") == kind and doc.get("metadata", {}).get("name") == name:
+            return doc
+    raise AssertionError(f"no {kind} named {name!r} in the rendered chart")
+
+
 def find_data_owner(docs: list[dict], key: str) -> dict:
     """Return the single rendered object whose data contains ``key``."""
     matches = [doc for doc in docs if key in doc.get("data", {})]
@@ -122,7 +132,7 @@ def peer_names(policy: dict, direction: str) -> set[str]:
 print("aigateway chart")
 gw = render(GATEWAY_CHART, GATEWAY_RELEASE)
 gw_config = find(gw, "ConfigMap")
-gw_policy = find(gw, "NetworkPolicy")
+gw_policy = find_named(gw, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway")
 gw_service = find(gw, "Service")
 gw_deployment = find(gw, "Deployment")
 
@@ -170,6 +180,85 @@ gw_prod = render(
 check(
     "aigateway-ui" in peer_names(find(gw_prod, "NetworkPolicy"), "ingress"),
     "values-prod.yaml also admits the console (it overrides clientPodNames wholesale)",
+)
+
+print("\naigateway snapshot wiring (bundled Garage)")
+# The bundled Garage shares the release's selectorLabels (name+instance), so every selector
+# that must name ONE side needs the component label. These checks pin the review fix: the
+# gateway policy must not capture Garage Pods (that denied the snapshot PUTs to :3900), and
+# Garage must get its own scoped policy admitting exactly the gateway.
+gw_snap = render(GATEWAY_CHART, GATEWAY_RELEASE, "--set", "snapshot.enabled=true")
+gw_snap_policy = find_named(gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway")
+garage_policy = find_named(gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway-garage")
+garage_sts = find(gw_snap, "StatefulSet")
+gw_pod_labels = gw_deployment["spec"]["template"]["metadata"]["labels"]
+
+check(
+    gw_pod_labels.get("app.kubernetes.io/component") == "gateway",
+    "gateway Pods carry component: gateway — distinct from garage/migrate under shared selectorLabels",
+)
+check(
+    gw_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    == "gateway",
+    "the gateway NetworkPolicy selects ONLY gateway Pods — it cannot capture Garage or migrate Pods",
+)
+check(
+    gw_service["spec"]["selector"].get("app.kubernetes.io/component") == "gateway",
+    "the Service routes ONLY to gateway Pods, not merely saved by the named targetPort",
+)
+check(
+    garage_sts["spec"]["template"]["metadata"]["labels"].get("app.kubernetes.io/component")
+    == "garage",
+    "bundled Garage Pods carry component: garage",
+)
+check(
+    garage_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    == "garage",
+    "the Garage NetworkPolicy selects ONLY Garage Pods",
+)
+check(
+    [p["port"] for rule in garage_policy["spec"]["ingress"] for p in rule.get("ports", [])]
+    == [3900],
+    "Garage admits exactly one ingress port: the S3 API on 3900",
+)
+
+admitted_peer: dict[str, str] = {}
+for rule in garage_policy["spec"]["ingress"]:
+    for element in rule.get("from", []):
+        labels = element.get("podSelector", {}).get("matchLabels", {})
+        if labels.get("app.kubernetes.io/component") == "gateway":
+            admitted_peer = labels
+check(
+    bool(admitted_peer)
+    and admitted_peer.get("app.kubernetes.io/name") == "aigateway"
+    and admitted_peer.get("app.kubernetes.io/instance") == GATEWAY_RELEASE,
+    "Garage's 3900 ingress names THIS release's gateway Pods (name+instance+component)",
+)
+check(
+    all(gw_pod_labels.get(key) == value for key, value in admitted_peer.items()),
+    "the peer Garage admits IS the label set the gateway Deployment renders — the pair holds",
+)
+check(
+    gw_snap_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    == "gateway",
+    "with snapshots on, the gateway policy still selects only gateway Pods",
+)
+
+check(
+    not any(doc.get("kind") == "StatefulSet" for doc in gw),
+    "snapshot disabled by default renders no Garage StatefulSet",
+)
+gw_no_np = render(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    "networkPolicy.enabled=false",
+)
+check(
+    not any(doc.get("kind") == "NetworkPolicy" for doc in gw_no_np),
+    "networkPolicy.enabled=false renders NO policies at all — gateway or Garage",
 )
 
 print("\naigateway-ui chart")

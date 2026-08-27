@@ -53,9 +53,11 @@ _STATUS_PATTERN = re.compile(r"^COPY (\d+)$")
 _CONNECT_TIMEOUT_S = 10
 _COPY_TIMEOUT_S = 600.0
 
-DEFAULT_MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024
+DEFAULT_MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
 """Spool cap for one archive. The gateway's temp dir is shared with the database host, so
-a runaway table must fail the run loudly rather than fill the pod disk."""
+a runaway table must fail the run loudly rather than fill the pod disk. Matches the app's
+restore-side upload cap by default — both count the compressed archive — so what this cap
+admits is restorable through the admin upload path (OME-952)."""
 
 # Data-only preamble and epilogue mirror make_pg_snapshot: the loader scans for the COPY
 # header and never reads past `\.`, so these are cosmetic — but they keep the artifact a

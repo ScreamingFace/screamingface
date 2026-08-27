@@ -9,10 +9,17 @@ spec:
   selector:
     matchLabels:
       {{- include "aigateway.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gateway
   template:
     metadata:
       labels:
         {{- include "aigateway.selectorLabels" . | nindent 8 }}
+        # Distinct component, same pattern as the migrate Job (`component: migrate`) and the
+        # bundled Garage (`component: garage`): selectorLabels alone match EVERY workload this
+        # chart renders, so any selector that must name the gateway — the Service, the
+        # NetworkPolicy — needs this label to stay scoped now that Garage Pods carry the same
+        # name/instance pair.
+        app.kubernetes.io/component: gateway
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

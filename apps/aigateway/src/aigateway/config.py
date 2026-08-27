@@ -185,8 +185,11 @@ class Settings(BaseSettings):
         default=600.0, gt=0, allow_inf_nan=False, validation_alias="AIGW_CACHE_SNAPSHOT_TIMEOUT_S"
     )
     # Spool cap for one archive — protects the pod temp directory shared with the database.
+    # Deliberately equal to cache_upload_max_bytes: both count the COMPRESSED archive bytes,
+    # so an export that fits this cap is always restorable through the admin upload path
+    # (OME-952); the validator below refuses a pair that breaks that contract.
     cache_snapshot_max_bytes: int = Field(
-        default=512 * 1024 * 1024, gt=0, validation_alias="AIGW_CACHE_SNAPSHOT_MAX_BYTES"
+        default=256 * 1024 * 1024, gt=0, validation_alias="AIGW_CACHE_SNAPSHOT_MAX_BYTES"
     )
 
     # Bounded public-catalog discovery behind /v1/model-parameters (OME-479 §5.2,
@@ -382,5 +385,17 @@ class Settings(BaseSettings):
                 "cache snapshot export is enabled but its storage is not configured: "
                 + ", ".join(missing)
                 + " — set the keys or disable AIGW_CACHE_SNAPSHOT_ENABLED"
+            )
+        if self.cache_snapshot_max_bytes > self.cache_upload_max_bytes:
+            # The restore contract (OME-952): the admin upload path refuses archives above
+            # cache_upload_max_bytes, and both caps count the same compressed artifact — so
+            # an export cap above the upload cap can publish a snapshot this deployment can
+            # never restore. Refused here, at construction, rather than discovered at the
+            # first restore attempt.
+            raise ValueError(
+                f"AIGW_CACHE_SNAPSHOT_MAX_BYTES ({self.cache_snapshot_max_bytes}) exceeds "
+                f"AIGW_CACHE_UPLOAD_MAX_BYTES ({self.cache_upload_max_bytes}) — a published "
+                "snapshot must stay restorable through the admin upload path; raise both "
+                "together or lower the export cap"
             )
         return self

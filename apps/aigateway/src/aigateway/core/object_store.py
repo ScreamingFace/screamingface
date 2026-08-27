@@ -93,7 +93,22 @@ class S3ObjectStore:
                 response = await client.put(url, headers=headers, content=body)
         except httpx.HTTPError as exc:
             raise S3StorageError(f"PUT {key} could not reach object storage: {exc}") from exc
-        if response.status_code >= 400:
+        if not 200 <= response.status_code < 300:
+            if 300 <= response.status_code < 400:
+                # A redirect is NOT a stored object, and it must not be followed: httpx leaves
+                # follow_redirects off by default precisely because this Authorization is
+                # signed for THIS host and path — a redirect target needs a signature we do
+                # not compute. Accepting the 3xx would let the caller delete the spool and
+                # log ``published`` for an object that was never stored, so it fails loudly
+                # and names the target the operator should point the endpoint at instead.
+                target = response.headers.get("Location", "")
+                raise S3StorageError(
+                    f"object storage redirected PUT {key} with {response.status_code}"
+                    + (f" to {target}" if target else "")
+                    + " — redirects are never followed (the signature is bound to the signed"
+                    " host and path); set AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL to the final"
+                    " origin"
+                )
             # The body is the store's own error XML, not ours; it names the real cause
             # (SignatureDoesNotMatch, NoSuchBucket, AccessDenied) and carries no credential
             # material — it is what turns an opaque 403 into an actionable one.
