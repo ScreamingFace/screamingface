@@ -43,6 +43,10 @@ The submission is plain text. Judge its CONTENT: if the criterion asks for somet
 normally live in a formatted document — a section, a table, a named field — treat the content
 being present and clearly identifiable as satisfying it.
 
+A conditional criterion ("If X is addressed/discussed, then Y...") is met only if the
+submission engages X and satisfies Y, or the request genuinely makes X irrelevant. Silence
+about a condition the request's facts raise does NOT satisfy the criterion.
+
 Reply with JSON only, no prose outside it:
 
 {{"explanation": "<one or two sentences>", "criteria_met": true or false}}
