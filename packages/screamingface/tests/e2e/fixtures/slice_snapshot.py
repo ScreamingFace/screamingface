@@ -14,6 +14,11 @@ Run it from the SDK project (docker running, benchmark assets prepared once via
         --dump <owner-held production cache dump .sql.gz> \\
         --answers <owner-held archive eval_results .eval.jsonl>
 
+    # OME-978 fusion mode — the SDK report is the ONLY recording:
+    uv run python tests/e2e/fixtures/slice_snapshot.py \\
+        --board healthbench-worst30 \\
+        --report <owner-held SDK report .json>
+
 Mental model: this script is the "bless" button — it turns two owner-held recordings
 into the committed fixtures that make ``test_boards.py`` go green: a sliced cache
 snapshot (only the rows one board replay actually touches), its manifest sidecar, and
@@ -60,6 +65,16 @@ Stages, in execution order:
    ``<board>.golden.json`` validated through ``GoldenReport`` before it lands. A
    snapshot above ``--max-snapshot-mb`` is written to the work dir instead of the
    committed tree, and the bless fails asking the owner to decide.
+
+Report mode (OME-978, ``--report``): for a FUSION run there may be no dump and no
+answers file — the saved SDK report is the only recording, and it carries every
+response text (member answers, the synthesis, every judge verdict). Stages 1 and 4
+change shape: the payload source is ``report_tape.py`` and the single re-key pass
+becomes an iterative capture→splice loop, because fusion request bytes embed
+earlier ANSWERS (the synthesis prompt embeds the member answers; judge prompts
+embed the synthesized answer) — each round unlocks one more tree level. Stages
+2, 5, 6 and 7 are identical, and the verified replay must reproduce the report's
+score, coverage AND per-case statuses or the bless refuses.
 
 The helper modes (``--helper keys`` / ``--helper revisions``) are the same file
 executed under the aigateway venv; they exist so the key math and the revision
@@ -306,7 +321,11 @@ def author_golden(
     *,
     board: str,
     revision: str,
-    model: str,
+    model: str | None = None,
+    kind: str = "model",
+    recipe: str | None = None,
+    members: list[str] | None = None,
+    synthesizer: str | None = None,
     limit: int | None,
     rendered_url4: str,
     final_score: float | None,
@@ -317,6 +336,9 @@ def author_golden(
     Counters are DERIVED from the statuses (never passed in) and the score is
     canonicalized through the same ``canonical_score`` the compare ladder uses, so a
     blessed file can never be refused by ``load_golden`` or disagree with itself.
+    ``kind: "model"`` goldens keep the pre-OME-978 document shape byte-for-byte (no
+    ``kind``/``recipe``/``synthesizer`` keys), so a re-bless never churns old files;
+    ``kind: "fusion"`` records the full replay lineup (ordered members + synthesizer).
     """
     from harness.goldens import GOLDEN_SCHEMA, GoldenReport, canonical_score, expression_sha
 
@@ -324,7 +346,7 @@ def author_golden(
         "schema": GOLDEN_SCHEMA,
         "board": board,
         "revision": revision,
-        "models": [model],
+        "models": [model] if kind == "model" else list(members or ()),
         "limit": limit,
         "expression_sha": expression_sha(rendered_url4),
         "final_score": canonical_score(final_score),
@@ -332,6 +354,10 @@ def author_golden(
         "gradeable_count": sum(1 for status in case_statuses.values() if status == "scored"),
         "case_statuses": dict(sorted(case_statuses.items())),
     }
+    if kind != "model":
+        golden["kind"] = kind
+        golden["recipe"] = recipe
+        golden["synthesizer"] = synthesizer
     GoldenReport.model_validate(golden)  # refuse to write a golden the lane would refuse
     return golden
 
@@ -603,11 +629,17 @@ def _user_text(body: dict[str, Any]) -> str:
     raise SystemExit(f"captured candidate body has no user message: {json.dumps(body)[:200]}")
 
 
-def _evaluate(engine_url: str, model: str, board: str, limit: int | None) -> Any:
+def _evaluate(engine_url: str, candidate: Any, board: str, limit: int | None) -> Any:
     import screamingface as sf
 
     with sf.Client(engine_url=engine_url) as client:
-        return client.evaluate(sf.Model(model), benchmark=board, limit=limit, progress=False)
+        return client.evaluate(candidate, benchmark=board, limit=limit, progress=False)
+
+
+def _model_candidate(model: str) -> Any:
+    import screamingface as sf
+
+    return sf.Model(model)
 
 
 def _cross_check(candidate: Any, expect_score: str | None, expect_coverage: str | None) -> None:
@@ -670,6 +702,14 @@ def _parse_args() -> argparse.Namespace:
         "--model", help="candidate model, e.g. openrouter/google/gemini-3-flash-preview"
     )
     parser.add_argument("--dump", type=Path, help="owner-held production cache dump (.sql.gz)")
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="OME-978 fusion mode: the owner-held SDK report (.json) of the recorded "
+        "run — the ONLY recording; replaces --model/--dump/--answers. The tape is "
+        "synthesized via an iterative capture→splice loop and the replay must "
+        "reproduce the report's score/coverage/statuses exactly.",
+    )
     parser.add_argument(
         "--answers", type=Path, help="owner-held archive eval_results (.eval.jsonl)"
     )
@@ -864,7 +904,7 @@ def _capture_pass(
 ) -> list[dict[str, Any]]:
     """Stage 3 — run the board keylessly just to record the rendered candidate bodies."""
     print(f"[capture] engine {engine_url} → replaying {args.board} keylessly…", flush=True)
-    _evaluate(engine_url, args.model, args.board, args.limit)
+    _evaluate(engine_url, _model_candidate(args.model), args.board, args.limit)
     bodies = _candidate_bodies(proxy.records, args.model)
     if not bodies:
         raise SystemExit("capture pass rendered no candidate bodies — wrong board or model?")
@@ -872,22 +912,25 @@ def _capture_pass(
     return bodies
 
 
-def _verified_replay(engine_url: str, args: argparse.Namespace) -> tuple[Any, dict[str, str]]:
+def _verified_replay(
+    engine_url: str, args: argparse.Namespace, candidate: Any | None = None
+) -> tuple[Any, dict[str, str]]:
     """Stage 5 — the replay the golden is written from, cross-checked loudly."""
     from collections import Counter
 
     started = time.monotonic()
-    report = _evaluate(engine_url, args.model, args.board, args.limit)
-    candidate = report.candidates.only
-    statuses = {str(case.case_id): str(case.status) for case in candidate.cases}
+    replay_candidate = candidate if candidate is not None else _model_candidate(args.model)
+    report = _evaluate(engine_url, replay_candidate, args.board, args.limit)
+    outcome = report.candidates.only
+    statuses = {str(case.case_id): str(case.status) for case in outcome.cases}
     print(
-        f"[verify] score={candidate.score} coverage={candidate.coverage} "
+        f"[verify] score={outcome.score} coverage={outcome.coverage} "
         f"statuses={dict(Counter(statuses.values()))} in {time.monotonic() - started:.0f}s",
         flush=True,
     )
     if report.benchmark.id != args.board:
         raise SystemExit(f"engine ran {report.benchmark.id!r}, not {args.board!r}")
-    _cross_check(candidate, args.expect_score, args.expect_coverage)
+    _cross_check(outcome, args.expect_score, args.expect_coverage)
     return report, statuses
 
 
@@ -953,18 +996,16 @@ def _replay_and_slice(
 
 
 def _write_fixtures(
-    args: argparse.Namespace, evidence: _ReplayEvidence, dump_sha: str, answers_sha: str
+    args: argparse.Namespace,
+    evidence: _ReplayEvidence,
+    header_lines: list[str],
+    golden: dict[str, Any],
 ) -> None:
     """Stage 7 — write snapshot + manifest + golden, behind the size gate."""
     print(f"[slice] {len(evidence.slice_rows)} rows touched by the verified replay", flush=True)
     snapshot_text = "\n".join(
         [
-            *_snapshot_header(
-                args.board,
-                dump_sha,
-                answers_sha,
-                args.judge_param if args.judge_bodies is not None else None,
-            ),
+            *header_lines,
             f"COPY public.request_cache_entries ({_COPY_COLUMNS}) FROM stdin;",
             *evidence.slice_rows,
             "\\.",
@@ -979,15 +1020,6 @@ def _write_fixtures(
         "sha256": hashlib.sha256(snapshot).hexdigest(),
         "revisions": json.loads(_run_helper("revisions")),
     }
-    golden = author_golden(
-        board=args.board,
-        revision=evidence.revision,
-        model=args.model,
-        limit=args.limit,
-        rendered_url4=evidence.rendered_url4,
-        final_score=evidence.final_score,
-        case_statuses=evidence.case_statuses,
-    )
 
     size_mb = len(snapshot) / (1024 * 1024)
     oversized = size_mb > args.max_snapshot_mb
@@ -1044,7 +1076,22 @@ def _bless(args: argparse.Namespace) -> None:
     if args.dump_judge_bodies is not None:
         print("[phase-a] judge bodies recorded; fixtures deliberately NOT written", flush=True)
         return
-    _write_fixtures(args, evidence, dump_sha, answers_sha)
+    golden = author_golden(
+        board=args.board,
+        revision=evidence.revision,
+        model=args.model,
+        limit=args.limit,
+        rendered_url4=evidence.rendered_url4,
+        final_score=evidence.final_score,
+        case_statuses=evidence.case_statuses,
+    )
+    header = _snapshot_header(
+        args.board,
+        dump_sha,
+        answers_sha,
+        args.judge_param if args.judge_bodies is not None else None,
+    )
+    _write_fixtures(args, evidence, header, golden)
 
 
 def _load_judge_rekey_inputs(
@@ -1070,10 +1117,262 @@ def _load_judge_rekey_inputs(
     return entries, payload_by_old_key
 
 
+# -- the report-sourced bless flow (OME-978) -----------------------------------------
+#
+# No dump, no answers: the owner-held SDK report of the recorded fusion run is the
+# ONLY recording. Request bytes are rendered by this checkout's engine during
+# keyless capture passes, keys are computed by the gateway's own key math, and the
+# response texts come verbatim from the report (fixtures/report_tape.py). Fusion
+# request bytes embed earlier ANSWERS (synthesis embeds the member answers; judges
+# embed the synthesized answer), so one capture pass cannot render the whole tree —
+# the loop below splices one tree level per round until a pass misses nothing new.
+
+#: Upper bound on capture→splice rounds. The fusion tree is 3 levels (members →
+#: synthesis → judges) + 1 convergence pass; 8 leaves generous headroom without
+#: letting a non-converging tape loop forever.
+_MAX_CAPTURE_ROUNDS = 8
+
+
+def _report_header(board: str, report_sha: str) -> list[str]:
+    # Provenance rule: sources are described generically + shas — NEVER local paths.
+    return [
+        "--",
+        f"-- Sliced replay fixture for board '{board}' (OME-978; see slice_snapshot.py).",
+        "-- Every row SYNTHESIZED from the owner-held SDK report of the recorded run "
+        f"(content sha256 {report_sha}): request bytes rendered by this checkout's",
+        "-- engine, keys computed by the gateway's own key math, response texts "
+        "verbatim from the report. The bless cross-check proved the replayed",
+        "-- score/coverage/statuses reproduce that report exactly.",
+        "--",
+        "",
+    ]
+
+
+def _fusion_candidate(tape: Any) -> Any:
+    import screamingface as sf
+
+    return sf.Fusion(list(tape.member_routes), name=tape.recipe, synthesizer=tape.synthesizer_route)
+
+
+def _splice_rows(gateway_url: str, lines: list[str], name: str) -> dict[str, Any]:
+    splice_text = "\n".join(
+        [f"COPY public.request_cache_entries ({_COPY_COLUMNS}) FROM stdin;", *lines, "\\.", ""]
+    )
+    return _upload_snapshot(gateway_url, name, snapshot_gzip(splice_text))
+
+
+def _new_misses(
+    records: list[dict[str, Any]], served: set[str], skipped: set[str]
+) -> dict[str, dict[str, Any]]:
+    """Fingerprint → body for every 404'd request this round not yet handled."""
+    missed: dict[str, dict[str, Any]] = {}
+    for record in records:
+        body = record.get("request_body")
+        if not body or record.get("status") != 404:
+            continue
+        fingerprint = json.dumps(body, sort_keys=True)
+        if fingerprint not in served and fingerprint not in skipped:
+            missed.setdefault(fingerprint, body)
+    return missed
+
+
+def _splice_matched(
+    gateway_url: str, matches: list[tuple[str, Any, dict[str, Any]]], round_no: int
+) -> None:
+    """Key the matched bodies via the gateway helper and merge-upload their rows."""
+    from collections import Counter
+
+    from report_tape import fabricate_payload
+
+    keys = _run_helper_keys_chunked([body for _, _, body in matches])
+    lines = [
+        splice_copy_line(
+            key_hash=key,
+            model=match.model,
+            payload=fabricate_payload(
+                model=match.model, content=match.content, finish_reason=match.finish_reason
+            ),
+        )
+        for key, (_, match, _) in zip(keys, matches, strict=True)
+    ]
+    job = _splice_rows(gateway_url, lines, f"bless-report-round-{round_no}.snapshot.gz")
+    roles = Counter(match.role for _, match, _ in matches)
+    print(
+        f"[splice {round_no}] {len(lines)} rows ({dict(roles)}) "
+        f"inserted={job.get('inserted_rows')}, updated={job.get('updated_rows')}",
+        flush=True,
+    )
+
+
+def _capture_splice_rounds(
+    engine_url: str, gateway_url: str, proxy: _CaptureProxy, tape: Any, args: argparse.Namespace
+) -> None:
+    """The iterative capture→splice loop — one fusion-tree level per round.
+
+    Round N: replay keylessly; every request whose row is not yet spliced 404s and
+    its body is captured. Each new miss is matched to a report payload
+    (``match_body``), keyed by the gateway helper, and spliced. Deeper requests
+    only RENDER once their inputs hit (a synthesis body embeds the member
+    answers), so each round unlocks the next level. Convergence = a pass whose
+    misses are all deliberate failed-case holes (or none at all).
+    """
+    from report_tape import BodySkip, match_body
+
+    candidate = _fusion_candidate(tape)
+    served: set[str] = set()
+    skipped: set[str] = set()
+    for round_no in range(1, _MAX_CAPTURE_ROUNDS + 1):
+        offset = len(proxy.records)
+        print(f"[capture {round_no}] replaying {args.board} keylessly…", flush=True)
+        _evaluate(engine_url, candidate, args.board, args.limit)
+        missed = _new_misses(proxy.records[offset:], served, skipped)
+        if not missed:
+            print(f"[capture {round_no}] no new misses — tape converged", flush=True)
+            return
+        matches: list[tuple[str, Any, dict[str, Any]]] = []
+        for fingerprint, body in missed.items():
+            outcome = match_body(tape, body)
+            if isinstance(outcome, BodySkip):
+                # The report recorded nothing for this case — the hole is the point:
+                # the verified replay must fail it exactly like the paid run did.
+                skipped.add(fingerprint)
+            else:
+                matches.append((fingerprint, outcome, body))
+        if not matches:
+            print(
+                f"[capture {round_no}] {len(missed)} misses, all deliberate failed-case "
+                f"holes — tape converged",
+                flush=True,
+            )
+            return
+        _splice_matched(gateway_url, matches, round_no)
+        served.update(fingerprint for fingerprint, _, _ in matches)
+    raise SystemExit(
+        f"BLESS REFUSED — capture→splice did not converge in {_MAX_CAPTURE_ROUNDS} rounds; "
+        f"the engine keeps rendering requests the spliced rows never serve (drifted "
+        f"prompt/params rendering, or non-deterministic request bytes)"
+    )
+
+
+def _load_tape(args: argparse.Namespace) -> tuple[Any, str]:
+    """Stage 1 (report mode) — parse the report into the tape + its content sha."""
+    from report_tape import parse_report
+
+    tape = parse_report(json.loads(args.report.read_text(encoding="utf-8")))
+    if tape.board != args.board:
+        raise SystemExit(f"the report describes board {tape.board!r}, not {args.board!r}")
+    print(
+        f"[parse] report: recipe {tape.recipe!r}, members {list(tape.member_routes)}, "
+        f"synthesizer {tape.synthesizer_route!r}, judge {tape.judge_route!r}, "
+        f"{len(tape.cases)} cases, expected score={tape.expected_score} "
+        f"coverage={tape.expected_coverage}",
+        flush=True,
+    )
+    return tape, hashlib.sha256(args.report.read_bytes()).hexdigest()
+
+
+def _require_assets(board: str) -> Path:
+    configured = os.environ.get(_ASSETS_ENV)
+    assets_root = Path(configured) if configured else _default_assets_root()
+    bundle = assets_root / _ASSET_BUNDLE[board]
+    if not bundle.is_dir():
+        raise SystemExit(
+            f"prepared assets missing at {bundle} — run `uv run screamingface prepare --all`"
+        )
+    return assets_root
+
+
+def _report_replay_and_slice(
+    args: argparse.Namespace, tape: Any, assets_root: Path
+) -> _ReplayEvidence:
+    """Report-mode stages 2–6: boot, capture→splice loop, verify, slice."""
+    from harness.stack import EngineProcess
+
+    backend, gateway_url = _boot_gateway(args)
+    proxy: _CaptureProxy | None = None
+    engine = EngineProcess(work_dir=args.work_dir, assets_dir=assets_root)
+    try:
+        proxy = _CaptureProxy(gateway_url)
+        engine_url = engine.start(proxy.url)
+        _capture_splice_rounds(engine_url, gateway_url, proxy, tape, args)
+
+        # Baseline BEFORE the verified replay, so the slice can observe movement.
+        _psql(backend._container, _BASELINE_SQL)
+        report, statuses = _verified_replay(engine_url, args, candidate=_fusion_candidate(tape))
+        if statuses != tape.case_statuses:
+            drifted = {
+                case: (tape.case_statuses.get(case), statuses.get(case))
+                for case in tape.case_statuses.keys() | statuses.keys()
+                if tape.case_statuses.get(case) != statuses.get(case)
+            }
+            raise SystemExit(
+                f"BLESS REFUSED — replayed case statuses diverge from the report "
+                f"(report, replay): {drifted}"
+            )
+        slice_output = _psql(backend._container, _SLICE_SQL)
+    finally:
+        engine.stop()
+        if proxy is not None:
+            proxy.shutdown()
+        backend.stop_sync()
+
+    candidate = report.candidates.only
+    return _ReplayEvidence(
+        revision=report.benchmark.revision,
+        rendered_url4=str(candidate.url4),
+        final_score=candidate.score,
+        case_statuses=statuses,
+        slice_rows=[line for line in slice_output.split("\n") if line and not line.isspace()],
+    )
+
+
+def _bless_from_report(args: argparse.Namespace) -> None:
+    """The OME-978 flow: report → tape → capture/splice loop → verify → slice → write."""
+    sys.path.insert(0, str(_E2E_DIR))
+    from harness.goldens import canonical_score
+
+    tape, report_sha = _load_tape(args)
+    assets_root = _require_assets(args.board)
+    args.work_dir.mkdir(parents=True, exist_ok=True)
+
+    # WHY defaults from the report: the report IS the independently saved outcome the
+    # replay must reproduce — explicit flags remain as overrides only.
+    if args.expect_score is None:
+        args.expect_score = canonical_score(tape.expected_score)
+    if args.expect_coverage is None:
+        args.expect_coverage = str(tape.expected_coverage)
+
+    evidence = _report_replay_and_slice(args, tape, assets_root)
+    golden = author_golden(
+        board=args.board,
+        revision=evidence.revision,
+        kind="fusion",
+        recipe=tape.recipe,
+        members=list(tape.member_routes),
+        synthesizer=tape.synthesizer_route,
+        limit=args.limit,
+        rendered_url4=evidence.rendered_url4,
+        final_score=evidence.final_score,
+        case_statuses=evidence.case_statuses,
+    )
+    _write_fixtures(args, evidence, _report_header(args.board, report_sha), golden)
+
+
 def main() -> None:
     args = _parse_args()
     if args.helper is not None:
         {"keys": _helper_keys, "revisions": _helper_revisions}[args.helper]()
+        return
+    if args.report is not None:
+        if args.board is None:
+            raise SystemExit("--board is required with --report")
+        for excluded in ("model", "dump", "answers", "judge_bodies", "dump_judge_bodies"):
+            if getattr(args, excluded) is not None:
+                raise SystemExit(
+                    f"--{excluded.replace('_', '-')} cannot be combined with --report — "
+                    f"the report is the only recording in this mode"
+                )
+        _bless_from_report(args)
         return
     for required in ("board", "model", "dump", "answers"):
         if getattr(args, required) is None:

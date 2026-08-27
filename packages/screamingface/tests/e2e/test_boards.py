@@ -26,7 +26,13 @@ from pathlib import Path
 import pytest
 from harness._gating import GOLDENS_DIR, SNAPSHOTS_DIR, require_e2e_stack
 from harness.cache_seeded import CacheSeededGateway
-from harness.goldens import ActualOutcome, GoldenReport, compare_outcome, load_golden
+from harness.goldens import (
+    ActualOutcome,
+    GoldenReport,
+    build_candidate,
+    compare_outcome,
+    load_golden,
+)
 from harness.stack import replay_stack
 
 pytestmark = pytest.mark.e2e
@@ -90,19 +96,17 @@ def test_board_replays_end_to_end_and_matches_its_golden(board: str, tmp_path) -
     # machine that could not run the stack anyway; then the stack gate.
     snapshot, manifest, golden = _require_board_fixtures(board)
     require_e2e_stack()
-    if len(golden.models) != 1:
-        pytest.fail(
-            f"golden for '{board}' names {len(golden.models)} models; the harness "
-            f"currently replays single-model candidates only (extend deliberately)"
-        )
 
     import screamingface as sf
 
+    # The golden carries its own replay input: sf.Model for `kind: model` goldens,
+    # the recorded Fusion lineup for `kind: fusion` (OME-978).
+    candidate = build_candidate(golden)
     backend = CacheSeededGateway(snapshot=snapshot, manifest=manifest, work_dir=tmp_path)
     with replay_stack(backend, work_dir=tmp_path, assets_dir=_assets_root()) as stack:
         with sf.Client(engine_url=stack.engine_url) as client:
             report = client.evaluate(
-                sf.Model(golden.models[0]),
+                candidate,
                 benchmark=board,
                 limit=golden.limit,
                 progress=False,
