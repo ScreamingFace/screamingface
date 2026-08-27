@@ -218,6 +218,25 @@ def test_a_member_that_never_called_stays_null() -> None:
     ]
 
 
+def test_a_solo_nested_recipe_without_an_attributed_call_keeps_operations_absent() -> None:
+    nested = expr(
+        src(
+            RelExpr(path="/provider/alpha", context="$input", intent=text("Answer plainly.")),
+            name="model_1",
+            weight=0.0,
+        ),
+        intent=text("$model_1"),
+    )
+    candidate = render(
+        expr(
+            src(nested, name="model_1", weight=0.0),
+            intent=text("$model_1"),
+        )
+    )
+
+    assert attribute_operation_outputs(candidate, []) is None
+
+
 def test_unique_operation_receives_all_of_its_call_accounting() -> None:
     calls = [
         _call(

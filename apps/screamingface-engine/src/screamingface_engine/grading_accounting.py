@@ -30,6 +30,9 @@ class GradingEvidenceOwner:
 class _Registry:
     keys_by_owner: dict[GradingEvidenceOwner, set[str]] = field(default_factory=dict)
     owners_by_key: dict[str, set[GradingEvidenceOwner]] = field(default_factory=dict)
+    calls_by_key: dict[str, list[OperationCall]] = field(default_factory=dict)
+    indexed_calls: Sequence[OperationCall] | None = None
+    indexed_count: int = 0
     collision_warned: bool = False
 
 
@@ -82,7 +85,8 @@ def accounting_for_grading_evidence(
     request_key = _request_key_for_owner(registry, owner)
     if request_key is None:
         return None
-    return _accounting_for_key(calls, request_key)
+    _index_new_calls(registry, calls)
+    return _accounting_for_key(registry.calls_by_key, request_key)
 
 
 def _request_key_for_owner(
@@ -96,10 +100,21 @@ def _request_key_for_owner(
     return request_key if registry.owners_by_key.get(request_key) == {owner} else None
 
 
+def _index_new_calls(registry: _Registry, calls: Sequence[OperationCall]) -> None:
+    if registry.indexed_calls is not calls or registry.indexed_count > len(calls):
+        registry.calls_by_key.clear()
+        registry.indexed_calls = calls
+        registry.indexed_count = 0
+    for call in calls[registry.indexed_count :]:
+        if call.request_key is not None:
+            registry.calls_by_key.setdefault(call.request_key, []).append(call)
+    registry.indexed_count = len(calls)
+
+
 def _accounting_for_key(
-    calls: Sequence[OperationCall], request_key: str
+    calls_by_key: Mapping[str, Sequence[OperationCall]], request_key: str
 ) -> OperationAccounting | None:
-    matched = [call for call in calls if call.request_key == request_key]
+    matched = calls_by_key.get(request_key, ())
     if not matched or any(call.accounting is None for call in matched):
         return None
     return combine_operation_accounting(

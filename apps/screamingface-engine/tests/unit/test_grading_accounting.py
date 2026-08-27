@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -16,10 +18,22 @@ from screamingface_engine.operation_accounting import (
     OperationUsage,
 )
 from screamingface_engine.operation_calls import (
+    OperationCall,
     capture_operation_calls,
     operation_call_identity,
     record_operation_call,
 )
+from screamingface_engine.request_identity import model_request_key
+
+
+class _CountingCalls(list[OperationCall]):
+    def __init__(self, calls: list[OperationCall]) -> None:
+        super().__init__(calls)
+        self.full_iterations = 0
+
+    def __iter__(self):
+        self.full_iterations += 1
+        return super().__iter__()
 
 
 def _owner(*, check_id: str = "rubric-1") -> GradingEvidenceOwner:
@@ -136,3 +150,89 @@ def test_candidate_isolated_recorder_does_not_enter_the_run_grading_ledger() -> 
                 _record("0.1")
 
             assert accounting_for_grading_evidence(owner) is None
+
+
+def test_repeated_verdict_lookups_do_not_rescan_the_full_run_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _owner(check_id="rubric-1")
+    second = _owner(check_id="rubric-2")
+    first_key = model_request_key(
+        path="/judge", params={"temperature": "0.2"}, context="first", intent=""
+    )
+    second_key = model_request_key(
+        path="/judge", params={"temperature": "0.2"}, context="second", intent=""
+    )
+    calls = _CountingCalls(
+        [
+            OperationCall(
+                path="/judge",
+                params=(("temperature", "0.2"),),
+                output="verdict",
+                finish_reason="stop",
+                accounting=_accounting("0.1"),
+                request_key=first_key if index < 50 else second_key,
+            )
+            for index in range(100)
+        ]
+    )
+    monkeypatch.setattr(
+        "screamingface_engine.grading_accounting.current_operation_calls", lambda: calls
+    )
+
+    with capture_grading_requests():
+        register_grading_request(
+            first,
+            path="/judge",
+            params={"temperature": "0.2"},
+            context="first",
+            intent="",
+        )
+        register_grading_request(
+            second,
+            path="/judge",
+            params={"temperature": "0.2"},
+            context="second",
+            intent="",
+        )
+
+        assert accounting_for_grading_evidence(first) is not None
+        assert accounting_for_grading_evidence(second) is not None
+
+    assert calls.full_iterations <= 1
+
+
+def test_lookup_indexes_calls_appended_after_an_earlier_verdict() -> None:
+    first = _owner(check_id="rubric-1")
+    second = _owner(check_id="rubric-2")
+
+    with capture_operation_calls():
+        with capture_grading_requests():
+            register_grading_request(
+                first,
+                path="/judge",
+                params={"temperature": "0.2"},
+                context="first",
+                intent="",
+            )
+            with operation_call_identity(
+                "/judge", {"temperature": "0.2"}, context="first", intent=""
+            ):
+                record_operation_call("first verdict", "stop", _accounting("0.1"))
+            assert accounting_for_grading_evidence(first) is not None
+
+            register_grading_request(
+                second,
+                path="/judge",
+                params={"temperature": "0.2"},
+                context="second",
+                intent="",
+            )
+            with operation_call_identity(
+                "/judge", {"temperature": "0.2"}, context="second", intent=""
+            ):
+                record_operation_call("second verdict", "stop", _accounting("0.2"))
+            accounting = accounting_for_grading_evidence(second)
+
+    assert accounting is not None
+    assert accounting.usage.cost_usd == "0.2"

@@ -3,7 +3,7 @@ ticket: OME-1030
 stack: screamingface-engine
 status: done
 started: 2026-08-27
-finished: 2026-08-27
+finished: 2026-08-28
 ---
 
 # OME-1030 — Retain per-operation evaluation accounting
@@ -28,6 +28,10 @@ Event behavior.
 - Evolve benchmark Candidate Invocation/Result v1 contracts directly.
 - Add dedicated tests and update the existing strict wire-shape fixtures/assertions that must name
   the new required-null field or the composition wrapper.
+- Preserve the absent `operations` envelope when a solo named source is a nested Recipe and no
+  model output can be attributed.
+- Index run-scoped grading calls incrementally by request key so verdict lookup is linear across a
+  run rather than scanning every preceding call for every Evidence record.
 
 ## Test plan
 
@@ -43,6 +47,8 @@ Event behavior.
   and HealthBench/GDPval/DRACO vertical slices.
 - Regression tests for unchanged root Usage, score, Evidence meaning/raw output, URL4 rendering,
   cache keys, retries, model-call cardinality, failures, and live Events.
+- RED regression tests for a solo nested Recipe producing no empty operation and for grading
+  lookup indexing only newly appended calls.
 - Run `uv run ../../.claude/scripts/run_gates.py screamingface-engine` from the repository root.
 
 ## Acceptance
@@ -63,12 +69,15 @@ Event behavior.
   operation-call normalization; projected exact accounting through Candidate operations and the
   DRACO, HealthBench, GDPval, and IFEval contracts; added dedicated contract, normalization,
   ownership, lifecycle, ambiguity, and board vertical-slice tests; updated approved strict legacy
-  shape and composition tests plus the spec, plan, and task mirror.
+  shape and composition tests plus the spec, plan, and task mirror. Review follow-up suppresses an
+  entirely unattributed solo nested-Recipe operation envelope and incrementally indexes grading
+  calls by request key instead of rescanning the run ledger for each verdict.
 - **Commits:** this implementation commit — `feat(screamingface-engine): retain operation
   accounting`.
 - **Gates:** `python3 .claude/scripts/run_gates.py screamingface-engine --skip-append-only` — ALL
   GATES GREEN (ruff check, ruff format, pyright, layering, and full coverage suite). The
-  append-only exception is the explicit owner approval recorded below.
+  append-only exception is the explicit owner approval recorded below. Review regressions: 22
+  focused accounting/operation-output tests and 38 benchmark vertical-slice tests passed.
 - **Deviations:** Candidate invocation needed a separate `isolate_operation_calls` switch so its
   model-call ledger is isolated from grading without discarding the existing nested Candidate
   outcome capture. This preserves the published behavior while enforcing the planned ownership
