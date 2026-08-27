@@ -10,13 +10,11 @@ reversion when a run ends.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import pytest
 
 from screamingface_engine.runner.fair_share import (
     FairShareGate,
-    FairShareIOLayer,
     GateSnapshot,
     RunShare,
 )
@@ -233,6 +231,46 @@ async def test_a_completed_run_reverts_its_share_immediately() -> None:
     assert gate.snapshot().runs == ()
 
 
+@pytest.mark.asyncio
+async def test_the_gate_admits_capacity_fetches_across_two_runs_near_evenly() -> None:
+    """The end-state fairness bound: contending runs end within one permit of each other.
+
+    Two runs each demand more than the whole capacity; as permits cycle, the fewest-
+    in-flight rule keeps their held counts from diverging while both still have demand.
+    """
+    gate = FairShareGate(8)
+    a = _Claims(gate, "run-a")
+    b = _Claims(gate, "run-b")
+    a.claim(8)
+    b.claim(8)
+    await _settle()
+
+    snapshot = gate.snapshot()
+    assert snapshot.in_flight == 8
+    held_a = _share(snapshot, "run-a").in_flight
+    held_b = _share(snapshot, "run-b").in_flight
+    # B arrived after A filled the gate, so A holds everything — until A cycles.
+    assert held_a == 8 and held_b == 0
+
+    # A's fetches complete and immediately re-demand (a run's real refilling behavior):
+    # half of A's claims finish, then B is still queued and A re-claims.
+    a._hold.set()  # noqa: SLF001 - test drives the release explicitly
+    await asyncio.sleep(0)
+    a._hold.clear()  # noqa: SLF001
+    a.claim(4)
+    await _settle()
+
+    snapshot = gate.snapshot()
+    held_a = _share(snapshot, "run-a").in_flight
+    held_b = _share(snapshot, "run-b").in_flight
+    assert held_b > 0  # B was served the moment capacity freed
+    assert held_a <= held_b + 1  # and A cannot out-hold B while B still has demand
+
+    await b.finish()  # B yields FIRST: A's re-claims are queued behind B's held permits
+    await a.finish()
+    assert gate.snapshot().runs == ()
+
+
 # --- cancellation: no permit may leak on any path -------------------------------------------------
 
 
@@ -353,142 +391,4 @@ async def test_a_whole_cancelled_run_leaves_nothing_behind() -> None:
     assert _share(snapshot, "run-b").in_flight == 2  # the freed permits served B
     assert snapshot.in_flight == 2
     await waiter.finish()
-    assert gate.snapshot().runs == ()
-
-
-# --- the IOLayer wrapper -------------------------------------------------------------------------
-
-
-class _CapabilityInner:
-    """An inner layer exposing every capability port, with controllable fetches."""
-
-    def __init__(self) -> None:
-        self.fetches: list[str] = []
-        self.proceed = asyncio.Event()
-        self.fail = False
-
-    async def fetch(self, target: str, *, relative: bool) -> str:
-        self.fetches.append(target)
-        if self.fail:
-            raise RuntimeError("inner exploded")
-        await self.proceed.wait()
-        return f"got:{target}"
-
-    async def fetch_ex(self, request: Any) -> str:
-        return await self.fetch(request.target, relative=True)
-
-    async def fetch_holdings(self, identity: str | None, collection: str | None) -> str:
-        return await self.fetch(f"holdings:{identity}:{collection}", relative=True)
-
-    def processor_routes(self) -> list[str]:
-        return ["/model"]  # not I/O: must be forwarded unbounded
-
-    def default_route(self) -> str:
-        return "/model"  # a declaration, not I/O: forwarded so fan-out reduce resolves
-
-
-@pytest.mark.asyncio
-async def test_the_layer_binds_and_releases_one_permit_per_fetch() -> None:
-    gate = FairShareGate(2)
-    inner = _CapabilityInner()
-    layer = FairShareIOLayer(inner, gate, "run-a")
-
-    tasks = [
-        asyncio.get_running_loop().create_task(layer.fetch(f"t{i}", relative=True))
-        for i in range(3)
-    ]
-    await _settle()
-    snapshot = gate.snapshot()
-    assert _share(snapshot, "run-a") == RunShare(run="run-a", in_flight=2, waiting=1)
-
-    inner.proceed.set()
-    results = await asyncio.gather(*tasks)
-    assert results == ["got:t0", "got:t1", "got:t2"]
-    assert gate.snapshot().runs == ()  # every permit returned
-
-
-@pytest.mark.asyncio
-async def test_the_layer_releases_the_permit_when_the_fetch_fails() -> None:
-    gate = FairShareGate(1)
-    inner = _CapabilityInner()
-    inner.fail = True
-    layer = FairShareIOLayer(inner, gate, "run-a")
-
-    with pytest.raises(RuntimeError, match="inner exploded"):
-        await layer.fetch("boom", relative=True)
-
-    assert gate.snapshot().in_flight == 0
-
-
-@pytest.mark.asyncio
-async def test_the_layer_releases_the_permit_when_the_fetch_is_cancelled() -> None:
-    gate = FairShareGate(1)
-    inner = _CapabilityInner()
-    layer = FairShareIOLayer(inner, gate, "run-a")
-
-    task = asyncio.get_running_loop().create_task(layer.fetch("stuck", relative=True))
-    await _settle()
-    assert gate.snapshot().in_flight == 1
-
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    await _settle()
-    assert gate.snapshot().in_flight == 0
-
-
-def test_the_layer_forwards_exactly_the_inner_capability_ports() -> None:
-    full = FairShareIOLayer(_CapabilityInner(), FairShareGate(1), "run-a")
-    assert hasattr(full, "fetch_ex")
-    assert hasattr(full, "fetch_holdings")
-    assert full.processor_routes() == ["/model"]
-    assert full.default_route() == "/model"
-
-    class _Bare:
-        async def fetch(self, target: str, *, relative: bool) -> str:
-            return target
-
-    bare = FairShareIOLayer(_Bare(), FairShareGate(1), "run-a")  # type: ignore[arg-type]
-    assert not hasattr(bare, "fetch_ex")
-    assert not hasattr(bare, "fetch_holdings")
-    assert not hasattr(bare, "processor_routes")
-
-
-@pytest.mark.asyncio
-async def test_the_gate_admits_capacity_fetches_across_two_runs_near_evenly() -> None:
-    """The end-state fairness bound: contending runs end within one permit of each other.
-
-    Two runs each demand more than the whole capacity; as permits cycle, the fewest-
-    in-flight rule keeps their held counts from diverging while both still have demand.
-    """
-    gate = FairShareGate(8)
-    a = _Claims(gate, "run-a")
-    b = _Claims(gate, "run-b")
-    a.claim(8)
-    b.claim(8)
-    await _settle()
-
-    snapshot = gate.snapshot()
-    assert snapshot.in_flight == 8
-    held_a = _share(snapshot, "run-a").in_flight
-    held_b = _share(snapshot, "run-b").in_flight
-    # B arrived after A filled the gate, so A holds everything — until A cycles.
-    assert held_a == 8 and held_b == 0
-
-    # A's fetches complete and immediately re-demand (a run's real refilling behavior):
-    # half of A's claims finish, then B is still queued and A re-claims.
-    a._hold.set()  # noqa: SLF001 - test drives the release explicitly
-    await asyncio.sleep(0)
-    a._hold.clear()  # noqa: SLF001
-    a.claim(4)
-    await _settle()
-
-    snapshot = gate.snapshot()
-    held_a = _share(snapshot, "run-a").in_flight
-    held_b = _share(snapshot, "run-b").in_flight
-    assert held_b > 0  # B was served the moment capacity freed
-    assert held_a <= held_b + 1  # and A cannot out-hold B while B still has demand
-
-    await b.finish()  # B yields FIRST: A's re-claims are queued behind B's held permits
-    await a.finish()
     assert gate.snapshot().runs == ()

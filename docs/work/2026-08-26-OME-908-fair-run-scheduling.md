@@ -123,6 +123,13 @@ Also fixed: the wrong "impossible race" docstring on the queued-waiter cancellat
    (the amendments above); PR title/body rewritten — they still described the PR as
    documentation-only. Full unit suite green: 2061 passed, 5 skipped.
 
+Follow-up (2026-08-27): the reviewer's post-approval size note (494 > 450 lines) is
+   addressed — the IOLayer wrapper tests moved to their own module
+   `tests/unit/test_fair_share_io_layer.py` at the existing responsibility heading,
+   and the gate fairness-bound test that had sat orphaned at the file end now lives
+   under the fairness-invariants section. Behavior and tests unchanged: gate module
+   394 lines, IO-layer module 127; suite still 2061 passed, 5 skipped.
+
 ## Companion ticket draft (Layer 2 — filing pending the owner)
 
 The cross-cutting rule makes the gateway half its own sub-issue; Linear writes are
