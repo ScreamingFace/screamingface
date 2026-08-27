@@ -1161,9 +1161,27 @@ is unexecuted.
 - **Flipping HealthBench to private is a config change, not code:** set `visibility: private` on
   its `seedBenchmarks` entry and re-run the seed job. Nothing in this PR makes any existing board
   private.
-- **Baselines stay visible on a private board** — imported LMArena / Artificial Analysis numbers
-  are public third-party data, not participant submissions, and a participant needs the line to
-  beat. This is the one call not covered by the ticket; say if it should be hidden instead.
+- **Baselines stay visible on a private board — DECIDED (owner, 2026-08-27).** The one call the
+  ticket did not cover, now closed rather than carried.
+
+  Grounded first: a baseline is `model_name / score / source / source_url / metadata /
+  openness_override`. No submitter, no url4 expression, no spec — nothing participant-derived. Only
+  `python -m scoreboard.import_baselines` can create one; there is no route. And zero baselines
+  exist on any live board today, so this settled future behaviour rather than a live exposure.
+
+  Three reasons, weightiest first: the data is a published third-party number about a public model,
+  so it is not ours to withhold; the entry challenge needs a line to beat, and `entries` is empty on
+  a private board, so a participant would have nothing to judge their score against; and *private
+  scopes participant data* is one invariant, where *and also third-party data, sometimes* is three.
+
+  Rejected: hiding baselines from anonymous callers only. It adds a branch to the path that already
+  needed four rounds of race fixes, to protect a number anyone can read off LMArena.
+
+  **Guarded, because the reasoning is contingent on the schema.** `metadata` is a free-form blob,
+  so a baseline imported with a participant's run details in it WOULD leak on a private board. A
+  test pins `BaselineSchema`'s published field set, so adding a field forces the decision to be
+  retaken rather than inherited. Import-time discipline is the other half and the schema cannot
+  enforce it.
 - `OME-909` is still the missing half of the story: a participant now reliably *sees* their own
   row, including one measured against another revision, but nothing yet tells them why it would
   not rank.

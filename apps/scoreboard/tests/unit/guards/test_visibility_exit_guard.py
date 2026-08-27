@@ -215,3 +215,47 @@ def test_the_recorded_reasons_have_not_gone_stale() -> None:
         f"EXPECTED_UNGUARDED is out of date: {stale}. Each key maps to how many unguarded exits "
         "that function is allowed; lower it when one gets guarded."
     )
+
+
+# --- baselines stay visible on a private board (owner decision, 2026-08-27) -------------------
+
+BASELINE_PUBLISHED_FIELDS = frozenset(
+    {
+        "benchmark_id",
+        "id",
+        "imported_at",
+        "metadata",
+        "model_name",
+        "openness_override",
+        "score",
+        "source",
+        "source_url",
+    }
+)
+
+
+def test_a_baseline_publishes_nothing_participant_derived() -> None:
+    # DECISION (owner, 2026-08-27): baselines stay visible on a private board. A private board hides
+    # participants' submissions from each other; an imported LMArena / Artificial Analysis number is
+    # published third-party data about a public model. The entry challenge also needs a line to
+    # beat: `entries` is empty there, so without it a participant cannot judge their own score.
+    #
+    # INVARIANT: that reasoning holds only while a baseline carries nothing participant-derived. It
+    # has no submitter, no url4 expression and no spec today, and only
+    # `python -m scoreboard.import_baselines` can create one — there is no route. This pins the
+    # published field set so ADDING one forces the decision to be retaken rather than inherited.
+    #
+    # `metadata` is the live risk: a free-form blob. It is published deliberately, and importing a
+    # baseline whose metadata carries a participant's run details would leak it on a private board.
+    # That is an import-time discipline, not something the schema can enforce.
+    from scoreboard.scores.schemas import BaselineSchema
+
+    assert set(BaselineSchema.model_fields) == BASELINE_PUBLISHED_FIELDS, (
+        "BaselineSchema's published fields changed. Baselines are served on PRIVATE boards, so a "
+        "new field is visible to every participant — confirm it carries nothing derived from "
+        "another participant's submission, then update BASELINE_PUBLISHED_FIELDS."
+    )
+    for leak in ("submitted_by", "submitter", "url4_expression", "spec_id", "email"):
+        assert leak not in BaselineSchema.model_fields, (
+            f"{leak!r} would be published on a private board through the baseline list"
+        )
