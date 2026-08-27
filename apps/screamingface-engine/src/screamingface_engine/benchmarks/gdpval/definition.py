@@ -6,11 +6,31 @@ averaging 14 years of experience. GDPval appears in frontier-model launch tables
 fusion-beats-solo result here carries weight our other boards cannot buy.
 
 INVARIANT — this board's score is NOT GDPval's published metric, and the description says so.
-The official metric is a blinded expert PAIRWISE win rate against a human professional's
-deliverable, graded at over an hour per comparison. That is unreachable here. This board grades
-the published per-criterion rubrics instead, which is a different question answered by a
-different judge. The valid claim is fusion versus solo ON THIS BOARD; parity with a published
-GDPval number is not.
+GDPval grading has three layers, and only the third is reachable from this Engine:
+
+1. The official metric: humans, pairwise, blinded. For each task, OpenAI hired experienced
+   professionals from the same occupation as graders. A grader gets two deliverables side by
+   side — the model's and one made by a real professional averaging 14 years' experience —
+   without knowing which is which, and picks the better one (or a tie). Score = the model's
+   WIN RATE against the human deliverable. One comparison takes over an hour, because judging
+   "is this competitor-landscape deck actually good?" takes an expert reading everything.
+   That's the number in frontier-model launch tables. Mental model: not an exam with an answer
+   key — a blind hiring panel comparing two portfolios.
+
+2. OpenAI's automated stand-in. They also built an experimental automated grader that tries to
+   predict what the human panel would say, validated against the human judgments. But it runs
+   as a hosted service you upload deliverables to — not a model we can call through our
+   gateway. Unreachable too (the ``pins.py`` line about "a hosted service, not a model we can
+   call").
+
+3. The rubrics (what THIS board uses). The v2 dataset release added per-task rubrics written
+   by those same professionals — e.g. "cites at least 3 competitors with delivery cost data,
+   +2 points; recommends a timeline, +1; fabricates a statistic, -3". That's checklist
+   material, and checklists are exactly what an LLM judge can apply one criterion at a time.
+
+Layers 1 and 3 answer different questions — "would an expert prefer this over the human's
+work?" versus "how many expert-written checklist items did this satisfy?" — so the valid claim
+is fusion versus solo ON THIS BOARD; parity with a published GDPval number is not.
 
 References:
     - Paper: https://arxiv.org/abs/2510.04374 (GDPval, Patwardhan et al., OpenAI, 2025)
