@@ -392,11 +392,14 @@ def _stage_diagnostic(context: _EvaluationDiagnostic, exc: BaseException) -> Non
     if receipt is None:
         _logger.warning("ScreamingFace diagnostic exceeded the local storage budget")
         return
-    exc.add_note(
-        f"Diagnostic: {receipt.diagnostic_id}. Export with "
-        f'sf.diagnostics.get("{receipt.diagnostic_id}").export('
-        '"screamingface-diagnostic.json")'
-    )
+    try:
+        exc.add_note(
+            f"Diagnostic: {receipt.diagnostic_id}. Export with "
+            f'sf.diagnostics.get("{receipt.diagnostic_id}").export('
+            '"screamingface-diagnostic.json")'
+        )
+    except Exception:
+        _logger.debug("ScreamingFace diagnostic note unavailable", exc_info=True)
     try:
         from screamingface._ui.diagnostic_view import _attach_notebook_renderer
 

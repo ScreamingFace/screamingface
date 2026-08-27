@@ -388,3 +388,13 @@ def test_receipt_toolbar_is_unboxed_supporting_evidence() -> None:
     assert "border:0!important" in toolbar_rule
     assert "background:transparent!important" in toolbar_rule
     assert "padding:0!important" in toolbar_rule
+
+
+def test_diagnostic_style_uses_sfds_font_and_spacing_tokens() -> None:
+    diagnostic_rules = _STYLE.split("<style>")[-1]
+
+    assert "var(--f-mono)" in diagnostic_rules
+    assert '"IBM Plex Mono"' not in diagnostic_rules
+    assert "gap:6px" not in diagnostic_rules
+    assert "padding:0 3px" not in diagnostic_rules
+    assert "padding:10px" not in diagnostic_rules

@@ -47,7 +47,7 @@ def test_error_capture_is_structured_and_excludes_unsafe_exception_state() -> No
 
     assert document["type"] == "ExecutionError"
     assert document["code"] == "websocket_disconnected"
-    assert document["message"] == "The Engine disconnected."
+    assert "message" not in document
     assert document["status"] == 503
     assert document["permanent"] is False
     assert document["retryable"] is True
@@ -57,6 +57,7 @@ def test_error_capture_is_structured_and_excludes_unsafe_exception_state() -> No
         "parameter": "max_tokens",
     }
     assert chain[0]["type"] == "ExecutionError"
+    assert "message" not in chain[0]
     assert chain[1]["type"] == "RuntimeError"
     assert chain[1].get("message") is None
     frames = cast(list[dict[str, object]], chain[0]["frames"])
@@ -81,6 +82,22 @@ def test_unknown_error_capture_omits_arbitrary_message_and_attributes() -> None:
     assert document["type"] == "RuntimeError"
     assert "message" not in document
     assert "private arbitrary" not in encoded
+
+
+def test_typed_error_capture_omits_untrusted_server_message() -> None:
+    private_detail = "Patient Alice Smith has condition X."
+
+    encoded = json.dumps(
+        _error_document(
+            ExecutionError(
+                private_detail,
+                code="engine_problem",
+                status=502,
+            )
+        )
+    )
+
+    assert private_detail not in encoded
 
 
 def test_unsafe_free_text_in_structured_details_is_not_captured() -> None:

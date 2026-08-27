@@ -67,7 +67,6 @@ def _error_document(error: BaseException) -> dict[str, object]:
         document.update(
             {
                 "code": error.code,
-                "message": error.message,
                 "status": error.status,
                 "permanent": error.permanent,
                 "retryable": error.retryable,
@@ -88,7 +87,6 @@ def _exception_chain(error: BaseException) -> list[dict[str, object]]:
         seen.add(id(current))
         item: dict[str, object] = {"type": type(current).__name__}
         if isinstance(current, ScreamingFaceError):
-            item["message"] = current.message
             item["code"] = current.code
         if websocket_close := _websocket_close(current):
             item["websocket_close"] = websocket_close

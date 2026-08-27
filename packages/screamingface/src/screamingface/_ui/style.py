@@ -89,8 +89,10 @@ def _theme_rules(selector: str, light: str, dark: str) -> str:
 STYLE = f"""<style>
 .sf-ui{{
   {_LIGHT};
+  --f-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,monospace;
   max-width:920px;color:var(--sf-ink);background:var(--sf-bg);
-  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-family:var(--f-sans);
   font-size:13px;line-height:1.45;
 }}
 {_theme_rules(".sf-ui", _LIGHT, _DARK)}

@@ -25,31 +25,31 @@ _STYLE = (
   margin:0!important;padding:0!important;border:0!important;
   border-radius:0!important;background:transparent!important;color:var(--sf-ink)}
 .sf-diagnostic__receipt{flex:0 1 auto!important;width:auto!important;min-width:0!important}
-.sf-diagnostic__receipt>div>div{display:flex;flex-wrap:wrap;gap:6px;
-  font:500 12px/1.4 "IBM Plex Mono",ui-monospace,monospace;color:var(--sf-ink-2)}
+.sf-diagnostic__receipt>div>div{display:flex;flex-wrap:wrap;gap:4px;
+  font:500 12px/1.4 var(--f-mono);color:var(--sf-ink-2)}
 .sf-diagnostic__receipt code{font:inherit;color:var(--sf-ink)}
 .sf-diagnostic__controls.widget-hbox{display:flex!important;flex-flow:row wrap!important;
   gap:4px!important;margin:0!important}
 .sf-diagnostic-widget .widget-button{height:24px!important;width:auto!important;
-  padding:0 3px!important;border:0!important;border-radius:0!important;box-shadow:none!important;
+  padding:0 4px!important;border:0!important;border-radius:0!important;box-shadow:none!important;
   background:transparent!important;background-image:none!important;color:var(--sf-accent)!important;
   text-decoration:underline;text-underline-offset:2px;
-  font:600 12px/1 "IBM Plex Mono",ui-monospace,monospace!important;white-space:nowrap}
+  font:600 12px/1 var(--f-mono)!important;white-space:nowrap}
 .sf-diagnostic-widget .widget-button:hover{background:transparent!important;
   color:var(--sf-accent-hover)!important}
 .sf-diagnostic__status{margin-top:4px;color:var(--sf-ink-2);
-  font:500 12px/1.45 "IBM Plex Mono",ui-monospace,monospace}
+  font:500 12px/1.45 var(--f-mono)}
 .sf-diagnostic__status:empty{display:none}
 .sf-diagnostic__status--ok{color:var(--sf-success)}
 .sf-diagnostic__status--bad{color:var(--sf-blind)}
 .sf-diagnostic__preview{margin-top:8px;border:1px solid var(--sf-line-2);
   background:var(--sf-surface)}
-.sf-diagnostic__preview-label{padding:8px 10px;border-bottom:1px solid var(--sf-line);
-  font:600 11px/1.4 "IBM Plex Mono",ui-monospace,monospace;text-transform:uppercase;
+.sf-diagnostic__preview-label{padding:8px 12px;border-bottom:1px solid var(--sf-line);
+  font:600 11px/1.4 var(--f-mono);text-transform:uppercase;
   letter-spacing:.08em;color:var(--sf-ink-2)}
-.sf-diagnostic__preview pre{max-height:280px;margin:0;padding:10px;overflow:auto;
+.sf-diagnostic__preview pre{max-height:280px;margin:0;padding:12px;overflow:auto;
   background:var(--sf-surface-2);color:var(--sf-ink);white-space:pre-wrap;overflow-wrap:anywhere;
-  font:500 12px/1.5 "IBM Plex Mono",ui-monospace,monospace}
+  font:500 12px/1.5 var(--f-mono)}
 @media(max-width:560px){.sf-diagnostic__receipt{flex-basis:100%!important}}
 </style>"""
 )

@@ -372,3 +372,29 @@ def test_capture_failure_never_replaces_the_operation_error(monkeypatch) -> None
 
     assert caught.value is error
     assert sf.diagnostics.last() is None
+
+
+def test_diagnostic_note_failure_never_replaces_the_operation_error() -> None:
+    class NoteFailure(ExecutionError):
+        def add_note(self, note: str) -> None:
+            del note
+            raise RuntimeError("note attachment failed")
+
+    error = NoteFailure("Original failure.", code="original")
+
+    with pytest.raises(NoteFailure) as caught:
+        evaluate_sync(
+            _load_benchmark,
+            _FailingTransport(error),
+            _load_catalog,
+            _load_details,
+            _candidate(),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    assert caught.value is error
+    assert sf.diagnostics.last() is not None
