@@ -1,8 +1,11 @@
 """OME-479 §5.1/§6.3 — Anthropic reviewed labelled-static parameter evidence (PURE).
 
-Anthropic P1 has NO live discovery: §6.3 forbids sending credentials to a Models API
-for discovery in v1, and there is no unauthenticated Anthropic catalog to parse. So the
-ONLY honest parameter evidence is reviewed labelled-static — the standard chat fields the
+Anthropic has no live PARAMETER discovery: §6.3 forbids spending credentials on parameter
+discovery, and there is no unauthenticated Anthropic catalog to parse. OME-1026 narrowed §6.3
+for the model LIST ONLY — ``live_models.py`` may dial the credentialed Models API with the
+operator's dedicated deployment key to discover which model IDS exist. That says nothing about
+which PARAMETERS a model accepts, so the ONLY honest parameter evidence here is still
+reviewed labelled-static — the standard chat fields the
 INSTALLED litellm ``AnthropicConfig`` transform accepts (source ``anthropic:static``, NO
 network), used as the detail contract's observation source.
 
@@ -35,8 +38,9 @@ from aigateway.core.parameter_projection import WRAPPER_KEY
 from .parameters import anthropic_sampling_support
 
 # Reviewed labelled-static provenance — deliberately DISTINCT from any live label so a
-# reader can tell reviewed-static evidence from a network fetch (§5.1 "labelled"). There
-# is no live Anthropic label because there is no live Anthropic discovery (§6.3).
+# reader can tell reviewed-static evidence from a network fetch (§5.1 "labelled"). There is
+# no live Anthropic PARAMETER label: OME-1026's credentialed discovery covers the model LIST
+# only, and this evidence stays byte-identical whether or not that discovery is configured.
 STATIC_SOURCE = "anthropic:static"
 
 # Anthropic-native fields AIGateway addresses through the ``provider_params.*`` wrapper

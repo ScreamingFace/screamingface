@@ -6,10 +6,12 @@ from typing import TYPE_CHECKING, Any
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.oauth.identity import AccountIdentity
+from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
 from aigateway.core.plugin_base import (
     PROJECTION_BYPASS_REASON,
     CacheBypass,
     CredentialStrategy,
+    ModelDiscoverySource,
     ModelEntry,
     OAuthCodeExchangeRequest,
     OAuthConfig,
@@ -32,6 +34,12 @@ from .chat_handler import (
     claude_code_attribution_revision,
 )
 from .discovery import STATIC_SOURCE, anthropic_static_param_observations
+from .live_models import (
+    ANTHROPIC_MODELS_DISCOVERY_SOURCE,
+    fetch_live_model_ids,
+    live_listing_entries,
+    publishable_model_ids,
+)
 from .parameters import anthropic_chat_parameter_rules, anthropic_chat_parameter_tools
 from .settings import AnthropicPluginSettings
 from .thinking import raise_on_thinking_conflict
@@ -76,6 +84,41 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def register_models(self) -> list[ModelEntry]:
         return list(self.settings.models)
+
+    def model_discovery_source(self) -> ModelDiscoverySource | None:
+        # INVARIANT (OME-1026 D3): live discovery is OPT-IN on the operator's dedicated
+        # credential. Declaring no source is the port's documented "no attempt, no
+        # connection" signal, so the catalog never opens a cache slot or dials — which is
+        # what makes "no key configured" mean literally zero Anthropic catalog egress.
+        # AIDEV-NOTE: account API keys and Claude-subscription OAuth tokens are deliberately
+        # NOT consulted here. One process-local snapshot serves every account, so an account
+        # credential would publish one account's entitlements to all of them.
+        if not (self.settings.live_models and self.settings.discovery_api_key is not None):
+            return None
+        return ANTHROPIC_MODELS_DISCOVERY_SOURCE
+
+    async def discover_live_models(
+        self,
+        *,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> tuple[ModelEntry, ...] | None:
+        """The finished live listing: operator-explicit entries, then discovered ids.
+
+        Three-outcome contract (see the base hook): entries = the catalog was reached;
+        raises sanitized ``DiscoveryError`` = attempted and FAILED, which the catalog maps
+        to its stale-then-seeds ladder; None = gated off, not attempted, no connection.
+        """
+        key = self.settings.discovery_api_key
+        if not (self.settings.live_models and key is not None):
+            return None
+        raw_ids = await fetch_live_model_ids(
+            client=client,
+            limits=limits,
+            api_key=key,
+            api_version=self.settings.api_version,
+        )
+        return live_listing_entries(self.settings, publishable_model_ids(raw_ids))
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(

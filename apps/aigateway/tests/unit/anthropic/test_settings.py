@@ -166,3 +166,47 @@ def test_anthropic_provider_uses_injected_settings() -> None:
     strategy = plugin.oauth_strategy_for("work")
     assert isinstance(strategy, AnthropicOAuth)
     assert strategy.credential_account() == "account-custom"
+
+
+def test_discovery_api_key_is_secret_and_optional(monkeypatch) -> None:
+    """OME-1026 U1 — the discovery credential is optional and never renders in the clear.
+
+    # INVARIANT (D2): live Anthropic discovery is OPT-IN. The default MUST be None so a
+    # deployment that configures nothing performs zero catalog egress and lists exactly
+    # today's compiled seeds.
+    # INVARIANT (credential hygiene): the value is a ``SecretStr``, so no repr of the
+    # settings object — the shape that reaches a log line, a traceback frame, or a
+    # debug dump — can carry the key material.
+    """
+    _clear_anthropic_env(monkeypatch)
+
+    assert AnthropicPluginSettings().discovery_api_key is None
+
+    secret = "sk-ant-not-a-real-key-0123456789"
+    monkeypatch.setenv("AIGW_ANTHROPIC_DISCOVERY_API_KEY", secret)
+    settings = AnthropicPluginSettings()
+
+    assert settings.discovery_api_key is not None
+    # The provider may still READ it deliberately to build the dial headers.
+    assert settings.discovery_api_key.get_secret_value() == secret
+    # ...but no accidental stringification exposes it.
+    assert secret not in repr(settings)
+    assert secret not in str(settings)
+    assert secret not in repr(settings.discovery_api_key)
+    assert secret not in str(settings.discovery_api_key)
+
+
+def test_live_models_defaults_true_and_env_overrides(monkeypatch) -> None:
+    """OME-1026 U1 — the fast off-switch that keeps the key configured.
+
+    # WHY default True while the feature is still opt-in: the real opt-in is the KEY
+    # (D3 — the source is declared iff ``live_models and discovery_api_key is not None``),
+    # so this flag mirrors OpenRouter's naming and exists to silence discovery WITHOUT
+    # unconfiguring the credential.
+    """
+    _clear_anthropic_env(monkeypatch)
+
+    assert AnthropicPluginSettings().live_models is True
+
+    monkeypatch.setenv("AIGW_ANTHROPIC_LIVE_MODELS", "false")
+    assert AnthropicPluginSettings().live_models is False

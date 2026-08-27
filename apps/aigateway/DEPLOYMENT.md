@@ -413,6 +413,23 @@ catalog snapshot, held per process (see the replica note below). Default **on**.
   keeps serving, and the next attempt (after 30 s damping) normally succeeds. Fail-safe and
   self-healing, but expect occasional truncation reasons in the logs that are drift, not loss.
 
+## Live Anthropic Model Discovery (OME-1026)
+
+`GET /v1/models` can also list the Claude models this deployment can actually use now, discovered
+from the Anthropic Models API. Anthropic's catalog is credentialed-only, so unlike the OpenRouter
+catalog above this is **opt-in** and inert by default: set `AIGW_ANTHROPIC_DISCOVERY_API_KEY` to a
+deployment-owned Anthropic key to enable it, unset it to roll back. `AIGW_ANTHROPIC_LIVE_MODELS=false`
+is the fast off-switch that keeps the key configured, and `AIGW_DISCOVERY_ENABLED=false` silences it
+with all other discovery traffic — each off-switch means the exact compiled seed listing and zero
+Anthropic catalog egress. It reuses the same snapshot cache, degrade ladder, single-flight refresh,
+per-replica behavior, and `tier=` logging described above.
+
+**Before choosing the key:** the Models API answers for the CALLING key, so that one key's
+entitlements decide what every account sees LISTED (dispatch stays per-account). Full operator
+guidance — publication of aliases vs date-stamped snapshots, fail-closed cursor-walk semantics,
+bounds, and the cost profile — is in
+[`docs/anthropic-model-discovery.md`](docs/anthropic-model-discovery.md).
+
 ## Operations Notes
 
 - The container listens on `0.0.0.0:9105` and exposes `/healthz`.

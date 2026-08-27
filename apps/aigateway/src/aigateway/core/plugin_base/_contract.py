@@ -300,8 +300,16 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         Returns ready ``ModelEntry`` rows (the provider owns its own merge of
         explicitly configured operator models with discovered ids), fetched
         through the INJECTED bounded transport — never a raw client, never a
-        caller-supplied URL, never a credential. Never runs on the chat dispatch
-        path, and never changes what is dispatchable — only what is listed.
+        caller-supplied URL. Never runs on the chat dispatch path, and never
+        changes what is dispatchable — only what is listed.
+
+        INVARIANT (credentials, narrowed by OME-1026): never an ACCOUNT
+        credential. A provider MAY attach an operator-configured DEPLOYMENT
+        discovery credential as static headers to its OWN allowlisted origin —
+        the opt-in shape Anthropic's credentialed-only catalog requires. Per-user
+        API keys and OAuth tokens stay out: one shared snapshot serves every
+        account, so an account credential would leak one account's entitlements
+        into everyone else's listing.
 
         INVARIANT (three outcomes, same contract as
         ``discover_chat_parameter_snapshot``): entries = the source was reached;

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import SettingsConfigDict
 
 from aigateway.core.plugin_base import ModelEntry, PluginSettings
@@ -80,6 +80,20 @@ class AnthropicPluginSettings(PluginSettings):
         ]
     )
 
+    # OME-1026 (D2): the DEDICATED operator secret that opts this deployment into live
+    # Anthropic model-LIST discovery. Deployment configuration in the AIGATEWAY_SECRET_KEY
+    # sense — NEVER a ``credential_blobs`` credential, never used for chat, never logged,
+    # never part of the discovery cache identity, and attached to no origin but the
+    # allowlisted Anthropic one.
+    # INVARIANT: None (the default) means ZERO Anthropic catalog egress and exactly the
+    # compiled seed listing below. Account API keys and Claude-subscription OAuth tokens are
+    # off limits for discovery, so this is the ONLY credential that can ever reach it.
+    discovery_api_key: SecretStr | None = None
+    # OME-1026 (D3): gates LIVE catalog discovery for the /v1/models LISTING (never
+    # dispatch), mirroring AIGW_OPENROUTER_LIVE_MODELS. The KEY is the real opt-in — a
+    # source is declared iff ``live_models and discovery_api_key is not None`` — so this is
+    # the fast off-switch that silences discovery WITHOUT unconfiguring the credential.
+    live_models: bool = True
     models: list[ModelEntry] = Field(default_factory=_default_models)
     validation_model: str | None = None
 

@@ -5,7 +5,7 @@ import base64
 import os
 import sqlite3
 import uuid
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping
 from pathlib import Path
 
 import pytest
@@ -152,15 +152,28 @@ def _no_discovery_egress(monkeypatch):
     # exercised with an injected ``httpx.MockTransport``; production builds it with
     # none. Gating on that keeps those tests running the real adapter code while
     # blocking exactly the path that opens a socket.
+    # OME-1026 (CC-1): the wrapper must accept and forward the adapter's OPTIONAL
+    # ``headers`` (a credentialed Anthropic catalog dial carries them). Left on the
+    # legacy signature it would raise TypeError, which ``ModelCatalog`` sanitizes into
+    # a degraded seeds listing — so a test that genuinely reached the internet would go
+    # QUIETLY green instead of failing. The AssertionError check therefore stays FIRST,
+    # before any argument forwarding, so a real-transport dial trips loudly either way.
     """
     from aigateway.core.parameter_discovery import HttpxDiscoveryClient
 
     real_get = HttpxDiscoveryClient.get
 
-    async def _guarded(self, url: str, *, timeout_s: float, max_bytes: int):
+    async def _guarded(
+        self,
+        url: str,
+        *,
+        timeout_s: float,
+        max_bytes: int,
+        headers: Mapping[str, str] | None = None,
+    ):
         if self._transport is None:
             raise AssertionError(f"test attempted real discovery egress to {url}")
-        return await real_get(self, url, timeout_s=timeout_s, max_bytes=max_bytes)
+        return await real_get(self, url, timeout_s=timeout_s, max_bytes=max_bytes, headers=headers)
 
     monkeypatch.setattr(HttpxDiscoveryClient, "get", _guarded)
 

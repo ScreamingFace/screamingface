@@ -6,7 +6,10 @@ evidence. This module owns the safety envelope; provider parsers own the shape.
 
 INVARIANT (§5.2): the caller (a provider integration) supplies a FIXED https URL
 and its own allowlisted origins — never a caller-supplied or response-derived
-URL, never credentials, never a followed redirect. Every failure is raised as a
+URL, never a followed redirect. Credentials: never an ACCOUNT credential, and
+never on the default path. OME-1026 (D1) narrowed this by exception — a provider
+MAY attach an operator-configured DEPLOYMENT discovery credential as static
+headers to its OWN allowlisted origin, validated before the dial opens. Every failure is raised as a
 ``DiscoveryError`` carrying ONLY a stable reason code — never a raw body or a
 raw exception string (that would leak upstream content into API output).
 
@@ -18,8 +21,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -88,6 +92,32 @@ class DiscoveryHttpClient(Protocol):
     async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse: ...
 
 
+class HeaderCapableDiscoveryClient(Protocol):
+    """OME-1026 (D1) — the OPTIONAL capability: a dial that can carry static headers.
+
+    # WHY a second protocol instead of widening ``DiscoveryHttpClient``: protocol
+    # matching is structural, so adding this keyword there would make every existing
+    # discovery double — which declares only the legacy signature — stop satisfying the
+    # port, turning a capability ONE provider needs into a pyright failure across every
+    # prior unit's tests.
+    # AIDEV-NOTE: deliberately NOT ``runtime_checkable``, and never isinstance-tested.
+    # A runtime protocol check compares member NAMES, not signatures, so every legacy
+    # client would pass it — pyright says the same thing statically ("overlaps unsafely
+    # and could produce a match at runtime"). There is therefore no honest static test
+    # for this capability: ``fetch_discovery_json`` casts to it for narrowing and relies
+    # on the argument-binding boundary as the ONLY runtime guarantee.
+    """
+
+    async def get(
+        self,
+        url: str,
+        *,
+        timeout_s: float,
+        max_bytes: int,
+        headers: Mapping[str, str] | None = None,
+    ) -> RawResponse: ...
+
+
 def _origin_of(url: str) -> tuple[str, str]:
     parts = urlsplit(url)
     return parts.scheme, f"{parts.scheme}://{parts.netloc}"
@@ -122,11 +152,18 @@ async def fetch_discovery_json(
     allowed_origins: frozenset[str],
     client: DiscoveryHttpClient,
     limits: DiscoveryLimits = DiscoveryLimits(),
+    headers: Mapping[str, str] | None = None,
 ) -> Any:
-    """Fetch + validate a fixed public JSON catalog, or raise ``DiscoveryError``.
+    """Fetch + validate a fixed JSON catalog, or raise ``DiscoveryError``.
 
     Order matters: origin/scheme are validated BEFORE the client is dialed, so a
-    non-allowlisted or insecure URL never opens a connection.
+    non-allowlisted or insecure URL never opens a connection — which is also what
+    makes ``headers`` safe to carry a deployment credential (OME-1026 D1): it
+    cannot leave for a host the caller did not allowlist.
+
+    ``headers`` is OPTIONAL and defaults to the legacy behavior. With no headers the
+    client is dialed EXACTLY as before, the keyword absent from the call, so a
+    transport double that predates this capability is unaffected.
     """
     scheme, origin = _origin_of(url)
     if scheme != "https":
@@ -134,7 +171,31 @@ async def fetch_discovery_json(
     if origin not in allowed_origins:
         raise DiscoveryError("origin_not_allowed")
 
-    response = await client.get(url, timeout_s=limits.timeout_s, max_bytes=limits.max_bytes)
+    if headers is None:
+        # The byte-identical legacy call: the keyword is not passed at all.
+        response = await client.get(url, timeout_s=limits.timeout_s, max_bytes=limits.max_bytes)
+    else:
+        # A cast, not a check: whether this transport can bind ``headers`` is genuinely
+        # unknowable statically (see HeaderCapableDiscoveryClient), so pretending to
+        # verify it would be theatre. The binding guard below is the real gate.
+        capable = cast(HeaderCapableDiscoveryClient, client)
+        try:
+            pending = capable.get(
+                url,
+                timeout_s=limits.timeout_s,
+                max_bytes=limits.max_bytes,
+                headers=headers,
+            )
+        except TypeError:
+            # INVARIANT: a transport that cannot BIND ``headers`` fails at coroutine
+            # CREATION, before its body runs — so a credentialed dial can never silently
+            # degrade into a credential-less one whose (unauthorized) response might be
+            # cached as a fresh catalog. Sanitized: no header name or value is attached.
+            raise DiscoveryError("internal_error") from None
+        # INVARIANT: awaited OUTSIDE the guard deliberately. A capable client's INTERNAL
+        # TypeError must stay a TypeError for the outer boundary rather than be relabelled
+        # a signature mismatch — "cannot carry headers" and "is broken" are different bugs.
+        response = await pending
 
     # A redirect (3xx) is never followed: any non-200 is a failure, not a hop.
     if response.status != 200:
@@ -180,7 +241,14 @@ class HttpxDiscoveryClient:
     def __init__(self, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._transport = transport
 
-    async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
+    async def get(
+        self,
+        url: str,
+        *,
+        timeout_s: float,
+        max_bytes: int,
+        headers: Mapping[str, str] | None = None,
+    ) -> RawResponse:
         # WHY: ``httpx.Timeout`` bounds each connect/read/write/pool INTERVAL, and
         # every interval resets on activity — a source that keeps dribbling small
         # chunks stays "busy" and never trips it. Only an outer deadline bounds the
@@ -188,18 +256,32 @@ class HttpxDiscoveryClient:
         # as ``timeout`` rather than reclassified by httpx's own error translation.
         try:
             async with asyncio.timeout(timeout_s):
-                return await self._read_bounded(url, timeout_s=timeout_s, max_bytes=max_bytes)
+                return await self._read_bounded(
+                    url, timeout_s=timeout_s, max_bytes=max_bytes, headers=headers
+                )
         except TimeoutError:
             raise DiscoveryError("timeout") from None
 
-    async def _read_bounded(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
+    async def _read_bounded(
+        self,
+        url: str,
+        *,
+        timeout_s: float,
+        max_bytes: int,
+        headers: Mapping[str, str] | None = None,
+    ) -> RawResponse:
+        # INVARIANT (OME-1026 CC-14): caller headers are merged UNDER the identity
+        # encoding, so identity WINS on conflict. The bounded read counts wire bytes and
+        # equals the parsed quantity only while nothing is compressed — a caller must not
+        # be able to reopen the expansion path the byte cap closes.
+        request_headers = {**(headers or {}), **_IDENTITY_ENCODING}
         try:
             async with httpx.AsyncClient(
                 follow_redirects=False,
                 timeout=httpx.Timeout(timeout_s),
                 transport=self._transport,
             ) as client:
-                async with client.stream("GET", url, headers=_IDENTITY_ENCODING) as response:
+                async with client.stream("GET", url, headers=request_headers) as response:
                     return RawResponse(
                         status=response.status_code,
                         content_type=response.headers.get("content-type", ""),
