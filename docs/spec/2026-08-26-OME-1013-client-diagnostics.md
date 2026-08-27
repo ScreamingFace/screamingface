@@ -196,7 +196,8 @@ After a receipt has been retained, the Evaluation boundary may attach IPython's 
 exception. IPython terminals retain concise text. In an ipykernel, the renderer delegates to a
 private notebook adapter that:
 
-- shows concise local error evidence, the diagnostic id and the accepted in-memory lifetime;
+- leaves IPython's native exception summary as the sole local error evidence and adds only the
+  diagnostic id and accepted in-memory lifetime as a neutral receipt toolbar;
 - exposes Preview and Export as explicit actions;
 - keeps receipt JSON hidden until Preview is selected;
 - writes only after Export is selected;

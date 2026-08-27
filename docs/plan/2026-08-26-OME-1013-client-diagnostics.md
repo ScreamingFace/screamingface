@@ -65,8 +65,9 @@ Keep the public surface shallow and the implementation deep:
 
 - RED first: retained typed and raw Evaluation failures attach one renderer to the original
   exception; unrelated exceptions and declined receipts remain untouched.
-- RED first: Jupyter/Colab rendering shows one accessible SFDS app-register panel with concise
-  evidence, diagnostic identity, explicit Preview and Export actions, and `%tb` guidance.
+- RED first: Jupyter/Colab leaves the native exception summary as the only failure presentation and
+  adds one accessible neutral SFDS receipt toolbar with explicit Preview/Export actions and `%tb`
+  guidance.
 - RED first: JSON is absent before Preview; no file exists before Export; export success/failure is
   reported locally; missing or broken notebook dependencies fall back to the prior renderer.
 - GREEN: a private `_ui` adapter lazily imports notebook dependencies and composes the existing

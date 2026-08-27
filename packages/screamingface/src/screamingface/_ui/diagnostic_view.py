@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import traceback
-import unicodedata
 from collections.abc import Callable
 from html import escape
 from typing import Any, cast
@@ -17,40 +16,28 @@ _EXPORT_PATH = "screamingface-diagnostic.json"
 _STYLE = (
     STYLE
     + """<style>
-.sf-diagnostic-widget.widget-vbox{width:100%!important;max-width:920px!important;
-  --sf-diagnostic-solid:var(--sf-danger-solid);
-  --sf-diagnostic-bg:var(--sf-blind-bg);--sf-diagnostic-text:var(--sf-blind);
-  gap:0!important;margin:0!important;padding:10px 12px!important;
-  border:1px solid var(--sf-line-2);border-left:2px solid var(--sf-diagnostic-solid);
-  border-radius:0!important;box-shadow:none!important;
-  background:var(--sf-diagnostic-bg);color:var(--sf-ink)}
-.sf-diagnostic-widget.sf-diagnostic--stopped{--sf-diagnostic-solid:var(--sf-warning-solid);
-  --sf-diagnostic-bg:var(--sf-warning-bg);--sf-diagnostic-text:var(--sf-warning)}
-.sf-diagnostic__summary{display:grid;grid-template-columns:10px minmax(0,1fr);gap:10px}
-.sf-diagnostic__mark{width:10px;height:10px;margin-top:4px;background:var(--sf-diagnostic-solid)}
-.sf-diagnostic__title{font-size:16px;font-weight:600;line-height:1.3}
-.sf-diagnostic__message{margin-top:2px;font-size:14px;line-height:1.4;white-space:pre-wrap}
-.sf-diagnostic__footer.widget-hbox{display:flex!important;flex-flow:row wrap!important;
-  align-items:center!important;justify-content:space-between!important;gap:6px 12px!important;
-  margin:7px 0 0 20px!important}
-.sf-diagnostic__footer-meta{flex:1 1 300px!important;min-width:0!important}
-.sf-diagnostic__footer-meta>div>div{display:flex;flex-wrap:wrap;gap:6px;
+.sf-diagnostic-widget{width:fit-content!important;max-width:100%!important;
+  align-items:flex-start!important;gap:0!important;margin:0!important;
+  border:0!important;box-shadow:none!important}
+.sf-diagnostic__toolbar.widget-hbox{display:inline-flex!important;width:fit-content!important;
+  max-width:100%!important;flex-flow:row wrap!important;
+  align-items:center!important;justify-content:flex-start!important;gap:4px 12px!important;
+  margin:0!important;padding:0!important;border:0!important;
+  border-radius:0!important;background:transparent!important;color:var(--sf-ink)}
+.sf-diagnostic__receipt{flex:0 1 auto!important;width:auto!important;min-width:0!important}
+.sf-diagnostic__receipt>div>div{display:flex;flex-wrap:wrap;gap:6px;
   font:500 12px/1.4 "IBM Plex Mono",ui-monospace,monospace;color:var(--sf-ink-2)}
-.sf-diagnostic__footer-meta code{font:inherit;color:var(--sf-ink)}
+.sf-diagnostic__receipt code{font:inherit;color:var(--sf-ink)}
 .sf-diagnostic__controls.widget-hbox{display:flex!important;flex-flow:row wrap!important;
   gap:4px!important;margin:0!important}
-.sf-diagnostic-widget .widget-button{height:28px!important;width:auto!important;
-  padding:0 9px!important;
-  border:1px solid var(--sf-line-2)!important;border-radius:0!important;box-shadow:none!important;
-  background:transparent!important;background-image:none!important;color:var(--sf-ink-2)!important;
+.sf-diagnostic-widget .widget-button{height:24px!important;width:auto!important;
+  padding:0 3px!important;border:0!important;border-radius:0!important;box-shadow:none!important;
+  background:transparent!important;background-image:none!important;color:var(--sf-accent)!important;
+  text-decoration:underline;text-underline-offset:2px;
   font:600 12px/1 "IBM Plex Mono",ui-monospace,monospace!important;white-space:nowrap}
-.sf-diagnostic-widget .widget-button:hover{background:var(--sf-surface)!important;
-  border-color:var(--sf-ink-2)!important;color:var(--sf-ink)!important}
-.sf-diagnostic-widget .sf-diagnostic__export{background:var(--sf-accent)!important;
-  border-color:var(--sf-accent)!important;color:var(--sf-accent-contrast)!important}
-.sf-diagnostic-widget .sf-diagnostic__export:hover{background:var(--sf-accent-hover)!important;
-  border-color:var(--sf-accent-hover)!important;color:var(--sf-accent-contrast)!important}
-.sf-diagnostic__status{margin:5px 0 0 20px;color:var(--sf-ink-2);
+.sf-diagnostic-widget .widget-button:hover{background:transparent!important;
+  color:var(--sf-accent-hover)!important}
+.sf-diagnostic__status{margin-top:4px;color:var(--sf-ink-2);
   font:500 12px/1.45 "IBM Plex Mono",ui-monospace,monospace}
 .sf-diagnostic__status:empty{display:none}
 .sf-diagnostic__status--ok{color:var(--sf-success)}
@@ -63,8 +50,7 @@ _STYLE = (
 .sf-diagnostic__preview pre{max-height:280px;margin:0;padding:10px;overflow:auto;
   background:var(--sf-surface-2);color:var(--sf-ink);white-space:pre-wrap;overflow-wrap:anywhere;
   font:500 12px/1.5 "IBM Plex Mono",ui-monospace,monospace}
-@media(max-width:560px){.sf-diagnostic__footer.widget-hbox{align-items:flex-start!important}
-  .sf-diagnostic__footer-meta{flex-basis:100%!important}}
+@media(max-width:560px){.sf-diagnostic__receipt{flex-basis:100%!important}}
 </style>"""
 )
 
@@ -72,17 +58,17 @@ _STYLE = (
 class _NotebookDiagnosticView:
     """One local diagnostic panel; actions never leave the kernel."""
 
-    def __init__(self, error: BaseException, receipt: DiagnosticReceipt) -> None:
+    def __init__(self, receipt: DiagnosticReceipt) -> None:
         import ipywidgets as widgets
 
         self._receipt = receipt
         self._preview_visible = False
-        self._summary: Any = widgets.HTML(value=f"{_STYLE}{_summary_html(error, receipt)}")
+        self._receipt_html: Any = widgets.HTML(value=f"{_STYLE}{_receipt_html(receipt)}")
+        self._receipt_html.add_class("sf-diagnostic__receipt")
         self._export: Any = widgets.Button(
             description="Export",
             tooltip="Save this diagnostic as a local JSON file",
         )
-        self._export.add_class("sf-diagnostic__export")
         self._export.on_click(self._export_receipt)
         self._preview_button: Any = widgets.Button(
             description="Preview",
@@ -91,20 +77,16 @@ class _NotebookDiagnosticView:
         self._preview_button.on_click(self._toggle_preview)
         self._controls: Any = widgets.HBox(children=(self._export, self._preview_button))
         self._controls.add_class("sf-diagnostic__controls")
-        self._footer_meta: Any = widgets.HTML(value=_footer_html(receipt))
-        self._footer_meta.add_class("sf-diagnostic__footer-meta")
-        self._footer: Any = widgets.HBox(children=(self._footer_meta, self._controls))
-        self._footer.add_class("sf-diagnostic__footer")
+        self._toolbar: Any = widgets.HBox(children=(self._receipt_html, self._controls))
+        self._toolbar.add_class("sf-diagnostic__toolbar")
         self._status: Any = widgets.HTML(value=_status_html())
         self._preview: Any = widgets.HTML(value="")
         # INVARIANT: VBox has no description; a truthy tooltip crashes JupyterLab's VBoxView.
         self.widget: Any = widgets.VBox(
-            children=(self._summary, self._footer, self._status, self._preview),
+            children=(self._toolbar, self._status, self._preview),
         )
         self.widget.add_class("sf-ui")
         self.widget.add_class("sf-diagnostic-widget")
-        if receipt.outcome in {"interrupted_by_user", "cancelled"}:
-            self.widget.add_class("sf-diagnostic--stopped")
 
     def _toggle_preview(self, _: object) -> None:
         self._preview_visible = not self._preview_visible
@@ -144,7 +126,7 @@ def _attach_notebook_renderer(error: BaseException, receipt: DiagnosticReceipt) 
         if shown:
             return []
         try:
-            _display_notebook_diagnostic(error, receipt)
+            _display_notebook_diagnostic(receipt)
         except Exception:
             # INVARIANT: optional presentation can never hide the operation's real traceback.
             return fallback()
@@ -169,33 +151,20 @@ def _fallback_renderer(error: BaseException) -> Callable[[], list[str]]:
 
 
 def _display_notebook_diagnostic(
-    error: BaseException,
     receipt: DiagnosticReceipt,
 ) -> None:
     from IPython.display import display
 
-    display(_NotebookDiagnosticView(error, receipt).widget)
+    display(_NotebookDiagnosticView(receipt).widget)
 
 
-def _summary_html(error: BaseException, receipt: DiagnosticReceipt) -> str:
-    title = _outcome_title(receipt.outcome)
-    message = _local_message(error)
-    title_id = f"sf-diagnostic-title-{receipt.diagnostic_id}"
+def _receipt_html(receipt: DiagnosticReceipt) -> str:
+    diagnostic_id = escape(receipt.diagnostic_id, quote=True)
+    visible_id = escape(_visible_diagnostic_id(receipt.diagnostic_id))
     return (
-        f"<div class='sf-diagnostic__summary' role='alert' "
-        f"aria-labelledby='{escape(title_id, quote=True)}'>"
-        "<span class='sf-diagnostic__mark' aria-hidden='true'></span><div>"
-        f"<div class='sf-diagnostic__title' id='{escape(title_id, quote=True)}'>"
-        f"{escape(title)}</div>"
-        f"<div class='sf-diagnostic__message'>{escape(message)}</div>"
-        "</div></div>"
-    )
-
-
-def _footer_html(receipt: DiagnosticReceipt) -> str:
-    return (
-        "<div>"
-        f"<code>{escape(receipt.diagnostic_id)}</code>"
+        "<div role='group' aria-label='ScreamingFace diagnostic receipt'>"
+        f"<code title='{diagnostic_id}' aria-label='Diagnostic ID {diagnostic_id}'>"
+        f"{visible_id}</code>"
         "<span>·</span><span aria-label='Local only; cleared when this kernel restarts'>"
         "local only</span><span>·</span>"
         "<code title='Inspect the original traceback'>%tb</code>"
@@ -203,20 +172,10 @@ def _footer_html(receipt: DiagnosticReceipt) -> str:
     )
 
 
-def _outcome_title(outcome: str) -> str:
-    if outcome == "interrupted_by_user":
-        return "Evaluation interrupted"
-    if outcome == "cancelled":
-        return "Evaluation cancelled"
-    return "Evaluation failed"
-
-
-def _local_message(error: BaseException) -> str:
-    value = str(error).strip() or type(error).__name__
-    inert = "".join(
-        " " if unicodedata.category(character).startswith("C") else character for character in value
-    )
-    return " ".join(inert.split())[:500]
+def _visible_diagnostic_id(diagnostic_id: str) -> str:
+    if len(diagnostic_id) <= 14:
+        return diagnostic_id
+    return f"{diagnostic_id[:9]}…{diagnostic_id[-4:]}"
 
 
 def _status_html(message: str = "", *, state: str | None = None) -> str:

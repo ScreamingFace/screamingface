@@ -3,7 +3,7 @@ ticket: OME-1013
 stack: screamingface
 status: done
 started: 2026-08-26
-finished: 2026-08-26
+finished: 2026-08-27
 ---
 
 # OME-1013 — Render local diagnostics in notebooks
@@ -27,6 +27,10 @@ exception handler.
   reproduction showed that its widget manager dereferences a nonexistent `description` field.
 - Compact the default panel so the error remains primary and the diagnostic receipt reads as
   supporting evidence rather than a second full error screen.
+- Remove the duplicate error card entirely after owner visual review confirmed that IPython always
+  renders the native exception summary beneath it; retain only a neutral receipt toolbar.
+- Make the receipt toolbar content-hugging after owner visual review identified the remaining
+  full-width dead space; shorten only its displayed id while retaining the complete value.
 
 ## Test plan
 
@@ -41,6 +45,10 @@ exception handler.
   tooltips and the panel's HTML accessibility name remain intact.
 - RED: the default panel has no diagnostic eyebrow or repeated lifetime/traceback prose; receipt
   identity, `local only`, `%tb`, Preview and Export share one compact footer.
+- RED: no title, message, danger surface or filled primary action remains; the native exception is
+  the only failure presentation and the receipt toolbar uses neutral structure plus link actions.
+- RED: the toolbar hugs its content at 32–36px, keeps actions adjacent, and exposes the full
+  diagnostic id through accessible/title text when the visible id is shortened.
 
 ## Acceptance
 
@@ -58,13 +66,14 @@ exception handler.
   boundary; added append-only notebook renderer, action, fallback, accessibility and SFDS tests;
   updated the package changelog; and removed unsupported root-`VBox` tooltips from both diagnostic
   and Evaluation widgets after a live JupyterLab reproduction identified the shared frontend
-  crash. The final notebook presentation is one compact alert with an inline receipt/action footer;
-  repeated diagnostic labels and lifetime/traceback prose were removed.
+  crash. Owner visual review then reduced the presentation to a content-hugging, borderless receipt
+  toolbar beside IPython's native exception: the visible id is shortened, its complete value stays
+  available to assistive technology and hover, and Preview/Export remain explicit local actions.
 - **Commits:** `feat(screamingface): render notebook diagnostics`; and
   `fix(screamingface): avoid notebook container tooltip crash`; and
   `fix(screamingface): compact notebook diagnostic panel` (final presentation pass).
-- **Gates:** Ruff lint and formatting, Pyright (0 errors), complete package pytest suite (1,237
-  passed, 17 skipped, 95.04% coverage), focused widget suites (57 passed), wheel/sdist build and
+- **Gates:** Ruff lint and formatting, Pyright (0 errors), complete package pytest suite (1,239
+  passed, 17 skipped, 95.04% coverage), focused widget suites (59 passed), wheel/sdist build and
   distribution validation all passed. The new adapter has 100% focused statement coverage.
 - **Deviations:** the official gate wrapper's Ruff phase also inspected an unrelated, owner-edited
   `examples/00_quickstart.ipynb` and stopped on that notebook's pre-existing undefined

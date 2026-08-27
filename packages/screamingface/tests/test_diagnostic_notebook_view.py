@@ -45,9 +45,13 @@ def _empty_diagnostics() -> Generator[None, None, None]:
     _STORE.clear()
 
 
-def _receipt(*, outcome: str = "failed") -> DiagnosticReceipt:
+def _receipt(
+    *,
+    diagnostic_id: str = "diag_example",
+    outcome: str = "failed",
+) -> DiagnosticReceipt:
     return _new_receipt(
-        diagnostic_id="diag_example",
+        diagnostic_id=diagnostic_id,
         session_id="session_example",
         occurred_at=datetime(2026, 8, 26, 17, 38, tzinfo=UTC),
         elapsed_seconds=1.25,
@@ -82,14 +86,14 @@ def test_evaluation_attaches_one_renderer_to_the_original_raw_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     error = TypeError("benchmark is required")
-    published: list[tuple[BaseException, DiagnosticReceipt]] = []
+    published: list[DiagnosticReceipt] = []
     monkeypatch.setattr(
         "screamingface._ui.diagnostic_view.running_in_notebook",
         lambda: True,
     )
     monkeypatch.setattr(
         "screamingface._ui.diagnostic_view._display_notebook_diagnostic",
-        lambda raised, receipt: published.append((raised, receipt)),
+        published.append,
     )
 
     with pytest.raises(TypeError) as caught:
@@ -112,7 +116,7 @@ def test_evaluation_attaches_one_renderer_to_the_original_raw_exception(
     assert renderer() == []
     receipt = sf.diagnostics.last()
     assert receipt is not None
-    assert published == [(error, receipt)]
+    assert published == [receipt]
 
 
 def test_renderer_attachment_failure_never_replaces_the_operation_error(
@@ -172,7 +176,7 @@ def test_notebook_renderer_falls_back_to_the_existing_renderer(
     )
     monkeypatch.setattr(
         "screamingface._ui.diagnostic_view._display_notebook_diagnostic",
-        lambda raised, receipt: (_ for _ in ()).throw(RuntimeError("display unavailable")),
+        lambda receipt: (_ for _ in ()).throw(RuntimeError("display unavailable")),
     )
 
     _attach_notebook_renderer(error, _receipt())
@@ -190,7 +194,7 @@ def test_raw_exception_fallback_retains_its_python_traceback(
     )
     monkeypatch.setattr(
         "screamingface._ui.diagnostic_view._display_notebook_diagnostic",
-        lambda raised, receipt: (_ for _ in ()).throw(RuntimeError("display unavailable")),
+        lambda receipt: (_ for _ in ()).throw(RuntimeError("display unavailable")),
     )
 
     _attach_notebook_renderer(error, _receipt())
@@ -219,7 +223,7 @@ def test_display_publishes_the_widget(monkeypatch: pytest.MonkeyPatch) -> None:
     published: list[widgets.Widget] = []
     monkeypatch.setattr("IPython.display.display", published.append)
 
-    _display_notebook_diagnostic(TypeError("failed"), _receipt())
+    _display_notebook_diagnostic(_receipt())
 
     assert len(published) == 1
     assert set(getattr(published[0], "_dom_classes", ())) >= {
@@ -232,14 +236,14 @@ def test_ipython_invokes_the_attached_renderer_for_the_original_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     error = TypeError("failed")
-    published: list[tuple[BaseException, DiagnosticReceipt]] = []
+    published: list[DiagnosticReceipt] = []
     monkeypatch.setattr(
         "screamingface._ui.diagnostic_view.running_in_notebook",
         lambda: True,
     )
     monkeypatch.setattr(
         "screamingface._ui.diagnostic_view._display_notebook_diagnostic",
-        lambda raised, receipt: published.append((raised, receipt)),
+        published.append,
     )
     receipt = _receipt()
     _attach_notebook_renderer(error, receipt)
@@ -249,16 +253,16 @@ def test_ipython_invokes_the_attached_renderer_for_the_original_exception(
     result = shell.run_cell("raise diagnostic_test_error")
 
     assert result.error_in_exec is error
-    assert published == [(error, receipt)]
+    assert published == [receipt]
 
 
 def test_panel_starts_concise_accessible_and_without_receipt_json() -> None:
     receipt = _receipt()
-    view = _NotebookDiagnosticView(TypeError("benchmark is required"), receipt)
+    view = _NotebookDiagnosticView(receipt)
 
     html = _html_values(view.widget)
-    assert "Evaluation failed" in html
-    assert "benchmark is required" in html
+    assert "Evaluation failed" not in html
+    assert "benchmark is required" not in html
     assert "diag_example" in html
     assert "local only" in html
     assert "aria-label='Local only; cleared when this kernel restarts'" in html
@@ -267,7 +271,7 @@ def test_panel_starts_concise_accessible_and_without_receipt_json() -> None:
     assert "Nothing has been sent" not in html
     assert "Run <code>%tb</code>" not in html
     assert receipt.to_json() not in unescape(html)
-    assert "role='alert'" in html
+    assert "role='alert'" not in html
     assert "aria-live='polite'" in html
     assert set(view.widget._dom_classes) >= {"sf-ui", "sf-diagnostic-widget"}
     # INVARIANT: container tooltips crash JupyterLab's VBoxView because VBox has no description.
@@ -275,7 +279,7 @@ def test_panel_starts_concise_accessible_and_without_receipt_json() -> None:
     assert _button(view.widget, "Export").tooltip
     assert _button(view.widget, "Preview").tooltip
     assert any(
-        "sf-diagnostic__footer" in getattr(item, "_dom_classes", ()) for item in _walk(view.widget)
+        "sf-diagnostic__toolbar" in getattr(item, "_dom_classes", ()) for item in _walk(view.widget)
     )
 
 
@@ -286,27 +290,36 @@ def test_panel_starts_concise_accessible_and_without_receipt_json() -> None:
         ("cancelled", "Evaluation cancelled"),
     ],
 )
-def test_panel_names_non_failure_terminal_outcomes(outcome: str, title: str) -> None:
-    view = _NotebookDiagnosticView(KeyboardInterrupt(), _receipt(outcome=outcome))
+def test_toolbar_does_not_restate_terminal_outcomes(outcome: str, title: str) -> None:
+    view = _NotebookDiagnosticView(_receipt(outcome=outcome))
 
     html = _html_values(view.widget)
-    assert title in html
-    assert "sf-diagnostic--stopped" in html
+    assert title not in html
+    assert "sf-diagnostic--stopped" not in html
 
 
-def test_panel_escapes_and_bounds_local_exception_text() -> None:
+def test_toolbar_does_not_duplicate_local_exception_text() -> None:
     private_markup = "<script>not markup</script>\n" + "x" * 600
-    view = _NotebookDiagnosticView(TypeError(private_markup), _receipt())
+    view = _NotebookDiagnosticView(_receipt())
 
     html = _html_values(view.widget)
-    assert "<script>not markup</script>" not in html
-    assert "&lt;script&gt;not markup&lt;/script&gt;" in html
-    assert "x" * 501 not in html
+    assert private_markup not in html
+    assert "&lt;script&gt;not markup&lt;/script&gt;" not in html
+
+
+def test_toolbar_shortens_only_the_visible_diagnostic_id() -> None:
+    diagnostic_id = "diag_1234567890abcdef"
+    view = _NotebookDiagnosticView(_receipt(diagnostic_id=diagnostic_id))
+
+    html = _html_values(view.widget)
+    assert "diag_1234…cdef" in html
+    assert f"title='{diagnostic_id}'" in html
+    assert f"aria-label='Diagnostic ID {diagnostic_id}'" in html
 
 
 def test_preview_reveals_the_exact_receipt_only_after_a_click() -> None:
     receipt = _receipt()
-    view = _NotebookDiagnosticView(TypeError("failed"), receipt)
+    view = _NotebookDiagnosticView(receipt)
 
     preview = _button(view.widget, "Preview")
     assert receipt.to_json() not in unescape(_html_values(view.widget))
@@ -326,7 +339,7 @@ def test_export_writes_only_after_an_explicit_click(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     receipt = _receipt()
-    view = _NotebookDiagnosticView(TypeError("failed"), receipt)
+    view = _NotebookDiagnosticView(receipt)
     selected = tmp_path / "screamingface-diagnostic.json"
 
     assert not selected.exists()
@@ -344,7 +357,7 @@ def test_export_failure_is_reported_inside_the_panel(
         raise OSError("read-only filesystem")
 
     monkeypatch.setattr(DiagnosticReceipt, "export", unavailable_export)
-    view = _NotebookDiagnosticView(TypeError("failed"), _receipt())
+    view = _NotebookDiagnosticView(_receipt())
 
     _button(view.widget, "Export").click()
 
@@ -355,11 +368,23 @@ def test_export_failure_is_reported_inside_the_panel(
 
 def test_panel_uses_sfds_app_tokens_and_colab_theme_contract() -> None:
     assert "border-radius:0" in _STYLE
-    assert "var(--sf-danger-solid)" in _STYLE
+    assert "var(--sf-danger-solid)" not in _STYLE
     assert "var(--sf-accent)" in _STYLE
     assert "background:var(--sf-gain)" not in _STYLE
-    assert ".sf-diagnostic__footer.widget-hbox" in _STYLE
-    assert ".sf-diagnostic__footer-meta>div>div" in _STYLE
-    assert "height:28px!important" in _STYLE
+    assert ".sf-diagnostic__toolbar.widget-hbox" in _STYLE
+    assert ".sf-diagnostic__receipt>div>div" in _STYLE
+    assert "height:24px!important" in _STYLE
+    assert "text-decoration:underline" in _STYLE
+    assert "width:fit-content!important" in _STYLE
+    assert "justify-content:flex-start!important" in _STYLE
+    assert ".sf-diagnostic__receipt{flex:0 1 auto!important" in _STYLE
     assert ':where(html[theme="light"]) .sf-ui' in _STYLE
     assert ':where(html[theme="dark"]) .sf-ui' in _STYLE
+
+
+def test_receipt_toolbar_is_unboxed_supporting_evidence() -> None:
+    toolbar_rule = _STYLE.split(".sf-diagnostic__toolbar.widget-hbox", 1)[1].split("}", 1)[0]
+
+    assert "border:0!important" in toolbar_rule
+    assert "background:transparent!important" in toolbar_rule
+    assert "padding:0!important" in toolbar_rule
