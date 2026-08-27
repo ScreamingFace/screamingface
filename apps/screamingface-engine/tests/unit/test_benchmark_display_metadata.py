@@ -111,6 +111,7 @@ async def test_every_installed_benchmark_publishes_a_focus_line() -> None:
         # Same dataset and subject as the canonical board — the judge-pass count is the only
         # thing that separates them, so that is what a reader needs in the Focus column.
         "draco-3pass": "Research reports, three judge passes",
+        "gdpval-text": "Real professional work, prose deliverables",
         # The two HealthBench boards share a dataset, so their focus lines have to separate
         # them at a glance — that is the only place a reader sees the difference.
         "healthbench-professional": "Clinical safety, full official exam",
@@ -125,6 +126,7 @@ async def test_only_the_benchmarks_with_a_public_dataset_publish_a_link() -> Non
     assert {benchmark.id: benchmark.dataset_url for benchmark in BUILTIN_BENCHMARKS} == {
         "draco": "https://huggingface.co/datasets/perplexity-ai/draco",
         "draco-3pass": "https://huggingface.co/datasets/perplexity-ai/draco",
+        "gdpval-text": "https://huggingface.co/datasets/openai/gdpval",
         "healthbench-professional": "https://huggingface.co/datasets/openai/healthbench",
         "healthbench-worst30": "https://huggingface.co/datasets/openai/healthbench",
         "ifeval": None,
