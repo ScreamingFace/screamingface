@@ -23,8 +23,7 @@ explicit remainder rather than be assigned to a member or role.
 Populate `MemberResult.usage` where exact, keep `MemberResult.duration_ms` null, label the existing
 Gateway latency as Provider time, and reconcile exact remainder for cost only.
 
-Blocked by OME-1030 and by explicit approval of
-`docs/plan/2026-08-27-OME-901-operation-accounting.md`.
+Blocked by OME-1030.
 
 Spec: `docs/spec/2026-08-27-OME-901-operation-accounting.md`.
 Parent: OME-901.

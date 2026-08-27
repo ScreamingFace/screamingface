@@ -1,7 +1,7 @@
 # OME-901 — Retain evaluation accounting by operation (spec)
 
-Status: revised after source audit, 2026-08-27. Owner approved the narrowed design; implementation
-is not yet approved. Evidence:
+Status: approved after source audit, 2026-08-27. The owner approved the narrowed design and
+OME-1030 implementation. Evidence:
 `../work/2026-08-27-OME-901-runtime-accounting-lineage.md`.
 
 A completed evaluation already retains an authoritative Candidate/run usage total. What it loses

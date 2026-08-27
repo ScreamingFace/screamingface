@@ -34,8 +34,8 @@ without changing URL4, benchmark scores, model calls, or the existing live widge
   wall duration is invented.
 
 Evidence and the proposed dependency order are recorded in
-`docs/work/2026-08-27-OME-901-runtime-accounting-lineage.md`. The approved design and drafted plan
-are `docs/spec/2026-08-27-OME-901-operation-accounting.md` and
+`docs/work/2026-08-27-OME-901-runtime-accounting-lineage.md`. The approved design and plan are
+`docs/spec/2026-08-27-OME-901-operation-accounting.md` and
 `docs/plan/2026-08-27-OME-901-operation-accounting.md`.
 
 ## Implementation children
@@ -45,5 +45,5 @@ are `docs/spec/2026-08-27-OME-901-operation-accounting.md` and
 2. [OME-1031](https://linear.app/openmined/issue/OME-1031/decode-and-render-per-operation-evaluation-accounting)
    — Python Client decoder, projections, and completed-Report UI; blocked by OME-1030.
 
-Both children remain in Backlog until the drafted implementation plan receives explicit owner
-approval. OME-699 retains ownership of later live semantic parity.
+OME-1030 is in progress after explicit owner approval. OME-1031 remains in Backlog until the
+Engine contract is reviewed. OME-699 retains ownership of later live semantic parity.

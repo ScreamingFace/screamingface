@@ -1,7 +1,7 @@
 ---
 id: OME-1030
 linear_url: https://linear.app/openmined/issue/OME-1030/retain-per-operation-evaluation-accounting-in-candidate-results
-status: backlog
+status: in_progress
 type: task
 priority: P2
 labels: [screamingface-engine, autonomous, agentic]
@@ -21,7 +21,7 @@ CorrectiveLoop's nested Recipe calls remain outside exact per-operation projecti
 its outer total stays authoritative and the nested subtotal remains explicitly unattributed.
 No new timer, attempt counter, complete Candidate fingerprint, or failed-path interception ships.
 
-Implementation is blocked on explicit approval of
+Implementation was explicitly approved and is in progress against
 `docs/plan/2026-08-27-OME-901-operation-accounting.md`.
 
 Spec: `docs/spec/2026-08-27-OME-901-operation-accounting.md`.

@@ -1,15 +1,15 @@
 ---
 title: Retain and present evaluation accounting by operation
 ticket: OME-901
-status: drafted
+status: approved
 date: 2026-08-27
 spec: ../spec/2026-08-27-OME-901-operation-accounting.md
 ---
 
 # Retain and present evaluation accounting by operation
 
-Implementation remains blocked on explicit owner approval of this revised plan. Work lands in two
-ordered PRs; neither changes `packages/url4` or AI Gateway.
+The owner approved this revised plan. Work lands in two ordered PRs; neither changes
+`packages/url4` or AI Gateway.
 
 ## 1. ScreamingFace Engine producer (`OME-1030`)
 

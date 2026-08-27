@@ -1,7 +1,7 @@
 ---
 ticket: OME-901
 stack: repo
-status: completed
+status: done
 started: 2026-08-27
 finished: 2026-08-27
 ---
