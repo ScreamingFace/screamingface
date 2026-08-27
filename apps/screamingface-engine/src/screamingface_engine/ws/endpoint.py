@@ -39,7 +39,11 @@ def _ticket_topic(websocket: WebSocket, ticket: str | None) -> str | None:
         return None
     settings: Settings = websocket.app.state.settings
     clock = getattr(websocket.app.state, "clock", _default_clock)
-    codec = JwtCodec(secret=settings.jwt_secret, iat_window_s=settings.iat_window_s)
+    codec = JwtCodec(
+        secret=settings.jwt_secret,
+        iat_window_s=settings.iat_window_s,
+        capability_lifetime_s=settings.capability_lifetime_s,
+    )
     try:
         return str(codec.verify(ticket, clock())["sub"])
     except AuthError:

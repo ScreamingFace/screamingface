@@ -61,7 +61,12 @@ def _api_key_validation_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture()
 def enabled_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        openrouter_plugin_module.PLUGIN, "settings", OpenRouterPluginSettings(enabled=True)
+        openrouter_plugin_module.PLUGIN,
+        "settings",
+        # OME-972 setup-only amendment: this suite exercises the STATIC top_p
+        # promotion, not live discovery — live_models=False keeps its listing
+        # reads off the (transport-less) live catalog. Assertions untouched.
+        OpenRouterPluginSettings(enabled=True, live_models=False),
     )
 
 

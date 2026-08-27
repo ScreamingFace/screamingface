@@ -93,8 +93,13 @@ class Settings(BaseSettings):
     # INVARIANT: this bounds SPEND, not correctness — job_deadline_s (16h) remains the backstop.
     # Raising it costs money per orphaned run; lowering it risks stopping a live one.
     orphan_grace_s: float = Field(default=120.0, ge=0.0)
-    # INVARIANT: stateless iat window (seconds) — start rejected when now - iat exceeds it (§4).
+    # INVARIANT: stateless iat window (seconds) — now a CLOCK-SKEW tolerance only: a mint
+    # from more than one window in the future is rejected. It never bounds lifetime.
     iat_window_s: int = 60
+    # INVARIANT: capability-token lifetime (seconds) — `exp = iat + this` at mint (spec §6
+    # S1, OME-1016). WHY 58_800: the 16 h Job deadline (job_deadline_s) plus 1 h slack, so a
+    # Run's owner can always re-attach, stop, or redeem for the Run's whole life (D1).
+    capability_lifetime_s: int = 58_800
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
     sync_max_wait_s: float = 30.0
     # WHY: idle interval between WS HeartbeatEvents for liveness (spec §6).

@@ -2321,7 +2321,7 @@ wheels = [
 
 [[package]]
 name = "screamingface-engine"
-version = "1.4.0"
+version = "1.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -2547,7 +2547,7 @@ wheels = [
 
 [[package]]
 name = "url4"
-version = "1.5.0"
+version = "1.5.1"
 source = { editable = "../../packages/url4" }
 dependencies = [
     { name = "httpx" },

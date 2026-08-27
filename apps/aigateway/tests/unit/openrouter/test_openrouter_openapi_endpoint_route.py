@@ -54,7 +54,9 @@ def openrouter_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         plugin_module.PLUGIN,
         "settings",
-        OpenRouterPluginSettings(enabled=True, default_models=[_MODEL]),
+        # OME-972 setup-only amendment: this suite pins the OpenAPI-source
+        # decision surface, not live listing discovery. Assertions untouched.
+        OpenRouterPluginSettings(enabled=True, live_models=False, default_models=[_MODEL]),
     )
 
 

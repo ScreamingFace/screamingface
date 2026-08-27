@@ -50,6 +50,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "07_ifeval.ipynb": _ifeval_e2e(),
         "08_healthbench.ipynb": _healthbench_e2e(),
         "09_corrective_loops.ipynb": _corrective_loops(),
+        "10_gdpval.ipynb": _gdpval_e2e(),
     }
 
 
@@ -1012,6 +1013,142 @@ submissions = (
     else None
 )
 submissions"""),
+    )
+
+
+def _gdpval_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# GDPval — real professional work
+
+Can a fusion of open-weights models beat a strong single model on work that professionals
+actually do? [GDPval](https://arxiv.org/abs/2510.04374) is OpenAI's real-work benchmark: tasks
+written by practitioners averaging 14 years of experience, across 44 occupations in the nine
+largest sectors of US GDP.
+
+The Engine serves `gdpval-text`, the prose-only slice of the 220-task open gold set — 102 tasks
+whose reference material and expected deliverable are documents rather than spreadsheets or
+slide decks.
+
+**Read this before quoting a number.** This board is deliberately not GDPval's published metric,
+in two ways:
+
+- **Grading.** GDPval is scored by blinded expert *pairwise* comparison against a human
+  professional's deliverable. This board uses an AI judge against the task's own rubric,
+  one criterion at a time.
+- **Submission.** GDPval expects the finished document. This board submits plain text —
+  83 of these 102 tasks expected a formatted file.
+
+Criteria that check the delivered *file* rather than the answer's content are excluded from
+scoring, because a text submission can never satisfy them. So a `gdpval-text` score answers
+"does the fusion beat the solo model here?" — never "how do we compare to the GDPval
+leaderboard?"."""),
+        nbformat.v4.new_markdown_cell("""\
+<img src="assets/gdpval-benchmark.svg" width="1200"
+  alt="GDPval-text at a glance: 220 open gold tasks filtered to 102 prose cases, reference
+  documents parsed once at build time, one judge call per rubric criterion (median 44 per
+  task, roughly 4,500 per full run), case score = earned points over positive points with
+  negatives subtracting and no clamp, board score = plain mean over 102 cases — deliberately
+  not the official pairwise-vs-human GDPval metric"/>"""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+From a terminal:
+
+```bash
+screamingface prepare gdpval  # first run only: download pinned Benchmark assets
+screamingface up              # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
+```
+
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
+Stack management stays outside the notebook so **Run All** never starts or stops local
+services."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Run one case with a single model
+
+`limit=1` runs a single Case — a cheap rehearsal that exercises the whole pipeline. Drop the
+argument to sit the whole exam.
+
+Worth knowing before you do: grading fans out **one judge call per rubric criterion**, and these
+rubrics carry a median of 44 after filtering. A full 102-task run is roughly 4,500 judge calls
+per candidate, so rehearse with `limit` before committing to a full sweep."""),
+        nbformat.v4.new_code_cell("""\
+gem_flash = sf.Model(
+    model="openrouter/google/gemini-3-flash-preview",  # fast, cheap model
+    params={"max_tokens": 8192, "temperature": 0.0},
+)
+report = sf.evaluate(gem_flash, benchmark="gdpval-text", limit=3)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Define a Fusion of open-source models and evaluate it
+
+GDPval rubrics reward breadth, structure and completeness — a median of 44 separately scored
+criteria per task. That is union-of-coverage territory: each member contributes partial credit
+the others miss, and the synthesiser's job is to keep all of it."""),
+        nbformat.v4.new_code_cell("""\
+PARAMS = {"max_tokens": 32768, "temperature": 0.0}
+
+deepseek = sf.Model(
+    model="openrouter/deepseek/deepseek-v4-pro",
+    params=PARAMS,
+)
+deepseek
+
+qwen = sf.Model(
+    model="openrouter/qwen/qwen3.8-2.4t-a95b",
+    params=PARAMS,
+)
+glm = sf.Model(
+    model="openrouter/z-ai/glm-5.2",
+    params=PARAMS,
+)"""),
+        nbformat.v4.new_code_cell("""\
+SYNTHESIS_PROMPT = (
+    "You are producing the single best deliverable for a professional work request by "
+    "combining independent drafts from a panel of models. An expert-written rubric will "
+    "grade your output criterion by criterion — accuracy, completeness, structure, and "
+    "following the request's explicit instructions all matter.\\n\\n"
+    "Procedure:\\n"
+    "1. Read the request and every panel draft carefully.\\n"
+    "2. Identify what each draft contributes that the others miss — figures, sections, "
+    "caveats, required fields, recommended next steps.\\n"
+    "3. Produce ONE unified deliverable that:\\n"
+    "   - Keeps every correct, relevant point from any draft\\n"
+    "   - Drops anything inaccurate or unsupported by the reference material\\n"
+    "   - Follows every explicit instruction in the request, including structure and "
+    "section names\\n"
+    "   - Resolves disagreements by favouring the better-supported claim\\n"
+    "4. Do not invent figures or facts no draft and no reference material supplied.\\n\\n"
+    "Output: the finished deliverable only, no preamble and no commentary about the panel."
+)
+
+kimi = sf.Model(
+    model="openrouter/moonshotai/kimi-k3",
+    params=PARAMS,
+    prompt=SYNTHESIS_PROMPT,
+)
+
+open_panel = sf.Fusion(members=[deepseek, qwen, glm], name="open_panel", synthesizer=kimi)"""),
+        nbformat.v4.new_code_cell("""\
+fusion_report = sf.evaluate(open_panel, benchmark="gdpval-text", limit=2)
+fusion_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Read the per-case scores
+
+A case score is points earned over points winnable. Penalties subtract without widening the
+denominator, so a case can score **below zero** — that is intended, not a bug: a harmful answer
+should rank below one that said nothing.
+
+A case the judge could not fully grade reports `None` rather than `0.0`. The two are different
+facts, and collapsing them would make a judge outage look like model weakness."""),
+        nbformat.v4.new_code_cell("""\
+for case in fusion_report.candidates.only.cases:
+    print(case.case_id, case.status, case.grade.score if case.grade else None)"""),
     )
 
 

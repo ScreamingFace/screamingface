@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 # Long free text (a case prompt, a model answer, a judge's reasoning) is shown behind a
 # disclosure and clipped: a Report can carry many thousands of words per case, and the
 # panel has to stay a summary rather than dumping a transcript into the notebook.
-_TEXT_CLIP = 2_000
+_TEXT_CLIP = 10_000
 
 _STYLE = (
     STYLE
@@ -127,7 +127,10 @@ _STYLE = (
   background:var(--sf-warning-bg)}}
 .sf-pane{{display:none;padding:12px 14px;min-width:0}}
 .sf-pane__h{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}}
-.sf-pane__q{{font-size:15px;line-height:1.45;color:var(--sf-ink)}}
+/* the task can run thousands of characters (GDPval work requests) — scroll like the
+   answer pane instead of growing unbounded */
+.sf-pane__q{{font-size:15px;line-height:1.45;color:var(--sf-ink);white-space:pre-wrap;
+  max-height:280px;overflow:auto}}
 .sf-detail__k{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
   text-transform:uppercase;letter-spacing:.08em;color:var(--sf-ink-3);margin-top:14px}}
 .sf-check__who{{display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;
@@ -694,7 +697,8 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
     )
     tags_html = f"<div class='sf-chips' style='margin-top:8px'>{tags}</div>" if tags else ""
     if case.input is not None:
-        question = f"<div class='sf-pane__q'>{escape(_clip(case.display_input, 600))}</div>"
+        # same clip budget as the answer — the pane scrolls, so no need to cut at a glance-size
+        question = f"<div class='sf-pane__q'>{escape(_clip(case.display_input))}</div>"
     else:
         # INVARIANT (OME-793): absence is stated, never rendered as an empty body — a
         # failed case's input was not retained by the Engine (see OME-784 for fixing that).

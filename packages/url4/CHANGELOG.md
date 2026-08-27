@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* **screamingface-engine:** preserve upstream grading errors instead of masking them (OME-924) ([3e12e21](https://github.com/ScreamingFace/screamingface/commit/3e12e2186aedfe9f2784d1a5acf74c4c9b6e5791))
+* **screamingface-engine:** reconcile OME-993 with OME-924's fail-fast grading ([6786aef](https://github.com/ScreamingFace/screamingface/commit/6786aefdff4c0161d7604e2d59b71fedd7c069fa))
+* **screamingface-engine:** surface the real judge failure instead of an envelope error ([b53ccfe](https://github.com/ScreamingFace/screamingface/commit/b53ccfedff1465dd8c8e7abbd9febd345eee7ea1))
+* **url4:** preserve code and retryable in collected error payloads ([e102c9a](https://github.com/ScreamingFace/screamingface/commit/e102c9a0ff12430383b1cd15840178aec99829d1))
+* **url4:** preserve remote span authority ([8c7c8bf](https://github.com/ScreamingFace/screamingface/commit/8c7c8bf9e4aeb1b99fbf90235762c8042348cf34))
+* **url4:** report relative routes in span names ([3e3da86](https://github.com/ScreamingFace/screamingface/commit/3e3da86ee6605cbd0da93736f14bbe9c3e7b1377))
+* **url4:** report relative routes in span names ([34cea42](https://github.com/ScreamingFace/screamingface/commit/34cea424b4fc1f5bd7735a30f8311c6b8abc9ecc))
+
+
+### Refactors
+
+* **url4:** keep route span detail minimal ([e0c7ac5](https://github.com/ScreamingFace/screamingface/commit/e0c7ac504d7a25f2dce75ac8bcc431e3ce806f83))
+
 ## [1.5.0](https://github.com/OpenMined/screamingface/compare/url4-v1.4.1...url4-v1.5.0) (2026-08-19)
 
 
