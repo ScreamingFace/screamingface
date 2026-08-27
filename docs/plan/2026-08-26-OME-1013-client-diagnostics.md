@@ -13,8 +13,11 @@ Keep the public surface shallow and the implementation deep:
 - `diagnostics.py` is the small public lookup facade behind `sf.diagnostics`.
 - `_diagnostics/` owns allow-listed capture, bounded storage and mutable in-flight Evaluation
   context. It has no HTTP client and no report-intake dependency.
-- `_evaluation/runner.py` is the single integration boundary shared by default, explicit sync and
-  async Clients. Public facades do not each grow their own exception wrapper.
+- `_evaluation/runner.py` owns the single Recipe integration boundary shared by default, explicit
+  sync and async Clients; `_evaluation/url4.py` owns the equivalent boundary for direct URL4 replay,
+  which bypasses Recipe preparation. Public facades do not each grow their own exception wrapper.
+- `_evaluation/observers.py` owns the fail-open progress, callback and diagnostic event fan-out so
+  both private Evaluation modes reuse one observer contract and the runner remains focused.
 - `_ui/diagnostic_view.py` owns optional notebook presentation. Capture knows only that a retained
   receipt can be attached to its original exception; the adapter owns IPython and ipywidgets.
 - Future `OME-1014` maps the receipt into the intake envelope and adds explicit send behavior
@@ -52,8 +55,8 @@ Keep the public surface shallow and the implementation deep:
   one receipt while preserving exception identity/cause.
 - RED first: interruption and async-cancellation capture/re-raise; `SystemExit`/`GeneratorExit`
   bypass; partial Report success path creates nothing.
-- GREEN: one fail-open sync wrapper and one parity-equivalent async wrapper inside the Evaluation
-  runner.
+- GREEN: one fail-open sync wrapper and one parity-equivalent async wrapper for each private
+  Evaluation mode, with no wrappers at the public facades.
 
 ### 5 · minimal local handoff
 

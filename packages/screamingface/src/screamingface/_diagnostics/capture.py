@@ -106,15 +106,8 @@ def _websocket_close(error: BaseException) -> dict[str, object]:
     for name, close in (("received", error.rcvd), ("sent", error.sent)):
         if close is None:
             continue
-        value: dict[str, object] = {"code": close.code}
-        if reason := _safe_wire_text(close.reason):
-            value["reason"] = reason
-        selected[name] = value
+        selected[name] = {"code": close.code}
     return selected
-
-
-def _safe_wire_text(value: str) -> str:
-    return "".join(character for character in value if character.isprintable())[:256].strip()
 
 
 def _frames(traceback: TracebackType | None) -> list[dict[str, object]]:

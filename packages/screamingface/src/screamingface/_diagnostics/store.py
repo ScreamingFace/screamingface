@@ -49,6 +49,12 @@ class _DiagnosticStore:
                 return None
             return next(reversed(self._receipts.values()))[0]
 
+    def remove(self, diagnostic_id: str) -> None:
+        with self._lock:
+            stored = self._receipts.pop(diagnostic_id, None)
+            if stored is not None:
+                self._bytes -= stored[1]
+
     def clear(self) -> None:
         """Clear process-local state for lifecycle reset and isolated tests."""
 

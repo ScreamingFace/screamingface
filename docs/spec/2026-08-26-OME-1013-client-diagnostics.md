@@ -77,10 +77,12 @@ receipt.export("screamingface-diagnostic.json")
 
 ## Capture boundary
 
-Capture happens once at the complete Evaluation workflow boundary shared by `sf.evaluate()`,
-`Client.evaluate()`, and `AsyncClient.evaluate()`. It covers input validation, Benchmark loading,
-model discovery, preflight, compilation, execution, and final Report decoding without adding
-parallel wrappers at each public facade.
+Capture happens once per private Evaluation mode. Recipe evaluation owns one boundary in the
+runner, shared by `sf.evaluate()`, `Client.evaluate()`, and `AsyncClient.evaluate()`. Direct URL4
+replay owns one equivalent boundary because it bypasses Recipe preparation and enters through a
+separate private workflow. Public facades never add parallel wrappers. Together the two boundaries
+cover input validation, Benchmark loading, model discovery, preflight, compilation, execution, and
+final Report decoding.
 
 The capture context gains facts monotonically as the workflow advances:
 

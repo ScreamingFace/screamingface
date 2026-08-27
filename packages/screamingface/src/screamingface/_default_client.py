@@ -125,14 +125,6 @@ def evaluate(
     """Evaluate Recipes or a complete URL4 through the lazy default Client."""
 
     client = default_client()
-    if isinstance(candidates, str):
-        return cast(Any, client).evaluate(
-            candidates,
-            benchmark=benchmark,
-            limit=limit,
-            on_event=on_event,
-            progress=progress,
-        )
     return cast(Any, client).evaluate(
         candidates,
         benchmark=benchmark,

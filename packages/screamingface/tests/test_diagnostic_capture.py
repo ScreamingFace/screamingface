@@ -126,16 +126,16 @@ def test_default_screamingface_code_is_retained_as_best_effort_evidence() -> Non
     assert document["code"] == "execution_failed"
 
 
-def test_websocket_close_cause_retains_bounded_structured_wire_facts() -> None:
-    cause = ConnectionClosedError(Close(1011, "engine unavailable\n"), None, None)
+def test_websocket_close_cause_retains_only_the_code() -> None:
+    private_reason = "sk-private-must-never-leak"
+    cause = ConnectionClosedError(Close(1011, private_reason), None, None)
     error = ExecutionError("The Engine disconnected.", code="websocket_disconnected")
     error.__cause__ = cause
 
     chain = cast(list[dict[str, object]], _error_document(error)["chain"])
 
-    assert chain[1]["websocket_close"] == {
-        "received": {"code": 1011, "reason": "engine unavailable"}
-    }
+    assert chain[1]["websocket_close"] == {"received": {"code": 1011}}
+    assert private_reason not in json.dumps(chain)
 
 
 def test_engine_capture_retains_only_host_and_locality() -> None:

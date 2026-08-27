@@ -71,16 +71,19 @@ exception handler.
   available to assistive technology and hover, and Preview/Export remain explicit local actions.
 - **Commits:** `feat(screamingface): render notebook diagnostics`; and
   `fix(screamingface): avoid notebook container tooltip crash`; and
-  `fix(screamingface): compact notebook diagnostic panel` (final presentation pass).
-- **Gates:** Ruff lint and formatting, Pyright (0 errors), complete package pytest suite (1,239
-  passed, 17 skipped, 95.04% coverage), focused widget suites (59 passed), wheel/sdist build and
-  distribution validation all passed. The new adapter has 100% focused statement coverage.
+  `fix(screamingface): compact notebook diagnostic panel`; and
+  `fix(screamingface): reduce notebook diagnostics to receipt toolbar` (final presentation pass).
+- **Gates:** final `run_gates.py screamingface --skip-append-only` ALL GATES GREEN — Ruff lint and
+  formatting, Pyright (0 errors), complete package pytest suite with ≥95% coverage, deterministic
+  notebook validation, wheel/sdist build and distribution validation. The append-only override is
+  documented in the primary OME-1013 ledger and does not concern notebook presentation tests.
 - **Deviations:** the official gate wrapper's Ruff phase also inspected an unrelated, owner-edited
   `examples/00_quickstart.ipynb` and stopped on that notebook's pre-existing undefined
   `leaderboard` name. The owner file was preserved and excluded from this commit; the equivalent
   source/test/type/build/distribution gates were run directly. A headless Chrome reproduction
-  confirmed the original `VBoxView` creation failure; the owner notebook rerun after a kernel
-  restart remains the final visual confirmation of the corrected model.
+  confirmed the original `VBoxView` creation failure. The owner then visually confirmed the
+  corrected, content-hugging toolbar in Jupyter. The overlapping Evaluation-widget tooltip fix was
+  dropped during rebase because `OME-1022` landed the authoritative fix on main.
 - **Review:** the renderer is attached only to the retained exception instance, preserves the same
   exception and traceback, never installs a global IPython hook, performs no network or automatic
   filesystem action, and falls back to the previous traceback renderer if optional notebook

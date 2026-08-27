@@ -2,48 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Generator
+from datetime import UTC, datetime
 from typing import Any, NoReturn, cast
 
+import _evaluation_diagnostic_fixtures as _fixtures
 import pytest
-from _evaluation_diagnostic_fixtures import (
-    RESOURCE as _RESOURCE,
-)
-from _evaluation_diagnostic_fixtures import (
-    TRACE_ID as _TRACE_ID,
-)
-from _evaluation_diagnostic_fixtures import (
-    AsyncFailingTransport as _AsyncFailingTransport,
-)
-from _evaluation_diagnostic_fixtures import (
-    FailingTransport as _FailingTransport,
-)
-from _evaluation_diagnostic_fixtures import (
-    PartialTransport as _PartialTransport,
-)
-from _evaluation_diagnostic_fixtures import (
-    candidate as _candidate,
-)
-from _evaluation_diagnostic_fixtures import (
-    load_benchmark as _load_benchmark,
-)
-from _evaluation_diagnostic_fixtures import (
-    load_benchmark_async as _load_benchmark_async,
-)
-from _evaluation_diagnostic_fixtures import (
-    load_catalog as _load_catalog,
-)
-from _evaluation_diagnostic_fixtures import (
-    load_catalog_async as _load_catalog_async,
-)
-from _evaluation_diagnostic_fixtures import (
-    load_details as _load_details,
-)
-from _evaluation_diagnostic_fixtures import (
-    load_details_async as _load_details_async,
-)
-from _evaluation_diagnostic_fixtures import (
-    started as _started,
-)
 
 import screamingface as sf
 from screamingface._diagnostics.store import _STORE
@@ -69,11 +32,11 @@ def test_sync_evaluation_failure_stages_one_receipt_and_preserves_exception() ->
 
     with pytest.raises(ExecutionError) as caught:
         evaluate_sync(
-            _load_benchmark,
-            _FailingTransport(error),
-            _load_catalog,
-            _load_details,
-            _candidate(),
+            _fixtures.load_benchmark,
+            _fixtures.FailingTransport(error),
+            _fixtures.load_catalog,
+            _fixtures.load_details,
+            _fixtures.candidate(),
             "draco",
             1,
             None,
@@ -113,7 +76,7 @@ def test_sync_evaluation_failure_stages_one_receipt_and_preserves_exception() ->
             "candidate": "opus",
             "status": "running",
             "run_id": "internal-stream-topic",
-            "trace_id": _TRACE_ID,
+            "trace_id": _fixtures.TRACE_ID,
         }
     ]
     encoded = receipt.to_json()
@@ -125,10 +88,10 @@ def test_sync_evaluation_failure_stages_one_receipt_and_preserves_exception() ->
 def test_plain_argument_error_stages_a_degraded_receipt() -> None:
     with pytest.raises(TypeError) as caught:
         evaluate_sync(
-            _load_benchmark,
-            _FailingTransport(AssertionError("transport must not run")),
-            _load_catalog,
-            _load_details,
+            _fixtures.load_benchmark,
+            _fixtures.FailingTransport(AssertionError("transport must not run")),
+            _fixtures.load_catalog,
+            _fixtures.load_details,
             cast(Any, object()),
             "draco",
             1,
@@ -149,14 +112,34 @@ def test_plain_argument_error_stages_a_degraded_receipt() -> None:
 def test_public_client_input_validation_stages_a_degraded_receipt() -> None:
     with sf.Client(
         engine_url="https://engine.example",
-        run_transport=_FailingTransport(AssertionError("transport must not run")),
+        run_transport=_fixtures.FailingTransport(AssertionError("transport must not run")),
     ) as client:
         with pytest.raises(TypeError, match="benchmark is required"):
-            cast(Any, client).evaluate(_candidate())
+            cast(Any, client).evaluate(_fixtures.candidate())
 
     receipt = sf.diagnostics.last()
     assert receipt is not None
     assert receipt.to_dict()["error"]["type"] == "TypeError"
+
+
+def test_preparation_failure_retains_safe_caller_candidate_identity() -> None:
+    with sf.Client(
+        engine_url="https://engine.example",
+        run_transport=_fixtures.FailingTransport(AssertionError("transport must not run")),
+    ) as client:
+        with pytest.raises(TypeError, match="benchmark is required"):
+            cast(Any, client).evaluate(_fixtures.candidate())
+
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert receipt.to_dict()["context"]["candidates"] == [
+        {
+            "name": "opus",
+            "kind": "model",
+            "models": ["provider/opus"],
+        }
+    ]
+    assert "private answer instruction" not in receipt.to_json()
 
 
 def test_unvalidated_benchmark_object_is_not_captured() -> None:
@@ -166,10 +149,10 @@ def test_unvalidated_benchmark_object_is_not_captured() -> None:
 
     with sf.Client(
         engine_url="https://engine.example",
-        run_transport=_FailingTransport(AssertionError("transport must not run")),
+        run_transport=_fixtures.FailingTransport(AssertionError("transport must not run")),
     ) as client:
         with pytest.raises(ValueError, match="benchmark"):
-            cast(Any, client).evaluate(_candidate(), benchmark=PrivateBenchmark())
+            cast(Any, client).evaluate(_fixtures.candidate(), benchmark=PrivateBenchmark())
 
     receipt = sf.diagnostics.last()
     assert receipt is not None
@@ -182,11 +165,11 @@ async def test_async_evaluation_failure_uses_the_same_receipt_contract() -> None
 
     with pytest.raises(ExecutionError) as caught:
         await evaluate_async(
-            _load_benchmark_async,
-            _AsyncFailingTransport(error),
-            _load_catalog_async,
-            _load_details_async,
-            _candidate(),
+            _fixtures.load_benchmark_async,
+            _fixtures.AsyncFailingTransport(error),
+            _fixtures.load_catalog_async,
+            _fixtures.load_details_async,
+            _fixtures.candidate(),
             "draco",
             1,
             None,
@@ -202,25 +185,25 @@ async def test_async_evaluation_failure_uses_the_same_receipt_contract() -> None
             "candidate": "opus",
             "status": "running",
             "run_id": "internal-stream-topic",
-            "trace_id": _TRACE_ID,
+            "trace_id": _fixtures.TRACE_ID,
         }
     ]
 
 
 def test_malformed_trace_context_is_not_fabricated() -> None:
-    class InvalidTraceTransport(_FailingTransport):
+    class InvalidTraceTransport(_fixtures.FailingTransport):
         def run(self, candidate: Candidate, on_event: object) -> NoReturn:
             if callable(on_event):
-                on_event(_started(candidate, traceparent="00-invalid-parent-01"))
+                on_event(_fixtures.started(candidate, traceparent="00-invalid-parent-01"))
             raise self.error
 
     with pytest.raises(ExecutionError):
         evaluate_sync(
-            _load_benchmark,
+            _fixtures.load_benchmark,
             InvalidTraceTransport(ExecutionError("Failed.")),
-            _load_catalog,
-            _load_details,
-            _candidate(),
+            _fixtures.load_catalog,
+            _fixtures.load_details,
+            _fixtures.candidate(),
             "draco",
             1,
             None,
@@ -233,15 +216,74 @@ def test_malformed_trace_context_is_not_fabricated() -> None:
     assert "trace_id" not in receipt.to_dict()["executions"][0]
 
 
+def test_breadcrumb_retains_only_relative_route_span_names() -> None:
+    class SpanTransport(_fixtures.FailingTransport):
+        def run(self, candidate: Candidate, on_event: object) -> NoReturn:
+            assert callable(on_event)
+            on_event(_fixtures.started(candidate))
+            now = datetime.now(UTC)
+            on_event(
+                sf.events.Span(
+                    id="event-2",
+                    run_id="internal-stream-topic",
+                    sequence=2,
+                    timestamp=now,
+                    source="fixture",
+                    name="/benchmarks/case-execution",
+                    operation="RelUrlNode",
+                    start=now,
+                    end=now,
+                )
+            )
+            on_event(
+                sf.events.Span(
+                    id="event-3",
+                    run_id="internal-stream-topic",
+                    sequence=3,
+                    timestamp=now,
+                    source="fixture",
+                    name="private prompt text",
+                    operation="TextNode",
+                    start=now,
+                    end=now,
+                )
+            )
+            raise self.error
+
+    with pytest.raises(ExecutionError):
+        evaluate_sync(
+            _fixtures.load_benchmark,
+            SpanTransport(ExecutionError("Failed.")),
+            _fixtures.load_catalog,
+            _fixtures.load_details,
+            _fixtures.candidate(),
+            "draco",
+            1,
+            None,
+            False,
+            engine_url="https://engine.example",
+        )
+
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    breadcrumbs = receipt.to_dict()["breadcrumbs"]
+    assert [item["operation"] for item in breadcrumbs if "operation" in item] == [
+        "/benchmarks/case-execution"
+    ]
+    assert "private prompt text" not in receipt.to_json()
+
+
 def test_url4_replay_failure_uses_the_same_diagnostic_boundary() -> None:
     from screamingface._evaluation.compilation import compile_evaluation
 
     error = ExecutionError("Replay failed.", code="replay_failed")
-    replay_url4 = compile_evaluation((_candidate(),), _RESOURCE, 1).candidates[0].url4
+    replay_url4 = (
+        compile_evaluation((_fixtures.candidate(),), _fixtures.RESOURCE, 1).candidates[0].url4
+    )
 
     with pytest.raises(ExecutionError) as caught:
         evaluate_url4_sync(
-            _FailingTransport(error),
+            _fixtures.FailingTransport(error),
             replay_url4,
             None,
             None,
@@ -263,11 +305,11 @@ def test_keyboard_interrupt_stages_observable_state_and_is_reraised() -> None:
 
     with pytest.raises(KeyboardInterrupt) as caught:
         evaluate_sync(
-            _load_benchmark,
-            _FailingTransport(interruption),
-            _load_catalog,
-            _load_details,
-            _candidate(),
+            _fixtures.load_benchmark,
+            _fixtures.FailingTransport(interruption),
+            _fixtures.load_catalog,
+            _fixtures.load_details,
+            _fixtures.candidate(),
             "draco",
             1,
             None,
@@ -289,11 +331,11 @@ async def test_async_cancellation_stages_cancelled_state_and_is_reraised() -> No
 
     with pytest.raises(asyncio.CancelledError) as caught:
         await evaluate_async(
-            _load_benchmark_async,
-            _AsyncFailingTransport(cancellation),
-            _load_catalog_async,
-            _load_details_async,
-            _candidate(),
+            _fixtures.load_benchmark_async,
+            _fixtures.AsyncFailingTransport(cancellation),
+            _fixtures.load_catalog_async,
+            _fixtures.load_details_async,
+            _fixtures.candidate(),
             "draco",
             1,
             None,
@@ -311,11 +353,11 @@ async def test_async_cancellation_stages_cancelled_state_and_is_reraised() -> No
 def test_process_control_exceptions_bypass_diagnostics(signal: BaseException) -> None:
     with pytest.raises(type(signal)):
         evaluate_sync(
-            _load_benchmark,
-            _FailingTransport(signal),
-            _load_catalog,
-            _load_details,
-            _candidate(),
+            _fixtures.load_benchmark,
+            _fixtures.FailingTransport(signal),
+            _fixtures.load_catalog,
+            _fixtures.load_details,
+            _fixtures.candidate(),
             "draco",
             1,
             None,
@@ -328,11 +370,11 @@ def test_process_control_exceptions_bypass_diagnostics(signal: BaseException) ->
 
 def test_partial_report_with_case_failures_stages_no_diagnostic() -> None:
     report = evaluate_sync(
-        _load_benchmark,
-        _PartialTransport(),
-        _load_catalog,
-        _load_details,
-        _candidate(),
+        _fixtures.load_benchmark,
+        _fixtures.PartialTransport(),
+        _fixtures.load_catalog,
+        _fixtures.load_details,
+        _fixtures.candidate(),
         "draco",
         1,
         None,
@@ -358,11 +400,11 @@ def test_capture_failure_never_replaces_the_operation_error(monkeypatch) -> None
 
     with pytest.raises(ExecutionError) as caught:
         evaluate_sync(
-            _load_benchmark,
-            _FailingTransport(error),
-            _load_catalog,
-            _load_details,
-            _candidate(),
+            _fixtures.load_benchmark,
+            _fixtures.FailingTransport(error),
+            _fixtures.load_catalog,
+            _fixtures.load_details,
+            _fixtures.candidate(),
             "draco",
             1,
             None,
@@ -384,11 +426,11 @@ def test_diagnostic_note_failure_never_replaces_the_operation_error() -> None:
 
     with pytest.raises(NoteFailure) as caught:
         evaluate_sync(
-            _load_benchmark,
-            _FailingTransport(error),
-            _load_catalog,
-            _load_details,
-            _candidate(),
+            _fixtures.load_benchmark,
+            _fixtures.FailingTransport(error),
+            _fixtures.load_catalog,
+            _fixtures.load_details,
+            _fixtures.candidate(),
             "draco",
             1,
             None,

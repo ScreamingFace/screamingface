@@ -8,12 +8,12 @@ from typing import Any, cast
 import pytest
 
 import screamingface as sf
-from screamingface._evaluation.progress import _message, _progress_observer
-from screamingface._evaluation.runner import (
+from screamingface._evaluation.observers import (
     _async_event_observer,
     _close_event_observer,
     _sync_event_observer,
 )
+from screamingface._evaluation.progress import _message, _progress_observer
 
 
 def envelope() -> dict[str, Any]:

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from threading import Lock
 from uuid import uuid4
@@ -16,11 +18,17 @@ from screamingface._diagnostics.capture import (
 from screamingface._diagnostics.model import _new_receipt
 from screamingface._diagnostics.store import _STORE
 from screamingface._evaluation.model import Candidate, _Evaluation
+from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.diagnostic import DiagnosticReceipt
-from screamingface.events import Event, Terminated
+from screamingface.events import Event, Span, Terminated
+from screamingface.fusion import Fusion
+from screamingface.model import Model
+from screamingface.pipeline import Pipeline
+from screamingface.recipe import Recipe, _recipe_kind
 
 _SESSION_ID = f"session_{uuid4().hex}"
 _MAX_BREADCRUMBS = 20
+_logger = logging.getLogger(__name__)
 
 
 class _EvaluationDiagnostic:
@@ -31,6 +39,7 @@ class _EvaluationDiagnostic:
         *,
         engine_url: str,
         benchmark: object,
+        candidates: object = None,
         mode: str | None = None,
     ) -> None:
         self._context: dict[str, object] = {"engine": _engine_document(engine_url)}
@@ -38,6 +47,8 @@ class _EvaluationDiagnostic:
             self._context["benchmark"] = {"id": benchmark}
         if mode is not None:
             self._context["mode"] = mode
+        if caller_candidates := _caller_candidate_documents(candidates):
+            self._context["candidates"] = list(caller_candidates)
         self._executions: dict[str, dict[str, object]] = {}
         self._breadcrumbs: list[dict[str, object]] = []
         self._lock = Lock()
@@ -105,6 +116,7 @@ class _EvaluationDiagnostic:
                 event.kind,
                 sequence=event.sequence,
                 outcome=event.status if isinstance(event, Terminated) else None,
+                operation=_relative_operation(event),
             )
 
     def receipt(self, error: BaseException) -> DiagnosticReceipt:
@@ -134,7 +146,14 @@ class _EvaluationDiagnostic:
 
     def stage(self, error: BaseException) -> DiagnosticReceipt | None:
         receipt = self.receipt(error)
-        return receipt if _STORE.add(receipt) else None
+        if not _STORE.add(receipt):
+            return None
+        try:
+            BaseException.add_note(error, _export_guidance(receipt))
+        except Exception:
+            _STORE.remove(receipt.diagnostic_id)
+            raise
+        return receipt
 
     def _append_breadcrumb(
         self,
@@ -144,6 +163,7 @@ class _EvaluationDiagnostic:
         *,
         sequence: int | None = None,
         outcome: str | None = None,
+        operation: str | None = None,
     ) -> None:
         breadcrumb: dict[str, object] = {
             "candidate": candidate,
@@ -154,6 +174,8 @@ class _EvaluationDiagnostic:
             breadcrumb["sequence"] = sequence
         if outcome is not None:
             breadcrumb["outcome"] = outcome
+        if operation is not None:
+            breadcrumb["operation"] = operation
         self._breadcrumbs.append(breadcrumb)
         if len(self._breadcrumbs) > _MAX_BREADCRUMBS:
             del self._breadcrumbs[0]
@@ -174,6 +196,67 @@ def _candidate_document(candidate: Candidate) -> dict[str, object]:
         ],
         "parameters": [],
     }
+
+
+def _caller_candidate_documents(value: object) -> tuple[dict[str, object], ...]:
+    try:
+        if isinstance(value, Recipe):
+            recipes = (value,)
+        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+            recipes = tuple(item for item in value if isinstance(item, Recipe))
+        else:
+            return ()
+    except Exception:
+        _logger.exception("ScreamingFace caller diagnostic projection failed")
+        return ()
+
+    selected: list[dict[str, object]] = []
+    for recipe in recipes:
+        try:
+            selected.append(
+                {
+                    "name": recipe.name,
+                    "kind": _recipe_kind(recipe),
+                    "models": list(dict.fromkeys(_declared_models(recipe))),
+                }
+            )
+        except Exception:
+            _logger.exception("ScreamingFace candidate diagnostic projection failed")
+            continue
+    return tuple(selected)
+
+
+def _declared_models(recipe: Recipe) -> tuple[str, ...]:
+    if isinstance(recipe, Model):
+        return (recipe.model,)
+    if isinstance(recipe, Fusion):
+        nested = (*recipe.members, recipe.synthesizer)
+    elif isinstance(recipe, Pipeline):
+        nested = recipe.stages
+    elif isinstance(recipe, CorrectiveLoop):
+        nested = (*recipe.members, recipe.judge)
+    elif isinstance(recipe, SelfCorrective):
+        nested = (recipe.member,)
+    else:
+        return ()
+    return tuple(model for child in nested for model in _declared_models(child))
+
+
+def _relative_operation(event: Event) -> str | None:
+    if not isinstance(event, Span) or event.operation not in {"RelUrlNode", "RemoteFetchNode"}:
+        return None
+    name = event.name
+    if not name.startswith("/") or len(name) > 256 or any(mark in name for mark in ("?", "#")):
+        return None
+    return name
+
+
+def _export_guidance(receipt: DiagnosticReceipt) -> str:
+    return (
+        f"Diagnostic: {receipt.diagnostic_id}. Export with "
+        f'sf.diagnostics.get("{receipt.diagnostic_id}").export('
+        '"screamingface-diagnostic.json")'
+    )
 
 
 def _trace_id(traceparent: str | None) -> str | None:
