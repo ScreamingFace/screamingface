@@ -1005,6 +1005,50 @@ the point is that they agree.
 
 
 
+## Review round 23 — 2026-08-27 (class sweep, not another instance)
+
+Three rounds running had been the same defect at a different layer — writes deciding from stale
+visibility, then reads, then a response body carrying a stale copy. Each time the named instance was
+fixed and the class was not. So the class was swept instead of waited for.
+
+**Method, mechanical rather than by eye**, because reading by eye had missed it three times: parse
+every function in `src/scoreboard`, and for each that touches `visibility` / `per_submitter` /
+`is_private`, print the ORDERED sequence of visibility reads and `await`s. A read followed by an
+`await` followed by a use of that read is the shape.
+
+**One live gap, and it is the branch this PR keeps finding under-covered.** `submit()`'s
+pre-insert return revalidates; its `IntegrityError` return did not. That branch is reached BECAUSE
+something changed concurrently, so it is the least safe place to trust a read taken before the
+failed insert — and the persist-path check that already passed cannot speak for the time spent
+failing.
+
+Reachable only for a caller replaying THEIR OWN private row: any other submitter is refused by the
+privacy gate before the revalidation is consulted. Narrow, and real. Mutation-checked.
+
+### Cleared, with the reason
+
+| Site | Why it is safe |
+| -- | -- |
+| `get_leaderboard`, `get_spec_history`, `get_frontier`, `get_score` | all revalidate before returning public data (round 21) |
+| `_private_leaderboard` holding the DTO across an `await` | a flip back to public during it returns the RESTRICTIVE shape |
+| private → public mid-read on any private branch | returns scoped data for a board that has just opened: less than allowed, never more |
+| `get_by_idempotency_key` | its privacy check runs AFTER the await and is the authority |
+| `seed_from_sources` — `existing_ids` stale across `seed_benchmarks` | only a concurrent second seed job could exploit it; Helm hooks serialise per release and `register_benchmark` is idempotent |
+| `_apply_orphan_visibility`, `_with_configured_visibility` | read visibility from CONFIG, immutable within the pass |
+| `identity`, `auth_mode`, `submitted_by` | the other authorisation inputs, none mutable after the request starts — `submitted_by` is never updated after creation |
+
+Visibility is the only mutable authorisation input in this app, which is why it is the only one that
+needed this.
+
+### The test took three attempts, and the reasons are worth keeping
+
+Flipping inside `Score.create` looks the most faithful and does not work: that runs inside the
+insert transaction, so single-connection SQLite rolls the flip back with it. Flipping earlier is
+caught by the persist-path check and proves nothing about this one. And the caller has to be
+replaying their OWN row, or the privacy gate refuses first and the revalidation never runs. Each of
+those is now a comment in the test, because the next person to touch it will hit all three.
+
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

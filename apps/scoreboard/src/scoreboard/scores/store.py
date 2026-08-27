@@ -756,6 +756,12 @@ class ScoreStore:
                 identity_verified=identity_verified,
             )
             if existing is not None:
+                # The same revalidation the pre-insert return does. This branch is reached BECAUSE
+                # something changed concurrently, so it is the least safe place to trust a read
+                # taken before the failed insert — and the persist-path check that already passed
+                # cannot speak for the time spent failing (found by sweeping the class rather than
+                # the instance, review of PR #719).
+                await self._revalidate_visibility(submission.benchmark_id, per_submitter)
                 return SubmitOutcome(score=_score_to_schema(existing), created=False)
             raise
 

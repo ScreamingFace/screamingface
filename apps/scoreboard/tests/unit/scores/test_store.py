@@ -2195,3 +2195,58 @@ async def test_an_undisturbed_submission_is_unaffected(tortoise_db: None) -> Non
     replay, replayed = await store.submit(_same_recipe(ALICE))
 
     assert created and not replayed and replay.id == first.id
+
+
+async def test_the_concurrent_retry_branch_revalidates_before_replaying(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: every return from `submit()` answers from a view of `visibility` it has checked.
+    # The pre-insert return did; this one did not — and it is reached precisely BECAUSE something
+    # changed concurrently, so it is the least safe place to trust a stale read. The persist-path
+    # check that already passed cannot speak for the time spent failing the insert.
+    #
+    # AIDEV-NOTE: the flip lands on the SECOND `_resolve_existing` call — the one the except branch
+    # makes. Flipping inside `Score.create` looks more faithful and does not work: that runs inside
+    # the insert transaction, so single-connection SQLite rolls the flip back with it and visibility
+    # is public again by the time the branch is reached. Flipping earlier would be caught by the
+    # persist-path check and prove nothing about this one.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    winner, _ = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="winner"), identity_verified=True
+    )
+
+    real_resolve = ScoreStore._resolve_existing
+    real_create = Score.create
+    calls = {"n": 0}
+    raised = {"done": False}
+
+    async def _blind_precheck(self, idempotency_key, content_hash):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        await Benchmark.filter(id="hle").update(visibility="private")
+        return await Score.get_or_none(id=winner.id)
+
+    async def _fail_once(**kwargs):  # type: ignore[no-untyped-def]
+        if not raised["done"]:
+            raised["done"] = True
+            raise IntegrityError("simulated concurrent insert")
+        return await real_create(**kwargs)
+
+    ScoreStore._resolve_existing = _blind_precheck  # type: ignore[method-assign]
+    Score.create = _fail_once  # type: ignore[method-assign]
+    try:
+        with pytest.raises(BenchmarkVisibilityChanged):
+            # ALICE's own row, verified: the privacy gate must HONOUR it, so the revalidation is
+            # what refuses. A different submitter would be refused by the gate first and this
+            # branch's check would never run — which is why it is reachable at all only for a
+            # caller replaying their own private row.
+            await store.submit(
+                _owned_submission(submitted_by=ALICE, spec_id="loser"), identity_verified=True
+            )
+    finally:
+        ScoreStore._resolve_existing = real_resolve  # type: ignore[method-assign]
+        Score.create = real_create  # type: ignore[method-assign]
+
+    assert raised["done"], "the IntegrityError branch was never reached"
