@@ -516,7 +516,11 @@ class ScoreStore:
             # reaches it, so claiming the victim's address buys nothing. Note a private-board
             # request always arrives verified — `submit()` refuses it otherwise — so this gate
             # bites only on a PUBLIC request whose key points at a private row (review of #719).
-            honour = identity_verified and existing.submitted_by == submitted_by
+            honour = (
+                identity_verified
+                and submitted_by is not None
+                and existing.submitted_by == submitted_by
+            )
         else:
             # A public target: the established global-key retry semantics, not this ticket's to
             # change. Honouring a forged claim costs nothing here — the row is public either way.

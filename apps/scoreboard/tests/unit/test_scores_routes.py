@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -11,9 +11,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from tortoise.exceptions import OperationalError
 
-from scoreboard.config import Settings
+from scoreboard.config import AuthMode, Settings
 from scoreboard.main import create_app
-from scoreboard.routes.scores import MISSING_IDENTITY_DETAIL
+from scoreboard.routes.scores import MISSING_IDENTITY_DETAIL, identity_is_verified
 from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
 from scoreboard.scores.store import ScoreStore
 
@@ -681,3 +681,13 @@ async def test_a_visibility_flip_between_the_reads_cannot_persist_an_unverified_
     assert await Score.get_or_none(spec_id=payload["spec_id"]) is None, (
         "an unverified claim was persisted on a board that is private by the time it was written"
     )
+
+
+def test_an_unrecognised_auth_mode_does_not_count_as_verified() -> None:
+    # INVARIANT: the route derives `identity_verified` from an ALLOWLIST of modes that actually
+    # verify, not from "anything but disabled". A third mode added later would otherwise be treated
+    # as verifying by default — the fail-open direction, on the decision that governs private
+    # writes. Passing a mode outside the Literal is the point: it stands in for that future value.
+    assert identity_is_verified("cloudflare_headers") is True
+    assert identity_is_verified("disabled") is False
+    assert identity_is_verified(cast(AuthMode, "some-future-sso-mode")) is False

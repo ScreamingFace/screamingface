@@ -845,6 +845,32 @@ kept alongside the original.
 true — `0009` runs pre-upgrade and sees only legacy rows, and a row written during the window
 survives, bounded to a wrong replay of a PUBLIC score.
 
+## Review round 19 — 2026-08-27 (self-review of the P1/P2 fixes)
+
+**The reviewer's own two reproductions were run verbatim and no longer reproduce.** His P1 — flip
+visibility immediately before the store call — now returns `403` with nothing stored. His P2 — same
+key, changed payload — replays the original.
+
+**Two fail-open shapes in the code written for P1/P2, both closed.** Neither is reachable today;
+both are one forgotten call site from being reachable, which is the class the owner just chose to
+fail closed on.
+
+- **`auth_mode != "disabled"` was a denylist.** `AuthMode` is `Literal["disabled",
+  "cloudflare_headers"]`, so it reads correctly today — but a third mode added later would count as
+  VERIFYING until someone remembered to exclude it, on the decision that governs whether a private
+  board accepts a write. Replaced with `identity_is_verified()`, an allowlist naming the modes that
+  do verify, so a new one has to be added on purpose. Tested by passing a mode outside the Literal.
+- **`None == None` read as "this is mine".** `Score.submitted_by` is nullable and
+  `ScoreSubmission.submitted_by` is optional, so an orphan private row and an anonymous caller
+  compared equal and the row would have been handed over. Unreachable through the route — verified
+  mode 401s on a missing identity — which is precisely why it should not depend on that staying
+  true. Ownership now requires an actual owner.
+
+**Full sweep: 11 mutations across every privacy control, old and new, all bind.** Private-write
+refusal, the fail-closed default, the verified gate, the absent-submitter test, the auth-mode
+allowlist, 404 header symmetry, the unowned lookup, the reserved prefix, the seed refusal, `0009`,
+and the owned-entry projection.
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

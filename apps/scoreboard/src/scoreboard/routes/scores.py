@@ -21,7 +21,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 from tortoise.exceptions import OperationalError
 
-from scoreboard.config import Settings
+from scoreboard.config import AuthMode, Settings
 from scoreboard.core.auth.cloudflare_identity import (
     HEADER_USER_EMAIL,
     identity_from_headers,
@@ -51,6 +51,17 @@ MISSING_IDENTITY_DETAIL = (
     f"Missing {HEADER_USER_EMAIL} — this service resolves the submitter from the identity "
     "header the mesh gateway injects after verifying Cloudflare Access."
 )
+
+
+def identity_is_verified(auth_mode: AuthMode) -> bool:
+    """Whether `auth_mode` produces a submitter identity the server established itself.
+
+    INVARIANT: an ALLOWLIST, deliberately. `!= "disabled"` reads the same today, but it treats any
+    mode added later as verifying until someone remembers to exclude it — the fail-open direction,
+    on the decision that governs whether a private board accepts a write. Naming the modes that DO
+    verify means a new one has to be added here on purpose (review of PR #719).
+    """
+    return auth_mode == "cloudflare_headers"
 
 
 async def _resolve_submitter(request: Request, submission: ScoreSubmission) -> str | None:
@@ -189,7 +200,7 @@ async def submit_score(
             outcome = await store.submit(
                 submission,
                 idempotency_key=idempotency_key,
-                identity_verified=settings.auth_mode != "disabled",
+                identity_verified=identity_is_verified(settings.auth_mode),
             )
         except PrivateBoardRequiresIdentity as exc:
             raise HTTPException(

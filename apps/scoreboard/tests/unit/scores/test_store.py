@@ -2030,3 +2030,35 @@ async def test_a_reserved_prefix_public_key_keeps_replaying(tortoise_db: None) -
 
     assert not created
     assert replay.id == first.id
+
+
+async def test_two_absent_submitters_do_not_count_as_the_same_owner(tortoise_db: None) -> None:
+    # INVARIANT: ownership needs an actual owner. `Score.submitted_by` is nullable and
+    # `ScoreSubmission.submitted_by` is optional, so `None == None` would otherwise read as "this
+    # is mine" and hand over a private row. Unreachable through the route today — verified mode
+    # 401s on a missing identity — which is exactly why it should not depend on that staying true.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    orphan = await Score.create(
+        benchmark_id="hle",
+        spec_id="orphan",
+        url4_expression="url4://orphan",
+        submitted_by=None,
+        score=0.99,
+        total_questions=100,
+        correct_questions=99,
+        ran_with_providers=["openai"],
+        content_hash="orphan-hash",
+        metadata={"secret": "not-yours"},
+    )
+    scoped = _scoped_idempotency_key("k", None, per_submitter=True)
+    assert scoped is not None
+    await IdempotencyKey.create(
+        key=scoped, score=orphan, expires_at=datetime.now(UTC) + timedelta(hours=24)
+    )
+
+    anonymous = _same_recipe(ALICE).model_copy(update={"submitted_by": None})
+    got, _ = await store.submit(anonymous, idempotency_key="k", identity_verified=True)
+
+    assert got.id != orphan.id
+    assert got.metadata != {"secret": "not-yours"}
