@@ -166,9 +166,17 @@ config:
 
 # WHERE THE DATABASE URL COMES FROM. Never a chart value: it carries a password.
 #
-# The default below is a sqlite file INSIDE the container, which is what the image ships and is
-# right for a single-replica smoke test and nothing else — it is not shared between replicas and
-# it does not survive the Pod. Point `existingSecret` at a real Postgres URL for anything else.
+# **This chart requires Postgres. sqlite is not a supported deployment, not even for a smoke
+# test.** The image can open a sqlite file and the test suite runs on one, but a sqlite URL here
+# produces a service that never becomes Ready, for a reason that is structural rather than a
+# tuning problem: migrations run as a Helm hook Job, in its OWN Pod with its own filesystem. That
+# Job creates the schema in a file the application Pod never sees, exits 0, and is reaped. The
+# Deployment then starts, finds no `reports` table, and `/readyz` fails closed forever while
+# `/healthz` keeps answering 200 — so the Pod is Running, never Ready, and the install looks like
+# a routing fault. Observed on a real cluster; it is not a hypothetical.
+#
+# `existingSecret` is `required` for the same reason it is not defaulted: the URL carries a
+# password, and a working default is one nobody is ever forced to replace.
 database:
   existingSecret: report-intake-db
   existingSecretKey: database-url

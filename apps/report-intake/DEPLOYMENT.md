@@ -37,8 +37,13 @@ Chart internals — the values, the topology, what each guard protects — are i
 - **Envoy Gateway's rate-limit service** (the Redis-backed one, enabled in the `EnvoyGateway`
   config) if you want `gateway.public.rateLimit`. See [The edge rate limit](#the-edge-rate-limit).
 - **A `ClientTrafficPolicy` on the Gateway** with `clientIPDetection`, for the same reason.
-- **Postgres.** The image ships a sqlite file inside the container; it is per-Pod, does not
-  survive a restart, and is right for a single-replica smoke test and nothing else.
+- **Postgres — required, with no sqlite fallback for any deployment.** The image can open a
+  sqlite file and the test suite runs on one, but a sqlite URL in `report-intake-db` yields a
+  service that never becomes Ready. Migrations run as a Helm hook Job in its **own** Pod with its
+  own filesystem, so the schema is created in a file the application Pod never sees; the Job exits
+  0 and is reaped, the Deployment finds no `reports` table, and `/readyz` fails closed forever
+  while `/healthz` keeps answering 200. The result is a Running-but-never-Ready Pod that reads
+  like a routing fault. Observed on a cluster, not reasoned about.
 - **Two Secrets** — the database URL and the Turnstile secret. See [Secrets](#secrets).
 - **A Cloudflare Access application, a Turnstile widget, DNS for two hostnames, and a rate-limiting
   rule.** All four are dashboard actions outside this repository — see

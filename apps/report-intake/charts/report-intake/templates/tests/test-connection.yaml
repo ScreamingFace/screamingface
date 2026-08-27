@@ -7,6 +7,10 @@ metadata:
   annotations:
     "helm.sh/hook": test
 spec:
+  # kubelet's legacy Docker-link vars are named from every Service in the namespace, and in a
+  # namespace holding this release they carry this app's env prefix. `create_app` rejects any
+  # such name that matches no Settings field. See deployment.yaml.
+  enableServiceLinks: false
   restartPolicy: Never
   containers:
     # BOTH probes, and the readiness one is the point. `/healthz` proves the process is serving

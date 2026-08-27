@@ -27,6 +27,24 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      # NOT optional, and not hardening — this service cannot start without it.
+      #
+      # kubelet injects a legacy Docker-link variable for every Service in the namespace, named
+      # from the Service uppercased with `-` as `_`. Install this chart as `report-intake` in a
+      # namespace of its own and its OWN Service produces a prefixed `..._SERVICE_HOST` and
+      # friends; a Postgres named `report-intake-pg` beside it adds six more. `create_app`'s guard
+      # rejects any prefixed name matching no Settings field — correctly, because a name nobody
+      # reads means a value silently on its default — so the Pod CrashLoopBackOffs on names
+      # Kubernetes invented, and the more obvious the naming the likelier it is. Verified on a
+      # real cluster, not reasoned about.
+      #
+      # AIDEV-NOTE: same defect as scoreboard's (#538) and the engine's
+      # `deploy/helm/templates/deployment.yaml:35`. Every pod-carrying template in this chart
+      # carries this line; `test_chart_environment.py` asserts none is ever missed.
+      #
+      # Do NOT spell the injected names literally in this comment: the app-side scanner reads
+      # these templates textually, and an example name reads as a name the chart renders.
+      enableServiceLinks: false
       serviceAccountName: {{ include "report-intake.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

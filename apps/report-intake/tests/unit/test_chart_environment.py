@@ -105,3 +105,54 @@ def test_the_chart_this_scans_is_the_real_one() -> None:
     passes forever."""
     assert (_TEMPLATES / "configmap.yaml").is_file()
     assert (_CHART_ROOT / "values-cloud.yaml").is_file()
+
+
+def _pod_carrying_templates() -> list[Path]:
+    """Every template that renders a Pod spec, found rather than listed.
+
+    A list would be a list somebody forgets to extend. `containers:` is what makes an object a
+    Pod carrier, and it is the same string in a Deployment, a Job and a Helm test Pod.
+    """
+    return sorted(
+        path
+        for path in _TEMPLATES.rglob("*.yaml")
+        if "containers:" in path.read_text(encoding="utf-8")
+    )
+
+
+def test_every_pod_this_chart_renders_disables_kubernetes_service_links() -> None:
+    """Without it this service cannot start, and the more obvious the naming the worse it is.
+
+    kubelet injects a legacy Docker-link variable per Service in the namespace, named from the
+    Service uppercased with `-` as `_`. Install this release as `report-intake` and its own
+    Service yields `REPORT_INTAKE_REPORT_INTAKE_SERVICE_HOST`; a `report-intake-pg` Postgres beside
+    it adds `REPORT_INTAKE_PG_RW_SERVICE_PORT` and six more. `create_app` rejects any
+    `REPORT_INTAKE_*` matching no `Settings` field -- rightly, since a name nobody reads means a
+    value silently on its default -- so the Pod CrashLoopBackOffs on names Kubernetes invented.
+
+    Found on a real cluster. An earlier smoke test passed only because it happened to install as
+    `reports` into `report-intake-e2e`, which produces `REPORTS_*` and collides with nothing.
+    Same defect as scoreboard's (#538); the engine already carries the line.
+    """
+    templates = _pod_carrying_templates()
+
+    assert templates, "no pod-carrying template found — the search is wrong, not the chart"
+    missing = [
+        path.relative_to(_CHART_ROOT).as_posix()
+        for path in templates
+        if "enableServiceLinks: false" not in path.read_text(encoding="utf-8")
+    ]
+    assert not missing, f"pod specs without enableServiceLinks: false: {missing}"
+
+
+def test_the_chart_does_not_offer_sqlite_as_a_deployment() -> None:
+    """Migrations run as a hook Job in its OWN Pod. A sqlite URL is migrated in a filesystem the
+    application Pod never sees, so the Deployment finds no `reports` table and `/readyz` fails
+    closed forever while `/healthz` answers 200 -- Running, never Ready, reading like a routing
+    fault. The chart used to call sqlite "right for a single-replica smoke test"; it is right for
+    no deployment, and saying so is the whole fix, since the chart cannot read the Secret."""
+    values = (_CHART_ROOT / "values.yaml").read_text(encoding="utf-8")
+
+    assert "sqlite" in values, "the refusal has to be stated where an operator sets the value"
+    assert "smoke test and nothing else" not in values
+    assert "requires Postgres" in values

@@ -309,3 +309,51 @@ rendering that file — caught the second time by a check rather than by a red t
 3. **No `linear.enabled` flag was added and no repo rule was amended.** Rule 9 is named in
    DEPLOYMENT.md as governing the selection and left to the owner, exactly as
    `delivery/linear_sink.py` and the chart already do.
+
+### Cluster e2e, and the two defects it found (2026-08-27)
+
+Installed on a real k3s (v1.34.1, Hetzner) against a CloudNativePG Postgres, exercised, and
+removed. Everything below `helm template` had passed every local gate; both defects needed a
+cluster to surface.
+
+**1. Every Pod this chart renders now sets `enableServiceLinks: false`. Without it the service
+cannot start at all.** kubelet injects a legacy Docker-link variable per Service in the namespace,
+named from the Service uppercased with `-` as `_`. Installed as `report-intake` into a namespace
+of its own, the release's **own** Service and a `report-intake-pg` beside it produced 32 variables
+carrying this app's env prefix, and `create_app`'s unknown-name guard refused every one of them —
+correctly, since a name nobody reads means a value silently on its default. The Pod
+CrashLoopBackOffed on names Kubernetes invented, and the more natural the naming the likelier it
+is.
+
+The first e2e pass missed this entirely because it happened to install as `reports` into
+`report-intake-e2e`, yielding `REPORTS_*` and `RI_PG_*`, which collide with nothing. The obvious
+production naming is the broken case; a throwaway test name is the safe one. Same defect as
+scoreboard's (#538) and the engine already carries the line —
+`test_every_pod_this_chart_renders_disables_kubernetes_service_links` now finds pod-carrying
+templates by searching for `containers:` rather than listing them, so a template added later
+cannot miss it. Verified after the fix by redeploying under the exact naming that had failed.
+
+**2. sqlite is no longer offered as a deployment, at any size.** `values.yaml` called it "right
+for a single-replica smoke test"; it is right for nothing. Migrations run as a Helm hook Job in
+its OWN Pod with its own filesystem, so a sqlite URL is migrated in a file the application Pod
+never sees. The Job exits 0 and is reaped, the Deployment finds no `reports` table, and `/readyz`
+fails closed forever while `/healthz` answers 200 — a Running-but-never-Ready Pod that reads like
+a routing fault. The chart cannot read the Secret, so stating it is the whole fix; `values.yaml`
+and `DEPLOYMENT.md` now say Postgres is required and why, and a test pins the wording.
+
+**Two things worked exactly as designed, and are worth recording as such.** The probe split turned
+a data problem into a readable one: with the database unusable the Pod stayed Running and simply
+never joined the Service, so the logs showed `no such table: reports` instead of a restart storm.
+And `_check_forwarded_allow_ips` refused an install where `allowedNetworks` was set to
+`127.0.0.1/32`, which overlaps uvicorn's default `FORWARDED_ALLOW_IPS` — a real forgery path,
+caught at boot, in an error that named the mistake. That one was the operator's (mine), not the
+chart's.
+
+**Not exercised anywhere but `helm template`:** `SecurityPolicy` and `BackendTrafficPolicy`. They
+are Envoy Gateway extensions and that cluster has Gateway API core but not Envoy Gateway, so the
+two-hostname identity topology and the edge rate limit remain unvalidated against a live API
+server.
+
+**Gates after the fix:** `run_gates.py report-intake` ALL GATES GREEN (551 passed);
+`verify_chart_wiring.py` 89/89; `helm lint`, default render and cloud render all pass;
+`helm test` Phase: Succeeded on the cluster.

@@ -39,6 +39,11 @@ spec:
         {{- include "report-intake.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: migrate
     spec:
+      # kubelet's legacy Docker-link vars are named from every Service in the namespace, and
+      # in a namespace holding this release they carry this app's env prefix. `create_app`
+      # rejects any such name that matches no Settings field, so this Pod would CrashLoop on
+      # names Kubernetes invented. See deployment.yaml for the full note.
+      enableServiceLinks: false
       restartPolicy: OnFailure
       serviceAccountName: {{ .Values.migration.serviceAccountName | quote }}
       {{- /*
