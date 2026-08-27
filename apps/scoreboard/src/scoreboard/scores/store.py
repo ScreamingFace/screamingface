@@ -755,13 +755,18 @@ class ScoreStore:
                 submitted_by=submission.submitted_by,
                 identity_verified=identity_verified,
             )
+            # Revalidated before BOTH exits, not just the replay. This branch is reached BECAUSE
+            # something changed concurrently, so it is the least safe place to trust a read taken
+            # before the failed insert — and the persist-path check that already passed cannot
+            # speak for the time spent failing.
+            #
+            # WHY it must also guard the `raise`: `IntegrityError` SUBCLASSES `OperationalError`,
+            # so re-raising it is caught by the route's store-unavailable handler and answered
+            # `503 score store unavailable`. Nothing is unavailable — the board changed — and a
+            # flip is the likeliest reason nothing resolved here, since the privacy gate stops the
+            # winner's row being readable once the board is private (review of PR #719).
+            await self._revalidate_visibility(submission.benchmark_id, per_submitter)
             if existing is not None:
-                # The same revalidation the pre-insert return does. This branch is reached BECAUSE
-                # something changed concurrently, so it is the least safe place to trust a read
-                # taken before the failed insert — and the persist-path check that already passed
-                # cannot speak for the time spent failing (found by sweeping the class rather than
-                # the instance, review of PR #719).
-                await self._revalidate_visibility(submission.benchmark_id, per_submitter)
                 return SubmitOutcome(score=_score_to_schema(existing), created=False)
             raise
 

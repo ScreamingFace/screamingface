@@ -1049,6 +1049,40 @@ replaying their OWN row, or the privacy gate refuses first and the revalidation 
 those is now a comment in the test, because the next person to touch it will hit all three.
 
 
+## Review round 24 — 2026-08-27 (owner, PR #719)
+
+Two halves. The first was already closed by the round-23 sweep, which landed after the comment was
+written — the replay return revalidates at `store.py:764`. The second was open, and it is mine.
+
+**[P2] The `raise` exit of the same branch was answered `503 score store unavailable`.** Not the
+unhandled 500 the comment describes, and the difference matters: `IntegrityError` **subclasses**
+`OperationalError`, so re-raising it is caught by the route's store-unavailable handler. The caller
+is told the database is down when the board had merely changed, and a conflict is masked as an
+outage. Reproduced: `{"detail":"score store unavailable"}`.
+
+**The privacy gate is what made it reachable, so this is a consequence of round 18.** Once the board
+is private the winner's row is no longer readable, so nothing resolves in the retry branch and the
+bare `raise` runs. Before the gate existed, that branch almost always found something.
+
+**Fixed by revalidating before BOTH exits rather than only the replay.** One call above the branch
+instead of one inside it — simpler than what round 23 left, and it turns the flip case into the 409
+it should always have been. A genuine integrity failure with visibility unchanged still re-raises,
+because that IS a server-side surprise and should not be dressed as a retryable conflict.
+
+Two mutations bind: removing the call (2 failures), and moving it back inside the `if` (1) — the
+second is the exact shape round 23 shipped, so the test now holds the difference.
+
+**Noted, out of scope:** `except OperationalError` in the route swallows every `IntegrityError` as
+`503`, for all paths and not just this one. Pre-existing, wrong, and a bigger change than this PR
+should make.
+
+**The test took three attempts** and each failure was informative, so the reasons are comments in
+it: the flip cannot be landed inside `Score.create` (single-connection SQLite rolls it back with the
+transaction), cannot be landed before the persist-path check (that check catches it and proves
+nothing), and the caller must be replaying their OWN row for the replay exit — a different submitter
+is refused by the privacy gate first.
+
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

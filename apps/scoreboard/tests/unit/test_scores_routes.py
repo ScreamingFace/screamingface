@@ -9,7 +9,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from tortoise.exceptions import OperationalError
+from tortoise.exceptions import IntegrityError, OperationalError
 
 from scoreboard.config import AuthMode, Settings
 from scoreboard.main import create_app
@@ -747,3 +747,55 @@ async def test_a_flip_after_the_visibility_read_withholds_the_score(
 
     assert response.status_code == 404, response.text
     assert response.headers["cache-control"] == "private, no-store"
+
+
+def _lose_the_race_and_flip(benchmark_id: str) -> tuple[object, object, dict[str, int]]:
+    """Blind the precheck, flip the board on the retry lookup, and fail the first insert."""
+    real_resolve = ScoreStore._resolve_existing
+    real_create = Score.create
+    seen = {"resolves": 0, "raises": 0}
+
+    async def _resolve(self, idempotency_key, content_hash):  # type: ignore[no-untyped-def]
+        seen["resolves"] += 1
+        if seen["resolves"] == 1:
+            return None
+        await Benchmark.filter(id=benchmark_id).update(visibility="private")
+        return await real_resolve(self, idempotency_key, content_hash)
+
+    async def _create(**kwargs):  # type: ignore[no-untyped-def]
+        if not seen["raises"]:
+            seen["raises"] += 1
+            raise IntegrityError("simulated concurrent insert")
+        return await real_create(**kwargs)
+
+    return _resolve, _create, seen
+
+
+async def test_a_lost_race_after_a_flip_is_a_conflict_not_a_store_outage(
+    score_client: AsyncClient,
+) -> None:
+    # INVARIANT: a concurrency conflict on a board that changed underneath the request is a 409.
+    #
+    # `IntegrityError` SUBCLASSES `OperationalError`, so re-raising it was caught by the route's
+    # store-unavailable handler and answered `503 score store unavailable` — telling the client the
+    # database is down when the board had merely changed, and masking a conflict as an outage. The
+    # privacy gate is what made this reachable: after a flip the winner's row is no longer readable,
+    # so nothing resolves and the bare `raise` runs (review of PR #719).
+    await Benchmark.create(id="lost-x", display_name="Lost", visibility="public")
+    payload = _valid_payload()
+    payload["benchmark_id"] = "lost-x"
+    assert (await score_client.post("/v1/scores", json=payload)).status_code == 201
+
+    real_resolve, real_create = ScoreStore._resolve_existing, Score.create
+    resolve, create, seen = _lose_the_race_and_flip("lost-x")
+    ScoreStore._resolve_existing, Score.create = resolve, create  # type: ignore[method-assign]
+    try:
+        response = await score_client.post(
+            "/v1/scores", json=dict(payload, spec_id="loser", submitted_by="bob@example.test")
+        )
+    finally:
+        ScoreStore._resolve_existing = real_resolve  # type: ignore[method-assign]
+        Score.create = real_create  # type: ignore[method-assign]
+
+    assert seen["raises"], "the IntegrityError branch was never reached"
+    assert response.status_code == 409, response.text
