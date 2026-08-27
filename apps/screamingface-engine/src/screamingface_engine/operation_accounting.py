@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Sequence
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -111,10 +111,16 @@ def _sum_cost(values: Iterable[str | None]) -> str | None:
     rows = tuple(values)
     if any(value is None for value in rows):
         return None
-    return format(
-        sum((Decimal(value) for value in rows if value is not None), start=Decimal(0)),
-        "f",
-    )
+    texts = tuple(value for value in rows if value is not None)
+    amounts = tuple(Decimal(value) for value in texts)
+    integer_digits = max((len(value.partition(".")[0]) for value in texts), default=1)
+    fractional_digits = max((len(value.partition(".")[2]) for value in texts), default=0)
+    # INVARIANT: retained money is exact fixed-point text. Decimal addition obeys the ambient
+    # context, so precision must cover every integer/fractional digit plus a possible carry from
+    # summing N calls rather than silently rounding a long provider-authored amount.
+    with localcontext() as context:
+        context.prec = integer_digits + fractional_digits + len(str(max(len(amounts), 1)))
+        return format(sum(amounts, start=Decimal(0)), "f")
 
 
 __all__ = [

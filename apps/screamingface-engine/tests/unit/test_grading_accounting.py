@@ -111,6 +111,40 @@ def test_redraws_for_one_owner_are_strictly_aggregated() -> None:
     assert accounting.cache.misses == 2
 
 
+def test_revised_requests_for_one_owner_are_strictly_aggregated() -> None:
+    owner = _owner()
+    with capture_operation_calls():
+        with capture_grading_requests():
+            register_grading_request(
+                owner,
+                path="/judge",
+                params={"temperature": "0.2"},
+                context="first answer",
+                intent="",
+            )
+            with operation_call_identity(
+                "/judge", {"temperature": "0.2"}, context="first answer", intent=""
+            ):
+                record_operation_call("first verdict", "stop", _accounting("0.1"))
+            register_grading_request(
+                owner,
+                path="/judge",
+                params={"temperature": "0.2"},
+                context="revised answer",
+                intent="",
+            )
+            with operation_call_identity(
+                "/judge", {"temperature": "0.2"}, context="revised answer", intent=""
+            ):
+                record_operation_call("revised verdict", "stop", _accounting("0.2"))
+
+            accounting = accounting_for_grading_evidence(owner)
+
+    assert accounting is not None
+    assert accounting.usage.cost_usd == "0.3"
+    assert accounting.cache.misses == 2
+
+
 def test_duplicate_request_owners_disable_attribution_without_payload_logging(
     caplog,
 ) -> None:

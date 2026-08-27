@@ -70,12 +70,7 @@ def attribute_operation_outputs(
         if binding.fingerprint is not None:
             claims[binding.fingerprint] = claims.get(binding.fingerprint, 0) + 1
     operations = [_attributed(binding, by_fingerprint, claims) for binding in bindings]
-    if not any(
-        operation.output is not None
-        or operation.finish_reason is not None
-        or operation.accounting is not None
-        for operation in operations
-    ):
+    if len(bindings) == 1 and bindings[0].fingerprint is None:
         return None
     return operations
 

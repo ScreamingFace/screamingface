@@ -32,6 +32,11 @@ Event behavior.
   model output can be attributed.
 - Index run-scoped grading calls incrementally by request key so verdict lookup is linear across a
   run rather than scanning every preceding call for every Evidence record.
+- Sum retained fixed-point costs independently of the ambient Decimal precision.
+- Aggregate several uniquely owned request keys for one grading Evidence owner instead of dropping
+  that owner's accounting.
+- Preserve an explicit all-null operation list for a multi-operation Candidate when no call can be
+  attributed, while keeping a solo nested Recipe's envelope absent.
 
 ## Test plan
 
@@ -49,6 +54,9 @@ Event behavior.
   cache keys, retries, model-call cardinality, failures, and live Events.
 - RED regression tests for a solo nested Recipe producing no empty operation and for grading
   lookup indexing only newly appended calls.
+- RED regressions for full-precision cost sums, multiple unique request keys per Evidence owner,
+  and an all-unattributed multi-operation Candidate; characterize malformed omission metadata as
+  deliberately unavailable rather than partially trusted.
 - Run `uv run ../../.claude/scripts/run_gates.py screamingface-engine` from the repository root.
 
 ## Acceptance
@@ -71,17 +79,27 @@ Event behavior.
   ownership, lifecycle, ambiguity, and board vertical-slice tests; updated approved strict legacy
   shape and composition tests plus the spec, plan, and task mirror. Review follow-up suppresses an
   entirely unattributed solo nested-Recipe operation envelope and incrementally indexes grading
-  calls by request key instead of rescanning the run ledger for each verdict.
+  calls by request key instead of rescanning the run ledger for each verdict. Final review follow-up
+  makes fixed-point cost sums independent of ambient Decimal precision, aggregates every uniquely
+  owned request key for revised grading evidence, and preserves explicit null entries when a
+  multi-operation Candidate cannot be attributed.
 - **Commits:** this implementation commit — `feat(screamingface-engine): retain operation
   accounting`.
 - **Gates:** `python3 .claude/scripts/run_gates.py screamingface-engine --skip-append-only` — ALL
   GATES GREEN (ruff check, ruff format, pyright, layering, and full coverage suite). The
   append-only exception is the explicit owner approval recorded below. Review regressions: 22
-  focused accounting/operation-output tests and 38 benchmark vertical-slice tests passed.
+  focused accounting/operation-output tests and 38 benchmark vertical-slice tests passed. Final
+  review regressions: 51 focused accounting and board tests passed; the full Engine gate passed
+  again.
 - **Deviations:** Candidate invocation needed a separate `isolate_operation_calls` switch so its
   model-call ledger is isolated from grading without discarding the existing nested Candidate
   outcome capture. This preserves the published behavior while enforcing the planned ownership
-  boundary. No scope, URL4, Gateway, score, live-event, or call-cardinality deviation.
+  boundary. Malformed Gateway omission metadata remains deliberately fail-closed: no attempt-level
+  identity, token, latency, or cost facts are trusted when completeness cannot be established, and
+  this is now characterized by a regression test. Request-key hashing remains separate from the
+  catalogue ETag helper because their lengths, serialization rules, and layer ownership differ.
+  The capture scopes overlap by lifetime but have no ordering dependency. No scope, URL4, Gateway,
+  score, live-event, or call-cardinality deviation.
 
 ## Confidence-gate decisions
 

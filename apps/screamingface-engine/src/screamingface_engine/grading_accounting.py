@@ -82,22 +82,21 @@ def accounting_for_grading_evidence(
     calls = current_operation_calls()
     if registry is None or calls is None:
         return None
-    request_key = _request_key_for_owner(registry, owner)
-    if request_key is None:
+    request_keys = _request_keys_for_owner(registry, owner)
+    if not request_keys:
         return None
     _index_new_calls(registry, calls)
-    return _accounting_for_key(registry.calls_by_key, request_key)
+    return _accounting_for_keys(registry.calls_by_key, request_keys)
 
 
-def _request_key_for_owner(
+def _request_keys_for_owner(
     registry: _Registry,
     owner: GradingEvidenceOwner,
-) -> str | None:
+) -> tuple[str, ...]:
     keys = registry.keys_by_owner.get(owner, set())
-    if len(keys) != 1:
-        return None
-    request_key = next(iter(keys))
-    return request_key if registry.owners_by_key.get(request_key) == {owner} else None
+    if not keys or any(registry.owners_by_key.get(key) != {owner} for key in keys):
+        return ()
+    return tuple(sorted(keys))
 
 
 def _index_new_calls(registry: _Registry, calls: Sequence[OperationCall]) -> None:
@@ -111,10 +110,10 @@ def _index_new_calls(registry: _Registry, calls: Sequence[OperationCall]) -> Non
     registry.indexed_count = len(calls)
 
 
-def _accounting_for_key(
-    calls_by_key: Mapping[str, Sequence[OperationCall]], request_key: str
+def _accounting_for_keys(
+    calls_by_key: Mapping[str, Sequence[OperationCall]], request_keys: Sequence[str]
 ) -> OperationAccounting | None:
-    matched = calls_by_key.get(request_key, ())
+    matched = [call for request_key in request_keys for call in calls_by_key.get(request_key, ())]
     if not matched or any(call.accounting is None for call in matched):
         return None
     return combine_operation_accounting(

@@ -206,5 +206,46 @@ def test_unknown_part_poisons_only_its_own_field() -> None:
     assert combined.cache.bypasses == 1
 
 
+def test_combined_cost_preserves_every_fixed_point_digit() -> None:
+    first = retained_operation_accounting(
+        request_model="model",
+        usage=None,
+        aigw=_aigw(cost="1.123456789012345678901234567890123"),
+        cache=_cache("miss"),
+    )
+    second = retained_operation_accounting(
+        request_model="model",
+        usage=None,
+        aigw=_aigw(cost="2.000000000000000000000000000000001"),
+        cache=_cache("miss"),
+    )
+
+    combined = combine_operation_accounting([first, second])
+
+    assert combined is not None
+    assert combined.usage.cost_usd == "3.123456789012345678901234567890124"
+
+
+def test_malformed_omission_count_makes_attempt_fields_unavailable() -> None:
+    aigw = _aigw()
+    usage_accounting = aigw["usage_accounting"]
+    assert isinstance(usage_accounting, dict)
+    usage_accounting["omitted_attempts"] = "0"
+
+    accounting = retained_operation_accounting(
+        request_model="model",
+        usage={"prompt_tokens": 99, "completion_tokens": 10},
+        aigw=aigw,
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider is None
+    assert accounting.response_model is None
+    assert accounting.usage.input_tokens is None
+    assert accounting.usage.output_tokens is None
+    assert accounting.usage.cost_usd is None
+    assert accounting.provider_latency_ms is None
+
+
 def test_empty_accounting_collection_has_no_invented_record() -> None:
     assert combine_operation_accounting([]) is None

@@ -237,6 +237,20 @@ def test_a_solo_nested_recipe_without_an_attributed_call_keeps_operations_absent
     assert attribute_operation_outputs(candidate, []) is None
 
 
+def test_an_unattributed_multi_operation_candidate_keeps_explicit_null_entries() -> None:
+    operations = attribute_operation_outputs(_fusion_expression(), [])
+
+    assert operations is not None
+    assert [
+        (operation.operation_id, operation.output, operation.finish_reason, operation.accounting)
+        for operation in operations
+    ] == [
+        ("op_model_1", None, None, None),
+        ("op_model_2", None, None, None),
+        ("op_synthesis_1", None, None, None),
+    ]
+
+
 def test_unique_operation_receives_all_of_its_call_accounting() -> None:
     calls = [
         _call(
