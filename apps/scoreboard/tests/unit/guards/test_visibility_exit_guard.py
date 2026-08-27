@@ -53,6 +53,12 @@ pytestmark = pytest.mark.anyio
 #
 # CONFIG-DRIVEN — reads visibility from deployment configuration, immutable within a seed pass.
 #   the seed.py functions
+#
+# OPERATOR TOOL — a one-shot CLI, not a request path. `check_rollback_safety` REPORTS what
+# `visibility` says so a human can decide; there is no later action for a stale read to
+# authorise, and a board flipped a second after it runs is caught by the next run. Revalidating
+# would only narrow a window that has nothing on the other side of it.
+#   check_rollback_safety.private_boards / format_verdict / running_version
 EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("leaderboard.py::_private_leaderboard", "Return"): 1,
     ("leaderboard.py::get_leaderboard", "Return"): 1,
@@ -73,6 +79,9 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("seed.py::_with_configured_visibility", "Return"): 1,
     ("seed.py::seed_from_sources", "Return"): 1,
     ("seed.py::seed_benchmarks", "Return"): 1,
+    ("check_rollback_safety.py::private_boards", "Return"): 1,
+    ("check_rollback_safety.py::format_verdict", "Return"): 2,
+    ("check_rollback_safety.py::running_version", "Return"): 2,
 }
 
 

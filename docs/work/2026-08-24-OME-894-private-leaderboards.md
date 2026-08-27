@@ -1288,3 +1288,66 @@ Two further corrections carried into the description:
   it was wrong as a general claim about provenance, which is what the description implied.
 - **The net line count.** "Net −279 lines" described the purge deletion alone and was never the
   PR's net. Replaced with what the diff actually reports.
+
+### Round 28 — a rollback finding, and a test that had stopped being one
+
+Review 5 approved at `4b5a8a82`; review 6, a rollback-focused pass at the same head, revised the
+approval. Two findings.
+
+**[P2] The opt-in PostgreSQL regression stopped reaching PostgreSQL.** It submits to a private
+board, and a private board now refuses unverified writes before opening any transaction — so it
+raised `PrivateBoardRequiresIdentity` and never touched the database. Because CI never sets
+`SCOREBOARD_TEST_DATABASE_URL`, it was **green as a skip everywhere anyone looked** and failed only
+in the one environment it exists to cover. Reproduced against a throwaway PostgreSQL 17 before
+touching it.
+
+The instance fix is `identity_verified=True` on both calls, plus an assertion that `scheme`
+round-trips through a real `CharField`. The class fix is that CI now runs it: a `postgres` job with
+a `postgres:17-alpine` service. The whole suite cannot run there — setting the URL routes the
+shared `tortoise_db` fixture through `postgres_schema_database_url`, whose `asyncio.run()` inside a
+running loop errors out 260 tests (OME-430, measured this round, not assumed) — so the job names
+the two self-contained modules. `test_postgres_regressions_run_in_ci.py` asserts that list still
+covers every module that skips itself without a database.
+
+That guard needed three attempts, and the failures are the interesting part. Detecting "a
+PostgreSQL test" by filename matched the guard itself. Detecting it by searching for `skipif` in
+the source also matched the guard — it writes those names down in order to look for them. The rule
+that works reads the **AST**: a `skipif` decorator or a `pytest.skip()` call is syntax, and the
+same words in a string literal are not. A guard has to be able to describe what it hunts without
+becoming its own quarry.
+
+**[P1] `helm rollback` can publish every private submission.** Privacy is enforced by code reading
+`Benchmark.visibility`; the database only stores the column. Roll the code back below this release
+and the column survives while nothing reads it.
+
+Executed rather than reasoned about. Base `454253da`'s `src/scoreboard/` contains **zero**
+occurrences of `visibility`. Extracted with `git archive`, run against a PostgreSQL holding one
+private board with three submissions, its `ScoreStore.leaderboard()` returned all three with
+submitter addresses. There is no configuration of the old code that filters, because it has nothing
+to filter on.
+
+**The chart cannot guard this, and it was worth checking rather than assuming.** `helm rollback`
+executes the TARGET revision's hooks — `execHook(targetRelease, release.HookPreRollback, ...)` in
+Helm's `pkg/action/rollback.go`, read this round. The revision being rolled back *to* is a
+pre-privacy one whose stored manifest has no such hook, so nothing added here can run in the
+dangerous direction. A `pre-rollback` hook would have looked like a fix and been theatre.
+
+So the control is an operator preflight: `python -m scoreboard.check_rollback_safety` exits
+non-zero while any board is private, and `DEPLOYMENT.md` carries the invariant, the ordering rule
+for activation, and the fail-closed procedure. No override flag — clearing the refusal by flipping
+a board public *is* the leak, performed deliberately. The floor is not hardcoded: the tool reports
+its own running version, because the privacy-aware release did not exist when the module was
+written and a guessed constant would have rotted.
+
+**One mutation did not bind, and it was the one that mattered.** Mutating `0 if not boards else 1`
+to a bare `0` left the suite green: both `main` tests monkeypatch `_run`, so they proved the exit
+code was PROPAGATED while nothing proved it was DERIVED — and the exit code is the entire
+enforcement. Closed by driving the real `_run` against the test connection. Same shape as round 12:
+a test that passes for a reason adjacent to the one it claims.
+
+The doc-pointer guard failed its own mutation too. `heading in doc.read_text()` matched the
+cross-link I had just added under "Upgrade And Rollback", so renaming the heading kept it green. It
+matches a heading LINE now.
+
+Owner decision (2026-08-27): docs plus the preflight command land here; chart-side enforcement was
+ruled out on the evidence above rather than deferred.
