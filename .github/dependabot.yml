@@ -63,6 +63,27 @@ updates:
         patterns: ["*"]
         update-types: ["major"]
 
+  # Listed from day one, unlike public-docs: the header's rule is that a directory should not be
+  # listed until something can gate it, and report-intake-tests.yml (lint, typecheck, tests,
+  # coverage floor, AND a built-and-started image) exists in the same change that creates the app.
+  - package-ecosystem: "uv"
+    directory: "/apps/report-intake"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      report-intake-python-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      report-intake-python-minor:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      report-intake-python-major:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["major"]
+
   - package-ecosystem: "uv"
     directory: "/packages/url4"
     schedule:
@@ -259,6 +280,27 @@ updates:
         applies-to: security-updates
         patterns: ["*"]
       scoreboard-docker-version:
+        applies-to: version-updates
+        patterns: ["*"]
+
+  # The one docker directory here whose base-image bump IS verified before it lands: unlike the
+  # three above, report-intake-tests.yml builds this image and starts it on every PR, so the
+  # builder/runtime Python-minor mismatch Dependabot cannot avoid proposing fails a check rather
+  # than a deploy.
+  - package-ecosystem: "docker"
+    directory: "/apps/report-intake"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      # See the docker section note above: 3.14 is not covered by any CI matrix here.
+      - dependency-name: "python"
+        versions: [">=3.14"]
+    groups:
+      report-intake-docker-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      report-intake-docker-version:
         applies-to: version-updates
         patterns: ["*"]
 

@@ -92,3 +92,14 @@ ignores:
       matrix_key: python-version
     note: >-
       NOT upstream-blocked; see the screamingface-engine entry. Extending this matrix is what lifts it.
+
+  - directory: /apps/report-intake
+    dependency: python
+    versions: ">=3.14"
+    ticket: OME-747
+    blocker:
+      kind: ci_matrix
+      workflow: .github/workflows/report-intake-tests.yml
+      matrix_key: python-version
+    note: >-
+      NOT upstream-blocked; see the screamingface-engine entry. Extending this matrix is what lifts it.

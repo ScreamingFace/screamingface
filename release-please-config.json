@@ -56,6 +56,14 @@
       "include-component-in-tag": true,
       "version-file": "apps/scoreboard/pyproject.toml"
     },
+    "apps/report-intake": {
+      "release-type": "python",
+      "package-name": "report-intake",
+      "component": "report-intake",
+      "tag-separator": "-",
+      "include-component-in-tag": true,
+      "version-file": "apps/report-intake/pyproject.toml"
+    },
     "apps/aigateway-ui": {
       "package-name": "aigateway-ui",
       "component": "aigateway-ui",

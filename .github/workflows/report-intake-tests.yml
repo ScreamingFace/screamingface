@@ -1,0 +1,175 @@
+name: report-intake-tests
+
+on:
+  push:
+    paths:
+      - "apps/report-intake/**"
+      - ".github/workflows/report-intake-tests.yml"
+  pull_request:
+    paths:
+      - "apps/report-intake/**"
+      - ".github/workflows/report-intake-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+# Rapid pushes to the same ref would otherwise run duplicate matrices to completion.
+concurrency:
+  group: report-intake-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: apps/report-intake
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
+      # longer matches pyproject.toml is invisible to every later step — including the version
+      # bump a release PR makes and never locks.
+      - name: Check the lockfile is current
+        run: uv lock --check
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint (ruff check)
+        run: uv run ruff check --output-format=github
+
+      - name: Lint (ruff format)
+        run: uv run ruff format --check
+
+      - name: Typecheck
+        run: uv run pyright
+
+      - name: Run unit tests with aggregate coverage
+        run: |
+          uv run pytest \
+            --tb=short \
+            --junitxml=results.xml \
+            --cov=report_intake \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            -v
+
+      - name: Test report
+        uses: dorny/test-reporter@v3
+        if: always()
+        with:
+          name: report-intake Test Results (${{ matrix.python-version }})
+          path: apps/report-intake/results.xml
+          reporter: java-junit
+
+      # ONE leg only. Without the version guard the matrix runs this twice concurrently on a PR:
+      # two coverage comments, plus a create/update race that can fail the step on an otherwise
+      # green PR. 3.12 is the shipped floor in pyproject's requires-python, so it is the leg
+      # whose number to publish.
+      - name: Coverage report
+        uses: orgoro/coverage@v3.3
+        if: >-
+          always() && github.event_name == 'pull_request'
+          && matrix.python-version == '3.12'
+        with:
+          coverageFile: apps/report-intake/coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.80
+
+  image:
+    name: Build and start the deployable image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # WHY this job exists at all, when aigateway and scoreboard have no equivalent: both of
+      # their Dockerfiles carry a comment admitting that nothing builds them until a release
+      # tag, so a break surfaces at deploy time on the deploy path. A new app should not inherit
+      # a known defect. The builder/runtime Python-minor INVARIANT in the Dockerfile is exactly
+      # the kind of break this catches — it builds clean and dies at import.
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/report-intake/Dockerfile
+          push: false
+          load: true
+          tags: report-intake:ci
+
+      # Building is not enough: a venv whose interpreter minor does not match the runtime's
+      # builds perfectly and then fails at the first import. Starting the container and getting
+      # a real 200 out of it is what proves the ENTRYPOINT, the venv, and the port.
+      - name: Smoke the image
+        run: |
+          docker run -d --name report-intake-ci -p 9109:9109 report-intake:ci
+          healthy=
+          for _ in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:9109/healthz; then
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$healthy" ]; then
+            echo "::error::the image never answered /healthz"
+            docker logs report-intake-ci
+            exit 1
+          fi
+          # A fresh container has a database with no schema, because this service never migrates
+          # itself (see Settings.database_url). 503 is the CORRECT answer there, and asserting it
+          # is what stops readiness from degenerating into a constant that means nothing.
+          status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9109/readyz)
+          if [ "$status" != "503" ]; then
+            echo "::error::/readyz answered $status before the migration; it must fail closed"
+            exit 1
+          fi
+          # The other half, and the one this job exists for: the migration in the SHIPPED image
+          # applies, and the pod then reports itself ready. Nothing else in CI runs 0001_initial
+          # through the CLI an operator actually invokes, against a database that has never seen
+          # it, inside the image that will be deployed.
+          if ! docker exec report-intake-ci tortoise migrate; then
+            echo "::error::tortoise migrate failed inside the image"
+            docker logs report-intake-ci
+            exit 1
+          fi
+          status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9109/readyz)
+          if [ "$status" != "200" ]; then
+            echo "::error::/readyz answered $status after migrating; the store is not queryable"
+            docker logs report-intake-ci
+            exit 1
+          fi
+
+      - name: Stop the image
+        if: always()
+        run: docker rm -f report-intake-ci || true
+
+  cost:
+    name: CI cost diff
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: HupBaHa/cost-diff@v0.1.2
+        with:
+          current-job-id: ${{ job.check_run_id }}
+          baseline-event: push
+          comment-mode: update
