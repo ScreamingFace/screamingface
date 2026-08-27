@@ -30,13 +30,14 @@ async def evaluate_candidate_recipe(
     input_text: str,
     *,
     isolated: bool = False,
+    isolate_operation_calls: bool = False,
     input_binding: str = "input",
 ) -> str:
     """Evaluate a Recipe while preserving its exact terminal outcome."""
 
     with capture_candidate_executions(isolated=isolated) as executions:
         with capture_model_outcomes(isolated=isolated) as outcomes:
-            with capture_operation_calls(isolated=isolated) as calls:
+            with capture_operation_calls(isolated=isolated or isolate_operation_calls) as calls:
                 try:
                     result = await node.evaluate(expression, env={input_binding: input_text})
                 except ResolutionError as exc:

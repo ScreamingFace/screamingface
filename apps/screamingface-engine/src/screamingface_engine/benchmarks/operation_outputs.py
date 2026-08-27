@@ -34,6 +34,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from screamingface_engine.benchmarks.contract import OperationOutput
+from screamingface_engine.operation_accounting import combine_operation_accounting
 from screamingface_engine.operation_calls import OperationCall
 from url4.core.errors import ParseError
 from url4.core.nodes import Expression, RelExpr, Source
@@ -56,14 +57,10 @@ def attribute_operation_outputs(
     expression: str,
     calls: Sequence[OperationCall],
 ) -> list[OperationOutput] | None:
-    """Join recorded calls to the expression's operations; None below two bindings.
-
-    Fewer than two attributable bindings means a solo Candidate (or a shape this
-    slice does not attribute) — no member section is invented for those.
-    """
+    """Join recorded calls to the expression's named model operations."""
 
     bindings = _operation_bindings(expression)
-    if len(bindings) < 2:
+    if not bindings:
         return None
     by_fingerprint: dict[_Fingerprint, list[OperationCall]] = {}
     for call in calls:
@@ -82,12 +79,17 @@ def _attributed(
 ) -> OperationOutput:
     output: str | None = None
     finish_reason: str | None = None
+    accounting = None
     matched = [] if binding.fingerprint is None else by_fingerprint.get(binding.fingerprint, [])
     if matched and claims.get(binding.fingerprint or ("", ()), 0) == 1:
         # One claimant: every matched call IS this operation; the last one is terminal
         # (a corrective re-invocation repeats the operation, and only its final answer
         # is the one the Candidate used).
         output, finish_reason = matched[-1].output, matched[-1].finish_reason
+        if all(call.accounting is not None for call in matched):
+            accounting = combine_operation_accounting(
+                [call.accounting for call in matched if call.accounting is not None]
+            )
     elif matched:
         distinct = {(call.output, call.finish_reason) for call in matched}
         if len(distinct) == 1:
@@ -96,6 +98,7 @@ def _attributed(
         operation_id=f"op_{binding.binding}",
         output=output,
         finish_reason=finish_reason,
+        accounting=accounting,
     )
 
 

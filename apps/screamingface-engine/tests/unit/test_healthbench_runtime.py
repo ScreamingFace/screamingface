@@ -27,12 +27,23 @@ from screamingface_engine.benchmarks.healthbench.definition import (
     PROFESSIONAL_EXAM,
     WORST30_EXAM,
 )
-from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
+from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.healthbench.prepare import envelope
 from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
 from screamingface_engine.benchmarks.healthbench.runtime import install, preflight
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS
 from screamingface_engine.benchmarks.healthbench.verdict import call as verdict_call
+from screamingface_engine.grading_accounting import capture_grading_requests
+from screamingface_engine.operation_accounting import (
+    OperationAccounting,
+    OperationCache,
+    OperationUsage,
+)
+from screamingface_engine.operation_calls import (
+    capture_operation_calls,
+    operation_call_identity,
+    record_operation_call,
+)
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -44,6 +55,32 @@ _ANSWER = "STOPDAPT-2 studied 1-month DAPT after PCI; which variant do you mean?
 # The Case a limit=1 run selects: cases.json order decides, and the fixture writes the
 # subset in WORST30_CASE_IDS order, so the first id is the exercised one.
 _CASE_ID = WORST30_CASE_IDS[0]
+
+
+def _accounting() -> OperationAccounting:
+    return OperationAccounting(
+        provider="openrouter",
+        request_model=JUDGE_MODEL,
+        response_model=JUDGE_MODEL,
+        usage=OperationUsage(
+            input_tokens=10,
+            output_tokens=2,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            reasoning_tokens=1,
+            cost_usd="0.25",
+        ),
+        provider_latency_ms=50,
+        cache=OperationCache(hits=0, misses=1, bypasses=0, unknown=0),
+    )
+
+
+def _cost_usd(record: dict[str, object]) -> object:
+    accounting = record["accounting"]
+    assert isinstance(accounting, dict)
+    usage = accounting["usage"]
+    assert isinstance(usage, dict)
+    return usage["cost_usd"]
 
 
 def _write_assets(root: Path) -> None:
@@ -83,6 +120,37 @@ async def _call(node: Url4Node, path: str, context: object, intent: str) -> obje
         intent=Text("$result"),
     )
     return json.loads((await node.evaluate(render(expression))).text)
+
+
+async def _captured_grading_verdict(
+    node: Url4Node,
+) -> tuple[dict[str, object], dict[str, object]]:
+    with capture_operation_calls():
+        with capture_grading_requests():
+            tasks = await _call(
+                node,
+                WORST30_EXAM.routes.tasks,
+                encode_candidate_invocation(_ANSWER, None, None),
+                str(_CASE_ID),
+            )
+            assert isinstance(tasks, list)
+            task = tasks[0]
+            assert isinstance(task, dict)
+            with operation_call_identity(
+                "/" + JUDGE_MODEL.removeprefix("/"),
+                dict(JUDGE_PARAMS),
+                context=task["grader_prompt"],
+                intent="",
+            ):
+                record_operation_call("judge reply", "stop", _accounting())
+            verdict = await _call(
+                node,
+                WORST30_EXAM.routes.verdict,
+                '{"explanation": "asks which study", "criteria_met": true}',
+                f"{_CASE_ID}:1",
+            )
+    assert isinstance(verdict, dict)
+    return task, verdict
 
 
 def test_preflight_fails_loudly_on_missing_assets(tmp_path: Path) -> None:
@@ -180,23 +248,10 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     _write_assets(tmp_path)
     node = Url4Node("test")
     install(node, tmp_path, WORST30_EXAM)
-    tasks = await _call(
-        node,
-        WORST30_EXAM.routes.tasks,
-        encode_candidate_invocation(_ANSWER, None, None),
-        str(_CASE_ID),
-    )
-    assert isinstance(tasks, list)
-    task = tasks[0]
-    verdict = await _call(
-        node,
-        WORST30_EXAM.routes.verdict,
-        '{"explanation": "asks which study", "criteria_met": true}',
-        f"{_CASE_ID}:1",
-    )
-    assert isinstance(verdict, dict)
+    task, verdict = await _captured_grading_verdict(node)
     assert verdict["valid"] is True
     assert verdict["case_id"] == _CASE_ID
+    assert _cost_usd(verdict) == "0.25"
     rubric_evaluation = await _call(
         node,
         WORST30_EXAM.routes.rubric_evaluation,
@@ -237,6 +292,8 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     # The single +8 item was met — the Case scores 1.0 and the mean follows.
     assert result["score"] == 1.0
     assert result["metrics"]["verdict_coverage"] == 1.0
+    evidence = result["cases"][0]["grade"]["checks"][0]["evidence"][0]
+    assert _cost_usd(evidence) == "0.25"
 
 
 @pytest.mark.asyncio

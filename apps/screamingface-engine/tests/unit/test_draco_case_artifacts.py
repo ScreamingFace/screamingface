@@ -15,6 +15,8 @@ import pytest
 from benchmark_support import install_benchmarks
 
 from screamingface_engine.benchmarks.draco.definition import DRACO, JUDGE_MODEL
+from screamingface_engine.grading_accounting import capture_grading_requests
+from screamingface_engine.operation_calls import capture_operation_calls
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world_config import ModelSpec
 from url4 import Node, RelExpr, build, expr, render, src, text
@@ -109,11 +111,14 @@ async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) ->
         )
         install_benchmarks(world.node, tmp_path, benchmarks=(DRACO,))
         try:
-            result = await world.node.evaluate(_link(candidate, build(benchmark)))
+            with capture_operation_calls() as operation_calls:
+                with capture_grading_requests():
+                    result = await world.node.evaluate(_link(candidate, build(benchmark)))
         finally:
             await world.aclose()
 
     decoded = json.loads(result.text)
+    assert len(operation_calls) == 5
     assert decoded["cases"] == [
         {
             "status": "scored",
@@ -159,6 +164,26 @@ async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) ->
                                 "outcome": "MET",
                                 "explanation": _EXPLANATION,
                                 "raw_output": _RAW_JUDGE_REPLY,
+                                "accounting": {
+                                    "provider": "openrouter",
+                                    "request_model": JUDGE_MODEL,
+                                    "response_model": None,
+                                    "usage": {
+                                        "input_tokens": 1,
+                                        "output_tokens": 1,
+                                        "cache_read_tokens": None,
+                                        "cache_creation_tokens": None,
+                                        "reasoning_tokens": None,
+                                        "cost_usd": None,
+                                    },
+                                    "provider_latency_ms": None,
+                                    "cache": {
+                                        "hits": 0,
+                                        "misses": 0,
+                                        "bypasses": 0,
+                                        "unknown": 1,
+                                    },
+                                },
                                 "metadata": {},
                             }
                             for sequence in range(1, 6)

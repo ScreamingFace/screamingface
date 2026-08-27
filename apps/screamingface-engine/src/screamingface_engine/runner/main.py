@@ -27,7 +27,9 @@ from screamingface_engine.benchmarks.candidate_adapter import install_candidate_
 from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
+from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.world_config import WorldConfig, WorldConfigError, load_config
+from url4.streaming.interfaces import Executor
 from url4.streaming.lifecycle import run
 
 logger = logging.getLogger(__name__)
@@ -207,7 +209,7 @@ def build_executor(
     tavily_client: httpx.AsyncClient | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     benchmark_assets_root: Path | None = None,
-) -> Url4Executor:
+) -> Executor:
     """Wire an executor over the DECLARED world — without building it yet.
 
     The world is resolved on first ``execute`` (see ``Url4Executor._resolve_world``), so a bad
@@ -287,12 +289,14 @@ def build_executor(
         return world.node, world.aclose
 
     inline_cap, hard_cap, artifact_store = result_delivery_from_env(env)
-    return Url4Executor(
-        world_factory=_world,
-        result_cap=inline_cap,
-        hard_cap=hard_cap,
-        memory_budget=bridge_budget_from_env(env),
-        artifact_store=artifact_store,
+    return OperationCapturingExecutor(
+        Url4Executor(
+            world_factory=_world,
+            result_cap=inline_cap,
+            hard_cap=hard_cap,
+            memory_budget=bridge_budget_from_env(env),
+            artifact_store=artifact_store,
+        )
     )
 
 

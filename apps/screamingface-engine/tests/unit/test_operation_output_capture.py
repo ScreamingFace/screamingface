@@ -2,8 +2,8 @@
 
 INVARIANT defended: a Fusion Case artifact carries each member and synthesis
 operation's terminal output keyed by its stable operation id — attributed by the
-resolved request fingerprint (path + params), never by position — while a solo
-Candidate's envelope stays byte-identical to the pre-capture contract.
+resolved request fingerprint (path + params), never by position. A solo Model gains
+its one natural named operation; an unattributed shape keeps the legacy envelope.
 """
 
 from __future__ import annotations
@@ -15,7 +15,10 @@ import httpx
 import pytest
 
 from screamingface_engine.benchmarks.contract import (
+    OperationAccounting,
+    OperationCache,
     OperationOutput,
+    OperationUsage,
     decode_candidate_invocation_record,
     encode_candidate_invocation,
 )
@@ -78,8 +81,33 @@ def _call(
     params: tuple[tuple[str, str], ...],
     output: str,
     finish_reason: str | None = "stop",
+    accounting: OperationAccounting | None = None,
 ) -> OperationCall:
-    return OperationCall(path=path, params=params, output=output, finish_reason=finish_reason)
+    return OperationCall(
+        path=path,
+        params=params,
+        output=output,
+        finish_reason=finish_reason,
+        accounting=accounting,
+    )
+
+
+def _accounting(*, cost: str = "0.01") -> OperationAccounting:
+    return OperationAccounting(
+        provider="openrouter",
+        request_model="provider/alpha",
+        response_model="provider/served",
+        usage=OperationUsage(
+            input_tokens=10,
+            output_tokens=2,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            reasoning_tokens=1,
+            cost_usd=cost,
+        ),
+        provider_latency_ms=25,
+        cache=OperationCache(hits=0, misses=1, bypasses=0, unknown=0),
+    )
 
 
 # --- contract envelope -----------------------------------------------------------------
@@ -101,9 +129,18 @@ def test_invocation_without_operations_keeps_the_exact_legacy_shape() -> None:
 
 def test_invocation_operations_round_trip_in_order() -> None:
     operations = [
-        OperationOutput(operation_id="op_model_1", output="alpha", finish_reason="stop"),
-        OperationOutput(operation_id="op_model_2", output=None, finish_reason=None),
-        OperationOutput(operation_id="op_synthesis_1", output="fused", finish_reason="stop"),
+        OperationOutput(
+            operation_id="op_model_1", output="alpha", finish_reason="stop", accounting=None
+        ),
+        OperationOutput(
+            operation_id="op_model_2", output=None, finish_reason=None, accounting=None
+        ),
+        OperationOutput(
+            operation_id="op_synthesis_1",
+            output="fused",
+            finish_reason="stop",
+            accounting=None,
+        ),
     ]
 
     decoded = decode_candidate_invocation_record(
@@ -181,12 +218,92 @@ def test_a_member_that_never_called_stays_null() -> None:
     ]
 
 
-def test_a_solo_candidate_records_no_operations() -> None:
-    # INVARIANT: no member section is invented for a solo Candidate — fewer than two
-    # attributable bindings means the envelope stays in its legacy shape.
-    solo = render(RelExpr(path="/provider/alpha", context="$input", intent=text("Answer plainly.")))
+def test_unique_operation_receives_all_of_its_call_accounting() -> None:
+    calls = [
+        _call(
+            "/provider/alpha",
+            (("temperature", "0.0"),),
+            "alpha answer",
+            accounting=_accounting(cost="0.01"),
+        ),
+        _call(
+            "/provider/beta",
+            (),
+            "beta answer",
+            accounting=_accounting(cost="0.02"),
+        ),
+        _call(
+            "/provider/alpha",
+            (("temperature", "0.5"),),
+            "fused answer",
+            accounting=_accounting(cost="0.03"),
+        ),
+    ]
 
-    assert attribute_operation_outputs(solo, [_call("/provider/alpha", (), "answer")]) is None
+    operations = attribute_operation_outputs(_fusion_expression(), calls)
+
+    assert operations is not None
+    assert [
+        operation.accounting.usage.cost_usd for operation in operations if operation.accounting
+    ] == ["0.01", "0.02", "0.03"]
+
+
+def test_ambiguous_operations_never_copy_one_call_ledger_to_several_owners() -> None:
+    calls = [
+        _call(
+            "/provider/alpha",
+            (("temperature", "0.0"),),
+            "same answer",
+            accounting=_accounting(),
+        ),
+        _call(
+            "/provider/alpha",
+            (("temperature", "0.0"),),
+            "same answer",
+            accounting=_accounting(),
+        ),
+        _call(
+            "/provider/alpha",
+            (("temperature", "0.5"),),
+            "fused answer",
+            accounting=_accounting(),
+        ),
+    ]
+
+    operations = attribute_operation_outputs(_fusion_expression(duplicate_members=True), calls)
+
+    assert operations is not None
+    assert [operation.output for operation in operations[:2]] == ["same answer", "same answer"]
+    assert [operation.accounting for operation in operations[:2]] == [None, None]
+    assert operations[2].accounting is not None
+
+
+def test_a_solo_candidate_retains_its_natural_model_operation() -> None:
+    solo = render(
+        expr(
+            src(
+                RelExpr(
+                    path="/provider/alpha",
+                    context="$input",
+                    intent=text("Answer plainly."),
+                ),
+                name="model_1",
+                weight=0.0,
+            ),
+            intent=text("$model_1"),
+        )
+    )
+
+    operations = attribute_operation_outputs(
+        solo,
+        [_call("/provider/alpha", (), "answer", accounting=_accounting())],
+    )
+
+    assert operations is not None
+    assert [(operation.operation_id, operation.output) for operation in operations] == [
+        ("op_model_1", "answer")
+    ]
+    assert operations[0].accounting is not None
 
 
 def test_an_unparseable_expression_records_no_operations() -> None:
@@ -209,6 +326,7 @@ def test_operation_calls_record_identity_only_inside_a_capture_scope() -> None:
             params=(("temperature", "0.0"),),
             output="captured",
             finish_reason="stop",
+            accounting=None,
         )
     ]
 
@@ -270,6 +388,20 @@ async def test_a_fusion_invocation_carries_every_member_and_synthesis_output() -
         ("op_model_2", "beta answer", "stop"),
         ("op_synthesis_1", "fused answer", "stop"),
     ]
+    assert [
+        (
+            operation.accounting.request_model,
+            operation.accounting.usage.input_tokens,
+            operation.accounting.usage.output_tokens,
+            operation.accounting.cache.unknown,
+        )
+        for operation in decoded.operations
+        if operation.accounting is not None
+    ] == [
+        ("provider/alpha", 4, 2, 1),
+        ("provider/beta", 4, 2, 1),
+        ("provider/alpha", 4, 2, 1),
+    ]
 
 
 # --- case artifact threading -----------------------------------------------------------
@@ -294,7 +426,12 @@ def test_case_record_carries_operations_only_when_attributed() -> None:
         candidate=CandidateAnswer(
             **base,
             operations=(
-                OperationOutput(operation_id="op_model_1", output="alpha", finish_reason="stop"),
+                OperationOutput(
+                    operation_id="op_model_1",
+                    output="alpha",
+                    finish_reason="stop",
+                    accounting=None,
+                ),
             ),
         ),
         schema="example.case.v1",
@@ -309,9 +446,14 @@ def test_case_record_carries_operations_only_when_attributed() -> None:
     )
 
     assert attributed["operations"] == [
-        {"operation_id": "op_model_1", "output": "alpha", "finish_reason": "stop"}
+        {
+            "operation_id": "op_model_1",
+            "output": "alpha",
+            "finish_reason": "stop",
+            "accounting": None,
+        }
     ]
-    # INVARIANT: absence stays absence — a solo Candidate's record keeps the legacy shape.
+    # INVARIANT: absence stays absence — an unattributed Candidate keeps the legacy shape.
     assert "operations" not in solo
 
 
@@ -326,7 +468,14 @@ def test_scored_case_result_exports_operations_only_when_present() -> None:
         output="fused",
         finish_reason="stop",
         grade=grade,
-        operations=[{"operation_id": "op_model_1", "output": "alpha", "finish_reason": "stop"}],
+        operations=[
+            {
+                "operation_id": "op_model_1",
+                "output": "alpha",
+                "finish_reason": "stop",
+                "accounting": None,
+            }
+        ],
     ).model_dump(by_alias=True)
     solo = scored_case_result(
         selected_case=selected,
@@ -336,6 +485,11 @@ def test_scored_case_result_exports_operations_only_when_present() -> None:
     ).model_dump(by_alias=True)
 
     assert attributed["operations"] == [
-        {"operation_id": "op_model_1", "output": "alpha", "finish_reason": "stop"}
+        {
+            "operation_id": "op_model_1",
+            "output": "alpha",
+            "finish_reason": "stop",
+            "accounting": None,
+        }
     ]
     assert "operations" not in solo

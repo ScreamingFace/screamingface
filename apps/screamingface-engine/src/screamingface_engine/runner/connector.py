@@ -19,12 +19,20 @@ import httpx
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.models.registry import decode_route_id
+from screamingface_engine.operation_accounting import (
+    OperationAccounting,
+    combine_operation_accounting,
+)
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
 )
-from screamingface_engine.runner.accounting import CallAccounting, read_aigw
+from screamingface_engine.runner.accounting import (
+    CallAccounting,
+    read_aigw,
+    retained_operation_accounting,
+)
 from screamingface_engine.runner.cache import policy_to_body_field
 from screamingface_engine.runner.cache_readback import (
     CacheOutcome,
@@ -190,7 +198,12 @@ class _ModelEndpoint:
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
             # source text — the policy-applied set may differ from what was written.
-            with operation_call_identity(request.path, request.params):
+            with operation_call_identity(
+                request.path,
+                request.params,
+                context=request.context,
+                intent=request.intent,
+            ):
                 return await _chat_completion_loop(
                     http_client=self._http_client,
                     cfg=self._cfg,
@@ -572,6 +585,7 @@ async def _chat_completion_loop(
     )
     sampling = model_params(params)
     headers = _headers(profile, identity_headers)
+    operation_accounting: list[OperationAccounting] = []
     for _ in range(cfg.web_tool_max_iterations):
         body = {"model": real_model_id, "messages": messages, **sampling, **extra}
         resp, outcome = await _fetch_completion(
@@ -579,6 +593,14 @@ async def _chat_completion_loop(
         )
         data = _json_or_raise(resp)
         _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
+        operation_accounting.append(
+            retained_operation_accounting(
+                request_model=real_model_id,
+                usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
+                aigw=data.get("_aigw"),
+                cache=outcome,
+            )
+        )
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
@@ -591,7 +613,11 @@ async def _chat_completion_loop(
             # `tool_calls` rounds too would leave a consumer unable to tell a call that progressed
             # from two calls that disagreed (`_terminal_outcome` in `benchmarks/candidate.py`).
             record_model_outcome(choice.finish_reason, choice.refusal)
-            record_operation_call(content or "", choice.finish_reason)
+            record_operation_call(
+                content or "",
+                choice.finish_reason,
+                combine_operation_accounting(operation_accounting),
+            )
             return content or ""
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
         await append_tool_results(messages, tool_calls, tools, cfg)

@@ -15,10 +15,44 @@ from screamingface_engine.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     encode_candidate_invocation,
 )
-from screamingface_engine.benchmarks.gdpval.runtime import _cases, _rubric_tasks
+from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAMS
+from screamingface_engine.benchmarks.gdpval.runtime import (
+    _cases,
+    _rubric_tasks,
+    _rubric_verdict,
+)
+from screamingface_engine.grading_accounting import capture_grading_requests
+from screamingface_engine.operation_accounting import (
+    OperationAccounting,
+    OperationCache,
+    OperationUsage,
+)
+from screamingface_engine.operation_calls import (
+    capture_operation_calls,
+    operation_call_identity,
+    record_operation_call,
+)
 from url4.peer.server import Request
 
 _CASE_IDS = (1, 2)
+
+
+def _accounting() -> OperationAccounting:
+    return OperationAccounting(
+        provider="openrouter",
+        request_model=JUDGE_MODEL,
+        response_model=JUDGE_MODEL,
+        usage=OperationUsage(
+            input_tokens=20,
+            output_tokens=3,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            reasoning_tokens=1,
+            cost_usd="0.5",
+        ),
+        provider_latency_ms=75,
+        cache=OperationCache(hits=0, misses=1, bypasses=0, unknown=0),
+    )
 
 
 def _write_assets(root: Path) -> None:
@@ -72,7 +106,7 @@ def test_rubric_tasks_read_the_baked_assets_once_per_case(tmp_path, monkeypatch)
     reads: list[Path] = []
     _count_reads(monkeypatch, reads)
 
-    handler = _rubric_tasks(tmp_path, _CASE_IDS)
+    handler = _rubric_tasks(tmp_path, _CASE_IDS, "gdpval-text")
     context = encode_candidate_invocation("the deliverable", "stop", None)
     first = handler(Request(path="/t", context=context, intent="1", params={}))
     second = handler(Request(path="/t", context=context, intent="1", params={}))
@@ -80,3 +114,41 @@ def test_rubric_tasks_read_the_baked_assets_once_per_case(tmp_path, monkeypatch)
     assert first == second
     assert reads.count(tmp_path / "cases.json") == 1
     assert reads.count(tmp_path / "rubrics" / "1.json") == 1
+
+
+def test_rubric_verdict_retains_its_exact_request_accounting(tmp_path: Path) -> None:
+    _write_assets(tmp_path)
+    tasks = _rubric_tasks(tmp_path, _CASE_IDS, "gdpval-text")
+    verdict = _rubric_verdict("gdpval-text")
+
+    with capture_operation_calls():
+        with capture_grading_requests():
+            rows = json.loads(
+                tasks(
+                    Request(
+                        path="/tasks",
+                        context=encode_candidate_invocation("the deliverable", "stop", None),
+                        intent="1",
+                        params={},
+                    )
+                )
+            )
+            with operation_call_identity(
+                "/" + JUDGE_MODEL.removeprefix("/"),
+                dict(JUDGE_PARAMS),
+                context=rows[0]["grader_prompt"],
+                intent="",
+            ):
+                record_operation_call("judge reply", "stop", _accounting())
+            record = json.loads(
+                verdict(
+                    Request(
+                        path="/verdict",
+                        context='{"explanation":"complete","criteria_met":true}',
+                        intent="1:1",
+                        params={},
+                    )
+                )
+            )
+
+    assert record["accounting"]["usage"]["cost_usd"] == "0.5"

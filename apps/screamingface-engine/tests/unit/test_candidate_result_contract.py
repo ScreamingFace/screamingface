@@ -33,6 +33,7 @@ def _evidence(**overrides: Any) -> Evidence:
         "explanation": "the instruction was followed",
         "raw_output": True,
         "metadata": {},
+        "accounting": None,
     }
     values.update(overrides)
     return Evidence(**values)
@@ -151,6 +152,7 @@ def test_scored_result_serializes_the_strict_v1_shape() -> None:
                                     "explanation": "the instruction was followed",
                                     "raw_output": True,
                                     "metadata": {},
+                                    "accounting": None,
                                 }
                             ],
                             "metadata": {},
