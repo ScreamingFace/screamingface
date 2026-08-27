@@ -152,3 +152,126 @@ Behaviour-named, in house style:
   `/readyz` routes and failed outright — which was luck: written as `<= 1` or `is not None` the
   same mistake is a permanently green test that could never see a duplicate. The helper
   flattens both shapes; anything later that counts routes should use it rather than re-derive it.
+
+## 2026-08-27 — the app's `CLAUDE.md`, and the `reply_to` decision
+
+Two gaps closed on the finished service. Neither is new behaviour beyond one rendered label.
+
+### 1. `apps/report-intake/CLAUDE.md`
+
+Every other app in the monorepo carries one and the eighth stack did not, so an editor arriving
+at this service had the 350-line `README.md` — which describes what the service *does* — and no
+short statement of what an edit must not *break*.
+
+Written to the house shape: `apps/aigateway/CLAUDE.md`'s dense one-bullet-per-invariant list and
+`apps/aigateway-ui/CLAUDE.md`'s bold-led form and length. Two sections, **Contracts** and **Traps
+already paid for**, and a first line that points at `README.md` for everything that is not a
+guardrail — the point of the file is that it is short enough to be read before an edit, so
+duplicating the README into it would defeat it.
+
+The contracts are the ones plan §2 froze plus the four the build discovered: `Settings` as the
+sole environment authority with the chart rendering exactly its fields (and the boot guard and
+the two-sided chart assertion that enforce it); `X-User-Email` named in one module with the peer
+checked first; core never importing an adapter and a sink receiving `TicketContent` rather than a
+report; persist-before-deliver and the fact that `StorePipeline` must never classify; `/healthz`
+never growing a dependency; the classifier being fail-closed and reading `scanned` rather than
+`payload`; `scan_text`-not-`classify_report` at the dispatcher; no ad-hoc status and no `422` that
+echoes what it rejected; no client-controlled value reaching a rendered artifact as free-form
+Markdown; and `reply_to` (below). The traps are the ones that cost something once — `lifespan=`
+versus `on_startup`, `app.routes` not being the route list, `DELIVERY_TIMEOUT_S` coupled to
+`CLAIM_GRACE`, one migration for every column, `queued` being terminal success, `mark_filed` not
+touching `attempts`, the triage reads being console-only, `LinearSink` shipping inert under repo
+rule 9, `disabled` meaning loopback-only, the `403`/`503` split, the rate limit's key, and the
+containment tests being an enforcement mechanism rather than coverage.
+
+**Repo `CLAUDE.md` was not edited.** Rule 9 governs selecting `LinearSink` and is the owner's;
+this file states that it governs and moves on, exactly as `delivery/linear_sink.py` does.
+
+### 2. `reply_to` validation — DECIDED: accept, and mark it in the ticket
+
+The state before this pass: `reply_to: "not-an-email"` was accepted, stored and answered `202`,
+and nothing anywhere said that was a choice. A reader could equally conclude it was an oversight
+and "fix" it with an `EmailStr`.
+
+**Decision: keep accepting, and never add a syntax check.** Rejecting loses the error, the
+traceback, the client versions and the trace id — everything that makes the report diagnosable —
+over the one field this service authorizes nothing on and never treats as identity. A report with
+a typo'd address is still a report somebody can act on; a refused one is not, and spec §8's rule
+for the client is that a report is never lost. Spec §9's caller table had already settled the
+posture in two words — *accepted, unverified*, for both caller classes — so this pass is the code
+catching up to the spec rather than a new fork.
+
+**The cost is paid where it can be seen.** Accepting is only the better trade if the artifact a
+human acts on admits what it is holding, so `delivery/render.py` now renders a value that does not
+look like an address under a second label:
+
+```
+- reply-to (self-asserted, does not look like an address): not-an-email
+```
+
+Without it the failure is silent in the worst direction: `bob@openmindorg` reads as an address at
+a glance, a triager answers it, the bounce lands days later in somebody's sent folder, and by then
+the report is closed and the reporter is still waiting.
+
+Four properties of that label, each of which is a decision:
+
+- **It is a label, not a repair.** The value is carried verbatim in the body and in
+  `TicketContent.reply_to`, which a sink routes on. Nothing branches on the answer.
+- **`_looks_like_an_address` is a shape check and the wording says so.** It is deliberately
+  calibrated to over-flag: an exotic-but-legal address (a quoted local part, a domain literal) is
+  marked, which costs a triager one second, where an unmarked typo costs the reporter their answer.
+  A real RFC 5322 validator would trade that calibration for somebody else's.
+- **It stays rare.** An ordinary address is unmarked, because a warning printed on every report is
+  a warning nobody reads. Asserted in the test.
+- **`queue show` inherits it and `queue list` does not.** `show` prints `render_ticket(...).body`
+  verbatim — it is what an agent pastes into Linear, and with `QueueSink` still the default it is
+  the artifact a human actually reads today. `list` is a scan view whose `REPLY TO` column is 40
+  characters; a marker there would crowd the row it is meant to help read.
+
+**The existing `max_length` is a LENGTH refusal and is not a precedent for a syntax one**, which
+the new route test states in as many words. That bound exists because the column is `varchar(320)`
+and an over-long value reached tortoise's validator, where every ORM failure becomes
+`StorageUnavailable` → `503` — the one status spec §8 defines as *retry unchanged*, for a
+permanent failure. Length has a wrong answer; shape does not.
+
+Said in three places, so the decision is reachable from wherever a reader arrives: the
+`ReportDocument.reply_to` docstring (the schema statement, with the reasoning), the comment at the
+persistence seam in `store_pipeline.py` (the spec-facing one — it cites §9 and points at both
+other places), and `README.md`'s identity section.
+
+### Files
+
+- **New:** `apps/report-intake/CLAUDE.md`.
+- **Edited:** `src/report_intake/delivery/render.py` (`_reporter_bullets` + `_reply_to_label` +
+  `_looks_like_an_address`, and one clause in the module docstring),
+  `src/report_intake/reports/schema.py` (the `reply_to` docstring),
+  `src/report_intake/reports/store_pipeline.py` (the persistence-seam comment), `README.md`.
+- **Tests (+3):** `tests/unit/test_ticket_render.py` —
+  `test_a_reply_to_that_does_not_look_like_an_address_says_so_in_the_ticket` and
+  `test_marking_a_reply_to_labels_it_and_never_rewrites_it`;
+  `tests/unit/test_persistence_route.py` —
+  `test_a_reply_to_that_is_not_an_address_is_accepted_rather_than_losing_the_report`.
+
+### Gates (from `apps/report-intake`)
+
+| Gate | Result |
+|---|---|
+| `uv run pytest -q` | **534 passed** |
+| `uv run ruff check` | All checks passed |
+| `uv run ruff format --check` | 87 files already formatted |
+| `uv run pyright` | 0 errors, 0 warnings, 0 informations |
+
+No existing test was weakened or rewritten. The two new render tests were inserted at a test
+boundary, and both edited test files pass the append-only check.
+
+**Observation, not a blocker:** `uv run .claude/scripts/run_gates.py report-intake` currently
+fails its append-only check on four files this pass did not touch —
+`tests/unit/test_{chart_environment,cli,config,ticket_sinks}.py`, all modified in place by the
+earlier `OME-1009` follow-up passes on this branch. Whoever owns the commit should decide whether
+those in-place edits are the Confidence-Gate decision the check asks for, or whether the check
+should be run with `--base` against the branch point.
+
+### No environment change
+
+No `Settings` field was added, so plan §2.4's frozen environment surface is still 23 names and the
+Helm chart is untouched. `tests/unit/test_chart_environment.py` passes unchanged.

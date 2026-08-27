@@ -29,6 +29,44 @@ same DDL on a fresh database, and this service is deployed with more than one. U
 migration has run, `/readyz` fails closed — which is the correct answer for a pod whose database
 has no schema, and what keeps it out of the load balancer.
 
+## Draining the queue (`report-intake queue …`)
+
+`QueueSink` marks a row `queued` and an agent files it into Linear through MCP. These three
+commands are how the row is found, read and closed out. They are cluster-internal tooling reached
+by `kubectl exec`, **not** an HTTP surface — spec §1 removed `GET /v1/reports/{ref}` and this is
+not it under another name (`tests/unit/test_triage_read_containment.py` fails if a `routes/`
+module so much as names one of the store's triage reads).
+
+```bash
+kubectl exec deploy/report-intake -- report-intake queue list --limit 20
+kubectl exec deploy/report-intake -- report-intake queue show r_8f21c0abcd12
+kubectl exec deploy/report-intake -- report-intake queue mark-filed r_8f21c0abcd12 \
+    --ticket-id OME-1042 --ticket-url https://linear.app/openmined/issue/OME-1042
+```
+
+- **`report-intake` with no arguments still runs uvicorn**, byte for byte as before. That is the
+  container's `ENTRYPOINT`, so it is deployment behaviour: the subcommand parser is optional at
+  the top level and required only under `queue`.
+- **`list` shows `queued` rows only**, newest received first. `pending` still belongs to the retry
+  queue, `delivered` is done, and `failed` is an alert (`retry.py` logs it at error) rather than a
+  triage backlog. The order is `created_at`, the server's clock — `occurred_at` is the client's
+  claim about when the failure happened, and a reporter that could choose it could pin itself to
+  the top of somebody's screen.
+- **`show` prints the body verbatim, or refuses it**, rendered by `render_ticket` from the stored
+  payload, so what an agent pastes is what the sink would have sent. Everything after the first
+  blank line is that body; the header lines above it are one line each by construction. It runs
+  the same fail-closed content check `delivery/dispatch.py` runs before calling a sink — this is
+  the second road from a stored report into a Linear ticket, and a body the service already
+  refused to send must not be handed to somebody to paste by hand. Refused, never redacted.
+- **`mark-filed` moves the row to `delivered` and records the ticket**, and it does **not**
+  increment `attempts` — that column is how hard *this service* tried, and a person filing a
+  ticket by hand is not the sink having been called. Re-running it with the same ticket id is
+  idempotent; a *different* id is refused rather than overwriting the first.
+- **stdout is the table, stderr is the commentary**, and the exit codes are distinguishable: `0`
+  fine, `1` refused (no such ref, unreadable payload, conflicting ticket), `2` argparse usage,
+  `3` storage would not answer — which is what an unmigrated database gives you, and is the only
+  one of the three worth retrying.
+
 ## Gates
 
 ```bash
@@ -48,8 +86,14 @@ caller, accepts, bounds, classifies, **persists**, and attempts to file the repo
 sink could not take is retried until it lands or the budget runs out; and a `report-intake-v*` tag
 publishes an image and a chart that deploy it.
 
-`LinearSink` remains the one deliberate follow-up (spec §9), gated on `OME-976` and on a decision
-about where that credential lives and who rotates it.
+The queue `QueueSink` fills now has a drain path: `report-intake queue list|show|mark-filed`, a
+console-only surface added by `OME-1009`'s second follow-up. It is what plan §13's verification
+step has always assumed and is documented under **Draining the queue** above.
+
+`LinearSink` exists as of `OME-1009`'s follow-up pass and is **inert**: `queue` is still the
+default and still what every deployment runs. Selecting `linear` is the decision spec §9 deferred
+and CLAUDE.md rule 9 governs — `OME-976` has not amended it — and it costs an operator a
+credential and a team id, without which neither the chart nor the app will start.
 
 | Endpoint | Today |
 |---|---|
@@ -68,6 +112,13 @@ One table, `reports`. The service has state, but it is a retry queue, not a docu
   the window returns `200` with the original record; after it, the same key is a new report.
   `request_fingerprint` is written for diagnostics and never resolves a replay — the scoreboard
   deduplicates on a content hash, and `OME-970` is what that cost.
+- **A key is a claim, not a credential, so it is never resolved across callers.** What lands in
+  the column is a digest: the key namespaced to the caller, and — for a caller the mesh has not
+  verified — to the report itself. On the public route every anonymous caller shares one scope
+  (the peer is the mesh proxy on every request), so without the report in the digest a guessed
+  `Idempotency-Key: 1` is answered `200` with a stranger's `ref`, and a key registered ahead of
+  time makes a real reporter's report vanish silently. A double-click and a client retry send the
+  same bytes and still resolve to one row and one ticket.
 - **Row retention: 90 days**, purged from a loop the ASGI lifespan owns. Never register that
   loop on `app.router.on_startup`: with `lifespan=` set, the pinned starlette drops an appended
   handler with no exception and no warning, so the purge would never run in production while its
@@ -134,6 +185,14 @@ Cloudflare Access whose Envoy route sets `X-User-Email`, and a public one that s
 - **`reply_to` is self-asserted and is never identity.** It matters more than it looks — the
   Python client parses only `exp` from its Access token, so it has no email of its own and an SDK
   report could not otherwise be answered.
+- **A `reply_to` that is not an address is accepted, and the ticket says so.** Spec §9's table
+  calls it *accepted, unverified*, and no syntax check runs anywhere: a `422` would throw away the
+  error, the traceback and the trace id over the one field nothing is authorized on, and a report
+  with a typo'd address still beats no report. The cost is paid in the ticket instead —
+  `delivery/render.py` labels a value that does not look like an address, because `bob@openmindorg`
+  reads as one at a glance and a triager who answers it finds out days later. The only refusal on
+  this field is a **length** one at the column's 320 characters, and that is not a precedent for a
+  syntax one.
 - **Nothing is ever authorized by `trace_id` or `run_id`.** An id in a report is a claim, not a
   credential.
 - **`403` and `503` are not interchangeable, and that is why `403` exists.** `403` means the
@@ -163,8 +222,13 @@ Cloudflare Access whose Envoy route sets `X-User-Email`, and a public one that s
 
 ## Deploying it (spec §7, plan §10)
 
-`charts/report-intake/` — see [its README](charts/report-intake/README.md) for the values. Three
-things about the chart are properties of this service rather than of Helm:
+**[`DEPLOYMENT.md`](DEPLOYMENT.md) is the install runbook** — the eight install-time values and
+where each comes from, the four Cloudflare dashboard actions that live outside this repo, the
+prerequisites for the edge rate limit, how to choose `config.ticketSink`, and what each render
+refusal means when you hit one. [`charts/report-intake/README.md`](charts/report-intake/README.md)
+is the chart's own shape: its values, its topology and what it refuses.
+
+Three things about the chart are properties of this service rather than of Helm:
 
 - **Two hostnames, and it is not a simplification to merge them.** The identity hostname sits
   behind Cloudflare Access, and an Envoy `SecurityPolicy` re-verifies that assertion and SETS
@@ -206,8 +270,21 @@ does not know `QueueSink` exists.
   forge a section heading.
 - **`QueueSink` is v1, and it is not a placeholder.** The `reports` table *is* the queue: the row
   is marked `queued` and an agent files it via MCP during triage. That is what keeps a Linear API
-  token out of this service's environment entirely. `LinearSink` is a follow-up gated on `OME-976`
-  **and** on a decision about where that credential lives and who rotates it.
+  token out of this service's environment entirely. The queue is drained through
+  `report-intake queue …` — see **Draining the queue** above.
+- **`LinearSink` is the other adapter, and shipping it is not selecting it.** It POSTs one
+  `issueCreate` mutation and returns the issue's identifier and url. It is built only when
+  `REPORT_INTAKE_TICKET_SINK=linear`, and `build_sink` refuses to boot that deployment without
+  `REPORT_INTAKE_LINEAR_API_KEY` and `REPORT_INTAKE_LINEAR_TEAM_ID` — a service that accepts
+  reports, answers `202`, files none of them and reports itself ready is the failure that guard
+  exists to prevent. CLAUDE.md rule 9 governs the selection; `OME-976` has not amended it.
+  Three properties are worth knowing before reading the file: **HTTP 200 is not success** (GraphQL
+  answers `200` for a request it refused, so a populated `errors` array and `success: false` are
+  both failures); **the status is not ruled on before the body is read**, except `401`/`403` and
+  the retryable statuses, because Linear spells a rate limit both as a status and as an
+  `extensions.code` and may send both at once — reading the body may rescue a status but never
+  softens one; and **the API key never reaches a log record, a `repr` or an exception message**,
+  which is asserted rather than trusted.
 - **A sink never fails a reporter's request.** Delivery is attempted inline under a **3 s**
   deadline after the commit; a slow, dead or broken sink is a `pending` row and a `202`, not a
   `5xx`. Raising `REPORT_INTAKE_DELIVERY_TIMEOUT_S` does not make delivery likelier — it only
