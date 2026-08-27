@@ -5,6 +5,12 @@ started at startup, cancelled and awaited at shutdown. And the containment promi
 export in flight (or failing) never perturbs the request path — a global-cache HIT
 completes while the export is streaming, and a store failure surfaces as a record and a
 log line, never as an app error.
+
+These tests run the ORM on sqlite while Settings carry a postgresql:// DSN — the one
+`database_url` field feeds both the ORM and the exporter, and the product rule (review C5)
+requires a Postgres scheme whenever snapshots are armed. The export DSN is never dialed
+here: every test replaces the scheduler's `_run` before any fire, so the exporter's lazy
+`postgres_connect` never runs. Only the lifespan's `init_db` is pointed at the sqlite file.
 """
 
 from __future__ import annotations
@@ -14,12 +20,14 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from tortoise import Tortoise
 
 from aigateway.config import Settings
 from aigateway.core.request_cache.store import RequestCacheWrite
-from aigateway.db import build_tortoise_config
+from aigateway.db import build_tortoise_config, init_db
 from aigateway.main import create_app
 
 _CHAT_PATH = "/v1/chat/completions"
@@ -56,13 +64,14 @@ def _prepare_sqlite(database_url: str) -> None:
     asyncio.run(_prepare())
 
 
-def _settings(tmp_path: Path, *, snapshot_enabled: bool = True) -> Settings:
-    database_url = f"sqlite://{tmp_path / 'aigateway.sqlite3'}"
-    _prepare_sqlite(database_url)
+def _settings(tmp_path: Path, *, snapshot_enabled: bool) -> Settings:
+    sqlite_url = f"sqlite://{tmp_path / 'aigateway.sqlite3'}"
     return Settings(
         **{
             "_env_file": None,
-            "AIGATEWAY_DATABASE_URL": database_url,
+            # Postgres scheme while armed (the C5 rule); sqlite when disabled — both the
+            # real shapes a deployment would carry.
+            "AIGATEWAY_DATABASE_URL": _EXPORT_DSN if snapshot_enabled else sqlite_url,
             "AIGW_AUTH_MODE": "disabled",
             "AIGW_REQUEST_CACHE_ENABLED": "true",
             "AIGW_CACHE_SNAPSHOT_ENABLED": "true" if snapshot_enabled else "false",
@@ -71,6 +80,26 @@ def _settings(tmp_path: Path, *, snapshot_enabled: bool = True) -> Settings:
             "AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY": "secret",
         }
     )
+
+
+def _app(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    snapshot_enabled: bool = True,
+) -> FastAPI:
+    """create_app over sqlite storage, carrying the export DSN the product rule requires."""
+    sqlite_url = f"sqlite://{tmp_path / 'aigateway.sqlite3'}"
+    _prepare_sqlite(sqlite_url)
+    real_init_db = init_db
+
+    async def _init_sqlite(_dsn: str) -> None:
+        # The seam the one-field-two-consumers design creates: whatever DSN Settings say,
+        # the ORM in these tests runs on the prepared sqlite file.
+        await real_init_db(sqlite_url)
+
+    monkeypatch.setattr("aigateway.main.init_db", _init_sqlite)
+    return create_app(settings=_settings(tmp_path, snapshot_enabled=snapshot_enabled))
 
 
 class _HitStore:
@@ -86,8 +115,15 @@ class _HitStore:
         return "not_stored"
 
 
-def test_the_lifespan_starts_and_stops_the_scheduler(tmp_path: Path) -> None:
-    app = create_app(settings=_settings(tmp_path))
+# Never dialed: postgres-form so Settings accept an armed snapshot (review C5), but every
+# test replaces the scheduler's `_run` before any fire.
+_EXPORT_DSN = "postgresql://snapshot:snapshot@127.0.0.1:5/aigateway"
+
+
+def test_the_lifespan_starts_and_stops_the_scheduler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _app(tmp_path, monkeypatch)
 
     test_client = TestClient(app, base_url="http://127.0.0.1:50000", client=("127.0.0.1", 50000))
     with test_client:
@@ -99,17 +135,21 @@ def test_the_lifespan_starts_and_stops_the_scheduler(tmp_path: Path) -> None:
     assert app.state.cache_snapshot_scheduler._task is None
 
 
-def test_disabled_snapshot_never_arms_a_scheduler(tmp_path: Path) -> None:
-    app = create_app(settings=_settings(tmp_path, snapshot_enabled=False))
+def test_disabled_snapshot_never_arms_a_scheduler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _app(tmp_path, monkeypatch, snapshot_enabled=False)
 
     test_client = TestClient(app, base_url="http://127.0.0.1:50000", client=("127.0.0.1", 50000))
     with test_client:
         assert not hasattr(app.state, "cache_snapshot_scheduler")
 
 
-def test_a_slow_export_never_blocks_a_cache_hit(tmp_path: Path) -> None:
+def test_a_slow_export_never_blocks_a_cache_hit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The containment proof: a hit completes while the export is streaming."""
-    app = create_app(settings=_settings(tmp_path))
+    app = _app(tmp_path, monkeypatch)
     app.state.request_cache_store = _HitStore()
 
     test_client = TestClient(app, base_url="http://127.0.0.1:50000", client=("127.0.0.1", 50000))
@@ -147,8 +187,10 @@ def test_a_slow_export_never_blocks_a_cache_hit(tmp_path: Path) -> None:
         assert scheduler.records()[0].state == "complete"
 
 
-def test_a_failed_export_is_recorded_and_never_an_app_error(tmp_path: Path) -> None:
-    app = create_app(settings=_settings(tmp_path))
+def test_a_failed_export_is_recorded_and_never_an_app_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _app(tmp_path, monkeypatch)
 
     test_client = TestClient(app, base_url="http://127.0.0.1:50000", client=("127.0.0.1", 50000))
     with test_client:

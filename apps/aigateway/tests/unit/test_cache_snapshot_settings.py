@@ -17,6 +17,11 @@ def _settings(**values: object) -> Settings:
     return Settings(**{"_env_file": None, **values})
 
 
+# The snapshot feature requires a PostgreSQL DSN (the export speaks Postgres COPY), so every
+# enabled-Snapshot test below passes this never-dialed DSN — Settings only inspects the scheme.
+_PG_DSN = "postgresql://snapshot:snapshot@127.0.0.1:5/aigateway"
+
+
 def test_snapshot_defaults_are_opt_in() -> None:
     settings = _settings()
     assert settings.cache_snapshot_enabled is False
@@ -49,6 +54,7 @@ def test_enabled_with_partial_storage_is_refused() -> None:
 def test_enabled_with_full_storage_parses() -> None:
     settings = _settings(
         AIGW_CACHE_SNAPSHOT_ENABLED="true",
+        AIGATEWAY_DATABASE_URL=_PG_DSN,
         AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL="http://127.0.0.1:3900",
         AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY="GKtestaccess",
         AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY="secret",
@@ -67,6 +73,7 @@ def test_an_export_cap_above_the_restore_cap_is_refused() -> None:
     with pytest.raises(ValueError, match="AIGW_CACHE_UPLOAD_MAX_BYTES"):
         _settings(
             AIGW_CACHE_SNAPSHOT_ENABLED="true",
+            AIGATEWAY_DATABASE_URL=_PG_DSN,
             AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL="http://127.0.0.1:3900",
             AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY="GKtestaccess",
             AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY="secret",
@@ -77,6 +84,7 @@ def test_an_export_cap_above_the_restore_cap_is_refused() -> None:
 def test_caps_raised_together_parse() -> None:
     settings = _settings(
         AIGW_CACHE_SNAPSHOT_ENABLED="true",
+        AIGATEWAY_DATABASE_URL=_PG_DSN,
         AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL="http://127.0.0.1:3900",
         AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY="GKtestaccess",
         AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY="secret",
@@ -90,3 +98,29 @@ def test_the_cap_invariant_is_not_enforced_when_snapshots_are_disabled() -> None
     """With the feature off, the export cap is inert — a mismatched pair must not block boot."""
     settings = _settings(AIGW_CACHE_SNAPSHOT_MAX_BYTES=str(512 * 1024 * 1024))
     assert settings.cache_snapshot_max_bytes == 512 * 1024 * 1024
+
+
+def test_enabled_on_the_default_sqlite_database_is_refused() -> None:
+    """The arm-then-fail-every-Friday trap (review C5): sqlite boots `scheduler armed`
+    because Settings never looked at the DB scheme. It must refuse at construction."""
+    with pytest.raises(ValueError, match="PostgreSQL"):
+        _settings(
+            AIGW_CACHE_SNAPSHOT_ENABLED="true",
+            AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL="http://127.0.0.1:3900",
+            AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY="GKtestaccess",
+            AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY="secret",
+        )
+
+
+def test_enabled_with_an_explicit_sqlite_database_is_refused_without_echoing_the_dsn() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        _settings(
+            AIGW_CACHE_SNAPSHOT_ENABLED="true",
+            AIGATEWAY_DATABASE_URL="sqlite:///tmp/secret-path.sqlite3",
+            AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL="http://127.0.0.1:3900",
+            AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY="GKtestaccess",
+            AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY="secret",
+        )
+    message = str(excinfo.value)
+    assert "PostgreSQL" in message
+    assert "secret-path" not in message  # the DSN carries credentials; never echoed

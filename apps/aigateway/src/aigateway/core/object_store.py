@@ -37,12 +37,53 @@ class S3StorageError(RuntimeError):
 
 @dataclass(frozen=True)
 class S3ObjectStoreConfig:
-    """Where the snapshot bucket is and how to authenticate to it."""
+    """Where the snapshot bucket is and how to authenticate to it.
+
+    The endpoint must be ORIGIN-shaped — scheme + host (+ port), nothing else: a base path
+    or query would be transmitted by ``put()`` but not signed by ``_url_path()`` (which
+    signs ``/<bucket>/<key>``), and a signature that does not cover the wire request is a
+    guaranteed ``SignatureDoesNotMatch`` from any correct server. Refused here, at
+    construction, with the variable to fix — not discovered as an opaque 403 on Friday.
+    """
 
     endpoint_url: str
     bucket: str
     credentials: Credentials
     timeout_s: float = _DEFAULT_TIMEOUT_S
+
+    def __post_init__(self) -> None:
+        url = httpx.URL(self.endpoint_url)
+        if url.scheme not in ("http", "https"):
+            raise ValueError(
+                f"object store endpoint_url must be http(s)://, got scheme {url.scheme!r} — "
+                "set AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL to the S3 origin"
+            )
+        if not url.host:
+            raise ValueError(
+                "object store endpoint_url has no host — set "
+                "AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL to the S3 origin"
+            )
+        if url.path not in ("", "/"):
+            raise ValueError(
+                f"object store endpoint_url must not carry a base path ({url.path!r}): the "
+                "SigV4 signature covers /<bucket>/<key>, so a prefixed endpoint transmits a "
+                "path it never signed and every PUT fails with SignatureDoesNotMatch. Point "
+                "AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL at the origin and put any prefix in the "
+                "bucket/keys instead"
+            )
+        if url.query or url.fragment:
+            raise ValueError(
+                "object store endpoint_url must not carry a query or fragment: the request "
+                "would transmit it while the signature covers an empty query — a guaranteed "
+                "SignatureDoesNotMatch. Set AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL to the bare "
+                "origin"
+            )
+        if url.username or url.password:
+            raise ValueError(
+                "object store endpoint_url must not carry userinfo: it would corrupt the "
+                "signed Host header. Credentials go in the S3 key pair, not the URL — set "
+                "AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL to the bare origin"
+            )
 
 
 class _FileStream(httpx.AsyncByteStream):

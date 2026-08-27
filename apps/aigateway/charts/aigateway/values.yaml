@@ -286,7 +286,10 @@ snapshot:
     resources: {}
   # The S3-compatible target. With `garage.enabled`, the endpoint is the bundled Service
   # and the key pair comes from the chart-owned Secret; with `garage.enabled: false`, point
-  # at any S3-compatible endpoint (endpointUrl + accessKey/secretKey, or existingSecret).
+  # at any S3-compatible endpoint — bringing BOTH halves of its key pair
+  # (endpointUrl + accessKey + secretKey) or an existingSecret. A chart-generated pair is
+  # for the bundled Garage only (it adopts it at first boot); an external store cannot know
+  # a minted key, so the render refuses external mode without operator-supplied credentials.
   storage:
     endpointUrl: ""
     bucket: screamingface-cache-snapshots

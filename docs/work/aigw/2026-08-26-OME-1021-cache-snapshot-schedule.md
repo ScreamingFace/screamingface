@@ -103,3 +103,29 @@ artifacts. Strictly next-Friday (no catch-up), keep-all, schedule-only. Spec (ap
 - **Not addressed here (P2s, next commits):** external-store credential minting (C4),
   SQLite fail-late (C5), endpoint canonicalization (C6), main.py size (C7), and the
   downgraded-to-P2 replica guard (C2).
+
+## Review round 1 — P2 fixes (2026-08-27)
+
+- **C2 (P2) single-replica invariant enforced:** `aigateway.validateSnapshot` (_helpers.tpl,
+  included from configmap.yaml) refuses the render when `snapshot.enabled=true` and
+  gateway `replicaCount > 1`, naming the stamp-collision it prevents and the named
+  future work (advisory lock / CronJob). Spec limitation line updated to say "enforced".
+- **C4 (P2) no minted credentials for external stores:** snapshot-secret.yaml refuses
+  external mode (`garage.enabled=false`, no existingSecret) unless BOTH keys are supplied;
+  generation stays bundled-Garage-only (it adopts the pair at first boot). values.yaml
+  storage comment updated.
+- **C5 (P2) Postgres required when armed:** `Settings._validate_cache_snapshot` refuses a
+  non-postgres:// DSN (notably the sqlite default) when snapshots are enabled — the
+  arm-then-fail-every-Friday trap. DSN never echoed (credentials). Wiring tests adapted:
+  postgres-form DSN in Settings (never dialed — `_run` replaced), ORM on sqlite via the
+  documented `init_db` seam.
+- **C6 (P2) origin-shaped endpoints only:** `S3ObjectStoreConfig.__post_init__` rejects
+  base-path/query/fragment/userinfo/schemeless endpoints at construction — the signature
+  covers `/<bucket>/<key>`, so anything else transmits a request it never signed
+  (guaranteed SignatureDoesNotMatch). Trailing-slash origin accepted; PUT path unchanged.
+- **C7 (P2) main.py back under 450:** builder + publish protocol moved verbatim to
+  `core/snapshot_publish.py::build_snapshot_scheduler` (main.py 495 → 441); lifespan keeps
+  start/stop only. Spec §4.5 updated.
+- **Gates:** focused 44 passed; full non-live suite 4103 passed; ruff + format, pyright
+  (0 errors), check_no_enterprise, helm lint, prod-values render, `verify_chart_wiring.py`
+  47/47 (5 new refusal/external-generation checks) all green.

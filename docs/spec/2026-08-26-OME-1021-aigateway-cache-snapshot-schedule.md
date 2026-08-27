@@ -75,7 +75,8 @@ Functional:
 Non-functional:
 - Batch problem: ~190k rows / ~40–80 MiB gzip per week, one run/week. ~5–10 GiB/yr on
   Garage's single-node store. Latency irrelevant; availability = "next Friday + logs".
-- Single replica assumption (logged), matching the Engine's orphan reaper.
+- Single replica assumption (logged), matching the Engine's orphan reaper — and enforced:
+  the chart refuses `snapshot.enabled=true` with gateway `replicaCount > 1` at render.
 
 Out of scope:
 - Restore automation (exists), retention/pruning (keep-all), manual trigger, metrics
@@ -153,15 +154,20 @@ run loudly rather than filling the pod disk.
   `…_access_key` / `…_secret_key` (SecretStr, never logged).
 - `cache_snapshot_timeout_s` (default 600), `cache_snapshot_max_bytes` (default 256 MiB,
   validated `<= cache_upload_max_bytes` — the restore contract).
-- Fail-fast at startup when enabled but missing endpoint/keys — the same refusal shape as
-  the Engine's `runner="k8s"` + filesystem check.
+- Fail-fast at startup when enabled but missing endpoint/keys, when the database is not
+  PostgreSQL (the export speaks Postgres COPY; the sqlite default would otherwise arm and
+  then fail the same deterministic error every Friday), or when the export cap exceeds the
+  restore cap. The object store additionally refuses non-origin endpoints (base path,
+  query, fragment, userinfo) at wiring — the signature covers `/<bucket>/<key>` only, so a
+  prefixed endpoint transmits a path it never signed.
 
 ### 4.5 Lifespan wiring (`aigateway/main.py` `_lifespan`)
 
-After the existing startup work: if `cache_snapshot_enabled`, build the exporter + store,
-construct the scheduler, `app.state.cache_snapshot_scheduler = scheduler`,
-`scheduler.start()`. Shutdown: `await scheduler.stop()` in `finally` (cancelled task is
-awaited — no orphan).
+After the existing startup work: if `cache_snapshot_enabled`, build the exporter + store
+and the publish protocol via `core/snapshot_publish.py::build_snapshot_scheduler`, then
+`app.state.cache_snapshot_scheduler = scheduler`, `scheduler.start()`. Shutdown:
+`await scheduler.stop()` in `finally` (cancelled task is awaited — no orphan). The
+lifespan owns WHEN; the builder module owns WHAT runs.
 
 ### 4.6 Chart — `apps/aigateway/charts/aigateway/`
 

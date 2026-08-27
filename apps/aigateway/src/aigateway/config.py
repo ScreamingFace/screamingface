@@ -386,6 +386,20 @@ class Settings(BaseSettings):
                 + ", ".join(missing)
                 + " — set the keys or disable AIGW_CACHE_SNAPSHOT_ENABLED"
             )
+        # The exporter speaks Postgres COPY on its own connection; every other scheme
+        # (notably the sqlite:// default when AIGATEWAY_DATABASE_URL is unset) would boot
+        # "scheduler armed" and then fail the same deterministic error every Friday —
+        # refused here instead, where the rest of the feature's misconfiguration surfaces.
+        # The DSN itself is never echoed: it carries credentials.
+        dsn = self.database_url.get_secret_value()
+        scheme = dsn.split("://", 1)[0].lower() if "://" in dsn else ""
+        if scheme not in {"postgres", "postgresql"}:
+            raise ValueError(
+                "cache snapshot export is enabled but the database is not PostgreSQL: the "
+                "export speaks Postgres COPY, so AIGATEWAY_DATABASE_URL must be a "
+                "postgres:// DSN (unset, it defaults to sqlite:// — arm-then-fail-every-"
+                "Friday); disable AIGW_CACHE_SNAPSHOT_ENABLED or point at PostgreSQL"
+            )
         if self.cache_snapshot_max_bytes > self.cache_upload_max_bytes:
             # The restore contract (OME-952): the admin upload path refuses archives above
             # cache_upload_max_bytes, and both caps count the same compressed artifact — so

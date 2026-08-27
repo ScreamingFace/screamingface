@@ -134,3 +134,55 @@ async def test_the_upload_path_refuses_an_absent_file(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError):
         await _store(handler).put(_KEY, tmp_path / "missing.sql.gz", sha256_hex=_SHA256)
+
+
+def _config(endpoint: str) -> S3ObjectStoreConfig:
+    return S3ObjectStoreConfig(
+        endpoint_url=endpoint,
+        bucket=_BUCKET,
+        credentials=Credentials(access_key="GKtestaccess", secret_key=_SECRET, region="garage"),
+    )
+
+
+def test_a_base_path_endpoint_is_refused_at_construction() -> None:
+    """The signed path is `/<bucket>/<key>`; a prefixed endpoint transmits what it never signed.
+
+    Before the shape check this configuration reached Friday and failed there with an
+    opaque `SignatureDoesNotMatch` that read like bad credentials (review C6).
+    """
+    with pytest.raises(ValueError, match="base path"):
+        _config("http://127.0.0.1:3900/garage")
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://127.0.0.1:3900/?policy=main",
+        "http://127.0.0.1:3900/#s3",
+        "http://key:pass@127.0.0.1:3900",
+        "ftp://127.0.0.1:3900",
+        "http://",  # no host
+    ],
+)
+def test_non_origin_endpoint_shapes_are_refused_at_construction(endpoint: str) -> None:
+    with pytest.raises(ValueError):
+        _config(endpoint)
+
+
+@pytest.mark.asyncio
+async def test_a_trailing_slash_origin_puts_the_canonical_path(tmp_path: Path) -> None:
+    """`http://host:3900/` is origin-shaped: accepted, and the PUT still goes to /<bucket>/<key>."""
+    archive = tmp_path / "snapshot.sql.gz"
+    archive.write_bytes(b"x")
+    captured: dict[str, Any] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, text="")
+
+    store = S3ObjectStore(
+        _config("http://127.0.0.1:3900/"),
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    await store.put(_KEY, archive, sha256_hex=_SHA256)
+    assert captured["url"] == f"http://127.0.0.1:3900/{_BUCKET}/{_KEY}"

@@ -261,6 +261,71 @@ check(
     "networkPolicy.enabled=false renders NO policies at all — gateway or Garage",
 )
 
+print("\naigateway snapshot refusals")
+# The single-writer invariant (spec: logged single-replica assumption) is enforced at render,
+# not left to operator discipline — two schedulers firing the same second-resolution stamp
+# would interleave their archive/manifest PUTs.
+replica_error = render_fails(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    "replicaCount=2",
+)
+check(
+    replica_error is not None and "replicaCount=1" in replica_error,
+    "REFUSES snapshots on more than one replica, naming the single-writer invariant",
+)
+external_error = render_fails(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    "snapshot.garage.enabled=false",
+    "--set-string",
+    "snapshot.storage.endpointUrl=http://s3.example.com",
+)
+check(
+    external_error is not None and "bundled Garage" in external_error,
+    "REFUSES to mint credentials for an external store — both keys or existingSecret required",
+)
+gw_external = render(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    "snapshot.garage.enabled=false",
+    "--set-string",
+    "snapshot.storage.endpointUrl=http://s3.example.com",
+    "--set-string",
+    "snapshot.storage.accessKey=AKIAEXTERNAL",
+    "--set-string",
+    "snapshot.storage.secretKey=SKEXTERNAL",
+)
+external_secret = find_named(
+    gw_external, "Secret", f"{GATEWAY_RELEASE}-aigateway-snapshot-storage"
+)
+check(
+    external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY"] == "AKIAEXTERNAL"
+    and external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY"] == "SKEXTERNAL",
+    "external mode renders the OPERATOR's pair verbatim — nothing is generated",
+)
+bundled_secret = find_named(
+    gw_snap, "Secret", f"{GATEWAY_RELEASE}-aigateway-snapshot-storage"
+)
+check(
+    bundled_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY"].startswith("GK"),
+    "bundled Garage still GENERATES its GK… key pair when no values are supplied",
+)
+gw_multi = render(GATEWAY_CHART, GATEWAY_RELEASE, "--set", "replicaCount=2")
+check(
+    isinstance(gw_multi, list) and len(gw_multi) > 0,
+    "more than one replica renders fine while snapshots are OFF — the guard is scoped",
+)
+
 print("\naigateway-ui chart")
 console = render(
     CONSOLE_CHART,
