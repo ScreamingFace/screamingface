@@ -23,12 +23,16 @@
 # NetworkPolicy left off is one nobody is ever forced to write. Both decide who may forge
 # `X-User-Email`, so both are named at install time or the render stops.
 #
-# ALSO NOT INSTALLED BY THIS CHART: the Cloudflare rate-limiting rule for the public hostname.
-# Spec §7 promises anonymous callers an edge rate limit, and the edge is the only layer that can
-# see the real client — in the cluster the mesh proxy is the TCP peer on every request, so
-# `config.anonRate` below is ONE bucket for all anonymous callers and is the service-side backstop,
-# not the per-caller limit. Create a Cloudflare rate-limiting rule on `reports.screamingface.ai`
-# scoped to `POST /v1/reports` before publishing that hostname.
+# SPEC §7's EDGE RATE LIMIT IS RENDERED — `gateway.public.rateLimit` below is a
+# `BackendTrafficPolicy` on the public route, bucketing per caller, because the edge is the only
+# layer that can see one (in the cluster the mesh proxy is the TCP peer on every request, so
+# `config.anonRate` is ONE bucket for all anonymous callers and is the service-side backstop).
+#
+# TWO PIECES OF IT ARE STILL OUTSIDE THIS CHART, and both fail open: Envoy Gateway's Redis-backed
+# rate-limit service, and a `ClientTrafficPolicy` on the Gateway that makes Envoy see the real
+# client rather than the load balancer. Neither is installable from here. So is the Cloudflare
+# rate-limiting rule on `reports.screamingface.ai` scoped to `POST /v1/reports`, which sits in
+# front of all of it and is worth having anyway — create it before publishing that hostname.
 
 # The retry sweep runs in every replica and claims rows by a per-row conditional UPDATE against
 # `lease_expires_at`, so the database arbitrates and one report cannot become two tickets. Two
@@ -90,6 +94,25 @@ gateway:
   public:
     hostnames:
       - reports.screamingface.ai
+
+    # SPEC §7's EDGE RATE LIMIT, on the anonymous hostname and nowhere else. `config.anonRate` is
+    # the service-side brake — one bucket, because the mesh proxy is the TCP peer on every request
+    # — and this is the per-caller half.
+    #
+    # IT NEEDS TWO THINGS THIS CHART CANNOT INSTALL OR CHECK, and missing either fails OPEN:
+    # Envoy Gateway's Redis-backed rate-limit service (`type: Global` is the only type that can
+    # bucket per caller), and a `ClientTrafficPolicy` on the Gateway establishing the real client
+    # address — without one, Envoy sees the load balancer and every caller shares its bucket.
+    # DEPLOYMENT.md carries both as install steps; `kubectl get backendtrafficpolicy` reporting
+    # `Accepted=True` is what says the first one landed.
+    #
+    # The Cloudflare rule on this hostname is still wanted. It sits in front of all of the above.
+    rateLimit:
+      enabled: true
+      requests: 20
+      unit: Hour
+      sourceCIDRs:
+        - 0.0.0.0/0
 
   identity:
     enabled: true

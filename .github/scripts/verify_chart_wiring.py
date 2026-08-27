@@ -513,8 +513,13 @@ intake_container = intake_deployment["spec"]["template"]["spec"]["containers"][0
 declared_settings = settings_env_names()
 
 check(
-    not [doc for doc in intake if doc.get("kind") in {"HTTPRoute", "SecurityPolicy"}],
-    "a bare install renders NO route — values.yaml is installable with no edge, as the engine's is",
+    not [
+        doc
+        for doc in intake
+        if doc.get("kind") in {"HTTPRoute", "SecurityPolicy", "BackendTrafficPolicy"}
+    ],
+    "a bare install renders NO route and no edge policy — values.yaml is installable with no edge, "
+    "as the engine's is",
 )
 check(
     not [doc for doc in intake if doc.get("kind") == "NetworkPolicy"],
@@ -716,6 +721,49 @@ check(
     "unbudgeted /readyz (one database query per request) on a public hostname",
 )
 
+# SPEC §7's EDGE RATE LIMIT. `config.anonRate` is NOT it: that limiter keys on the TCP peer, which
+# inside the cluster is the mesh proxy on every request, so it is one bucket shared by every
+# anonymous caller on the internet. Only the edge can see a caller, which is why this is an object.
+# Read tolerantly, never with `find`: a policy that stopped rendering must report as the four named
+# failures below rather than aborting this script twenty lines from the problem. That is the lesson
+# the first pass over this chart paid for, and "the object is gone" is exactly the case that
+# re-teaches it.
+edge_rate_limit = next(
+    (doc for doc in intake_cloud if doc.get("kind") == "BackendTrafficPolicy"), {}
+)
+edge_spec = edge_rate_limit.get("spec", {})
+edge_limit = edge_spec.get("rateLimit", {})
+edge_rules = edge_limit.get("global", {}).get("rules", [])
+check(
+    bool(edge_rate_limit),
+    "the cloud posture renders spec §7's edge rate limit for anonymous callers — the in-process "
+    "config.anonRate is the service-side backstop, keyed on the mesh proxy, not the per-caller limit",
+)
+check(
+    [ref.get("name") for ref in edge_spec.get("targetRefs", [])]
+    == [public_route["metadata"]["name"]],
+    "the edge rate limit targets the PUBLIC route BY THE NAME that route actually has, and targets "
+    "nothing else — a policy naming a route that does not exist limits nothing and reports Accepted",
+)
+check(
+    edge_limit.get("type") == "Global",
+    "the edge rate limit is Global — Envoy's LOCAL limiter cannot do Distinct matching, so the only "
+    "thing it could express is the one shared bucket config.anonRate already is, one layer out",
+)
+check(
+    bool(edge_rules)
+    and all(
+        rule.get("clientSelectors")
+        and all(
+            selector.get("sourceCIDR", {}).get("type") == "Distinct"
+            for selector in rule["clientSelectors"]
+        )
+        for rule in edge_rules
+    ),
+    "every rule buckets PER CLIENT ADDRESS (Distinct) — the default Exact would give 0.0.0.0/0 one "
+    "budget shared by everyone, and a rule with NO selector is that same shared bucket unlabelled",
+)
+
 print("\nreport-intake refusals")
 anonymous_error = render_fails(
     INTAKE_CHART, INTAKE_RELEASE, "--set", "anonymous.enabled=true"
@@ -756,6 +804,93 @@ forwarded_error = render_fails(
 check(
     forwarded_error is not None and "X-Forwarded-For" in forwarded_error,
     "REFUSES FORWARDED_ALLOW_IPS='*', which lets any caller rewrite the peer address",
+)
+# Selecting the `linear` sink is a DECISION, not a knob: it is the selection CLAUDE.md rule 9
+# governs, and it puts a long-lived credential to the private tracker into the pod. Both halves
+# are required for the same reason the Turnstile secret is — a pod missing either accepts every
+# report, answers 202, files none of them, and reports itself ready.
+linear_team_error = render_fails(
+    INTAKE_CHART, INTAKE_RELEASE, "--set", "config.ticketSink=linear"
+)
+check(
+    linear_team_error is not None and "config.linearTeamId" in linear_team_error,
+    "REFUSES ticketSink=linear with no team — an issue create with no teamId is refused on every "
+    "report, which is a queue quietly growing rather than a pod that fails",
+)
+linear_secret_error = render_fails(
+    INTAKE_CHART,
+    INTAKE_RELEASE,
+    "--set",
+    "config.ticketSink=linear",
+    "--set",
+    "config.linearTeamId=b9c1f0de-0000-4000-8000-000000000000",
+    "--set",
+    "linear.existingSecret=",
+)
+check(
+    linear_secret_error is not None and "OME-976" in linear_secret_error,
+    "REFUSES ticketSink=linear with no API key Secret, naming the rule that governs the choice",
+)
+linear_env = next(
+    (
+        entry
+        for entry in intake_container["env"]
+        if entry["name"] == "REPORT_INTAKE_LINEAR_API_KEY"
+    ),
+    {},
+)
+check(
+    "valueFrom" in linear_env
+    and "value" not in linear_env
+    and linear_env["valueFrom"]["secretKeyRef"].get("optional") is True,
+    "the Linear API key comes from an OPTIONAL Secret — the chart holds no literal, and the "
+    "Secret not existing is the normal state rather than a Pod stuck in CreateContainerConfigError",
+)
+# `optional: true` does NOT exempt `name` from Kubernetes' own validation
+# (`validateSecretKeySelector` requires it), so an empty one is rejected at APPLY with
+# `secretKeyRef.name: Required value` — after helm has already run the pre-install migration hook.
+# Clearing this value is the natural way an operator says "reference no Linear secret at all", and
+# values.schema.json deliberately gives it no minLength, so the entry is guarded on a non-empty
+# name rather than merely documented.
+secretless_intake = render(
+    INTAKE_CHART, INTAKE_RELEASE, "--set", "linear.existingSecret="
+)
+secretless_container = find(secretless_intake, "Deployment")["spec"]["template"][
+    "spec"
+]["containers"][0]
+check(
+    not [
+        entry
+        for entry in secretless_container["env"]
+        if not entry.get("valueFrom", {}).get("secretKeyRef", {}).get("name", "x")
+    ],
+    "an EMPTY linear.existingSecret renders no empty-named secretKeyRef — an env entry naming no "
+    "Secret is rejected at apply even with optional: true, and by then the migration hook has run",
+)
+# GHCR org packages are private by default and the migration Job is a pre-install hook at weight
+# -5: without a pull secret a private-registry install stops at ImagePullBackOff before any Pod is
+# scheduled, and the Deployment that would have worked never renders. The Deployment carried this
+# block and the Job did not — the same asymmetry apps/scoreboard's chart does not have.
+pulled = render(
+    INTAKE_CHART, INTAKE_RELEASE, "--set", "imagePullSecrets[0].name=ghcr-creds"
+)
+check(
+    all(
+        doc["spec"]["template"]["spec"].get("imagePullSecrets")
+        == [{"name": "ghcr-creds"}]
+        for doc in pulled
+        if doc.get("kind") in {"Deployment", "Job"}
+    ),
+    "EVERY pod-carrying object renders imagePullSecrets, the migration hook included — a private "
+    "registry otherwise blocks the whole release on a Job whose only symptom is a pull error",
+)
+rate_limit_error = render_fails(
+    INTAKE_CHART, INTAKE_RELEASE, "--set", "gateway.public.rateLimit.enabled=true"
+)
+check(
+    rate_limit_error is not None and "reports Accepted" in rate_limit_error,
+    "REFUSES an edge rate limit with anonymous.enabled=false — the policy targets the public route "
+    "by name, and with no such route it attaches to nothing, limits nothing, and reports Accepted",
 )
 peerless_error = render_fails(
     INTAKE_CHART, INTAKE_RELEASE, "--set", "networkPolicy.enabled=true"
@@ -826,8 +961,8 @@ check(
     f"the chart's image ({console_image.rsplit(':', 1)[0]}) IS the one the release lane publishes",
 )
 
-# report-intake has no dev lane; its release lane is the only publisher of that image, which makes
-# this the only place the chart and the workflow are compared at all.
+# report-intake publishes from two lanes — a release lane on the `report-intake-v*` tag and a dev
+# lane on every merge to main — and this is the only place either is compared to the chart.
 intake_lane = yaml.safe_load(
     (REPO / ".github/workflows/release-report-intake.yml").read_text()
 )
@@ -853,6 +988,89 @@ check(
 check(
     intake_image.rsplit(":", 1)[1] != "",
     "report-intake's chart pins an image TAG (appVersion, set from the tag at package time)",
+)
+
+
+# The dev lane, same contract as aigateway-ui's: a dev cluster tracks main by overriding image.tag
+# on the chart it already has, which only works while the dev image is the SAME repository the
+# chart and the release lane already agree on. A dev image under another name is one the chart can
+# never be pointed at without editing values, and nothing else in CI compares the two.
+# TWO LANES RENDER `values-cloud.yaml` AND BOTH NEED THE SAME PLACEHOLDERS, because that file
+# deliberately ships every value a chart cannot know as empty-and-required. This comparison exists
+# because the drift already happened: when the review pass emptied `config.allowedNetworks` and
+# `networkPolicy.clientPodNames`, `charts.yml` gained three placeholders and the release lane did
+# not — and a lane that runs only on a `report-intake-v*` tag cannot notice that it can no longer
+# render. `charts.yml` runs on every PR touching the chart, so it is the one that stays current;
+# this makes the release lane keep up with it.
+def cloud_render_flags(workflow: str, job: str, step_name: str) -> set[str]:
+    """The `--set` KEYS in one workflow step's shell block. Keys, not values: the placeholders are
+    arbitrary strings and only the set of values being supplied is the contract."""
+    spec = yaml.safe_load((REPO / ".github/workflows" / workflow).read_text())
+    step = next(s for s in spec["jobs"][job]["steps"] if s.get("name") == step_name)
+    return set(re.findall(r"--set '?([A-Za-z0-9_.\[\]]+)=", step["run"]))
+
+
+charts_lane_flags = cloud_render_flags(
+    "charts.yml", "render", "Render report-intake's cloud values"
+)
+check(
+    bool(charts_lane_flags)
+    and cloud_render_flags("release-report-intake.yml", "chart", "Render")
+    == charts_lane_flags,
+    f"the release lane renders values-cloud.yaml with the SAME {len(charts_lane_flags)} "
+    f"placeholders charts.yml does — a lane that only runs on a release tag cannot notice that a "
+    f"newly-required value has left it unable to render",
+)
+
+# The GitHub Release body is the ONE artefact a downstream installer reads without opening the
+# repo, and it counted the install-time values in prose. It said "five" for a while after the
+# chart had grown to eight — omitting the two that decide who may present an identity to this
+# service. Prose about a number drifts silently, so the number is asserted against the `--set`
+# keys that same lane passes. Whitespace is collapsed first: the body is a folded YAML block and
+# the phrase wraps across lines in it.
+lane_prose = " ".join(
+    (REPO / ".github/workflows/release-report-intake.yml").read_text().split()
+)
+count_words = {
+    4: "four",
+    5: "five",
+    6: "six",
+    7: "seven",
+    8: "eight",
+    9: "nine",
+    10: "ten",
+}
+expected_count = count_words.get(len(charts_lane_flags))
+check(
+    expected_count is not None
+    and lane_prose.count(f"{expected_count} install-time values") == 2
+    and not [
+        word
+        for count, word in count_words.items()
+        if count != len(charts_lane_flags)
+        and f"{word} install-time values" in lane_prose
+    ],
+    f"the release lane's header AND its Release body both say {expected_count!r} install-time "
+    f"values, matching the placeholders it renders with — the Release body is what an installer "
+    f"reads instead of the repo",
+)
+
+intake_dev_lane = yaml.safe_load(
+    (REPO / ".github/workflows/dev-build-report-intake.yml").read_text()
+)
+intake_dev_tags = [
+    tag.strip()
+    for tag in intake_dev_lane["jobs"]["image"]["steps"][-1]["with"]["tags"].split("\n")
+    if tag.strip()
+]
+check(
+    any(tag.rsplit(":", 1)[0] == intake_published for tag in intake_dev_tags),
+    "report-intake's dev lane pushes the SAME image repository the chart and release lane name",
+)
+check(
+    all(":main-" in tag for tag in intake_dev_tags)
+    and not any(tag.endswith(":latest") for tag in intake_dev_tags),
+    "report-intake's dev lane publishes only immutable main-<sha> tags — never :latest",
 )
 
 # The dev lane feeds the dev cluster (OME-714, following #452). It pushes the same repository under

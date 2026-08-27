@@ -50,8 +50,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "report-intake.fullname" . }}
-          # The two values that are NOT in the ConfigMap, for the same reason: both are secrets.
-          # They complete §2.4's surface — with these, every `Settings` field is rendered.
+          # The three values that are NOT in the ConfigMap, for the same reason: all three are
+          # credentials. They complete §2.4's surface — with these, every `Settings` field is
+          # rendered.
           env:
             {{- include "report-intake.databaseEnv" . | nindent 12 }}
             {{- if .Values.turnstile.enabled }}
@@ -60,6 +61,32 @@ spec:
                 secretKeyRef:
                   name: {{ required "turnstile.existingSecret is required when turnstile.enabled=true — the chart never holds the secret literal, and without it siteverify rejects this service's own credentials and every anonymous report is answered 503" .Values.turnstile.existingSecret }}
                   key: {{ .Values.turnstile.existingSecretKey }}
+            {{- end }}
+            # OPTIONAL — the one env entry here that is neither of the things the two above are.
+            # Read `optional: true` as the posture it is: this deployment does not file into
+            # Linear unless someone creates that Secret. The name is stated in every render that
+            # HAS one, so the surface is complete and so turning the sink on is creating a Secret
+            # rather than editing a Deployment; the Secret itself is expected NOT to exist, and a
+            # missing one leaves the variable unset instead of wedging the Pod in
+            # CreateContainerConfigError. If `config.ticketSink: linear` is selected without it,
+            # the app refuses to start and says which variable it wanted — see
+            # `delivery/registry.py`. CLAUDE.md rule 9 governs making that selection.
+            #
+            # GUARDED ON A NON-EMPTY NAME, not on the sink. An empty `linear.existingSecret` is
+            # legal at every layer — values.schema.json gives it no minLength on purpose, and
+            # clearing it is the natural way an operator says "reference no Linear secret at all"
+            # — but `optional: true` does NOT exempt `name` from Kubernetes' own validation. An
+            # empty one is rejected at apply with `secretKeyRef.name: Required value`, AFTER helm
+            # has already run the pre-install migration hook. The refusal an operator should get
+            # for `ticketSink=linear` with no Secret still comes from `report-intake.validate`,
+            # which fires first and says which rule governs the choice.
+            {{- with .Values.linear.existingSecret }}
+            - name: REPORT_INTAKE_LINEAR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $.Values.linear.existingSecretKey }}
+                  optional: true
             {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

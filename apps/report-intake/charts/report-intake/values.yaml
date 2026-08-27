@@ -103,7 +103,26 @@ config:
   # `reports` table IS the queue, and an agent files each row via MCP during triage. That is what
   # keeps a Linear API token out of this pod's environment entirely. The app refuses to start on
   # a name its registry does not know.
+  #
+  # `linear` is the other name, and selecting it is a DECISION, not a tuning knob: CLAUDE.md rule
+  # 9 says product code reaches Linear through MCP only, and the amendment that would carve out an
+  # exception for this service (OME-976) has not been made. It also puts a long-lived credential
+  # to the private tracker into this pod. Selecting it needs `linear.existingSecret` and
+  # `config.linearTeamId`; the render stops without them, and so does the app.
   ticketSink: queue
+
+  # The `linear` sink's settings. INERT while `ticketSink` is `queue` — nothing reads them, and
+  # the pod makes no outbound call to Linear.
+  #
+  # The team every issue is created in, as `IssueCreateInput.teamId` — a UUID, NOT a team key
+  # like `OME`. A key posted as an id is a validation error on every report rather than a boot
+  # failure on none, which is the difference between an alarm and a queue quietly growing.
+  linearTeamId: ""
+  # Linear's one GraphQL endpoint. Move it only for a proxied or air-gapped deployment.
+  linearApiUrl: https://api.linear.app/graphql
+  # The outbound call's own deadline. The inline `deliveryTimeoutS` above is the outer bound the
+  # dispatcher imposes, so raising this past it buys nothing.
+  linearTimeoutS: 3
 
   # Spec §6's inline delivery deadline. Raising it does not make delivery likelier — past it the
   # row stays `pending` and the retry queue owns the report — it only makes filing a bug slower.
@@ -173,6 +192,22 @@ turnstile:
   existingSecret: ""
   existingSecretKey: turnstile-secret
 
+# WHERE THE LINEAR API KEY WOULD COME FROM, if this deployment ever files into Linear directly.
+#
+# NO `enabled` FLAG, deliberately: `config.ticketSink` is the switch, and a second one would let
+# them disagree — `enabled: true` with `ticketSink: queue` is a credential mounted for nobody, and
+# the reverse is a pod that starts and files nothing. The Deployment names this Secret in every
+# render with `optional: true`, so the Secret NOT EXISTING is the normal state and the pod starts
+# fine without it; creating it is what makes the key available, and selecting the sink is what
+# makes it used.
+#
+# Creating that Secret is the act CLAUDE.md rule 9 governs. Read `delivery/linear_sink.py` before
+# you do: the amendment (OME-976) has not been made, and this chart takes no position on whether
+# it should be.
+linear:
+  existingSecret: report-intake-linear
+  existingSecretKey: api-key
+
 # THE EDGE. Gateway API, not Ingress: the header manipulation this service's identity model rests
 # on is a typed `filters:` field on an HTTPRoute, and under Ingress it would be a
 # controller-specific annotation — which means the load-bearing half of the contract would live
@@ -204,6 +239,53 @@ gateway:
   # `X-User-Email` and `CF-Connecting-IP` unconditionally before the backend sees them.
   public:
     hostnames: []
+
+    # SPEC §7's EDGE RATE LIMIT — an Envoy `BackendTrafficPolicy` on this route and no other.
+    #
+    # It is not the same limit as `config.anonRate` above and does not replace it. That one keys
+    # on the TCP peer, which inside a cluster is the mesh proxy on every request, so it is ONE
+    # bucket for every anonymous caller on the internet — the service-side brake. This one keys on
+    # the caller, because the edge is the only layer that can see one.
+    #
+    # OFF BY DEFAULT, like every other edge piece here, and ON in values-cloud.yaml. It renders a
+    # `BackendTrafficPolicy`, which is an Envoy Gateway extension rather than core Gateway API —
+    # the same prerequisite `SecurityPolicy` already carries.
+    #
+    # TURNING IT ON IS NOT ENOUGH ON ITS OWN, and both gaps fail OPEN — the hostname keeps serving
+    # and nothing reports a fault. Read `templates/backendtrafficpolicy-public.yaml` and
+    # DEPLOYMENT.md, then check `status.conditions` on the rendered policy:
+    #
+    #   - `type: Global` (the only type that can bucket per caller) needs Envoy Gateway's
+    #     rate-limit service — a separate Redis-backed deployment enabled in the `EnvoyGateway`
+    #     config. Not installed here, and not part of a default Envoy Gateway install.
+    #   - The address it buckets on is whatever Envoy computes as the client address, which behind
+    #     Cloudflare and a cloud load balancer is the LOAD BALANCER unless the Gateway carries a
+    #     `ClientTrafficPolicy` with `clientIPDetection`. This chart cannot render that policy: it
+    #     targets the Gateway, which this chart does not install and other services share.
+    #
+    # The Cloudflare rate-limiting rule on the same hostname is still wanted either way — it is in
+    # front of all of this and costs a flood nothing in the cluster. `anonymous.enabled`
+    # deliberately does NOT require this policy, so a deployment whose edge limit is Cloudflare's
+    # is not forced into a Redis dependency.
+    rateLimit:
+      enabled: false
+      # Per caller, per window. Generous for a person filing bug reports (one, occasionally two
+      # after a retry) and useless for a submission loop. Read it knowing that a shared egress
+      # address — an office, a university, a mobile carrier's NAT — is one caller here.
+      requests: 20
+      # One of Second, Minute, Hour, Day.
+      unit: Hour
+      # ONE RULE PER ENTRY, each bucketing per address inside it. `0.0.0.0/0` means "every IPv4
+      # caller gets their own budget", not "IPv4 shares one".
+      #
+      # IPv4 ONLY, deliberately: an IPv6 caller matches no rule and is unlimited, which is a real
+      # gap and is named here rather than papered over. Add `::/0` where the Gateway terminates
+      # IPv6 client addresses. It is not in the default because a `sourceCIDR` the installed Envoy
+      # Gateway rejects makes the WHOLE policy not-Accepted — taking the IPv4 limit with it, fail-
+      # open, on a hostname that is this repo's first unauthenticated write. Verify it lands
+      # (`Accepted=True`) before relying on it.
+      sourceCIDRs:
+        - 0.0.0.0/0
 
   # The IDENTITY route: Cloudflare Access in front, and an Envoy `SecurityPolicy` that
   # re-verifies the Access assertion and maps the verified `email` claim onto `X-User-Email`.

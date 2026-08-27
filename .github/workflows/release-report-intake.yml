@@ -9,9 +9,11 @@ name: Release report-intake
 #
 #   1. The chart render passes values, and there are two renders. `values.yaml` renders a
 #      loopback-only pod with no edge, which is the installable default; `values-cloud.yaml` is
-#      the posture that actually deploys, and it needs five install-time values the chart refuses
-#      to guess. Rendering only the first would leave the two HTTPRoutes and the SecurityPolicy —
-#      the objects the identity model rests on — unexercised by the lane that publishes them.
+#      the posture that actually deploys, and it needs eight install-time values, six of which
+#      stop the render. Rendering only the first would leave the two HTTPRoutes and the
+#      SecurityPolicy — the objects the identity model rests on — unexercised by the lane that
+#      publishes them. The count is asserted against the `--set` keys below by
+#      `.github/scripts/verify_chart_wiring.py`, because prose about a number drifts silently.
 #   2. NO publish to the public OpenMined/sf-installer repo. That repo is the product installer;
 #      this service is infrastructure the team runs, not something a user installs.
 #   3. The tag filter is disjoint from every other release lane's by construction — no other
@@ -121,10 +123,18 @@ jobs:
         run: helm lint "$CHART"
 
       # BOTH postures. The default renders a loopback-only pod with no edge; the cloud values are
-      # what produce the two HTTPRoutes and the SecurityPolicy. The five --set values below have
-      # no defaults because the chart cannot know a Gateway's name or a Cloudflare application,
-      # and it fails the render rather than inventing one — the placeholders here exercise the
-      # templates and are not deployment defaults. Nothing consumes these renderings.
+      # what produce the two HTTPRoutes, the SecurityPolicy and the edge rate limit. The --set
+      # values below have no defaults because the chart cannot know a Gateway's name, a Cloudflare
+      # application, a Pod CIDR or a mesh gateway's label, and it fails the render rather than
+      # inventing one — the placeholders here exercise the templates and are not deployment
+      # defaults. Nothing consumes these renderings.
+      #
+      # AIDEV-NOTE: this set MUST match the one in charts.yml's "Render report-intake's cloud
+      # values" step, and `.github/scripts/verify_chart_wiring.py` asserts that it does. The three
+      # after the Turnstile secret were added to charts.yml when values-cloud.yaml stopped
+      # defaulting `config.allowedNetworks` and `networkPolicy.clientPodNames` — and not here,
+      # which left this lane unable to render for as long as nobody pushed a release tag. A lane
+      # that only runs on a tag cannot be trusted to notice its own drift.
       - name: Render
         run: |
           set -euo pipefail
@@ -136,7 +146,10 @@ jobs:
             --set gateway.identity.cloudflareAccess.teamDomain=ci-placeholder.cloudflareaccess.com \
             --set gateway.identity.cloudflareAccess.audience=ci-placeholder-aud \
             --set turnstile.existingSecret=ci-placeholder-turnstile \
-            --set database.existingSecret=ci-placeholder-db >/tmp/reports-cloud.yaml
+            --set database.existingSecret=ci-placeholder-db \
+            --set 'config.allowedNetworks[0]=10.42.0.0/16' \
+            --set 'networkPolicy.clientPodNames[0]=ci-placeholder-envoy' \
+            --set networkPolicy.clientNamespace=ci-placeholder-envoy-ns >/tmp/reports-cloud.yaml
 
       # Both --version and --app-version come from the tag, so the packaged chart cannot disagree
       # with the image it names — the chart's image helper falls back to appVersion when
@@ -192,10 +205,14 @@ jobs:
             ```
 
             A bare install is loopback-only by design and answers `403` to anything arriving
-            through a mesh. The deployable posture is `values-cloud.yaml`, which needs five values
-            the chart refuses to guess — the Gateway's name, the Cloudflare Access team and
-            audience, and the Secrets holding the Turnstile secret and the database URL. See
-            `apps/report-intake/charts/report-intake/README.md`.
+            through a mesh. The deployable posture is `values-cloud.yaml`, which needs eight
+            install-time values. Six stop the render outright: the Gateway's name, the Cloudflare
+            Access team domain and AUD, the Secret holding the Turnstile secret, your cluster's
+            Pod CIDR (`config.allowedNetworks`) and the mesh data plane's pod label
+            (`networkPolicy.clientPodNames`) — the last two are what decide who may present an
+            identity to this service. Two more have a *name* with no object behind it, which is
+            worse to discover: `database.existingSecret` and `networkPolicy.clientNamespace`.
+            The table is `apps/report-intake/DEPLOYMENT.md#the-install-time-values`.
 
             The schema is applied by a `pre-install`/`pre-upgrade` Job: this service never
             migrates itself, and `/readyz` fails closed until that Job has run.

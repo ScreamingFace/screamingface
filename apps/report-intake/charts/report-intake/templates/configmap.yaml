@@ -42,6 +42,16 @@ data:
   REPORT_INTAKE_IDEMPOTENCY_TTL_H: {{ .Values.config.idempotencyTtlH | quote }}
   REPORT_INTAKE_RETENTION_DAYS: {{ .Values.config.retentionDays | quote }}
 
+  # The `linear` sink's non-secret half. INERT unless `config.ticketSink: linear` — the service
+  # builds one adapter and `queue` is the default (spec §9), so on every deployment of this chart
+  # today these three are read by nobody. Rendered anyway, because a field the chart never renders
+  # can only ever hold its declared default in production, and stating the posture in the manifest
+  # is what the equality between this file and `Settings` is for. The API key is a Secret, on the
+  # Deployment.
+  REPORT_INTAKE_LINEAR_TEAM_ID: {{ .Values.config.linearTeamId | quote }}
+  REPORT_INTAKE_LINEAR_API_URL: {{ .Values.config.linearApiUrl | quote }}
+  REPORT_INTAKE_LINEAR_TIMEOUT_S: {{ .Values.config.linearTimeoutS | quote }}
+
   # The verify URL and the timeout, but NOT the site key: that is a browser-side value this
   # service never reads. The secret is a Secret, on the Deployment.
   REPORT_INTAKE_TURNSTILE_VERIFY_URL: {{ .Values.config.turnstileVerifyUrl | quote }}

@@ -68,13 +68,27 @@ def test_every_setting_this_service_reads_is_rendered_by_the_chart() -> None:
     assert not _declared_env_names() - _charted_env_names()
 
 
-def test_the_two_secret_valued_settings_are_never_in_the_configmap() -> None:
-    """A ConfigMap is not a Secret, and both of these carry a credential — the database URL its
-    password, the Turnstile secret itself. They belong on the Deployment, from a `secretKeyRef`."""
+def test_the_three_secret_valued_settings_are_never_in_the_configmap() -> None:
+    """A ConfigMap is not a Secret, and all three carry a credential — the database URL its
+    password, the Turnstile secret itself, and the Linear API key a long-lived token to the
+    private tracker the team works in. They belong on the Deployment, from a `secretKeyRef`."""
     configmap = (_TEMPLATES / "configmap.yaml").read_text(encoding="utf-8")
 
     assert f"{ENV_PREFIX}DATABASE_URL" not in configmap
     assert f"{ENV_PREFIX}TURNSTILE_SECRET" not in configmap
+    assert f"{ENV_PREFIX}LINEAR_API_KEY" not in configmap
+
+
+def test_the_chart_holds_no_linear_credential_literal() -> None:
+    """The one value in this chart's surface that is a token to the private tracker. It comes from
+    a Secret the operator creates — `linear.existingSecret` names it and the Deployment reads it
+    with `optional: true`, so the Secret not existing is the normal state and the pod still
+    starts. A literal here would be a credential in a values file, in a git repo, forever."""
+    for path in _CHART_ROOT.rglob("*.yaml"):
+        text = path.read_text(encoding="utf-8")
+
+        assert "lin_api_" not in text
+        assert f"{ENV_PREFIX}LINEAR_API_KEY: " not in text
 
 
 def test_the_chart_never_names_a_turnstile_site_key() -> None:

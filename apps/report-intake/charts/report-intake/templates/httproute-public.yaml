@@ -31,7 +31,10 @@ this file exists to close, re-opened by a "simplification". See the identity rou
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: {{ include "report-intake.fullname" . }}-public
+  # From a helper because the BackendTrafficPolicy carrying spec §7's edge rate limit targets this
+  # route BY NAME. A route renamed here alone leaves that policy attached to nothing, limiting
+  # nothing, and still reporting Accepted — the same trap the identity route's name avoids.
+  name: {{ include "report-intake.publicRouteName" . }}
   labels:
     {{- include "report-intake.labels" . | nindent 4 }}
     app.kubernetes.io/component: public

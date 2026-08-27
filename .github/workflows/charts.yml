@@ -106,11 +106,17 @@ jobs:
             --values apps/aigateway/charts/aigateway/values-prod.yaml > /dev/null
 
       # report-intake's cloud posture. The verifier renders it too, but this step is what a
-      # failure reads as: `values-cloud.yaml` needs eight install-time values the chart refuses to
+      # failure reads as: `values-cloud.yaml` needs eight install-time values the chart cannot
       # guess — a Gateway's name, a Cloudflare team and audience, two Secret names, the cluster's
-      # Pod CIDR, and the mesh data plane's pod name and namespace — and each missing one is a
-      # render failure rather than a default. The placeholders exercise the templates; nothing
-      # consumes this rendering.
+      # Pod CIDR, and the mesh data plane's pod name and namespace. Six of the eight stop the
+      # render outright; the other two default to a NAME with no object behind it. All eight, and
+      # where each comes from, are in apps/report-intake/DEPLOYMENT.md. The placeholders below
+      # exercise the templates; nothing consumes this rendering.
+      #
+      # AIDEV-NOTE: release-report-intake.yml renders the same file and needs the SAME --set keys.
+      # It runs only on a release tag, so it cannot notice when a newly-required value has left it
+      # unable to render — which already happened once. `verify_chart_wiring.py` now asserts the
+      # two lanes carry an identical set, keyed off THIS step.
       #
       # AIDEV-NOTE: the last three exist because `values-cloud.yaml` deliberately ships
       # `config.allowedNetworks: []` and `networkPolicy.clientPodNames: []`. Both decide who may

@@ -52,6 +52,19 @@ nothing, verifies nothing, and still reports Accepted; the engine chart learned 
 {{- end -}}
 
 {{/*
+The name of the public intake route.
+
+A helper for the same reason `identityRouteName` is one: two objects have to agree on it — the
+public HTTPRoute and the `BackendTrafficPolicy` that targets it BY NAME to apply spec §7's edge
+rate limit. A policy naming a route that does not exist attaches to nothing, limits nothing, and
+still reports Accepted, which is exactly how the SecurityPolicy's version of this mistake reads
+from `kubectl get`.
+*/}}
+{{- define "report-intake.publicRouteName" -}}
+{{- printf "%s-public" (include "report-intake.fullname" .) -}}
+{{- end -}}
+
+{{/*
 The database URL, from a Secret. The Deployment and the migration Job both need it and must not
 disagree, and the URL carries a password, so it is never a chart value.
 */}}
@@ -115,6 +128,14 @@ the same whichever one Helm reaches first; the three that can raise nothing do n
 {{- fail "anonymous.enabled=true requires gateway.enabled=true — the public intake hostname IS an HTTPRoute, and with no Gateway API edge there is nothing to render it on." -}}
 {{- end -}}
 {{- end -}}
+{{- if .Values.gateway.public.rateLimit.enabled -}}
+{{- if not .Values.anonymous.enabled -}}
+{{- fail "gateway.public.rateLimit.enabled=true with anonymous.enabled=false — the BackendTrafficPolicy targets the PUBLIC HTTPRoute by name, and that route is rendered only when anonymous.enabled is set. A policy naming a route that does not exist attaches to nothing, limits nothing, and still reports Accepted, so the miss is invisible from `kubectl get`. The identity route is deliberately never a target: its callers are mesh-verified and arrive through the mesh proxy, where a per-source-IP bucket is one bucket." -}}
+{{- end -}}
+{{- if not .Values.gateway.public.rateLimit.sourceCIDRs -}}
+{{- fail "gateway.public.rateLimit.enabled=true with no gateway.public.rateLimit.sourceCIDRs — each entry becomes ONE rule with its own `Distinct` bucket per client address, so an empty list is a policy with no rules: it renders, it is Accepted, and it limits nothing. Name the address families the Gateway terminates (the default is 0.0.0.0/0), or set enabled=false and rate-limit this hostname at Cloudflare instead." -}}
+{{- end -}}
+{{- end -}}
 {{- if .Values.gateway.enabled -}}
 {{- if ne .Values.config.authMode "mesh_or_turnstile" -}}
 {{- fail (printf "gateway.enabled=true with config.authMode=%q — authMode=disabled is not \"no auth\", it is LOOPBACK-ONLY, so every request arriving through the mesh gets a 403 and the deployment looks like a routing fault rather than a chosen posture. Set config.authMode=mesh_or_turnstile for any deployment with an edge in front of it." .Values.config.authMode) -}}
@@ -125,6 +146,14 @@ the same whichever one Helm reaches first; the three that can raise nothing do n
 {{- end -}}
 {{- if and .Values.gateway.identity.enabled (not .Values.gateway.enabled) -}}
 {{- fail "gateway.identity.enabled=true requires gateway.enabled=true — the SecurityPolicy targets the identity HTTPRoute this chart renders, and with no route it attaches to nothing and verifies nothing." -}}
+{{- end -}}
+{{- if eq (.Values.config.ticketSink | trim | lower) "linear" -}}
+{{- if not (trim .Values.config.linearTeamId) -}}
+{{- fail "config.ticketSink=linear files issues into Linear directly, so it needs the team to create them in: set config.linearTeamId to the team's UUID (IssueCreateInput.teamId — not a key like OME, which is a validation error on every report rather than a boot failure on none). The app refuses to start without it, because a service that accepts reports and files none of them keeps answering 202 and reporting itself ready." -}}
+{{- end -}}
+{{- if not (trim .Values.linear.existingSecret) -}}
+{{- fail "config.ticketSink=linear needs an API key, so set linear.existingSecret to a Secret holding one — the chart never holds the literal. Note what selecting this sink means: CLAUDE.md rule 9 says product code reaches Linear through MCP only and the amendment (OME-976) has not been made, and this puts a long-lived credential to the private tracker into the pod. config.ticketSink=queue needs neither, and is what every deployment runs today." -}}
+{{- end -}}
 {{- end -}}
 {{- if eq (.Values.config.forwardedAllowIps | trim) "*" -}}
 {{- fail "config.forwardedAllowIps=\"*\" — uvicorn's proxy-headers middleware would then rewrite request.client.host from a client-supplied X-Forwarded-For for EVERY peer, no proxy relationship required. The mesh identity check and the rate-limit key both read that address, so the peer check would authenticate whoever asked to be authenticated. Name the real proxy's address(es), disjoint from config.allowedNetworks." -}}

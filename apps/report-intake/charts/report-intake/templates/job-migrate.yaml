@@ -41,6 +41,19 @@ spec:
     spec:
       restartPolicy: OnFailure
       serviceAccountName: {{ .Values.migration.serviceAccountName | quote }}
+      {{- /*
+      The same block the Deployment renders, and it belongs here MORE than there: the image is
+      ghcr.io/screamingface/screamingface-report-intake and GHCR org packages are private by
+      default, and this Job is a pre-install hook at weight -5. Without a pull secret a
+      private-registry install stops at ImagePullBackOff before any Pod is scheduled — the whole
+      release blocked on a Job whose only symptom is a pull error, while the Deployment that
+      would have worked never renders. apps/scoreboard's job-migrate.yaml carries it in exactly
+      this position.
+      */}}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: tortoise-migrate
           image: {{ include "report-intake.image" . | quote }}
