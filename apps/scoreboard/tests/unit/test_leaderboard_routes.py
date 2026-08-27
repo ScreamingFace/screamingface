@@ -11,7 +11,7 @@ import pytest_asyncio
 from scoreboard.config import Settings
 from scoreboard.main import create_app
 from scoreboard.scores.baseline_store import BaselineStore
-from scoreboard.scores.models import Score
+from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import BaselineImportRow, ClientInfo, ScoreSubmission
 from scoreboard.scores.store import ScoreStore
 
@@ -1099,3 +1099,101 @@ async def test_a_public_board_carries_no_private_cache_policy(
     response = await async_client.get("/v1/leaderboard/hle")
 
     assert response.headers.get("cache-control") != CACHE_POLICY
+
+
+# --- review round 21: a read must not answer from a visibility read that has gone stale -------
+# Round 20 closed this on the WRITE path and left every read deciding from a visibility read and
+# then running a query, with nothing in between. The seed job flips boards while requests are in
+# flight. Found in review of PR #719.
+
+
+def _flip_private_during(method: str) -> tuple[object, object]:
+    """Land the flip while `ScoreStore.<method>` is running — after the visibility read."""
+    real = getattr(ScoreStore, method)
+
+    async def _hook(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        await Benchmark.filter(id=PRIVATE_ID).update(visibility="private")
+        return await real(self, *args, **kwargs)
+
+    return real, _hook
+
+
+async def _two_participants() -> None:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id=PRIVATE_ID, display_name="HB")
+    for who, spec in ((ALICE_EMAIL, "alice-spec"), (BOB_EMAIL, "bob-spec")):
+        await store.submit(
+            _private_submission(submitted_by=who, spec_id=spec, score=0.8, revision=None),
+            identity_verified=True,
+        )
+
+
+async def test_a_flip_during_the_ranking_query_does_not_publish_the_board(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT: nothing unscoped leaves once the board is private. This returned BOTH participants'
+    # entries with `scoped_to_caller: false` on a board that was private by the time it answered.
+    await _two_participants()
+    real, hook = _flip_private_during("leaderboard")
+
+    ScoreStore.leaderboard = hook  # type: ignore[method-assign]
+    try:
+        response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+    finally:
+        ScoreStore.leaderboard = real  # type: ignore[method-assign]
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["entries"] == []
+    assert body["scoped_to_caller"] is True
+    assert ALICE_EMAIL.split("@")[0] not in response.text
+    assert BOB_EMAIL.split("@")[0] not in response.text
+
+
+async def test_a_flip_during_the_history_query_withholds_the_rows(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Those rows were fetched UNSCOPED. Once the board is private they are not ours to return, and
+    # the private branch answers exactly this shape with a 404.
+    await _two_participants()
+    real, hook = _flip_private_during("list_for_spec")
+
+    ScoreStore.list_for_spec = hook  # type: ignore[method-assign]
+    try:
+        response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}/bob-spec/history")
+    finally:
+        ScoreStore.list_for_spec = real  # type: ignore[method-assign]
+
+    assert response.status_code == 404
+    assert "bob-spec" not in response.text or response.json().get("submissions") is None
+
+
+async def test_a_flip_during_the_frontier_query_withholds_the_aggregate(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # D5: a private board publishes no aggregate, to participants either.
+    await _two_participants()
+    real, hook = _flip_private_during("list_all_for_benchmark")
+
+    ScoreStore.list_all_for_benchmark = hook  # type: ignore[method-assign]
+    try:
+        response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}/frontier")
+    finally:
+        ScoreStore.list_all_for_benchmark = real  # type: ignore[method-assign]
+
+    assert response.status_code == 404
+
+
+async def test_an_undisturbed_public_read_is_unchanged(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # The regression guard: re-deciding must cost nothing when no flip happens, which is every real
+    # request. One extra indexed read on the public branch, and the same body as before.
+    await _two_participants()
+
+    response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert len(body["entries"]) == 2
+    assert body["scoped_to_caller"] is False

@@ -7,7 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 
-from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS, ReadIdentity
+from scoreboard.routes.dependencies import (
+    PRIVATE_CACHE_HEADERS,
+    ReadIdentity,
+    turned_private,
+)
 from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.frontier import compute_frontier
 from scoreboard.scores.models import Benchmark
@@ -124,6 +128,9 @@ def _baseline_store(request: Request) -> BaselineStore:
     return cast(BaselineStore, request.app.state.baseline_store)
 
 
+FRONTIER_NOT_AVAILABLE_DETAIL = "Frontier is not available for a private benchmark"
+
+
 async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
     benchmark = await Benchmark.get_or_none(id=benchmark_id)
     if benchmark is None:
@@ -160,6 +167,39 @@ async def list_benchmarks(request: Request) -> BenchmarksResponse:
     return BenchmarksResponse(benchmarks=benchmarks)
 
 
+async def _private_leaderboard(
+    request: Request,
+    response: Response,
+    benchmark: BenchmarkSchema,
+    identity: str | None,
+    baselines: list[BaselineSchema],
+) -> LeaderboardResponse:
+    """The response a private board gives, whoever is asking."""
+    response.headers.update(PRIVATE_CACHE_HEADERS)
+    # INVARIANT: `entries` is the public RANKING, and a private board has none — so it is empty for
+    # everyone, including a participant. Their own rows are a different concept and go to
+    # `my_submissions`, which is why nothing here has a rank to suppress.
+    #
+    # Sourced from list_owned_entries and NOT from leaderboard(): the ranking query collapses to
+    # best-per-spec and is bounded by `top`, so it would silently drop a participant's earlier
+    # submission to the same spec — the invisible-submission failure this ticket exists to avoid,
+    # one level down (found in review).
+    mine = (
+        []
+        if identity is None
+        else await _score_store(request).list_owned_entries(
+            benchmark_id=benchmark.id, owner=identity
+        )
+    )
+    return LeaderboardResponse(
+        benchmark=benchmark,
+        entries=[],
+        my_submissions=mine,
+        baselines=baselines,
+        scoped_to_caller=True,
+    )
+
+
 @router.get("/leaderboard/{benchmark_id}", response_model=LeaderboardResponse, tags=["leaderboard"])
 async def get_leaderboard(
     benchmark_id: str,
@@ -187,37 +227,16 @@ async def get_leaderboard(
     baselines = await _baseline_store(request).list_baselines(benchmark_id)
 
     if is_private:
-        response.headers.update(PRIVATE_CACHE_HEADERS)
-        # INVARIANT: `entries` is the public RANKING, and a private board has none — so it is empty
-        # for everyone, including a participant. Their own rows are a different concept and go to
-        # `my_submissions`, which is why nothing here has a rank to suppress.
-        #
-        # Sourced from list_owned_entries and NOT from leaderboard(): the ranking query collapses
-        # to best-per-spec and is bounded by `top`, so it would silently drop a participant's
-        # earlier submission to the same spec — the invisible-submission failure this ticket
-        # exists to avoid, one level down (found in review).
-        #
-        # Both cases return from inside this branch: no code below may run for a private
-        # benchmark, and an absent identity must yield nothing rather than falling through.
-        mine = (
-            []
-            if identity is None
-            else await _score_store(request).list_owned_entries(
-                benchmark_id=benchmark_id, owner=identity
-            )
-        )
-        return LeaderboardResponse(
-            benchmark=benchmark,
-            entries=[],
-            my_submissions=mine,
-            baselines=baselines,
-            scoped_to_caller=True,
-        )
+        return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
     rows = await _score_store(request).leaderboard(
         benchmark_id=benchmark_id,
         top_n=min(top, MAX_LEADERBOARD_TOP),
     )
+    if await turned_private(benchmark_id):
+        # The board went private while the ranking query ran. Answer it correctly rather than
+        # erroring — a read can, where a write cannot.
+        return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
     return LeaderboardResponse(
         benchmark=benchmark,
@@ -277,6 +296,13 @@ async def get_spec_history(
             status_code=404, detail=HISTORY_NOT_FOUND_DETAIL, headers=PRIVATE_CACHE_HEADERS
         )
 
+    if not is_private and await turned_private(benchmark_id):
+        # These rows were fetched unscoped. The board is private now, so they are not ours to
+        # return — and the private branch answers exactly this with a 404.
+        raise HTTPException(
+            status_code=404, detail=HISTORY_NOT_FOUND_DETAIL, headers=PRIVATE_CACHE_HEADERS
+        )
+
     return HistoryResponse(
         spec_id=spec_id,
         benchmark_id=benchmark_id,
@@ -304,10 +330,16 @@ async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
         # implies a field.
         raise HTTPException(
             status_code=404,
-            detail="Frontier is not available for a private benchmark",
+            detail=FRONTIER_NOT_AVAILABLE_DETAIL,
             headers=PRIVATE_CACHE_HEADERS,
         )
     scores = await _score_store(request).list_all_for_benchmark(benchmark_id)
     baselines = await _baseline_store(request).list_baselines(benchmark_id)
+    if await turned_private(benchmark_id):
+        raise HTTPException(
+            status_code=404,
+            detail=FRONTIER_NOT_AVAILABLE_DETAIL,
+            headers=PRIVATE_CACHE_HEADERS,
+        )
     result = compute_frontier(scores=scores, baselines=baselines)
     return FrontierResponse(benchmark_id=benchmark_id, **result.model_dump())

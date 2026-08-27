@@ -939,6 +939,50 @@ route to that state is a mid-flight flip, which the revalidation refuses first �
 have been untested while appearing covered. Both defences are real; this is the one that survives if
 the other is ever relaxed.
 
+## Review round 21 — 2026-08-27 (owner, PR #719)
+
+**[P1] The stale-visibility window was closed on writes and left open on reads.** Round 20 fixed
+`submit()`; every read path still decided from a visibility read and then ran a query, with nothing
+between them. Reproduced on all three:
+
+| Path | Result with a flip during the query |
+| -- | -- |
+| `/v1/leaderboard/{id}` | `200`, **`entries=2`, `scoped_to_caller=false`** — both participants' rows on a board that is private by the time it answers |
+| `/v1/leaderboard/{id}/{spec}/history` | `200`, another participant's submissions to an anonymous caller |
+| `/v1/leaderboard/{id}/frontier` | `200`, the aggregate D5 says a private board must not publish |
+
+`GET /v1/scores/{id}` runs no store query after its visibility read, so its window is read →
+serialise rather than read → query. Narrower, and closed the same way for consistency.
+
+### The fix is a re-decision, not an error
+
+Writes answer a flip with `409`: the request cannot be completed under either view, so refusing and
+letting the caller retry is right. **A read can simply answer correctly instead.** Revalidating and
+then producing the PRIVATE response for that path — scoped entries, or the 404 history and frontier
+already return — gives the caller the right answer rather than an error, and needs no retry.
+
+Only the branch that would return a PUBLIC response revalidates. The other direction, private →
+public mid-read, returns the scoped shape for a board that has just opened: less than the caller
+could have had, never more, and not worth a query.
+
+### Outcome — DONE
+
+`turned_private()` lives in `routes/dependencies.py`, the module both route files already share. It
+started as a private helper in `leaderboard.py` that `scores.py` reached across for, which is the
+kind of import that turns two modules into one by accident.
+
+The leaderboard's private response was extracted to `_private_leaderboard()` so the initial decision
+and the re-decision return the SAME thing rather than two shapes that have to be kept in agreement —
+the OME-852 failure mode this file already carries a comment about.
+
+**Four mutations, all bind:** removing the re-decision from the ranking path, the history path, the
+frontier path, and `get_score`. The `get_score` one did not bind at first because no test covered
+it — the fix was written and unheld until a mutation said so, for the third time in this PR.
+
+Cost when nothing flips, which is every real request: one indexed primary-key read on the public
+branch. Guarded by a test asserting the undisturbed public response is unchanged.
+
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

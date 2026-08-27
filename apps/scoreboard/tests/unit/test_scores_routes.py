@@ -717,3 +717,33 @@ async def test_a_visibility_flip_mid_flight_is_a_409_not_a_500(
 
     assert response.status_code == 409, response.text
     assert await Score.get_or_none(spec_id=payload["spec_id"]) is None
+
+
+async def test_a_flip_after_the_visibility_read_withholds_the_score(
+    score_client: AsyncClient,
+) -> None:
+    # The window on this route is read -> serialise rather than read -> query: nothing else is
+    # fetched after the benchmark read. Narrower than the leaderboard's, closed the same way, so
+    # every score-bearing read answers from one view of `visibility` (review of PR #719).
+    await Benchmark.create(id="late-x", display_name="Late", visibility="public")
+    payload = _valid_payload()
+    payload["benchmark_id"] = "late-x"
+    created = await score_client.post("/v1/scores", json=payload)
+    assert created.status_code == 201
+    score_id = created.json()["id"]
+
+    real = Benchmark.get_or_none
+
+    async def _flip_after_read(*args, **kwargs):  # type: ignore[no-untyped-def]
+        result = await real(*args, **kwargs)
+        await Benchmark.filter(id="late-x").update(visibility="private")
+        return result
+
+    Benchmark.get_or_none = _flip_after_read  # type: ignore[method-assign]
+    try:
+        response = await score_client.get(f"/v1/scores/{score_id}")
+    finally:
+        Benchmark.get_or_none = real  # type: ignore[method-assign]
+
+    assert response.status_code == 404, response.text
+    assert response.headers["cache-control"] == "private, no-store"

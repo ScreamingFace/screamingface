@@ -27,7 +27,11 @@ from scoreboard.core.auth.cloudflare_identity import (
     identity_from_headers,
     peer_in_networks,
 )
-from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS, ReadIdentity
+from scoreboard.routes.dependencies import (
+    PRIVATE_CACHE_HEADERS,
+    ReadIdentity,
+    turned_private,
+)
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
     FieldErrorDetail,
@@ -291,6 +295,16 @@ async def get_score(score_id: UUID, response: Response, identity: ReadIdentity) 
     if private and (identity is None or score.submitted_by != identity):
         # `benchmark is None` cannot happen behind the RESTRICT foreign key; it fails closed
         # rather than serving a score whose visibility could not be established.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=SCORE_NOT_FOUND_DETAIL,
+            headers=PRIVATE_CACHE_HEADERS,
+        )
+
+    # The window here is read -> serialise rather than read -> query, since nothing else is fetched
+    # after the visibility read. Closed anyway, so every score-bearing read answers from one view
+    # of `visibility` rather than three of them agreeing by luck (review of PR #719).
+    if not private and await turned_private(cast(str, getattr(score, "benchmark_id"))):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=SCORE_NOT_FOUND_DETAIL,

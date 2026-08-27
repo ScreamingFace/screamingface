@@ -23,6 +23,7 @@ from fastapi import Depends, Request
 
 from scoreboard.config import Settings
 from scoreboard.core.auth.cloudflare_identity import HEADER_USER_EMAIL, optional_identity
+from scoreboard.scores.models import Benchmark
 
 
 async def read_identity(request: Request) -> str | None:
@@ -49,3 +50,19 @@ PRIVATE_CACHE_HEADERS = {
     "Cache-Control": "private, no-store",
     "Vary": f"{HEADER_USER_EMAIL}, Origin",
 }
+
+
+async def turned_private(benchmark_id: str) -> bool:
+    """Re-read `visibility`, for a path about to return a PUBLIC response.
+
+    INVARIANT (OME-894): every read decides from a visibility read and then runs a query, and the
+    seed job can flip a board in between — so the decision is re-checked against fresh state before
+    anything unscoped leaves. Reproduced at `/v1/leaderboard/{id}`: a flip during the ranking query
+    returned every participant's entries with `scoped_to_caller: false` on a board that was private
+    by the time it answered (review of PR #719).
+
+    WHY only this direction: private -> public mid-read returns the scoped shape for a board that
+    has just opened — less than the caller could have had, never more, and not worth a query.
+    """
+    current = await Benchmark.filter(id=benchmark_id).values_list("visibility", flat=True)
+    return bool(current) and current[0] == "private"
