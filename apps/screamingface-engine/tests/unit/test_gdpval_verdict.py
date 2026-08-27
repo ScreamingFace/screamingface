@@ -67,6 +67,29 @@ def test_an_invalid_reply_keeps_the_raw_output_for_audit() -> None:
     assert record["raw_output"] == "garbage"
 
 
+@pytest.mark.parametrize("met", [True, False])
+def test_a_valid_verdict_keeps_the_raw_reply_for_audit(met: bool) -> None:
+    # INVARIANT: EVERY verdict is auditable against the reply that produced it, not only the
+    # rejected ones. A scored criterion whose evidence carries raw_output == "" is
+    # unfalsifiable — a reviewer disputing a verdict on a paid run has nothing to re-read.
+    # HealthBench and DRACO both persist the raw reply on the valid branch; this pins GDPval
+    # to the same engine convention (OME-1023).
+    raw = _reply(met)
+    record = bind(raw, case_id=1, rubric_id=2, producer_id="judge-x")
+    assert record["valid"] is True
+    assert record["raw_output"] == raw
+
+
+def test_a_valid_fenced_reply_keeps_the_original_bytes_not_the_stripped_text() -> None:
+    # WHY the ORIGINAL bytes: the audit question is "what did the judge actually say", and
+    # fence-stripping is part of OUR parse — persisting the stripped text would hide exactly
+    # the lossy-parse case the audit trail exists to expose.
+    raw = f"```json\n{_reply(True)}\n```"
+    record = bind(raw, case_id=1, rubric_id=2, producer_id="judge-x")
+    assert record["valid"] is True
+    assert record["raw_output"] == raw
+
+
 def test_the_engine_stamps_identity_and_ignores_what_the_judge_claims() -> None:
     raw = json.dumps({"explanation": "x", "criteria_met": True, "case_id": 999, "rubric_id": 888})
     record = bind(raw, case_id=1, rubric_id=2, producer_id="judge-x")

@@ -6,7 +6,7 @@ grading. This module handles both problems deterministically:
 
 - ``binding_key`` decodes the ``case_id:rubric_id`` intent the Engine threads through the route.
 - ``bind`` parses one reply, stamping the Engine-known ids onto it, or returns a ``valid: false``
-  record with the raw output kept for audit.
+  record. Either way the raw reply is kept for audit (OME-1023).
 
 INVARIANT: only a REAL JSON boolean counts. A string ``"true"`` or a ``1`` is an invalid reply,
 never a lenient yes — a judge that cannot follow the reply format has not demonstrably followed
@@ -99,13 +99,16 @@ def bind(raw: str, *, case_id: int, rubric_id: int, producer_id: str) -> dict[st
         "rubric_id": rubric_id,
         "producer_type": "model",
         "producer_id": producer_id.strip(),
+        # WHY keep the raw text on EVERY verdict, not only rejected ones (OME-1023): a disputed
+        # verdict on a paid run is unfalsifiable unless the reply that produced it can be
+        # re-read — and the original bytes, not the fence-stripped parse, are what expose a
+        # lossy parse. HealthBench and DRACO persist it the same way.
+        "raw_output": raw,
     }
     decoded = _decode_object(raw)
     reason = _invalid_reason(raw, decoded)
     if reason is not None:
-        # WHY keep the raw text: a run that fails on grading is investigated after the fact, and
-        # "the judge said something unparseable" is not evidence unless the something is kept.
-        return {**record, "valid": False, "reason": reason, "raw_output": raw}
+        return {**record, "valid": False, "reason": reason}
     assert decoded is not None  # narrowed by _invalid_reason returning None
     return {
         **record,
