@@ -208,9 +208,7 @@ async def test_unbroken_demand_from_more_runs_than_capacity_cannot_starve() -> N
     for chain in chains.values():
         for task in chain.tasks:
             task.cancel()
-    await asyncio.gather(
-        *(t for c in chains.values() for t in c.tasks), return_exceptions=True
-    )
+    await asyncio.gather(*(t for c in chains.values() for t in c.tasks), return_exceptions=True)
     await _settle()
     assert gate.snapshot().runs == () and gate.snapshot().in_flight == 0
 
