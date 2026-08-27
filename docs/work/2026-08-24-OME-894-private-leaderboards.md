@@ -773,6 +773,78 @@ with no `--skip-append-only` and no exception to document.
 else in the suite would notice it being flipped. Three mutations bind: removing the refusal (4
 failures), flipping the default to `True` (1), and having the route always claim verified (3).
 
+## Review round 18 — 2026-08-27 (P2, and a reversal of two earlier decisions)
+
+**[P2] `same key replays the original` was broken in two independent ways.** Both reproduced; the
+matrix is what settled the design.
+
+| Case | Replays? |
+| -- | -- |
+| public board, ordinary key, changed payload | yes — contract holds |
+| **private board, caller's OWN key, changed payload** | **NO — round 9** |
+| private board, identical payload | yes, via the content hash |
+| public board, reserved-prefix raw key, before the purge | yes |
+| **public board, reserved-prefix raw key, after the purge** | **NO — the reviewer's finding** |
+| attacker claims the victim's address, unverified | no leak — the round-9 guard holding |
+
+**The reviewer's finding is real but narrower than stated, and the larger half is ours.** The purge
+only touches reserved prefixes, so it breaks replay for public callers whose raw key happens to
+start with `sfp-`/`sfu-`. His reproduction used a PRIVATE board, where replay was already broken
+before the purge ran — by round 9's blanket refusal of any mapping pointing at a private row. That
+is every private submission, on exactly the boards this ticket exists for.
+
+### Why the blanket refusal could now be relaxed
+
+Round 9 refused unconditionally because `submitted_by` is forgeable under `auth_mode=disabled`, so
+an ownership comparison meant nothing. **P1 changed that**: the store now knows whether identity was
+verified. The comparison is sound exactly when it is, so the rule becomes *honour a private target
+only when identity is verified AND the row belongs to the caller*. The attacker case stays closed
+because an unverified caller never reaches the comparison.
+
+### Why the purge goes rather than gets a marker column
+
+With the ownership rule restored, the purge stops being load-bearing for privacy — a stale mapping
+to someone else's private row is refused at the lookup, whatever the table contains. What it still
+does is delete live mappings, which is the finding.
+
+**Migration `0009` stays, and the asymmetry is the whole point.** It is a `pre-install,pre-upgrade`
+hook, so it completes before any new pod can have written a new-scheme row: it can only ever delete
+legacy ones. The purge was `post-upgrade` — by the time it ran, live new mappings existed. Same SQL,
+opposite safety, decided entirely by when it runs.
+
+Rejected: adding a marker column in `0010` so the purge could tell legacy rows from new ones. It
+fixes the reviewer's case and not ours, and it carries a schema change forever to serve one rollout.
+
+### Planned changes
+
+- `store.py` — `_resolve_owned` gates the private-target decision on `identity_verified`.
+- Deleted: `purge_reserved_idempotency_keys.py`, its chart Job, its values block, its tests.
+- Tests appended for each row of the matrix above.
+
+### Outcome — DONE
+
+Both cases fixed, **net -279 lines of production and chart code.** Three mutations bind: dropping
+the verified gate (the round-9 leak returns), dropping the ownership test (any verified caller takes
+any private row), and reverting to the blanket refusal.
+
+**A mechanical edit corrupted a test, and a test caught it.** P1's patcher added
+`identity_verified=True` to every submit inside a private-board scope, which included the ATTACKER's
+submit in `test_claiming_the_owners_name_does_not_yield_a_private_row` — quietly promoting the
+attacker to a legitimate verified ALICE and destroying the scenario. It surfaced as the only failure
+after this change. The attacker's call now passes no identity argument, with a comment saying why,
+because the next mechanical sweep will be tempted to add one again.
+
+**Two round-9 tests described behaviour that has since reversed.**
+`test_a_private_target_is_refused_even_for_its_genuine_owner` asserted a cost that no longer exists
+— the verified owner gets the key fast path back — so it is renamed for what it actually guards, the
+content-hash path. And a duplicate of the attacker test written this round was dropped rather than
+kept alongside the original.
+
+**Comments naming the deleted module were corrected, not left.** Two referenced
+`purge_reserved_idempotency_keys` as the thing that cleans the rollout window; they now say what is
+true — `0009` runs pre-upgrade and sees only legacy rows, and a row written during the window
+survives, bounded to a wrong replay of a PUBLIC score.
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

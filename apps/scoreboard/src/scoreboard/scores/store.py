@@ -258,10 +258,10 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
-# INVARIANT: the single definition of the server-owned namespaces. `0009` and
-# `purge_reserved_idempotency_keys` clear exactly these, so a third prefix added here must not
-# be forgotten there — `test_no_generated_storage_token_is_a_fixed_point_of_the_public_path`
-# and `test_the_purge_covers_every_reserved_prefix` are what turn that omission red.
+# INVARIANT: the single definition of the server-owned namespaces. Migration `0009` clears exactly
+# these of client-written rows, so a third prefix added here must not be forgotten there —
+# `test_no_generated_storage_token_is_a_fixed_point_of_the_public_path` and
+# `test_migration_0009_clears_both_reserved_namespaces` are what turn that omission red.
 RESERVED_KEY_PREFIXES = ("sfp-", "sfu-")
 
 
@@ -476,6 +476,7 @@ class ScoreStore:
         *,
         per_submitter: bool,
         submitted_by: str | None,
+        identity_verified: bool,
     ) -> tuple[Score | None, Score | None]:
         # INVARIANT (OME-894): a KEY-resolved row is returned only when this caller may READ it.
         # `_scoped_idempotency_key` reserves the server-owned namespaces going forward, and `0009`
@@ -503,13 +504,23 @@ class ScoreStore:
         # match nobody but them, so their retry still replays. That is a far smaller price than
         # trusting an unverified string, and it needs no verified-identity plumbing down here.
         #
-        # `and` keeps the privacy read FIRST, which is the whole point of the ordering. The second
-        # clause is the established global-public-key retry semantics, not this ticket's to change;
-        # it is safe on a private board too, because writes there fail closed without verified
-        # identity, so `submitted_by` is real by the time it is compared.
-        honour = not await self._links_to_a_private_board(existing) and (
-            existing.submitted_by == submitted_by or not per_submitter
-        )
+        # The privacy read comes FIRST and decides which rule applies.
+        if await self._links_to_a_private_board(existing):
+            # A private target is honoured ONLY for its verified owner. An earlier revision refused
+            # every private target outright, because `submitted_by` is forgeable under
+            # `auth_mode=disabled` and comparing it meant nothing — but that broke `same key
+            # replays the original` on every private board, which is the contract a key exists to
+            # provide and the content hash cannot (it only catches an IDENTICAL retry).
+            #
+            # `identity_verified` is what makes the comparison sound: an unverified caller never
+            # reaches it, so claiming the victim's address buys nothing. Note a private-board
+            # request always arrives verified — `submit()` refuses it otherwise — so this gate
+            # bites only on a PUBLIC request whose key points at a private row (review of #719).
+            honour = identity_verified and existing.submitted_by == submitted_by
+        else:
+            # A public target: the established global-key retry semantics, not this ticket's to
+            # change. Honouring a forged claim costs nothing here — the row is public either way.
+            honour = existing.submitted_by == submitted_by or not per_submitter
         if honour:
             return existing, None
         # AIDEV-NOTE: passing None for the key deliberately re-runs the SAME method down its
@@ -597,6 +608,7 @@ class ScoreStore:
             content_hash,
             per_submitter=per_submitter,
             submitted_by=submission.submitted_by,
+            identity_verified=identity_verified,
         )
         if existing is not None:
             return SubmitOutcome(score=_score_to_schema(existing), created=False)
@@ -651,6 +663,7 @@ class ScoreStore:
                 content_hash,
                 per_submitter=per_submitter,
                 submitted_by=submission.submitted_by,
+                identity_verified=identity_verified,
             )
             if existing is not None:
                 return SubmitOutcome(score=_score_to_schema(existing), created=False)

@@ -10,11 +10,9 @@ import pytest
 from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError
 
-from scoreboard.purge_reserved_idempotency_keys import purge_reserved_idempotency_keys
 from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
 from scoreboard.scores.schemas import ClientInfo, LeaderboardEntry, ScoreSubmission
 from scoreboard.scores.store import (
-    RESERVED_KEY_PREFIXES,
     PrivateBoardRequiresIdentity,
     ScoreStore,
     _scoped_idempotency_key,
@@ -1641,8 +1639,10 @@ def test_no_generated_storage_token_is_a_fixed_point_of_the_public_path() -> Non
 
 
 async def test_claiming_the_owners_name_does_not_yield_a_private_row(tortoise_db: None) -> None:
-    # INVARIANT: ownership by unverified string gates nothing. A private target is refused on the
-    # strength of the TARGET, never on who the caller says they are.
+    # INVARIANT: ownership by unverified string gates nothing. `identity_verified` is what admits a
+    # caller to the ownership comparison at all, so claiming the victim's address buys nothing —
+    # the claim is never compared. Note the attacker's submit passes NO identity argument: that is
+    # the whole scenario, and marking it verified would quietly make the attacker legitimate.
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE")
     victim, _ = await store.submit(
@@ -1654,15 +1654,20 @@ async def test_claiming_the_owners_name_does_not_yield_a_private_row(tortoise_db
     attacker = _owned_submission(submitted_by=ALICE, spec_id="attacker").model_copy(
         update={"benchmark_id": "pub"}
     )
-    got, created = await store.submit(attacker, idempotency_key="stale", identity_verified=True)
+    got, created = await store.submit(attacker, idempotency_key="stale")
 
     assert created, "the attacker must get their own row, never the private one"
     assert got.id != victim.id
 
 
-async def test_a_private_target_is_refused_even_for_its_genuine_owner(tortoise_db: None) -> None:
-    # The cost of dropping the ownership comparison, asserted so it stays a known quantity: the
-    # real owner loses only the KEY fast path. The per-submitter content hash still replays.
+async def test_a_private_board_replays_an_identical_payload_via_the_content_hash(
+    tortoise_db: None,
+) -> None:
+    # The content-hash path, which is independent of the key and must keep working on its own.
+    # Round 9 named this test for a cost it no longer imposes — back then a private target was
+    # refused outright and this was the owner's ONLY route to a replay. The verified owner now gets
+    # the key fast path too (see the test above), so this guards the hash path rather than a
+    # consolation prize for losing the key one.
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
     mine, created = await store.submit(
@@ -1688,10 +1693,10 @@ async def test_a_legacy_row_in_the_reserved_namespace_cannot_leak_a_private_scor
     # AIDEV-NOTE: what is enforceable AT THE LOOKUP is the privacy half. A legacy `sfu-` row is
     # byte-indistinguishable from one this code wrote, so the runtime cannot reject it on identity
     # alone — and rejecting it on content-hash mismatch would break idempotency itself, since
-    # replaying a DIFFERENT recipe under the same key is the contract. Existing rows are cleared by
-    # `0009` and rows written during the rollout window by `purge_reserved_idempotency_keys`. The
-    # residual is therefore a wrong replay of a PUBLIC score inside that window; a private one
-    # cannot be reached, which is what this test pins.
+    # replaying a DIFFERENT recipe under the same key IS the contract. Existing rows are cleared by
+    # `0009`, which runs pre-upgrade and so can only ever see legacy ones. A row written during the
+    # rollout window survives, and the residual is a wrong replay of a PUBLIC score inside it; a
+    # private one cannot be reached, which is what this test pins.
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
     victim = await Score.create(
@@ -1729,60 +1734,6 @@ def test_migration_0009_clears_both_reserved_namespaces() -> None:
 
     assert "sfp-%" in source
     assert "sfu-%" in source, "the reserved sfu- namespace is emitted but never purged"
-
-
-async def test_the_purge_clears_both_reserved_namespaces(tortoise_db: None) -> None:
-    # `0009` cleans what was already in the table; this module cleans what the ROLLOUT WINDOW adds,
-    # because the migrate Job is a pre-upgrade hook and old replicas keep writing verbatim keys
-    # until they terminate (review of PR #719).
-    store = ScoreStore()
-    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
-    kept, _ = await store.submit(_same_recipe(ALICE), idempotency_key="ordinary")
-    victim = await Score.get(id=kept.id)
-    expires = datetime.now(UTC) + timedelta(hours=24)
-    for key in ("sfp-crafted", "sfu-crafted"):
-        await IdempotencyKey.create(key=key, score=victim, expires_at=expires)
-
-    removed = await purge_reserved_idempotency_keys()
-
-    assert removed == {"sfp-": 1, "sfu-": 1}
-    assert sorted(row.key for row in await IdempotencyKey.all()) == ["ordinary"]
-    # INVARIANT: the foreign key points FROM this table TO scores, so purging a mapping must never
-    # remove a submission.
-    assert await Score.get_or_none(id=kept.id) is not None
-
-
-async def test_the_purge_dry_run_counts_without_deleting(tortoise_db: None) -> None:
-    store = ScoreStore()
-    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
-    kept, _ = await store.submit(_same_recipe(ALICE), idempotency_key="ordinary")
-    await IdempotencyKey.create(
-        key="sfp-crafted",
-        score=await Score.get(id=kept.id),
-        expires_at=datetime.now(UTC) + timedelta(hours=24),
-    )
-
-    removed = await purge_reserved_idempotency_keys(dry_run=True)
-
-    assert removed == {"sfp-": 1, "sfu-": 0}
-    assert await IdempotencyKey.filter(key="sfp-crafted").exists()
-
-
-def test_the_purge_covers_every_reserved_prefix() -> None:
-    # INVARIANT: the purge and the key generator share ONE definition of the reserved namespaces.
-    # Reserving a third prefix without purging it is precisely the finding this round fixed, so the
-    # coupling is asserted rather than left to a reader to maintain.
-    source = (
-        Path(__file__).resolve().parents[3] / "src/scoreboard/purge_reserved_idempotency_keys.py"
-    ).read_text()
-
-    assert "RESERVED_KEY_PREFIXES" in source, "the purge must not hardcode its own prefix list"
-    migration = (
-        Path(__file__).resolve().parents[3]
-        / "src/scoreboard/scores/migrations/0009_idempotency_key_namespaces.py"
-    ).read_text()
-    for prefix in RESERVED_KEY_PREFIXES:
-        assert f"{prefix}%" in migration, f"0009 does not clear the reserved {prefix} namespace"
 
 
 def test_a_raw_row_missing_a_typed_field_is_left_alone() -> None:
@@ -2011,3 +1962,71 @@ async def test_a_public_write_is_unaffected_by_the_default(tortoise_db: None) ->
     created_score, created = await store.submit(_same_recipe(ALICE))
 
     assert created and created_score.id is not None
+
+
+# --- review round 18: a private target is honoured for its verified owner ---------------------
+# Round 9 refused EVERY mapping pointing at a private row, because `submitted_by` is forgeable
+# under `auth_mode=disabled` and an ownership comparison meant nothing. P1 gave the store
+# `identity_verified`, so the comparison is sound exactly when identity is real — and the blanket
+# refusal was breaking `same key replays the original` on every private board (review of #719).
+
+
+async def test_a_private_board_replays_the_original_for_its_own_key(tortoise_db: None) -> None:
+    # INVARIANT: the idempotency contract. The same key returns the FIRST result even when the
+    # payload changed — that is what distinguishes a key from the content hash, which only catches
+    # an identical retry.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    first, created = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="first"),
+        idempotency_key="k",
+        identity_verified=True,
+    )
+    assert created
+
+    replay, replay_created = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="CHANGED"),
+        idempotency_key="k",
+        identity_verified=True,
+    )
+
+    assert not replay_created
+    assert replay.id == first.id
+
+
+async def test_a_verified_caller_is_still_refused_another_participants_private_row(
+    tortoise_db: None,
+) -> None:
+    # Verified identity permits the comparison; it does not pass it. BOB may not have ALICE's row.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    hers, _ = await store.submit(
+        _same_recipe(ALICE), idempotency_key="stale", identity_verified=True
+    )
+    await store.set_visibility("hle", "private")
+    await store.register_benchmark(benchmark_id="pub", display_name="Pub")
+
+    his = _owned_submission(submitted_by=BOB, spec_id="his").model_copy(
+        update={"benchmark_id": "pub"}
+    )
+    got, created = await store.submit(his, idempotency_key="stale", identity_verified=True)
+
+    assert created
+    assert got.id != hers.id
+
+
+async def test_a_reserved_prefix_public_key_keeps_replaying(tortoise_db: None) -> None:
+    # The regression guard for removing the purge: a public caller whose raw key occupies a
+    # reserved namespace is escaped, not deleted, so their retry still replays.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    first, _ = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="one"), idempotency_key="sfp-raw"
+    )
+
+    replay, created = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="two"), idempotency_key="sfp-raw"
+    )
+
+    assert not created
+    assert replay.id == first.id

@@ -95,17 +95,6 @@ migration:
   ttlSecondsAfterFinished: 600
   annotations: {}
 
-# OME-894: `sfp-`/`sfu-` are server-owned idempotency namespaces. `0009` clears client-written
-# rows out of them, but it runs as a PRE-upgrade hook, so rows the old replicas write during the
-# rollout survive it. This post-upgrade pass clears those. Touches only `idempotency_keys`, whose
-# rows expire within 24h and carry no score data.
-purgeReservedIdempotencyKeys:
-  enabled: true
-  serviceAccountName: default
-  backoffLimit: 3
-  ttlSecondsAfterFinished: 600
-  annotations: {}
-
 seedBenchmarks:
   enabled: true
   serviceAccountName: default
