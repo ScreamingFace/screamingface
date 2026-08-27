@@ -1128,6 +1128,89 @@ different layers, and each fix addressed the instance. A test that fails on the 
 version of that work which survives me not being here.
 
 
+## Review round 26 — 2026-08-27 (@HupBaHa, PR #719, fourth review)
+
+Three findings. Two are consequences of earlier fixes in this PR, and the first contradicts a claim
+that had already been PUBLISHED in the description and in a reply — the worst of the three for that
+reason alone.
+
+**[P1] The PostgreSQL row lock was never taken.** `select_for_update()` sets lock state on the
+`QuerySet`; `values_list()` builds a fresh `ValuesListQuery` and does not copy it. Confirmed against
+the installed Tortoise 1.1.8 on the asyncpg dialect:
+
+| query | `FOR UPDATE` |
+| -- | -- |
+| `Benchmark.filter(...).select_for_update()` | yes |
+| `... .select_for_update().values_list("visibility", flat=True)` | **no** |
+
+So the persist path had no lock, and visibility could still flip between `_revalidate_visibility()`
+and `_insert_new_score()`.
+
+**The process failure matters more than the bug.** The ledger already said "the suite cannot show
+this, PostgreSQL is what the lock is for" — and then never checked the one thing that WAS checkable
+without PostgreSQL: the generated SQL. A claim was made about a dialect and never rendered against
+it. `.first()` and `.only()` preserve the lock; `.values()` and `.values_list()` drop it, and a test
+now renders the SQL and asserts `FOR UPDATE` is present.
+
+**[P1] The replay revalidated the requested board, not the board owning the returned row.** A
+global public key can resolve a row on board B while the request targets board A. Reproduced:
+`created=False got_victim=True metadata={'secret': 'victim-only'} board-b=private`. The privacy gate
+does read the returned row's board — but it runs BEFORE the flip, and nothing re-checked the row
+after the final visibility decision.
+
+**[P2] A poisoned legacy token is honoured as a private-owner mapping.** Reproduced:
+`created=False got_attacker=True metadata={'secret': 'attacker-controlled'}`. An old replica binds
+the predictable `sfp-` token to an attacker's PUBLIC row carrying `submitted_by=alice`, forgeable
+under `auth_mode=disabled`. The board turns private, Alice submits verified with that key, and
+because the TARGET row is public the ownership branch compares the forged name, matches, and returns
+the attacker's row instead of creating Alice's.
+
+**This overturns the round-18 argument against a marker column, and the reversal is earned.** That
+argument was made about the PURGE — a marker so the purge could tell rows apart — and it also claimed
+a poisoned row could only ever cause a wrong replay of a PUBLIC score, never reach a private request.
+That claim is now demonstrably false, and the test comment asserting it pinned the wrong half.
+Provenance belongs at the LOOKUP, which is where every other privacy decision in this work already
+lives.
+
+
+### Outcome — DONE
+
+**Fix 1.** `visibility_query()` is now a method returning the queryset, so the test renders exactly
+what production runs — a test building its own query would have kept passing while the code
+regressed. `.only(...)` and `.first()` preserve the lock; `.values()` and `.values_list()` drop it,
+and the trap is pinned so a future Tortoise that fixes it makes the test say so.
+
+**Fix 2.** `_confirm_replayable()` revalidates the REQUEST's board and re-applies the privacy gate
+to the RETURNED row, whose benchmark can differ. Both replay paths use it. The exit guard caught the
+change immediately — the revalidation had moved into a helper it did not know — which is the guard
+doing its job on the first real edit after it was written.
+
+**Fix 3.** `IdempotencyKey.scheme` (migration `0010`, nullable, deliberately not backfilled: NULL is
+the meaningful value). A reserved-namespace mapping is honoured only when it carries the current
+scheme; nothing a client sends can set it.
+
+**The provenance gate reintroduced the round-8 denial, and this PR's own tests caught it.** A legacy
+reserved-namespace row is now refused at the LOOKUP, so `_resolve_owned` never sees it and never
+reports it as `refused` — leaving the slot unreclaimable and blocking the caller's own write for the
+TTL. The reclaim predicate now covers un-provenanced rows in a reserved namespace too. The slot is
+the caller's by construction, so reclaiming it takes nothing from anyone.
+
+**Six mutations, all bind:** the lock lost to `values_list`, the returned-row re-gate removed, the
+provenance gate removed, each of the TWO write sites failing to stamp, and un-provenanced rows made
+unreclaimable.
+
+**A harness bug fabricated four "NOT CAUGHT" results.** `timeout` does not exist on macOS, so every
+mutation run failed to start, produced no output, and the grep reported no failures — which reads
+identically to "the test does not bind". Believed briefly, then disbelieved because two of those
+four had been verified individually minutes earlier. Re-run without it, and mutation harnesses now
+assert that the run actually happened rather than inferring it from absent output.
+
+**`_bind_idempotency_key` was writing unstamped mappings** — found only because the corrected
+harness let each write site be mutated separately. It degrades rather than breaks (the content hash
+still serves an identical retry), which is why nothing caught it; the failure shows only on a
+CHANGED payload, where the key is the sole route to the original.
+
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

@@ -1691,13 +1691,17 @@ async def test_a_legacy_row_in_the_reserved_namespace_cannot_leak_a_private_scor
     # so a crafted `sfu-<digest>` mapping can already exist, and round 8 made the escape path emit
     # exactly that namespace.
     #
-    # AIDEV-NOTE: what is enforceable AT THE LOOKUP is the privacy half. A legacy `sfu-` row is
-    # byte-indistinguishable from one this code wrote, so the runtime cannot reject it on identity
-    # alone — and rejecting it on content-hash mismatch would break idempotency itself, since
-    # replaying a DIFFERENT recipe under the same key IS the contract. Existing rows are cleared by
-    # `0009`, which runs pre-upgrade and so can only ever see legacy ones. A row written during the
-    # rollout window survives, and the residual is a wrong replay of a PUBLIC score inside it; a
-    # private one cannot be reached, which is what this test pins.
+    # AIDEV-NOTE: this test's original comment claimed a legacy row was byte-indistinguishable from
+    # one this code wrote, and that the residual was therefore a wrong replay of a PUBLIC score
+    # which a private request could not reach. **Both halves were wrong**, and review proved it: the
+    # row is public but the REQUEST can be private, and with a forged `submitted_by` the ownership
+    # branch honoured it for the owner it named — see
+    # `test_a_legacy_reserved_mapping_is_not_honoured_for_the_owner_it_names`.
+    #
+    # Legacy rows are now distinguishable: `IdempotencyKey.scheme` records which code wrote the
+    # mapping, an old replica's INSERT leaves it NULL, and a reserved-namespace mapping is honoured
+    # only when it carries the current scheme. What this test still pins is the privacy half at the
+    # lookup, which holds independently of provenance.
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
     victim = await Score.create(
@@ -2250,3 +2254,142 @@ async def test_the_concurrent_retry_branch_revalidates_before_replaying(
         Score.create = real_create  # type: ignore[method-assign]
 
     assert raised["done"], "the IntegrityError branch was never reached"
+
+
+# --- review round 26: the returned ROW's board, and provenance on reserved mappings -----------
+
+
+async def test_a_replay_rechecks_the_board_that_owns_the_returned_row(tortoise_db: None) -> None:
+    # INVARIANT: the request's board and the returned row's board are NOT the same benchmark. A
+    # global public key resolves by key alone, so it can hand back a row belonging to another
+    # board — and revalidating only `submission.benchmark_id` passed a row whose OWN board had just
+    # turned private, metadata included (review of PR #719).
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="board-b", display_name="B")
+    await store.register_benchmark(benchmark_id="board-a", display_name="A")
+    victim, _ = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="victim").model_copy(
+            update={"benchmark_id": "board-b", "metadata": {"secret": "victim-only"}}
+        ),
+        idempotency_key="k",
+    )
+
+    real = ScoreStore._revalidate_visibility
+
+    async def _flip_b_then_revalidate(self, benchmark_id, per_submitter, **kwargs):  # type: ignore[no-untyped-def]
+        await Benchmark.filter(id="board-b").update(visibility="private")
+        return await real(self, benchmark_id, per_submitter, **kwargs)
+
+    ScoreStore._revalidate_visibility = _flip_b_then_revalidate  # type: ignore[method-assign]
+    try:
+        with pytest.raises(BenchmarkVisibilityChanged):
+            await store.submit(
+                _owned_submission(submitted_by=BOB, spec_id="other").model_copy(
+                    update={"benchmark_id": "board-a"}
+                ),
+                idempotency_key="k",
+            )
+    finally:
+        ScoreStore._revalidate_visibility = real  # type: ignore[method-assign]
+
+    assert (await Score.get(id=victim.id)).metadata == {"secret": "victim-only"}
+
+
+async def test_a_legacy_reserved_mapping_is_not_honoured_for_the_owner_it_names(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: a mapping in a SERVER-owned namespace is honoured only when this code wrote it.
+    # `main` stores client keys verbatim, so an old replica can bind the predictable `sfp-` token
+    # to a row an attacker chose — and with a forged `submitted_by` on a PUBLIC target the
+    # ownership branch honoured it for the verified owner it named, returning the attacker's row
+    # in place of the victim's own private submission.
+    #
+    # This is the case an earlier round asserted could not happen: the row is public, but the
+    # REQUEST is private, and that is what made it reachable (review of PR #719).
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="challenge", display_name="Challenge")
+    await store.register_benchmark(benchmark_id="attacker-board", display_name="Att")
+    attacker, _ = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="attack").model_copy(
+            update={
+                "benchmark_id": "attacker-board",
+                "metadata": {"secret": "attacker-controlled"},
+            }
+        )
+    )
+    token = _scoped_idempotency_key("entry-1", ALICE, per_submitter=True)
+    assert token is not None and token.startswith("sfp-")
+    # No `scheme`: this is what an old replica's INSERT leaves behind.
+    await IdempotencyKey.create(
+        key=token,
+        score=await Score.get(id=attacker.id),
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    )
+    await store.set_visibility("challenge", "private")
+
+    mine, created = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="alices-entry").model_copy(
+            update={"benchmark_id": "challenge"}
+        ),
+        idempotency_key="entry-1",
+        identity_verified=True,
+    )
+
+    assert created, "Alice's own private submission must be created, not replaced by a replay"
+    assert mine.id != attacker.id
+    assert mine.metadata != {"secret": "attacker-controlled"}
+
+
+async def test_this_codes_own_reserved_mappings_still_replay(tortoise_db: None) -> None:
+    # The regression guard for provenance: rejecting un-stamped mappings must not reject ours.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    first, created = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="one"),
+        idempotency_key="k",
+        identity_verified=True,
+    )
+    assert created
+
+    replay, replayed = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="CHANGED"),
+        idempotency_key="k",
+        identity_verified=True,
+    )
+
+    assert not replayed
+    assert replay.id == first.id
+
+
+async def test_a_key_bound_by_the_content_hash_path_is_stamped_too(tortoise_db: None) -> None:
+    # INVARIANT: EVERY mapping this code writes carries the scheme, not just the one the insert
+    # path creates. `_bind_idempotency_key` writes one when a content-hash match adopts a key —
+    # and an unstamped mapping is refused by the provenance gate as though an old replica had
+    # written it, so we would reject our own fast path.
+    #
+    # It degrades rather than breaks, which is why nothing caught it: the content hash still finds
+    # the row for an IDENTICAL retry. The failure only shows on a CHANGED payload, where the key is
+    # the sole route to the original — the contract a key exists to provide.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    first, created = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="one"), identity_verified=True
+    )
+    assert created
+
+    # No mapping yet — this one is adopted by the content-hash path and bound there.
+    adopted, adopted_created = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="one"),
+        idempotency_key="late",
+        identity_verified=True,
+    )
+    assert not adopted_created and adopted.id == first.id
+
+    replay, replayed = await store.submit(
+        _owned_submission(submitted_by=ALICE, spec_id="CHANGED"),
+        idempotency_key="late",
+        identity_verified=True,
+    )
+
+    assert not replayed, "the mapping we bound was refused as though a legacy replica wrote it"
+    assert replay.id == first.id

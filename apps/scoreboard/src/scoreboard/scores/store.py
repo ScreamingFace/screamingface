@@ -15,6 +15,7 @@ from tortoise import Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.expressions import Q
 from tortoise.query_api import execute_pypika
+from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
 from scoreboard.classification.openness import Openness
@@ -264,6 +265,12 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # `test_migration_0009_clears_both_reserved_namespaces` are what turn that omission red.
 RESERVED_KEY_PREFIXES = ("sfp-", "sfu-")
 
+# INVARIANT (OME-894): stamped on every mapping THIS code writes. A reserved-namespace mapping is
+# honoured only when it carries this, because `main` stores client keys verbatim and an old replica
+# serving through a rollout can bind a predictable `sfp-` token to a row an attacker chose. Nothing
+# a client sends can set this column; an old pod's INSERT omits it and it reads back NULL.
+KEY_SCHEME = "v2"
+
 
 def _scoped_idempotency_key(
     idempotency_key: str | None, submitted_by: str | None, *, per_submitter: bool
@@ -317,6 +324,28 @@ class PrivateBoardRequiresIdentity(Exception):
     claim under private-board rules (review of PR #719). A third read would not have closed it;
     only reading once does.
     """
+
+
+def _mapping_is_ours(stored_key: str, linked: IdempotencyKey) -> bool:
+    """Whether a mapping in a RESERVED namespace was written by this code.
+
+    INVARIANT (OME-894): `sfp-` and `sfu-` are server-owned, but `main` stores client keys verbatim,
+    so an old replica serving through a rollout can bind a predictable `sfp-` token to a row an
+    attacker chose. With a forged `submitted_by` on a PUBLIC target row, the ownership branch then
+    honoured it for the verified owner it named — returning the attacker's score, with the
+    attacker's metadata, in place of the victim's own private submission. Reproduced in review of
+    PR #719.
+
+    The earlier argument that a poisoned row could only ever cause a wrong replay of a PUBLIC score
+    was wrong: the row is public, but the REQUEST is private, and that is what made it reachable.
+    Provenance belongs here, at the lookup, where every other privacy decision in this work lives.
+
+    Keys outside the reserved namespaces are untouched — those are ordinary client retry tokens and
+    their semantics are not this ticket's to change.
+    """
+    if not stored_key.startswith(RESERVED_KEY_PREFIXES):
+        return True
+    return linked.scheme == KEY_SCHEME
 
 
 class BenchmarkVisibilityChanged(Exception):
@@ -469,7 +498,7 @@ class ScoreStore:
                 key=idempotency_key,
                 expires_at__gt=now_ts,
             ).prefetch_related("score")
-            if linked is not None:
+            if linked is not None and _mapping_is_ours(idempotency_key, linked):
                 return linked.score
 
         existing = await Score.get_or_none(content_hash=content_hash)
@@ -604,6 +633,16 @@ class ScoreStore:
             reclaimable = Q(expires_at__lte=now_ts)
             if refused is not None:
                 reclaimable = reclaimable | Q(score_id=refused.pk)
+            if stored_key.startswith(RESERVED_KEY_PREFIXES):
+                # A reserved-namespace row without our scheme is a legacy or old-replica mapping.
+                # The lookup refuses to honour it — and it must also be RECLAIMABLE, or it silently
+                # denies this caller their own write for the rest of its TTL. That is the same
+                # denial the narrowed reclaim was written to avoid, reintroduced one layer up by
+                # the provenance gate; caught by two of this PR's own tests (review of PR #719).
+                #
+                # The slot is the caller's by construction: `sfp-` is derived from their verified
+                # identity, `sfu-` from their own key. Reclaiming it takes nothing from anyone else.
+                reclaimable = reclaimable | Q(scheme__isnull=True) | ~Q(scheme=KEY_SCHEME)
             await IdempotencyKey.filter(reclaimable, key=stored_key).using_db(connection).delete()
 
         score = await Score.create(
@@ -612,9 +651,68 @@ class ScoreStore:
 
         if stored_key is not None:
             await IdempotencyKey.create(
-                using_db=connection, key=stored_key, score=score, expires_at=expires_at
+                using_db=connection,
+                key=stored_key,
+                score=score,
+                expires_at=expires_at,
+                scheme=KEY_SCHEME,
             )
         return score
+
+    async def _confirm_replayable(
+        self,
+        existing: Score,
+        submission: ScoreSubmission,
+        *,
+        per_submitter: bool,
+        identity_verified: bool,
+    ) -> Score:
+        """Re-check both boards before a replay leaves: the request's, and the ROW's.
+
+        INVARIANT: these are not the same benchmark. A global public key resolves by key alone, so
+        it can return a row belonging to a DIFFERENT board — and revalidating only
+        `submission.benchmark_id` then passed a row whose own board had just turned private.
+        Reproduced: key resolves a victim row on board B, request targets board A, B flips, A is
+        unchanged, and B's row goes out with its metadata (review of PR #719).
+
+        The privacy gate in `_resolve_owned` does read the row's board, but it runs BEFORE the
+        flip. This is the same gate re-applied after the final visibility decision.
+        """
+        await self._revalidate_visibility(submission.benchmark_id, per_submitter)
+        readable = await self._readable_by(
+            existing,
+            submitted_by=submission.submitted_by,
+            identity_verified=identity_verified,
+        )
+        if readable is None:
+            raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
+        return readable
+
+    def visibility_query(
+        self,
+        benchmark_id: str,
+        *,
+        connection: Any = None,
+        lock: bool = False,
+    ) -> QuerySet[Benchmark]:
+        """The query `_revalidate_visibility` runs, exposed so a test can render its SQL.
+
+        INVARIANT: a MODEL projection, never `values_list()`. `select_for_update()` sets lock state
+        on the QuerySet and `values_list()` builds a fresh `ValuesListQuery` without copying it, so
+        projecting silently dropped `FOR UPDATE` and the lock this path claims was never taken —
+        while the PR description and a review reply both said it was. `.only(...).first()` keeps it.
+
+        WHY this is a method rather than inline: the lock cannot be observed on SQLite, so the only
+        available check is rendering the SQL on the asyncpg dialect — and a test that builds its own
+        query proves nothing about this one. `test_the_persist_path_really_locks_the_row` renders
+        exactly what runs here (review of PR #719).
+        """
+        rows = Benchmark.filter(id=benchmark_id)
+        if connection is not None:
+            rows = rows.using_db(connection)
+        if lock:
+            rows = rows.select_for_update()
+        return rows.only("visibility")
 
     async def _revalidate_visibility(
         self,
@@ -625,15 +723,10 @@ class ScoreStore:
         lock: bool = False,
     ) -> None:
         """Refuse if `visibility` no longer matches what this request decided against."""
-        rows = Benchmark.filter(id=benchmark_id)
-        if connection is not None:
-            rows = rows.using_db(connection)
-        if lock:
-            rows = rows.select_for_update()
-        current = await rows.values_list("visibility", flat=True)
+        row = await self.visibility_query(benchmark_id, connection=connection, lock=lock).first()
         # A benchmark deleted mid-flight reads as not-private, which is the same conclusion the
         # RESTRICT foreign key would force a moment later.
-        still_private = bool(current) and current[0] == "private"
+        still_private = row is not None and row.visibility == "private"
         if still_private != per_submitter:
             raise BenchmarkVisibilityChanged(benchmark_id)
 
@@ -667,6 +760,7 @@ class ScoreStore:
                     key=idempotency_key,
                     score=score,
                     expires_at=now_ts + IDEMPOTENCY_TTL,
+                    scheme=KEY_SCHEME,
                 )
         except IntegrityError:
             pass
@@ -718,8 +812,13 @@ class ScoreStore:
             # Detection, not prevention: nothing is being written here, but the row was chosen
             # under a view of `visibility` that may since have changed, so returning it would be
             # answering a question we no longer know the rules for.
-            await self._revalidate_visibility(submission.benchmark_id, per_submitter)
-            return SubmitOutcome(score=_score_to_schema(existing), created=False)
+            confirmed = await self._confirm_replayable(
+                existing,
+                submission,
+                per_submitter=per_submitter,
+                identity_verified=identity_verified,
+            )
+            return SubmitOutcome(score=_score_to_schema(confirmed), created=False)
 
         expires_at = now_ts + IDEMPOTENCY_TTL
         try:
@@ -765,9 +864,15 @@ class ScoreStore:
             # `503 score store unavailable`. Nothing is unavailable — the board changed — and a
             # flip is the likeliest reason nothing resolved here, since the privacy gate stops the
             # winner's row being readable once the board is private (review of PR #719).
-            await self._revalidate_visibility(submission.benchmark_id, per_submitter)
             if existing is not None:
-                return SubmitOutcome(score=_score_to_schema(existing), created=False)
+                confirmed = await self._confirm_replayable(
+                    existing,
+                    submission,
+                    per_submitter=per_submitter,
+                    identity_verified=identity_verified,
+                )
+                return SubmitOutcome(score=_score_to_schema(confirmed), created=False)
+            await self._revalidate_visibility(submission.benchmark_id, per_submitter)
             raise
 
     async def get_by_idempotency_key(self, key: str) -> ScoreSchema | None:

@@ -20,8 +20,15 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 SRC = Path(__file__).resolve().parents[3] / "src/scoreboard"
-REVAL = ("_revalidate_visibility", "turned_private")
+# Calls that constitute "the decision was re-checked". `_confirm_replayable` belongs here because
+# it revalidates the request's board AND re-gates the returned row — a replay guarded by it is
+# guarded more thoroughly than one guarded by `_revalidate_visibility` alone.
+REVAL = ("_revalidate_visibility", "turned_private", "_confirm_replayable")
+
+pytestmark = pytest.mark.anyio
 
 # Each entry: (function, exit kind) -> how many exits legitimately need no revalidation.
 #
@@ -259,3 +266,60 @@ def test_a_baseline_publishes_nothing_participant_derived() -> None:
         assert leak not in BaselineSchema.model_fields, (
             f"{leak!r} would be published on a private board through the baseline list"
         )
+
+
+# --- the persist path really takes the PostgreSQL row lock ------------------------------------
+
+
+async def test_the_persist_path_really_locks_the_row() -> None:
+    """`_revalidate_visibility(lock=True)` must emit `FOR UPDATE` on PostgreSQL.
+
+    INVARIANT: the lock is the only thing that CLOSES the flip window on the persist path —
+    revalidation alone narrows it to the commit interval. SQLite does not implement the lock, so no
+    behavioural test can hold this; rendering the SQL can, and does.
+
+    WHY this test exists at all: the first version of that code called `select_for_update()` and
+    then `values_list()`. The former sets lock state on the QuerySet; the latter builds a fresh
+    query without copying it. So `FOR UPDATE` was silently dropped and the path had no lock, while
+    the description and a review reply both claimed it did. The claim was made about a dialect and
+    never rendered against that dialect. This is that check (review of PR #719).
+    """
+    from tortoise import Tortoise
+
+    from scoreboard.scores.models import Benchmark
+    from scoreboard.scores.store import ScoreStore
+
+    await Tortoise.init(
+        db_url="asyncpg://user:pass@127.0.0.1:1/unused",
+        modules={"models": ["scoreboard.scores.models"]},
+        _create_db=False,
+    )
+    try:
+        store = ScoreStore()
+        # The query PRODUCTION runs, not one this test builds — a hand-built query would keep
+        # passing while `_revalidate_visibility` regressed underneath it.
+        # Rendered without `.first()`: that returns a typed single-row wrapper which does not
+        # declare `.sql()`. `.first()` only adds a LIMIT, and it was checked separately not to
+        # strip the lock — `.select_for_update().only(...)` and `.first()` both preserve it, while
+        # `.values()` and `.values_list()` are the two that drop it.
+        locked = store.visibility_query("any-benchmark", lock=True).sql()
+        unlocked = store.visibility_query("any-benchmark").sql()
+        projected = (
+            Benchmark.filter(id="any-benchmark")
+            .select_for_update()
+            .values_list("visibility", flat=True)
+            .sql()
+        )
+    finally:
+        await Tortoise.close_connections()
+
+    assert "FOR UPDATE" in locked.upper(), f"the locking revalidation query lost its lock: {locked}"
+    assert "FOR UPDATE" not in unlocked.upper(), (
+        "the read-only revalidation must NOT lock — it runs on every dedup hit"
+    )
+    # Pinned as the trap, not as an aspiration: if a future Tortoise starts carrying lock state
+    # through `values_list()` this fails, and the comment above can be simplified.
+    assert "FOR UPDATE" not in projected.upper(), (
+        "values_list() now preserves select_for_update(); the workaround in "
+        "_revalidate_visibility can be simplified and this test updated"
+    )
