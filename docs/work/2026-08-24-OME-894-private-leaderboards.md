@@ -982,6 +982,28 @@ it — the fix was written and unheld until a mutation said so, for the third ti
 Cost when nothing flips, which is every real request: one indexed primary-key read on the public
 branch. Guarded by a test asserting the undisturbed public response is unchanged.
 
+## Review round 22 — 2026-08-27 (owner, PR #719)
+
+**[P2] The re-decision suppressed the entries and shipped a stale benchmark DTO with them.**
+Reproduced: `scoped_to_caller = True` beside `benchmark.visibility = 'public'`, while the database
+said `private`. Two statements of the same fact, disagreeing in one body — and `visibility` is the
+field D4 added specifically so a client could render a board as private, so a client acting on it
+would have labelled a private board public.
+
+Not challenged. There is an argument that `scoped_to_caller` is the authoritative signal and
+`visibility` merely descriptive, but that argument dies on D4: the field was exposed for clients to
+act on, so shipping it wrong is a contract bug whatever else the body says.
+
+**Fixed inside `_private_leaderboard` rather than at the call site.** That function owns the claim
+that the board is private, so it states it in the DTO too. Fixing the one caller that had the stale
+value would have left the two callers free to drift; asserting it in the callee makes the
+contradiction unrepresentable. On the initial-decision path it is a no-op, since that read already
+returned `private`.
+
+Mutation-checked, and the test pins BOTH paths — the flip and the ordinary private read — because
+the point is that they agree.
+
+
 
 ## Known residual — the concurrent-retry success return
 

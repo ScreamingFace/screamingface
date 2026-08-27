@@ -176,6 +176,15 @@ async def _private_leaderboard(
 ) -> LeaderboardResponse:
     """The response a private board gives, whoever is asking."""
     response.headers.update(PRIVATE_CACHE_HEADERS)
+    # INVARIANT: this function OWNS the claim that the board is private, so it states that in the
+    # DTO as well as in `scoped_to_caller`. The re-decision path reaches here with a benchmark read
+    # BEFORE the flip, and passing it through unchanged produced a body that contradicted itself —
+    # `scoped_to_caller: true` beside `visibility: "public"` — so a client acting on the field D4
+    # added for exactly that purpose would render a private board as public.
+    #
+    # Asserted here rather than at the call site so the two callers cannot drift: the initial
+    # decision already read `private`, where this is a no-op (review of PR #719).
+    benchmark = benchmark.model_copy(update={"visibility": "private"})
     # INVARIANT: `entries` is the public RANKING, and a private board has none — so it is empty for
     # everyone, including a participant. Their own rows are a different concept and go to
     # `my_submissions`, which is why nothing here has a rank to suppress.

@@ -1197,3 +1197,30 @@ async def test_an_undisturbed_public_read_is_unchanged(
     assert response.status_code == 200
     assert len(body["entries"]) == 2
     assert body["scoped_to_caller"] is False
+
+
+async def test_the_private_response_never_contradicts_itself(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT: `scoped_to_caller: true` and `visibility: "private"` are the same fact stated
+    # twice, so no body may carry one without the other. The re-decision path reached
+    # `_private_leaderboard` with a benchmark read BEFORE the flip and passed it through, so a
+    # client trusting `visibility` — the field D4 added for exactly this — saw a public board.
+    await _two_participants()
+    real, hook = _flip_private_during("leaderboard")
+
+    ScoreStore.leaderboard = hook  # type: ignore[method-assign]
+    try:
+        flipped = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+    finally:
+        ScoreStore.leaderboard = real  # type: ignore[method-assign]
+
+    body = flipped.json()
+    assert body["scoped_to_caller"] is True
+    assert body["benchmark"]["visibility"] == "private"
+
+    # And the same holds on the ordinary private path, which must stay in step with it.
+    await Benchmark.filter(id=PRIVATE_ID).update(visibility="private")
+    steady = (await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")).json()
+    assert steady["scoped_to_caller"] is True
+    assert steady["benchmark"]["visibility"] == "private"
