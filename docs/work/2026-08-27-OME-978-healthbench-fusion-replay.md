@@ -84,8 +84,10 @@ the OME-978 Linear description (rewritten 2026-08-27).
   - `packages/screamingface/Justfile` — `e2e-bless-report` recipe.
   - `packages/screamingface/tests/e2e/README.md` — fusion path in steps ③/④.
   - Planned-but-not-needed: none dropped.
-- **Commits:** see git log on branch OME-978-healthbench-fusion-replay (single
-  commit, `Refs: OME-978`).
+- **Commits:** `f687c031` feat(py-screamingface): bless a fusion board's e2e
+  replay from its saved report alone; `34ee0aa4` test(py-screamingface): pin the
+  healthbench-worst30 fusion score at -0.091 from blessed fixtures. PR: #755
+  (draft).
 - **Gates:** `run_gates.py screamingface --skip-append-only` → ALL GATES GREEN
   (ruff check, ruff format, pyright, pytest --cov=screamingface ≥95%, notebook
   check, uv build, distribution check). e2e lane: 76 passed, 16 docker-gated
