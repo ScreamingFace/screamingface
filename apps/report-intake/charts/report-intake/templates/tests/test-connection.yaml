@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "report-intake.fullname" . }}-test-connection
+  labels:
+    {{- include "report-intake.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  restartPolicy: Never
+  containers:
+    # BOTH probes, and the readiness one is the point. `/healthz` proves the process is serving
+    # HTTP; `/readyz` proves the `reports` table is queryable, which is what the migration hook
+    # was for. A test that hit only `/healthz` would pass on a release whose migration Job failed.
+    #
+    # It does NOT post a report: the write endpoint is gated on identity or a Turnstile token, and
+    # a chart test has neither. What a chart test can answer, it answers.
+    - name: curl
+      image: curlimages/curl:8.11.1
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          curl -fsS "http://{{ include "report-intake.fullname" . }}:{{ .Values.service.port }}/healthz"
+          curl -fsS "http://{{ include "report-intake.fullname" . }}:{{ .Values.service.port }}/readyz"

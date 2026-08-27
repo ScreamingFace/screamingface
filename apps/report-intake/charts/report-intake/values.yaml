@@ -1,0 +1,314 @@
+# A BARE INSTALL OF THIS FILE IS SAFE AND NOT USEFUL, deliberately.
+#
+# `config.authMode: disabled` is loopback-only, no edge is rendered, and no NetworkPolicy is
+# rendered — so `helm lint`, `helm template` and the chart-wiring verifier all pass on a clean
+# checkout. That matters more than it sounds: the alternative (anonymous on, Turnstile off) trips
+# the chart's own render-refusal guard, which makes the default render fail, and the predictable
+# resolution under CI pressure is deleting the guard — the single render-time refusal protecting
+# this repo's first unauthenticated write.
+#
+# The cloud posture is opted into with `values-cloud.yaml`, exactly as `screamingface-engine`
+# does it.
+
+# SAFE ABOVE 1, and that is a property of the code rather than of this chart: the retry sweep runs
+# in EVERY replica and claims rows by a per-row conditional UPDATE against `lease_expires_at`, so
+# the database arbitrates and one bug report cannot become two tickets. Do not turn it into a
+# leader-elected singleton. The constraint that does bind is the database: more than one replica
+# needs a real shared one, never the sqlite default below.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/screamingface/screamingface-report-intake
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  # 10001 is the `report-intake` user the Dockerfile creates. Changing this number without
+  # changing the image gives a Pod that cannot read its own venv or write /data.
+  runAsUser: 10001
+
+# THE ENVIRONMENT SURFACE. Every key the ConfigMap renders is a field on
+# `report_intake.config.Settings`, and every field is rendered by this chart — the two sets are
+# equal, and both halves are asserted (`tests/unit/test_chart_environment.py` in the app,
+# `.github/scripts/verify_chart_wiring.py` on the rendered manifest).
+#
+# That equality is a contract, not tidiness. `Settings` is declared `extra="ignore"`, so a name
+# this chart renders that no field reads is accepted, dropped, and never mentioned — the pod runs
+# on the field's DEFAULT. For `authMode` that is a production pod with authentication disabled,
+# indistinguishable from a working one until someone forges a request. `create_app` turns that
+# silence into a startup failure; these assertions are what catch it before the deploy.
+config:
+  host: 0.0.0.0
+  port: 9109
+  logLevel: info
+
+  # Which of spec §7's postures this process runs in.
+  #
+  #   disabled           every caller is anonymous and NOTHING is asked of them — which is safe
+  #                      only because it is LOOPBACK-ONLY (peer and Host both). A pod in this mode
+  #                      answers 403 to everything that arrives through a mesh. The default,
+  #                      because the failure direction matters: a deployment that forgets to set
+  #                      this refuses network callers rather than admitting them.
+  #   mesh_or_turnstile  the deployed posture. A caller whose `X-User-Email` the mesh injected is
+  #                      admitted on identity; everyone else spends a rate-limit budget and
+  #                      presents a Cloudflare Turnstile token.
+  #
+  # There is deliberately no third mode. "Mesh only" would make the richest reports unsendable —
+  # the Python SDK holds an Access token but parses only `exp` from it, so it has no address to
+  # present — and "Turnstile only" would ask a verified caller to prove it is a browser.
+  authMode: disabled
+
+  # Peers that may present a mesh-injected `X-User-Email`, as CIDR networks. Required by
+  # `mesh_or_turnstile`; the chart refuses to render that mode without it, and the app refuses to
+  # start.
+  #
+  # NARROW THIS to your cluster's actual Pod CIDR. It is not hardening layered on the
+  # NetworkPolicy below — the policy restricts nothing unless the CNI enforces it, and this check
+  # runs in the process, so it holds either way.
+  allowedNetworks: []
+
+  # Browser origins allowed to POST a report. NOT an authorization control: it decides which
+  # origins a browser will let read a response, and nothing about who may file a report. Empty
+  # installs no CORS middleware at all — an empty allowlist is not an allowlist of everything.
+  corsOrigins: []
+
+  # Whether the rate-limit key may come from the edge's `CF-Connecting-IP` rather than the TCP
+  # peer. FALSE, and leaving it false is almost always right: the mesh proxy is the peer on every
+  # request, so "trust the header when the peer is inside allowedNetworks" means "trust it
+  # always", and a rotated header then buys a fresh bucket per request while evicting real
+  # callers from a capped table. Turn it on only where the edge is known to OVERWRITE the header
+  # rather than forward a client's copy.
+  trustClientIpHeader: false
+
+  # Which `TicketSink` adapter files the report. `queue` is v1 and is not a placeholder: the
+  # `reports` table IS the queue, and an agent files each row via MCP during triage. That is what
+  # keeps a Linear API token out of this pod's environment entirely. The app refuses to start on
+  # a name its registry does not know.
+  ticketSink: queue
+
+  # Spec §6's inline delivery deadline. Raising it does not make delivery likelier — past it the
+  # row stays `pending` and the retry queue owns the report — it only makes filing a bug slower.
+  deliveryTimeoutS: 3
+
+  idempotencyTtlH: 24
+  retentionDays: 90
+
+  turnstileVerifyUrl: https://challenges.cloudflare.com/turnstile/v0/siteverify
+  # Past this, the gate is *unevaluable*, which is a 503 and not a 403: the client retries
+  # unchanged rather than fetching a token that was never the problem.
+  turnstileTimeoutS: 3
+
+  # The service-side backstop on anonymous submission. Read the ceiling honestly: with the
+  # default key (the TCP peer) this is effectively ONE bucket for all anonymous callers, because
+  # the mesh proxy is the peer on every request. Per-caller limiting belongs at Cloudflare's
+  # edge, which can see the real client. The budget is per process, so the effective ceiling is
+  # `replicaCount × limit`.
+  anonRate:
+    limit: 30
+    windowS: 60
+    # What a legitimate double-click needs, not what a submission loop needs.
+    burst: 5
+    # Reaching this refuses NEW keys as throttled rather than evicting old ones: evict-oldest
+    # would make filling the table the way to clear somebody else's window.
+    maxKeys: 10000
+
+  # UVICORN'S OWN VARIABLE, deliberately unprefixed and NOT a `Settings` field — which is exactly
+  # why it is easy to miss while auditing what must be right for the peer check to mean anything.
+  #
+  # Uvicorn's ProxyHeadersMiddleware is always on, and it OVERWRITES `request.client.host` from a
+  # client-supplied `X-Forwarded-For` whenever the real peer falls inside this value. Both the
+  # mesh identity check and the rate-limit key read that address. So this must be DISJOINT from
+  # `allowedNetworks`, not merely narrow — a single address inside them re-opens the whole check.
+  #
+  # `127.0.0.1` is uvicorn's own default, restated here so the posture is in the rendered
+  # manifest rather than inherited from a library default that can move. `"*"` is refused at
+  # render; the general overlap is checked by the app at boot and by
+  # `.github/scripts/verify_chart_wiring.py`, since Helm has no CIDR arithmetic.
+  forwardedAllowIps: "127.0.0.1"
+
+# WHERE THE DATABASE URL COMES FROM. Never a chart value: it carries a password.
+#
+# The default below is a sqlite file INSIDE the container, which is what the image ships and is
+# right for a single-replica smoke test and nothing else — it is not shared between replicas and
+# it does not survive the Pod. Point `existingSecret` at a real Postgres URL for anything else.
+database:
+  existingSecret: report-intake-db
+  existingSecretKey: database-url
+
+# THE PUBLIC INTAKE HOSTNAME — an HTTPRoute with no Cloudflare Access in front of it, whose
+# callers are anonymous by construction.
+#
+# OFF BY DEFAULT. Turning it on is the deliberate act of publishing this repo's first
+# unauthenticated write that reaches human eyes, and the chart refuses to do it without
+# `turnstile.enabled` — see the guard in `_helpers.tpl`.
+anonymous:
+  enabled: false
+
+# The Cloudflare Turnstile secret, from a Secret. `mesh_or_turnstile` cannot boot without it, and
+# the chart refuses to render that mode with this off.
+#
+# The matching SITE key is deliberately absent: it is a browser-side value this service never
+# reads, so rendering it into the pod would be cargo cult.
+turnstile:
+  enabled: false
+  existingSecret: ""
+  existingSecretKey: turnstile-secret
+
+# THE EDGE. Gateway API, not Ingress: the header manipulation this service's identity model rests
+# on is a typed `filters:` field on an HTTPRoute, and under Ingress it would be a
+# controller-specific annotation — which means the load-bearing half of the contract would live
+# outside the chart and differ per environment.
+#
+# PREREQUISITES, none installed by this chart: the Gateway API CRDs, a GatewayClass, a controller
+# implementing it, and — for `identity` below — Envoy Gateway specifically, since `SecurityPolicy`
+# is its extension rather than core Gateway API.
+gateway:
+  enabled: false
+  annotations: {}
+  parentRef:
+    # The Gateway object both routes attach to. No default is possible: a chart cannot know the
+    # name of an object it does not install, and an HTTPRoute with no parentRef attaches to
+    # nothing and silently serves nothing.
+    name: ""
+    namespace: ""
+    # Which listener (e.g. `web` vs `websecure`). Omit to attach to all.
+    sectionName: ""
+  # Bounds the whole exchange at the edge. A report is one POST of at most 64 KiB against a
+  # 3 s inline delivery deadline, so 30 s is generous; it exists so a wedged client is not a
+  # permanent resource leak.
+  timeouts:
+    request: 30s
+    backendRequest: 30s
+
+  # The PUBLIC route, rendered when `anonymous.enabled`. Its hostname has no Access application,
+  # so anything arriving on it is a claim and nothing more — which is why the route strips
+  # `X-User-Email` and `CF-Connecting-IP` unconditionally before the backend sees them.
+  public:
+    hostnames: []
+
+  # The IDENTITY route: Cloudflare Access in front, and an Envoy `SecurityPolicy` that
+  # re-verifies the Access assertion and maps the verified `email` claim onto `X-User-Email`.
+  #
+  # TWO ROUTES, NOT ONE, and this is the reason. The one-route alternative — a single hostname
+  # with `spec.jwt.optional: true` — is a FULL IDENTITY BYPASS: with `optional: true` the JWT
+  # filter is skipped entirely for a token-less request, so `claimToHeaders` never runs and a
+  # client-supplied `X-User-Email` reaches the backend untouched. Do not "simplify" these back
+  # into one.
+  identity:
+    enabled: false
+    hostnames: []
+    cloudflareAccess:
+      # `<team>.cloudflareaccess.com`. The issuer and the JWKS URL are both derived from it, so
+      # they cannot disagree.
+      teamDomain: ""
+      # The Access application's AUD tag. Without it, any valid token from any application in the
+      # same Cloudflare team authenticates here.
+      audience: ""
+
+service:
+  type: ClusterIP
+  port: 9109
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# THE TWO PROBES POINT AT DIFFERENT ENDPOINTS, and that split is the whole point (spec §10).
+#
+# `/healthz` is static and never touches storage: a liveness probe that fails when the database is
+# down turns one bad database into a restart loop across every replica, which is strictly worse
+# than serving 503 to writes.
+#
+# `/readyz` queries the `reports` TABLE — not the connection — because the two failures a rollout
+# must not survive (database down, migration not applied) are indistinguishable from the
+# connection's point of view. It fails closed until `tortoise migrate` has run, which is what
+# keeps an unmigrated pod out of the load balancer. The migration Job below is a pre-install hook
+# for exactly that reason.
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 20
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+# THE SERVICE NEVER MIGRATES ITSELF. Auto-migrating at startup means every replica racing the
+# same DDL on a fresh database. The schema is applied here, as a pre-install/pre-upgrade hook, so
+# it is done before any Pod is scheduled.
+migration:
+  enabled: true
+  serviceAccountName: default
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  annotations: {}
+
+# OFF BY DEFAULT HERE, and ON in values-cloud.yaml. The difference is `config.authMode`, and it is
+# the whole reason this is not one setting with one default.
+#
+# In `disabled` mode — this file — nothing is authenticated by a network at all: the pod is
+# loopback-only, so a policy would restrict traffic that is already refused.
+#
+# In `mesh_or_turnstile` the peer check against `config.allowedNetworks` authenticates a NETWORK,
+# and even a Pod CIDR is every workload in the cluster dialling a plain ClusterIP. There the
+# policy is what makes that set the mesh gateway instead. `report-intake.validate` refuses that
+# mode with this off unless `acknowledgeUnrestricted` is set.
+#
+# It is off rather than on-with-no-peers because an ingress rule that omits `from:` admits EVERY
+# source: a policy with no peers is an allow-all wearing the name of a restriction. The template
+# fails rather than render one, so leaving it enabled by default would fail every default render.
+#
+# There is no egress block: this pod dials Cloudflare's siteverify, whose address ranges are not
+# knowable here, so the policy governs who may REACH it and nothing else.
+networkPolicy:
+  enabled: false
+  # The deliberate opt-out: `mesh_or_turnstile` with no policy, said out loud. Legitimate where
+  # something outside this chart already restricts who can dial the Service — a service mesh with
+  # its own authorization policy, a cluster-wide default-deny, a single-tenant cluster. It exists
+  # so that posture is a value someone typed rather than the one you get by not typing anything.
+  acknowledgeUnrestricted: false
+  # Namespace holding the mesh gateway. Empty => this release's namespace.
+  clientNamespace: ""
+  # `app.kubernetes.io/name` of each Pod allowed to reach this service — normally the mesh
+  # gateway's data plane, whose label is cluster-specific. Each entry becomes ONE `from` element
+  # carrying BOTH selectors; splitting them would mean "any pod in that namespace OR any pod with
+  # that label anywhere", i.e. the whole namespace.
+  clientPodNames: []
+  # Extra CIDRs, e.g. a mesh gateway outside the cluster network.
+  ingressCIDRs: []
+  # Escape hatch: raw NetworkPolicyPeer entries appended verbatim.
+  allowFrom: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

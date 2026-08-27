@@ -17,6 +17,11 @@ on:
       - "apps/aigateway/charts/**"
       - "apps/aigateway-ui/charts/**"
       - "apps/aigateway-ui/Dockerfile"
+      - "apps/report-intake/charts/**"
+      # The verifier asserts the rendered ConfigMap against report-intake's `Settings` fields, so
+      # a renamed field has to re-run it. Without this line the rename lands green here and the
+      # pod runs on the field's default — which for AUTH_MODE is authentication disabled.
+      - "apps/report-intake/src/report_intake/config.py"
       - "apps/screamingface-engine/deploy/helm/**"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
@@ -25,13 +30,23 @@ on:
       # installable and permanently ImagePullBackOff, so editing either lane has to re-run the
       # comparison. `dev-build-*` is a glob because the cache-scope check spans all of them.
       - ".github/workflows/release-aigateway-ui.yml"
+      - ".github/workflows/release-report-intake.yml"
       - ".github/workflows/release-screamingface-engine.yml"
       - ".github/workflows/dev-build-*.yml"
+      # The verifier asserts release-report-intake.yml's tag filter against the component and
+      # tag-separator declared here, so a rename in this file alone has to re-run it. Without this
+      # line that rename lands green and the release tag builds nothing, silently.
+      - "release-please-config.json"
   pull_request:
     paths:
       - "apps/aigateway/charts/**"
       - "apps/aigateway-ui/charts/**"
       - "apps/aigateway-ui/Dockerfile"
+      - "apps/report-intake/charts/**"
+      # The verifier asserts the rendered ConfigMap against report-intake's `Settings` fields, so
+      # a renamed field has to re-run it. Without this line the rename lands green here and the
+      # pod runs on the field's default — which for AUTH_MODE is authentication disabled.
+      - "apps/report-intake/src/report_intake/config.py"
       - "apps/screamingface-engine/deploy/helm/**"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
@@ -40,8 +55,13 @@ on:
       # installable and permanently ImagePullBackOff, so editing either lane has to re-run the
       # comparison. `dev-build-*` is a glob because the cache-scope check spans all of them.
       - ".github/workflows/release-aigateway-ui.yml"
+      - ".github/workflows/release-report-intake.yml"
       - ".github/workflows/release-screamingface-engine.yml"
       - ".github/workflows/dev-build-*.yml"
+      # The verifier asserts release-report-intake.yml's tag filter against the component and
+      # tag-separator declared here, so a rename in this file alone has to re-run it. Without this
+      # line that rename lands green and the release tag builds nothing, silently.
+      - "release-please-config.json"
   workflow_dispatch:
 
 permissions:
@@ -71,6 +91,7 @@ jobs:
           helm lint apps/aigateway/charts/aigateway
           helm lint apps/aigateway/charts/db
           helm lint apps/aigateway-ui/charts/aigateway-ui
+          helm lint apps/report-intake/charts/report-intake
           helm lint apps/screamingface-engine/deploy/helm
 
       # Renders the charts and asserts on parsed output, including the cross-chart console/gateway
@@ -83,6 +104,21 @@ jobs:
         run: |
           helm template aigw apps/aigateway/charts/aigateway \
             --values apps/aigateway/charts/aigateway/values-prod.yaml > /dev/null
+
+      # report-intake's cloud posture. The verifier renders it too, but this step is what a
+      # failure reads as: `values-cloud.yaml` needs five install-time values the chart refuses to
+      # guess — a Gateway's name, a Cloudflare team and audience, and two Secret names — and each
+      # missing one is a render failure rather than a default. The placeholders exercise the
+      # templates; nothing consumes this rendering.
+      - name: Render report-intake's cloud values
+        run: |
+          helm template reports apps/report-intake/charts/report-intake \
+            --values apps/report-intake/charts/report-intake/values-cloud.yaml \
+            --set gateway.parentRef.name=ci-placeholder-gateway \
+            --set gateway.identity.cloudflareAccess.teamDomain=ci-placeholder.cloudflareaccess.com \
+            --set gateway.identity.cloudflareAccess.audience=ci-placeholder-aud \
+            --set turnstile.existingSecret=ci-placeholder-turnstile \
+            --set database.existingSecret=ci-placeholder-db > /dev/null
 
   image:
     name: Build the console image

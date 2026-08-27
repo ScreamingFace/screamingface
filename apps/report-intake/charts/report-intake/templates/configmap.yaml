@@ -1,0 +1,60 @@
+{{- include "report-intake.validate" . -}}
+{{/*
+§2.4's environment surface, rendered mechanically and with nothing else in it.
+
+INVARIANT: every key below is a field on `report_intake.config.Settings`, and every field is
+rendered by this chart — here or, for the two that come from Secrets, on the Deployment. The
+equality is asserted from both sides, because the two directions fail differently and both end in
+a pod running on a default nobody chose: a key this chart renders that no field reads is dropped
+silently by `extra="ignore"`, and a field this chart never renders takes its declared default.
+
+Every list is COMMA-JOINED, never JSON. The fields are declared `Annotated[..., NoDecode]`
+precisely so a comma list from the environment reaches the validator; without `NoDecode`
+pydantic-settings would JSON-decode the complex type first and reject `10.0.0.0/8` as malformed
+JSON before any validator ran.
+
+Empty values are emitted rather than omitted. "No CORS origins" and "no allowed networks" are
+real postures, and a rendered manifest should state them instead of leaving them to be inferred
+from a missing key.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "report-intake.fullname" . }}
+  labels:
+    {{- include "report-intake.labels" . | nindent 4 }}
+data:
+  REPORT_INTAKE_HOST: {{ .Values.config.host | quote }}
+  REPORT_INTAKE_PORT: {{ .Values.config.port | quote }}
+  REPORT_INTAKE_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+
+  # Which of spec §7's postures the process runs in. The one key whose silent loss would be
+  # invisible from outside: `disabled` is loopback-only and refuses everything the mesh sends, so
+  # a mismatch here does not degrade quietly — but a chart that MISSPELLED it would leave the pod
+  # on the `disabled` default while the manifest read `mesh_or_turnstile`.
+  REPORT_INTAKE_AUTH_MODE: {{ .Values.config.authMode | quote }}
+  REPORT_INTAKE_ALLOWED_NETWORKS: {{ join "," .Values.config.allowedNetworks | quote }}
+  REPORT_INTAKE_CORS_ORIGINS: {{ join "," .Values.config.corsOrigins | quote }}
+  REPORT_INTAKE_TRUST_CLIENT_IP_HEADER: {{ .Values.config.trustClientIpHeader | quote }}
+
+  REPORT_INTAKE_TICKET_SINK: {{ .Values.config.ticketSink | quote }}
+  REPORT_INTAKE_DELIVERY_TIMEOUT_S: {{ .Values.config.deliveryTimeoutS | quote }}
+  REPORT_INTAKE_IDEMPOTENCY_TTL_H: {{ .Values.config.idempotencyTtlH | quote }}
+  REPORT_INTAKE_RETENTION_DAYS: {{ .Values.config.retentionDays | quote }}
+
+  # The verify URL and the timeout, but NOT the site key: that is a browser-side value this
+  # service never reads. The secret is a Secret, on the Deployment.
+  REPORT_INTAKE_TURNSTILE_VERIFY_URL: {{ .Values.config.turnstileVerifyUrl | quote }}
+  REPORT_INTAKE_TURNSTILE_TIMEOUT_S: {{ .Values.config.turnstileTimeoutS | quote }}
+
+  REPORT_INTAKE_ANON_RATE_LIMIT: {{ .Values.config.anonRate.limit | quote }}
+  REPORT_INTAKE_ANON_RATE_WINDOW_S: {{ .Values.config.anonRate.windowS | quote }}
+  REPORT_INTAKE_ANON_RATE_BURST: {{ .Values.config.anonRate.burst | quote }}
+  REPORT_INTAKE_ANON_RATE_MAX_KEYS: {{ .Values.config.anonRate.maxKeys | quote }}
+
+  # UVICORN'S, deliberately unprefixed — the one name in this pod's environment that is not a
+  # `Settings` field, and the one an audit of "what must be right for the peer check to mean
+  # anything" misses. Uvicorn rewrites `request.client.host` from a client-supplied
+  # `X-Forwarded-For` for any peer inside this value, and both the mesh identity check and the
+  # rate-limit key read that address. It must be DISJOINT from REPORT_INTAKE_ALLOWED_NETWORKS.
+  FORWARDED_ALLOW_IPS: {{ .Values.config.forwardedAllowIps | quote }}

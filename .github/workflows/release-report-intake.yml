@@ -1,0 +1,203 @@
+name: Release report-intake
+
+# Publishes the report-intake container image and Helm chart. release-please owns the version:
+# merging its release PR bumps apps/report-intake/pyproject.toml and pushes a `report-intake-v*`
+# tag, which is what triggers this. Until this lane existed that tag published nothing, and
+# CONTRIBUTING.md said so out loud (OME-1005) — a version marker with no artefacts behind it.
+#
+# Mirrors release-aigateway.yml. Four deliberate differences, each with a reason:
+#
+#   1. The chart render passes values, and there are two renders. `values.yaml` renders a
+#      loopback-only pod with no edge, which is the installable default; `values-cloud.yaml` is
+#      the posture that actually deploys, and it needs five install-time values the chart refuses
+#      to guess. Rendering only the first would leave the two HTTPRoutes and the SecurityPolicy —
+#      the objects the identity model rests on — unexercised by the lane that publishes them.
+#   2. NO publish to the public OpenMined/sf-installer repo. That repo is the product installer;
+#      this service is infrastructure the team runs, not something a user installs.
+#   3. The tag filter is disjoint from every other release lane's by construction — no other
+#      component's name is a prefix of `report-intake`, and `report-intake-v*` matches nothing
+#      else in release-please-config.json.
+#   4. The version comes from pyproject.toml via `awk`, matching release-aigateway.yml (the
+#      `jq`/package.json spelling in release-aigateway-ui.yml is for a Node package).
+#
+# SECURITY: no `run:` block interpolates a `${{ }}` expression. The only free-text input is
+# `inputs.tag` on workflow_dispatch; it reaches the shell through an `env:` binding and is quoted
+# at every use, so a tag containing shell metacharacters is data rather than code.
+
+on:
+  push:
+    tags: ["report-intake-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. report-intake-v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE: ghcr.io/screamingface/screamingface-report-intake
+  CHART: apps/report-intake/charts/report-intake
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#report-intake-v}"
+          MANIFEST=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' apps/report-intake/pyproject.toml)
+          # Catches a tag pushed by hand that disagrees with what release-please wrote. Publishing
+          # an image labelled with a version its own manifest contradicts is worse than publishing
+          # nothing, because the disagreement is then baked into an immutable artefact.
+          if [ "$MANIFEST" != "$VERSION" ]; then
+            echo "::error::tag $TAG implies version $VERSION but apps/report-intake/pyproject.toml reports $MANIFEST"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # QEMU for the arm64 leg, matching aigateway's platform set: the two run in one cluster and
+      # a service that exists only for amd64 silently constrains where that cluster can schedule.
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The repository root IS the build context — the Dockerfile COPYs apps/report-intake/ from
+      # there, matching apps/aigateway/Dockerfile. `report-intake-tests.yml` already builds this
+      # file and starts the container on every PR, so a break here is a genuine surprise rather
+      # than the usual first compile.
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/report-intake/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.verify.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.verify.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  chart:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      # Kept for malformed-Chart.yaml coverage but NOT the gate: `helm lint` reports
+      # "0 chart(s) failed" for a chart that cannot render at all, because it reads templates
+      # without executing them — and every guard in this chart is a `fail` inside a template.
+      - name: Lint
+        run: helm lint "$CHART"
+
+      # BOTH postures. The default renders a loopback-only pod with no edge; the cloud values are
+      # what produce the two HTTPRoutes and the SecurityPolicy. The five --set values below have
+      # no defaults because the chart cannot know a Gateway's name or a Cloudflare application,
+      # and it fails the render rather than inventing one — the placeholders here exercise the
+      # templates and are not deployment defaults. Nothing consumes these renderings.
+      - name: Render
+        run: |
+          set -euo pipefail
+          helm template reports "$CHART" --namespace reports >/tmp/reports.yaml
+          helm template reports "$CHART" \
+            --namespace reports \
+            --values "$CHART/values-cloud.yaml" \
+            --set gateway.parentRef.name=ci-placeholder-gateway \
+            --set gateway.identity.cloudflareAccess.teamDomain=ci-placeholder.cloudflareaccess.com \
+            --set gateway.identity.cloudflareAccess.audience=ci-placeholder-aud \
+            --set turnstile.existingSecret=ci-placeholder-turnstile \
+            --set database.existingSecret=ci-placeholder-db >/tmp/reports-cloud.yaml
+
+      # Both --version and --app-version come from the tag, so the packaged chart cannot disagree
+      # with the image it names — the chart's image helper falls back to appVersion when
+      # image.tag is empty. Chart.yaml's own numbers are a development placeholder.
+      - name: Package Helm chart
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/charts
+          helm package "$CHART" \
+            --version "$VERSION" \
+            --app-version "$VERSION" \
+            --destination dist/charts
+
+      - name: Log in to GHCR for Helm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+
+      - name: Push Helm chart
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: helm push "dist/charts/report-intake-$VERSION.tgz" oci://ghcr.io/screamingface/screamingface/charts
+
+  release:
+    needs: [verify, image, chart]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Draft, matching the other release lanes — a human decides when the release goes public.
+      #
+      # Deliberately NO sf-installer mirror: that repo is the public ScreamingFace installer, and
+      # this is a service the team deploys rather than something a user installs.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.verify.outputs.tag }}
+          name: ScreamingFace report-intake ${{ needs.verify.outputs.version }}
+          draft: true
+          body: |
+            Accepts a client error report and files it into the private tracker.
+
+            Container image:
+            ```
+            docker pull ${{ env.IMAGE }}:${{ needs.verify.outputs.version }}
+            ```
+
+            Helm chart:
+            ```
+            helm pull oci://ghcr.io/screamingface/screamingface/charts/report-intake --version ${{ needs.verify.outputs.version }}
+            ```
+
+            A bare install is loopback-only by design and answers `403` to anything arriving
+            through a mesh. The deployable posture is `values-cloud.yaml`, which needs five values
+            the chart refuses to guess — the Gateway's name, the Cloudflare Access team and
+            audience, and the Secrets holding the Turnstile secret and the database URL. See
+            `apps/report-intake/charts/report-intake/README.md`.
+
+            The schema is applied by a `pre-install`/`pre-upgrade` Job: this service never
+            migrates itself, and `/readyz` fails closed until that Job has run.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
