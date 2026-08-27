@@ -106,10 +106,17 @@ jobs:
             --values apps/aigateway/charts/aigateway/values-prod.yaml > /dev/null
 
       # report-intake's cloud posture. The verifier renders it too, but this step is what a
-      # failure reads as: `values-cloud.yaml` needs five install-time values the chart refuses to
-      # guess — a Gateway's name, a Cloudflare team and audience, and two Secret names — and each
-      # missing one is a render failure rather than a default. The placeholders exercise the
-      # templates; nothing consumes this rendering.
+      # failure reads as: `values-cloud.yaml` needs eight install-time values the chart refuses to
+      # guess — a Gateway's name, a Cloudflare team and audience, two Secret names, the cluster's
+      # Pod CIDR, and the mesh data plane's pod name and namespace — and each missing one is a
+      # render failure rather than a default. The placeholders exercise the templates; nothing
+      # consumes this rendering.
+      #
+      # AIDEV-NOTE: the last three exist because `values-cloud.yaml` deliberately ships
+      # `config.allowedNetworks: []` and `networkPolicy.clientPodNames: []`. Both decide who may
+      # forge `X-User-Email`, so the chart refuses to render rather than default them to something
+      # working-but-overbroad that nobody is ever forced to narrow. Adding a real default to
+      # values-cloud.yaml to quieten this step would defeat that guard — add a placeholder here.
       - name: Render report-intake's cloud values
         run: |
           helm template reports apps/report-intake/charts/report-intake \
@@ -118,7 +125,10 @@ jobs:
             --set gateway.identity.cloudflareAccess.teamDomain=ci-placeholder.cloudflareaccess.com \
             --set gateway.identity.cloudflareAccess.audience=ci-placeholder-aud \
             --set turnstile.existingSecret=ci-placeholder-turnstile \
-            --set database.existingSecret=ci-placeholder-db > /dev/null
+            --set database.existingSecret=ci-placeholder-db \
+            --set 'config.allowedNetworks[0]=10.42.0.0/16' \
+            --set 'networkPolicy.clientPodNames[0]=ci-placeholder-envoy' \
+            --set networkPolicy.clientNamespace=ci-placeholder-envoy-ns > /dev/null
 
   image:
     name: Build the console image

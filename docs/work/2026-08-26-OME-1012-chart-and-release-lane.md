@@ -106,6 +106,20 @@ Plan §10 fixes both:
   is: the verifier now derives which fields are `int`/`float` and which values `AuthMode`
   declares straight from `config.py`'s AST, so a value the app cannot parse fails the PR
   instead of the pod.
+- **Post-review CI fix (2026-08-27).** The `charts.yml` "Render report-intake's cloud values"
+  step went red on the PR while every local gate was green. The review pass had hardened
+  `values-cloud.yaml` by moving the blanket private ranges out of `config.allowedNetworks` and
+  turning `networkPolicy.enabled` on with an empty peer list — both correct, both guarded by the
+  chart's own render refusals — but did not add the matching placeholders to the CI step it also
+  owns. Fixed by passing three more `--set` placeholders, and an `AIDEV-NOTE` now says why the
+  fix belongs in the workflow rather than in `values-cloud.yaml`: putting a real default back
+  would defeat the guard the hardening exists to create.
+
+  This is the same shape as plan §11 conflict 5 (chart defaults tripping the chart's own guard),
+  reintroduced in the *other* values file while fixing a security concern in it. It also exposed
+  a gap in how the gates were verified: `run_gates.py` and `verify_chart_wiring.py` both pass
+  without exercising the `helm template` steps `charts.yml` runs separately, so "all gates green"
+  locally did not mean the chart lane was green.
 - **Deviations, three, all recorded in the chart:**
   1. **`networkPolicy.enabled` stays `false` in `values-cloud.yaml` as well as `values.yaml`.**
      Plan §10 only requires the default off. Enabling it needs the `app.kubernetes.io/name` of
