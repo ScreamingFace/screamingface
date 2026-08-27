@@ -89,6 +89,40 @@ approved by the owner in session after the gate halted:
   URL4's `BoundedIOLayer`, which binds after ctx creation and never needs to) — documented
   in-code.
 
+## Review response (2026-08-27, PR #750 CHANGES_REQUESTED by HupBaHa)
+
+Both blocking findings were reproduced deterministically before fixing (repro scripts
+kept out of the repo; the demanded regression tests are the in-repo artifacts):
+
+1. **[P1] grant/cancel race leaked a permit — CONFIRMED.** `_pump` grants via
+   `set_result` (schedules the waiter's resume); `Task.cancel()` landing before that
+   resume cannot cancel the done future, sets `_must_cancel`, and the resume throws
+   `CancelledError` at `await fut` — `granted` stays false, `_abandon` found nothing to
+   remove, and `_active`/`_in_flight` were never reversed. Reproduced with capacity 1:
+   the snapshot booked `in_flight=1` to the cancelled run and a fresh waiter
+   deadlocked. The `_abandon` docstring's asyncio rationale was factually wrong (the
+   module docstring already promised the correct behavior). Fix: `_abandon` now
+   recognizes a granted future (done, not cancelled, no exception) and returns the
+   permit through `release()` (guarded on `_closed`). Test added —
+   `test_a_waiter_cancelled_after_grant_returns_the_permit` — failed pre-fix, passes
+   post-fix.
+2. **[P1] fixed arrival tie-break starved later runs — CONFIRMED with a refined
+   mechanism.** `_arrival` stamps are (re)set when a run's wait queue is created, so a
+   run whose queue never empties (unbroken fetch backlog — the benchmark shape this
+   ticket protects) keeps the oldest stamp and wins every tie at equal holdings;
+   reproduced 10/10 re-grants to run A, run B never served. (A demand gap re-creates
+   the queue with a fresh stamp, which is why the existing capacity-1 test passed.)
+   Fix: the tie line now rotates on every grant (the granted run's stamp is bumped),
+   so no run wins two consecutive ties while an equal-holding competitor waits —
+   capacity 1 under unbroken demand is strict round-robin, plan invariant 6. Test
+   added — `test_unbroken_demand_from_more_runs_than_capacity_cannot_starve` (3 runs,
+   capacity 1, replenished demand) — failed pre-fix, passes post-fix.
+
+Also fixed: the wrong "impossible race" docstring on the queued-waiter cancellation
+   test; plan/spec amended to the rotating tie-break and the grant-unwind permit return
+   (the amendments above); PR title/body rewritten — they still described the PR as
+   documentation-only. Full unit suite green: 2061 passed, 5 skipped.
+
 ## Companion ticket draft (Layer 2 — filing pending the owner)
 
 The cross-cutting rule makes the gateway half its own sub-issue; Linear writes are

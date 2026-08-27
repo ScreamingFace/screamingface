@@ -152,6 +152,70 @@ async def test_capacity_one_degenerates_to_strict_alternation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unbroken_demand_from_more_runs_than_capacity_cannot_starve() -> None:
+    """N > capacity with CONTINUOUS demand: every run must be served, in rotation.
+
+    The starvation shape this pins: a run whose wait queue never empties keeps the
+    oldest tie-break stamp. If ties were broken by a fixed arrival order, a benchmark-
+    sized run with an unbroken fetch backlog would win every tie at equal holdings and
+    a later run would wait forever. The tie must ROTATE — each grant sends the run to
+    the back of the tie line — so service round-robins once the seed backlog drains.
+    """
+    gate = FairShareGate(1)  # capacity 1: the strictest case — plan invariant 6
+    hold = asyncio.Event()  # exactly one holder parks on it at a time (capacity 1)
+
+    class _Chain:
+        """One run's unbroken demand: a fetch parks holding, the next is queued."""
+
+        def __init__(self, run: str) -> None:
+            self.run = run
+            self.acquired = asyncio.Event()
+            self.tasks: list[asyncio.Task[None]] = []
+
+        def demand(self) -> None:
+            self.tasks.append(asyncio.get_running_loop().create_task(self._one()))
+
+        async def _one(self) -> None:
+            await gate.acquire(self.run)
+            try:
+                self.acquired.set()
+                await hold.wait()
+            finally:
+                gate.release(self.run)
+
+    chains = {run: _Chain(run) for run in ("run-a", "run-b", "run-c")}
+    chains["run-a"].demand()
+    await _settle(2)  # run-a's first fetch is granted and parks holding
+    chains["run-a"].demand()  # run-a keeps a successor queued: the unbroken chain
+    chains["run-b"].demand()
+    chains["run-c"].demand()
+    await _settle()
+
+    served: list[str] = []
+    for _ in range(10):
+        holder = next(r.run for r in gate.snapshot().runs if r.in_flight == 1)
+        served.append(holder)
+        chains[holder].demand()  # replenish BEFORE releasing: the chain never breaks
+        hold.set()  # the holder's fetch completes and releases its permit
+        await asyncio.sleep(0)  # it resumed and released; the next grant is scheduled
+        hold.clear()  # clear BEFORE the new holder resumes, so it parks holding
+        await _settle(2)
+
+    counts = {run: served.count(run) for run in chains}
+    assert set(served) == set(chains)  # nobody starved — the core OME-908 promise
+    assert max(counts.values()) - min(counts.values()) <= 1  # service rotates
+
+    for chain in chains.values():
+        for task in chain.tasks:
+            task.cancel()
+    await asyncio.gather(
+        *(t for c in chains.values() for t in c.tasks), return_exceptions=True
+    )
+    await _settle()
+    assert gate.snapshot().runs == () and gate.snapshot().in_flight == 0
+
+
+@pytest.mark.asyncio
 async def test_a_completed_run_reverts_its_share_immediately() -> None:
     """A finished run leaves no bookkeeping: its permits serve the waiting run at once."""
     gate = FairShareGate(2)
@@ -203,12 +267,12 @@ async def test_a_waiter_cancelled_while_queued_is_removed_and_its_successor_serv
 
 @pytest.mark.asyncio
 async def test_cancelling_one_queued_waiter_leaves_its_runs_other_waiters_intact() -> None:
-    """The real cancellation contract, minus an impossible race.
+    """The real cancellation contract, waiter-by-waiter.
 
-    A grant delivered into a waiter's future can no longer be cancelled — asyncio
-    refuses ``cancel()`` on a done future — so the only cancellation path that reaches
-    the gate is a waiter cancelled while STILL QUEUED, and what matters is that its
-    run's remaining waiters keep their places and still get served.
+    What matters here is a run-scoped property: a waiter cancelled while queued drops
+    only ITSELF, and that run's remaining waiters keep their places and still get
+    served. (The other cancellation shape — a waiter cancelled after the grant landed
+    in its future — is pinned by its own test above, including the permit return.)
     """
     gate = FairShareGate(1)
     holder = _Claims(gate, "run-a")
@@ -229,6 +293,49 @@ async def test_cancelling_one_queued_waiter_leaves_its_runs_other_waiters_intact
     # The surviving B waiter was served by the freed permit.
     assert _share(gate.snapshot(), "run-b").in_flight == 1
     await pair.finish()
+    assert gate.snapshot().runs == ()
+
+
+@pytest.mark.asyncio
+async def test_a_waiter_cancelled_after_grant_returns_the_permit() -> None:
+    """The deterministic grant/cancellation race: the permit must come back.
+
+    ``_pump`` grants into the waiter's future (``set_result`` schedules its resume);
+    the waiter's task is then cancelled BEFORE it resumes. A done future refuses
+    ``cancel()``, so ``Task.cancel`` sets ``_must_cancel`` and the resume throws
+    ``CancelledError`` at ``await fut`` instead of delivering the grant. ``acquire``
+    unwinds through ``_abandon``, which must recognize the granted future and return
+    the permit — or every such race permanently eats one unit of capacity until all
+    local fetches deadlock.
+    """
+    gate = FairShareGate(1)
+    holder = _Claims(gate, "run-a")
+    holder.claim(1)
+    await _settle()
+
+    waiter = asyncio.get_running_loop().create_task(gate.acquire("run-b"))
+    await _settle(2)  # the waiter is parked, queued
+
+    gate.release("run-a")  # grant lands in the waiter's future NOW (synchronous pump)
+    assert gate.snapshot().granted_total == 2  # the race was truly entered: it was granted
+    waiter.cancel()  # cancellation arrives AFTER set_result, BEFORE the resume
+
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    await _settle()
+
+    # Nothing of the cancelled waiter remains: no permit booked, no bookkeeping.
+    snapshot = gate.snapshot()
+    assert snapshot.in_flight == 0
+    assert "run-b" not in {entry.run for entry in snapshot.runs}
+
+    # The returned permit still admits a later claimant — the deadlock consequence.
+    successor = _Claims(gate, "run-c")
+    successor.claim(1)
+    await _settle()
+    assert _share(gate.snapshot(), "run-c").in_flight == 1
+    await successor.finish()
+    await holder.finish()
     assert gate.snapshot().runs == ()
 
 

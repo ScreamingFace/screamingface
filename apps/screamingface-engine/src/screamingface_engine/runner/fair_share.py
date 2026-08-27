@@ -17,10 +17,14 @@ of the same policy: a per-run in-flight budget written onto the Job as
 
 Scheduling discipline: on every admission opportunity (a new waiter, or a released
 permit) the next grant goes to the waiting run with the FEWEST permits already in
-flight, ties broken by earliest arrival. While two runs both have demand, neither can
-out-hold the other by more than one permit; a run with no demand imposes no claim, so
-capacity flows to whoever wants it. That is max-min fairness with equal weights, and it
-is the property the invariant tests pin.
+flight, ties broken by the least-recently-served stamp — and the stamp ROTATES: every
+grant sends its run to the back of the tie line, so a run whose demand never breaks
+(a benchmark-sized backlog) cannot win two consecutive ties against an equal-holding
+competitor. While two runs both have demand, neither can out-hold the other by more
+than one permit; a run with no demand imposes no claim, so capacity flows to whoever
+wants it. That is max-min fairness with equal weights, and it is the property the
+invariant tests pin (capacity 1 under unbroken two-run demand degenerates to strict
+round-robin).
 
 Concurrency-model notes (the discipline this module owes its correctness to):
 
@@ -184,10 +188,17 @@ class FairShareGate:
         """Grant free capacity to waiting runs, fewest-in-flight first.
 
         The selection rule IS the fairness mechanism: while run B has a waiter, run A is
-        granted only when A holds no more permits than B (modulo the arrival tie-break),
+        granted only when A holds no more permits than B (modulo the tie-break),
         so neither run can out-hold the other by more than one permit while both have
         demand. A run with no waiter claims nothing, which is what keeps the gate
         work-conserving.
+
+        The tie-break must ROTATE, not follow a fixed arrival order: a run whose wait
+        queue never empties (an unbroken fetch backlog) keeps its stamp across grants,
+        so a fixed order would let it win every tie at equal holdings and starve a
+        later run forever. Bumping the stamp on every grant sends the run to the back
+        of the tie line, which is what makes capacity 1 strict round-robin under
+        continuous demand.
         """
         while self._in_flight < self._capacity and self._queues:
             run = min(self._queues, key=lambda r: (self._active.get(r, 0), self._arrival[r]))
@@ -204,19 +215,32 @@ class FairShareGate:
             self._active[run] = self._active.get(run, 0) + 1
             self._in_flight += 1
             self._granted_total += 1
+            # Rotate the tie line: the run just served goes to the back of it.
+            self._arrival[run] = self._order_counter
+            self._order_counter += 1
             fut.set_result(None)
 
     def _abandon(self, run: str, fut: asyncio.Future[None]) -> None:
-        """A waiter left the queue without a grant (its task was cancelled): drop it.
+        """A waiter unwound by cancellation: remove it, or return its granted permit.
 
-        WHY no grant-return branch exists here: the one window it would guard — a permit
-        granted into a future whose task is then cancelled before resuming — cannot occur
-        under asyncio semantics. A done future refuses ``cancel()`` (it returns False), so
-        ``Task.cancel()`` cannot deliver a cancellation into an already-granted waiter;
-        the task instead resumes, ``acquire`` returns, and the caller's ``finally`` releases
-        the permit on its own path. A future failed by :meth:`aclose` was never granted a
-        permit, and ``_queues`` is already clear by then, so it also needs no accounting.
+        Two shapes reach here, and asyncio's cancellation semantics make the second the
+        subtle one. A waiter cancelled while still queued was cancelled in place:
+        remove its future from the run's queue. A waiter cancelled AFTER ``_pump``
+        granted it — ``set_result`` scheduled the resume, and ``Task.cancel`` landed
+        before that resume ran — never owns what it was granted: a done future refuses
+        ``cancel()`` (it returns False), so the task defers the cancellation
+        (``_must_cancel``) and the resume throws ``CancelledError`` at ``await fut``
+        instead of delivering the result. The grant's counts were already booked, so
+        the permit must be returned here; skipping that return leaks one unit of
+        capacity per occurrence, and enough of them deadlock every later fetch.
         """
+        if fut.done() and not fut.cancelled() and fut.exception() is None:
+            # Granted, never owned. A future failed by `aclose` carries an exception;
+            # one cancelled in place reports cancelled; only a bare result is a grant.
+            # After shutdown the books are already cleared — return nothing.
+            if not self._closed:
+                self.release(run)
+            return
         queue = self._queues.get(run)
         if queue is not None:
             try:

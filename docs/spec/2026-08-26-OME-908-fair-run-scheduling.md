@@ -134,15 +134,22 @@ V1 and is the reason Layer 2 exists.
 `FairShareGate` with capacity `Settings.local_io_capacity` (default 32). Each run's executor
 receives an I/O wrapper that asks the gate for a permit per fetch, instead of URL4's per-run
 `BoundedIOLayer`. The gate is a fewest-in-flight scheduler over active runs (each grant goes to the waiting
-run holding the fewest permits, ties by earliest arrival — equal-weight max-min fairness;
-amended 2026-08-26: an earlier draft named this "deficit-round-robin", which is a different
-mechanism — no deficit counters exist):
+run holding the fewest permits, ties by the least-recently-served run with the tie line rotating on
+every grant — equal-weight max-min fairness; amended 2026-08-26: an earlier draft named this
+"deficit-round-robin", which is a different mechanism — no deficit counters exist; amended 2026-08-27
+after PR review: a fixed arrival tie-break starves a later run whenever an earlier run's wait queue
+never empties — the benchmark-backlog shape this spec exists to protect — so each grant now sends the
+run to the back of the tie line):
 
 - Permit grant is a synchronous critical section (no `await` between check and grant — the same
   discipline `url4.dag.executor._run` documents for its memo table).
 - A permit is held only across the fetch itself, never across compile or scope building.
 - A waiter cancelled while queued is removed from its run's queue; the next waiter is woken
-  (no lost wakeup).
+  (no lost wakeup). A waiter cancelled in the instant after its grant — `set_result` has
+  run, `Task.cancel` lands before the resume — unwinds into `CancelledError` instead of
+  taking ownership, and that unwind returns the permit (added 2026-08-27 after PR review:
+  the original text assumed a done future's refusing `cancel()` meant the task would
+  resume with the grant; asyncio defers the cancellation via `_must_cancel` instead).
 - A permit is released in a `finally` on every path: success, error, cancellation.
 - When a run finishes or is stopped, its queue entry and permits are released at once; its
   unused share is available to the remaining runs immediately.

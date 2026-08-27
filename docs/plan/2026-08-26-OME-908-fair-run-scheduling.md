@@ -21,6 +21,8 @@ event-driven fake fetch (no sleeps, no wall-clock flakiness) against a fixed cap
 1. Two runs contend; service counts converge near 1:1 within stated bounds.
 2. A solo run reaches full capacity.
 3. A waiter cancelled while queued is removed; its successor is granted on the next release.
+   A waiter cancelled in the instant after its grant (the `set_result`-vs-`Task.cancel`
+   race) returns the permit on unwind — no leak (added 2026-08-27 after PR review).
 4. A fetch error and a fetch cancellation both release the permit (`finally`).
 5. Run completion drops its queue entry and frees its permits before the next grant decision.
 6. Capacity 1 degenerates to strict round-robin; capacity below 1 is refused at construction.
@@ -32,9 +34,15 @@ Expected: all fail (no `fair_share` module exists yet).
 New file `apps/screamingface-engine/src/screamingface_engine/runner/fair_share.py`:
 
 - `FairShareGate(capacity: int)` — fewest-in-flight grant over per-run FIFO queues, ties by
-  earliest arrival — equal-weight max-min fairness (amended 2026-08-26: the earlier
-  "deficit-round-robin" named a different mechanism; no deficit counters exist); grant is a
-  synchronous critical section; `release` is the only wakeup point; close cancels waiters.
+  least-recently-served with the tie line ROTATING on every grant (a grant sends the run to
+  the back) — equal-weight max-min fairness (amended 2026-08-26: the earlier
+  "deficit-round-robin" named a different mechanism; no deficit counters exist; amended
+  2026-08-27 after PR review: a fixed arrival tie-break starves a later run whenever an
+  earlier run's wait queue never empties — the benchmark-backlog shape — so the tie must
+  rotate); grant is a synchronous critical section; `release` is the only wakeup point;
+  close cancels waiters; a waiter whose task is cancelled after the grant lands in its
+  future returns the permit on unwind (a done future refuses `cancel()`, so the task
+  defers the cancellation and resumes into `CancelledError` instead of taking ownership).
 - `FairShareIOLayer(inner, gate, run_id)` — a URL4 `IOLayer` wrapper that acquires a permit
   per `fetch`/`fetch_ex` and forwards capability ports exactly like
   `url4.dag.node.BoundedIOLayer` does (bound only when the inner layer has them).
