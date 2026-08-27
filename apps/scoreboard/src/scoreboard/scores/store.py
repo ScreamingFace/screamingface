@@ -307,6 +307,18 @@ def _scoped_idempotency_key(
     return f"{prefix}{digest}"
 
 
+class PrivateBoardRequiresIdentity(Exception):
+    """A private board was asked to take a write whose submitter is not verified.
+
+    INVARIANT (OME-894): raised from `submit()` at the SAME read of `visibility` that decides
+    per-submitter semantics, so the refusal and the persistence cannot disagree. The route used to
+    take this decision from its own earlier read; a board flipped public -> private in between —
+    which the seed job does on every deploy — passed the guard and then persisted an unverified
+    claim under private-board rules (review of PR #719). A third read would not have closed it;
+    only reading once does.
+    """
+
+
 class SubmitOutcome(NamedTuple):
     score: ScoreSchema
     created: bool
@@ -548,12 +560,25 @@ class ScoreStore:
         self,
         submission: ScoreSubmission,
         idempotency_key: str | None = None,
+        *,
+        identity_verified: bool = False,
     ) -> SubmitOutcome:
+        """Persist a submission, or replay the one an earlier identical request created.
+
+        `identity_verified` says whether the caller's `submitted_by` came from a trusted source
+        rather than the request body. It defaults to FALSE deliberately: a call site that forgets
+        it makes private boards REFUSE writes, which is loud and safe, where the opposite default
+        would silently reopen the forged-write hole this argument exists to close (owner decision,
+        2026-08-27). Public boards are unaffected either way.
+        """
         now_ts = datetime.now(UTC)
-        # Looked up here rather than passed in: every caller of submit() must get the private-board
-        # identity rule, and a parameter is something a second call site can forget.
+        # INVARIANT: ONE read of `visibility`, and every decision that depends on it is taken here
+        # — both the identity rule and per-submitter dedup. The route used to read it separately
+        # for the identity rule, which raced the seed job (review of PR #719).
         benchmark = await Benchmark.get_or_none(id=submission.benchmark_id)
         per_submitter = benchmark is not None and benchmark.visibility == "private"
+        if per_submitter and not identity_verified:
+            raise PrivateBoardRequiresIdentity(submission.benchmark_id)
         content_hash = _content_hash(submission, per_submitter=per_submitter)
         # INVARIANT (OME-894): on a private board the idempotency key is scoped to its submitter.
         # `_resolve_existing` consults the key BEFORE the content hash, and the key is stored

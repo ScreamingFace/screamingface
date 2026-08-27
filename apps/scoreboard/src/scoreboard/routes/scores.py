@@ -36,7 +36,7 @@ from scoreboard.scores.schemas import (
     ScoreSchema,
     ScoreSubmission,
 )
-from scoreboard.scores.store import ScoreStore
+from scoreboard.scores.store import PrivateBoardRequiresIdentity, ScoreStore
 
 router = APIRouter(prefix="/v1", tags=["scores"])
 
@@ -174,26 +174,31 @@ async def submit_score(
         # participant's address, submit a matching recipe, and the dedup path hands back their
         # stored row — url4, metadata and id included. Reproduced in review of PR #719.
         #
-        # This must stay AHEAD of `store.submit()`. Refusing after the dedup lookup would still
-        # tell a forged request whether a matching row exists.
+        # WHY the decision is NOT taken here any more: this route used to read `visibility` itself
+        # and refuse before calling the store. The store reads it again to decide per-submitter
+        # dedup, and the WRITE is governed by that second read — so a board flipped private in
+        # between passed this guard and was then persisted under private rules with an unverified
+        # claim. The store now owns the whole decision at its single read, and a private write
+        # still cannot reach dedup: `submit()` refuses before looking anything up.
         #
-        # Reads already fail closed in this mode (D2); this makes writes match, so a private board
-        # is inert in both directions until identity is real rather than half-open.
+        # Reads already fail closed in this mode (D2); this keeps writes matching, so a private
+        # board is inert in both directions until identity is real rather than half-open.
         settings = cast(Settings, request.app.state.settings)
-        visibility = await Benchmark.filter(id=submission.benchmark_id).values_list(
-            "visibility", flat=True
-        )
-        if visibility and visibility[0] == "private" and settings.auth_mode == "disabled":
+        store = cast(ScoreStore, request.app.state.score_store)
+        try:
+            outcome = await store.submit(
+                submission,
+                idempotency_key=idempotency_key,
+                identity_verified=settings.auth_mode != "disabled",
+            )
+        except PrivateBoardRequiresIdentity as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
                     "submissions to a private benchmark require a verified identity; this "
                     "deployment runs with authentication disabled"
                 ),
-            )
-
-        store = cast(ScoreStore, request.app.state.score_store)
-        outcome = await store.submit(submission, idempotency_key=idempotency_key)
+            ) from exc
         if not outcome.created:
             # WHY: a single atomic submit() call — not a separate pre-check plus a
             # second call — so the reported status code always matches what actually

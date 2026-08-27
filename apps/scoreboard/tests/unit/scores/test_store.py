@@ -15,6 +15,7 @@ from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
 from scoreboard.scores.schemas import ClientInfo, LeaderboardEntry, ScoreSubmission
 from scoreboard.scores.store import (
     RESERVED_KEY_PREFIXES,
+    PrivateBoardRequiresIdentity,
     ScoreStore,
     _scoped_idempotency_key,
     _to_python_rows,
@@ -1189,8 +1190,8 @@ async def test_two_participants_sharing_a_recipe_keep_separate_rows_when_private
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
 
-    first, first_created = await store.submit(_same_recipe(ALICE))
-    second, second_created = await store.submit(_same_recipe(BOB))
+    first, first_created = await store.submit(_same_recipe(ALICE), identity_verified=True)
+    second, second_created = await store.submit(_same_recipe(BOB), identity_verified=True)
 
     assert first_created is True
     assert second_created is True
@@ -1207,8 +1208,8 @@ async def test_one_participant_resubmitting_still_dedups_when_private(
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
 
-    first, first_created = await store.submit(_same_recipe(ALICE))
-    again, again_created = await store.submit(_same_recipe(ALICE))
+    first, first_created = await store.submit(_same_recipe(ALICE), identity_verified=True)
+    again, again_created = await store.submit(_same_recipe(ALICE), identity_verified=True)
 
     assert first_created is True
     assert again_created is False
@@ -1242,8 +1243,12 @@ async def test_a_shared_idempotency_key_does_not_cross_participants_when_private
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
 
-    first, first_created = await store.submit(_same_recipe(ALICE), idempotency_key="shared")
-    second, second_created = await store.submit(_same_recipe(BOB), idempotency_key="shared")
+    first, first_created = await store.submit(
+        _same_recipe(ALICE), idempotency_key="shared", identity_verified=True
+    )
+    second, second_created = await store.submit(
+        _same_recipe(BOB), idempotency_key="shared", identity_verified=True
+    )
 
     assert first_created is True
     assert second_created is True
@@ -1258,8 +1263,12 @@ async def test_a_repeated_key_from_the_same_participant_still_dedups_when_privat
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
 
-    first, _ = await store.submit(_same_recipe(ALICE), idempotency_key="retry")
-    again, again_created = await store.submit(_same_recipe(ALICE), idempotency_key="retry")
+    first, _ = await store.submit(
+        _same_recipe(ALICE), idempotency_key="retry", identity_verified=True
+    )
+    again, again_created = await store.submit(
+        _same_recipe(ALICE), idempotency_key="retry", identity_verified=True
+    )
 
     assert again_created is False
     assert again.id == first.id
@@ -1298,7 +1307,9 @@ async def test_a_public_raw_key_cannot_resolve_a_private_scoped_key(
         }
     )
     victim, victim_created = await store.submit(
-        private_submission, idempotency_key="predictable-key"
+        private_submission,
+        idempotency_key="predictable-key",
+        identity_verified=True,
     )
     private_stored_key = _scoped_idempotency_key("predictable-key", ALICE, per_submitter=True)
     assert private_stored_key is not None
@@ -1310,7 +1321,9 @@ async def test_a_public_raw_key_cannot_resolve_a_private_scoped_key(
         }
     )
     public, public_created = await store.submit(
-        public_submission, idempotency_key=private_stored_key
+        public_submission,
+        idempotency_key=private_stored_key,
+        identity_verified=True,
     )
 
     assert victim_created is True
@@ -1342,7 +1355,8 @@ async def test_owned_rows_include_every_submission_for_one_spec(tortoise_db: Non
                 correct_questions=int(score * 100),
                 ran_with_providers=["openai"],
                 benchmark_revision="rev-1",
-            )
+            ),
+            identity_verified=True,
         )
 
     owned = await store.list_owned_entries("hle", owner=ALICE)
@@ -1353,8 +1367,8 @@ async def test_owned_rows_include_every_submission_for_one_spec(tortoise_db: Non
 async def test_owned_rows_exclude_other_participants(tortoise_db: None) -> None:
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
-    await store.submit(_same_recipe(ALICE))
-    await store.submit(_same_recipe(BOB))
+    await store.submit(_same_recipe(ALICE), identity_verified=True)
+    await store.submit(_same_recipe(BOB), identity_verified=True)
 
     owned = await store.list_owned_entries("hle", owner=ALICE)
 
@@ -1410,7 +1424,7 @@ async def test_the_concurrent_retry_path_resolves_with_the_scoped_key(
     # case the branch exists to handle.
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
-    await store.submit(_same_recipe(ALICE), idempotency_key="shared")
+    await store.submit(_same_recipe(ALICE), idempotency_key="shared", identity_verified=True)
 
     seen: list[str | None] = []
     real_resolve = ScoreStore._resolve_existing
@@ -1434,7 +1448,7 @@ async def test_the_concurrent_retry_path_resolves_with_the_scoped_key(
     Score.create = _race_once  # type: ignore[method-assign]
     try:
         with contextlib.suppress(Exception):
-            await store.submit(_same_recipe(BOB), idempotency_key="shared")
+            await store.submit(_same_recipe(BOB), idempotency_key="shared", identity_verified=True)
     finally:
         ScoreStore._resolve_existing = real_resolve  # type: ignore[method-assign]
         Score.create = real_create  # type: ignore[method-assign]
@@ -1493,7 +1507,9 @@ async def test_a_private_key_hit_owned_by_another_participant_is_not_served(
     # own derived key and is not rebound on a read, so the submission is refused rather than
     # answered with another participant's row. Refusing is acceptable here; answering is not.
     with contextlib.suppress(IntegrityError):
-        outcome, _ = await store.submit(_same_recipe(ALICE), idempotency_key="rollout-key")
+        outcome, _ = await store.submit(
+            _same_recipe(ALICE), idempotency_key="rollout-key", identity_verified=True
+        )
 
     if outcome is not None:
         assert outcome.submitted_by == ALICE
@@ -1511,10 +1527,12 @@ async def test_a_corrupt_reserved_slot_still_replays_the_callers_own_row(
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
     await _stale_reserved_mapping(store, owner=ALICE, victim=BOB)
-    mine, created = await store.submit(_same_recipe(ALICE))
+    mine, created = await store.submit(_same_recipe(ALICE), identity_verified=True)
     assert created
 
-    replay, replay_created = await store.submit(_same_recipe(ALICE), idempotency_key="rollout-key")
+    replay, replay_created = await store.submit(
+        _same_recipe(ALICE), idempotency_key="rollout-key", identity_verified=True
+    )
 
     assert not replay_created
     assert replay.id == mine.id
@@ -1549,7 +1567,9 @@ async def test_a_raw_mapping_is_not_replayed_after_its_board_turned_private(
     # INVARIANT: a mapping is honoured only when the caller may READ what it points at.
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE")
-    alice_score, _ = await store.submit(_same_recipe(ALICE), idempotency_key="shared")
+    alice_score, _ = await store.submit(
+        _same_recipe(ALICE), idempotency_key="shared", identity_verified=True
+    )
 
     # The config change the ticket exists to enable — and the moment the stale mapping turns toxic.
     await store.set_visibility("hle", "private")
@@ -1558,7 +1578,7 @@ async def test_a_raw_mapping_is_not_replayed_after_its_board_turned_private(
     bob = _owned_submission(submitted_by=BOB, spec_id="bob-spec").model_copy(
         update={"benchmark_id": "other"}
     )
-    replayed, created = await store.submit(bob, idempotency_key="shared")
+    replayed, created = await store.submit(bob, idempotency_key="shared", identity_verified=True)
 
     assert created, "BOB must get his own row, not a replay of a now-private score"
     assert replayed.id != alice_score.id
@@ -1625,14 +1645,16 @@ async def test_claiming_the_owners_name_does_not_yield_a_private_row(tortoise_db
     # strength of the TARGET, never on who the caller says they are.
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE")
-    victim, _ = await store.submit(_same_recipe(ALICE), idempotency_key="stale")
+    victim, _ = await store.submit(
+        _same_recipe(ALICE), idempotency_key="stale", identity_verified=True
+    )
     await store.set_visibility("hle", "private")
     await store.register_benchmark(benchmark_id="pub", display_name="Pub")
 
     attacker = _owned_submission(submitted_by=ALICE, spec_id="attacker").model_copy(
         update={"benchmark_id": "pub"}
     )
-    got, created = await store.submit(attacker, idempotency_key="stale")
+    got, created = await store.submit(attacker, idempotency_key="stale", identity_verified=True)
 
     assert created, "the attacker must get their own row, never the private one"
     assert got.id != victim.id
@@ -1643,10 +1665,14 @@ async def test_a_private_target_is_refused_even_for_its_genuine_owner(tortoise_d
     # real owner loses only the KEY fast path. The per-submitter content hash still replays.
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
-    mine, created = await store.submit(_same_recipe(ALICE), idempotency_key="mine")
+    mine, created = await store.submit(
+        _same_recipe(ALICE), idempotency_key="mine", identity_verified=True
+    )
     assert created
 
-    replay, replay_created = await store.submit(_same_recipe(ALICE), idempotency_key="mine")
+    replay, replay_created = await store.submit(
+        _same_recipe(ALICE), idempotency_key="mine", identity_verified=True
+    )
 
     assert not replay_created
     assert replay.id == mine.id
@@ -1686,7 +1712,9 @@ async def test_a_legacy_row_in_the_reserved_namespace_cannot_leak_a_private_scor
         key=legacy, score=victim, expires_at=datetime.now(UTC) + timedelta(hours=24)
     )
 
-    got, _ = await store.submit(_same_recipe(ALICE), idempotency_key="sfp-X")
+    got, _ = await store.submit(
+        _same_recipe(ALICE), idempotency_key="sfp-X", identity_verified=True
+    )
 
     assert got.id != victim.id
     assert got.metadata != {"secret": "victim-only"}
@@ -1792,7 +1820,9 @@ async def test_a_private_scoped_key_pointing_at_a_public_row_is_not_replayed(
         key=scoped, score=someone_elses, expires_at=datetime.now(UTC) + timedelta(hours=24)
     )
 
-    got, created = await store.submit(_same_recipe(ALICE), idempotency_key="k")
+    got, created = await store.submit(
+        _same_recipe(ALICE), idempotency_key="k", identity_verified=True
+    )
 
     assert created
     assert got.id != someone_elses.id
@@ -1920,7 +1950,9 @@ async def test_the_unowned_key_lookup_will_not_serve_a_private_score(tortoise_db
     # (self-review of PR #719).
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE")
-    victim, _ = await store.submit(_same_recipe(ALICE), idempotency_key="victim-key")
+    victim, _ = await store.submit(
+        _same_recipe(ALICE), idempotency_key="victim-key", identity_verified=True
+    )
     assert await store.get_by_idempotency_key("victim-key") is not None
 
     await store.set_visibility("hle", "private")
@@ -1943,7 +1975,7 @@ async def test_owned_entries_project_every_declared_field_from_the_row(tortoise_
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
     submission = _owned_submission(submitted_by=ALICE, spec_id="mine", benchmark_revision="rev-9")
-    await store.submit(submission)
+    await store.submit(submission, identity_verified=True)
     row = await Score.get(spec_id="mine")
 
     entries = await store.list_owned_entries(benchmark_id="hle", owner=ALICE)
@@ -1954,3 +1986,28 @@ async def test_owned_entries_project_every_declared_field_from_the_row(tortoise_
             f"{name!r} is declared on LeaderboardEntry but list_owned_entries does not carry it "
             "from the Score row"
         )
+
+
+async def test_a_private_write_is_refused_when_the_caller_says_nothing(tortoise_db: None) -> None:
+    # INVARIANT: the default is NOT-verified (owner decision, 2026-08-27). A call site that forgets
+    # `identity_verified` makes private boards REFUSE — loud and safe — where the opposite default
+    # would silently reopen the forged-write hole the argument exists to close. The route path is
+    # explicit, so nothing else in the suite would notice the default being flipped.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+
+    with pytest.raises(PrivateBoardRequiresIdentity):
+        await store.submit(_same_recipe(ALICE))
+
+    assert await Score.all().count() == 0, "the refusal must happen before anything is written"
+
+
+async def test_a_public_write_is_unaffected_by_the_default(tortoise_db: None) -> None:
+    # The regression guard: fail-closed applies to private boards ONLY. A public submission with no
+    # identity argument is the ordinary case and must keep working.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    created_score, created = await store.submit(_same_recipe(ALICE))
+
+    assert created and created_score.id is not None

@@ -829,9 +829,13 @@ async def _seed_private_challenge() -> ScoreStore:
         visibility="private",
     )
     await store.submit(
-        _private_submission(submitted_by=ALICE_EMAIL, spec_id="spec-alice", score=0.60)
+        _private_submission(submitted_by=ALICE_EMAIL, spec_id="spec-alice", score=0.60),
+        identity_verified=True,
     )
-    await store.submit(_private_submission(submitted_by=BOB_EMAIL, spec_id="spec-bob", score=0.90))
+    await store.submit(
+        _private_submission(submitted_by=BOB_EMAIL, spec_id="spec-bob", score=0.90),
+        identity_verified=True,
+    )
     return store
 
 
@@ -921,7 +925,8 @@ async def test_a_participant_sees_their_row_from_another_revision(
             spec_id="spec-alice-old",
             score=0.55,
             revision="rev-obsolete",
-        )
+        ),
+        identity_verified=True,
     )
 
     response = await header_mode_client.get(

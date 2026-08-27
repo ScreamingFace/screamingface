@@ -725,6 +725,54 @@ That is the artifact a reviewer reads before the diff, and it misdescribed the r
 are not pushed — publishing it now would document code that is not on the branch. The draft is
 ready to apply alongside the push.
 
+## Review round 17 — 2026-08-27 (@HupBaHa, PR #719, third review)
+
+**[P1] The visibility check and the write raced.** `routes/scores.py:183` read visibility to decide
+whether to refuse an unverified write; `store.submit()` read it AGAIN at `store.py:555` to decide
+per-submitter semantics. Two reads of the same authority, and the decision that governs PERSISTENCE
+used the second one while the guard used the first. Flip a board public -> private between them —
+which the seed job does on every deploy — and the guard passes on stale data.
+
+Reproduced: `status=201`, board private, and
+`submitted_by='victim@example.test' metadata={'attacker': 'controlled'}` persisted under
+`auth_mode=disabled`.
+
+**Fixed by deleting the route's read, not by adding a third.** The store now owns the whole
+decision, taken at the single read that governs persistence, so there is no window to race. The
+route passes whether identity was verified and maps the refusal to the same 403 it raised before.
+
+### Owner decision — 2026-08-27
+
+**The parameter defaults to NOT verified, and 17 prior tests were edited to say `identity_verified=True`.**
+Put to the owner as the rule-5 decision it is, with both options priced:
+
+- *Fail closed* (chosen): a forgotten wiring makes private boards REFUSE writes — loud, safe, and
+  fixable. Cost: 17 prior store-level tests gain one keyword argument.
+- *Fail open*: no prior test touched, but a second call site that forgets the parameter silently
+  reopens this exact bug. That is the shape this reviewer has caught four times in this PR.
+
+### Outcome — DONE (P1 only; P2 is a separate decision, see below)
+
+Reproduced first: `status=201`, and `submitted_by='victim@example.test'`
+`metadata={'attacker': 'controlled'}` persisted on a board that was private by the time it was
+written.
+
+**Fixed by removing a read, not adding one.** `routes/scores.py` no longer reads `visibility` at
+all. `submit()` takes the whole decision — the identity rule AND per-submitter dedup — at its single
+read, and refuses before it looks anything up, so a forged request still cannot learn whether a
+matching row exists. The route passes `identity_verified` and maps `PrivateBoardRequiresIdentity` to
+the same 403 it used to raise itself, so the route contract is byte-identical.
+
+**The test edits are smaller than priced, and no pre-PR test was touched.** 33 call sites across
+the private-board scopes of three files. Every one adds a keyword argument; the diff removes no
+assertion. And every edited test was ADDED BY THIS PR — the only two lines that differ from
+`origin/main` in `test_store.py` are import lines. The append-only gate therefore passes on its own,
+with no `--skip-append-only` and no exception to document.
+
+**The default is pinned by its own test**, because the route passes the value explicitly and nothing
+else in the suite would notice it being flipped. Three mutations bind: removing the refusal (4
+failures), flipping the default to `True` (1), and having the route always claim verified (3).
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

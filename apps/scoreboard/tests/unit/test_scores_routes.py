@@ -644,3 +644,40 @@ async def test_an_unknown_score_id_is_not_shared_cacheable(
 
     assert response.status_code == 404
     assert response.headers["cache-control"] == "private, no-store"
+
+
+# --- review round 17: one authority for visibility, read where it governs persistence --------
+# The route read visibility to decide whether to refuse an unverified write, and the store read it
+# AGAIN to decide per-submitter semantics. The write is governed by the SECOND read, so flipping a
+# board public -> private between them — which the seed job does on every deploy — let the guard
+# pass on stale data and persisted an unverified claim on a private board. Found in review of #719.
+
+
+async def test_a_visibility_flip_between_the_reads_cannot_persist_an_unverified_write(
+    score_client: AsyncClient,
+) -> None:
+    # INVARIANT: there is no window. A third read earlier in the route would not close this; the
+    # refusal has to be taken at the read that decides persistence.
+    await Benchmark.create(id="race-x", display_name="Race", visibility="public")
+    real_submit = ScoreStore.submit
+
+    async def _flip_then_submit(self, submission, idempotency_key=None, **kwargs):  # type: ignore[no-untyped-def]
+        # Stands in for the seed job landing mid-request.
+        await Benchmark.filter(id="race-x").update(visibility="private")
+        return await real_submit(self, submission, idempotency_key=idempotency_key, **kwargs)
+
+    payload = _valid_payload()
+    payload["benchmark_id"] = "race-x"
+    payload["submitted_by"] = "victim@example.test"
+    payload["metadata"] = {"attacker": "controlled"}
+
+    ScoreStore.submit = _flip_then_submit  # type: ignore[method-assign]
+    try:
+        response = await score_client.post("/v1/scores", json=payload)
+    finally:
+        ScoreStore.submit = real_submit  # type: ignore[method-assign]
+
+    assert response.status_code == 403, response.text
+    assert await Score.get_or_none(spec_id=payload["spec_id"]) is None, (
+        "an unverified claim was persisted on a board that is private by the time it was written"
+    )

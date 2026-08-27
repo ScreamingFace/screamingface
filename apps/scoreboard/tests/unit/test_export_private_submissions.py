@@ -43,8 +43,12 @@ async def _seed() -> ScoreStore:
         display_name="HealthBench Worst-30% Challenge",
         visibility="private",
     )
-    await store.submit(_submission(submitted_by=ALICE, spec_id="spec-alice", score=0.60))
-    await store.submit(_submission(submitted_by=BOB, spec_id="spec-bob", score=0.90))
+    await store.submit(
+        _submission(submitted_by=ALICE, spec_id="spec-alice", score=0.60), identity_verified=True
+    )
+    await store.submit(
+        _submission(submitted_by=BOB, spec_id="spec-bob", score=0.90), identity_verified=True
+    )
     return store
 
 
