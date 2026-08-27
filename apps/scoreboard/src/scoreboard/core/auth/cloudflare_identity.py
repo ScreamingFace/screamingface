@@ -67,3 +67,39 @@ def identity_from_headers(headers: Mapping[str, str]) -> str | None:
     """
     email = (headers.get(HEADER_USER_EMAIL) or "").strip()
     return email or None
+
+
+def optional_identity(
+    *,
+    header_auth_enabled: bool,
+    peer_host: str | None,
+    headers: Mapping[str, str],
+    networks: Sequence[IPv4Network | IPv6Network],
+) -> str | None:
+    """The caller's verified email on a READ path, or ``None`` when there is none.
+
+    FEATURE: OME-894 — private leaderboards. A private benchmark scopes every score-bearing read
+    to the caller, which needs an identity on GET requests that never had one.
+
+    WHY this does not raise, unlike `_resolve_submitter` on the write path: a PUBLIC board must
+    stay anonymously readable, so "no identity" is an ordinary outcome here rather than a
+    misconfiguration. The caller decides what absence means — for a public board, everything; for
+    a private one, nothing.
+
+    INVARIANT: the peer network is checked BEFORE the header is read, exactly as on the write
+    path, so an untrusted peer never has its identity claim consulted.
+
+    INVARIANT: with ``header_auth_enabled`` false there is no verified identity to be had, and a
+    header present in that mode is an unverified claim. Honouring it would let anyone read a
+    private board by setting one, so it is ignored rather than trusted. The practical consequence
+    is deliberate and recorded in the OME-894 spec: while the deployment runs `auth_mode:
+    disabled`, a private board is readable by nobody through the API and staff read it out of band.
+
+    Kept free of FastAPI and of Settings on purpose — this module is the port, so the whole
+    decision is testable without a request or an app.
+    """
+    if not header_auth_enabled:
+        return None
+    if not peer_in_networks(peer_host, networks):
+        return None
+    return identity_from_headers(headers)
