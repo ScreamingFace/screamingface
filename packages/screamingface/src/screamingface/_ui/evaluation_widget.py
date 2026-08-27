@@ -54,7 +54,6 @@ class _NotebookEvaluationView:
         self._terminal: Any = widgets.HTML(value=terminal)
         self._html: Any = widgets.VBox(
             children=(self._header, self._table, self._terminal),
-            tooltip="ScreamingFace evaluation progress",
         )
         self._html.add_class("sf-ui")
         self._html.add_class("sf-eval")
