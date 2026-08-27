@@ -22,13 +22,17 @@ status that tells a client to keep the report on disk.
 `lease_expires_at`, so two replicas sweeping at the same instant cannot both believe they own
 one report — which is what lets this service run with `replicaCount > 1` without filing a bug
 report twice.
+
+**The queue's drain path reads through here, and it is a command rather than an endpoint.**
+:meth:`ReportStore.awaiting_triage`, :meth:`ReportStore.read_for_triage` and
+:meth:`ReportStore.mark_filed` exist for `queue_cli.py`, reached by `kubectl exec`. Spec §1
+removed `GET /v1/reports/{ref}` and these must not reinstate it under another name, so a
+containment test asserts that nothing under `routes/` names any of the three.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -38,8 +42,8 @@ from typing import Any, NamedTuple, cast
 from tortoise.exceptions import BaseORMException, IntegrityError
 from tortoise.queryset import QuerySet
 
-from .models import Report
-from .pipeline import DeliveryState, StorageUnavailable, mint_ref
+from .models import TICKET_ID_MAX_LENGTH, TICKET_URL_MAX_LENGTH, Report
+from .pipeline import DeliveryState, StorageUnavailable, mint_ref, request_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -65,30 +69,30 @@ PROBE_TIMEOUT_S = 2.0
 """Tighter than a write, because a kubelet gives a probe about a second before it counts the
 attempt as failed anyway. An unready answer now beats a correct answer after the deadline."""
 
-_STORAGE_FAILURES = (BaseORMException, RuntimeError, TimeoutError)
+_STORAGE_FAILURES = (BaseORMException, RuntimeError, OSError)
 """What "the database would not cooperate" looks like coming out of tortoise-orm 1.1.8.
 
-`RuntimeError` is in the tuple for one specific case and is not a catch-all: querying with no
-active Tortoise context — a process whose `_lifespan` never opened the database, or whose
-connections have been closed under it — raises a bare `RuntimeError` from
-`tortoise.context.require_context`, not an ORM error. That is a `503` by any reading of spec
-§2.3, and a tidier tuple would make it a `500`.
+Each member is here for a case that is NOT an ORM error, which is the whole point: a tidier tuple
+turns one of them into a `500`, and spec §2.3 gives a reporting client exactly one status that
+means *nothing was stored*.
+
+`RuntimeError` — querying with no active Tortoise context, which is a process whose `_lifespan`
+never opened the database or whose connections were closed under it. `tortoise.context
+.require_context` raises a bare `RuntimeError`, not an ORM error.
+
+`OSError` — THE CONNECTION NEVER OPENED. `Tortoise.init` is lazy for asyncpg, so an unreachable
+Postgres is not a startup failure; it surfaces at the first query as `ConnectionRefusedError`, or
+as `socket.gaierror` for a hostname that does not resolve, and neither is a `BaseORMException`.
+Verified by probe: `awaiting_triage` against a closed loopback port raised
+`ConnectionRefusedError` straight through this module. That is the most ordinary outage a deployed
+install has, and without this line it was the one that answered `500`. `OSError` also SUBSUMES the
+`TimeoutError` this tuple used to name — `asyncio.wait_for`'s deadline raises the builtin, which
+has been an `OSError` subclass since 3.3 — so `STORAGE_TIMEOUT_S` is still covered.
 """
 
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def request_fingerprint(payload: Mapping[str, Any]) -> str:
-    """A stable digest of the stored payload — DIAGNOSTIC ONLY (see the module docstring).
-
-    Deliberately strict about what it will serialize: `payload` came from `json.loads` and a
-    truncator that only ever shortens strings, so a value this cannot encode is a bug worth a
-    traceback rather than something to stringify quietly into a column.
-    """
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,10 +130,90 @@ class DueReport:
     why :meth:`ReportStore.record_delivery` increments it after every one."""
 
 
+@dataclass(frozen=True, slots=True)
+class TriageReport:
+    """One row as the operator console reads it (`queue_cli.py`) — the queue's drain path.
+
+    `QueueSink` marking a row `queued` means "an agent will file this", and until `OME-1009`'s
+    follow-up there was nothing that could name those rows: `cli.py` ran uvicorn, spec §1 forbids
+    a `GET /v1/reports/{ref}`, and the queue was findable only by opening the database. Plan §13's
+    verification says "confirm `queue list` shows it", so the drain path is a command reached by
+    `kubectl exec`, NOT an endpoint — the forbidden read surface is forbidden by route, not by
+    spelling, and adding one here under another name would be the same mistake.
+
+    It carries `payload` for the same reason :class:`DueReport` does and with the same limit: the
+    console re-validates it into a `ReportDocument` and renders through `render_ticket`, so the
+    body an agent pastes into Linear is the one the sink would have sent rather than a second
+    rendering of the same report. Unlike :class:`PersistedReport` this is not handed across the
+    `TicketSink` seam — nothing in the console reaches a sink at all.
+    """
+
+    ref: str
+    created_at: datetime
+    """When the SERVER received the report. `occurred_at` lives in the payload and is the
+    client's claim about when it broke, which is why the listing orders on this one — a clock
+    a reporter controls must not decide what an operator reads first."""
+    delivery_state: DeliveryState
+    payload: Mapping[str, Any]
+    reply_to: str | None
+    caller_email: str | None
+    ticket_id: str | None
+    ticket_url: str | None
+
+
 class Recorded(NamedTuple):
     report: PersistedReport
     created: bool
     """False for an idempotent replay, which the route answers `200` rather than `202`."""
+
+
+def _triage(model: Report) -> TriageReport:
+    # Same tortoise-orm >=1.1.8 typing caveat as `_persisted` below: every CharField reads as
+    # `str | None` regardless of nullability, and the database enforces the real thing.
+    return TriageReport(
+        ref=cast(str, model.ref),
+        created_at=model.created_at,
+        delivery_state=cast(DeliveryState, model.delivery_state),
+        payload=model.payload,
+        reply_to=model.reply_to,
+        caller_email=model.caller_email,
+        ticket_id=model.ticket_id,
+        ticket_url=model.ticket_url,
+    )
+
+
+def _clamped(ref: str, column: str, value: str, width: int) -> str:
+    """`value` cut to the column's width, loudly. The backstop under every ticket-reference check.
+
+    THIS EXISTS TO CLOSE A LOOP, not to be tidy. Tortoise validates `max_length` at `save`, and
+    every ORM failure leaves this module as `StorageUnavailable` — which both writers of this
+    column swallow on purpose, because the report is already durable and a delivery outcome that
+    cannot be recorded must not turn a `202` into a `503`. The row would then keep
+    `delivery_state='pending'` with `attempts` unmoved, and `attempts` is the retry budget's only
+    input: the sweep re-claims it, the sink files ANOTHER issue, the write fails again, and
+    `MAX_ATTEMPTS` is never reached because nothing ever increments it.
+
+    So the write always succeeds and the state always advances. A clamped reference is wrong, and
+    the ERROR line says so with the whole value — the row is the only place that pointer exists,
+    and an operator reading the log can still reach the issue. Every caller is expected to have
+    refused an over-wide value long before this (`queue_cli._ticket_argument`,
+    `LinearSink._raise_for_unstorable_reference`); reaching here at all is a defect in one of
+    them, which is why it is logged at ERROR rather than at WARNING.
+    """
+    if len(value) <= width:
+        return value
+    logger.error(
+        "report %s: %s is %d characters and the column stores %d, so it is being recorded "
+        "truncated rather than left unrecorded. The full value was %r. A sink that answers a "
+        "reference this wide should be refusing it before the write — see "
+        "LinearSink._raise_for_unstorable_reference.",
+        ref,
+        column,
+        len(value),
+        width,
+        value,
+    )
+    return value[:width]
 
 
 def _persisted(model: Report) -> PersistedReport:
@@ -263,6 +347,75 @@ class ReportStore:
         except _STORAGE_FAILURES as exc:
             raise StorageUnavailable("reports due for retry could not be claimed") from exc
 
+    async def awaiting_triage(self, *, limit: int) -> tuple[TriageReport, ...]:
+        """The `queued` rows nobody has filed yet, newest first — spec §9's queue, as a list.
+
+        `queued` ONLY, and that is the same reading `_due` takes from the other side: it is
+        terminal SUCCESS, so it is exactly the set that is waiting on a human or an agent rather
+        than on this service. `pending` rows belong to the retry queue and are not yet anyone's to
+        file; `delivered` is done; `failed` is an alert (`retry.py` logs it at error), not a
+        triage backlog — a report nothing will try again needs somebody paged, not somebody
+        scrolling.
+
+        NEWEST FIRST BY `created_at`, the server's clock. `occurred_at` is in the payload and is
+        the client's claim about when the failure happened; ordering an operator's screen on a
+        value a reporter chooses would let one report put itself at the top forever.
+
+        `limit` is the caller's, and there is no unbounded spelling of this method. The queue is
+        drained by a human reading a terminal, and a listing that pages a year of reports into it
+        is one nobody reads at all.
+        """
+        try:
+            return await asyncio.wait_for(self._awaiting_triage(limit), timeout=STORAGE_TIMEOUT_S)
+        except _STORAGE_FAILURES as exc:
+            raise StorageUnavailable("the triage queue could not be read") from exc
+
+    async def read_for_triage(self, ref: str) -> TriageReport | None:
+        """One row by `ref`, in whatever state, or None when there is no such report.
+
+        None rather than an exception, because "no such ref" is an ordinary answer to an operator
+        who mistyped one and is not a storage failure — the two have to stay distinguishable, or
+        the console reports a database outage as a typo.
+
+        INVARIANT: this is reachable from the console and from nowhere else.
+        `tests/unit/test_triage_read_containment.py` asserts it, because the value of the rule is
+        that it is already red when someone reaches for a by-ref read inside `routes/` — which is
+        the `GET /v1/reports/{ref}` spec §1 removed, arriving under a different name.
+        """
+        try:
+            return await asyncio.wait_for(self._read_for_triage(ref), timeout=STORAGE_TIMEOUT_S)
+        except _STORAGE_FAILURES as exc:
+            raise StorageUnavailable("the report could not be read") from exc
+
+    async def mark_filed(self, ref: str, *, ticket_id: str, ticket_url: str) -> TriageReport | None:
+        """Record that a human or an agent filed this report; returns the row, or None if it is
+        gone.
+
+        The counterpart to :meth:`record_delivery` for the one outcome this service did not
+        produce itself. It is a separate method rather than a flag on that one for a reason that
+        shows up in a column: `record_delivery` increments `attempts`, which is how hard THIS
+        SERVICE tried, and a person filing a ticket by hand is not an attempt by this service. An
+        operator reading `attempts = 2` on a row an agent filed would be reading a lie about the
+        sink.
+
+        WHETHER a mark is allowed is the console's decision, not this method's — the same division
+        :meth:`claim_due` keeps, where the backoff that produces `due_before` is retry policy and
+        the store is not where policy lives. This writes.
+
+        ACCEPTED RACE: a `pending` row may be leased by a retry sweep at this instant, and that
+        sweep's `record_delivery` would then write its own outcome over this one. It is not worth
+        machinery: `QueueSink` — what every deployment runs — reaches a terminal state on the
+        first attempt, so a `pending` row only exists at all where a sink is failing, and the mark
+        can simply be repeated. The failure it would cause is a duplicate ticket, which is visible
+        and cheap, never a lost report.
+        """
+        try:
+            return await asyncio.wait_for(
+                self._mark_filed(ref, ticket_id, ticket_url), timeout=STORAGE_TIMEOUT_S
+            )
+        except _STORAGE_FAILURES as exc:
+            raise StorageUnavailable("the filed ticket could not be recorded") from exc
+
     async def purge_expired(self, now: datetime | None = None) -> int:
         """Delete rows past spec §5's retention window; returns how many went.
 
@@ -357,8 +510,8 @@ class ReportStore:
             # Only ever set, never cleared. A later attempt that comes back `queued` must not
             # erase the ticket an earlier one filed — the columns are the ticket's address, and
             # losing it would leave a delivered report looking undelivered.
-            report.ticket_id = ticket_id
-            report.ticket_url = ticket_url
+            report.ticket_id = _clamped(ref, "ticket_id", ticket_id, TICKET_ID_MAX_LENGTH)
+            report.ticket_url = _clamped(ref, "ticket_url", ticket_url, TICKET_URL_MAX_LENGTH)
         if next_attempt_at is not None:
             report.next_attempt_at = next_attempt_at
             report.lease_expires_at = next_attempt_at
@@ -395,6 +548,30 @@ class ReportStore:
                     )
                 )
         return tuple(claimed)
+
+    @staticmethod
+    async def _awaiting_triage(limit: int) -> tuple[TriageReport, ...]:
+        rows = await Report.filter(delivery_state="queued").order_by("-created_at").limit(limit)
+        return tuple(_triage(row) for row in rows)
+
+    @staticmethod
+    async def _read_for_triage(ref: str) -> TriageReport | None:
+        row = await Report.get_or_none(ref=ref)
+        return _triage(row) if row is not None else None
+
+    @staticmethod
+    async def _mark_filed(ref: str, ticket_id: str, ticket_url: str) -> TriageReport | None:
+        # Named columns, exactly as `_record_delivery` does, so recording a ticket cannot rewrite
+        # `payload` or move `created_at`. `attempts` is deliberately NOT among them — see the
+        # public method. `updated_at` is `auto_now` and is listed so `save` refreshes it.
+        report = await Report.get_or_none(ref=ref)
+        if report is None:
+            return None
+        report.delivery_state = "delivered"
+        report.ticket_id = ticket_id
+        report.ticket_url = ticket_url
+        await report.save(update_fields=["delivery_state", "ticket_id", "ticket_url", "updated_at"])
+        return _triage(report)
 
     @staticmethod
     def _due(due_before: datetime) -> QuerySet[Report]:

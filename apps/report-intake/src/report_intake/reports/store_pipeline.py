@@ -43,7 +43,11 @@ class StorePipeline:
             classification=submission.classification,
             caller_email=submission.caller_email,
             # Self-asserted by the reporter and never identity — it is a reply address, and the
-            # column it lands in is not the one anything authorizes on.
+            # column it lands in is not the one anything authorizes on. Stored VERBATIM, including
+            # an address that is not one: spec §9's table says "accepted, unverified" for both
+            # caller classes, and refusing a typo here would lose an otherwise diagnosable report
+            # over the field nothing is authoritative on. `ReportDocument.reply_to` states the
+            # decision; `delivery/render.py` is where a triager is told the address looks wrong.
             reply_to=submission.bound.document.reply_to,
             idempotency_key=submission.dedup_key,
         )

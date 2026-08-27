@@ -160,6 +160,26 @@ class ReportDocument(BaseModel):
     only `exp` from its Access token, so it has no email of its own — without this, an SDK report
     cannot be answered.
 
+    **DECIDED: a syntactically invalid address is ACCEPTED, and nothing here or downstream
+    checks the syntax of one.** `str`, not `EmailStr`, and that is a decision rather than an
+    omission — spec §9's caller table already states the posture in two words, *accepted,
+    unverified*, for both caller classes, and this is where the code says so.
+
+    The reasoning is that rejecting costs more than accepting. A `422` on `reply_to` throws away
+    the error, the traceback, the client versions and the trace id — everything that makes the
+    report diagnosable — over the one field this service authorizes nothing on and never treats
+    as identity. A report with a typo'd address is still a report somebody can act on; a report
+    that was refused is not. Spec §8's rule for the client is that a report is never lost, and
+    losing one to a mistyped address is this service losing it.
+
+    The cost is paid where it can be, not hidden: `delivery/render.py` labels a value that does
+    not look like an address as such, so a triager reading the ticket is not misled into believing
+    somebody is waiting on a reply that will bounce. That label is a rendering — it never rewrites
+    or drops the value, and no code branches on it.
+
+    **The `max_length` below is a LENGTH refusal and is not a syntax check** — the two are
+    unrelated and the second must not be added on the strength of the first:
+
     Bounded to the COLUMN's width, and that is the whole reason the bound is here rather than in
     `caps.py` with §2.4's truncating rows. An unbounded value inside a body well under the 64 KiB
     cap reaches a `varchar(320)`, tortoise's validator raises, and every ORM failure leaves the

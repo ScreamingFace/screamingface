@@ -14,7 +14,8 @@ from typing import Any
 import pytest
 from tortoise.exceptions import OperationalError
 
-from report_intake.reports.models import Report
+from report_intake.db import close_db, init_db
+from report_intake.reports.models import TICKET_ID_MAX_LENGTH, TICKET_URL_MAX_LENGTH, Report
 from report_intake.reports.pipeline import StorageUnavailable
 from report_intake.reports.store import ReportStore, request_fingerprint
 
@@ -188,6 +189,26 @@ async def test_a_storage_failure_raises_storage_unavailable_and_stores_nothing(
         await _record(store)
 
 
+async def test_a_database_that_was_never_reached_is_a_storage_failure_like_any_other() -> None:
+    """The failure a deployed install actually has, and the one the taxonomy used to miss.
+
+    Deliberately WITHOUT the `storage` fixture: the point is a connection that never opened.
+    `Tortoise.init` is lazy for asyncpg, so an unreachable Postgres is not a startup failure — it
+    surfaces at the FIRST query as `ConnectionRefusedError`, which is an `OSError` and not a
+    `BaseORMException`. Escaping this module it became a `500`, and spec §8 gives a reporting
+    client exactly one status meaning *nothing was stored*: a client that reads `500` cannot tell
+    whether to keep the report or not.
+
+    A closed loopback port rather than a hostname: `ECONNREFUSED` is immediate and needs no DNS.
+    """
+    await init_db("postgres://u:p@127.0.0.1:1/report_intake_nowhere")
+    try:
+        with pytest.raises(StorageUnavailable):
+            await _store().awaiting_triage(limit=1)
+    finally:
+        await close_db()
+
+
 async def test_the_probe_is_true_against_a_migrated_database(storage: None) -> None:
     assert await _store().is_reachable() is True
 
@@ -306,6 +327,35 @@ async def test_recording_a_delivery_never_rewrites_the_payload_or_moves_created_
     row = await Report.get(ref=recorded.report.ref)
     assert row.payload == {"note": "kept verbatim"}
     assert row.created_at == before.created_at
+
+
+async def test_a_ticket_reference_wider_than_its_column_is_recorded_clamped_not_left_pending(
+    storage: None,
+) -> None:
+    """The backstop under every sink's own width check, and it closes an UNBOUNDED loop.
+
+    Tortoise validates `max_length` at `save`, and every ORM failure leaves this module as
+    `StorageUnavailable` — which both writers of these columns swallow on purpose, because the
+    report is already durable and an outcome that cannot be recorded must not turn a `202` into a
+    `503`. The row would then keep `delivery_state='pending'` with `attempts` at zero, and
+    `attempts` is the retry budget's ONLY input: the sweep re-claims it, the sink files another
+    issue, the write fails again, and `MAX_ATTEMPTS` is never reached because nothing increments
+    it. A clamped reference is wrong and is logged as such; a state that never advances is worse.
+    """
+    recorded = await _record(_store())
+
+    persisted = await _store().record_delivery(
+        recorded.report.ref,
+        state="delivered",
+        ticket_id="OME-" + "9" * 90,
+        ticket_url="https://linear.app/openmined/issue/" + "x" * 3000,
+    )
+
+    assert persisted.delivery_state == "delivered"
+    row = await Report.get(ref=recorded.report.ref)
+    assert row.attempts == 1
+    assert row.ticket_id is not None and len(row.ticket_id) == TICKET_ID_MAX_LENGTH
+    assert row.ticket_url is not None and len(row.ticket_url) == TICKET_URL_MAX_LENGTH
 
 
 async def test_a_delivery_outcome_that_cannot_be_written_is_a_storage_failure(
@@ -436,3 +486,126 @@ async def test_claiming_from_a_missing_table_is_storage_unavailable(storage: Non
 
     with pytest.raises(StorageUnavailable):
         await _claim()
+
+
+# --- the triage reads (`queue_cli.py`'s drain path) ---------------------------------------------
+
+
+async def _queued(store: ReportStore, **overrides: Any) -> str:
+    recorded = await _record(store, **overrides)
+    await store.record_delivery(recorded.report.ref, state="queued")
+    return recorded.report.ref
+
+
+async def test_awaiting_triage_returns_the_queued_rows_and_nothing_else(storage: None) -> None:
+    """`queued` is terminal SUCCESS — an agent will file it — and it is exactly the set waiting on
+    a person. `pending` still belongs to the retry queue, `delivered` is done, and `failed` is an
+    alert rather than a backlog."""
+    store = _store()
+    queued = await _queued(store)
+    pending = (await _record(store)).report.ref
+    delivered = (await _record(store)).report.ref
+    await store.record_delivery(delivered, state="delivered")
+    failed = (await _record(store)).report.ref
+    await store.record_delivery(failed, state="failed")
+
+    triage = await store.awaiting_triage(limit=10)
+
+    assert [row.ref for row in triage] == [queued]
+    assert pending not in {row.ref for row in triage}
+
+
+async def test_awaiting_triage_orders_on_the_servers_clock_and_honours_the_limit(
+    storage: None,
+) -> None:
+    """Newest received first, and never more than asked for. `occurred_at` lives in the payload
+    and is the client's claim; ordering on it would let a reporter pin itself to the top."""
+    older = await _queued(_store(clock=lambda: datetime(2026, 8, 25, 9, tzinfo=UTC)))
+    newer = await _queued(_store(clock=lambda: datetime(2026, 8, 26, 9, tzinfo=UTC)))
+    newest = await _queued(_store(clock=lambda: datetime(2026, 8, 27, 9, tzinfo=UTC)))
+
+    assert [row.ref for row in await _store().awaiting_triage(limit=10)] == [newest, newer, older]
+    assert [row.ref for row in await _store().awaiting_triage(limit=1)] == [newest]
+
+
+async def test_a_triage_row_carries_the_payload_so_the_console_renders_the_senders_ticket(
+    storage: None,
+) -> None:
+    """Same reason `DueReport` carries it: the console re-validates the stored payload and renders
+    through `render_ticket`, so the body an agent pastes is the one the sink would have been
+    handed rather than a second rendering of the same report."""
+    store = _store()
+    ref = await _queued(store, payload={"note": "kept verbatim"}, caller_email="m@openmined.org")
+
+    row = (await store.awaiting_triage(limit=1))[0]
+
+    assert (row.ref, row.payload, row.caller_email) == (
+        ref,
+        {"note": "kept verbatim"},
+        "m@openmined.org",
+    )
+
+
+async def test_reading_a_ref_no_report_has_is_none_and_not_a_failure(storage: None) -> None:
+    """ "No such ref" is an ordinary answer to a mistyped one. Collapsing it into
+    `StorageUnavailable` would have the console report a typo as a database outage."""
+    assert await _store().read_for_triage("r_nosuchreport") is None
+
+
+async def test_a_report_is_readable_by_ref_in_any_delivery_state(storage: None) -> None:
+    """`show` answers "what would be filed, and was it?" for a report in any state — including a
+    `failed` one, which is the case somebody is most likely looking at."""
+    store = _store()
+    recorded = await _record(store)
+    await store.record_delivery(recorded.report.ref, state="failed")
+
+    row = await store.read_for_triage(recorded.report.ref)
+
+    assert row is not None and row.delivery_state == "failed"
+
+
+async def test_marking_a_report_filed_delivers_it_and_records_the_ticket(storage: None) -> None:
+    store = _store()
+    ref = await _queued(store)
+
+    filed = await store.mark_filed(ref, ticket_id="OME-1042", ticket_url="https://l/1042")
+
+    assert filed is not None
+    row = await Report.get(ref=ref)
+    assert (row.delivery_state, row.ticket_id, row.ticket_url) == (
+        "delivered",
+        "OME-1042",
+        "https://l/1042",
+    )
+
+
+async def test_marking_a_report_filed_is_not_counted_as_an_attempt_by_this_service(
+    storage: None,
+) -> None:
+    """`attempts` is the retry backoff's only input and reads as "how hard did THIS SERVICE try".
+    A person filing a ticket by hand is not the sink having been called, which is the whole reason
+    this is a separate method from `record_delivery`."""
+    store = _store()
+    ref = await _queued(store)
+    before = (await Report.get(ref=ref)).attempts
+
+    await store.mark_filed(ref, ticket_id="OME-1", ticket_url="https://l/1")
+
+    assert (await Report.get(ref=ref)).attempts == before
+
+
+async def test_marking_a_ref_no_report_has_is_none_rather_than_a_write(storage: None) -> None:
+    """The retention purge is the only thing that deletes a row, but a triage session can outlive
+    one. "It went away" is an answer, not a success."""
+    assert await _store().mark_filed("r_gone", ticket_id="OME-1", ticket_url="https://l/1") is None
+
+
+async def test_a_triage_read_against_a_missing_table_is_storage_unavailable(storage: None) -> None:
+    """Every read here keeps the module's one contract: an answer, or `StorageUnavailable`. The
+    console maps that to its own exit code, which must not be the one a mistyped ref gets."""
+    await Report.raw("DROP TABLE reports")
+
+    with pytest.raises(StorageUnavailable):
+        await _store().awaiting_triage(limit=1)
+    with pytest.raises(StorageUnavailable):
+        await _store().read_for_triage("r_anything")

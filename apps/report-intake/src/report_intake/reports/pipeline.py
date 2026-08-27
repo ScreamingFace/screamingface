@@ -14,9 +14,11 @@ error taxonomy inside `delivery/ports.py`: one place to look for "what can this 
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from ..classification.content import Classification
 from .schema import BoundedReport
@@ -36,7 +38,26 @@ def mint_ref() -> str:
     return f"r_{secrets.token_hex(6)}"
 
 
-def scoped_dedup_key(scope: str, idempotency_key: str | None) -> str | None:
+def request_fingerprint(payload: Mapping[str, Any]) -> str:
+    """A stable digest of the stored payload.
+
+    Written into the `request_fingerprint` COLUMN as a diagnostic and never consulted to resolve a
+    replay from it — that is `OME-970`'s lesson and `reports/store.py`'s module docstring states
+    it. :func:`scoped_dedup_key` uses the same digest for a different job: not "have we seen this
+    content" but "is this the same submission the key claims", which is the opposite direction and
+    is only ever a NARROWING of an `Idempotency-Key` that already had to match.
+
+    Deliberately strict about what it will serialize: `payload` came from `json.loads` and a
+    truncator that only ever shortens strings, so a value this cannot encode is a bug worth a
+    traceback rather than something to stringify quietly into a column.
+    """
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def scoped_dedup_key(
+    scope: str, idempotency_key: str | None, *, unverified_payload: Mapping[str, Any] | None
+) -> str | None:
     """What actually goes in the `idempotency_key` column: the client's key, namespaced.
 
     **An `Idempotency-Key` is a claim, not a credential** — the same rule spec §7 states for
@@ -47,6 +68,26 @@ def scoped_dedup_key(scope: str, idempotency_key: str | None) -> str | None:
     caller's `ref`, and that stranger's own report was never stored. Enumeration in one
     direction, silent suppression in the other.
 
+    **`unverified_payload` is what closes that hole for the caller class `scope` cannot separate,
+    and it is required rather than defaulted so no caller can omit it by forgetting.** Pass the
+    bounded payload for a caller with no verified identity; pass `None` for a mesh-verified one.
+    The scope alone was never enough on the public route: `gate.admit` scopes an anonymous caller
+    by `rate_limit_key`, which is the TCP peer — and in the cluster the mesh proxy is the peer on
+    every request while `httproute-public.yaml` strips `CF-Connecting-IP` unconditionally, so
+    every anonymous caller on earth shares one scope. The bearer lookup survived there in full:
+    a guessed key answered `200` carrying somebody else's `ref` and, once a sink files tickets,
+    their `ticket.id` and the private issue url beside it; and a key registered ahead of time made
+    a real reporter's report replay a stranger's row and never be stored, which is the silent
+    report loss spec §8 exists to promise against.
+
+    Mixing the payload digest in binds the replay to something the caller cannot share. Spec §5's
+    guarantee is unchanged for the case it is about — a double-click and a client retry both send
+    the SAME bytes, so they still resolve to one row and one ticket — while a guessed key from a
+    stranger, whose report differs by so much as a trace id, now matches nothing and is stored as
+    the new report it is. A mesh-verified caller keeps the plain scope: the mesh verified the
+    address, so their key is already theirs, and narrowing it would break the honest case of one
+    submitter retrying a corrected report under the key they already used.
+
     Hashed rather than concatenated so the column stays one unique varchar — `_replay` keeps its
     single-column lookup and no migration to a composite constraint is needed — and so the raw
     client string, which is free text on an unauthenticated request, never lands in the database
@@ -54,7 +95,10 @@ def scoped_dedup_key(scope: str, idempotency_key: str | None) -> str | None:
     """
     if idempotency_key is None:
         return None
-    return hashlib.sha256(f"{scope}\x00{idempotency_key}".encode()).hexdigest()
+    material = f"{scope}\x00{idempotency_key}"
+    if unverified_payload is not None:
+        material = f"{material}\x00{request_fingerprint(unverified_payload)}"
+    return hashlib.sha256(material.encode()).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +122,9 @@ class Submission:
     """:func:`scoped_dedup_key`'s digest, or None when the client sent no `Idempotency-Key`.
 
     Deliberately NOT the header value: the column is a namespace shared by every caller of an
-    unauthenticated endpoint, and the name says which of the two this is."""
+    unauthenticated endpoint, and the name says which of the two this is. For a caller with no
+    verified identity the digest also covers the report itself, so a replay resolves only against
+    a byte-identical submission — see :func:`scoped_dedup_key`."""
 
     caller_email: str | None
     """Mesh-injected identity, or None. Unconditionally None until `OME-1011`, which is the one

@@ -196,6 +196,24 @@ def test_a_reply_to_at_the_column_width_is_stored(client: TestClient, database_u
     assert _rows(database_url)[0]["reply_to"] == address
 
 
+def test_a_reply_to_that_is_not_an_address_is_accepted_rather_than_losing_the_report(
+    client: TestClient, database_url: str
+) -> None:
+    """The decision the two cases above do NOT make: `reply_to` is never syntax-checked, here or
+    anywhere downstream (`ReportDocument.reply_to`). Spec §9's caller table already says
+    "accepted, unverified" for both caller classes, and the arithmetic is one-sided — a `422`
+    throws away the error, the traceback, the client versions and the trace id over the one field
+    nothing is authorized on, while a typo'd address still leaves a report somebody can act on.
+
+    The `422` above is a LENGTH refusal and this test is what stops it being read as licence for a
+    syntax one: that bound exists because the column is `varchar(320)` and an over-long value
+    reached tortoise's validator, where every ORM failure becomes a `503` — the one status spec §8
+    defines as *retry unchanged*. Length has a wrong answer; shape does not.
+    """
+    assert _post(client, a_report(reply_to="not-an-email")).status_code == 202
+    assert _rows(database_url)[0]["reply_to"] == "not-an-email"
+
+
 def test_an_over_long_idempotency_key_is_400_and_stores_nothing(
     client: TestClient, database_url: str
 ) -> None:

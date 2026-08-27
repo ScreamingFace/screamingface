@@ -97,11 +97,50 @@ def test_the_idempotency_key_reaches_the_pipeline_scoped_to_its_caller(
     pipeline = _RecordingPipeline(Accepted("r_1", "envelope", "pending"))
     client.app.state.report_pipeline = pipeline  # type: ignore[attr-defined]
 
-    _post(client, a_report(), headers={"Idempotency-Key": "key-42"})
+    document = a_report()
+    _post(client, document, headers={"Idempotency-Key": "key-42"})
 
-    key = pipeline.submissions[0].dedup_key
-    assert key == scoped_dedup_key("127.0.0.1", "key-42")
+    submission = pipeline.submissions[0]
+    key = submission.dedup_key
+    assert key == scoped_dedup_key(
+        "127.0.0.1", "key-42", unverified_payload=submission.bound.payload
+    )
     assert key is not None and "key-42" not in key
+
+
+def test_a_caller_with_no_verified_identity_has_its_key_bound_to_the_report_it_sent(
+    client: TestClient,
+) -> None:
+    """The scope alone does not separate anonymous callers, and on the public route it separates
+    NOBODY: the peer is the mesh proxy on every request and `CF-Connecting-IP` is stripped, so one
+    scope covers the whole internet. Without the payload in the digest, `Idempotency-Key: 1` from
+    a stranger answers `200` with the previous caller's `ref` — and, once a sink files tickets,
+    their private issue url beside it. With it, a guessed key resolves nothing."""
+    pipeline = _RecordingPipeline(Accepted("r_1", "envelope", "pending"))
+    client.app.state.report_pipeline = pipeline  # type: ignore[attr-defined]
+
+    _post(client, a_report(), headers={"Idempotency-Key": "1"})
+    _post(client, a_report(note="something else entirely"), headers={"Idempotency-Key": "1"})
+
+    mine, theirs = (submission.dedup_key for submission in pipeline.submissions)
+    assert mine != theirs
+
+
+def test_the_same_report_replayed_under_one_key_still_resolves_to_one_row(
+    client: TestClient,
+) -> None:
+    """The other half of the same decision, and the one spec §5 is actually about: a double-click
+    and a client retry both send the SAME bytes, so binding the key to the report must not cost
+    the guarantee that they are one report and one ticket."""
+    pipeline = _RecordingPipeline(Accepted("r_1", "envelope", "pending"))
+    client.app.state.report_pipeline = pipeline  # type: ignore[attr-defined]
+
+    document = a_report()
+    _post(client, document, headers={"Idempotency-Key": "retry-1"})
+    _post(client, document, headers={"Idempotency-Key": "retry-1"})
+
+    first, second = (submission.dedup_key for submission in pipeline.submissions)
+    assert first == second is not None
 
 
 def test_a_report_with_no_idempotency_key_claims_no_replay(client: TestClient) -> None:

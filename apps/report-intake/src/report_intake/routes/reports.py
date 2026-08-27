@@ -85,8 +85,16 @@ async def submit_report(request: Request) -> Response:
         bound=bound,
         classification=verdict.classification,
         # Scoped to the caller HERE rather than in the store, so the raw header never travels
-        # past the one function that has both halves of the pair.
-        dedup_key=scoped_dedup_key(admission.dedup_scope, _idempotency_key(headers)),
+        # past the one function that has both halves of the pair. The payload goes with it for a
+        # caller with NO verified identity and only then: on the public route every anonymous
+        # caller shares one scope (the peer is the mesh proxy on every request), so without it the
+        # key is a cross-caller lookup and a guessed one answers `200` with a stranger's `ref` and
+        # ticket. `caller_email is not None` is exactly "the mesh verified who this is".
+        dedup_key=scoped_dedup_key(
+            admission.dedup_scope,
+            _idempotency_key(headers),
+            unverified_payload=None if admission.caller_email is not None else bound.payload,
+        ),
         caller_email=admission.caller_email,
     )
     try:

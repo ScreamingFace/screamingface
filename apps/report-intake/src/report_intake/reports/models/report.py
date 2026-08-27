@@ -36,6 +36,22 @@ bounded ONLY here is answered `503` by the ORM's own validator and spec §8 tell
 EMAIL_MAX_LENGTH = 320
 """RFC 5321's maximum path length: 64-octet local part, `@`, 255-octet domain."""
 
+TICKET_ID_MAX_LENGTH = 64
+TICKET_URL_MAX_LENGTH = 2048
+"""The ticket's ADDRESS, and named constants because three callers outside this file have to
+respect the widths rather than restate them.
+
+Both are third-party strings — one comes off an operator's command line (`queue mark-filed`), one
+comes out of a sink's response (`LinearSink._delivered`) — and tortoise's own validator raises on
+an over-long value at `save`. Every ORM failure leaves the store as `StorageUnavailable`, which
+BOTH writers of this column swallow by design: the report is already durable and a delivery
+outcome that cannot be recorded must not turn a `202` into a `503`. The row therefore stays
+`pending` with `attempts` unmoved — and `attempts` is the retry budget's only input, so the sweep
+re-delivers it forever and files a duplicate issue every time. That loop is closed by refusing an
+over-wide value BEFORE the write (see `queue_cli._ticket_argument` and `LinearSink._delivered`)
+and by clamping it at the write (see `ReportStore._record_delivery`), so no future sink can
+reopen it."""
+
 
 class BaseReport(BaseReportIntakeModel):
     class Meta:
@@ -56,9 +72,11 @@ class BaseReport(BaseReportIntakeModel):
     two rows sharing a key is precisely the state the window exists to prevent.
 
     NOT the client's header value: `reports.pipeline.scoped_dedup_key` namespaces it to the
-    caller first, so what lands here is a digest. `POST /v1/reports` is unauthenticated, so the
-    raw string is one a stranger can also choose — and a shared namespace made a guessed key a
-    bearer lookup for somebody else's `ref`. The column stays one unique varchar either way.
+    caller first — and, for a caller the mesh has not verified, to the REPORT as well, since on
+    the public route every anonymous caller shares one scope. What lands here is a digest. `POST
+    /v1/reports` is unauthenticated, so the raw string is one a stranger can also choose — and a
+    shared namespace made a guessed key a bearer lookup for somebody else's `ref`. The column
+    stays one unique varchar either way.
     """
 
     payload = fields.JSONField()
@@ -93,8 +111,8 @@ class BaseReport(BaseReportIntakeModel):
     """NOT NULL, set to the insert instant so the row starts unleased. `OME-1010` claims rows by
     conditional UPDATE against this, which is what stops `replicaCount > 1` double-delivering."""
 
-    ticket_id = fields.CharField(max_length=64, null=True)
-    ticket_url = fields.CharField(max_length=2048, null=True)
+    ticket_id = fields.CharField(max_length=TICKET_ID_MAX_LENGTH, null=True)
+    ticket_url = fields.CharField(max_length=TICKET_URL_MAX_LENGTH, null=True)
 
     request_fingerprint = fields.CharField(max_length=64, db_index=True)
     """A digest of the stored payload, for dedup DIAGNOSTICS only.
