@@ -10,7 +10,7 @@
 # once the two distributions became one, so it is gone. The image is built from `Dockerfile`.
 [project]
 name = "screamingface-engine"
-version = "1.4.0"
+version = "1.5.0"
 description = "screamingface-engine — the ScreamingFace Engine: the control plane (REST + WebSocket, schedules Runner Jobs) and the url4 run mode those Jobs execute."
 requires-python = ">=3.12"
 # Merging the former runner distribution in cost NO new dependency: its deps
