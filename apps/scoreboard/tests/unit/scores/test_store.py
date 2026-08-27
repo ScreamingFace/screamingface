@@ -13,6 +13,7 @@ from tortoise.exceptions import IntegrityError
 from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
 from scoreboard.scores.schemas import ClientInfo, LeaderboardEntry, ScoreSubmission
 from scoreboard.scores.store import (
+    BenchmarkVisibilityChanged,
     PrivateBoardRequiresIdentity,
     ScoreStore,
     _scoped_idempotency_key,
@@ -2062,3 +2063,135 @@ async def test_two_absent_submitters_do_not_count_as_the_same_owner(tortoise_db:
 
     assert got.id != orphan.id
     assert got.metadata != {"secret": "not-yours"}
+
+
+# --- review round 20: stale visibility must never be acted on -------------------------------
+# Reading visibility once narrows the window between the read and the write; it does not close it.
+# A flip landing inside it leaves the request running on stale hashing AND a stale identity rule.
+
+
+def _flip_to_private_after_the_visibility_read() -> tuple[object, object]:
+    """Land the seed job's flip AFTER `submit()` has read visibility and hashed."""
+    real = ScoreStore._resolve_existing
+    fired = {"done": False}
+
+    async def _hook(self, idempotency_key, content_hash):  # type: ignore[no-untyped-def]
+        if not fired["done"]:
+            fired["done"] = True
+            await Benchmark.filter(id="hle").update(visibility="private")
+        return await real(self, idempotency_key, content_hash)
+
+    return real, _hook
+
+
+async def test_the_readable_gate_refuses_a_private_row_to_everyone_but_its_owner(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: ONE definition of "may read", used by every return from `_resolve_owned` — the key
+    # path AND the content-hash fallback. Round 18 gated the key path and left the fallback beside
+    # it ungated, so a stale public hash matching a now-private row handed that row over.
+    #
+    # AIDEV-NOTE: tested directly rather than through `submit()`. The only way a caller reaches the
+    # fallback holding another submitter's private row is a visibility flip mid-request, and the
+    # revalidation now refuses that BEFORE the fallback runs — so a submit-level test would assert
+    # the revalidation and prove nothing about this gate. Both defences are real; only this one is
+    # reachable in isolation.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    hers = await Score.create(
+        benchmark_id="hle",
+        spec_id="hers",
+        url4_expression="url4://hers",
+        submitted_by=ALICE,
+        score=0.9,
+        total_questions=100,
+        correct_questions=90,
+        ran_with_providers=["openai"],
+        content_hash="hers-hash",
+    )
+
+    assert await store._readable_by(hers, submitted_by=ALICE, identity_verified=True) is hers
+    assert await store._readable_by(hers, submitted_by=BOB, identity_verified=True) is None
+    assert await store._readable_by(hers, submitted_by=ALICE, identity_verified=False) is None
+    assert await store._readable_by(hers, submitted_by=None, identity_verified=True) is None
+    assert await store._readable_by(None, submitted_by=ALICE, identity_verified=True) is None
+
+
+async def test_the_fallback_return_is_wired_to_the_readable_gate(tortoise_db: None) -> None:
+    # INVARIANT: `_resolve_owned`'s LAST return passes the gate, not just its first. Driven at
+    # `_resolve_owned` deliberately: through `submit()` the only route to this state is a mid-flight
+    # flip, which the revalidation refuses first — so the wiring would be untested while looking
+    # covered. Both defences are real; this is the one that survives if the other is ever relaxed.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
+    hers = await Score.create(
+        benchmark_id="hle",
+        spec_id="hers",
+        url4_expression="url4://hers",
+        submitted_by=ALICE,
+        score=0.9,
+        total_questions=100,
+        correct_questions=90,
+        ran_with_providers=["openai"],
+        content_hash="hers-hash",
+    )
+
+    returned, refused = await store._resolve_owned(
+        None, "hers-hash", per_submitter=False, submitted_by=BOB, identity_verified=False
+    )
+
+    assert returned is None, "the content-hash fallback handed over a private row"
+    assert refused is None or refused.id == hers.id
+
+
+async def test_a_flip_is_caught_on_the_replay_path_too(tortoise_db: None) -> None:
+    # INVARIANT: the return path revalidates as well as the persist path. Nothing is written when a
+    # row is replayed, but it was CHOSEN under a view of `visibility` that may have changed — and
+    # the rules for what may be returned differ between public and private.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    await store.submit(_same_recipe(ALICE), identity_verified=True)
+
+    # AIDEV-NOTE: `identity_verified=True` is load-bearing. Without it the flipped board makes the
+    # row unreadable, `_resolve_owned` returns nothing, and the request falls through to the INSERT
+    # — where the other revalidation fires. The test would still pass and would prove nothing about
+    # this one.
+    real, hook = _flip_to_private_after_the_visibility_read()
+    ScoreStore._resolve_existing = hook  # type: ignore[method-assign]
+    try:
+        with pytest.raises(BenchmarkVisibilityChanged):
+            await store.submit(_same_recipe(ALICE), identity_verified=True)
+    finally:
+        ScoreStore._resolve_existing = real  # type: ignore[method-assign]
+
+
+async def test_an_unverified_write_is_not_persisted_after_a_mid_flight_flip(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: a request that has become wrong must be refused, not completed. The identity rule
+    # was decided while the board was public; by the time the row lands the board is private, so
+    # persisting it stores an unverified claim under private-board semantics.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    real, hook = _flip_to_private_after_the_visibility_read()
+
+    ScoreStore._resolve_existing = hook  # type: ignore[method-assign]
+    try:
+        with pytest.raises(BenchmarkVisibilityChanged):
+            await store.submit(_owned_submission(submitted_by=BOB, spec_id="late"))
+    finally:
+        ScoreStore._resolve_existing = real  # type: ignore[method-assign]
+
+    assert await Score.all().count() == 0, "nothing may be written under stale visibility"
+
+
+async def test_an_undisturbed_submission_is_unaffected(tortoise_db: None) -> None:
+    # The regression guard: revalidation must cost nothing when no flip happens, which is every
+    # real request.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    first, created = await store.submit(_same_recipe(ALICE))
+    replay, replayed = await store.submit(_same_recipe(ALICE))
+
+    assert created and not replayed and replay.id == first.id

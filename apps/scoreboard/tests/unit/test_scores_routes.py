@@ -691,3 +691,29 @@ def test_an_unrecognised_auth_mode_does_not_count_as_verified() -> None:
     assert identity_is_verified("cloudflare_headers") is True
     assert identity_is_verified("disabled") is False
     assert identity_is_verified(cast(AuthMode, "some-future-sso-mode")) is False
+
+
+async def test_a_visibility_flip_mid_flight_is_a_409_not_a_500(
+    score_client: AsyncClient,
+) -> None:
+    # INVARIANT: refusing a request whose rules changed underneath it is a CONFLICT, not a server
+    # error. Nothing is wrong with the request; a retry gets one consistent view. Surfacing it as a
+    # 500 would read as a bug in the board and hide a correct refusal.
+    await Benchmark.create(id="flip-x", display_name="Flip", visibility="public")
+    real = ScoreStore._resolve_existing
+
+    async def _flip(self, idempotency_key, content_hash):  # type: ignore[no-untyped-def]
+        await Benchmark.filter(id="flip-x").update(visibility="private")
+        return await real(self, idempotency_key, content_hash)
+
+    payload = _valid_payload()
+    payload["benchmark_id"] = "flip-x"
+
+    ScoreStore._resolve_existing = _flip  # type: ignore[method-assign]
+    try:
+        response = await score_client.post("/v1/scores", json=payload)
+    finally:
+        ScoreStore._resolve_existing = real  # type: ignore[method-assign]
+
+    assert response.status_code == 409, response.text
+    assert await Score.get_or_none(spec_id=payload["spec_id"]) is None

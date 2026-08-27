@@ -871,6 +871,74 @@ refusal, the fail-closed default, the verified gate, the absent-submitter test, 
 allowlist, 404 header symmetry, the unowned lookup, the reserved prefix, the seed refusal, `0009`,
 and the owned-entry projection.
 
+## Review round 20 — 2026-08-27 (owner, PR #719)
+
+**[P1] Reading visibility once narrowed the race; it did not close it.** Round 17 collapsed the
+route's read and the store's into one. But one read still happens at a point in time and the write
+happens after it, so a flip landing in between leaves the whole request running on stale rules —
+stale hashing AND a stale identity decision.
+
+Reproduced at the point the owner named, by flipping after the store's read:
+
+- **A — an unverified write persisted on a board that was private by the time it landed.**
+  `persisted=True  board_now=private  rows=1`
+- **B — a confidentiality leak, and structural rather than timing.**
+  `created=False  got_hers=True  metadata={'secret': 'alice@example.test-only'}` — BOB received
+  ALICE's private row with her metadata.
+
+**B is the sharper half.** `store.py:538` returned the content-hash fallback with NO privacy check
+at all: the KEY path gained an ownership rule in round 18 and the fallback beside it never did. The
+race is only what lets a stale public hash match a now-private row; the missing check is why that
+leaks instead of being refused. It would have leaked through any other route to the same mismatch.
+
+**Attribution, since the ledger should be right about it:** this came from the owner in review, not
+from `@HupBaHa`. His third review's two findings are the round-17 and round-18 entries above, and
+both of his reproductions were re-run verbatim and no longer reproduce.
+
+### Three fixes, and what each actually buys
+
+| | Buys |
+| -- | -- |
+| Privacy-gate every return from `_resolve_owned`, fallback included | closes B outright, independent of timing |
+| Revalidate visibility before persisting or returning | refuses to act on stale state rather than acting wrongly |
+| `select_for_update()` on the benchmark row inside the insert transaction | genuinely serialises the persist path — on PostgreSQL |
+
+Stated plainly because the tests cannot show all of it: the lock is a no-op on SQLite, so the suite
+demonstrates the revalidation and the privacy gate, and PostgreSQL is what the lock is for. Without
+a lock, revalidation shrinks the window from the whole request to the commit interval; it cannot
+eliminate it. Claiming otherwise would be claiming more than the suite proves.
+
+### Outcome — DONE
+
+Refusal surfaces as **409, not 500** — nothing is wrong with the request, and a retry gets one
+consistent view. `submit()` crossed `PLR0915` and the insert was extracted to `_insert_new_score`
+rather than the limit being raised.
+
+**Mutation results, including the one that does not bind:**
+
+| Mutation | Caught |
+| -- | -- |
+| fallback no longer wired to the gate | 1 failure |
+| the gate itself ignores ownership | 2 |
+| revalidation removed from the return path | 1 |
+| revalidation removed from the persist path | 2 |
+| **the row lock removed** | **NOT CAUGHT** |
+
+The lock is invisible to the suite because Tortoise no-ops `select_for_update()` on SQLite. That is
+not a gap to paper over: it is the honest shape of this fix, and the PR should say so rather than
+imply the tests cover it.
+
+**Two of my own tests proved nothing until a mutation said so.** The first wrapped its assertions in
+`contextlib.suppress`, so they never ran — the same trap as round 6, made the same way. The second
+looked like it exercised the return-path revalidation but fell through to the insert, where the
+OTHER revalidation fired; it passed for the wrong reason. Both are now driven at the level that
+reaches the code under test, with a note on each saying which detail is load-bearing.
+
+**The fallback's wiring is tested at `_resolve_owned`, deliberately.** Through `submit()` the only
+route to that state is a mid-flight flip, which the revalidation refuses first — so the wiring would
+have been untested while appearing covered. Both defences are real; this is the one that survives if
+the other is ever relaxed.
+
 ## Known residual — the concurrent-retry success return
 
 `store.py:607` — the `return SubmitOutcome(..., created=False)` inside `submit()`'s

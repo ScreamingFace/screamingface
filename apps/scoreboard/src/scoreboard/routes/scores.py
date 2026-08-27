@@ -36,7 +36,11 @@ from scoreboard.scores.schemas import (
     ScoreSchema,
     ScoreSubmission,
 )
-from scoreboard.scores.store import PrivateBoardRequiresIdentity, ScoreStore
+from scoreboard.scores.store import (
+    BenchmarkVisibilityChanged,
+    PrivateBoardRequiresIdentity,
+    ScoreStore,
+)
 
 router = APIRouter(prefix="/v1", tags=["scores"])
 
@@ -50,6 +54,11 @@ UNTRUSTED_PEER_DETAIL = (
 MISSING_IDENTITY_DETAIL = (
     f"Missing {HEADER_USER_EMAIL} — this service resolves the submitter from the identity "
     "header the mesh gateway injects after verifying Cloudflare Access."
+)
+
+
+VISIBILITY_CHANGED_DETAIL = (
+    "the benchmark's visibility changed while this submission was in flight; retry"
 )
 
 
@@ -202,6 +211,14 @@ async def submit_score(
                 idempotency_key=idempotency_key,
                 identity_verified=identity_is_verified(settings.auth_mode),
             )
+        except BenchmarkVisibilityChanged as exc:
+            # The board changed under the request, so it was refused rather than completed on stale
+            # rules. 409 rather than 500: nothing is wrong with the request, and retrying it gets a
+            # consistent view (review of PR #719).
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=VISIBILITY_CHANGED_DETAIL,
+            ) from exc
         except PrivateBoardRequiresIdentity as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

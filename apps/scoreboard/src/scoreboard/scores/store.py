@@ -319,6 +319,19 @@ class PrivateBoardRequiresIdentity(Exception):
     """
 
 
+class BenchmarkVisibilityChanged(Exception):
+    """A benchmark's visibility changed while a submission to it was in flight.
+
+    INVARIANT (OME-894): visibility decides BOTH the identity rule and the dedup hashing, and a
+    request reads it once. A flip landing between that read and the write leaves the whole request
+    running on stale rules — so it is refused rather than completed. The caller may retry, and the
+    retry sees one consistent view.
+
+    Reading once narrowed the window that two reads opened; it did not close it. This is what
+    closes it, together with the row lock the insert takes (review of PR #719).
+    """
+
+
 class SubmitOutcome(NamedTuple):
     score: ScoreSchema
     created: bool
@@ -535,7 +548,94 @@ class ScoreStore:
         #
         # Returning the refused row alongside the fallback is what lets `submit()` reclaim THIS
         # key's slot without clobbering a mapping some concurrent request bound in the meantime.
-        return await self._resolve_existing(None, content_hash), existing
+        # INVARIANT: the fallback passes the SAME privacy gate as the key path above. It used to
+        # return whatever the content hash found, ungated — so a stale public hash matching a
+        # now-private row handed that row over, url4 and metadata included. The key path was gated
+        # and the fallback beside it was not (review of PR #719).
+        fallback = await self._resolve_existing(None, content_hash)
+        return await self._readable_by(
+            fallback, submitted_by=submitted_by, identity_verified=identity_verified
+        ), existing
+
+    async def _readable_by(
+        self,
+        score: Score | None,
+        *,
+        submitted_by: str | None,
+        identity_verified: bool,
+    ) -> Score | None:
+        """`score`, or None when this caller may not read it.
+
+        One definition of "may read", so a second return path cannot quietly skip it. A public row
+        is readable by anyone; a private one only by its verified owner.
+        """
+        if score is None or not await self._links_to_a_private_board(score):
+            return score
+        if identity_verified and submitted_by is not None and score.submitted_by == submitted_by:
+            return score
+        return None
+
+    async def _insert_new_score(
+        self,
+        connection: Any,
+        *,
+        submission: ScoreSubmission,
+        content_hash: str,
+        stored_key: str | None,
+        refused: Score | None,
+        now_ts: datetime,
+        expires_at: datetime,
+    ) -> Score:
+        """Write the row and bind its idempotency key, inside the caller's transaction."""
+        if stored_key is not None:
+            # Clear only what this request is entitled to clear: an EXPIRED mapping, or the exact
+            # row `_resolve_owned` observed and refused.
+            #
+            # WHY not simply `filter(key=stored_key).delete()`: two requests sharing a key but
+            # carrying different recipes both clear the precheck, and an unconditional delete lets
+            # the second remove the mapping the first just bound — both insert, both report
+            # `created`, and the key ends up on the last writer, breaking same-key-replays-original.
+            # Narrowing to the observed row leaves a concurrent rebind standing, so this insert
+            # trips the unique constraint and replays it through the caller's handler, which is the
+            # correct outcome (review of PR #719).
+            #
+            # WHY expiry is still cleared unconditionally: an expired mapping is nobody's, and
+            # leaving it would deny the write for the rest of its TTL.
+            reclaimable = Q(expires_at__lte=now_ts)
+            if refused is not None:
+                reclaimable = reclaimable | Q(score_id=refused.pk)
+            await IdempotencyKey.filter(reclaimable, key=stored_key).using_db(connection).delete()
+
+        score = await Score.create(
+            using_db=connection, **_submission_to_kwargs(submission, content_hash)
+        )
+
+        if stored_key is not None:
+            await IdempotencyKey.create(
+                using_db=connection, key=stored_key, score=score, expires_at=expires_at
+            )
+        return score
+
+    async def _revalidate_visibility(
+        self,
+        benchmark_id: str,
+        per_submitter: bool,
+        *,
+        connection: Any = None,
+        lock: bool = False,
+    ) -> None:
+        """Refuse if `visibility` no longer matches what this request decided against."""
+        rows = Benchmark.filter(id=benchmark_id)
+        if connection is not None:
+            rows = rows.using_db(connection)
+        if lock:
+            rows = rows.select_for_update()
+        current = await rows.values_list("visibility", flat=True)
+        # A benchmark deleted mid-flight reads as not-private, which is the same conclusion the
+        # RESTRICT foreign key would force a moment later.
+        still_private = bool(current) and current[0] == "private"
+        if still_private != per_submitter:
+            raise BenchmarkVisibilityChanged(benchmark_id)
 
     async def _links_to_a_private_board(self, score: Score) -> bool:
         # `benchmark_id` is the foreign key's shadow column and not a declared attribute, so it is
@@ -615,46 +715,32 @@ class ScoreStore:
             identity_verified=identity_verified,
         )
         if existing is not None:
+            # Detection, not prevention: nothing is being written here, but the row was chosen
+            # under a view of `visibility` that may since have changed, so returning it would be
+            # answering a question we no longer know the rules for.
+            await self._revalidate_visibility(submission.benchmark_id, per_submitter)
             return SubmitOutcome(score=_score_to_schema(existing), created=False)
 
         expires_at = now_ts + IDEMPOTENCY_TTL
         try:
             async with in_transaction() as connection:
-                if stored_key is not None:
-                    # Clear only what this request is entitled to clear: an EXPIRED mapping, or the
-                    # exact row `_resolve_owned` observed and refused.
-                    #
-                    # WHY not simply `filter(key=stored_key).delete()`: two requests sharing a key
-                    # but carrying different recipes both clear the precheck, and an unconditional
-                    # delete lets the second remove the mapping the first just bound — both insert,
-                    # both report `created`, and the key ends up on the last writer, breaking
-                    # same-key-replays-original. Narrowing to the observed row leaves a concurrent
-                    # rebind standing, so this insert trips the unique constraint and replays it
-                    # through the handler below, which is the correct outcome (review of PR #719).
-                    #
-                    # WHY expiry is still cleared unconditionally: an expired mapping is nobody's,
-                    # and leaving it would deny the write for the rest of its TTL.
-                    reclaimable = Q(expires_at__lte=now_ts)
-                    if refused is not None:
-                        reclaimable = reclaimable | Q(score_id=refused.pk)
-                    await (
-                        IdempotencyKey.filter(reclaimable, key=stored_key)
-                        .using_db(connection)
-                        .delete()
-                    )
-
-                score = await Score.create(
-                    using_db=connection,
-                    **_submission_to_kwargs(submission, content_hash),
+                # Prevention, on PostgreSQL: the lock is held until this transaction commits, so a
+                # concurrent flip must wait for the insert rather than racing it. Tortoise no-ops
+                # `select_for_update()` on SQLite, so the suite exercises the revalidation and
+                # PostgreSQL is what the lock is for — said plainly because the tests cannot show
+                # it (review of PR #719).
+                await self._revalidate_visibility(
+                    submission.benchmark_id, per_submitter, connection=connection, lock=True
                 )
-
-                if stored_key is not None:
-                    await IdempotencyKey.create(
-                        using_db=connection,
-                        key=stored_key,
-                        score=score,
-                        expires_at=expires_at,
-                    )
+                score = await self._insert_new_score(
+                    connection,
+                    submission=submission,
+                    content_hash=content_hash,
+                    stored_key=stored_key,
+                    refused=refused,
+                    now_ts=now_ts,
+                    expires_at=expires_at,
+                )
 
             return SubmitOutcome(score=_score_to_schema(score), created=True)
         except IntegrityError:
