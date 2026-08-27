@@ -1059,7 +1059,7 @@ dev = [
 ]
 
 [[package]]
-name = "screamingface-runtime"
+name = "screamingface-studio-sidecar-build"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

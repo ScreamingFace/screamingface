@@ -239,12 +239,12 @@ fn executable_name() -> &'static str {
   "screamingface-runtime"
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(debug_assertions, target_os = "windows"))]
 fn venv_executable() -> &'static str {
   ".venv/Scripts/screamingface.exe"
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(debug_assertions, not(target_os = "windows")))]
 fn venv_executable() -> &'static str {
   ".venv/bin/screamingface"
 }

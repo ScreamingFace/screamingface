@@ -1,7 +1,7 @@
 [project]
-name = "screamingface-runtime"
+name = "screamingface-studio-sidecar-build"
 version = "0.1.0"
-description = "Standalone local runtime for ScreamingFace Studio"
+description = "Build environment for the ScreamingFace Studio runtime sidecar"
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "screamingface[runtime]",
