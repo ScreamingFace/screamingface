@@ -199,6 +199,11 @@ _REVIEWED_ENDPOINT_PARAMS: tuple[str, ...] = (
     "presence_penalty",
     "seed",
     "stop",
+    # OME-993: OpenRouter documents the OpenAI-compat reasoning-effort field on the
+    # chat endpoint (public `supported_parameters` carries `reasoning`); the installed
+    # litellm transform forwards it top-level (tripwire in
+    # test_openrouter_parameter_projection).
+    "reasoning_effort",
 )
 
 REVIEWED_ENDPOINT_OBSERVATIONS: tuple[ProviderParameterObservation, ...] = _dedup_sorted(

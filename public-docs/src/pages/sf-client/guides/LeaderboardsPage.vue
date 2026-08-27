@@ -183,7 +183,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     <p>
       Without configuration, leaderboard calls use the default hosted ScreamingFace Leaderboard.
       Local development usually points both the engine and the leaderboard at the stack
-      <code>just stack-up</code> starts:
+      <code>screamingface up</code> starts:
     </p>
 
     <div class="not-prose">

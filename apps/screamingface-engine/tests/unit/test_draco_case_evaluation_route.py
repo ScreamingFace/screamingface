@@ -22,7 +22,7 @@ from screamingface_engine.benchmarks.draco.definition import (
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from screamingface_engine.benchmarks.draco.runtime import install
 from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
-from url4 import RelExpr, Text, expr, render, src
+from url4 import RelExpr, RelUrl, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 
@@ -172,23 +172,43 @@ def test_case_record_requires_explicit_execution_provenance() -> None:
         bind_criterion_evaluation(1, case, check, [evidence])
 
 
-def test_install_fails_atomically_when_assets_are_missing(tmp_path: Path) -> None:
+# WHY these two tests were REWRITTEN (OME-999, owner-approved): install used to validate
+# assets ATOMICALLY, refusing to register routes over a broken asset set. That eager read
+# meant a Runner world — which installs EVERY registered board — required DRACO's assets to
+# run any other board. Install is now lazy (the shared contract HealthBench's install
+# documents); the protection moves to resolution: a DRACO run's first touch is its cases
+# route, so a broken asset still fails before any model spend, with the same named error —
+# on EVERY resolution, since failures are never memoized.
+
+
+async def _fetch_cases(node: Url4Node) -> str:
+    expression = expr(
+        src(RelUrl(CASES_ROUTE), name="result", weight=0.0),
+        intent=Text("$result"),
+    )
+    return (await node.evaluate(render(expression))).text
+
+
+@pytest.mark.asyncio
+async def test_missing_assets_fail_every_cases_resolution_by_name(tmp_path: Path) -> None:
     node = Url4Node("test")
+    install(node, tmp_path, CANONICAL_EXAM)
 
-    with pytest.raises(ResolutionError, match="could not read DRACO cases"):
-        install(node, tmp_path, CANONICAL_EXAM)
+    for _attempt in range(2):  # never memoized: the second resolution fails identically
+        with pytest.raises(ResolutionError, match="could not read DRACO cases"):
+            await _fetch_cases(node)
 
-    assert CASES_ROUTE not in node.processor_routes()
 
-
-def test_canonical_install_rejects_a_truncated_case_set_atomically(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_a_truncated_case_set_fails_resolution_with_the_expected_count(
+    tmp_path: Path,
+) -> None:
     _one_case_assets(tmp_path)
     node = Url4Node("test")
+    install(node, tmp_path, CANONICAL_EXAM)
 
     with pytest.raises(ResolutionError, match="expected 100 DRACO cases"):
-        install(node, tmp_path, CANONICAL_EXAM)
-
-    assert CASES_ROUTE not in node.processor_routes()
+        await _fetch_cases(node)
 
 
 def test_asset_validation_rejects_duplicate_case_ids(tmp_path: Path) -> None:

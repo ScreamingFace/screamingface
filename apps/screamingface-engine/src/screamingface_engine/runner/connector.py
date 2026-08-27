@@ -6,7 +6,9 @@ resolves and runs an expression against.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import random
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -59,6 +61,16 @@ from url4.streaming.protocol import CachePolicy
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _truncate_tool_result = truncate_tool_result
+
+# Transport-retry policy for the aigateway hop (OME-1016). A transport failure
+# (connection reset, read error, timeout) is transient by nature, so the connector
+# retries it with exponential backoff + jitter before surfacing a retryable
+# ResolutionError. Module-level so tests can zero them; the benchmark's own ``retry=``
+# (url4) remains a second layer for HTTP-status failures and for a sustained outage.
+_TRANSPORT_RETRIES = 1  # one retry → two attempts; url4's retry= adds more if needed
+_TRANSPORT_BACKOFF_BASE_S = 0.5
+_TRANSPORT_BACKOFF_MAX_S = 8.0
+_TRANSPORT_BACKOFF_JITTER_S = 0.25
 
 
 @dataclass(frozen=True)
@@ -408,6 +420,63 @@ def _report_usage(
     )
 
 
+async def _post_completion(
+    http_client: httpx.AsyncClient,
+    *,
+    headers: dict[str, str],
+    body: dict,
+) -> httpx.Response:
+    """One chat-completions POST: retry transport failures, then translate to a retryable error.
+
+    WHY (OME-1016): a transport failure (connection reset, read error, timeout) is
+    transient by nature — aigateway may be restarting or a pooled keep-alive connection
+    went stale. Left raw, an ``httpx.ReadError`` bypasses the benchmark's declared
+    ``retry=`` policy (url4 retries only ``Url4Error``) and carries no error ``code``,
+    so the report falls back to the opaque benchmark default (``draco_grading_failed``)
+    with a useless ``ReadError('')`` message. This retries the transport failure with
+    exponential backoff + jitter (so concurrent judge calls that fail together do not
+    retry in lockstep), then raises a retryable ``ResolutionError`` that names the real
+    cause. ``HTTPStatusError`` is deliberately NOT caught — ``_raise_for_status``
+    handles non-2xx after the post returns.
+    """
+    last: httpx.TransportError | None = None
+    for attempt in range(_TRANSPORT_RETRIES + 1):
+        try:
+            return await http_client.post(_COMPLETIONS_PATH, headers=headers, json=body)
+        except httpx.TransportError as exc:
+            last = exc
+            if attempt < _TRANSPORT_RETRIES:
+                await asyncio.sleep(_transport_backoff(attempt))
+    assert last is not None  # the loop always runs at least once
+    raise ResolutionError(
+        f"aigateway request failed at the transport layer: {_transport_detail(last)}",
+        code="aigateway_transport_error",
+        permanent=False,
+    ) from last
+
+
+def _transport_backoff(attempt: int) -> float:
+    """Exponential backoff plus jitter for the next transport retry.
+
+    ``attempt`` is the zero-based index of the attempt that just failed, so the first
+    retry waits ``base``, the second ``2*base``, capped at ``backoff_max_s``; jitter
+    de-synchronises concurrent siblings that failed together.
+    """
+    delay = min(_TRANSPORT_BACKOFF_BASE_S * 2**attempt, _TRANSPORT_BACKOFF_MAX_S)
+    return delay + random.uniform(0.0, _TRANSPORT_BACKOFF_JITTER_S)
+
+
+def _transport_detail(exc: httpx.TransportError) -> str:
+    """A stable one-line description of a transport failure, even when ``str()`` is empty.
+
+    ``httpx.ReadError('')`` stringifies to an empty string; the class name alone is
+    still actionable, and a non-empty message keeps ``_error_payload`` from falling
+    back to ``repr(exc)``.
+    """
+    detail = str(exc).strip()
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
+
 async def _fetch_completion(
     http_client: httpx.AsyncClient,
     *,
@@ -432,14 +501,14 @@ async def _fetch_completion(
         The response to consume, and the cache outcome of the round trip that produced IT — not
         of the one that was discarded, whose only remaining trace is that it happened.
     """
-    resp = await http_client.post(
-        _COMPLETIONS_PATH,
+    resp = await _post_completion(
+        http_client,
         headers=headers,
         # `policy_to_body_field` yields an EMPTY dict for a run that participates, so an ordinary
         # run's body is byte-identical to the one this connector has always sent — which is also
         # the smallest surface exposed to the gateway's closed cache grammar, where one
         # unrecognised key silently costs every hit (spec §1.0).
-        json={**body, **policy_to_body_field(cache)},
+        body={**body, **policy_to_body_field(cache)},
     )
     _raise_for_status(resp)
     outcome = read_cache_outcome(resp.headers)
@@ -448,10 +517,10 @@ async def _fetch_completion(
     # An explicit opt-out, built here rather than derived from `cache`: the run's own policy
     # PARTICIPATES (a bound is not a refusal), and the re-issue must state the one thing the
     # closed grammar understands — `use-cache: false` — and nothing else.
-    resp = await http_client.post(
-        _COMPLETIONS_PATH,
+    resp = await _post_completion(
+        http_client,
         headers=headers,
-        json={**body, **policy_to_body_field(CachePolicy(participate=False))},
+        body={**body, **policy_to_body_field(CachePolicy(participate=False))},
     )
     _raise_for_status(resp)
     return resp, read_cache_outcome(resp.headers)

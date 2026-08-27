@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="board-onboarding">
+    <mxGraphModel dx="1400" dy="800" grid="1" gridSize="10" background="#0a0f1c" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Protect a benchmark board's published score — five steps, one paid run, free forever" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1200" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- step boxes -->
+        <mxCell id="s1" value="① Register the board&#xa;&#xa;engine: BUILTIN_BENCHMARKS&#xa;entry; assets downloadable via&#xa;screamingface prepare" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="250" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="② Name it in the harness&#xa;&#xa;add the board id to BOARDS&#xa;(test_boards.py) + _ASSET_BUNDLE&#xa;(also slice_snapshot.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="330" y="80" width="250" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="③ Paid run — OWNER, once&#xa;&#xa;sf.evaluate() through the&#xa;deployed gateway, caching ON;&#xa;save report.json;&#xa;pg_dump the cache table" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="620" y="80" width="250" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="④ Bless — one command, $0&#xa;&#xa;just e2e-bless &amp;lt;board&amp;gt; &amp;lt;model&amp;gt;&#xa;&amp;lt;dump.sql.gz&amp;gt; &amp;lt;answers.jsonl&amp;gt;&#xa;--expect-score &amp;lt;report score&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#33240a;strokeColor=#e8b339;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="910" y="80" width="250" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="s5" value="⑤ Commit 3 files (PR)&#xa;&#xa;fixtures/snapshots/&amp;lt;board&amp;gt;.snapshot.gz&#xa;fixtures/snapshots/&amp;lt;board&amp;gt;.manifest.json&#xa;fixtures/goldens/&amp;lt;board&amp;gt;.golden.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="80" width="270" height="130" as="geometry" />
+        </mxCell>
+
+        <!-- state notes under steps -->
+        <mxCell id="n2" value="CI state: SKIPS LOUDLY&#xa;&quot;no recorded fixtures yet&quot;&#xa;— honest, never a fake pass" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="330" y="250" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="n3" value="only step that costs money;&#xa;recordings stay OWNER-HELD,&#xa;never committed" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="250" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="n4" value="refuses loudly on ANY mismatch:&#xa;score ≠ report, truncated dump,&#xa;slice &gt; 10 MB" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="910" y="250" width="250" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- CI forever + drift loop -->
+        <mxCell id="ci" value="CI, forever: golden-replay job replays the board from the committed slice on every PR&#xa;touching SDK / url4 / engine / gateway — keyless, $0, ~3 min" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="620" y="390" width="540" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="drift" value="CI red = drift caught&#xa;expression rung → &quot;goldens stale&quot; (protocol moved)&#xa;score rung → grading/aggregation changed the number&#xa;a human judges: bug, or intended?" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="390" width="420" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- edges -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s1" target="s2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s2" target="s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s3" target="s4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s4" target="s5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="flips the skip to green" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.5;exitY=1;entryX=0.9;entryY=0;" edge="1" parent="1" source="s5" target="ci">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" x="95" y="-35" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" value="red" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e06c75;dashed=1;fontColor=#e06c75;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="ci" target="drift">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="intended change → re-bless&#xa;(protocol re-keyed the judges? new paid run ③)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d7b357;dashed=1;fontColor=#d7b357;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;endArrow=classic;endFill=1;exitX=0.5;exitY=0;entryX=0;entryY=0.8;" edge="1" parent="1" source="drift" target="s4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="250" y="355" />
+              <mxPoint x="885" y="355" />
+              <mxPoint x="885" y="184" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

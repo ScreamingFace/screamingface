@@ -41,6 +41,7 @@ pytestmark = pytest.mark.asyncio
 
 SECRET = "identity-propagation-unit-secret"
 WINDOW_S = 60
+LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
 TOKEN = "tok-identity"  # noqa: S105 - not a real credential, test fixture only
 MODEL = "anthropic/claude-haiku-4-5"
@@ -52,7 +53,9 @@ IDENTITY = {"X-User-Email": "someone@openmined.org"}
 
 
 def _token(topic: str) -> str:
-    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0)
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(
+        topic, T0
+    )
 
 
 def _app(job_runner: RecordingJobRunner) -> FastAPI:

@@ -4,9 +4,11 @@ from typing import Any, cast
 
 import pytest
 from nats.js import JetStreamContext
+from nats.js.errors import BadRequestError, NotFoundError
 
 from screamingface_engine.adapters.jetstream import JetStreamConsumer
 from url4.streaming.codec import encode
+from url4.streaming.interfaces import StreamNotFoundError
 from url4.streaming.protocol import LogData, LogEvent, OutboundFrame, source_for
 
 pytestmark = pytest.mark.asyncio
@@ -49,6 +51,13 @@ class _FakeJetStream:
         self.calls: list[str] = []
         self.subs: list[_FakeSub] = []
         self._messages_per_sub = messages_per_sub
+        self._stream_declared = False
+
+    async def stream_info(self, name: str) -> object:
+        self.calls.append("stream_info")
+        if not self._stream_declared:
+            raise NotFoundError
+        return object()
 
     async def add_stream(
         self,
@@ -61,7 +70,13 @@ class _FakeJetStream:
         **_: object,
     ) -> object:
         self.calls.append("add_stream")
+        already = self._stream_declared
+        self._stream_declared = True
         self.stream_limits = {"max_age": max_age, "max_bytes": max_bytes, "discard": discard}
+        # Mirror the real broker: re-declaring an existing stream is a BadRequestError the
+        # adapter's ensure_stream tolerates (`_declare` swallows it).
+        if already:
+            raise BadRequestError
         return object()
 
     async def subscribe(self, subject: str, **kwargs: Any) -> _FakeSub:
@@ -81,6 +96,36 @@ async def test_subscribe_ensures_the_stream_before_binding_to_it() -> None:
         pass
 
     assert js.calls == ["add_stream", "subscribe"]
+
+
+@pytest.mark.anyio
+async def test_resume_cursor_on_missing_stream_is_stream_not_found() -> None:
+    """OME-1019: a resume cursor on a stream the Runner reclaimed is a typed error,
+    not a silent re-creation. The fresh attach above keeps creating the stream."""
+    stream = JetStreamConsumer("nats://unused:4222")
+    js = _FakeJetStream()
+    stream._js = cast(JetStreamContext, js)  # noqa: SLF001
+
+    with pytest.raises(StreamNotFoundError):
+        async for _ in stream.subscribe("topic-a", from_sequence=3):
+            pass  # pragma: no cover - the generator raises before yielding
+
+    assert js.calls == ["stream_info"]
+
+
+@pytest.mark.anyio
+async def test_resume_cursor_on_existing_stream_binds_without_recreating() -> None:
+    stream = JetStreamConsumer("nats://unused:4222")
+    js = _FakeJetStream()
+    js._stream_declared = True  # the stream exists; re-declare will be a tolerated error
+    stream._js = cast(JetStreamContext, js)  # noqa: SLF001
+
+    async for _ in stream.subscribe("topic-a", from_sequence=3):  # pragma: no branch
+        pass
+
+    # The stream is probed (exists), the redundant declare is a tolerated round trip, and
+    # the consumer binds from the cursor — no re-creation happens.
+    assert js.calls == ["stream_info", "add_stream", "subscribe"]
 
 
 @pytest.mark.anyio

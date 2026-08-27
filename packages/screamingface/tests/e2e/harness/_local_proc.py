@@ -1,10 +1,11 @@
 """Subprocess plumbing shared by the harness boot modules (OME-961, internal).
 
-Mental model: each stack service runs the way ``just stack-up`` runs it — from its OWN
-uv project's virtualenv, as a child process on a loopback port — but with a scrubbed
-environment. Tests never share a venv with the gateway or the engine, so the SDK
-package's dependency tree stays untouched (the decisive argument against a path dep,
-recorded in the OME-961 ledger).
+Mental model: each stack service runs from its OWN uv project's virtualenv, as a
+child process on a loopback port, with a scrubbed environment (unlike
+``screamingface up``, which serves everything from the SDK's one environment — this
+harness isolates per-app dependency trees on purpose). Tests never share a venv with
+the gateway or the engine, so the SDK package's dependency tree stays untouched (the
+decisive argument against a path dep, recorded in the OME-961 ledger).
 
 INVARIANT — the clean-environment rule: a child gets ``clean_env()`` plus exactly the
 variables its harness sets, NEVER the caller's shell. A developer with a real

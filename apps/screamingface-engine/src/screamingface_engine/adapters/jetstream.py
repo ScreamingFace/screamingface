@@ -17,7 +17,12 @@ from pydantic import ValidationError
 
 from screamingface_engine.subjects import owns_stream, stream_for, subject_for, topic_of
 from url4.streaming.codec import decode, encode
-from url4.streaming.interfaces import EventConsumer, EventPublisher, validate_from_sequence
+from url4.streaming.interfaces import (
+    EventConsumer,
+    EventPublisher,
+    StreamNotFoundError,
+    validate_from_sequence,
+)
 from url4.streaming.protocol import OutboundFrame, TerminatedEvent
 
 logger = logging.getLogger(__name__)
@@ -316,6 +321,18 @@ class _JetStreamConnection:
             await self._nc.close()
 
 
+async def _stream_exists(js: JetStreamContext, topic: str) -> bool:
+    """Whether the Run's stream is still declared on the broker.
+
+    `stream_info` on a missing stream raises NotFoundError; any other failure propagates.
+    """
+    try:
+        await js.stream_info(stream_for(topic))
+    except NotFoundError:
+        return False
+    return True
+
+
 class JetStreamConsumer(_JetStreamConnection, EventConsumer):
     """The App-side consumer: subscribes to a run's JetStream subject and decodes frames back
     into `OutboundFrame`s, optionally resuming from a given sequence."""
@@ -325,6 +342,12 @@ class JetStreamConsumer(_JetStreamConnection, EventConsumer):
     ) -> AsyncIterator[OutboundFrame]:
         validate_from_sequence(from_sequence)
         js = await self._jetstream()
+        if from_sequence is not None and not await _stream_exists(js, topic):
+            # A resume cursor with no stream to resume from: the Run finished and the
+            # Runner reclaimed the stream (spec §6 S2, OME-1019). The bridge turns this
+            # into a typed `stream_reclaimed` error frame. A FRESH attach (cursor None)
+            # still creates the stream — it legitimately precedes the Run's first publish.
+            raise StreamNotFoundError(topic)
         await self.ensure_stream(topic)
         sub = await js.subscribe(
             subject_for(topic),

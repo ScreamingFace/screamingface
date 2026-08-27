@@ -357,7 +357,11 @@ async def mint_token(request: Request) -> dict[str, str]:
     """Mint a fresh topic and its HS256 capability JWT. Unauthenticated (see route summary)."""
     settings: Settings = request.app.state.settings
     clock = getattr(request.app.state, "clock", _default_clock)
-    codec = JwtCodec(secret=settings.jwt_secret, iat_window_s=settings.iat_window_s)
+    codec = JwtCodec(
+        secret=settings.jwt_secret,
+        iat_window_s=settings.iat_window_s,
+        capability_lifetime_s=settings.capability_lifetime_s,
+    )
     return {"token": codec.sign(new_topic(), clock())}
 
 

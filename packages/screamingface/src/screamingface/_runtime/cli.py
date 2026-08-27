@@ -19,11 +19,12 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from screamingface._runtime import source as runtime_source
 from screamingface._runtime.config import RuntimeConfig, default_data_dir
 
 _STATE_VERSION = 1
 _PORT_DEFAULTS = {"gateway": 9105, "scoreboard": 9106, "engine": 9108}
-_BENCHMARKS = ("draco", "ifeval", "healthbench")
+_BENCHMARKS = ("draco", "ifeval", "healthbench", "gdpval")
 
 
 def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
@@ -94,6 +95,14 @@ def _add_port_options(parser: argparse.ArgumentParser) -> None:
 def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
     args = _parser().parse_args(argv)
     try:
+        # WHY before dispatch: every command that imports runtime apps (up/serve
+        # children, status, doctor, prepare) must see the live checkout code, not a
+        # stale build-time copy in site-packages (OME-1001). `down` and `logs` are
+        # exempt: they import no runtime apps, and a broken SCREAMINGFACE_RUNTIME_SOURCE
+        # must never lock the user out of recovery (mirrors the recovery-command rule
+        # for invalid port environments in _config).
+        if args.command not in {"down", "logs"}:
+            runtime_source.activate(runtime_source.resolve_source(os.environ))
         config = _config(args)
         if args.command == "up":
             _up(config, foreground=args.foreground)
@@ -167,6 +176,10 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     state = _read_state(config)
     owned = bool(state and _verify_owner(state))
     if owned:
+        # WHY before the health split: the partially-healthy advice below points at
+        # `restart`, which tears the stack down — another checkout's stack must be
+        # refused on EVERY owned branch, not only the all-healthy one.
+        _ensure_adoptable(state)
         health = _health(_state_services(state))
         if all(health.values()):
             print("ScreamingFace is already running.")
@@ -223,6 +236,28 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     _print_urls(config.services, config.log_path)
 
 
+def _ensure_adoptable(state: dict[str, object] | None) -> None:
+    """Refuse to adopt a healthy stack that another checkout (or install) owns.
+
+    INVARIANT (OME-1001): two worktrees must not silently share one stack — adopting
+    another checkout's services would run benchmarks against that branch's code and
+    produce results that look right but aren't.
+    """
+
+    recorded = state.get("source") if state else None
+    if not isinstance(recorded, dict):
+        # Pre-OME-1001 state carries no source record; there is no identity to compare.
+        return
+    ours = runtime_source.state_record(runtime_source.resolve_source(os.environ))
+    if recorded == dict(ours):
+        return
+    owner = recorded.get("root") or recorded.get("mode") or "unknown source"
+    raise RuntimeError(
+        f"the running stack is owned by another source ({owner}); "
+        "run `screamingface down` to stop it first"
+    )
+
+
 def _serve(config: RuntimeConfig, token: str, *, foreground: bool) -> None:
     from screamingface._runtime.runtime_logging import capture_runtime_log
 
@@ -247,6 +282,7 @@ def _serve_logged(config: RuntimeConfig, token: str) -> None:
         "control_url": f"http://127.0.0.1:{control.server_port}",
         "services": config.services,
         "log_path": str(config.log_path),
+        "source": runtime_source.state_record(runtime_source.resolve_source(os.environ)),
     }
     _write_state(config, state)
     control_thread = threading.Thread(target=control.serve_forever, daemon=True)
@@ -291,6 +327,10 @@ def _down(config: RuntimeConfig) -> None:
 
 def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: bool) -> None:
     state = _read_state(config)
+    # INVARIANT: restart = down + up, so it must refuse a foreign stack the same way
+    # `up` does — otherwise it silently replaces another checkout's running services.
+    if state and _verify_owner(state):
+        _ensure_adoptable(state)
     if state:
         services = _state_services(state)
         stored = {name: _url_port(url) for name, url in services.items()}
@@ -434,6 +474,11 @@ def _prepare(
     require_runtime_extra()
     selected = _BENCHMARKS if all_benchmarks else (benchmark,)
     config.assets_dir.mkdir(parents=True, exist_ok=True)
+    # WHY: the preparer child is a fresh interpreter with no sys.path activation of
+    # its own — PYTHONPATH is how a checkout's live engine code reaches it.
+    child_env = runtime_source.child_environment(
+        runtime_source.resolve_source(os.environ), os.environ
+    )
     for name in selected:
         destination = config.assets_dir / str(name)
         if not force and _benchmark_status(config, str(name)) == "prepared":
@@ -451,6 +496,7 @@ def _prepare(
                     str(destination),
                 ],
                 check=True,
+                env=child_env,
             )
             files = _validate_benchmark_output(str(name), destination)
             _write_json_atomic(
@@ -612,6 +658,10 @@ def _validate_benchmark_output(name: str, destination: Path) -> list[str]:
         "draco": ("cases.json", "criteria", "rubrics"),
         "ifeval": ("cases.json", "instructions", "nltk_data"),
         "healthbench": ("cases.json", "rubrics"),
+        # WHY no reference directory here: GDPval's reference documents are flattened to text at
+        # build time and baked INTO cases.json, so the downloaded originals are a build cache
+        # rather than a served asset.
+        "gdpval": ("cases.json", "rubrics"),
     }[name]
     missing = [relative for relative in required if not (destination / relative).exists()]
     if missing:
