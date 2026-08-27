@@ -32,9 +32,13 @@ class DiscoveryError(Exception):
     # body or raw exception text is attached, so it is safe to surface.
     """
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, status: int | None = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        # OME-972: the upstream HTTP status for ``bad_status`` failures ONLY — an
+        # integer class marker (401 auth onset vs 429 vs 5xx outage) that log
+        # lines may render. Never a body, never text; None for every other reason.
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -134,7 +138,7 @@ async def fetch_discovery_json(
 
     # A redirect (3xx) is never followed: any non-200 is a failure, not a hop.
     if response.status != 200:
-        raise DiscoveryError("bad_status")
+        raise DiscoveryError("bad_status", status=response.status)
     if response.content_type.split(";")[0].strip().lower() != "application/json":
         raise DiscoveryError("bad_content_type")
     if len(response.body.encode("utf-8")) > limits.max_bytes:

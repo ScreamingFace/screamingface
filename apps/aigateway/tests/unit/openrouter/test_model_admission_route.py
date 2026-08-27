@@ -53,7 +53,11 @@ def openrouter_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         plugin_module.PLUGIN,
         "settings",
-        OpenRouterPluginSettings(enabled=True, default_models=[_SEED]),
+        # OME-972 setup-only amendment: this suite exercises ADMISSION and its
+        # canned two-document client; live listing discovery is not under test,
+        # and leaving it on made /v1/models dial an unrouted catalog URL whose
+        # KeyError was silently absorbed into a seed fallback. Assertions untouched.
+        OpenRouterPluginSettings(enabled=True, live_models=False, default_models=[_SEED]),
     )
 
 

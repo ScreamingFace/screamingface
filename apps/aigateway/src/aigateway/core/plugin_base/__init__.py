@@ -18,7 +18,7 @@ single ``plugin_base`` module. Import from here, never from a half.
 """
 
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass, GlobalCacheProjection
-from ._contract import ProviderPluginBase
+from ._contract import ModelDiscoverySource, ProviderPluginBase
 from ._ports import (
     CredentialStrategy,
     ModelAdmission,
@@ -47,6 +47,7 @@ __all__ = [
     "CredentialStrategy",
     "GlobalCacheProjection",
     "ModelAdmission",
+    "ModelDiscoverySource",
     "ModelEntry",
     "OAuthCodeExchangeRequest",
     "OAuthConfig",

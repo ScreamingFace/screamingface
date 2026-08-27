@@ -10,9 +10,10 @@ INVARIANT (evidence, never authorization): a snapshot returned here NEVER enable
 a parameter — only a provider-local rule does. Callers overlay this evidence onto
 rules; on its own it authorizes nothing.
 
-INVARIANT (off the critical path): only the detailed-contract route consumes this.
-Chat dispatch holds no reference to it, so no chat request can ever wait on a
-network fetch.
+INVARIANT (off the critical path): only listing/contract surfaces consume this —
+the detailed-contract route's per-model observations, model admission (OME-879),
+and the live model catalog (OME-972) via the shared client/limits. Chat dispatch
+holds no reference to it, so no chat request can ever wait on a network fetch.
 
 INVARIANT (no secrets, no caller URLs): ``observe`` takes a model id and nothing
 else. The URL comes from the provider's own fixed allowlisted constants, and no

@@ -122,6 +122,13 @@ class _RoutingClient(DiscoveryHttpClient):
         self.seen.append((url, timeout_s, max_bytes))
         if self._fail == url:
             raise DiscoveryError("unreachable")
+        if url not in self._bodies:
+            # OME-972: LOUD on an unrouted URL. A KeyError here is caught by the
+            # model catalog's foreign-exception guard and converted into a quiet
+            # seed fallback, so a suite that accidentally starts dialing a new
+            # document (e.g. the live model catalog) would keep passing for the
+            # wrong reason. AssertionError propagates through every guard.
+            raise AssertionError(f"canned client has no body for {url!r} — unexpected dial")
         return RawResponse(
             status=200, content_type="application/json", body=json.dumps(self._bodies[url])
         )

@@ -200,3 +200,29 @@ def test_valid_upstream_model_ids(upstream: str) -> None:
 )
 def test_invalid_upstream_model_ids(upstream: object) -> None:
     assert is_valid_upstream_model_id(upstream) is False
+
+
+# OME-972 correction pass: `:online` is refused at CONFIG time, not just dispatch.
+
+
+def test_online_variant_is_rejected_at_configuration() -> None:
+    # INVARIANT: what the gateway lists, it must be able to dispatch. A
+    # `:online` slug is published by every listing path (explicit operator
+    # config survives every healthy snapshot) while `prepare_chat_body` refuses
+    # it with `unsupported_model_variant` — so configuring one creates a model
+    # that can only ever fail. Fail fast at startup instead.
+    with pytest.raises(ValidationError):
+        OpenRouterPluginSettings(default_models=["openrouter/openai/gpt-5:online"])
+
+
+def test_online_variant_is_rejected_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AIGW_OPENROUTER_DEFAULT_MODELS", '["openrouter/openai/gpt-5:online"]')
+    with pytest.raises(ValidationError):
+        OpenRouterPluginSettings()
+
+
+@pytest.mark.parametrize("slug", ["openrouter/openai/gpt-5:free", "openrouter/a/b:batch"])
+def test_other_colon_variants_remain_configurable(slug: str) -> None:
+    # Scope guard: only `:online` is refused. Every other variant dispatch
+    # already accepts stays explicitly configurable (and listable).
+    assert OpenRouterPluginSettings(default_models=[slug]).default_models == [slug]
