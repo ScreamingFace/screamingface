@@ -343,7 +343,20 @@ def body_strings(value: Any) -> Iterator[str]:
 
 
 def _contains(strings: Sequence[str], needle: str) -> bool:
-    return any(needle in text for text in strings)
+    """True when a recorded text is embedded in the body — verbatim OR JSON-escaped.
+
+    WHY the escaped forms: url4 renders a struct ``q=`` by ``json.dumps``-ing the
+    whole object into ONE string (``url4.dag.nodes.StructNode``), so upstream
+    answers reach downstream prompts spelled ``\\n`` / ``\\"`` / ``\\uXXXX``. Both
+    ``ensure_ascii`` spellings are tried because the renderer's choice is not this
+    module's to know.
+    """
+    spellings = [needle]
+    for ensure_ascii in (True, False):
+        escaped = json.dumps(needle, ensure_ascii=ensure_ascii)[1:-1]
+        if escaped != needle:
+            spellings.append(escaped)
+    return any(spelling in text for text in strings for spelling in spellings)
 
 
 def _single_case(tape: ReportTape, matched: list[CaseTape], body_head: str, how: str) -> CaseTape:

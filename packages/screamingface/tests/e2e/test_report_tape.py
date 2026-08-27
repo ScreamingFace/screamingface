@@ -356,6 +356,32 @@ def test_match_body_serves_a_synthesis_request_by_member_outputs() -> None:
     assert match.content == "synthesis for case 2"
 
 
+def test_match_body_serves_a_synthesis_request_with_json_escaped_answers() -> None:
+    # INVARIANT: url4 renders a struct q= by json.dumps-ing the whole object into
+    # ONE string (url4.dag.nodes.StructNode), so member answers reach the synthesis
+    # prompt JSON-ESCAPED — newlines as \n, quotes as \", non-ASCII as \uXXXX.
+    # Matching must find the recorded text in that spelling too.
+    cases = [
+        _scored_case(1, "question one", checks=[_check("1", "l1", "v1")]),
+        _scored_case(2, "question two", checks=[_check("1", "l1", "v2")]),
+    ]
+    cases[0]["operations"][0]["output"] = 'line one\nline "two" — it’s tricky'
+    tape = parse_report(_report(cases))
+    rendered_struct = json.dumps(
+        {
+            "input": "…",
+            "outputs": {
+                "member_1": 'line one\nline "two" — it’s tricky',
+                "member_2": "beta answer 1",
+            },
+        }
+    )
+    match = match_body(tape, _body(_SYNTH, f"Produce the final answer.\n\n{rendered_struct}"))
+    assert isinstance(match, BodyMatch)
+    assert match.case_id == "1"
+    assert match.content == "synthesis for case 1"
+
+
 def test_match_body_serves_a_judge_request_case_first_then_criterion() -> None:
     # INVARIANT: the criterion label repeats across cases (real rubrics reuse
     # criteria) — the case is pinned by the synthesized answer FIRST, and only that

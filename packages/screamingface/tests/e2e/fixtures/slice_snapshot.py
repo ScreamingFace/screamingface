@@ -1204,6 +1204,21 @@ def _splice_matched(
     )
 
 
+def _match_or_dump(tape: Any, body: dict[str, Any], work_dir: Path) -> Any:
+    """``match_body``, but a refusal first dumps the FULL body beside the logs —
+    the error's 120-char head is not enough to see HOW a body embeds (or fails to
+    embed) the recorded texts."""
+    from report_tape import match_body
+
+    try:
+        return match_body(tape, body)
+    except ValueError:
+        dump_path = work_dir / "unmatched-body.json"
+        dump_path.write_text(json.dumps(body, indent=2))
+        print(f"[match] unmatched body dumped → {dump_path}", flush=True)
+        raise
+
+
 def _capture_splice_rounds(
     engine_url: str, gateway_url: str, proxy: _CaptureProxy, tape: Any, args: argparse.Namespace
 ) -> None:
@@ -1216,7 +1231,7 @@ def _capture_splice_rounds(
     answers), so each round unlocks the next level. Convergence = a pass whose
     misses are all deliberate failed-case holes (or none at all).
     """
-    from report_tape import BodySkip, match_body
+    from report_tape import BodySkip
 
     candidate = _fusion_candidate(tape)
     served: set[str] = set()
@@ -1231,7 +1246,7 @@ def _capture_splice_rounds(
             return
         matches: list[tuple[str, Any, dict[str, Any]]] = []
         for fingerprint, body in missed.items():
-            outcome = match_body(tape, body)
+            outcome = _match_or_dump(tape, body, args.work_dir)
             if isinstance(outcome, BodySkip):
                 # The report recorded nothing for this case — the hole is the point:
                 # the verified replay must fail it exactly like the paid run did.

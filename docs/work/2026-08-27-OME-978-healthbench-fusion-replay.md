@@ -99,6 +99,14 @@ the OME-978 Linear description (rewritten 2026-08-27).
     by `build_candidate` + new tests pinning both branches.
   - Worktree venv needed `uv sync --extra notebook` for pyright (ipywidgets) —
     environment, not code.
-  - The bless run itself (P3, `just e2e-bless-report healthbench-worst30
-    <report.json>`) is an owner-run step: needs docker + prepared assets + the
-    owner-held report; not executed in this unit.
+  - The bless run itself (P3) WAS executed in this unit ($0, keyless, local
+    docker): `just e2e-bless-report healthbench-worst30 <owner-held report>`.
+    Run 1 failed loudly at the synthesis level — url4 renders a struct `q=` by
+    json.dumps-ing the whole object into ONE string (`url4.dag.nodes.StructNode`),
+    so member answers reach downstream prompts JSON-escaped and verbatim
+    containment could not see them. Fixed test-first (`_contains` now also tries
+    both `ensure_ascii` escaped spellings); a full-body dump on unmatched bodies
+    was added for diagnosability. Run 2 converged in 4 rounds (372 member + 124
+    synthesis + 268 judge rows), verify reproduced the report exactly
+    (score −0.091, coverage 0.7898, 124 scored / 33 failed, 19 s), fixtures
+    written: snapshot 0.90 MB / 764 rows + manifest + fusion golden.
