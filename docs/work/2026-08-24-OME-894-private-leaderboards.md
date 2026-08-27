@@ -1268,3 +1268,23 @@ is unexecuted.
 - `OME-909` is still the missing half of the story: a participant now reliably *sees* their own
   row, including one measured against another revision, but nothing yet tells them why it would
   not rank.
+
+### Round 27 — correcting what was published, not just what was coded
+
+The persist-path comment still read "the tests cannot show it". That stopped being true at
+`00945aac`, when `test_the_persist_path_really_locks_the_row` began rendering the query's SQL on
+the asyncpg dialect. Corrected in place.
+
+The same claim is in two published artefacts — the PR description and review reply
+`5435919316` — and both were written while the lock was not being taken at all. A wrong statement
+that has been *sent* is not fixed by fixing the code it described; it is fixed by saying so where
+it was said. Both updated this round.
+
+Two further corrections carried into the description:
+
+- **The marker column.** The description argued a marker column "would have fixed that case and
+  not the private one, and would carry a schema change forever to serve one rollout". `0010` adds
+  exactly that column. The argument was about the *purge* and it remains right about the purge —
+  it was wrong as a general claim about provenance, which is what the description implied.
+- **The net line count.** "Net −279 lines" described the purge deletion alone and was never the
+  PR's net. Replaced with what the diff actually reports.

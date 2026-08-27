@@ -824,10 +824,11 @@ class ScoreStore:
         try:
             async with in_transaction() as connection:
                 # Prevention, on PostgreSQL: the lock is held until this transaction commits, so a
-                # concurrent flip must wait for the insert rather than racing it. Tortoise no-ops
-                # `select_for_update()` on SQLite, so the suite exercises the revalidation and
-                # PostgreSQL is what the lock is for — said plainly because the tests cannot show
-                # it (review of PR #719).
+                # concurrent flip must wait for the insert rather than racing it. SQLite does not
+                # implement the lock, so the suite exercises the revalidation behaviourally and
+                # `test_the_persist_path_really_locks_the_row` renders THIS query's SQL on the
+                # asyncpg dialect to prove `FOR UPDATE` is actually emitted. That check exists
+                # because it once was not, unnoticed (review of PR #719).
                 await self._revalidate_visibility(
                     submission.benchmark_id, per_submitter, connection=connection, lock=True
                 )
