@@ -48,7 +48,7 @@ with no remediation. `doctor` shares the guard and reports the broken state as h
 - **Actual files:** `src/screamingface/_runtime/server.py`,
   `src/screamingface/_runtime/cli.py`, `README.md`, `tests/test_runtime_cli.py` (all under
   `packages/screamingface/`), plus the four SDLC docs. As planned.
-- **Commits:** see `git log origin/main..HEAD` on `OME-1036-runtime-extra-preflight`.
+- **Commits:** `7a55fe3b` — fix(screamingface): detect a missing [runtime] extra before the local stack boots
 - **Gates:** ruff check ✓ · ruff format ✓ · pyright 0 errors · pytest 1272 passed /
   17 skipped, coverage 95.02% (floor 95) · check_notebooks ✓ · uv build ✓ ·
   check_distribution ✓
