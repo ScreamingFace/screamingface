@@ -80,6 +80,9 @@ def _unsafe_environment_error() -> HTTPException:
 class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
     custom_llm_provider = "openai"
     provider_display_name = "OpenAI"
+    provider_description = "GPT and reasoning models direct from OpenAI"
+    provider_color = "#53bea9"
+    provider_sort_order = 110
     settings_cls = OpenAIPluginSettings
 
     def register_models(self) -> list[ModelEntry]:

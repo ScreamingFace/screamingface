@@ -72,6 +72,9 @@ def _api_key_headers(api_key: str) -> dict[str, str]:
 class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
     custom_llm_provider = "anthropic"
     provider_display_name = "Anthropic"
+    provider_description = "Claude models direct from Anthropic"
+    provider_color = "#ca492c"
+    provider_sort_order = 100
     settings_cls = AnthropicPluginSettings
 
     def register_models(self) -> list[ModelEntry]:

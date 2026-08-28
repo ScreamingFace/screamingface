@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
 AuthMethod = Literal["api_key", "oauth"]
+ProviderKind = Literal["local", "session", "api", "hub"]
+ProviderGroup = Literal["local_and_sessions", "providers", "hubs"]
 ConnectionStatus = Literal[
     "not_connected",
     "pending",
@@ -26,6 +28,22 @@ class Caller:
     """Verified identity headers associated with one Engine request."""
 
     identity: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class Provider:
+    """Provider catalog metadata owned by the Gateway plugin."""
+
+    id: str
+    display_name: str
+    description: str
+    kind: ProviderKind
+    group: ProviderGroup
+    group_display_name: str
+    color: str
+    sort_order: int
+    connection_required: bool
+    auth_methods: tuple[AuthMethod, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +154,13 @@ class ConnectionTimeout(ConnectionError):
 
 
 @runtime_checkable
+class ProviderCatalog(Protocol):
+    """Provider discovery required by the Engine REST surface."""
+
+    async def providers(self, caller: Caller) -> tuple[Provider, ...]: ...
+
+
+@runtime_checkable
 class Connections(Protocol):
     """Provider-connection operations required by the Engine REST surface."""
 
@@ -167,4 +192,8 @@ __all__ = [
     "ConnectionUnavailable",
     "Connections",
     "OAuthAuthorization",
+    "Provider",
+    "ProviderCatalog",
+    "ProviderGroup",
+    "ProviderKind",
 ]

@@ -21,6 +21,10 @@ from screamingface_engine.connections.port import (
     Connections,
     ConnectionStatus,
     OAuthAuthorization,
+    Provider,
+    ProviderCatalog,
+    ProviderGroup,
+    ProviderKind,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,6 +86,33 @@ class ConnectionListResponse(BaseModel):
     data: tuple[ConnectionResponse, ...]
 
 
+class ProviderResponse(BaseModel):
+    """Presentation and connection capabilities for one model provider."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    object: Literal["provider"] = "provider"
+    id: str
+    display_name: str
+    description: str
+    kind: ProviderKind
+    group: ProviderGroup
+    group_display_name: str
+    color: str
+    sort_order: int
+    connection_required: bool
+    auth_methods: tuple[AuthMethod, ...]
+
+
+class ProviderListResponse(BaseModel):
+    """The complete provider catalog exposed by this Engine."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    object: Literal["list"] = "list"
+    data: tuple[ProviderResponse, ...]
+
+
 class OAuthAuthorizationResponse(BaseModel):
     """The public browser authorization fields returned to the Client."""
 
@@ -127,6 +158,21 @@ def _serialize(connection: Connection) -> ConnectionResponse:
     )
 
 
+def _serialize_provider(provider: Provider) -> ProviderResponse:
+    return ProviderResponse(
+        id=provider.id,
+        display_name=provider.display_name,
+        description=provider.description,
+        kind=provider.kind,
+        group=provider.group,
+        group_display_name=provider.group_display_name,
+        color=provider.color,
+        sort_order=provider.sort_order,
+        connection_required=provider.connection_required,
+        auth_methods=provider.auth_methods,
+    )
+
+
 def _serialize_oauth(authorization: OAuthAuthorization) -> OAuthAuthorizationResponse:
     return OAuthAuthorizationResponse(
         provider=authorization.provider,
@@ -150,6 +196,17 @@ def _service(request: Request) -> Connections:
     return service
 
 
+def _provider_service(request: Request) -> ProviderCatalog:
+    service = getattr(request.app.state, "provider_catalog", None)
+    if service is None:
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the provider catalog is not configured on this Engine",
+        )
+    return service
+
+
 def _problem(exc: ConnectionError) -> ProblemException:
     logger.info("provider connection request failed: %s", type(exc).__name__)
     return ProblemException(status=exc.status, title=exc.title, detail=exc.detail)
@@ -158,6 +215,22 @@ def _problem(exc: ConnectionError) -> ProblemException:
 def _mark_private(response: Response) -> None:
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["Vary"] = "X-User-Email"
+
+
+@router.get(
+    "/v1/providers",
+    summary="List model providers",
+    description="Return provider-owned metadata and connection capabilities.",
+    response_model=ProviderListResponse,
+    responses=_error_responses(),
+)
+async def list_providers(request: Request, response: Response) -> ProviderListResponse:
+    try:
+        rows = await _provider_service(request).providers(_caller(request))
+    except ConnectionError as exc:
+        raise _problem(exc) from exc
+    _mark_private(response)
+    return ProviderListResponse(data=tuple(_serialize_provider(row) for row in rows))
 
 
 @router.get(

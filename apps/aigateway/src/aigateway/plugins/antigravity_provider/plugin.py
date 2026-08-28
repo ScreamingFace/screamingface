@@ -78,6 +78,12 @@ def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
 class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
     custom_llm_provider = "antigravity"
     provider_display_name = "Antigravity"
+    provider_kind = "session"
+    provider_group = "local_and_sessions"
+    provider_group_display_name = "Local & Sessions"
+    provider_description = "Models available through your Google Antigravity account"
+    provider_color = "#6976ae"
+    provider_sort_order = 40
     settings_cls = AntigravityPluginSettings
 
     def credential_service_provider(self) -> str:

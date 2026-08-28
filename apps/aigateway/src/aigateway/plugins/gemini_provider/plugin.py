@@ -99,6 +99,12 @@ def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
 class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
     custom_llm_provider = "gemini-cli"
     provider_display_name = "Gemini CLI"
+    provider_kind = "session"
+    provider_group = "local_and_sessions"
+    provider_group_display_name = "Local & Sessions"
+    provider_description = "Gemini models through your Google account or API key"
+    provider_color = "#4392c5"
+    provider_sort_order = 30
     settings_cls = GeminiPluginSettings
 
     def credential_service_provider(self) -> str:

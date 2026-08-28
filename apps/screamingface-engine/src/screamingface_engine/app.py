@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
@@ -32,7 +33,7 @@ from screamingface_engine.catalog.cache import CatalogService
 from screamingface_engine.catalog.port import ModelParameterSource
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
-from screamingface_engine.connections.port import Connections
+from screamingface_engine.connections.port import Connections, ProviderCatalog
 from screamingface_engine.metrics import (
     MetricsMiddleware,
     build_metrics,
@@ -87,6 +88,7 @@ def create_app(
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
+    provider_catalog: ProviderCatalog | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
 ) -> FastAPI:
     """Build the App instance.
@@ -102,6 +104,7 @@ def create_app(
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
     app.state.connections = connections
+    app.state.provider_catalog = provider_catalog if provider_catalog is not None else connections
     app.state.benchmarks = benchmarks
     app.state.metrics = build_metrics()
     # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
@@ -121,8 +124,7 @@ def create_app(
     _install_artifact_sweeper(app, artifact_store, settings)
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
-    register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
-    app.add_middleware(MetricsMiddleware)
+    _install_http_middleware(app)
     registry = ConnectionRegistry()
     app.state.registry = registry
     app.state.interest = interest if interest is not None else registry
@@ -136,6 +138,20 @@ def create_app(
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
     customize_openapi(app)
     return app
+
+
+def _install_http_middleware(app: FastAPI) -> None:
+    # Re-read app.state.catalog on every scrape rather than capturing the value built at startup.
+    register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
+    # Tauri pages have an application origin even though the Engine is loopback. Allow only
+    # Tauri's platform origins so the desktop UI can call the public Engine API directly.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"],
+        allow_methods=["GET", "PUT", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-User-Email", "X-User-Id"],
+    )
+    app.add_middleware(MetricsMiddleware)
 
 
 # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.

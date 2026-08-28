@@ -24,6 +24,9 @@ from screamingface_engine.connections.port import (
     ConnectionTimeout,
     ConnectionUnavailable,
     OAuthAuthorization,
+    Provider,
+    ProviderGroup,
+    ProviderKind,
 )
 from screamingface_engine.connections.profile_availability import decode_profile_statuses
 from screamingface_engine.connections.provider_id import is_provider_id
@@ -32,6 +35,7 @@ from screamingface_engine.connections.upstream_errors import raise_for_status
 logger = logging.getLogger(__name__)
 
 _PROVIDERS_PATH = "/v1/providers"
+_PROVIDER_CATALOG_PATH = "/v1/provider-catalog"
 _CONNECTIONS_PATH = "/v1/oauth/connections"
 _PROFILES_PATH = "/v1/auth/profiles"
 _API_KEY_PATH = f"{_CONNECTIONS_PATH}/api-key"
@@ -43,7 +47,7 @@ ListingSource = Literal["connections", "profiles"]
 
 
 @dataclass(frozen=True, slots=True)
-class _Provider:
+class _ConnectionProvider:
     id: str
     display_name: str
     auth_methods: tuple[AuthMethod, ...]
@@ -75,7 +79,7 @@ class AigatewayConnections:
         self._listing_source = listing_source
 
     async def list(self, caller: Caller) -> tuple[Connection, ...]:
-        providers = await self._providers(caller)
+        providers = await self._connection_providers(caller)
         if self._listing_source == "profiles":
             statuses = await self._profile_statuses(caller)
             return tuple(
@@ -92,7 +96,7 @@ class AigatewayConnections:
 
     async def connect(self, caller: Caller, provider: str, api_key: str) -> Connection:
         self._require_mutable()
-        selected_provider = _provider(await self._providers(caller), provider)
+        selected_provider = _provider(await self._connection_providers(caller), provider)
         if "api_key" not in selected_provider.auth_methods:
             raise ConnectionMethodUnsupported()
         rows = await self._rows(caller, provider=provider)
@@ -127,7 +131,7 @@ class AigatewayConnections:
 
     async def start_oauth(self, caller: Caller, provider: str) -> OAuthAuthorization:
         self._require_mutable()
-        selected_provider = _provider(await self._providers(caller), provider)
+        selected_provider = _provider(await self._connection_providers(caller), provider)
         if "oauth" not in selected_provider.auth_methods:
             raise ConnectionMethodUnsupported()
         rows = await self._rows(caller, provider=provider)
@@ -144,7 +148,7 @@ class AigatewayConnections:
 
     async def disconnect(self, caller: Caller, provider: str) -> Connection:
         self._require_mutable()
-        selected_provider = _provider(await self._providers(caller), provider)
+        selected_provider = _provider(await self._connection_providers(caller), provider)
         rows = await self._rows(caller, provider=provider)
         selected = _select(rows, provider)
         if selected is None:
@@ -172,14 +176,27 @@ class AigatewayConnections:
         if self._listing_source == "profiles":
             raise ConnectionMethodUnsupported()
 
-    async def _providers(self, caller: Caller) -> tuple[_Provider, ...]:
+    async def providers(self, caller: Caller) -> tuple[Provider, ...]:
+        response = await self._request("GET", _PROVIDER_CATALOG_PATH, caller)
+        if response.status_code != 200:
+            raise ConnectionBadResponse()
+        body = _decode_object(response)
+        if body.get("object") != "list" or not isinstance(body.get("data"), list):
+            raise ConnectionBadResponse()
+        providers = tuple(_validate_catalog_provider(row) for row in body["data"])
+        ids = tuple(provider.id for provider in providers)
+        if len(ids) != len(set(ids)):
+            raise ConnectionBadResponse()
+        return providers
+
+    async def _connection_providers(self, caller: Caller) -> tuple[_ConnectionProvider, ...]:
         response = await self._request("GET", _PROVIDERS_PATH, caller)
         if response.status_code != 200:
             raise ConnectionBadResponse()
         body = _decode_object(response)
         if body.get("object") != "list" or not isinstance(body.get("data"), list):
             raise ConnectionBadResponse()
-        providers = tuple(_validate_provider(row) for row in body["data"])
+        providers = tuple(_validate_connection_provider(row) for row in body["data"])
         ids = tuple(provider.id for provider in providers)
         if len(ids) != len(set(ids)):
             raise ConnectionBadResponse()
@@ -240,7 +257,7 @@ class AigatewayConnections:
         return response
 
 
-def _provider(providers: tuple[_Provider, ...], provider: str) -> _Provider:
+def _provider(providers: tuple[_ConnectionProvider, ...], provider: str) -> _ConnectionProvider:
     selected = next((item for item in providers if item.id == provider), None)
     if selected is None:
         raise ConnectionNotFound()
@@ -256,7 +273,7 @@ def _select(rows: list[_ConnectionRow], provider: str) -> _ConnectionRow | None:
     return None
 
 
-def _disconnected(provider: _Provider) -> Connection:
+def _disconnected(provider: _ConnectionProvider) -> Connection:
     return Connection(
         provider=provider.id,
         display_name=provider.display_name,
@@ -266,7 +283,7 @@ def _disconnected(provider: _Provider) -> Connection:
 
 
 def _profile_connection(
-    provider: _Provider,
+    provider: _ConnectionProvider,
     status: ConnectionStatus,
 ) -> Connection:
     return Connection(
@@ -277,7 +294,7 @@ def _profile_connection(
     )
 
 
-def _public(row: _ConnectionRow, provider: _Provider) -> Connection:
+def _public(row: _ConnectionRow, provider: _ConnectionProvider) -> Connection:
     if row.provider != provider.id:
         raise ConnectionBadResponse()
     status = {
@@ -302,7 +319,7 @@ def _public(row: _ConnectionRow, provider: _Provider) -> Connection:
     )
 
 
-def _validate_provider(value: object) -> _Provider:
+def _validate_connection_provider(value: object) -> _ConnectionProvider:
     if not isinstance(value, dict) or set(value) != {
         "object",
         "id",
@@ -325,9 +342,76 @@ def _validate_provider(value: object) -> _Provider:
         set(methods)
     ):
         raise ConnectionBadResponse()
-    return _Provider(
+    return _ConnectionProvider(
         id=value["id"],
         display_name=value["display_name"],
+        auth_methods=cast(tuple[AuthMethod, ...], tuple(methods)),
+    )
+
+
+def _validate_catalog_provider(value: object) -> Provider:
+    if not isinstance(value, dict) or set(value) != {
+        "object",
+        "id",
+        "display_name",
+        "description",
+        "kind",
+        "group",
+        "group_display_name",
+        "color",
+        "sort_order",
+        "connection_required",
+        "auth_methods",
+    }:
+        raise ConnectionBadResponse()
+    methods = value.get("auth_methods")
+    if (
+        value.get("object") != "provider"
+        or not is_provider_id(value.get("id"))
+        or not isinstance(value.get("display_name"), str)
+        or not value["display_name"].strip()
+        or not isinstance(methods, list)
+        or any(not isinstance(method, str) for method in methods)
+    ):
+        raise ConnectionBadResponse()
+    if any(method not in {"api_key", "oauth"} for method in methods) or len(methods) != len(
+        set(methods)
+    ):
+        raise ConnectionBadResponse()
+    kind = value.get("kind")
+    group = value.get("group")
+    description = value.get("description")
+    group_display_name = value.get("group_display_name")
+    color = value.get("color")
+    sort_order = value.get("sort_order")
+    connection_required = value.get("connection_required")
+    if (
+        kind not in {"local", "session", "api", "hub"}
+        or group not in {"local_and_sessions", "providers", "hubs"}
+        or not isinstance(description, str)
+        or not isinstance(group_display_name, str)
+        or not group_display_name.strip()
+        or not isinstance(color, str)
+        or len(color) != 7
+        or not color.startswith("#")
+        or any(character not in "0123456789abcdefABCDEF" for character in color[1:])
+        or isinstance(sort_order, bool)
+        or not isinstance(sort_order, int)
+        or sort_order < 0
+        or not isinstance(connection_required, bool)
+        or connection_required != bool(methods)
+    ):
+        raise ConnectionBadResponse()
+    return Provider(
+        id=value["id"],
+        display_name=value["display_name"],
+        description=description,
+        kind=cast(ProviderKind, kind),
+        group=cast(ProviderGroup, group),
+        group_display_name=group_display_name,
+        color=color,
+        sort_order=sort_order,
+        connection_required=connection_required,
         auth_methods=cast(tuple[AuthMethod, ...], tuple(methods)),
     )
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 from ..api_key_validation import ApiKeyValidator
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
@@ -52,6 +52,12 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
 
     custom_llm_provider: str
     provider_display_name: str
+    provider_kind: Literal["local", "session", "api", "hub"] = "api"
+    provider_group: Literal["local_and_sessions", "providers", "hubs"] = "providers"
+    provider_group_display_name: str = "Providers"
+    provider_description: str = ""
+    provider_color: str = "#64748b"
+    provider_sort_order: int = 1000
     settings_cls: ClassVar[type[PluginSettings]] = PluginSettings
 
     def __init__(self, settings: TSettings | None = None) -> None:

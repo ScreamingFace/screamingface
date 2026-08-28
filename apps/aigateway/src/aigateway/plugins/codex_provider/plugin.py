@@ -50,6 +50,12 @@ class CodexProviderPlugin(ProviderPluginBase):
     # platform API instead is a possible follow-up.
     custom_llm_provider = "codex"
     provider_display_name = "Codex"
+    provider_kind = "session"
+    provider_group = "local_and_sessions"
+    provider_group_display_name = "Local & Sessions"
+    provider_description = "Models available through your Codex account"
+    provider_color = "#256b24"
+    provider_sort_order = 20
 
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
