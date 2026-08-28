@@ -77,6 +77,7 @@ def test_complete_gateway_evidence_retains_all_exact_fields() -> None:
             "cost_usd": "0.25",
         },
         "provider_latency_ms": 60,
+        "provider_attempts": 2,
         "cache": {"hits": 0, "misses": 1, "bypasses": 0, "unknown": 0},
     }
 
@@ -301,3 +302,89 @@ def test_attempt_identity_is_retained_only_when_every_attempt_agrees() -> None:
 
 def test_empty_accounting_collection_has_no_invented_record() -> None:
     assert combine_operation_accounting([]) is None
+
+
+# FEATURE: OME-901 per-operation accounting — the attempt count is what separates
+# "this model is slow" from "this route is flaky", because `provider_latency_ms` sums
+# latency across EVERY attempt including failures. Without the count, $0.50 spent in one
+# call and $0.50 spent across five retries are byte-identical in a completed Report.
+def test_complete_evidence_retains_how_many_provider_attempts_it_took() -> None:
+    accounting = retained_operation_accounting(
+        request_model="openrouter/anthropic/claude",
+        usage=None,
+        aigw=_aigw(attempts=[_attempt(), _attempt(latency_ms=35)]),
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider_attempts == 2
+    assert accounting.model_dump()["provider_attempts"] == 2
+
+
+def test_attempts_sum_across_the_rounds_of_one_semantic_operation() -> None:
+    # A tool loop is several round trips serving ONE operation, so its attempts add up the
+    # same way its latency and tokens do.
+    combined = combine_operation_accounting(
+        [
+            retained_operation_accounting(
+                request_model="model",
+                usage=None,
+                aigw=_aigw(attempts=[_attempt(), _attempt()]),
+                cache=_cache("miss"),
+            ),
+            retained_operation_accounting(
+                request_model="model",
+                usage=None,
+                aigw=_aigw(attempts=[_attempt()]),
+                cache=_cache("miss"),
+            ),
+        ]
+    )
+
+    assert combined is not None
+    assert combined.provider_attempts == 3
+
+
+def test_a_confirmed_cache_hit_took_zero_provider_attempts() -> None:
+    # INVARIANT: a hit performs no current provider dispatch, so zero is the exact truth
+    # here — the same reason cost and latency are zero rather than null on this path.
+    accounting = retained_operation_accounting(
+        request_model="model",
+        usage={"prompt_tokens": 99, "completion_tokens": 10},
+        aigw=_aigw(),
+        cache=_cache("hit"),
+    )
+
+    assert accounting.provider_attempts == 0
+    assert accounting.provider_latency_ms == 0
+
+
+def test_attempts_the_engine_could_not_validate_are_never_counted() -> None:
+    # INVARIANT: exact-only. A list the Engine did not fully validate is not a count; a
+    # wrong count would read as a complete retry story that never happened.
+    for aigw in (
+        _aigw(capture_status="partial"),
+        _aigw(omitted_attempts=1),
+        _aigw(attempts=[_attempt(), "not-a-mapping"]),
+    ):
+        accounting = retained_operation_accounting(
+            request_model="model",
+            usage={"prompt_tokens": 99, "completion_tokens": 10},
+            aigw=aigw,
+            cache=_cache("miss"),
+        )
+
+        assert accounting.provider_attempts is None
+
+
+def test_absent_gateway_accounting_never_infers_a_single_attempt() -> None:
+    # The narrow provider-usage fallback knows tokens but nothing about dispatch, and a
+    # defaulted 1 would be a guess wearing the shape of an observation.
+    accounting = retained_operation_accounting(
+        request_model="model",
+        usage={"prompt_tokens": 12, "completion_tokens": 3},
+        aigw=None,
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider_attempts is None
+    assert accounting.usage.input_tokens == 12

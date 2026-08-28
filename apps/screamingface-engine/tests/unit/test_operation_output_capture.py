@@ -106,6 +106,7 @@ def _accounting(*, cost: str = "0.01") -> OperationAccounting:
             cost_usd=cost,
         ),
         provider_latency_ms=25,
+        provider_attempts=1,
         cache=OperationCache(hits=0, misses=1, bypasses=0, unknown=0),
     )
 

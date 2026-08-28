@@ -20,7 +20,10 @@ No `packages/url4` or AI Gateway source change. Generic `Url4Executor` remains u
 benchmark-agnostic. Candidate/root usage remains authoritative; ambiguous values remain null.
 CorrectiveLoop's nested Recipe calls remain outside exact per-operation projection in this unit:
 its outer total stays authoritative and the nested subtotal remains explicitly unattributed.
-No new timer, attempt counter, complete Candidate fingerprint, or failed-path interception ships.
+No new timer, complete Candidate fingerprint, or failed-path interception ships. The Gateway's
+own validated attempt count is retained as `provider_attempts` (owner-approved 2026-08-28 in
+review of PR #762); no Engine-side counter is introduced. The matching Client decoder field
+belongs to OME-1032 and is explicitly out of scope here.
 Provider refusals retain terminal accounting before propagation; retry identity is retained only
 when every contributing attempt agrees; malformed accounting remains fail-open and never changes a
 successful model result.

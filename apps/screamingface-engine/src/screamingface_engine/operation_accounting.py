@@ -56,6 +56,10 @@ class OperationAccounting(_StrictAccountingModel):
     response_model: str | None
     usage: OperationUsage
     provider_latency_ms: int | None = Field(ge=0)
+    # WHY a count beside the latency: `provider_latency_ms` sums EVERY attempt including
+    # failures, so a flaky route and a slow model read identically without it. It is also the
+    # difference between "this cost $0.50" and "this cost $0.50 across five retries".
+    provider_attempts: int | None = Field(ge=0)
     cache: OperationCache
 
     @field_validator("provider", "request_model", "response_model")
@@ -93,6 +97,7 @@ def combine_operation_accounting(
         response_model=_agreed(record.response_model for record in complete_records),
         usage=usage,
         provider_latency_ms=_sum_int(record.provider_latency_ms for record in complete_records),
+        provider_attempts=_sum_int(record.provider_attempts for record in complete_records),
         cache=OperationCache(
             hits=sum(record.cache.hits for record in complete_records),
             misses=sum(record.cache.misses for record in complete_records),

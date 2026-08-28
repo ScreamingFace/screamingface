@@ -214,6 +214,7 @@ async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) ->
                                         "cost_usd": None,
                                     },
                                     "provider_latency_ms": None,
+                                    "provider_attempts": None,
                                     "cache": {
                                         "hits": 0,
                                         "misses": 0,

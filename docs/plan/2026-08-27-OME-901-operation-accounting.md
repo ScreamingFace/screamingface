@@ -19,8 +19,9 @@ The owner approved this revised plan. Work lands in two ordered PRs; neither cha
    multi-call strict sums, model identity disagreement, and existing provider latency.
 3. Add the shared nullable `OperationAccounting` contract. Keep the existing payload-bearing
    `OperationCall` Candidate-local, and add a separate payload-free run record containing only
-   request identity and accounting; do not add a timer, attempt counters, or serialized request
-   identity.
+   request identity and accounting; do not add a timer or serialized request identity. The
+   Gateway's own validated attempt count IS retained (owner-approved 2026-08-28 in review of
+   PR #762, reversing this step's earlier prohibition); no Engine-side counter is introduced.
 4. Add RED recorder-scope tests for Candidate isolation, run capture, concurrent runs, nested DAG
    tasks, cancellation, and early async-generator close.
 5. Implement a ScreamingFace Engine composition-root `Executor` decorator that enters the run

@@ -28,7 +28,12 @@ operations, Cases, Checks, and grading Evidence. OME-901 retains that join for c
   The current loop discards nested operation records when it projects each isolated invocation
   into the selected output and round metadata. OME-901 reports that work as unattributed rather
   than inventing recursive ownership.
-- Reuse the Gateway's existing complete provider-attempt latency. Do not add an Engine timer and
+- Reuse the Gateway's existing complete provider-attempt latency AND its attempt count. The count
+  is owner-approved (2026-08-28, review of PR #762) and reverses this spec's earlier "no attempt
+  counter" constraint: a client-facing Report must explain a cost, not only state it, and the
+  summed latency cannot separate a slow model from a flaky route without it. It reads the same
+  already-validated `usage_accounting.attempts` array the completeness gate walks, so it adds no
+  Gateway read, timer, or transport. Do not add an Engine timer and
   do not populate member wall duration from provider time.
 - Current-run cache semantics only: a confirmed hit has zero current provider consumption and
   cost. No avoided-cost estimate is invented.
@@ -91,6 +96,7 @@ request_model
 response_model
 usage: input/output/cache-read/cache-creation/reasoning tokens and USD cost
 provider_latency_ms
+provider_attempts
 cache: hits/misses/bypasses/unknown
 ```
 

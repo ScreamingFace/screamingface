@@ -31,6 +31,7 @@ def _accounting(**overrides: Any) -> OperationAccounting:
             cost_usd="0.0123",
         ),
         "provider_latency_ms": 417,
+        "provider_attempts": 2,
         "cache": OperationCache(hits=0, misses=1, bypasses=0, unknown=0),
     }
     values.update(overrides)
@@ -75,6 +76,7 @@ def test_accounting_round_trips_on_candidate_operations_and_grading_evidence() -
             "cost_usd": "0.0123",
         },
         "provider_latency_ms": 417,
+        "provider_attempts": 2,
         "cache": {"hits": 0, "misses": 1, "bypasses": 0, "unknown": 0},
     }
     assert operation.model_dump()["accounting"] == expected

@@ -86,6 +86,7 @@ class CallAccounting:
     cost_usd: Decimal | None
     complete: bool
     provider_latency_ms: int | None
+    attempts: int | None
 
 
 def accumulate[T: (int, Decimal)](prior: T | None, new: T | None) -> T | None:
@@ -280,6 +281,9 @@ def read_aigw(aigw: object) -> CallAccounting | None:
         cost_usd=usd_from_aigw(envelope),
         complete=complete,
         provider_latency_ms=latency,
+        # INVARIANT: a count only exists where every attempt was validated. Counting a list
+        # the reader had to skip entries from would publish a retry story that never happened.
+        attempts=len(attempts) if attempts_are_well_formed else None,
     )
 
 
@@ -344,6 +348,9 @@ def retained_operation_accounting(
                 cost_usd="0",
             ),
             provider_latency_ms=0,
+            # A hit performs no current provider dispatch, so zero attempts is the exact
+            # truth on this path — the same reason cost and latency are zero, not null.
+            provider_attempts=0,
             cache=_operation_cache(cache),
         )
     reported = usage or {}
@@ -380,6 +387,7 @@ def retained_operation_accounting(
             ),
         ),
         provider_latency_ms=(call.provider_latency_ms if complete and call is not None else None),
+        provider_attempts=(call.attempts if complete and call is not None else None),
         cache=_operation_cache(cache),
     )
 
