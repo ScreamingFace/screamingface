@@ -1,0 +1,79 @@
+{{- if .Values.gateway.public.rateLimit.enabled -}}
+{{/*
+SPEC §7's EDGE RATE LIMIT, and the reason it cannot live in the process.
+
+§7 promises anonymous callers a rate limit that answers `429`, and `config.anonRate` is NOT that
+limit. Read the in-process one honestly: its key is the TCP peer, and inside the cluster the mesh
+proxy is the peer on EVERY request — so it is one bucket shared by every anonymous caller on the
+internet, sized `replicaCount × anonRate.limit`. It is a service-side spam brake. The edge is the
+only layer that can see the caller, which is why the per-caller limit is an object here rather
+than a setting there. Both are kept: this one bounds a caller, that one bounds the service.
+
+THE PUBLIC ROUTE ONLY, and never the identity route. A caller on the identity hostname has been
+verified by Cloudflare Access and re-verified by the SecurityPolicy; `gate.admit` returns early on
+identity and spends no budget, and this object matches that. It would also not work there: every
+request on that path arrives from the mesh proxy, so a per-source-address bucket would be one
+bucket for the whole portal.
+
+TWO PREREQUISITES THIS CHART CANNOT CHECK, and both fail OPEN — the route keeps serving and
+nothing here reports a problem. Check `kubectl get backendtrafficpolicy <name> -o yaml` for
+`status.conditions[].type=Accepted` after installing, and read DEPLOYMENT.md before turning this on:
+
+  1. `type: Global` needs Envoy Gateway's rate-limit service, which is a separate Redis-backed
+     deployment enabled in the `EnvoyGateway` config — not installed here, and not part of a
+     default Envoy Gateway install. Without it this policy is not Accepted and the hostname serves
+     unlimited. `type: Local` would need no infrastructure and is deliberately not offered:
+     Envoy's local rate limit does not support `Distinct` matching, so the only thing it could
+     express is one shared bucket per proxy instance — which is what `config.anonRate` already is,
+     one layer out.
+  2. The address in `sourceCIDR` is whatever Envoy computes as the downstream client address, and
+     behind Cloudflare and a cloud load balancer that is the LOAD BALANCER unless the Gateway
+     carries a `ClientTrafficPolicy` with `clientIPDetection` (an `xForwardedFor` hop count, or
+     Cloudflare's header). Without one, `Distinct` buckets every caller on the internet into a
+     handful of addresses — the exact failure this object exists to fix, wearing its own name.
+     This chart does not render that policy: `ClientTrafficPolicy` targets the GATEWAY, which this
+     chart does not install and which other services attach to.
+
+WHY THE HOSTNAME'S CLOUDFLARE RULE IS STILL WANTED (README, DEPLOYMENT.md): it is in front of
+this, sees the client before any of the above can go wrong, and costs an anonymous flood nothing
+in this cluster. The two are layers, not alternatives — which is also why `anonymous.enabled` does
+NOT require this policy. A deployment whose edge rate limit is Cloudflare's satisfies §7, and
+making this mandatory would force a Redis dependency on it.
+
+ONE RULE PER ENTRY in `sourceCIDRs`, each with its own `Distinct` bucket: separate rules is how
+Envoy Gateway expresses "per client address within this range", and a single rule with several
+selectors ANDs them, which no request can satisfy. IPv4 alone by default — see values.yaml.
+*/}}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ include "report-intake.publicRouteName" . }}-rate-limit
+  labels:
+    {{- include "report-intake.labels" . | nindent 4 }}
+    app.kubernetes.io/component: public
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      # BY NAME, from the same helper the route itself renders from, so the two cannot drift.
+      name: {{ include "report-intake.publicRouteName" . }}
+  rateLimit:
+    # The union discriminator, stated even though `global:` below implies it — an Envoy Gateway
+    # that defaulted it differently would silently pick the other kind of limit.
+    type: Global
+    global:
+      rules:
+        {{- range .Values.gateway.public.rateLimit.sourceCIDRs }}
+        - clientSelectors:
+            - sourceCIDR:
+                value: {{ . | quote }}
+                # PER CALLER, not per range. `Distinct` gives each address inside the range its
+                # own bucket; the default `Exact` would give the whole range one, which for
+                # 0.0.0.0/0 is a single global budget every caller shares — a chart that renders
+                # a rate limit and an outage the first time two people file a bug at once.
+                type: Distinct
+          limit:
+            requests: {{ $.Values.gateway.public.rateLimit.requests }}
+            unit: {{ $.Values.gateway.public.rateLimit.unit }}
+        {{- end }}
+{{- end }}

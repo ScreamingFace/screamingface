@@ -1,0 +1,67 @@
+{{- include "report-intake.validate" . -}}
+{{- if .Values.networkPolicy.enabled -}}
+{{/*
+Who may reach this service.
+
+WHAT THIS IS FOR, stated precisely, because the obvious summary is wrong. The in-process check
+against `config.allowedNetworks` authenticates a NETWORK, not a workload — and the narrowest
+honest value for it is the cluster's Pod CIDR, which is every workload there is. The Service is a
+plain ClusterIP, and the two HTTPRoute filters strip `X-User-Email` only from traffic that goes
+through the edge. So on the direct in-cluster path there is nothing between any pod and a believed
+`X-User-Email`, and a caller admitted on identity skips the Turnstile gate and the rate limit as
+well. Under `config.authMode: mesh_or_turnstile` this policy is what turns "any pod" back into
+"the mesh gateway" — which is why `report-intake.validate` refuses that mode without it, or
+without an explicit `networkPolicy.acknowledgeUnrestricted`.
+
+It is still OFF in values.yaml, where `authMode: disabled` makes the pod loopback-only and there
+is no network-authenticated identity to protect. What it is NOT is safe-when-empty:
+
+INVARIANT (no empty `from:`): a NetworkPolicy ingress rule that omits `from:` admits EVERY source.
+Rendering one because no peers happened to be configured would be an allow-all wearing the name of
+a restriction, so an empty peer set fails the render instead.
+
+INVARIANT (one element per peer): each client contributes ONE `from` element carrying BOTH its
+namespaceSelector and its podSelector. Selectors inside one element are ANDed; separate elements
+are ORed. Splitting them would mean "any pod in that namespace OR any pod with that label
+anywhere" — the whole namespace.
+
+NO EGRESS RULES, deliberately, so `policyTypes` names Ingress only. This pod dials Cloudflare's
+siteverify, whose address ranges are not knowable here; an egress list would either be an
+open `- {}` (which says nothing) or would silently make every anonymous report a 503 the first
+time Cloudflare moved an address.
+*/}}
+{{- $ns := .Values.networkPolicy.clientNamespace | default .Release.Namespace -}}
+{{- $peers := list -}}
+{{- range .Values.networkPolicy.clientPodNames -}}
+{{- $peers = append $peers (dict
+      "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $ns))
+      "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" .))) -}}
+{{- end -}}
+{{- range .Values.networkPolicy.ingressCIDRs -}}
+{{- $peers = append $peers (dict "ipBlock" (dict "cidr" .)) -}}
+{{- end -}}
+{{- range .Values.networkPolicy.allowFrom -}}
+{{- $peers = append $peers . -}}
+{{- end -}}
+{{- if not $peers -}}
+{{- fail "networkPolicy.enabled=true but no peers are declared — a NetworkPolicy ingress rule with no `from:` admits every source, which is the opposite of enabling it. Name your mesh gateway's data plane in networkPolicy.clientPodNames (and/or ingressCIDRs / allowFrom), or set networkPolicy.enabled=false and restrict this service some other way." -}}
+{{- end -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "report-intake.fullname" . }}
+  labels:
+    {{- include "report-intake.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "report-intake.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.config.port }}
+      from:
+        {{- toYaml $peers | nindent 8 }}
+{{- end }}
