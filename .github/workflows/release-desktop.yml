@@ -82,7 +82,7 @@ jobs:
         with:
           projectPath: apps/screamingface-studio
           tagName: studio-v__VERSION__
-          releaseName: ScreamingFace Desktop v__VERSION__
+          releaseName: ScreamingFace Studio v__VERSION__
           releaseBody: See the assets below to download and install this version.
           releaseDraft: true
           prerelease: false
