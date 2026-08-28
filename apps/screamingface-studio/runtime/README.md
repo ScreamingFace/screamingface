@@ -22,6 +22,7 @@ All services bind to loopback and store writable state below the data directory 
 - `screamingface-runtime.spec` collects lazy imports, package data, metadata, and native libraries
   that PyInstaller cannot discover statically.
 - `build-sidecar.sh` builds the frozen `onedir` artifact.
+- `sign-sidecar.sh` signs nested Mach-O files and then the sidecar executable for macOS.
 - `verify-sidecar.sh` checks frozen startup, the three health endpoints, Engine model discovery,
   graceful shutdown, and port release.
 
@@ -85,12 +86,21 @@ specific executable.
 
 For application builds, `src-tauri/before_build.sh` builds the sidecar and copies the complete
 `onedir` directory into `src-tauri/resources/screamingface-runtime`. Tauri then includes that
-directory as an application resource.
+directory as an application resource. On macOS, the script signs every nested Mach-O artifact
+before signing the main sidecar executable. Local builds use an ad-hoc identity; release builds use
+`APPLE_SIGNING_IDENTITY` from the imported Developer ID Application certificate.
+
+The copied `Python.framework` is removed before signing. PyInstaller includes equivalent standalone
+Python binaries in `_internal`, while dereferencing the framework's symlinks during resource copying
+produces an ambiguous bundle that Apple signing and notarization reject.
+
+The desktop release workflow passes the same identity to Tauri. Tauri signs the containing app and
+uses the configured Apple ID credentials to notarize the final macOS artifacts. Signing proceeds
+from the innermost PyInstaller libraries outward so later bundle steps do not invalidate signatures.
 
 ## Current limitations
 
 - Only the macOS arm64 frozen artifact has been verified.
 - Studio currently uses the default runtime ports.
 - Provider credentials and downloaded benchmark assets remain user data and are never bundled.
-- Release code signing, notarization, target-triple naming, and other platform builds are separate
-  release-pipeline work.
+- Target-triple naming and additional platform validation remain release-pipeline work.
