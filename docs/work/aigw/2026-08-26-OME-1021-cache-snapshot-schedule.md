@@ -129,3 +129,20 @@ artifacts. Strictly next-Friday (no catch-up), keep-all, schedule-only. Spec (ap
 - **Gates:** focused 44 passed; full non-live suite 4103 passed; ruff + format, pyright
   (0 errors), check_no_enterprise, helm lint, prod-values render, `verify_chart_wiring.py`
   47/47 (5 new refusal/external-generation checks) all green.
+
+## Review round 2 — upgrade regression (2026-08-28)
+
+- **C8 (P1) Deployment selector must not change:** round 0's C0 fix added
+  `app.kubernetes.io/component: gateway` to the gateway Deployment's `spec.selector`.
+  A Deployment selector is immutable after creation, so `helm upgrade` of any already
+  installed release would fail with `field is immutable` — a failure fresh installs and
+  render-only CI cannot see. The selector is back to name+instance (byte-identical to
+  `origin/main`); the component label stays on the Pod template, which is mutable and is
+  what the Service and both NetworkPolicies actually select on, so the C0 scoping holds
+  unchanged.
+- **Regression pin:** `verify_chart_wiring.py` now asserts the Deployment selector carries
+  NO component key, next to the existing check that the Pod template does (48/48).
+- **Gates:** helm lint (snapshot on) clean, prod-values render clean,
+  `verify_chart_wiring.py` 48/48; rendered selector confirmed equal to `origin/main`'s.
+- **Left open by the reviewer as non-blocking follow-ups:** redirect-target sanitization
+  and Garage replica hardening.

@@ -7,9 +7,13 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
+    # INVARIANT: this selector stays name+instance ONLY. `spec.selector` is immutable once the
+    # Deployment exists, so adding `component: gateway` here would make `helm upgrade` of any
+    # already-installed release fail with `field is immutable` — invisible to fresh installs
+    # and to render-only CI. The component label lives on the Pod template below, which is
+    # mutable and is what the Service and the NetworkPolicies actually select on.
     matchLabels:
       {{- include "aigateway.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: gateway
   template:
     metadata:
       labels:
@@ -18,7 +22,7 @@ spec:
         # bundled Garage (`component: garage`): selectorLabels alone match EVERY workload this
         # chart renders, so any selector that must name the gateway — the Service, the
         # NetworkPolicy — needs this label to stay scoped now that Garage Pods carry the same
-        # name/instance pair.
+        # name/instance pair. Template labels only: see the selector note above.
         app.kubernetes.io/component: gateway
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}

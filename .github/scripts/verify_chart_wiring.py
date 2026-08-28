@@ -198,6 +198,12 @@ check(
     "gateway Pods carry component: gateway — distinct from garage/migrate under shared selectorLabels",
 )
 check(
+    "app.kubernetes.io/component"
+    not in gw_deployment["spec"]["selector"]["matchLabels"],
+    "the gateway Deployment selector stays name+instance — spec.selector is immutable, so "
+    "adding the component label there breaks `helm upgrade` of an existing release",
+)
+check(
     gw_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
     == "gateway",
     "the gateway NetworkPolicy selects ONLY gateway Pods — it cannot capture Garage or migrate Pods",
