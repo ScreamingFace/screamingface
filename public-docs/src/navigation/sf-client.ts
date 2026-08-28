@@ -22,7 +22,7 @@ export const sfClientNavigation: NavEntry[] = [
     children: [
       { title: 'Installation', path: '/sf-client/installation' },
       { title: 'Your first fusion', path: '/sf-client/first-fusion' },
-      { title: 'Reproduce DRACO state-of-art', path: '/sf-client/quickstartPage' },
+      { title: 'Reproduce DRACO state-of-the-art', path: '/sf-client/quickstartPage' },
     ],
   },
   {

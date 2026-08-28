@@ -17,7 +17,7 @@ const pypiRuntime = `pip install "screamingface[runtime,notebook]"`
 
 const verify = `import screamingface as sf
 
-len(sf.__all__)   # 55`
+len(sf.__all__)   # 56`
 
 const point = `import screamingface as sf
 
@@ -40,6 +40,15 @@ ScreamingFace is ready.
 const localPoint = `sf.configure(engine_url="http://127.0.0.1:9108")`
 
 const localBoth = `sf.configure(engine_url="http://127.0.0.1:9108", scoreboard_url="http://127.0.0.1:9106")`
+
+const ports = `# either as flags, on up and restart...
+screamingface up --gateway-port 9205 --scoreboard-port 9206 --engine-port 9208
+
+# ...or as environment variables
+export SCREAMINGFACE_GATEWAY_PORT=9205
+export SCREAMINGFACE_SCOREBOARD_PORT=9206
+export SCREAMINGFACE_ENGINE_PORT=9208
+screamingface up`
 
 const tavily = `export TAVILY_API_KEY="tvly-..."
 screamingface up`
@@ -186,12 +195,28 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
     <Collapsible title="up refuses to start: a port is already in use">
       <p>
-        The stack needs 9105, 9106 and 9108, and it names the occupied ones rather than starting
-        halfway. Run <code>screamingface status</code>:
+        The stack defaults to 9105, 9106 and 9108, and it names the occupied ones rather than
+        starting halfway. Run <code>screamingface status</code>:
         <code>foreign processes occupy runtime ports</code>
-        means something unrelated holds them and you need to free it; if a previous stack is still
-        up,
+        means something unrelated holds them; if a previous stack is still up,
         <code>screamingface down</code> is enough.
+      </p>
+      <p>
+        If the occupant is something you would rather not kill, you do not have to free the port —
+        move the stack instead. Every port is overridable, either as a flag on <code>up</code> and
+        <code>restart</code>, or as an environment variable:
+      </p>
+      <CodeBlock :code="ports" language="bash" />
+      <p>
+        If you move the <em>engine</em> port, point the client at the new one:
+        <code>sf.configure(engine_url="http://127.0.0.1:9208")</code>.
+      </p>
+      <p>
+        One caveat worth knowing: the environment variables are read by <code>up</code>,
+        <code>restart</code>, <code>status</code> and <code>doctor</code> only —
+        <code>down</code> and <code>logs</code> ignore them. That is harmless in practice, because
+        those two work from the runtime state recorded in your data directory rather than from a
+        port, so they stop and tail whatever <code>up</code> started, on whichever ports it used.
       </p>
     </Collapsible>
 

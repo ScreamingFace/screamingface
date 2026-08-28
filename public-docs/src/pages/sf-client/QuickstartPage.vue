@@ -267,7 +267,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
 
 <template>
   <DocLayout
-    title="Reproduce DRACO state-of-art"
+    title="Reproduce DRACO state-of-the-art"
     description="Run a DRACO subset end to end to compare fusions with its solo models."
     :navigation="navigation"
     :version="version"
