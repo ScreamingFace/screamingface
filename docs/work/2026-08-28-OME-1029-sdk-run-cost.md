@@ -57,11 +57,27 @@ See spec §5.
 
 ## Deviations
 
-1. **Step 4 could not round-trip against Scoreboard's real schema.** `scoreboard.scores.schemas`
-   is not importable from this venv — `ModuleNotFoundError: pypika_tortoise` — because the SDK and
-   Scoreboard are separate deployables and correctly do not share dependencies. Substituted the
-   property that field actually relies on: what we emit parses back to exactly the `Decimal` we
-   started with, parametrised across the `DECIMAL(12, 6)` range.
+1. **Step 4's round-trip could not run *inside* the suite, so it was run out of band.**
+   `scoreboard.scores.schemas` is not importable from this venv — `ModuleNotFoundError:
+   pypika_tortoise` — because the SDK and Scoreboard are separate deployables and correctly do not
+   share dependencies. The in-suite test therefore asserts a weaker property: that what we emit
+   parses back to exactly the `Decimal` we started with, across the `DECIMAL(12, 6)` range. That
+   exercises `Decimal`, not Scoreboard's contract.
+
+   The contract itself **was** verified, in two processes — the SDK's venv emits via `_cost_text()`,
+   Scoreboard's venv validates via the real `ScoreSubmission`:
+
+   | emitted | `ScoreSubmission` |
+   |---|---|
+   | `1.234567` | `Decimal('1.234567')` |
+   | `0` | `Decimal('0.000000')` — distinct from null |
+   | `None` | `None` |
+   | `4E-7` | `Decimal('0.000001')` — sub-quantum rounded away from zero, per `OME-770` §2.2 |
+   | `999999.999999` | accepted; the ceiling |
+   | `1000000.0` | **rejected** — 422 on `run_cost_usd` |
+
+   Scientific notation surviving the wire was the live risk, and it holds. The rejection is covered
+   under Owner-verify.
 
 2. **The first attempt modified a shared fixture, and the append-only gate caught it.**
    `_result_costing` initially added a `usage` parameter to `_candidate_result`. `dataclasses.replace`
@@ -84,5 +100,14 @@ See spec §5.
   is only met once this ships and a client is released carrying it.
 - **`OME-923` part B stays blocked until real cost data flows**, not merely until this merges. The
   Pareto marks need populated rows.
+- **A run costing $1,000,000 or more now fails the whole submission, not just the cost field.**
+  `sf.Usage` checks only finite and non-negative, so it accepts a value `DECIMAL(12, 6)` cannot
+  store; before this change no cost was sent, so it could not fail. Scoreboard rejects it
+  deliberately — seven integer digits overflow the column on Postgres while passing on SQLite
+  (AIDEV-NOTE, `scores/schemas.py:298`). The failure is loud: `ScoreboardError`, `permanent=True`,
+  with `run_cost_usd` named. Left unguarded on purpose — a client-side ceiling would put
+  Scoreboard's contract in a second place, which D3 rejected. Aligning `sf.Usage`'s own validator
+  is the real fix and belongs on its own ticket.
+
 - **Reviewers differ from recent scoreboard work:** CODEOWNERS puts `/packages/screamingface/` on
   @IonesioJunior and @keelancj.
