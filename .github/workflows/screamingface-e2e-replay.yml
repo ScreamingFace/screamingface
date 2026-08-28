@@ -50,7 +50,7 @@ jobs:
       # the benchmark asset bundles need preparing up front, via the same
       # `screamingface prepare` a user runs (OME-1001).
       - name: Cache benchmark assets
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /tmp/screamingface-data/benchmark-assets
           key: benchmark-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine/benchmarks/**') }}
