@@ -352,7 +352,7 @@ client.close()`
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/05_draco_lite_e2e.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/05_draco_lite_e2e.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>05_draco_lite_e2e.ipynb</code></a

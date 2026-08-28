@@ -348,7 +348,7 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/07_ifeval_e2e.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/07_ifeval_e2e.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>07_ifeval_e2e.ipynb</code></a

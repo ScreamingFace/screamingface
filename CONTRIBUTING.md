@@ -18,7 +18,7 @@ This guide covers running the repo's code from source and the git workflow.
 ## Get the code
 
 ```bash
-git clone https://github.com/OpenMined/screamingface.git
+git clone https://github.com/ScreamingFace/screamingface.git
 cd screamingface
 git config core.hooksPath .githooks   # enables the pre-commit guard (blocks commits to main)
 ```

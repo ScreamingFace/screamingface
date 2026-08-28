@@ -336,7 +336,7 @@ client = sf.Client(
       </li>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/01_client_tour.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/01_client_tour.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>01_client_tour.ipynb</code></a

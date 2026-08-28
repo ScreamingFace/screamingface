@@ -136,7 +136,7 @@ None of this was in the AC. Recorded here rather than silently absorbed.
   - `87d1862f` — feat(public-docs): notebook cells, real run output and fuller Quickstart prose
   - `6ac85da8` — docs(public-docs): sharpen the Quickstart connection and report prose
   - `9a07bce5` — docs(work): bring the OME-667 ledger up to date
-- **Merged:** [#459](https://github.com/OpenMined/screamingface/pull/459) into the epic branch
+- **Merged:** [#459](https://github.com/ScreamingFace/screamingface/pull/459) into the epic branch
   `callis/ome-666-documentation-for-screamingface-client-v1` on 2026-08-05, not to `main` — the
   epic lands when `OME-666`'s remaining sub-issues are done. The shas above are the pre-rebase
   ones: the epic was later rebased onto `origin/main`, which replayed all eight with new shas and

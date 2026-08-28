@@ -13,7 +13,7 @@ unit): release-please registration of `packages/url4`, the `url4-v*` tag, `url4-
     Programming Language :: Python :: 3 / 3.12 / 3.13; Operating System :: OS Independent;
     Typing :: Typed
   - `[project.urls]`: Homepage `https://screamingface.ai`, Repository
-    `https://github.com/OpenMined/screamingface`, Issues `.../issues`
+    `https://github.com/ScreamingFace/screamingface`, Issues `.../issues`
   - Do **not** add a `License ::` classifier (PEP 639 SPDX field supersedes it).
 - **`README.md`** (new) — title, one-liner, install (`pip install url4`), a runnable
   quickstart (from `src/url4/__init__.py`'s docstring), a short feature list, license line.
@@ -68,6 +68,6 @@ Run in `packages/url4`:
 
 ## Owner actions (post-merge, pre-publish)
 
-1. PyPI: reserve `url4`, add Trusted Publisher (repo `OpenMined/screamingface`, workflow
+1. PyPI: reserve `url4`, add Trusted Publisher (repo `ScreamingFace/screamingface`, workflow
    `release-url4.yml`, environment `pypi`).
 2. GitHub: create `pypi` Environment.

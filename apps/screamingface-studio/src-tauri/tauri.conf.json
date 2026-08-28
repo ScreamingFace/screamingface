@@ -54,7 +54,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ5RUNDREU3MTRCMDc3NUYKUldSZmQ3QVU1ODNzU1VKUlBwQUd3WEI3TUozODhKc3JHMjg3TTUxQkhEY3dENlRqaEp0dUUyT20K",
       "endpoints": [
-        "https://github.com/OpenMined/screamingface/releases/latest/download/latest.json"
+        "https://github.com/ScreamingFace/screamingface/releases/latest/download/latest.json"
       ]
     }
   }

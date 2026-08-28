@@ -186,7 +186,7 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/07_ifeval_e2e.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/07_ifeval_e2e.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>07_ifeval_e2e.ipynb</code></a
