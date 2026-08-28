@@ -110,4 +110,42 @@ entails no China location without mentioning China.",
 
 Return only raw JSON starting with {, no back-ticks, no 'json' prefix."""
 
-__all__ = ["JUDGE_INSTRUCTIONS"]
+
+def judge_context(*, criterion_type: str, criterion: str, question: str, answer: str) -> str:
+    """Render the canonical URL4/Gateway Judge context bytes."""
+
+    return "\u2028".join(
+        (
+            "<criterion_type>",
+            criterion_type,
+            "</criterion_type>",
+            "<criterion>",
+            criterion,
+            "</criterion>",
+            "<query>",
+            question,
+            "</query>",
+            "<response>",
+            answer,
+            "</response>",
+        )
+    )
+
+
+def judge_intent() -> str:
+    """Render the canonical URL4-safe Judge instruction bytes."""
+
+    normalized = JUDGE_INSTRUCTIONS.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = normalized.replace("\n", "\u2028").replace("\t", " ")
+    unsupported = next(
+        (character for character in normalized if character < " " or character == "\x7f"),
+        None,
+    )
+    if unsupported is not None:
+        raise ValueError(
+            f"Benchmark prompt contains unsupported control character U+{ord(unsupported):04X}"
+        )
+    return normalized.replace("$", "$$")
+
+
+__all__ = ["JUDGE_INSTRUCTIONS", "judge_context", "judge_intent"]

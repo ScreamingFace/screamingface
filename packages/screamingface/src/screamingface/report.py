@@ -26,9 +26,16 @@ from screamingface._report_primitives import (
     _nonblank,
     _usage,
 )
-from screamingface.case_result import CaseGrade, CaseResult, Check, Evidence, EvidenceProducer
+from screamingface.case_result import (
+    CaseGrade,
+    CaseResult,
+    Check,
+    Evidence,
+    EvidenceProducer,
+)
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
+from screamingface.operation_accounting import OperationAccounting, OperationCache
 from screamingface.url4 import Url4
 
 type RecipeKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
@@ -637,6 +644,8 @@ __all__ = [
     "EvidenceProducer",
     "Failure",
     "MemberResult",
+    "OperationAccounting",
+    "OperationCache",
     "OperationInfo",
     "Report",
     "Usage",

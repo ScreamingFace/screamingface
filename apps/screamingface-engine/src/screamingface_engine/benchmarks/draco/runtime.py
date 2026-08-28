@@ -24,8 +24,10 @@ from screamingface_engine.benchmarks.draco.check_policy import DRACO_CHECK
 from screamingface_engine.benchmarks.draco.exam import (
     CASE_COUNT,
     JUDGE_MODEL,
+    JUDGE_PARAMS,
     DracoExam,
 )
+from screamingface_engine.benchmarks.draco.prompts import judge_context, judge_intent
 from screamingface_engine.benchmarks.draco.verdict import bind, binding_key
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
@@ -36,6 +38,11 @@ from screamingface_engine.benchmarks.evaluation import (
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.grading_accounting import (
+    GradingEvidenceOwner,
+    accounting_for_grading_evidence,
+    register_grading_request,
+)
 from url4.peer.server import Request, Url4Node
 
 
@@ -50,7 +57,7 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
     """
     assets = _lazy_protocol_assets(root)
     node.data(exam.routes.cases, _cases(assets), media_type="application/json")
-    node.endpoint(exam.routes.tasks)(_task_rows(root))
+    node.endpoint(exam.routes.tasks)(_task_rows(root, exam))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
     # no model routes at all (every benchmark-only test builds one).
@@ -61,7 +68,7 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
             DRACO_CHECK,
         )
     )
-    node.endpoint(exam.routes.verdict)(_criterion_verdict)
+    node.endpoint(exam.routes.verdict)(_criterion_verdict(exam.id))
     node.endpoint(exam.routes.criterion_evaluation)(_criterion_evaluation(exam.judge_passes))
     node.endpoint(exam.routes.case_evaluation)(
         case_evaluation_endpoint(
@@ -134,6 +141,7 @@ def _protocol_assets(
 
 def _task_rows(
     root: Path,
+    exam: DracoExam,
 ):
     def task_rows(request: Request) -> str:
         try:
@@ -161,6 +169,26 @@ def _task_rows(
                 candidate=answer,
             )
             for index, row in enumerate(result):
+                request_context = judge_context(
+                    criterion_type=row["criterion_type"],
+                    criterion=row["criterion"],
+                    question=row["question"],
+                    answer=row["answer"],
+                )
+                request_intent = judge_intent()
+                for sequence in range(1, exam.judge_passes + 1):
+                    register_grading_request(
+                        GradingEvidenceOwner(
+                            benchmark_id=exam.id,
+                            case_id=case_id,
+                            check_id=row["criterion_id"],
+                            sequence=sequence,
+                        ),
+                        path="/" + JUDGE_MODEL.removeprefix("/"),
+                        params={**dict(JUDGE_PARAMS), "seed": str(sequence)},
+                        context=request_context,
+                        intent=request_intent,
+                    )
                 row["case_record"] = (
                     json.dumps(case_record, ensure_ascii=False, separators=(",", ":"))
                     if index == 0
@@ -183,19 +211,31 @@ def _task_rows(
     return task_rows
 
 
-def _criterion_verdict(request: Request) -> str:
-    try:
-        case_id, sequence, criterion_id = binding_key(request.intent)
-        record = bind(
-            request.context,
-            case_id=case_id,
-            criterion_id=criterion_id,
-            sequence=sequence,
-            producer_id=JUDGE_MODEL,
+def _criterion_verdict(benchmark_id: str):
+    def criterion_verdict(request: Request) -> str:
+        try:
+            case_id, sequence, criterion_id = binding_key(request.intent)
+            record = bind(
+                request.context,
+                case_id=case_id,
+                criterion_id=criterion_id,
+                sequence=sequence,
+                producer_id=JUDGE_MODEL,
+            )
+        except ValueError as exc:
+            raise _unavailable(str(exc)) from exc
+        accounting = accounting_for_grading_evidence(
+            GradingEvidenceOwner(
+                benchmark_id=benchmark_id,
+                case_id=case_id,
+                check_id=criterion_id,
+                sequence=sequence,
+            )
         )
-    except ValueError as exc:
-        raise _unavailable(str(exc)) from exc
-    return compact_json(record)
+        record["accounting"] = accounting.model_dump() if accounting is not None else None
+        return compact_json(record)
+
+    return criterion_verdict
 
 
 def _criterion_evaluation(judge_passes: int):

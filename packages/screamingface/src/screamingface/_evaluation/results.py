@@ -8,9 +8,14 @@ from typing import Literal, cast
 
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
+from screamingface._evaluation.operation_accounting import decode_operation_accounting
 from screamingface._report_primitives import CaseId
 from screamingface._report_primitives import _case_id as _validate_case_id
-from screamingface.case_result import CaseOperation, CaseStatus, StopReason
+from screamingface.case_result import (
+    CaseOperation,
+    CaseStatus,
+    StopReason,
+)
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError
 from screamingface.report import (
@@ -285,7 +290,11 @@ def _case_operations(value: object) -> tuple[CaseOperation, ...]:
 
 def _case_operation(value: object) -> CaseOperation:
     raw = _mapping(value, "Case Operation")
-    _keys(raw, required={"operation_id", "output", "finish_reason"}, label="Case Operation")
+    _keys(
+        raw,
+        required={"operation_id", "output", "finish_reason", "accounting"},
+        label="Case Operation",
+    )
     finish_reason_value = raw.get("finish_reason")
     try:
         return CaseOperation(
@@ -295,6 +304,9 @@ def _case_operation(value: object) -> CaseOperation:
                 None
                 if finish_reason_value is None
                 else _text(finish_reason_value, "Case Operation finish_reason")
+            ),
+            accounting=decode_operation_accounting(
+                raw.get("accounting"), "Case Operation accounting"
             ),
         )
     except (TypeError, ValueError) as exc:
@@ -347,7 +359,7 @@ def _evidence(value: object) -> Evidence:
     raw = _mapping(value, "Evidence")
     _keys(
         raw,
-        required={"sequence", "producer", "valid", "raw_output", "metadata"},
+        required={"sequence", "producer", "valid", "raw_output", "metadata", "accounting"},
         optional={"outcome", "explanation"},
         label="Evidence",
     )
@@ -368,6 +380,7 @@ def _evidence(value: object) -> Evidence:
             explanation=_optional_string(raw.get("explanation"), "Evidence explanation"),
             raw_output=_required(raw, "raw_output", "Evidence"),
             metadata=_mapping(raw.get("metadata"), "Evidence metadata"),
+            accounting=decode_operation_accounting(raw.get("accounting"), "Evidence accounting"),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Evidence is invalid: {exc}") from exc

@@ -15,6 +15,7 @@ from screamingface._report_primitives import (
     _nonblank_text,
     _nonempty_text,
 )
+from screamingface.operation_accounting import OperationAccounting
 
 # The Engine's versioned wrapper for native multi-turn Candidate input; kept in lock-step
 # with url4-cloud's `benchmarks/contract.py` CANDIDATE_INPUT_SCHEMA.
@@ -48,6 +49,39 @@ class EvidenceProducer:
         return {"type": self.type, "id": self.id}
 
 
+def _validated_evidence_parts(
+    *,
+    sequence: int,
+    producer: EvidenceProducer,
+    valid: bool,
+    outcome: EvidenceOutcome | None,
+    explanation: str | None,
+    accounting: OperationAccounting | None,
+) -> str | None:
+    """Validate one Evidence's scalar parts; return the normalized explanation.
+
+    Split out of ``Evidence.__init__`` only to keep that constructor readable —
+    the rules themselves are unchanged, and the one that carries meaning is the
+    last: a REJECTED observation may not also claim an outcome or an
+    explanation, because a rejected reply was never interpreted.
+    """
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        raise ValueError("Evidence sequence must be a positive integer")
+    if not isinstance(producer, EvidenceProducer):
+        raise TypeError("Evidence producer must be an sf.EvidenceProducer")
+    if not isinstance(valid, bool):
+        raise TypeError("Evidence valid must be a boolean")
+    if outcome not in {None, "MET", "UNMET", "PASS", "FAIL"}:
+        raise ValueError("Evidence outcome must be MET, UNMET, PASS, FAIL, or None")
+    if explanation is not None:
+        explanation = _string(explanation, "Evidence explanation")
+    if not valid and (outcome is not None or explanation is not None):
+        raise ValueError("invalid Evidence cannot contain an outcome or explanation")
+    if accounting is not None and not isinstance(accounting, OperationAccounting):
+        raise TypeError("Evidence accounting must be an sf.OperationAccounting or None")
+    return explanation
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Evidence:
     """One exact observation accepted or rejected by a grading Check."""
@@ -58,6 +92,7 @@ class Evidence:
     outcome: EvidenceOutcome | None
     explanation: str | None
     raw_output: object
+    accounting: OperationAccounting | None
     _metadata: Mapping[str, object] = field(repr=False)
 
     def __init__(
@@ -70,19 +105,16 @@ class Evidence:
         outcome: EvidenceOutcome | None = None,
         explanation: str | None = None,
         metadata: Mapping[str, object] | None = None,
+        accounting: OperationAccounting | None = None,
     ) -> None:
-        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
-            raise ValueError("Evidence sequence must be a positive integer")
-        if not isinstance(producer, EvidenceProducer):
-            raise TypeError("Evidence producer must be an sf.EvidenceProducer")
-        if not isinstance(valid, bool):
-            raise TypeError("Evidence valid must be a boolean")
-        if outcome not in {None, "MET", "UNMET", "PASS", "FAIL"}:
-            raise ValueError("Evidence outcome must be MET, UNMET, PASS, FAIL, or None")
-        if explanation is not None:
-            explanation = _string(explanation, "Evidence explanation")
-        if not valid and (outcome is not None or explanation is not None):
-            raise ValueError("invalid Evidence cannot contain an outcome or explanation")
+        explanation = _validated_evidence_parts(
+            sequence=sequence,
+            producer=producer,
+            valid=valid,
+            outcome=outcome,
+            explanation=explanation,
+            accounting=accounting,
+        )
         values = {
             "sequence": sequence,
             "producer": producer,
@@ -90,6 +122,7 @@ class Evidence:
             "outcome": freeze_json(outcome, "Evidence outcome"),
             "explanation": explanation,
             "raw_output": freeze_json(raw_output, "Evidence raw_output"),
+            "accounting": accounting,
             "_metadata": freeze_mapping(metadata or {}, "Evidence metadata"),
         }
         for name, value in values.items():
@@ -106,6 +139,7 @@ class Evidence:
             "valid": self.valid,
             "raw_output": thaw_json(self.raw_output),
             "metadata": thaw_mapping(self._metadata),
+            "accounting": None if self.accounting is None else self.accounting.to_dict(),
         }
         if self.outcome is not None:
             value["outcome"] = thaw_json(self.outcome)
@@ -234,6 +268,7 @@ class CaseOperation:
     operation_id: str
     output: str | None
     finish_reason: str | None
+    accounting: OperationAccounting | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -247,12 +282,17 @@ class CaseOperation:
                 "finish_reason",
                 _nonblank_text(self.finish_reason, "Case Operation finish_reason"),
             )
+        if self.accounting is not None and not isinstance(self.accounting, OperationAccounting):
+            raise TypeError("Case Operation accounting must be an sf.OperationAccounting or None")
 
     def to_dict(self) -> dict[str, object]:
         return {
             "operation_id": self.operation_id,
             "output": self.output,
             "finish_reason": self.finish_reason,
+            # Required-nullable, mirroring the Engine: the key is always present so
+            # a reader can tell "no accounting retained" from "older payload".
+            "accounting": None if self.accounting is None else self.accounting.to_dict(),
         }
 
 

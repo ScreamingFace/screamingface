@@ -12,8 +12,10 @@ operations, Cases, Checks, and grading Evidence. OME-901 retains that join for c
 
 - No `packages/url4` or AI Gateway change. URL4 remains unaware of benchmarks, Candidates,
   members, synthesizers, graders, Cases, and Checks.
-- Reuse the existing ScreamingFace Engine `operation_calls` recorder. Do not add another queue,
-  log seam, event type, transport, or accounting ledger.
+- Reuse the existing ScreamingFace Engine `operation_calls` capture module with two deliberately
+  different task-local record shapes: Candidate-local calls retain the output needed by existing
+  operation projection, while the run-local grading ledger retains only request identity and
+  accounting. Do not add another queue, log seam, event type, or transport.
 - Use one shared `OperationAccounting` value on the two records that already own the semantics:
   - Candidate member and synthesis accounting lives on `CaseOperation`;
   - rubric-judge accounting lives on grading `Evidence`.
@@ -26,7 +28,12 @@ operations, Cases, Checks, and grading Evidence. OME-901 retains that join for c
   The current loop discards nested operation records when it projects each isolated invocation
   into the selected output and round metadata. OME-901 reports that work as unattributed rather
   than inventing recursive ownership.
-- Reuse the Gateway's existing complete provider-attempt latency. Do not add an Engine timer and
+- Reuse the Gateway's existing complete provider-attempt latency AND its attempt count. The count
+  is owner-approved (2026-08-28, review of PR #762) and reverses this spec's earlier "no attempt
+  counter" constraint: a client-facing Report must explain a cost, not only state it, and the
+  summed latency cannot separate a slow model from a flaky route without it. It reads the same
+  already-validated `usage_accounting.attempts` array the completeness gate walks, so it adds no
+  Gateway read, timer, or transport. Do not add an Engine timer and
   do not populate member wall duration from provider time.
 - Current-run cache semantics only: a confirmed hit has zero current provider consumption and
   cost. No avoided-cost estimate is invented.
@@ -53,24 +60,27 @@ not another delivery channel.
 
 ## 2. Smallest architecture
 
-### 2.1 One recorder, isolated ownership
+### 2.1 Two payload-scoped recorders, isolated ownership
 
-`operation_calls.py` remains the only capture mechanism. It records immutable normalized call
-facts into the active context-local scope:
+`operation_calls.py` remains the only capture module. It publishes one terminal call into whichever
+task-local scopes are active, but the scopes retain different records so the run ledger never keeps
+model output payloads:
 
 ```text
-evaluation run recorder
-├── grading call
-├── grading call
-└── isolated Candidate recorder
+evaluation run
+├── payload-free grading ledger: request key + accounting
+│   ├── grading call
+│   └── grading call
+└── Candidate-local call recorder: route + output + accounting
     ├── member call
     ├── member call
     └── synthesis call
 ```
 
-The Candidate adapter keeps its existing isolated recorder, so Candidate calls do not also enter
-the run recorder. A composition-root `Executor` decorator enters the run recorder around the
-existing `Url4Executor`. The generic executor remains unchanged and benchmark-agnostic.
+The Candidate adapter keeps its existing isolated output recorder and suspends the payload-free
+grading ledger, so Candidate calls do not enter both scopes. A composition-root `Executor`
+decorator enters the grading ledger around the existing `Url4Executor`. The generic executor
+remains unchanged and benchmark-agnostic.
 
 The scope must unwind on success, failure, cancellation, and early iterator close. Concurrent
 runs receive distinct recorder state; nested DAG tasks inherit only their own run state.
@@ -86,11 +96,14 @@ request_model
 response_model
 usage: input/output/cache-read/cache-creation/reasoning tokens and USD cost
 provider_latency_ms
+provider_attempts
 cache: hits/misses/bypasses/unknown
 ```
 
-No new timer, Gateway/provider attempt counter, prompt, URL4 expression, cache key, Gateway id,
-provider-attempt id, trace payload, or serialized request digest is added.
+No new timer, Gateway retry mechanism, prompt, URL4 expression, cache key, Gateway id,
+provider-attempt id, trace payload, or serialized request digest is added. The retained
+`provider_attempts` count is derived from the existing Gateway attempt ledger that the Engine
+already validates for completeness.
 
 Field aggregation is strict:
 
@@ -98,7 +111,9 @@ Field aggregation is strict:
 - partial or omitted attempt evidence: attempt-derived fields remain null;
 - no Gateway accounting: final response input/output may be retained, while unsupported token
   classes, cost, cache, and latency remain null;
-- confirmed cache hit: zero current tokens, cost, and provider latency, plus one hit;
+- confirmed cache hit: zero current tokens, cost, and provider latency, plus one hit; `provider`
+  remains the Engine's canonical provider for the declared model route because no current provider
+  dispatch exists to observe;
 - several tool/retry/redraw calls assigned to one semantic operation: strict field-wise sum;
 - provider/response-model identity is populated only when the observed values agree.
 
@@ -114,7 +129,8 @@ IDs and records the actual call path, sorted parameters, output, and finish reas
 - Equal outputs may keep their existing output compatibility behavior, but accounting is never
   copied to several ambiguous operations.
 - A solo Model gains its one natural `CaseOperation`, enabling per-Case generation accounting.
-- No new complete-request fingerprint or explicit URL4 operation-id parameter is introduced.
+- No complete-request fingerprint is computed for Candidate calls and no explicit URL4
+  operation-id parameter is introduced.
 - CorrectiveLoop nested invocations remain unsupported for exact internal attribution.
 
 ### 2.4 Grading join
@@ -131,6 +147,9 @@ This key is the minimum exact join because many Cases use the same judge model, 
 parameters; execution order is unsafe under redraws, retries, and concurrency. If one key maps to
 more than one semantic Evidence owner, all affected accounting remains null. Several actual calls
 for one unique Evidence owner are redraws/retries and aggregate into that Evidence accounting.
+Accounting is reconciled once more when the complete Candidate Result is finalized, after all
+grading owners have registered. This final pass revokes any provisional Evidence attribution when
+a later registration made the request key ambiguous.
 
 Boards supply their own expected request material through a shared port. Shared benchmark code
 performs keying and projection without importing concrete boards.
@@ -155,6 +174,7 @@ request_model: string | null
 response_model: string | null
 usage: existing strict optional six-field Usage
 provider_latency_ms: integer | null
+provider_attempts: non-negative integer | null
 cache: {hits, misses, bypasses, unknown}
 ```
 
@@ -199,8 +219,9 @@ coach, round, or Case by inference.
   run. Extending both root totals and evidence for those paths belongs to `OME-784`.
 - Diagnostics name only the accounting phase and exception type. They never interpolate requests,
   prompts, URL4, parameters, outputs, request keys, or Gateway bodies.
-- Run-level capture need not retain model outputs; the Candidate-local recorder retains only the
-  outputs required by the existing Candidate operation contract.
+- Run-level capture retains only in-memory request identity and accounting; it never retains model
+  outputs. The Candidate-local recorder retains only the outputs required by the existing
+  Candidate operation contract.
 
 ## 6. Non-regression and acceptance
 

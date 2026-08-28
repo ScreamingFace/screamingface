@@ -339,6 +339,7 @@ def test_wire_evidence_decoder_accepts_a_deterministic_producer() -> None:
             "valid": True,
             "raw_output": True,
             "metadata": {},
+            "accounting": None,
         }
     )
 
@@ -378,6 +379,7 @@ def test_evidence_producer_type_is_open_nonempty_engine_text() -> None:
                     "valid": "yes",
                     "raw_output": "answer",
                     "metadata": {},
+                    "accounting": None,
                 }
             ),
             "valid must be boolean",

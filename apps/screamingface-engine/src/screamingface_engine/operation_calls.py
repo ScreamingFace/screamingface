@@ -13,6 +13,9 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+from screamingface_engine.operation_accounting import OperationAccounting
+from screamingface_engine.request_identity import ModelRequestKey, model_request_key
+
 
 @dataclass(frozen=True, slots=True)
 class OperationCall:
@@ -27,15 +30,35 @@ class OperationCall:
     params: tuple[tuple[str, str], ...]
     output: str
     finish_reason: str | None
+    accounting: OperationAccounting | None
+
+
+@dataclass(frozen=True, slots=True)
+class RequestAccounting:
+    """Payload-free accounting for one authored model request."""
+
+    request_key: ModelRequestKey
+    accounting: OperationAccounting | None
+
+
+@dataclass(frozen=True, slots=True)
+class _OperationCallIdentity:
+    path: str
+    params: tuple[tuple[str, str], ...]
+    request_key: ModelRequestKey | None
 
 
 type OperationCallRecorder = list[OperationCall]
+type RequestAccountingRecorder = list[RequestAccounting]
 
 _recorders: contextvars.ContextVar[tuple[OperationCallRecorder, ...]] = contextvars.ContextVar(
     "screamingface_engine_operation_call_recorders", default=()
 )
-_identity: contextvars.ContextVar[tuple[str, tuple[tuple[str, str], ...]] | None] = (
-    contextvars.ContextVar("screamingface_engine_operation_call_identity", default=None)
+_identity: contextvars.ContextVar[_OperationCallIdentity | None] = contextvars.ContextVar(
+    "screamingface_engine_operation_call_identity", default=None
+)
+_accounting_recorders: contextvars.ContextVar[tuple[RequestAccountingRecorder, ...]] = (
+    contextvars.ContextVar("screamingface_engine_request_accounting_recorders", default=())
 )
 
 
@@ -53,7 +76,38 @@ def capture_operation_calls(*, isolated: bool = False) -> Iterator[OperationCall
 
 
 @contextmanager
-def operation_call_identity(path: str, params: Mapping[str, str]) -> Iterator[None]:
+def capture_request_accounting(
+    recorder: RequestAccountingRecorder | None = None,
+) -> Iterator[RequestAccountingRecorder]:
+    """Capture payload-free request accounting for one complete Engine run."""
+
+    recorder = [] if recorder is None else recorder
+    token = _accounting_recorders.set((*_accounting_recorders.get(), recorder))
+    try:
+        yield recorder
+    finally:
+        _accounting_recorders.reset(token)
+
+
+@contextmanager
+def suspend_request_accounting() -> Iterator[None]:
+    """Exclude one nested execution from every ambient run-accounting ledger."""
+
+    token = _accounting_recorders.set(())
+    try:
+        yield
+    finally:
+        _accounting_recorders.reset(token)
+
+
+@contextmanager
+def operation_call_identity(
+    path: str,
+    params: Mapping[str, str],
+    *,
+    context: str | None = None,
+    intent: str | None = None,
+) -> Iterator[None]:
     """Bind the route identity of the call about to run, for its own task only.
 
     WHY: the connector's completion loop knows the terminal content and finish
@@ -62,32 +116,68 @@ def operation_call_identity(path: str, params: Mapping[str, str]) -> Iterator[No
     the identity across that gap without widening the loop's signature.
     """
 
-    token = _identity.set((path, tuple(sorted(params.items()))))
+    token = _identity.set(
+        _OperationCallIdentity(
+            path=path,
+            params=tuple(sorted(params.items())),
+            request_key=(
+                model_request_key(path=path, params=params, context=context, intent=intent)
+                # INVARIANT: Candidate execution suspends the run ledger. Do not hash its complete
+                # prompt merely to discard the key; only grading capture owns this identity.
+                if _accounting_recorders.get() and (context is not None or intent is not None)
+                else None
+            ),
+        )
+    )
     try:
         yield
     finally:
         _identity.reset(token)
 
 
-def record_operation_call(output: str, finish_reason: str | None) -> None:
+def record_operation_call(
+    output: str,
+    finish_reason: str | None,
+    accounting: OperationAccounting | None = None,
+) -> None:
     """Publish one terminal call to every active scope, if an identity is bound."""
 
     identity = _identity.get()
     if identity is None:
         return
-    call = OperationCall(
-        path=identity[0],
-        params=identity[1],
-        output=output,
-        finish_reason=finish_reason,
-    )
-    for recorder in _recorders.get():
-        recorder.append(call)
+    # WHY two record shapes: Candidate projection needs the terminal output, while the run-wide
+    # grading join must remain payload-free. One publication point feeds each active scope without
+    # retaining prompts or judge outputs for the lifetime of the run.
+    if _recorders.get():
+        call = OperationCall(
+            path=identity.path,
+            params=identity.params,
+            output=output,
+            finish_reason=finish_reason,
+            accounting=accounting,
+        )
+        for recorder in _recorders.get():
+            recorder.append(call)
+    if identity.request_key is not None:
+        request_accounting = RequestAccounting(identity.request_key, accounting)
+        for recorder in _accounting_recorders.get():
+            recorder.append(request_accounting)
+
+
+def current_request_accounting() -> RequestAccountingRecorder | None:
+    """The innermost payload-free run ledger, or None outside an owned scope."""
+
+    active = _accounting_recorders.get()
+    return active[-1] if active else None
 
 
 __all__ = [
     "OperationCall",
+    "RequestAccounting",
     "capture_operation_calls",
+    "capture_request_accounting",
+    "current_request_accounting",
     "operation_call_identity",
     "record_operation_call",
+    "suspend_request_accounting",
 ]
