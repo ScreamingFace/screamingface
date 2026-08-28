@@ -295,7 +295,7 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
     ) -> tuple[ModelEntry, ...] | None:
-        """This provider's complete live LISTING from its fixed public catalog (OME-972).
+        """This provider's complete live LISTING from its fixed provider catalog (OME-972).
 
         Returns ready ``ModelEntry`` rows (the provider owns its own merge of
         explicitly configured operator models with discovered ids), fetched

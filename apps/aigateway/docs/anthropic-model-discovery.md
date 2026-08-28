@@ -20,8 +20,12 @@ This is **deployment configuration**, in the same class as `AIGATEWAY_SECRET_KEY
 per-account credential. It is never written to `credential_blobs`, never used for chat, never
 logged, and never part of the discovery cache identity.
 
-Roll back by unsetting it: the next boot serves compiled seeds again. There is no migration and
-no data to undo.
+Roll back by unsetting it — or by setting it to an empty value, which counts the same: an empty or
+whitespace-only key is read as **no key at all**, so no source is declared and nothing is dialed.
+(That matters because a declared-but-empty variable is a normal deployment shape rather than a typo:
+`${VAR}` interpolation of an unset host variable, an existing-but-empty Kubernetes Secret key, or a
+chart that emits every key so an operator's explicit opt-out stays visible in the manifest.) The next
+boot serves compiled seeds again. There is no migration and no data to undo.
 
 ## The three off-switches
 
@@ -29,7 +33,7 @@ Each of these means the **exact** compiled seed listing and **zero** Anthropic c
 
 | Switch | Effect |
 |---|---|
-| `AIGW_ANTHROPIC_DISCOVERY_API_KEY` unset (the default) | No credential ⇒ no source is declared ⇒ no dial |
+| `AIGW_ANTHROPIC_DISCOVERY_API_KEY` unset (the default), **or empty/whitespace-only** | No credential ⇒ no source is declared ⇒ no dial |
 | `AIGW_ANTHROPIC_LIVE_MODELS=false` | Fast off-switch that **keeps the key configured** |
 | `AIGW_DISCOVERY_ENABLED=false` | Global discovery kill switch; silences this with all other discovery traffic |
 
@@ -42,8 +46,22 @@ Anthropic has no provider-level disable flag, and this unit did not add one.
   canonical `anthropic/<id>` form. Compiled defaults absent from the snapshot are **not** listed,
   which is how a retired alias disappears within one TTL.
 - **Cold or degraded:** the compiled/operator seeds, byte-identical to the pre-OME-1026 listing.
-- **Row shape is unchanged.** Only the ID SET becomes live, so the SF Settings model dropdown
-  (SF-284), which derives from this endpoint, needs no change.
+- **Row shape is unchanged** — only the ID SET becomes live, so existing consumers do not need a
+  row-contract change. Historical context: SF-284's `aigw-claude-backend` derived its Settings
+  suggestions from this endpoint, but that consumer was removed before the OME-1026 baseline; there
+  is no live dropdown integration to validate. Two consequences still matter to any consumer:
+  - **Order.** With `AIGW_ANTHROPIC_MODELS` unset, the published order becomes raw upstream order
+    rather than the curated seed order. A consumer that treats the first row as its default sees a
+    default chosen by upstream.
+  - **`supported_parameters` is not uniform across rows.** Sampling evidence
+    (`temperature`/`top_p`/`top_k`) comes from a small hand-REVIEWED allowlist of exact model ids;
+    every id outside it is fail-closed and its row simply omits those parameters. Discovered ids are
+    by definition not yet reviewed, so a newly appearing model — and every date-stamped snapshot,
+    even one whose alias is reviewed — publishes a row without sampling parameters until someone
+    reviews it and adds it. This is the pre-existing, deliberate fail-closed policy from OME-583 and
+    OME-1026 did not change it; discovery only makes it visible on more rows. A consumer that reads
+    `supported_parameters` per row is unaffected; one that assumes uniform capability across
+    Anthropic rows is not.
 - **Aliases and date-stamped snapshots are both published, unfolded** — e.g. both
   `anthropic/claude-opus-5` and `anthropic/claude-opus-5-20260801` when upstream returns both, in
   upstream order (newest-first), with the first occurrence winning on duplicates. Both dispatch,

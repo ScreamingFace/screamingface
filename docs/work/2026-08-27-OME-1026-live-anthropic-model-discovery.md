@@ -15,8 +15,8 @@ finished: 2026-08-27
 discovered from `GET https://api.anthropic.com/v1/models` — as the **second** implementation of
 the `ModelListingProvider` port shipped by OME-972 (`cc9deb4a`), reusing the existing
 `ModelCatalog` snapshot-or-fallback machinery unchanged. A newly released Claude model then
-appears in the gateway listing (and the SF-284 Settings dropdown) without a gateway release, and
-a retired alias disappears instead of 404-ing at dispatch.
+appears in the gateway listing without a gateway release, and a retired alias disappears instead
+of 404-ing at dispatch. The historical SF-284 Settings consumer was removed before this baseline.
 
 Unlike OpenRouter's public catalog, Anthropic's is **credentialed-only** (401 without
 `x-api-key`), so discovery is strictly **opt-in** behind one dedicated operator secret,
@@ -167,7 +167,8 @@ Modified (tracked):
 - `apps/aigateway/src/aigateway/plugins/anthropic_provider/discovery.py` — docstring only; BOTH
   stale "no live Anthropic discovery / §6.3" sentences gained the model-LIST carve-out (D4, CC-13).
 - `apps/aigateway/DEPLOYMENT.md` — concise "Live Anthropic Model Discovery (OME-1026)" section
-  pointing at the dedicated doc (424 → 441 lines, under the 450 discipline).
+  pointing at the dedicated doc (424 → 441 lines; 442 after the follow-up pass added one line to
+  the rollback sentence — still under the 450 discipline).
 - `apps/aigateway/tests/conftest.py` — the ONE disclosed shared-fixture edit: `_guarded` gains and
   forwards optional `headers`, `AssertionError` check still FIRST (+16/−3, zero test cases).
 - `apps/aigateway/tests/unit/anthropic/test_settings.py` — +44 lines, **pure append** (+44/−0).
@@ -188,21 +189,48 @@ Total new tests: **141** (139 + 2 appended to `test_settings.py`).
 
 ### Commits
 
-**None.** Gates were run against the working tree; committing awaits explicit owner authorization.
+- `72eaa390` — `feat(aigateway): discover Anthropic models live`, on branch
+  `OME-1026-live-anthropic-model-discovery` (baseline `cc9deb4a`). 17 files, +2844/-20. Committed on
+  explicit owner authorization, which covered this commit only. Local planning artifacts under
+  `.agent-team-AIGW/` were deliberately excluded and remain untracked.
+- **Follow-up review-fix pass:** committed separately in the commit containing this ledger update.
+  See "Follow-up pass" below for its contents and gates.
 
-### Gates (actually run)
+AIDEV-NOTE: an earlier revision of this section read "**None.**" and shipped *inside* `72eaa390`,
+so the ledger denied the commit that contained it. When a commit lands, correct this section in the
+same or the next pass — a ledger that misreports commit state is worse than one that omits it.
+
+### Gates (actually run, initial pass)
 
 - `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` → **ALL GATES GREEN**:
   ruff check ✓, ruff format --check ✓, pyright ✓ (0 errors), `check_no_enterprise.py` ✓,
   `pytest --cov=aigateway --cov-fail-under=80 -q` ✓.
 - `uv run .claude/scripts/run_gates.py aigateway --base origin/main` → **append-only check RED on
-  `tests/conftest.py` only** (the pre-authorized CC-1 fixture extension). **The PR needs an
-  explicit waiver naming that one file.** Every other gate green.
+  `tests/conftest.py`, and on that file only.** Every other gate green. Executed output, verbatim:
+
+  ```
+  ✗ append-only test check — prior tests were modified/deleted (vs origin/main):
+    M	tests/conftest.py  (removed/changed old line(s) [160, 163]; new content inserted after old line(s) [154, 159, 162] — inside an existing test/fixture)
+  ```
+
+  **The owner granted this exact one-file waiver on 2026-08-28.** The fixture change is retained because
+  removing it re-breaks the feature: the autouse no-egress tripwire hardcoded the legacy
+  `get(self, url, *, timeout_s, max_bytes)` signature, so without the optional `headers` passthrough
+  every header-carrying dial through the real adapter raises `TypeError`, which `ModelCatalog`
+  sanitizes into a quiet seeds listing — i.e. a test that genuinely reached the internet would pass
+  green. Its `AssertionError` egress check still runs FIRST and zero test cases changed (see
+  "Actual files" above). The append-only result remains mechanically RED, while the explicit
+  one-file owner waiver resolves the policy decision for this change.
+  Note that **no CI lane runs this gate** — no workflow in `.github/workflows/` references
+  `run_gates.py` or the append-only check — so nothing automated will surface or block on it. It is
+  a human review decision by construction.
 - Full non-live suite: **4194 passed, 18 skipped, 37 deselected, 0 failed** (215 s).
 - Focused `tests/unit/anthropic tests/unit/core tests/unit/openrouter`: **1821 passed**.
-- Append-only evidence: `git diff --numstat origin/main -- apps/aigateway/tests/` shows only
-  `conftest.py` (+16/−3) and `test_settings.py` (+44/−0). **Zero deletions anywhere** in the test
-  tree, so no prior test case was removed, rewritten, or weakened.
+- Append-only evidence: in `git diff --numstat origin/main -- apps/aigateway/tests/`, the only
+  PRE-EXISTING file with any deletions is `conftest.py` (+16/−3). Every other changed path is either
+  a brand-new test module or a pure append (`−0`), and the whole test tree shows **3 deleted lines
+  total**, all three inside that one fixture. So no prior test case was removed, rewritten, or
+  weakened. (Re-measured after the follow-up pass: still 3, still only `conftest.py`.)
 - Worktree hygiene: all **3869** unrelated tracked/untracked files verified byte-identical to their
   captured preflight hashes; 0 changed, 0 deleted, 0 unexpected new paths; the two `.codegraph/`
   entries exempt and unstaged; nothing staged (`git diff --cached` empty).
@@ -258,3 +286,93 @@ Total new tests: **141** (139 + 2 appended to `test_settings.py`).
 - The operator key's entitlements define what every account sees listed (D11) — documented, not
   engineered around.
 - Each replica refreshes independently: N replicas ⇒ up to N credentialed fetches per 300 s TTL.
+
+## Follow-up pass (2026-08-27, post-review) — implemented and committed separately
+
+An adversarial review of `72eaa390` produced two behavioral defects worth fixing and a set of stale
+comment/doc claims. Fixed on the same branch without changing the approved architecture; no locked
+decision (D1-D7) was reopened.
+
+### Behavior fixed
+
+1. **A declared-but-blank discovery key no longer causes egress.** `AIGW_ANTHROPIC_DISCOVERY_API_KEY=""`
+   (or whitespace-only) previously produced `SecretStr('')`, which is not `None`, so D3's
+   `discovery_api_key is not None` predicate declared a discovery source and would dial Anthropic with
+   an empty `x-api-key` — egress from a deployment that configured no key, contradicting the opt-in
+   guarantee and the documented rollback. Fixed at the settings boundary with a
+   `@field_validator(mode="after")` that normalizes blank to `None`, which keeps D3's predicate
+   literally true as written in the plan instead of duplicating a blank-check at each of the two
+   gates. A surviving key is returned untouched, never trimmed.
+2. **The `Accept-Encoding` identity merge is now case-insensitive.** `{**headers, **_IDENTITY_ENCODING}`
+   merged by exact dict key, so a caller spelling the field `Accept-Encoding` survived as a *second*
+   key and httpx emitted both lines (`gzip, identity`). HTTP field names are case-insensitive, so the
+   documented "identity always wins" was false for every spelling but lowercase. Replaced with a
+   comprehension that drops all case-variants before applying identity. The old defect was fail-closed
+   (`_bounded_body` rejects any non-identity `content-encoding` *before* byte accounting, so the byte
+   cap was never bypassable) — this restores the documented contract, it does not close a byte-cap hole.
+
+### Tests added (append-only; zero prior test cases touched)
+
+- `tests/unit/anthropic/test_settings.py` — blank key normalizes to `None` (6 blank forms, via env
+  and direct construction) + a guard that a real key survives byte-intact.
+- `tests/unit/anthropic/test_live_models_port.py` — a blank key declares no source and never dials
+  (3 blank forms, asserted against a client that raises on any dial).
+- `tests/unit/core/test_parameter_discovery_headers.py` — identity wins for 4 caller spellings. The
+  assertion reads `request.headers.multi_items()`, **not** `dict(request.headers)`: a dict view JOINS
+  duplicate field lines into `'gzip, identity'` and would have passed while two lines went on the wire,
+  which is exactly why the original test did not catch this.
+
+RED confirmed before the fixes (13 failed / 1 passed — the passing one being the deliberate
+over-reach guard), GREEN after.
+
+### Documentation and ledger corrections
+
+- `core/discovery_runtime.py` — the module INVARIANT claimed "no credential is in scope" for the whole
+  shared client. Narrowed to the `observe` path (where it remains true) and stated that a provider may
+  now attach a deployment credential to its own allowlisted origin, with a note that adding request
+  logging or an httpx event hook to this client can now touch a credential.
+- `core/parameter_discovery.py` — module docstring said providers fetch "FIXED public catalogs"
+  uniformly; now distinguishes the public catalogs from Anthropic's credentialed one.
+- `core/plugin_base/_contract.py` — the live-LISTING hook said "fixed public catalog"; now "fixed
+  provider catalog". The two neighbouring "public" mentions on the *parameter* hooks are accurate and
+  were left alone.
+- `plugins/anthropic_provider/live_models.py` — the `SecretStr` rationale claimed the plaintext exists
+  on "exactly one line". Corrected: `SecretStr` strictly reduces the rendered-plaintext surface and can
+  never enlarge it, but the header mapping it builds is a live local in three frames, so a
+  locals-capturing error reporter would still see it. Nothing in `src/` renders locals today.
+- `docs/anthropic-model-discovery.md` — the SF-284 bullet asserted a current consumer "needs no
+  change", but git ancestry and OME-642 establish that the consumer was removed before this
+  baseline. Replaced it with historical context plus the measured facts: with
+  `AIGW_ANTHROPIC_MODELS` unset the published order becomes raw upstream order, and sampling evidence
+  comes from a hand-reviewed allowlist of exact ids (measured: `claude-sonnet-4-5` → supported;
+  `claude-sonnet-4-5-20250929` and the unreviewed alias `claude-opus-4-1` → fail-closed), so every
+  newly discovered id publishes a row without sampling parameters until reviewed. Explicitly labelled
+  as pre-existing OME-583 policy that this unit did not change. There is no live dropdown consumer
+  to validate in this repository or an adjacent one.
+- The blank-key rule is now documented in that file's rollback sentence and off-switch table, and in
+  `DEPLOYMENT.md`.
+- This ledger's `### Commits` section and the task mirror both claimed the work was uncommitted while
+  shipping inside `72eaa390`; both corrected.
+
+### Deliberately NOT changed
+
+- Snapshot-id sampling policy and F16/F17 production behavior — out of scope by owner instruction.
+- `AIGW_ANTHROPIC_LIVE_MODELS=""` boot behavior — flagged only, not touched.
+- `tests/conftest.py` — the fixture change is preserved under the owner-approved one-file waiver.
+
+### Gates (follow-up pass, actually run)
+
+- Focused `tests/unit/anthropic tests/unit/core tests/unit/openrouter` → **1835 passed** (1821 + the
+  14 new cases; no prior test removed, rewritten, or weakened).
+- Full non-live suite `pytest -m "not live"` → **4208 passed, 18 skipped, 37 deselected, 0 failed**
+  (145 s) = the prior 4194 plus the same 14. Run beyond the requested focused scope because fix 2
+  lands in the SHARED discovery transport that OpenRouter also uses; no regression there.
+- `uv run ruff check .` → All checks passed. `uv run ruff format --check .` → 530 files already
+  formatted. `uv run pyright` → **0 errors, 0 warnings**.
+- `run_gates.py aigateway --base origin/main` → append-only still RED on `tests/conftest.py` **only**;
+  the three appended test files produced no new offender. The owner approved that exact one-file
+  waiver on 2026-08-28.
+- Final `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` → **ALL GATES GREEN**.
+  The first final run hit the pre-existing timing-sensitive auth test
+  `test_unknown_user_timing_close_to_wrong_password`; it passed 3/3 in immediate isolated reruns,
+  and the complete gate then passed unchanged. No auth code or prior test was modified.

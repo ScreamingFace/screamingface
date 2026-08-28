@@ -418,7 +418,8 @@ catalog snapshot, held per process (see the replica note below). Default **on**.
 `GET /v1/models` can also list the Claude models this deployment can actually use now, discovered
 from the Anthropic Models API. Anthropic's catalog is credentialed-only, so unlike the OpenRouter
 catalog above this is **opt-in** and inert by default: set `AIGW_ANTHROPIC_DISCOVERY_API_KEY` to a
-deployment-owned Anthropic key to enable it, unset it to roll back. `AIGW_ANTHROPIC_LIVE_MODELS=false`
+deployment-owned Anthropic key to enable it, unset it (or leave it empty — a blank or
+whitespace-only value is read as no key at all) to roll back. `AIGW_ANTHROPIC_LIVE_MODELS=false`
 is the fast off-switch that keeps the key configured, and `AIGW_DISCOVERY_ENABLED=false` silences it
 with all other discovery traffic — each off-switch means the exact compiled seed listing and zero
 Anthropic catalog egress. It reuses the same snapshot cache, degrade ladder, single-flight refresh,

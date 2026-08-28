@@ -4,7 +4,7 @@ linear_url: https://linear.app/openmined/issue/OME-1026/aigateway-automatically-
 status: In Progress
 type: feature
 priority: 2
-labels: [aigateway]
+labels: [aigateway, agentic, autonomous]
 created: 2026-08-27
 closed:
 ---
@@ -37,7 +37,7 @@ separate dispatchable IDs in upstream order, deduplicated on first occurrence (D
 - Baseline: OME-972 / PR #739 merged as `cc9deb4a`; branch
   `OME-1026-live-anthropic-model-discovery`
 - Related: OME-972 (foundation), OME-479 (§6.3 superseded for the model LIST only), OME-818
-  (current seed catalog), SF-284 (Settings dropdown consumer)
+  (current seed catalog), SF-284 (historical removed Settings-dropdown consumer)
 
 ## Deviation accepted at start (owner decision, 2026-08-27)
 
@@ -52,12 +52,15 @@ fails closed to stale-then-seeds. Zero credentialed egress occurs in this unit.
 ## Implementation status (2026-08-27)
 
 Implemented through units U1–U8 and gate-green on branch
-`OME-1026-live-anthropic-model-discovery` (baseline `cc9deb4a`). **Not committed** — no
-authorization to stage, commit, push, or open a PR was given. Full detail in the ledger.
+  `OME-1026-live-anthropic-model-discovery` (baseline `cc9deb4a`), and **committed as `72eaa390`** on
+explicit owner authorization for that commit. A later review-fix pass (blank-discovery-key egress,
+case-insensitive `Accept-Encoding` merge, stale comment/doc wording) is committed separately in the
+commit containing this task-mirror update. No PR is open. Full detail in the ledger.
 
 - 141 new tests; full non-live suite 4194 passed / 0 failed; pyright 0 errors; coverage ≥80.
 - `run_gates.py aigateway --skip-append-only` → ALL GATES GREEN.
-- **PR waiver required, one file:** `apps/aigateway/tests/conftest.py`. The autouse no-egress
+- **One-file append-only waiver granted by the owner on 2026-08-28:**
+  `apps/aigateway/tests/conftest.py`. The autouse no-egress
   tripwire hardcoded the legacy `get(self, url, *, timeout_s, max_bytes)` signature, so it gains
   and forwards an optional `headers` (`AssertionError` check still first). This is the CC-1
   blocker resolution disclosed in plan D1; the change is signature-compatible and alters zero

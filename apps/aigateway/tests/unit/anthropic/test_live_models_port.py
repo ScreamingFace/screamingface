@@ -330,3 +330,21 @@ async def test_a_discovery_error_propagates_untouched() -> None:
 
     assert exc.value.reason == "unreachable"
     assert _FAKE_KEY not in str(exc.value)
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+@pytest.mark.asyncio
+async def test_a_blank_discovery_key_declares_no_source_and_never_dials(blank: str) -> None:
+    """OME-1026 (D3, opt-in): a declared-but-blank key is OFF — no source, zero egress.
+
+    # WHY a ``_LoudClient`` rather than a canned catalog: the assertion that matters is that
+    # nothing is dialed at all. A client that raises on any dial is the only witness that
+    # distinguishes "not attempted" from "attempted and failed" — the failure ladder also
+    # ends in seeds, so a seeds-only assertion would pass either way.
+    """
+    plugin = AnthropicProviderPlugin(settings=_settings(discovery_api_key=SecretStr(blank)))
+    client = _LoudClient()
+
+    assert plugin.model_discovery_source() is None
+    assert await plugin.discover_live_models(client=client) is None
+    assert client.dialed == []

@@ -191,9 +191,18 @@ async def fetch_live_model_ids(
     any page discards everything, so the caller's cache can never store a partial catalog as
     fresh.
 
-    # WHY ``api_key`` stays a ``SecretStr`` all the way in: the plaintext then exists on
-    # exactly one line — the header construction below. A plain ``str`` parameter would put
-    # the credential in a frame that any traceback (pytest's ``-l`` included) renders.
+    # WHY ``api_key`` stays a ``SecretStr`` all the way in: the plaintext is MATERIALISED
+    # on exactly one line — the header construction below — and this frame's own local
+    # renders as ``SecretStr('**********')``. A plain ``str`` parameter would ALSO put the
+    # plaintext in this frame, which any traceback (pytest's ``-l`` included) renders, so the
+    # SecretStr strictly reduces the rendered-plaintext surface and can never enlarge it.
+    # AIDEV-NOTE: it does not reduce that surface to a single line. The dict built below is a
+    # live local of this frame for the whole walk and is re-bound as a parameter in
+    # ``fetch_discovery_json`` and in the adapter. So IF a locals-capturing error reporter
+    # were ever added (sentry-sdk, for one, captures frame locals by default), it would see
+    # the plaintext there. None is installed today and nothing in ``src/`` renders locals;
+    # ``ModelCatalog`` also sanitizes an escaping exception to its type name. THAT is what
+    # keeps this bounded — not this parameter's type.
     """
     bounds = limits if limits is not None else DiscoveryLimits()
     headers = {

@@ -15,9 +15,18 @@ the detailed-contract route's per-model observations, model admission (OME-879),
 and the live model catalog (OME-972) via the shared client/limits. Chat dispatch
 holds no reference to it, so no chat request can ever wait on a network fetch.
 
-INVARIANT (no secrets, no caller URLs): ``observe`` takes a model id and nothing
-else. The URL comes from the provider's own fixed allowlisted constants, and no
-credential is in scope — discovery reads PUBLIC catalogs only.
+INVARIANT (no caller URLs): ``observe`` takes a model id and nothing else. The URL
+comes from the provider's own fixed allowlisted constants — never a caller-supplied
+or response-derived URL, never a followed redirect.
+
+INVARIANT (credentials, narrowed by OME-1026): no credential is in scope on the
+``observe`` path, which still reads PUBLIC catalogs only. That is no longer true of
+every consumer of the shared client: a provider MAY attach an operator-configured
+DEPLOYMENT discovery credential as static headers to its OWN allowlisted origin, and
+the live model catalog named above does exactly that for Anthropic's
+credentialed-only listing. Never an ACCOUNT credential, and never on this path.
+AIDEV-NOTE: adding request logging or an httpx event hook to this shared client can
+now touch a credential. It could not before OME-1026.
 """
 
 from __future__ import annotations

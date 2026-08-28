@@ -181,7 +181,8 @@ def test_a_healthy_snapshot_publishes_live_anthropic_ids(
 def test_a_published_row_keeps_the_established_shape(
     authenticated_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # SF-284 consumes this shape; only the id set may change (compatibility requirement).
+    # Preserve the stable row shape that the historical SF-284 consumer relied on;
+    # live discovery may change only the id set.
     _discovery_on(monkeypatch)
     _install(authenticated_client, _CatalogClient())
 

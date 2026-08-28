@@ -1,8 +1,10 @@
 """OME-479 §5.2 — bounded, sanitized public-discovery HTTPS transport.
 
-FEATURE: safe dynamic observation transport. Providers (OpenRouter/HF/Gemini)
-fetch FIXED public catalogs to enrich the detailed contract with raw support
-evidence. This module owns the safety envelope; provider parsers own the shape.
+FEATURE: safe dynamic observation transport. Providers fetch their own FIXED
+catalogs: public ones (OpenRouter/HF/Gemini) to enrich the detailed contract with
+raw support evidence, and — since OME-1026 — one credentialed catalog, Anthropic's
+model LIST, behind an operator-supplied deployment key. This module owns the safety
+envelope; provider parsers own the shape.
 
 INVARIANT (§5.2): the caller (a provider integration) supplies a FIXED https URL
 and its own allowlisted origins — never a caller-supplied or response-derived
@@ -274,7 +276,16 @@ class HttpxDiscoveryClient:
         # encoding, so identity WINS on conflict. The bounded read counts wire bytes and
         # equals the parsed quantity only while nothing is compressed — a caller must not
         # be able to reopen the expansion path the byte cap closes.
-        request_headers = {**(headers or {}), **_IDENTITY_ENCODING}
+        # WHY the comprehension instead of ``{**headers, **_IDENTITY_ENCODING}``: HTTP field
+        # names are case-INSENSITIVE but dict keys are not, so a caller spelling it
+        # ``Accept-Encoding`` used to survive as a SECOND key and httpx put BOTH lines on the
+        # wire (``gzip, identity``) — the merge silently lost on any spelling but lowercase.
+        # Dropping every case-variant first is what makes "identity wins" true as written.
+        request_headers = {
+            name: value
+            for name, value in (headers or {}).items()
+            if name.lower() not in _IDENTITY_ENCODING
+        } | _IDENTITY_ENCODING
         try:
             async with httpx.AsyncClient(
                 follow_redirects=False,

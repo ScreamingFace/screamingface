@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from aigateway.core.plugin_base import ModelEntry, PluginSettings
@@ -21,9 +21,9 @@ def _default_scopes() -> list[str]:
 def _default_models() -> list[ModelEntry]:
     """Claude models the gateway routes by default.
 
-    Single source of truth for the SF Settings model dropdown: the
-    aigw-claude-backend plugin derives its suggestions from this list via
-    ``GET /v1/models`` (SF-284), so it must NOT be copied SF-side.
+    Provider-owned source of truth for the compiled fallback listing. The historical
+    SF-284 ``aigw-claude-backend`` derived its suggestions from ``GET /v1/models``
+    rather than copying this list, but that consumer was removed before this baseline.
 
     Ordered newest-first within each tier (opus, fable, sonnet, haiku). Older
     snapshots are kept alongside the latest so existing configs pinned to
@@ -86,8 +86,10 @@ class AnthropicPluginSettings(PluginSettings):
     # never part of the discovery cache identity, and attached to no origin but the
     # allowlisted Anthropic one.
     # INVARIANT: None (the default) means ZERO Anthropic catalog egress and exactly the
-    # compiled seed listing below. Account API keys and Claude-subscription OAuth tokens are
-    # off limits for discovery, so this is the ONLY credential that can ever reach it.
+    # compiled seed listing below. A DECLARED-but-blank value normalizes to None too — see
+    # ``_blank_discovery_key_is_absent``. Account API keys and Claude-subscription OAuth
+    # tokens are off limits for discovery, so this is the ONLY credential that can ever
+    # reach it.
     discovery_api_key: SecretStr | None = None
     # OME-1026 (D3): gates LIVE catalog discovery for the /v1/models LISTING (never
     # dispatch), mirroring AIGW_OPENROUTER_LIVE_MODELS. The KEY is the real opt-in — a
@@ -100,3 +102,26 @@ class AnthropicPluginSettings(PluginSettings):
     claude_code_keychain_service: str = "Claude Code-credentials"
     keychain_account: str = "default"
     bootstrap_user: str = Field(default_factory=lambda: os.environ.get("USER", ""))
+
+    @field_validator("discovery_api_key", mode="after")
+    @classmethod
+    def _blank_discovery_key_is_absent(cls, value: SecretStr | None) -> SecretStr | None:
+        """An empty or whitespace-only key is NOT a credential — read it as absent.
+
+        # WHY at the field and not at the two D3 gates: an environment variable that exists
+        # but holds an empty string is a real deployment shape, not a typo — compose
+        # interpolating ``${VAR}`` for an unset host var, an existing-but-empty Kubernetes
+        # Secret key, or a chart that emits every key so an operator's explicit opt-out
+        # stays visible in the manifest. Left raw, ``SecretStr('')`` is not ``None``, so
+        # D3's ``discovery_api_key is not None`` predicate would declare a discovery source
+        # and dial Anthropic with an empty ``x-api-key`` — egress on a deployment that
+        # configured no key, contradicting the opt-in guarantee and DEPLOYMENT.md's
+        # documented rollback.
+        # INVARIANT: normalizing HERE keeps that predicate literally true and gives every
+        # reader of this field the same answer, instead of a blank-check repeated per gate.
+        # AIDEV-NOTE: ``strip()`` only DECIDES; a surviving key is returned untouched, never
+        # trimmed — a credential's exact bytes are the credential.
+        """
+        if value is not None and not value.get_secret_value().strip():
+            return None
+        return value

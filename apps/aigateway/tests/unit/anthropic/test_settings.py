@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 
+import pytest
+from pydantic import SecretStr
+
 from aigateway.core.plugin_base import ModelEntry
 from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSettings
 
@@ -210,3 +213,37 @@ def test_live_models_defaults_true_and_env_overrides(monkeypatch) -> None:
 
     monkeypatch.setenv("AIGW_ANTHROPIC_LIVE_MODELS", "false")
     assert AnthropicPluginSettings().live_models is False
+
+
+@pytest.mark.parametrize("blank", ["", " ", "   ", "\t", "\n", " \t\n "])
+def test_a_blank_discovery_api_key_is_treated_as_absent(monkeypatch, blank: str) -> None:
+    """OME-1026: a DECLARED-but-empty key is not a credential — it must read as absent.
+
+    # WHY normalize here rather than at the two gates: an env var that exists but holds an
+    # empty string is a real deployment shape (compose ``${VAR}`` interpolation of an unset
+    # host var, an existing-but-empty k8s Secret key, a chart that emits every key). Left
+    # raw, ``SecretStr('')`` is not None, so D3's ``discovery_api_key is not None`` predicate
+    # would declare a source and dial Anthropic with an empty ``x-api-key``.
+    # INVARIANT: blank in, ``None`` out — so D3's predicate stays literally true and every
+    # consumer of this field inherits the fix instead of repeating the check.
+    """
+    _clear_anthropic_env(monkeypatch)
+    monkeypatch.setenv("AIGW_ANTHROPIC_DISCOVERY_API_KEY", blank)
+
+    assert AnthropicPluginSettings().discovery_api_key is None
+
+    # Direct construction normalizes identically — tests and callers cannot bypass it.
+    assert AnthropicPluginSettings(discovery_api_key=SecretStr(blank)).discovery_api_key is None
+
+
+def test_a_real_discovery_api_key_survives_normalization_untouched(monkeypatch) -> None:
+    """The blank-value rule must not trim or otherwise mangle a real credential."""
+    _clear_anthropic_env(monkeypatch)
+    secret = "sk-ant-not-a-real-key-0123456789"
+    monkeypatch.setenv("AIGW_ANTHROPIC_DISCOVERY_API_KEY", secret)
+
+    settings = AnthropicPluginSettings()
+
+    assert settings.discovery_api_key is not None
+    assert settings.discovery_api_key.get_secret_value() == secret
+    assert secret not in repr(settings)

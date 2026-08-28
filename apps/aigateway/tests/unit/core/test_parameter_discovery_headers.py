@@ -267,3 +267,35 @@ async def test_bounds_are_still_enforced_on_a_header_carrying_fetch() -> None:
         )
 
     assert exc.value.reason == "oversized"
+
+
+@pytest.mark.parametrize(
+    "spelling", ["Accept-Encoding", "ACCEPT-ENCODING", "aCcEpt-EnCoDiNg", "accept-Encoding"]
+)
+@pytest.mark.asyncio
+async def test_identity_encoding_wins_whatever_case_the_caller_used(spelling: str) -> None:
+    """OME-1026 (CC-14): identity wins CASE-INSENSITIVELY, as HTTP field names demand.
+
+    # WHY assert on ``multi_items()`` and not ``dict(request.headers)``: a dict view JOINS
+    # duplicate field lines, so ``'gzip, identity'`` would read as containing "identity" and
+    # the pin would pass while two Accept-Encoding lines went on the wire — which is exactly
+    # the defect this test exists to catch. Only the multi-item view proves there is ONE.
+    """
+    sent: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.extend(request.headers.multi_items())
+        return httpx.Response(200, json={"data": []}, headers={"content-type": "application/json"})
+
+    client = HttpxDiscoveryClient(transport=httpx.MockTransport(handler))
+    await client.get(
+        _URL,
+        timeout_s=3.0,
+        max_bytes=1_000_000,
+        headers={spelling: "gzip", "x-api-key": _FAKE_KEY},
+    )
+
+    # INVARIANT: exactly one accept-encoding line reaches the wire, and it is identity.
+    assert [value for name, value in sent if name == "accept-encoding"] == ["identity"]
+    # The caller's own (non-encoding) headers still arrive untouched.
+    assert [value for name, value in sent if name == "x-api-key"] == [_FAKE_KEY]
