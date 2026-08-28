@@ -7,6 +7,7 @@ import logging
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
@@ -14,6 +15,9 @@ from screamingface_engine.operation_accounting import (
 )
 from screamingface_engine.operation_calls import RequestAccounting, current_request_accounting
 from screamingface_engine.request_identity import ModelRequestKey, model_request_key
+
+if TYPE_CHECKING:
+    from screamingface_engine.benchmarks.contract import CandidateResult
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +93,32 @@ def accounting_for_grading_evidence(
     return _accounting_for_keys(registry.calls_by_key, request_keys)
 
 
+def reconcile_candidate_grading_accounting(result: CandidateResult) -> None:
+    """Finalize Evidence accounting after every grading owner has registered."""
+
+    registry = _registry.get()
+    calls = current_request_accounting()
+    if registry is None or calls is None:
+        return
+    _index_new_calls(registry, calls)
+    # INVARIANT: verdict routes may project before a later owner registers the same request key.
+    # The complete Candidate Result is the first boundary that can revoke provisional attribution
+    # for every affected Evidence item, so it is the authority that leaves the Engine.
+    for case in result.cases:
+        if case.grade is None:
+            continue
+        for check in case.grade.checks:
+            for evidence in check.evidence:
+                evidence.accounting = accounting_for_grading_evidence(
+                    GradingEvidenceOwner(
+                        benchmark_id=result.benchmark_id,
+                        case_id=case.case_id,
+                        check_id=check.id,
+                        sequence=evidence.sequence,
+                    )
+                )
+
+
 def _request_keys_for_owner(
     registry: _Registry,
     owner: GradingEvidenceOwner,
@@ -126,5 +156,6 @@ __all__ = [
     "GradingEvidenceOwner",
     "accounting_for_grading_evidence",
     "capture_grading_requests",
+    "reconcile_candidate_grading_accounting",
     "register_grading_request",
 ]

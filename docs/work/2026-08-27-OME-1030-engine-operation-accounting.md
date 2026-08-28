@@ -1,9 +1,9 @@
 ---
 ticket: OME-1030
 stack: screamingface-engine
-status: done
+status: in_progress
 started: 2026-08-27
-finished: 2026-08-28
+finished:
 ---
 
 # OME-1030 — Retain per-operation evaluation accounting
@@ -46,6 +46,13 @@ Event behavior.
   contract: preserve the model answer and retain no accounting rather than failing execution.
 - Split Candidate payload capture from run-level grading accounting capture so the latter never
   retains model outputs.
+- Poison a multi-round operation's retained accounting when any consumed round cannot be
+  normalized, rather than publishing a falsely exact subtotal.
+- Reconcile grading accounting at final Candidate Result construction so a request-key collision
+  discovered after an earlier verdict retroactively nulls every affected Evidence item.
+- Skip complete-request hashing while Candidate execution has suspended run-level grading capture.
+- Synchronize the approved spec with the reviewed payload-bearing/payload-free recorder split and
+  the Engine's canonical provider identity on cache hits.
 
 ## Test plan
 

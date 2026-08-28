@@ -587,7 +587,7 @@ async def _chat_completion_loop(
     )
     sampling = model_params(params)
     headers = _headers(profile, identity_headers)
-    operation_accounting: list[OperationAccounting] = []
+    operation_accounting: list[OperationAccounting | None] = []
     for _ in range(cfg.web_tool_max_iterations):
         body = {"model": real_model_id, "messages": messages, **sampling, **extra}
         resp, outcome = await _fetch_completion(
@@ -601,8 +601,7 @@ async def _chat_completion_loop(
             aigw=data.get("_aigw"),
             cache=outcome,
         )
-        if retained is not None:
-            operation_accounting.append(retained)
+        operation_accounting.append(retained)
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
@@ -662,7 +661,7 @@ def _raise_if_unusable_with_accounting(
     choice: Choice,
     *,
     max_tokens: object,
-    accounting: list[OperationAccounting],
+    accounting: list[OperationAccounting | None],
 ) -> None:
     """Classify one response while retaining a consumed provider refusal."""
 

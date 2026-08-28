@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 
 import httpx
 import pytest
 
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
+from screamingface_engine.runner.accounting import retained_operation_accounting
+from screamingface_engine.runner.cache_readback import CacheOutcome
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world_config import ModelSpec
 from url4 import RelExpr, expr, render, src, text
@@ -62,6 +65,31 @@ def _response(*, refusal: bool = False, malformed_identity: bool = False) -> dic
     }
 
 
+def _tool_response() -> dict[str, object]:
+    return {
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "web_search",
+                                "arguments": '{"query":"accounting"}',
+                            },
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+        "_aigw": _aigw(),
+    }
+
+
 def _candidate() -> str:
     return render(
         expr(
@@ -88,6 +116,34 @@ async def _evaluate(body: dict[str, object]):
         encoded = await evaluate_candidate_recipe(world.node, _candidate(), "question")
     finally:
         await world.aclose()
+        await client.aclose()
+    return decode_candidate_invocation_record(encoded)
+
+
+async def _evaluate_rounds(bodies: list[dict[str, object]]):
+    remaining = iter(bodies)
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=next(remaining))),
+        base_url="http://aigateway.test",
+    )
+    tavily = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"results": []})),
+        base_url="https://api.tavily.test",
+    )
+    world = await build_aigateway_world(
+        AigatewayConfig(
+            default_model=_MODEL,
+            models=(ModelSpec(id=_MODEL, web_search=True),),
+        ),
+        client=client,
+        tavily_api_key="test-token",
+        tavily_client=tavily,
+    )
+    try:
+        encoded = await evaluate_candidate_recipe(world.node, _candidate(), "question")
+    finally:
+        await world.aclose()
+        await tavily.aclose()
         await client.aclose()
     return decode_candidate_invocation_record(encoded)
 
@@ -139,3 +195,38 @@ async def test_unexpected_accounting_failure_does_not_fail_a_successful_answer(
     assert "operation accounting unavailable after ValueError" in caplog.text
     assert "provider/model" not in caplog.text
     assert "private accounting payload" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_one_unavailable_tool_round_poisons_the_complete_operation_accounting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fail_first_round(
+        *,
+        request_model: str,
+        usage: Mapping[str, object] | None,
+        aigw: object,
+        cache: CacheOutcome,
+    ):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ValueError("private accounting payload")
+        return retained_operation_accounting(
+            request_model=request_model,
+            usage=usage,
+            aigw=aigw,
+            cache=cache,
+        )
+
+    monkeypatch.setattr(
+        "screamingface_engine.runner.connector.retained_operation_accounting",
+        fail_first_round,
+    )
+
+    invocation = await _evaluate_rounds([_tool_response(), _response()])
+
+    assert invocation.operations is not None
+    assert invocation.operations[0].accounting is None

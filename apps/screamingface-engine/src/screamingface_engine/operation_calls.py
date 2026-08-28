@@ -120,7 +120,9 @@ def operation_call_identity(
             params=tuple(sorted(params.items())),
             request_key=(
                 model_request_key(path=path, params=params, context=context, intent=intent)
-                if context is not None or intent is not None
+                # INVARIANT: Candidate execution suspends the run ledger. Do not hash its complete
+                # prompt merely to discard the key; only grading capture owns this identity.
+                if _accounting_recorders.get() and (context is not None or intent is not None)
                 else None
             ),
         )
@@ -141,6 +143,9 @@ def record_operation_call(
     identity = _identity.get()
     if identity is None:
         return
+    # WHY two record shapes: Candidate projection needs the terminal output, while the run-wide
+    # grading join must remain payload-free. One publication point feeds each active scope without
+    # retaining prompts or judge outputs for the lifetime of the run.
     if _recorders.get():
         call = OperationCall(
             path=identity.path,
@@ -157,13 +162,6 @@ def record_operation_call(
             recorder.append(request_accounting)
 
 
-def current_operation_calls() -> OperationCallRecorder | None:
-    """The innermost active recorder, or None outside an owned capture scope."""
-
-    active = _recorders.get()
-    return active[-1] if active else None
-
-
 def current_request_accounting() -> RequestAccountingRecorder | None:
     """The innermost payload-free run ledger, or None outside an owned scope."""
 
@@ -176,7 +174,6 @@ __all__ = [
     "RequestAccounting",
     "capture_operation_calls",
     "capture_request_accounting",
-    "current_operation_calls",
     "current_request_accounting",
     "operation_call_identity",
     "record_operation_call",

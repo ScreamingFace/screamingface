@@ -67,31 +67,37 @@ class OperationAccounting(_StrictAccountingModel):
 
 
 def combine_operation_accounting(
-    records: Sequence[OperationAccounting],
+    records: Sequence[OperationAccounting | None],
 ) -> OperationAccounting | None:
     """Strictly combine consumed calls that implement one semantic operation."""
 
-    if not records:
+    # INVARIANT: absence is contagious. One consumed round whose accounting could not be
+    # normalized makes the whole semantic operation incomplete; dropping that round would publish
+    # the remaining calls as a falsely exact subtotal.
+    if not records or any(record is None for record in records):
         return None
+    complete_records = tuple(record for record in records if record is not None)
     usage = OperationUsage(
-        input_tokens=_sum_int(record.usage.input_tokens for record in records),
-        output_tokens=_sum_int(record.usage.output_tokens for record in records),
-        cache_read_tokens=_sum_int(record.usage.cache_read_tokens for record in records),
-        cache_creation_tokens=_sum_int(record.usage.cache_creation_tokens for record in records),
-        reasoning_tokens=_sum_int(record.usage.reasoning_tokens for record in records),
-        cost_usd=_sum_cost(record.usage.cost_usd for record in records),
+        input_tokens=_sum_int(record.usage.input_tokens for record in complete_records),
+        output_tokens=_sum_int(record.usage.output_tokens for record in complete_records),
+        cache_read_tokens=_sum_int(record.usage.cache_read_tokens for record in complete_records),
+        cache_creation_tokens=_sum_int(
+            record.usage.cache_creation_tokens for record in complete_records
+        ),
+        reasoning_tokens=_sum_int(record.usage.reasoning_tokens for record in complete_records),
+        cost_usd=_sum_cost(record.usage.cost_usd for record in complete_records),
     )
     return OperationAccounting(
-        provider=_agreed(record.provider for record in records),
-        request_model=_agreed(record.request_model for record in records),
-        response_model=_agreed(record.response_model for record in records),
+        provider=_agreed(record.provider for record in complete_records),
+        request_model=_agreed(record.request_model for record in complete_records),
+        response_model=_agreed(record.response_model for record in complete_records),
         usage=usage,
-        provider_latency_ms=_sum_int(record.provider_latency_ms for record in records),
+        provider_latency_ms=_sum_int(record.provider_latency_ms for record in complete_records),
         cache=OperationCache(
-            hits=sum(record.cache.hits for record in records),
-            misses=sum(record.cache.misses for record in records),
-            bypasses=sum(record.cache.bypasses for record in records),
-            unknown=sum(record.cache.unknown for record in records),
+            hits=sum(record.cache.hits for record in complete_records),
+            misses=sum(record.cache.misses for record in complete_records),
+            bypasses=sum(record.cache.bypasses for record in complete_records),
+            unknown=sum(record.cache.unknown for record in complete_records),
         ),
     )
 

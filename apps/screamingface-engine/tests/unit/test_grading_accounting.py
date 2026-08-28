@@ -6,10 +6,19 @@ import logging
 
 import pytest
 
+from screamingface_engine.benchmarks.contract import (
+    CandidateResult,
+    CaseGrade,
+    CaseResult,
+    Check,
+    Evidence,
+    EvidenceProducer,
+)
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
     capture_grading_requests,
+    reconcile_candidate_grading_accounting,
     register_grading_request,
 )
 from screamingface_engine.operation_accounting import (
@@ -61,6 +70,57 @@ def _accounting(cost: str) -> OperationAccounting:
         ),
         provider_latency_ms=20,
         cache=OperationCache(hits=0, misses=1, bypasses=0, unknown=0),
+    )
+
+
+def _candidate_result_with_evidence(
+    first: GradingEvidenceOwner,
+    second: GradingEvidenceOwner,
+) -> CandidateResult:
+    producer = EvidenceProducer(type="model", id="judge")
+    checks = [
+        Check(
+            type="rubric",
+            id=owner.check_id,
+            label=owner.check_id,
+            outcome="MET",
+            score=1.0,
+            evidence=[
+                Evidence(
+                    sequence=owner.sequence,
+                    producer=producer,
+                    valid=True,
+                    outcome="MET",
+                    explanation="ok",
+                    raw_output="verdict",
+                    metadata={},
+                    accounting=None,
+                )
+            ],
+            metadata={},
+        )
+        for owner in (first, second)
+    ]
+    case = CaseResult(
+        status="scored",
+        case_id=first.case_id,
+        input="question",
+        output="answer",
+        finish_reason="stop",
+        refusal=None,
+        grade=CaseGrade(method="rubric", score=1.0, metrics={}, checks=checks),
+        failures=[],
+        metadata={},
+    )
+    return CandidateResult(
+        benchmark_id=first.benchmark_id,
+        benchmark_revision="revision",
+        case_count=1,
+        score=1.0,
+        coverage=1.0,
+        metrics={},
+        cases=[case],
+        failures=[],
     )
 
 
@@ -267,3 +327,26 @@ def test_lookup_indexes_calls_appended_after_an_earlier_verdict() -> None:
 
     assert accounting is not None
     assert accounting.usage.cost_usd == "0.2"
+
+
+def test_final_reconciliation_revokes_accounting_after_a_late_owner_collision() -> None:
+    first = _owner(check_id="rubric-1")
+    second = _owner(check_id="rubric-2")
+    candidate = _candidate_result_with_evidence(first, second)
+    grade = candidate.cases[0].grade
+    assert grade is not None
+
+    with capture_request_accounting():
+        with capture_grading_requests():
+            _register(first)
+            _record("0.1")
+            provisional = accounting_for_grading_evidence(first)
+            assert provisional is not None
+            grade.checks[0].evidence[0].accounting = provisional
+
+            _register(second)
+            reconcile_candidate_grading_accounting(candidate)
+
+    evidence = grade.checks
+    assert evidence[0].evidence[0].accounting is None
+    assert evidence[1].evidence[0].accounting is None
