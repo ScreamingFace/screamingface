@@ -1,9 +1,9 @@
 ---
 ticket: OME-1030
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-08-27
-finished:
+finished: 2026-08-28
 ---
 
 # OME-1030 — Retain per-operation evaluation accounting
@@ -53,6 +53,10 @@ Event behavior.
 - Skip complete-request hashing while Candidate execution has suspended run-level grading capture.
 - Synchronize the approved spec with the reviewed payload-bearing/payload-free recorder split and
   the Engine's canonical provider identity on cache hits.
+- Preserve the pre-existing terminal-attempt identity used by live/root Usage while requiring
+  unanimous attempt identity only for the new retained operation breakdown.
+- Keep confirmed cache-hit provider identity canonical to the requested route and suppress served
+  model identity when Gateway accounting is incomplete.
 
 ## Test plan
 
@@ -80,6 +84,8 @@ Event behavior.
   malformed optional identities remaining fail-open.
 - RED capture regression proving the run-level grading ledger retains request identity/accounting
   but no model output while Candidate-local attribution remains unchanged.
+- RED regressions proving live/root Usage keeps terminal-attempt identity and retained accounting
+  rejects disagreeing or incomplete attempt identity, including confirmed cache hits.
 - Run `uv run ../../.claude/scripts/run_gates.py screamingface-engine` from the repository root.
 
 ## Acceptance
@@ -107,16 +113,21 @@ Event behavior.
   `fix(screamingface-engine): harden accounting attribution`;
   `fix(screamingface-engine): preserve exact accounting evidence`;
   `perf(screamingface-engine): reuse DRACO judge prompts`; and
-  `fix(screamingface-engine): harden operation accounting boundaries`.
+  `fix(screamingface-engine): harden operation accounting boundaries`; and
+  `fix(screamingface-engine): preserve live and retained identity contracts`.
 - **Gates:** `python3 .claude/scripts/run_gates.py screamingface-engine --skip-append-only` — ALL
-  GATES GREEN: Ruff check, Ruff format, Pyright, layering, and 2,219 passed / 6 skipped with 91.50%
-  coverage. The focused accounting regression set passed 56 tests. `git diff --check` passed. The
-  append-only exception is the explicit owner approval recorded below.
+  GATES GREEN: Ruff check, Ruff format, Pyright, layering, and the full pytest/coverage suite
+  (2,230 tests collected; coverage remained above the 80% gate). The final focused accounting
+  regression set passed 69 tests. `git diff --check` passed. The append-only exception is the
+  explicit owner approval recorded below.
 - **Non-regression:** no `packages/url4`, AI Gateway, Client, URL4 expression, benchmark data,
   rubric, scoring formula, retry policy, cache key, model-call cardinality, or live Event change.
-  DRACO prompt rendering was extracted and pinned byte-identical. Root usage remains authoritative;
-  unsupported and ambiguous work remains null rather than guessed. The evolved required-null wire
-  fields require OME-1031's strict Client decoder to deploy first or atomically.
+  DRACO prompt rendering was extracted and pinned byte-identical. Live/root Usage retains its
+  pre-existing terminal-attempt identity contract; only the new retained breakdown requires
+  all-attempt agreement. Cache hits retain the canonical route provider and suppress incomplete
+  served-model evidence. Root usage remains authoritative; unsupported and ambiguous work remains
+  null rather than guessed. The evolved required-null wire fields require OME-1031's strict Client
+  decoder to deploy first or atomically.
 - **Deviations:** Candidate execution suspends the run-level grading ledger while preserving its
   existing Candidate-local output recorder; this additional separation was required to satisfy the
   reviewed no-payload run-scope invariant. Request-key hashing remains separate from the catalogue
@@ -131,3 +142,7 @@ Event behavior.
   made the old expected shape mechanically stale. Assertions were deepened, not weakened. The
   guard correctly stopped on those files; remaining gates are run with `--skip-append-only` under
   that recorded approval.
+- **Live identity regression:** the owner explicitly approved restoring the prior terminal-attempt
+  identity assertion after review found that the exact-only retained policy had unintentionally
+  changed the shared live/root Usage reader. A separate retained-accounting regression now pins
+  unanimous attempt identity without changing live behavior.

@@ -81,6 +81,24 @@ def test_complete_gateway_evidence_retains_all_exact_fields() -> None:
     }
 
 
+def test_retained_identity_requires_every_contributing_attempt_to_agree() -> None:
+    accounting = retained_operation_accounting(
+        request_model="openrouter/anthropic/claude",
+        usage=None,
+        aigw=_aigw(
+            attempts=[
+                _attempt(provider="first", response_model="first/model"),
+                _attempt(provider="second", response_model="second/model"),
+            ]
+        ),
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider is None
+    assert accounting.response_model is None
+    assert accounting.usage.input_tokens == 20
+
+
 def test_partial_or_omitted_gateway_attempts_are_not_presented_as_complete() -> None:
     for aigw in (
         _aigw(capture_status="partial"),
@@ -150,6 +168,21 @@ def test_confirmed_cache_hit_is_zero_current_consumption_not_unknown() -> None:
     }
     assert accounting.provider_latency_ms == 0
     assert accounting.cache.hits == 1
+
+
+def test_cache_hit_uses_route_provider_and_rejects_partial_served_identity() -> None:
+    accounting = retained_operation_accounting(
+        request_model="openrouter/anthropic/claude",
+        usage=None,
+        aigw=_aigw(
+            capture_status="partial",
+            attempts=[_attempt(provider="observed-elsewhere", response_model="partial/model")],
+        ),
+        cache=_cache("hit"),
+    )
+
+    assert accounting.provider == "openrouter"
+    assert accounting.response_model is None
 
 
 def test_several_rounds_sum_strictly_and_disagreeing_identity_becomes_unknown() -> None:

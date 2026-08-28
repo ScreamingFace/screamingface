@@ -228,8 +228,9 @@ def read_aigw(aigw: object) -> CallAccounting | None:
 
     INVARIANT: tokens are summed across EVERY attempt, failures included. A retry genuinely costs
     twice, and the producer contract states outright that a failed attempt may still carry
-    provider-authored usage, so dropping failures under-reports the run. Identity is retained only
-    when EVERY contributing attempt agrees; a cross-provider/model retry has no single identity.
+    provider-authored usage, so dropping failures under-reports the run. The pre-existing live/root
+    Usage contract takes identity from the terminal attempt; retained operation accounting applies
+    its stricter all-attempt agreement policy separately.
     """
     envelope = _mapping(aigw)
     if envelope is None:
@@ -254,8 +255,9 @@ def read_aigw(aigw: object) -> CallAccounting | None:
             observed = _attempt_usage(attempt)
             totals = tuple(accumulate(totals[i], observed[i]) for i in range(5))
 
-    provider = _agreed_attempt_identity(attempts, "provider")
-    response_model = _agreed_attempt_identity(attempts, "response_model")
+    terminal = attempts[-1] if attempts else None
+    provider = terminal.get("provider") if terminal is not None else None
+    response_model = terminal.get("response_model") if terminal is not None else None
     complete = (
         accounting is not None
         and accounting.get("capture_status") == "complete"
@@ -268,8 +270,8 @@ def read_aigw(aigw: object) -> CallAccounting | None:
         for attempt in attempts[1:]:
             latency = accumulate(latency, _attempt_latency(attempt))
     return CallAccounting(
-        provider=provider,
-        response_model=response_model,
+        provider=provider if isinstance(provider, str) and provider else None,
+        response_model=response_model if isinstance(response_model, str) else None,
         input_tokens=totals[0],
         output_tokens=totals[1],
         cache_read_tokens=totals[2],
@@ -293,6 +295,24 @@ def _agreed_attempt_identity(attempts: list[Mapping[str, Any]], field: str) -> s
     )
 
 
+def _retained_attempt_identities(aigw: object) -> tuple[str | None, str | None]:
+    """Provider and served model shared by every contributing attempt."""
+
+    envelope = _mapping(aigw)
+    accounting = _mapping(envelope.get("usage_accounting")) if envelope is not None else None
+    raw_attempts = accounting.get("attempts") if accounting is not None else None
+    if not isinstance(raw_attempts, list):
+        return None, None
+    attempts = [_mapping(attempt) for attempt in raw_attempts]
+    if any(attempt is None for attempt in attempts):
+        return None, None
+    complete_attempts = [attempt for attempt in attempts if attempt is not None]
+    return (
+        _agreed_attempt_identity(complete_attempts, "provider"),
+        _agreed_attempt_identity(complete_attempts, "response_model"),
+    )
+
+
 def retained_operation_accounting(
     *,
     request_model: str,
@@ -303,13 +323,18 @@ def retained_operation_accounting(
     """Normalize one consumed response without changing live/root Usage reporting."""
 
     call = read_aigw(aigw)
+    complete = call is not None and call.complete
+    retained_provider, retained_response_model = (
+        _retained_attempt_identities(aigw) if complete else (None, None)
+    )
     if cache.status == "hit":
         return OperationAccounting(
-            provider=(
-                call.provider if call is not None and call.provider else provider_of(request_model)
-            ),
+            # INVARIANT: a cache hit performs no current provider dispatch. Its provider identity
+            # is therefore the canonical provider for the declared route, never an attempt copied
+            # from incomplete or stored Gateway evidence.
+            provider=provider_of(request_model),
             request_model=request_model,
-            response_model=call.response_model if call is not None else None,
+            response_model=retained_response_model,
             usage=OperationUsage(
                 input_tokens=0,
                 output_tokens=0,
@@ -322,17 +347,12 @@ def retained_operation_accounting(
             cache=_operation_cache(cache),
         )
     reported = usage or {}
-    complete = call is not None and call.complete
     return OperationAccounting(
         provider=(
-            call.provider
-            if complete and call is not None
-            else provider_of(request_model)
-            if call is None
-            else None
+            retained_provider if complete else provider_of(request_model) if call is None else None
         ),
         request_model=request_model,
-        response_model=call.response_model if complete and call is not None else None,
+        response_model=retained_response_model,
         usage=OperationUsage(
             input_tokens=(
                 call.input_tokens
