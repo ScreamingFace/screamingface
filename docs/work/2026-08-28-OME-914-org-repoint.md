@@ -82,9 +82,58 @@ packages' own gates:
 - Release history, the OIDC failure-mode notes, and the three sibling repos are untouched.
 - The README's "open an issue" sentence links to the issues page.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** 37 tracked files changed — the 34 swept files, plus `.claude/README.md` and
+  `docs/spec/2026-07-15-url4-pypi-release-cicd-spec.md` (prose-only, no URL to sweep), plus
+  `README.md` for the OME-945 link. Two planned targets turned out to need no change — see
+  Deviations.
+- **Commits:**
+  - `00e61533` — docs(work): open the ledger and mirrors for the org repoint sweep
+  - `0379e66d` — docs: repoint the remaining org references to ScreamingFace
+  - `bad978f1` — docs(readme): link the issue tracker from the providers invitation
+- **Gates:**
+  - `run_gates.py screamingface` — ALL GATES GREEN (8 gates: append-only check, ruff check,
+    ruff format, pyright, pytest `--cov-fail-under=95`, `check_notebooks.py`, `uv build`,
+    `check_distribution.py`). The notebook gate is the load-bearing one here: it proves the
+    generator and the committed notebook still agree after both sides were edited.
+  - `run_gates.py url4` — ALL GATES GREEN (5 gates).
+  - public-docs — `vue-tsc --noEmit`, `oxlint`, `eslint` and `vite build` all exit 0. Linters were
+    run WITHOUT `--fix` so the gate reports rather than silently rewrites unrelated files.
+- **Final grep:** 110 `github.com/OpenMined/screamingface` occurrences remain, every one
+  deliberate — 103 in the four CHANGELOGs, 3 sibling-repo paths (`-benchmarks` in
+  `docs/PROJECT-OVERVIEW.md` and `docs/scream-lisbon-digest.md`, `-brand` in
+  `docs/work/2026-08-21-OME-928-cache-provenance-band.md`), and 4 in this ledger and the OME-914
+  mirror, which quote the old string to document the exclusion rule.
+- **Deviations:**
+  - **`OME-945`'s first item was already satisfied on `main`.** Both
+    `packages/screamingface/pyproject.toml` and `packages/url4/pyproject.toml` already declare
+    `Homepage`, `Repository` and `Issues` under `ScreamingFace/…`. The ticket read the divergence
+    as two-sided; it was one-sided — the docs were the only stale half. No edit made; the README
+    link is the whole of OME-945.
+  - **The ticket named `README.md` as carrying stale org URLs. It carries none** — its only
+    GitHub link (the clone URL, line 109) was already canonical. Its only change is the OME-945
+    issue link.
+  - **`docs/PROJECT-OVERVIEW.md` and `docs/scream-lisbon-digest.md` were planned as sweep targets
+    but needed no change** — their only hits are `OpenMined/screamingface-benchmarks`, a different
+    (private) repo that prefix-matches the sweep pattern. Caught by the trailing-hyphen guard.
+  - **Judgment call, flagged for review:** the two `2026-07-15` url4-PyPI documents were rewritten
+    even though they are dated historical artifacts, because the reference sits under
+    "Owner actions (post-merge, pre-publish)" — a checklist item that `OME-910` records as **still
+    open**. That is a claim about work not yet done, not a claim about the past, so correcting it
+    fixes a pending instruction rather than falsifying history. The CHANGELOG rule was applied in
+    the opposite direction for the release-workflow `AIDEV-NOTE` blocks, where the old org is the
+    stale value being described and rewriting would make the sentence contradict itself.
+  - Branched from `upstream/main`; this clone's remote is named `upstream`, not `origin`.
+  - The fresh worktree's `screamingface` venv lacked the `notebook` extra, so `pyright` failed on
+    unresolved `ipywidgets` before any gate ran. Fixed with `uv sync --all-extras` in
+    `packages/screamingface` — an environment gap, not a code change.
+
+- **⚠️ OPEN — not done by this change:** the branch is committed locally only. Nothing was pushed,
+  no PR was opened, and both issues remain **In Progress**. `OME-914` and `OME-945` close on merge
+  with the card's `close_template`. A rebase on `main` is likely needed first: `OME-1034` is
+  editing `README.md` and several `public-docs/src/pages/sf-client/` files concurrently, and this
+  branch expects to land second.
+- **⚠️ Still OPEN from `OME-910`, untouched here:** the PyPI Trusted Publisher entries for the
+  `url4` and `screamingface` projects still name `OpenMined/screamingface` in the PyPI console.
+  Repointing the docs does not repoint PyPI — that remains an owner action.
