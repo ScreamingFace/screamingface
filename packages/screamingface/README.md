@@ -210,7 +210,19 @@ stateful protocols without a Client-interpreted workflow language.
 pip install screamingface
 ```
 
-Python 3.12 or newer is required.
+Python 3.12 or newer is required. This command installs the hosted client. The local stack
+(`screamingface up`) also needs the runtime services and notebook tools:
+
+```bash
+pip install "screamingface[runtime,notebook]"
+```
+
+### Troubleshooting
+
+`SCREAMINGFACE_RUNTIME_ERROR No module named 'X'` from `screamingface up` — common on
+Colab, which preinstalls some of the runtime dependencies: the `[runtime]` extra is not
+installed. Run `pip install "screamingface[runtime,notebook]"` and start again with
+`screamingface up`. `screamingface doctor` names the missing modules.
 
 ## Client configuration
 

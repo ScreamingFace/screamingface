@@ -25,6 +25,9 @@ from screamingface._runtime.config import RuntimeConfig, default_data_dir
 _STATE_VERSION = 1
 _PORT_DEFAULTS = {"gateway": 9105, "scoreboard": 9106, "engine": 9108}
 _BENCHMARKS = ("draco", "ifeval", "healthbench", "gdpval")
+# WHY 15: enough to carry the failing import plus its traceback into the `up` error;
+# short enough that the message stays readable where it lands (OME-1036).
+_STARTUP_LOG_TAIL_LINES = 15
 
 
 def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
@@ -264,6 +267,16 @@ def _serve(config: RuntimeConfig, token: str, *, foreground: bool) -> None:
     with capture_runtime_log(config.log_path, foreground=foreground):
         try:
             _serve_logged(config, token)
+        except ImportError as exc:
+            # WHY a branch of its own (OME-1036): a missing runtime dependency otherwise
+            # reaches the log as a bare module error with no remediation. Any import the
+            # preflight list missed still lands with the fix attached.
+            print(
+                f'SCREAMINGFACE_RUNTIME_ERROR {exc} — install "screamingface[runtime]"',
+                file=sys.stderr,
+                flush=True,
+            )
+            raise
         except Exception as exc:
             print(f"SCREAMINGFACE_RUNTIME_ERROR {exc}", file=sys.stderr, flush=True)
             raise
@@ -691,11 +704,31 @@ def _write_json_atomic(path: Path, value: dict[str, object]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _runtime_log_tail(path: Path, *, limit: int = _STARTUP_LOG_TAIL_LINES) -> str:
+    """The last runtime log lines, for errors raised where the log is not on screen.
+
+    Returns "" when the log is unreadable or absent — the caller's message already
+    points at the log path, so a missing file must not mask the startup failure itself.
+    """
+    try:
+        with path.open(encoding="utf-8", errors="replace") as stream:
+            return "".join(deque(stream, maxlen=limit)).rstrip("\n")
+    except OSError:
+        return ""
+
+
 def _wait_ready(process: subprocess.Popen[bytes], config: RuntimeConfig, *, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise RuntimeError("runtime exited during startup; inspect the runtime log")
+            # WHY the tail (OME-1036): the child dies in the background with its cause in
+            # the log file; repeating the last lines here puts the cause where the user is
+            # already looking instead of sending them hunting for a file.
+            tail = _runtime_log_tail(config.log_path)
+            raise RuntimeError(
+                "runtime exited during startup"
+                + (f":\n{tail}" if tail else "; inspect the runtime log")
+            )
         state = _read_state(config)
         if all(_health(config.services).values()) and state is not None and _verify_owner(state):
             return
