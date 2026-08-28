@@ -102,3 +102,6 @@ RED first, in this order:
      `OperationAccounting` will reject `provider_attempts` until OME-1032 adds it. Owner chose
      Engine-only scope; the required client change is a one-line field, one `to_dict` entry,
      and one `__post_init__` validation mirroring `provider_latency_ms`.
+  5. **Review follow-up:** the retained-contract field list and the exclusion wording now name
+     `provider_attempts` consistently. This is documentation-only; the implemented contract and
+     its tests were unchanged.

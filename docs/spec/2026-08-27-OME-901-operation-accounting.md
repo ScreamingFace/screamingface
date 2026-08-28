@@ -100,8 +100,10 @@ provider_attempts
 cache: hits/misses/bypasses/unknown
 ```
 
-No new timer, Gateway/provider attempt counter, prompt, URL4 expression, cache key, Gateway id,
-provider-attempt id, trace payload, or serialized request digest is added.
+No new timer, Gateway retry mechanism, prompt, URL4 expression, cache key, Gateway id,
+provider-attempt id, trace payload, or serialized request digest is added. The retained
+`provider_attempts` count is derived from the existing Gateway attempt ledger that the Engine
+already validates for completeness.
 
 Field aggregation is strict:
 
@@ -172,6 +174,7 @@ request_model: string | null
 response_model: string | null
 usage: existing strict optional six-field Usage
 provider_latency_ms: integer | null
+provider_attempts: non-negative integer | null
 cache: {hits, misses, bypasses, unknown}
 ```
 
