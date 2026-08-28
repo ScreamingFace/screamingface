@@ -1,12 +1,12 @@
 ---
 id: OME-1034
 linear_url: https://linear.app/openmined/issue/OME-1034/fix-the-broken-readme-quickstart-and-the-docs-errors-a-first-time-user
-status: in_progress
+status: done
 type: task
 priority: P2
 labels: [py-screamingface, autonomous, agentic]
 created: 2026-08-28
-closed:
+closed: 2026-08-28
 ---
 
 # Fix the broken README quickstart and the docs errors a first-time user hits
