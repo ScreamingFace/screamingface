@@ -14,11 +14,16 @@ closed:
 Follow-up to `OME-910`, which deliberately fixed only the references a GitHub org redirect
 cannot cover (published PyPI metadata + the Trusted Publishing comments).
 
-The remaining `github.com/OpenMined/screamingface` links across `CONTRIBUTING.md`,
+The remaining case variants of `github.com/OpenMined/screamingface` across container and Helm
+metadata, `CONTRIBUTING.md`,
 `.claude/README.md`, `docs/**`, `public-docs/src/**`, `apps/scoreboard/portal/*.html`,
 `apps/screamingface-studio/src-tauri/tauri.conf.json`, and the generated notebook pair
 (`packages/screamingface/scripts/build_notebooks.py` + `examples/06_draco.ipynb`) all still
 resolve via the redirect, so this is hygiene rather than breakage.
+
+The sweep also repoints public-docs' organization-level GitHub buttons to the ScreamingFace
+organization and corrects the current work-item diagram's stale `OM-*` examples to the actual
+Linear team prefix, `OME-*`.
 
 **Excluded, deliberately:** the four `CHANGELOG.md` files (correct when written — rewriting
 falsifies release history); `OpenMined/sf-installer` in the release workflows (a genuinely

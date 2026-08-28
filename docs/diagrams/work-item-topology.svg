@@ -21,7 +21,7 @@
 
   <!-- title -->
   <text class="title" x="40" y="52">Work-item topology — one ID stream × label matrix</text>
-  <text class="sub" x="40" y="76">ScreamingFace AI SDLC · ONE team, one sequence: every work item is OM-N · labels app/* pkg/* com/* place the work · ≥2 apps/packages → cross-component epic (D9)</text>
+  <text class="sub" x="40" y="76">ScreamingFace AI SDLC · ONE team, one sequence: every work item is OME-N · labels app/* pkg/* com/* place the work · ≥2 apps/packages → cross-component epic (D9)</text>
 
   <!-- ================= app/pkg label columns ================= -->
   <!-- col 1: app/scoreboard (live) -->
@@ -83,7 +83,7 @@
 
   <!-- epic chip -->
   <rect class="chip" x="710" y="442" width="110" height="22" rx="3"/>
-  <text class="tick" x="765" y="457" fill="#fb7185">OM-7 · epic</text>
+  <text class="tick" x="765" y="457" fill="#fb7185">OME-7 · epic</text>
 
   <!-- fan-out to per-app/pkg sub-issues -->
   <path d="M 740 464 Q 615 495 485 528" fill="none" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="4,4"/>
@@ -92,12 +92,12 @@
 
   <!-- sub-issue chips at intersections -->
   <rect class="chip" x="437" y="528" width="76" height="22" rx="3"/>
-  <text class="tick" x="475" y="543">OM-9</text>
+  <text class="tick" x="475" y="543">OME-9</text>
   <rect class="chip" x="727" y="528" width="76" height="22" rx="3"/>
-  <text class="tick" x="765" y="543">OM-3</text>
+  <text class="tick" x="765" y="543">OME-3</text>
   <rect class="chip" x="1017" y="528" width="76" height="22" rx="3"/>
-  <text class="tick" x="1055" y="543">OM-12</text>
-  <text class="note" x="765" y="576" fill="#fb7185">epic OM-7 carries com/url4 + all affected app/pkg labels · one sub-issue per affected app/package (one SDLC unit each)</text>
+  <text class="tick" x="1055" y="543">OME-12</text>
+  <text class="note" x="765" y="576" fill="#fb7185">epic OME-7 carries com/url4 + all affected app/pkg labels · one sub-issue per affected app/package (one SDLC unit each)</text>
 
   <!-- com/ensemble: spans cli + aigateway -->
   <rect x="915" y="620" width="560" height="80" rx="10" fill="rgba(251,146,60,0.13)" stroke="#fb923c" stroke-width="1.5"/>
@@ -107,10 +107,10 @@
 
   <!-- single-app work items -->
   <rect class="chip" x="150" y="712" width="70" height="22" rx="3"/>
-  <text class="tick" x="185" y="727">OM-58</text>
+  <text class="tick" x="185" y="727">OME-58</text>
   <text class="note" x="185" y="750">single-app work · label app/scoreboard</text>
   <rect class="chip" x="1307" y="712" width="76" height="22" rx="3"/>
-  <text class="tick" x="1345" y="727">OM-321</text>
+  <text class="tick" x="1345" y="727">OME-321</text>
   <text class="note" x="1345" y="750">single-app work · label app/aigateway</text>
 
   <!-- ================= bottom: repo label + rules legend ================= -->
@@ -123,7 +123,7 @@
 
   <rect x="350" y="810" width="1120" height="150" rx="8" fill="rgba(15,23,42,0.6)" stroke="rgba(148,163,184,0.5)" stroke-width="1"/>
   <text class="legh" x="374" y="840">Rules</text>
-  <text class="leg" x="374" y="866">• Every work item = OM-N — one team, one sequence · labels place the work, the ID doesn't</text>
+  <text class="leg" x="374" y="866">• Every work item = OME-N — one team, one sequence · labels place the work, the ID doesn't</text>
   <text class="leg" x="374" y="890">• app/[name] · pkg/[name] → where it lands (multi-value) · com/[name] → product component · repo → process work</text>
   <text class="leg" x="374" y="914">• D9: ≥2 app/pkg labels → cross-component epic (com/X + all affected labels) + one sub-issue per affected app/package</text>
   <text class="leg" x="374" y="938">• type/* and who-acts are Linear label groups (one per issue) · label registry: .claude/task-board.local.md</text>

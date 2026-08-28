@@ -272,7 +272,7 @@ There is exactly one container image, and it should carry the OCI
 ```dockerfile
 LABEL org.opencontainers.image.title="screamingface-engine" \
       org.opencontainers.image.description="ScreamingFace screamingface-engine control plane + runner" \
-      org.opencontainers.image.source="https://github.com/openmined/screamingface" \
+      org.opencontainers.image.source="https://github.com/ScreamingFace/screamingface" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="0.1.0" \
       org.opencontainers.image.vendor="OpenMined"
