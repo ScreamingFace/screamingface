@@ -46,6 +46,7 @@
       "SelfCorrective",
       "Url4",
       "Usage",
+      "__version__",
       "benchmarks",
       "close",
       "configure",
@@ -642,6 +643,10 @@
           "reasoning_tokens": "field",
           "to_dict": "method (self) -> 'dict[str, object]'"
         }
+      },
+      "__version__": {
+        "kind": "value",
+        "type": "str"
       },
       "benchmarks": {
         "kind": "module",

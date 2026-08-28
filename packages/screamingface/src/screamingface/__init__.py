@@ -3,6 +3,7 @@
 from screamingface import benchmarks, connections, events, leaderboards, models
 from screamingface._default_client import close, configure, connect, disconnect, evaluate
 from screamingface._ui.connections import ConnectionPanel
+from screamingface._version import resolve_version
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
@@ -52,7 +53,11 @@ from screamingface.report import (
 from screamingface.url4 import Url4
 from screamingface.warnings import EvaluationWarning
 
+# The installed distribution's version, resolved once at import — see `_version.py`.
+__version__ = resolve_version()
+
 __all__ = [
+    "__version__",
     "AsyncClient",
     "AuthenticationError",
     "Benchmark",
