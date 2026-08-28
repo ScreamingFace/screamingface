@@ -39,7 +39,7 @@ be rerun and picked apart.
   difference, so the next person starts where the last one finished.
 - **Shared cache, and subsidized compute.** Model calls are cached and shared across the
   community, and we sponsor compute for researchers on a discretionary basis. A BYOK path is also
-  available, and we are happy to extend the providers we support — just open an issue.
+  available, and we are happy to extend the providers we support — just [open an issue](https://github.com/ScreamingFace/screamingface/issues).
 
 And it only really works as a community: no one team can measure every model, on every benchmark,
 across every domain. **We are looking for talented people to join this early community and help
