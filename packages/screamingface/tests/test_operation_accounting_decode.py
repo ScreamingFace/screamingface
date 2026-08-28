@@ -54,6 +54,7 @@ def _accounting_wire(**overrides: object) -> dict[str, object]:
         "response_model": "openai/gpt-oss-120b",
         "usage": _usage_wire(),
         "provider_latency_ms": 4200,
+        "provider_attempts": 1,
         "cache": {"hits": 0, "misses": 1, "bypasses": 0, "unknown": 0},
     }
     wire.update(overrides)
@@ -96,6 +97,9 @@ def test_full_accounting_decodes_into_the_typed_value(decode, wire) -> None:
     assert accounting.request_model == "openrouter/openai/gpt-oss-120b"
     assert accounting.response_model == "openai/gpt-oss-120b"
     assert accounting.provider_latency_ms == 4200
+    # WHY beside the latency: the summed latency counts every attempt including
+    # failures, so without this a flaky route and a slow model read identically.
+    assert accounting.provider_attempts == 1
     # WHY Decimal: cost is money — the SDK's existing Usage already refuses float
     # cost, and the breakdown must sum without binary-float drift.
     assert accounting.usage.cost_usd == Decimal("0.0123450000")
@@ -160,6 +164,7 @@ def test_a_missing_accounting_key_refuses_loudly(decode, wire) -> None:
             id="no-response",
         ),
         pytest.param({"provider_latency_ms": -1}, "provider_latency_ms", id="negative-latency"),
+        pytest.param({"provider_attempts": -1}, "provider_attempts", id="negative-attempts"),
         pytest.param({"provider": "   "}, "provider", id="blank-provider"),
         pytest.param(
             {"usage": _usage_wire(input_tokens=-5)},
@@ -177,6 +182,31 @@ def test_a_missing_accounting_key_refuses_loudly(decode, wire) -> None:
 def test_malformed_accounting_refuses_instead_of_degrading(overrides: dict, expected: str) -> None:
     with pytest.raises(ExecutionError, match=expected):
         _case_operation(_operation_wire(_accounting_wire(**overrides)))
+
+
+def test_a_cache_hit_keeps_zero_attempts_rather_than_null() -> None:
+    # A confirmed hit performs no current provider dispatch, so zero is the exact
+    # truth — the same reason its cost and latency are zero. Decoding it to None
+    # would turn a known fact into missing evidence.
+    decoded = _case_operation(
+        _operation_wire(
+            _accounting_wire(
+                provider_attempts=0,
+                provider_latency_ms=0,
+                cache={"hits": 1, "misses": 0, "bypasses": 0, "unknown": 0},
+            )
+        )
+    )
+    assert decoded.accounting is not None
+    assert decoded.accounting.provider_attempts == 0
+
+
+def test_an_unvalidated_attempt_list_decodes_as_an_unknown_count() -> None:
+    # The Engine publishes null when it had to skip an attempt entry: counting a
+    # list it could not fully read would tell a retry story that never happened.
+    decoded = _case_operation(_operation_wire(_accounting_wire(provider_attempts=None)))
+    assert decoded.accounting is not None
+    assert decoded.accounting.provider_attempts is None
 
 
 def test_an_unknown_accounting_field_refuses() -> None:
@@ -211,6 +241,7 @@ def test_the_accounting_values_are_public_and_constructible() -> None:
         response_model=None,
         usage=sf.Usage(input_tokens=10, cost_usd="0.5"),
         provider_latency_ms=None,
+        provider_attempts=None,
         cache=sf.OperationCache(hits=1, misses=0, bypasses=0, unknown=0),
     )
     assert accounting.usage.cost_usd == Decimal("0.5")

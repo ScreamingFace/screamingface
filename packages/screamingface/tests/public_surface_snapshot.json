@@ -542,9 +542,10 @@
       "OperationAccounting": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, provider: 'str | None', request_model: 'str | None', response_model: 'str | None', usage: 'Usage', provider_latency_ms: 'int | None', cache: 'OperationCache') -> None",
+          "__init__": "method (self, provider: 'str | None', request_model: 'str | None', response_model: 'str | None', usage: 'Usage', provider_latency_ms: 'int | None', provider_attempts: 'int | None', cache: 'OperationCache') -> None",
           "cache": "field",
           "provider": "field",
+          "provider_attempts": "field",
           "provider_latency_ms": "field",
           "request_model": "field",
           "response_model": "field",
@@ -1109,9 +1110,10 @@
       "OperationAccounting": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, provider: 'str | None', request_model: 'str | None', response_model: 'str | None', usage: 'Usage', provider_latency_ms: 'int | None', cache: 'OperationCache') -> None",
+          "__init__": "method (self, provider: 'str | None', request_model: 'str | None', response_model: 'str | None', usage: 'Usage', provider_latency_ms: 'int | None', provider_attempts: 'int | None', cache: 'OperationCache') -> None",
           "cache": "field",
           "provider": "field",
+          "provider_attempts": "field",
           "provider_latency_ms": "field",
           "request_model": "field",
           "response_model": "field",

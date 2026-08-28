@@ -84,7 +84,12 @@ class OperationAccounting:
 
     ``provider_latency_ms`` is the SUM of complete provider-attempt latencies —
     not operation wall time, not critical-path duration. It is presented as
-    "Provider time" for exactly that reason.
+    "Provider time" for exactly that reason. ``provider_attempts`` sits beside it
+    because that sum counts EVERY attempt including failures: without the count a
+    flaky route and a slow model read identically, and "$0.50" cannot be told
+    apart from "$0.50 across five retries". A confirmed cache hit is zero
+    attempts — no current provider dispatch happened — while an attempt list the
+    Engine could not fully validate is null rather than a half-counted total.
     """
 
     provider: str | None
@@ -92,6 +97,7 @@ class OperationAccounting:
     response_model: str | None
     usage: Usage
     provider_latency_ms: int | None
+    provider_attempts: int | None
     cache: OperationCache
 
     def __post_init__(self) -> None:
@@ -105,13 +111,14 @@ class OperationAccounting:
             raise TypeError("Operation accounting usage must be an sf.Usage")
         if not isinstance(self.cache, OperationCache):
             raise TypeError("Operation accounting cache must be an sf.OperationCache")
-        latency = self.provider_latency_ms
-        if latency is not None and (
-            isinstance(latency, bool) or not isinstance(latency, int) or latency < 0
-        ):
-            raise ValueError(
-                "Operation accounting provider_latency_ms must be a non-negative integer or None"
-            )
+        for name in ("provider_latency_ms", "provider_attempts"):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(
+                    f"Operation accounting {name} must be a non-negative integer or None"
+                )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -120,6 +127,7 @@ class OperationAccounting:
             "response_model": self.response_model,
             "usage": self.usage.to_dict(),
             "provider_latency_ms": self.provider_latency_ms,
+            "provider_attempts": self.provider_attempts,
             "cache": self.cache.to_dict(),
         }
 

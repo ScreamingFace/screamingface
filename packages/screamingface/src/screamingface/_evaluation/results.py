@@ -309,6 +309,7 @@ def _operation_accounting(value: object, label: str) -> OperationAccounting | No
             "response_model",
             "usage",
             "provider_latency_ms",
+            "provider_attempts",
             "cache",
         },
         label=label,
@@ -329,6 +330,7 @@ def _operation_accounting(value: object, label: str) -> OperationAccounting | No
     cache_raw = _mapping(raw.get("cache"), f"{label} cache")
     _keys(cache_raw, required={"hits", "misses", "bypasses", "unknown"}, label=f"{label} cache")
     latency = raw.get("provider_latency_ms")
+    attempts = raw.get("provider_attempts")
     try:
         return OperationAccounting(
             provider=_optional_string(raw.get("provider"), f"{label} provider"),
@@ -346,6 +348,11 @@ def _operation_accounting(value: object, label: str) -> OperationAccounting | No
                 None
                 if latency is None
                 else _positive_or_zero_integer(latency, f"{label} provider_latency_ms")
+            ),
+            provider_attempts=(
+                None
+                if attempts is None
+                else _positive_or_zero_integer(attempts, f"{label} provider_attempts")
             ),
             cache=OperationCache(
                 hits=cache_raw.get("hits"),  # type: ignore[arg-type]
