@@ -1,7 +1,7 @@
 ---
 id: OME-1029
 linear_url: https://linear.app/openmined/issue/OME-1029/send-run-cost-usd-on-leaderboard-submissions-from-the-sdk
-status: in_progress
+status: in_review
 type: feature
 priority: P1
 labels: [py-screamingface, agentic, autonomous]
