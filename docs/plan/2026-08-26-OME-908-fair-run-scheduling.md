@@ -61,7 +61,7 @@ Extend `apps/screamingface-engine/tests/unit/test_job_env_contract.py`,
    kwarg absence, not a literal 32 — the URL4 default stays owned by URL4).
 3. The local app passes a shared gate into every in-process run; the deployed factory path
    does not build one.
-4. `Settings.runner_io_concurrency` default 16 and `Settings.local_io_capacity` default 32
+4. `Settings.runner_io_concurrency` default 4 and `Settings.local_io_capacity` default 32
    exist; invalid values (below 1) are refused at validation, mirroring
    `url4.dag.executor._validate_concurrency`.
 
@@ -70,12 +70,12 @@ Expected: all fail.
 ## 4. GREEN — the plumbing
 
 - `src/screamingface_engine/job_env.py`: add `IO_CONCURRENCY`.
-- `src/screamingface_engine/config.py`: add `runner_io_concurrency: int = 16` and
+- `src/screamingface_engine/config.py`: add `runner_io_concurrency: int = 4` and
   `local_io_capacity: int = 32` (validated ≥ 1), each with the alias comment pattern the file
   already uses.
 - `src/screamingface_engine/adapters/k8s.py`: in `_env(...)`, append the env entry
   UNCONDITIONALLY (amended 2026-08-26, implementation review: `runner_io_concurrency` is a
-  required setting with default 16, so no "unset" branch exists — and an explicit entry on
+  required setting with default 4, so no "unset" branch exists — and an explicit entry on
   every Job beats a stale `envFrom` copy, the same invariant `EXTRA_MODELS` carries).
 - `src/screamingface_engine/adapters/factory.py`: pass `runner_io_concurrency` into
   `K8sJobRunner`.

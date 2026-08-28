@@ -179,9 +179,10 @@ here:
 
 - **Deployed mode** — every Runner Job carries a static per-run budget,
   `URL4_CLOUD_IO_CONCURRENCY`, written by the App from `runner_io_concurrency` (chart:
-  `config.runnerIoConcurrency`, default 16). URL4's own run-wide cap enforces it. 16 still
-  saturates a 4-slot provider while leaving arrivals gap enough for a second run to interleave;
-  32 restores the previous behavior exactly.
+  `config.runnerIoConcurrency`, default 4). URL4's own run-wide cap enforces it. 4 matches the
+  gateway's per-provider admission ceiling, so a run saturates its provider but never piles a
+  backlog behind it — a second run's calls interleave as soon as the first run's in-flight
+  calls complete; 32 restores the previous behavior exactly.
 - **Local mode** — `local_io_capacity` (default 32) is ONE shared fair-share gate every local
   run dispatches through (`runner/fair_share.py`): a solo run gets the whole capacity, concurrent
   runs split it near-evenly, and a finished run's share reverts instantly. The gate replaces

@@ -1,5 +1,5 @@
-# One recipe only: blessing e2e replay fixtures (OME-964). The local dev stack is
-# `screamingface up` (OME-1001) — never a justfile concern again.
+# Bless recipes only: e2e replay fixtures (OME-964 dump path, OME-978 report path).
+# The local dev stack is `screamingface up` (OME-1001) — never a justfile concern again.
 
 default:
     @just --list
@@ -16,3 +16,13 @@ default:
 e2e-bless board model dump answers *flags:
     uv run python tests/e2e/fixtures/slice_snapshot.py --board {{board}} --model {{model}} \
         --dump {{dump}} --answers {{answers}} {{flags}}
+
+# Bless a FUSION board's e2e replay fixtures from the saved SDK report alone
+# (OME-978) — no production dump, no answers file: the report carries every
+# response text, and the capture→splice loop synthesizes the cache tape from it.
+# The replay must reproduce the report's score/coverage/statuses exactly.
+# Example:
+#   just e2e-bless-report healthbench-worst30 <report.json>
+e2e-bless-report board report *flags:
+    uv run python tests/e2e/fixtures/slice_snapshot.py --board {{board}} \
+        --report {{report}} {{flags}}

@@ -222,6 +222,10 @@ helm history scoreboard --namespace scoreboard
 helm rollback scoreboard <revision> --namespace scoreboard --wait
 ```
 
+> **Run `python -m scoreboard.check_rollback_safety` first.** Rolling back below the release that
+> introduced private boards publishes every private submission — see
+> [Private boards and rollback](#private-boards-and-rollback--run-the-preflight-first).
+
 Helm rollback does not roll back database schema migrations. Keep migrations forward-compatible where possible.
 
 ### Breaking migrations and multi-replica rollouts
@@ -248,6 +252,55 @@ the time. Re-check that assumption before releasing it.
 
 `0006_benchmark_native_scores` (OME-866, renaming `accuracy` to `score` and making
 `correct_questions` nullable) is the second. Same reasoning, same rollout options as above.
+
+### Private boards and rollback — run the preflight first
+
+**Once any benchmark is private, `helm rollback` below the release that introduced private boards
+publishes every submission on it.** Privacy is enforced by code that reads `Benchmark.visibility`;
+the database only stores the column. Roll the code back and the column survives untouched while
+nothing reads it.
+
+This was executed, not reasoned about. Against a database holding one private board with three
+submissions, the merge base `454253da` — whose `src/scoreboard/` contains no occurrence of
+`visibility` at all — returned all three from `ScoreStore.leaderboard()`, submitter addresses
+included. There is no configuration of the old code that filters, because it has nothing to filter
+on.
+
+**Helm cannot guard this, so do not look for a hook.** `helm rollback` executes the *target*
+revision's hooks (`execHook(targetRelease, release.HookPreRollback, ...)` in Helm's
+`pkg/action/rollback.go`). The revision being rolled back **to** is a pre-privacy one and its
+stored manifest has no such hook, so nothing added to this chart can run in the dangerous
+direction.
+
+Before **any** `helm rollback`, run the preflight in a pod on the current release:
+
+```bash
+kubectl -n scoreboard exec deploy/scoreboard-scoreboard -- \
+  python -m scoreboard.check_rollback_safety
+```
+
+It exits `0` when no benchmark is private, and non-zero — listing each private board and its
+submission count — when one is. It is read-only and has no override flag: clearing the refusal by
+flipping a board to public *is* the leak, performed deliberately.
+
+If it refuses and you still must roll back below the floor it names, use the fail-closed
+procedure:
+
+1. `kubectl -n scoreboard scale deploy/scoreboard-scoreboard --replicas=0` — stop serving before
+   anything else. Every later step is safe only while nothing answers requests.
+2. `python -m scoreboard.export_private_submissions --benchmark <id>` for each board the preflight
+   listed, keeping the output somewhere staff-only. This is the participants' data and the next
+   step destroys it.
+3. Delete the exported rows and the private benchmarks, so the restored code has nothing private
+   left to serve.
+4. `helm rollback`, then scale back up.
+
+Re-importing after rolling forward again is manual; there is no tooling for it. That asymmetry is
+deliberate — it should be easier to postpone a rollback than to destroy a challenge in progress.
+
+**Ordering rule for activation:** deploy the privacy-aware release *before* flipping any board to
+private, so a rollback target that understands `visibility` already exists in `helm history`. The
+preflight cannot check this for you — it sees the database, not the release history.
 
 ## Troubleshooting
 

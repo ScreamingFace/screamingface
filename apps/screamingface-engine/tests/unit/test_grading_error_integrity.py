@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest import mock
 
 import httpx
 import pytest
@@ -329,5 +330,160 @@ async def test_a_judge_429_lands_as_the_original_grading_error(tmp_path: Path) -
     assert "upstream judge rate limited" in failure.message
     assert "Criterion envelope" not in failure.message
     # Every judge pass was paid as a real 429 — no masking swallowed them.
+    judge_calls = [body for body in requests if body.get("model") == JUDGE_MODEL]
+    assert judge_calls, "the judge must actually have been called"
+
+
+async def _judge_transport_world(
+    tmp_path: Path,
+    *,
+    fail_first_judge_posts: int | None = None,
+) -> tuple[
+    httpx.AsyncClient,
+    httpx.AsyncClient,
+    AigatewayWorld,
+    list[dict[str, object]],
+]:
+    """A full DRACO world whose judge route raises httpx.ReadError and candidates answer fine.
+
+    ``fail_first_judge_posts``: raise ReadError for the first N judge POSTs, then answer
+    with a valid verdict. None → always raise for judge POSTs.
+    """
+    requests: list[dict[str, object]] = []
+    judge_posts = 0
+
+    def gateway(request: httpx.Request) -> httpx.Response:
+        nonlocal judge_posts
+        body = json.loads(request.content)
+        requests.append(body)
+        if body.get("model") == JUDGE_MODEL:
+            if fail_first_judge_posts is None or judge_posts < fail_first_judge_posts:
+                judge_posts += 1
+                raise httpx.ReadError("")
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {"explanation": "evidence", "criterion_status": "MET"}
+                                )
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "A fine answer."}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+            },
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(gateway),
+        base_url="http://aigateway.test",
+    )
+    tavily = httpx.AsyncClient(
+        transport=httpx.MockTransport(_tavily),
+        base_url="https://api.tavily.com",
+    )
+    world = await build_aigateway_world(
+        AigatewayConfig(
+            default_model=_CANDIDATE_MODEL,
+            models=(ModelSpec(id=_CANDIDATE_MODEL), ModelSpec(id=JUDGE_MODEL)),
+        ),
+        client=client,
+        tavily_api_key="tvly-test",
+        tavily_client=tavily,
+    )
+    install_candidate_invocation(world.node)
+    BenchmarkRegistry((DRACO,)).install(world.node, assets_root=_draco_assets(tmp_path))
+    return client, tavily, world, requests
+
+
+async def test_a_judge_transport_error_is_retried_and_the_case_is_graded(
+    tmp_path: Path,
+) -> None:
+    """A transient judge transport failure is retried (connector backoff) and the case is graded.
+
+    WHY (OME-1016): the connector retries ``httpx.TransportError`` with backoff, so a
+    stale keep-alive connection or a brief aigateway blip costs one extra attempt instead
+    of a failed Case.
+    """
+    client, tavily, world, requests = await _judge_transport_world(
+        tmp_path, fail_first_judge_posts=1
+    )
+    candidate_expression = RelExpr(
+        path=f"/{_CANDIDATE_MODEL}",
+        context="$input",
+        intent=text("Answer the question."),
+    )
+    linked = link_candidate(candidate_expression, DRACO.build(1))
+    try:
+        with (
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+        ):
+            result = await world.node.evaluate(linked)
+    finally:
+        await world.aclose()
+        await client.aclose()
+        await tavily.aclose()
+
+    candidate = CandidateResult.model_validate(json.loads(result.text))
+    (case,) = candidate.cases
+    assert case.failures == []
+    assert case.grade is not None
+    assert case.grade.score is not None
+    # The first judge call consumed the single transport failure across its retry.
+    judge_calls = [body for body in requests if body.get("model") == JUDGE_MODEL]
+    assert len(judge_calls) >= 2
+
+
+async def test_a_judge_transport_error_exhaustion_lands_as_aigateway_transport_error(
+    tmp_path: Path,
+) -> None:
+    """Judge transport failures exhaust retries — the case failure names the real cause.
+
+    WHY (OME-1016): after the connector's bounded retries, the failure must render as
+    ``aigateway_transport_error`` with ``retryable=true`` and a non-empty message —
+    never the opaque ``draco_grading_failed`` fallback.
+    """
+    client, tavily, world, requests = await _judge_transport_world(tmp_path)
+    candidate_expression = RelExpr(
+        path=f"/{_CANDIDATE_MODEL}",
+        context="$input",
+        intent=text("Answer the question."),
+    )
+    linked = link_candidate(candidate_expression, DRACO.build(1))
+    try:
+        with (
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+        ):
+            result = await world.node.evaluate(linked)
+    finally:
+        await world.aclose()
+        await client.aclose()
+        await tavily.aclose()
+
+    candidate = CandidateResult.model_validate(json.loads(result.text))
+    (case,) = candidate.cases
+    assert case.output == "A fine answer."
+    assert case.grade is not None
+    assert case.grade.score is None
+    (failure,) = case.failures
+    assert failure.stage == "grading"
+    assert failure.code == "aigateway_transport_error"
+    assert failure.retryable is True
+    assert "ReadError" in failure.message
+    assert "Criterion envelope" not in failure.message
     judge_calls = [body for body in requests if body.get("model") == JUDGE_MODEL]
     assert judge_calls, "the judge must actually have been called"

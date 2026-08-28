@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 from .config import Settings
 from .db import close_db, init_db
-from .scores.schemas import BenchmarkSchema
+from .scores.schemas import BenchmarkSchema, Visibility
 from .scores.store import ScoreStore
 
 SEED_BENCHMARKS_ENV = "SCOREBOARD_SEED_BENCHMARKS_JSON"
@@ -54,6 +54,12 @@ class SeedBenchmark(BaseModel):
     # carries the Engine's value, and the two are compared for comparability (OME-775).
     # Optional because the retained legacy demo entries have no Engine revision.
     revision: str | None = Field(default=None, max_length=64)
+    # OME-894: `private` keeps a benchmark listed in the catalogue but scopes every score-bearing
+    # read path to the caller.
+    # INVARIANT: None means "not stated in configuration", NOT "public". An omitted key must leave
+    # a live board's visibility alone — writing "public" here would let a routine deploy un-private
+    # a running challenge, which is exactly what happened before this was found in review.
+    visibility: Visibility | None = None
     # Short editorial line for the portal catalogue's "Focus" column (OME-874). Optional: it is
     # copy someone writes, not a value the Engine derives.
     focus: str | None = Field(default=None, max_length=120)
@@ -145,6 +151,13 @@ class SeedReport:
 
     refused: list[str] = field(default_factory=list)
     """Configured ids not written at all, because writing them could undo an Engine seed."""
+
+    revisibled: list[str] = field(default_factory=list)
+    """Existing ids whose deployment-owned visibility was applied without seeding their text.
+
+    OME-894: visibility does not depend on the Engine answering, so it is applied even when the
+    row was shadowed or refused for text purposes.
+    """
 
     rejected: list[str] = field(default_factory=list)
     """Catalogue entries the board could not read."""
@@ -296,6 +309,89 @@ def _read_catalog(
     )
 
 
+async def _apply_orphan_visibility(
+    store: ScoreStore, configured: Sequence[SeedBenchmark], seeded_ids: set[str]
+) -> list[str]:
+    """Apply a declared visibility to an existing benchmark this pass did not seed.
+
+    FEATURE: OME-894. A configured row is dropped when the Engine publishes the same id
+    (shadowed) or when it claims an Engine-owned id this pass did not read (refused). Both are
+    right for TEXT. Neither is right for visibility, which is deployment-owned and must not depend
+    on the Engine answering.
+
+    INVARIANT: this never creates a benchmark. During a catalogue outage a configured id the board
+    has never seen stays refused — existence and text remain Engine-owned. Only an existing row's
+    one deployment-owned column is touched.
+
+    WHY it matters: without this, a transient catalogue failure during the deploy that was meant
+    to make the entry challenge private left the board public AND exited zero, so an operator saw
+    a green deploy over exposed submissions.
+    """
+    applied: list[str] = []
+    for row in configured:
+        if row.visibility is None or row.id in seeded_ids:
+            continue
+        if await store.set_visibility(row.id, row.visibility):
+            applied.append(row.id)
+    applied.sort()
+    return applied
+
+
+def _classify_configured(
+    configured: Sequence[SeedBenchmark],
+    published: set[str],
+    engine_owned: set[str],
+    existing_ids: set[str],
+    report: SeedReport,
+) -> list[SeedBenchmark]:
+    """Split configured rows into the ones this pass may seed, recording why the rest were not.
+
+    Shadowed: the Engine publishes this id, so its text wins (OME-904). Refused: the row claims an
+    Engine benchmark this pass did not read from the Engine, which would let chart values
+    impersonate published prose. Everything else is deployment-owned and seeded as given.
+    """
+    allowed: list[SeedBenchmark] = []
+    for row in configured:
+        if row.id in published:
+            report.shadowed.append(row.id)
+        elif row.revision is not None or row.id in engine_owned:
+            report.refused.append(row.id)
+        elif row.visibility is not None and row.id not in existing_ids:
+            # INVARIANT: a row declaring `visibility` OVERRIDES; it never brings a board into
+            # being. `_apply_orphan_visibility` already documents this, but it runs later, so
+            # during a catalogue outage a NEW Engine-published private board — configured with
+            # visibility and no revision, which is the shape `_with_configured_visibility`
+            # requires — reached neither `published` nor `engine_owned` and was CREATED here:
+            # revisionless, carrying the chart's placeholder text, and accepting submissions,
+            # while the deploy exited 0 (review of PR #719).
+            report.refused.append(row.id)
+        else:
+            allowed.append(row)
+    report.shadowed.sort()
+    report.refused.sort()
+    return allowed
+
+
+def _with_configured_visibility(
+    published_rows: Sequence[SeedBenchmark], configured: Sequence[SeedBenchmark]
+) -> list[SeedBenchmark]:
+    """Lift a deployment-declared `visibility` onto the Engine's published row.
+
+    FEATURE: OME-894 — the entry challenge is Engine-published, and the Engine publishes no
+    `visibility` because it is a Scoreboard concern, not an Engine one. A published row is
+    otherwise shadowed wholesale, so without this the challenge could never be made private at
+    all, and a board flipped by hand would be reset to public by the next deploy.
+
+    INVARIANT: only `visibility` crosses over. The Engine stays the sole authority for every word
+    of a benchmark's text (OME-904); this does not reopen chart-authored prose.
+    """
+    declared = {row.id: row.visibility for row in configured if row.visibility is not None}
+    return [
+        row.model_copy(update={"visibility": declared[row.id]}) if row.id in declared else row
+        for row in published_rows
+    ]
+
+
 async def seed_from_sources(
     *,
     engine_url: str | None,
@@ -356,7 +452,9 @@ async def seed_from_sources(
     store = ScoreStore()
     # Stage 1 — read the prior state before this pass can contribute to it.
     seeded_before = await store.has_registered_revision()
-    engine_owned = {row.id for row in await store.list_benchmarks() if row.revision is not None}
+    existing_rows = await store.list_benchmarks()
+    engine_owned = {row.id for row in existing_rows if row.revision is not None}
+    existing_ids = {row.id for row in existing_rows}
 
     report = SeedReport()
     published_rows: list[SeedBenchmark] = list(engine_rows) if engine_rows is not None else []
@@ -369,19 +467,16 @@ async def seed_from_sources(
             published_rows = read.rows
             report.rejected = read.rejected
 
-    published = {row.id for row in published_rows}
-    allowed: list[SeedBenchmark] = []
-    for row in configured:
-        if row.id in published:
-            report.shadowed.append(row.id)
-        elif row.revision is not None or row.id in engine_owned:
-            report.refused.append(row.id)
-        else:
-            allowed.append(row)
-    report.shadowed.sort()
-    report.refused.sort()
+    published_rows = _with_configured_visibility(published_rows, configured)
+
+    allowed = _classify_configured(
+        configured, {row.id for row in published_rows}, engine_owned, existing_ids, report
+    )
 
     report.seeded = await seed_benchmarks([*published_rows, *allowed])
+    report.revisibled = await _apply_orphan_visibility(
+        store, configured, {row.id for row in report.seeded}
+    )
     report.bootstrap_failed = report.engine_error is not None and not seeded_before
     return report
 
@@ -413,6 +508,7 @@ async def seed_benchmarks(benchmarks: Sequence[SeedBenchmark]) -> list[Benchmark
                 dataset_url=benchmark.dataset_url,
                 revision=benchmark.revision,
                 focus=benchmark.focus,
+                visibility=benchmark.visibility,
             )
         )
     return seeded
@@ -441,6 +537,10 @@ def _print_report(report: SeedReport) -> None:
 
     for benchmark in report.seeded:
         print(f"seeded benchmark {benchmark.id}")
+    for benchmark_id in report.revisibled:
+        # Named rather than silent: this is the line that tells an operator the challenge is
+        # actually private, on the deploy where that is the whole point.
+        print(f"applied configured visibility to {benchmark_id}")
     for benchmark_id in report.shadowed:
         # Named rather than silent: an operator who added prose to the deploy values needs to
         # know it was ignored, and where the text they see actually comes from.

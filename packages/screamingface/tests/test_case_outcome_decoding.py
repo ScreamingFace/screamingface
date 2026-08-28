@@ -195,6 +195,7 @@ def test_nested_grade_and_evidence_round_trip_the_exact_engine_contract() -> Non
                         "explanation": " exact explanation ",
                         "raw_output": {"passed": True},
                         "metadata": {},
+                        "accounting": None,
                     }
                 ],
                 "metadata": {},
@@ -237,6 +238,7 @@ def test_nested_grade_contract_rejects_values_the_engine_cannot_publish(
                         "outcome": "PASS",
                         "raw_output": {},
                         "metadata": {},
+                        "accounting": None,
                     }
                 ],
                 "metadata": {},
@@ -367,9 +369,24 @@ def test_a_locally_built_case_derives_status_without_weakening_wire_decoding() -
 def _operations_payload() -> dict[str, Any]:
     payload = _scored_payload()
     payload["operations"] = [
-        {"operation_id": "op_model_1", "output": "Member one answer.", "finish_reason": "stop"},
-        {"operation_id": "op_model_2", "output": None, "finish_reason": "length"},
-        {"operation_id": "op_synthesis_1", "output": "Four.", "finish_reason": "stop"},
+        {
+            "operation_id": "op_model_1",
+            "output": "Member one answer.",
+            "finish_reason": "stop",
+            "accounting": None,
+        },
+        {
+            "operation_id": "op_model_2",
+            "output": None,
+            "finish_reason": "length",
+            "accounting": None,
+        },
+        {
+            "operation_id": "op_synthesis_1",
+            "output": "Four.",
+            "finish_reason": "stop",
+            "accounting": None,
+        },
     ]
     return payload
 
@@ -414,13 +431,25 @@ def test_a_null_operations_key_decodes_as_absent() -> None:
 @pytest.mark.parametrize(
     ("entry", "message"),
     [
-        ({"output": "x", "finish_reason": None}, "missing 'operation_id'"),
+        ({"output": "x", "finish_reason": None, "accounting": None}, "missing 'operation_id'"),
         (
-            {"operation_id": "op_model_1", "output": "x", "finish_reason": None, "extra": 1},
+            {
+                "operation_id": "op_model_1",
+                "output": "x",
+                "finish_reason": None,
+                "accounting": None,
+                "extra": 1,
+            },
             "unsupported field 'extra'",
         ),
-        ({"operation_id": "  ", "output": "x", "finish_reason": None}, "operation_id"),
-        ({"operation_id": "op_model_1", "output": 7, "finish_reason": None}, "output"),
+        (
+            {"operation_id": "  ", "output": "x", "finish_reason": None, "accounting": None},
+            "operation_id",
+        ),
+        (
+            {"operation_id": "op_model_1", "output": 7, "finish_reason": None, "accounting": None},
+            "output",
+        ),
     ],
 )
 def test_a_malformed_operation_entry_fails_closed(entry: dict[str, Any], message: str) -> None:

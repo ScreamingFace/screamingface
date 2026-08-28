@@ -106,7 +106,7 @@ docs/             SDLC artifacts: spec/ plan/ tasks/ work/ diagrams/ (see docs/R
 ## Working in this repo
 
 ```bash
-git clone https://github.com/OpenMined/screamingface.git
+git clone https://github.com/ScreamingFace/screamingface.git
 cd screamingface
 git config core.hooksPath .githooks     # pre-commit guard (blocks commits to main)
 ```

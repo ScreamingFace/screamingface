@@ -13,6 +13,7 @@ from url4.streaming.protocol import OutboundFrame, StartedData, StartedEvent
 
 SECRET = "ws-pump-secret"
 WINDOW_S = 60
+LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
 
 
@@ -25,7 +26,9 @@ class ExplodingBus(InMemoryEventStream):
 
 
 def _token(topic: str) -> str:
-    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0)
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(
+        topic, T0
+    )
 
 
 def _make_app(stream: Any) -> FastAPI:
@@ -82,6 +85,22 @@ def test_any_pump_failure_reaches_the_client_as_an_error_frame() -> None:
             frame = ws.receive_json()
     assert frame["type"] == "ai.url4.error"
     assert frame["data"]["code"] == "stream_failed"
+
+
+def test_resume_attach_on_reclaimed_stream_is_stream_reclaimed() -> None:
+    """OME-1019: a resume cursor with no stream is FINAL — the Run finished and the
+    Runner reclaimed the stream — and is typed distinctly from a transient failure."""
+    topic = "ws-reclaimed"
+    # The topic was never published to: no stream exists, so a resume cursor has nothing
+    # to resume from (the reclaimed case). A fresh attach would create it (covered by the
+    # adapter parity tests).
+    app = _make_app(InMemoryEventStream())
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
+            ws.send_json(_raw_attach(3))
+            frame = ws.receive_json()
+    assert frame["type"] == "ai.url4.error"
+    assert frame["data"]["code"] == "stream_reclaimed"
 
 
 def test_pump_failure_nack_does_not_leak_the_broker_message() -> None:

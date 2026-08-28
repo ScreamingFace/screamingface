@@ -96,7 +96,9 @@ def openrouter_enabled(monkeypatch) -> None:
     monkeypatch.setattr(
         plugin_module.PLUGIN,
         "settings",
-        OpenRouterPluginSettings(enabled=True, default_models=[_FLASH, _FABLE]),
+        # OME-972 setup-only amendment: this suite pins the SEEDED catalog route —
+        # live_models=False keeps its listing reads static. Assertions untouched.
+        OpenRouterPluginSettings(enabled=True, live_models=False, default_models=[_FLASH, _FABLE]),
     )
 
 

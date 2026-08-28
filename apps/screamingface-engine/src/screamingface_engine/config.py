@@ -93,8 +93,13 @@ class Settings(BaseSettings):
     # INVARIANT: this bounds SPEND, not correctness — job_deadline_s (16h) remains the backstop.
     # Raising it costs money per orphaned run; lowering it risks stopping a live one.
     orphan_grace_s: float = Field(default=120.0, ge=0.0)
-    # INVARIANT: stateless iat window (seconds) — start rejected when now - iat exceeds it (§4).
+    # INVARIANT: stateless iat window (seconds) — now a CLOCK-SKEW tolerance only: a mint
+    # from more than one window in the future is rejected. It never bounds lifetime.
     iat_window_s: int = 60
+    # INVARIANT: capability-token lifetime (seconds) — `exp = iat + this` at mint (spec §6
+    # S1, OME-1016). WHY 58_800: the 16 h Job deadline (job_deadline_s) plus 1 h slack, so a
+    # Run's owner can always re-attach, stop, or redeem for the Run's whole life (D1).
+    capability_lifetime_s: int = 58_800
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
     sync_max_wait_s: float = 30.0
     # WHY: idle interval between WS HeartbeatEvents for liveness (spec §6).
@@ -134,14 +139,15 @@ class Settings(BaseSettings):
     # mode (`local_io_capacity`). The static value shapes each run's ARRIVALS at the gateway's
     # per-provider FIFO, which is what keeps one benchmark-sized run from monopolizing it.
     #
-    # WHY 16 and not the URL4 default of 32: with the gateway admitting 4 per provider
+    # WHY 4 and not the URL4 default of 32: with the gateway admitting 4 per provider
     # (`AIGW_PROVIDER_MAX_CONCURRENCY`), a 32-wide run keeps the queue continuously full for
-    # hours, so a second run's calls wait behind a wall of the first run's requests. 16 still
-    # saturates the provider (4× the ceiling) while leaving arrivals gap enough for a second run
-    # to interleave. 32 restores the previous behavior exactly — that is the revert switch.
+    # hours, so a second run's calls wait behind a wall of the first run's requests. 4 matches
+    # the provider ceiling exactly — a run can saturate its provider but never pile a backlog
+    # behind it, so a second run's calls interleave as soon as the first run's in-flight calls
+    # complete. 32 restores the previous behavior exactly — that is the revert switch.
     # INVARIANT (pinned by `test_job_env_contract`): the App writes it on EVERY Job, so a stale
     # copy left in the Helm ConfigMap can never reach a Job through `envFrom`.
-    runner_io_concurrency: int = Field(default=16, ge=1)
+    runner_io_concurrency: int = Field(default=4, ge=1)
     # --- Tavily web tools (spec 2026-07-23). The connector declares web_search/web_fetch ONLY
     # when the Runner sees TAVILY_API_KEY; unset here => deny-by-default (dec:W5).
     #

@@ -30,7 +30,11 @@ from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import Benchmark, CheckSurface, candidate
-from screamingface_engine.benchmarks.draco.prompts import JUDGE_INSTRUCTIONS
+from screamingface_engine.benchmarks.draco.prompts import (
+    JUDGE_INSTRUCTIONS,
+    judge_context,
+    judge_intent,
+)
 from screamingface_engine.benchmarks.draco.verdict import call as criterion_verdict
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
@@ -194,7 +198,7 @@ def build_draco_protocol(routes: Routes, case_count: int, judge_passes: int) -> 
                     # the official prompt fields; the Engine binds the known criterion id after
                     # the reply, so grading never trusts a model-generated identifier.
                     context=_judge_context(),
-                    intent=Text(_url4_text(JUDGE_INSTRUCTIONS)),
+                    intent=Text(judge_intent()),
                     # Stable pass seeds create independent cache slots. Repeated benchmark
                     # runs may reuse those slots, but one run can never collapse judge
                     # passes into one cached response.
@@ -369,36 +373,12 @@ def _judge_context() -> str:
     # The U+2028 LINE SEPARATOR between fields is part of the request payload — and
     # therefore of the judge cache key. It must stay byte-identical to the original
     # canonical prompt or the archived draco-cache-seed rows would never match.
-    return "\u2028".join(
-        (
-            "<criterion_type>",
-            "$item.criterion_type",
-            "</criterion_type>",
-            "<criterion>",
-            "$item.criterion",
-            "</criterion>",
-            "<query>",
-            "$item.question",
-            "</query>",
-            "<response>",
-            "$item.answer",
-            "</response>",
-        )
+    return judge_context(
+        criterion_type="$item.criterion_type",
+        criterion="$item.criterion",
+        question="$item.question",
+        answer="$item.answer",
     )
-
-
-def _url4_text(value: str) -> str:
-    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
-    normalized = normalized.replace("\n", "\u2028").replace("\t", " ")
-    unsupported = next(
-        (character for character in normalized if character < " " or character == "\x7f"),
-        None,
-    )
-    if unsupported is not None:
-        raise ValueError(
-            f"Benchmark prompt contains unsupported control character U+{ord(unsupported):04X}"
-        )
-    return normalized.replace("$", "$$")
 
 
 __all__ = [

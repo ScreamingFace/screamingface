@@ -1,0 +1,89 @@
+{{- include "report-intake.validate" . -}}
+{{- if .Values.anonymous.enabled -}}
+{{/*
+THE PUBLIC INTAKE HOSTNAME — no Cloudflare Access, no SecurityPolicy, and every caller on it is
+anonymous by construction.
+
+INVARIANT: the `RequestHeaderModifier` below is UNCONDITIONAL. It is not behind a value and there
+is no configuration of this chart that renders this route without it, because both headers it
+removes are things the backend would otherwise BELIEVE:
+
+  - `X-User-Email` is the whole identity. `identity/mesh_identity.py` honours it when the TCP peer
+    is inside `config.allowedNetworks` — and on this route the peer IS the mesh proxy, which is
+    inside them. The in-process check cannot tell a header Envoy injected after verifying an
+    Access assertion from one a client typed; only this filter can, by making sure the second kind
+    never arrives. Without it, `curl -H 'X-User-Email: someone@openmined.org'` against a public
+    hostname is impersonation, and the report is stored attributed to them.
+  - `CF-Connecting-IP` is the rate-limit key whenever `config.trustClientIpHeader` is on. A caller
+    who can set it gets a fresh bucket per request AND evicts real callers from a capped key
+    table, which is spec §7's "the rate-limit key must not be attacker-controlled" in its exact
+    failure shape.
+
+`filters` on a rule, rather than a Gateway-level policy: a filter attached here shares this
+route's lifecycle, so the route and the stripping cannot be separated by an edit that moves one
+and not the other.
+
+WHY NOT one route with `spec.jwt.optional: true` instead of two: that is a full identity bypass.
+With `optional: true` the JWT filter is SKIPPED for a token-less request, so `claimToHeaders`
+never runs and a client-supplied `X-User-Email` reaches the backend untouched — the exact attack
+this file exists to close, re-opened by a "simplification". See the identity route.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  # From a helper because the BackendTrafficPolicy carrying spec §7's edge rate limit targets this
+  # route BY NAME. A route renamed here alone leaves that policy attached to nothing, limiting
+  # nothing, and still reporting Accepted — the same trap the identity route's name avoids.
+  name: {{ include "report-intake.publicRouteName" . }}
+  labels:
+    {{- include "report-intake.labels" . | nindent 4 }}
+    app.kubernetes.io/component: public
+  {{- with .Values.gateway.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    - name: {{ required "gateway.parentRef.name is required when gateway.enabled=true — the Gateway this route attaches to" .Values.gateway.parentRef.name }}
+      {{- with .Values.gateway.parentRef.namespace }}
+      namespace: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  {{- with .Values.gateway.public.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            # THE WRITE ENDPOINT ONLY, never `/`. A prefix of `/` publishes `/healthz` and
+            # `/readyz` on this Access-free hostname too, and neither is gated or rate-limited:
+            # `gate.admit` runs at the reports route and `LoopbackOnlyMiddleware` exempts the
+            # probe paths unconditionally (spec §7 — the bot gate never gates liveness). `/readyz`
+            # is not a constant either; it runs `Report.all().limit(1).exists()` per request, so
+            # publishing it hands an anonymous caller one unbudgeted database query per HTTP
+            # request at the one endpoint deliberately outside the limiter — and discloses
+            # migration health on a public hostname.
+            #
+            # Nothing needs them through the edge: the kubelet dials the Pod IP, `helm test` dials
+            # the ClusterIP Service, and the CI image job curls the container's published port.
+            value: /v1/reports
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            # `remove`, never `set`: setting an empty value would leave the header present, and
+            # `mesh_caller_email` treats an empty string as absent only because it strips and
+            # checks — a guarantee that belongs here rather than in a downstream `if`.
+            remove:
+              - X-User-Email
+              - CF-Connecting-IP
+      timeouts:
+        request: {{ .Values.gateway.timeouts.request | quote }}
+        backendRequest: {{ .Values.gateway.timeouts.backendRequest | quote }}
+      backendRefs:
+        - name: {{ include "report-intake.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

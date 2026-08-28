@@ -51,6 +51,13 @@ runtime = [
     "litellm==1.97.0",
     "nats-py>=2.9.0",
     "nltk>=3.9.1",
+    # WHY pinned exactly, like `datasets`: these flatten GDPval's reference PDFs and Word
+    # documents to text at BUILD time, and that text is baked into the answer key. A version
+    # whose extraction differs would silently change what every candidate is asked, without
+    # moving the board revision. Bump these together with
+    # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
+    "pdfplumber==0.11.10",
+    "python-docx==1.2.0",
     "prometheus-client>=0.26.0",
     "pydantic-settings>=2.14.2",
     "pyjwt==2.13.0",

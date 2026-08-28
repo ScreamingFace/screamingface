@@ -34,6 +34,7 @@ manifest, lockfile, tests, and README. The stack name is what the tooling takes.
 | `aigateway-ui` | `apps/aigateway-ui` | Admin console for gateway accounts and their provider API keys (Next.js service, port 9107) |
 | `scoreboard` | `apps/scoreboard` | Public benchmark scoreboard + demo portal (service, port 9106) |
 | `screamingface-engine` | `apps/screamingface-engine` | Single-process REST + WebSocket url4 execution app (service, port 9108) |
+| `report-intake` | `apps/report-intake` | Accepts a client error report and files it into the private tracker (service, port 9109) |
 | `url4` | `packages/url4` | url4 expression protocol — grammar, parser, AST, interpreter (library) |
 | `screamingface` | `packages/screamingface` | Public Python Client SDK for Engine-owned benchmark evaluation (library) |
 
@@ -64,6 +65,12 @@ cd apps/scoreboard
 uv sync
 uv run scoreboard
 
+# report-intake — accepts a client error report and files it (port 9109)
+cd apps/report-intake
+uv sync
+uv run report-intake
+curl -sf http://localhost:9109/healthz   # liveness check
+
 # url4 — a library, not a service
 cd packages/url4
 uv sync
@@ -78,7 +85,7 @@ uv sync --extra notebook
 **One command per stack — the gates CI runs, in CI's order, plus one CI doesn't:**
 
 ```bash
-uv run .claude/scripts/run_gates.py <stack>   # aigateway | aigateway-ui | scoreboard | url4 | screamingface-engine | screamingface
+uv run .claude/scripts/run_gates.py <stack>   # aigateway | aigateway-ui | scoreboard | report-intake | url4 | screamingface-engine | screamingface
 ```
 
 It resolves the stack from [`.claude/sdlc.local.md`](.claude/sdlc.local.md), runs its gates
@@ -120,7 +127,7 @@ your PR description. Everything else matches CI step for step
 An unknown stack fails fast and tells you the real ones:
 
 ```
-CONFIG ERROR: stack 'docs' not in .claude/sdlc.local.md (has: aigateway, scoreboard, url4, screamingface, screamingface-engine, aigateway-ui)
+CONFIG ERROR: stack 'docs' not in .claude/sdlc.local.md (has: aigateway, scoreboard, report-intake, url4, screamingface, screamingface-engine, aigateway-ui)
 ```
 
 Docs-only changes (`README`, `CONTRIBUTING`, `docs/`) have no stack and no CI — there is
@@ -202,6 +209,7 @@ Close the pull request to delete its Preview. Pull-request code receives no Kube
 | `apps/aigateway` | release-please manages the release PR; merging it tags `aigateway-v*`, which builds the GHCR image + Helm chart (`release-aigateway.yml`). |
 | `apps/aigateway-ui` | release-please manages the release PR; merging it tags `aigateway-ui-v*`, which builds the multi-arch GHCR image + Helm chart (`release-aigateway-ui.yml`). Unlike aigateway it is **not** mirrored to the public `sf-installer` repo — the console is internal operator tooling, not part of a product install. |
 | `apps/scoreboard` | manual tag `scoreboard-v*` triggers `release-scoreboard.yml` (GHCR image + Helm chart). |
+| `apps/report-intake` | release-please manages the release PR; merging it tags `report-intake-v*`, which builds the multi-arch GHCR image + Helm chart (`release-report-intake.yml`). Like aigateway-ui it is **not** mirrored to the public `sf-installer` repo — this is a service the team deploys, not part of a product install. Every PR also builds and starts the image (`report-intake-tests.yml`), which is what the other Python apps lack. |
 | `packages/url4` | tag `url4-v*` triggers `release-url4.yml` — verify + build + `twine check`, then publish via PyPI Trusted Publishing. The publish step needs a one-time owner setup (PyPI project + Trusted Publisher + the `pypi` GitHub Environment); until that lands, verify and build still run and only publish fails. See the workflow header. |
 | `packages/screamingface` | tag `screamingface-v*` triggers `release-screamingface.yml` — verify + build + distribution check + `twine check`, then publish via PyPI Trusted Publishing. Needs the same one-time owner setup as url4 (PyPI project + Trusted Publisher + the `pypi` GitHub Environment); the `screamingface` name is **not reserved on PyPI yet**. Until that lands, verify and build still run and only publish fails. |
 
@@ -216,6 +224,10 @@ Close the pull request to delete its Preview. Pull-request code receives no Kube
   store, secret key, migrations)
 - **Scoreboard internals:** [`apps/scoreboard/README.md`](apps/scoreboard/README.md) (portal,
   public artifacts)
+- **report-intake internals:** [`apps/report-intake/README.md`](apps/report-intake/README.md)
+  (the environment contract, the probe invariants) and
+  [`charts/report-intake/README.md`](apps/report-intake/charts/report-intake/README.md)
+  (the two-hostname edge, and what the chart refuses to render)
 - **url4 SDK:** [`packages/url4/README.md`](packages/url4/README.md)
 - **ScreamingFace Client SDK:** [`packages/screamingface/README.md`](packages/screamingface/README.md)
 - **Legacy reference:** `git checkout legacy-monorepo-2026-07-08`

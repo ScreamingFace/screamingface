@@ -15,8 +15,10 @@ import httpx
 import pytest
 
 from scoreboard.scores.models import Benchmark
+from scoreboard.scores.store import ScoreStore
 from scoreboard.seed import (
     EngineCatalogUnavailable,
+    SeedBenchmark,
     fetch_engine_benchmarks,
     load_benchmarks_json,
     seed_benchmarks,
@@ -607,3 +609,150 @@ async def test_an_entry_missing_its_identity_is_still_rejected() -> None:
 
     assert read.rows == []
     assert read.rejected == ["entry #0"]
+
+
+# --- OME-894: deployment-owned visibility on an Engine-published benchmark --------------------
+# The Engine does not publish a `visibility` — it is a Scoreboard concern, not an Engine one — so
+# a published row can only get one from deployment config. Without the merge below, the entry
+# challenge (healthbench-worst30, Engine-published) can never be made private, and a board flipped
+# by hand is reset to public by the next deploy. Found in review of PR #719.
+
+
+async def test_configured_visibility_is_merged_into_a_published_row(tortoise_db: None) -> None:
+    published = SeedBenchmark(
+        id="healthbench-worst30", display_name="HealthBench", revision="rev-1"
+    )
+    configured = SeedBenchmark(
+        id="healthbench-worst30", display_name="ignored", visibility="private"
+    )
+
+    report = await seed_from_sources(
+        configured=[configured], engine_url=None, engine_rows=[published]
+    )
+
+    seeded = {row.id: row for row in report.seeded}
+    assert seeded["healthbench-worst30"].visibility == "private"
+    # Still shadowed: the Engine remains the authority for TEXT. Only visibility is lifted.
+    assert report.shadowed == ["healthbench-worst30"]
+    assert seeded["healthbench-worst30"].display_name == "HealthBench"
+
+
+async def test_a_published_row_without_configured_visibility_keeps_what_is_stored(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: an omitted visibility means "leave it alone", never "reset to public". This is
+    # the guard that stops a routine deploy un-privating a live challenge.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="healthbench-worst30",
+        display_name="HealthBench",
+        revision="rev-1",
+        visibility="private",
+    )
+
+    published = SeedBenchmark(
+        id="healthbench-worst30", display_name="HealthBench", revision="rev-1"
+    )
+    report = await seed_from_sources(configured=[], engine_url=None, engine_rows=[published])
+
+    assert report.seeded[0].visibility == "private"
+
+
+async def test_configured_visibility_can_flip_a_board_back_to_public(tortoise_db: None) -> None:
+    # Recoverable in both directions: a mis-seeded private board must not be stuck.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="healthbench-worst30",
+        display_name="HealthBench",
+        revision="rev-1",
+        visibility="private",
+    )
+
+    published = SeedBenchmark(
+        id="healthbench-worst30", display_name="HealthBench", revision="rev-1"
+    )
+    configured = SeedBenchmark(
+        id="healthbench-worst30", display_name="ignored", visibility="public"
+    )
+    report = await seed_from_sources(
+        configured=[configured], engine_url=None, engine_rows=[published]
+    )
+
+    assert report.seeded[0].visibility == "public"
+
+
+async def test_visibility_still_applies_when_the_engine_catalog_is_unavailable(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: visibility is DEPLOYMENT-owned, so it must not depend on the Engine answering.
+    # Previously a transient catalogue failure left `published_rows` empty, the configured row was
+    # refused for claiming an Engine-owned id, and the job exited 0 — so the deploy meant to make
+    # the entry challenge private reported success while leaving every submission exposed.
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="healthbench-worst30",
+        display_name="HealthBench",
+        revision="rev-1",
+        visibility="public",
+    )
+
+    report = await seed_from_sources(
+        configured=[
+            SeedBenchmark(id="healthbench-worst30", display_name="x", visibility="private")
+        ],
+        engine_url=ENGINE_URL,
+        client=_client(lambda request: httpx.Response(503)),
+        retry_delay=0,
+    )
+
+    assert report.engine_error is not None
+    assert (await store.list_benchmarks())[0].visibility == "private"
+
+
+async def test_an_unknown_benchmark_gets_no_visibility_row_of_its_own(
+    tortoise_db: None,
+) -> None:
+    # Applying visibility must never CREATE a benchmark. A configured id the board has never seen,
+    # during a catalogue outage, is still refused — text and existence stay Engine-owned.
+    store = ScoreStore()
+
+    report = await seed_from_sources(
+        configured=[
+            SeedBenchmark(id="ghost", display_name="x", visibility="private", revision="r")
+        ],
+        engine_url=ENGINE_URL,
+        client=_client(lambda request: httpx.Response(503)),
+        retry_delay=0,
+    )
+
+    assert report.refused == ["ghost"]
+    assert await store.list_benchmarks() == []
+
+
+async def test_a_revisionless_visibility_override_still_creates_nothing(
+    tortoise_db: None,
+) -> None:
+    # The gap in `test_an_unknown_benchmark_gets_no_visibility_row_of_its_own`: its fixture passes
+    # `revision="r"`, which `_classify_configured` refuses one branch earlier. A NEW
+    # Engine-published private board is configured with visibility and NO revision — the shape
+    # `_with_configured_visibility` requires — so during a catalogue outage its id is in neither
+    # `published` nor `engine_owned` and it was CREATED: revisionless, carrying the chart's
+    # placeholder text, marked private, and accepting submissions under it. The deploy exits 0
+    # because the board was already seeded. Found in review of PR #719.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="draco", display_name="DRACO", revision="rev-1")
+
+    report = await seed_from_sources(
+        configured=[
+            SeedBenchmark(id="healthbench-entry", display_name="placeholder", visibility="private")
+        ],
+        engine_url=ENGINE_URL,
+        client=_client(lambda request: httpx.Response(503)),
+        retry_delay=0,
+    )
+
+    assert report.engine_error is not None
+    # INVARIANT: existence and text stay Engine-owned. A visibility override overrides; it never
+    # brings a board into being.
+    assert report.refused == ["healthbench-entry"]
+    assert [row.id for row in await store.list_benchmarks()] == ["draco"]

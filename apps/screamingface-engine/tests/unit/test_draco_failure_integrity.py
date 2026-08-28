@@ -308,6 +308,7 @@ def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
             "producer": {"type": "model", "id": "fixture-judge"},
             "valid": False,
             "raw_output": "not json",
+            "accounting": None,
             "metadata": {"rejection_reason": "invalid_json"},
         }
     ]

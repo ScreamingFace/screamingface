@@ -1,0 +1,279 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "report-intake chart values",
+  "description": "Validated by helm BEFORE anything renders, on the coalesced values of every -f and --set. WHY it exists: a chart's values are an API and without a schema it is an untyped one, so `config.port: \"9109\"` or a `config.authmode` typo installs cleanly and the pod runs on a field's default. For AUTH_MODE that default is authentication disabled. WHAT IT DELIBERATELY DOES NOT DO: encode the conditional refusals. Every `if/then` in this file would run BEFORE the template that already refuses the same combination, replacing a paragraph that names the failure with `must be at least 1 item` — and `.github/scripts/verify_chart_wiring.py` asserts several of those paragraphs by their words. So the schema types the VALUES and the templates refuse the COMBINATIONS; where a reader will expect a conditional and find none, a $comment says which guard owns it.",
+  "type": "object",
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Safe above 1 — the retry sweep claims rows by a per-row conditional UPDATE against lease_expires_at, so the database arbitrates and one report cannot become two tickets. Above 1 needs a shared database; the image's sqlite default is per-Pod."
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": {
+          "type": "string",
+          "description": "Empty falls back to Chart.appVersion, which `helm package --app-version` sets from the release tag. A released chart therefore pins the exact version that built it without any values file naming one."
+        },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      },
+      "required": ["repository"],
+      "additionalProperties": false
+    },
+    "imagePullSecrets": { "type": "array" },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "annotations": { "type": "object" },
+        "name": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "podAnnotations": { "type": "object" },
+    "podLabels": { "type": "object" },
+    "podSecurityContext": { "type": "object" },
+    "securityContext": {
+      "type": "object",
+      "$comment": "Free-form on purpose: it is a Kubernetes SecurityContext and the API server validates it. runAsUser must stay 10001 unless the image changes — the Dockerfile creates that user and it is the one that can read the venv and write /data — but that is a fact about a pair of files, not a range a schema can state."
+    },
+    "config": {
+      "type": "object",
+      "description": "§2.4's environment surface. Every key here becomes one REPORT_INTAKE_* variable and every one of them is a field on report_intake.config.Settings — an equality asserted from both sides, because extra='ignore' makes a mismatch silent.",
+      "properties": {
+        "host": { "type": "string", "minLength": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "logLevel": { "type": "string", "minLength": 1 },
+        "authMode": {
+          "type": "string",
+          "$comment": "NO enum here, deliberately. `report-intake.validate` already refuses an unknown mode with a sentence explaining what each one is (disabled is loopback-only, not 'no auth'), and verify_chart_wiring.py asserts the rendered value against config.py's own AuthMode Literal, read from its AST. An enum here would run first and replace the explanation with a list."
+        },
+        "allowedNetworks": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "$comment": "Strings, not a CIDR pattern: a regex tight enough to be worth having would reject a legal IPv6 network, and rejecting a legal value is worse here than accepting a bad one — config.py parses each entry with strict=True at boot and the verifier does the same at PR time. Empty is legal at this layer; `mesh_or_turnstile` with an empty list is refused by the template, which explains why nothing could ever be mesh-verified."
+        },
+        "corsOrigins": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Browser origins allowed to POST a report — scheme, host and port, no trailing slash. Empty installs no CORS middleware at all; an empty allowlist is not an allowlist of everything."
+        },
+        "trustClientIpHeader": {
+          "type": "boolean",
+          "description": "Catches `--set config.trustClientIpHeader=yes`, which --set leaves as a string: the ConfigMap would render `\"yes\"`, pydantic would reject it, and the pod would CrashLoop on a value that looked right in the values file."
+        },
+        "ticketSink": {
+          "type": "string",
+          "minLength": 1,
+          "$comment": "NO enum, and this one is a contradiction the schema must not introduce rather than a message it must not preempt. config.py declares ticket_sink as a plain string on purpose so that adding an adapter is one line in delivery/registry.SINKS — not an edit to config, a chart and a schema at once. `delivery.registry.build_sink` is the authority and refuses an unknown name at boot."
+        },
+        "linearTeamId": {
+          "type": "string",
+          "$comment": "Empty is legal — it is inert unless ticketSink names linear, and the template refuses that combination with a message about teamId being a UUID rather than a key like OME."
+        },
+        "linearApiUrl": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^https?://",
+          "description": "Linear's one GraphQL endpoint. The scheme check is the point: the ConfigMap renders this key in every install, so a value missing `https://` overrides config.py's default and fails at request time — on the sink, per report, not at boot."
+        },
+        "linearTimeoutS": { "type": "number", "exclusiveMinimum": 0 },
+        "deliveryTimeoutS": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "$comment": "No maximum here, though one exists: main._check_delivery_timeout refuses a value whose worst-case inline attempt is not shorter than retry.CLAIM_GRACE, because a sweeper on another replica would then claim a report the request path is still delivering and file one bug as two tickets. That bound is arithmetic over two constants in two modules; copying it here would make a third place that can drift, and a stale copy would refuse a legal value. Spec §2.2's number is 3."
+        },
+        "idempotencyTtlH": { "type": "integer", "minimum": 1 },
+        "retentionDays": { "type": "integer", "minimum": 1 },
+        "turnstileVerifyUrl": { "type": "string", "minLength": 1, "pattern": "^https?://" },
+        "turnstileTimeoutS": { "type": "number", "exclusiveMinimum": 0 },
+        "anonRate": {
+          "type": "object",
+          "description": "The service-side backstop, not spec §7's per-caller edge limit — its key is the TCP peer, and in a cluster that is the mesh proxy on every request. The per-caller half is gateway.public.rateLimit.",
+          "properties": {
+            "limit": { "type": "integer", "minimum": 1 },
+            "windowS": { "type": "integer", "minimum": 1 },
+            "burst": { "type": "integer", "minimum": 1 },
+            "maxKeys": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false,
+          "$comment": "minimum 1 on all four mirrors config.py's `Field(ge=1)` exactly — each is a divisor or a capacity, so zero is a division by zero inside the bucket or a service that admits nobody. A mirror of a per-field bound is not the conditional-refusal case: nothing renders a better message for it, and this one moves the failure from a CrashLoop to the install."
+        },
+        "forwardedAllowIps": {
+          "type": "string",
+          "minLength": 1,
+          "$comment": "A comma list of addresses and CIDRs — uvicorn's own variable, not a Settings field. No pattern excluding `*`: the template refuses that value with the paragraph explaining that uvicorn would then rewrite request.client.host from a client-supplied X-Forwarded-For for every peer, and verify_chart_wiring.py asserts that refusal by its words. minLength 1 only, because an empty value silently returns uvicorn to its own default instead of the posture the manifest states."
+        }
+      },
+      "required": ["authMode", "port"],
+      "additionalProperties": false
+    },
+    "database": {
+      "type": "object",
+      "properties": {
+        "existingSecret": {
+          "type": "string",
+          "$comment": "No minLength: `report-intake.databaseEnv` already `required`s it with a message saying the URL carries a password and is never a chart value."
+        },
+        "existingSecretKey": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "anonymous": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } },
+      "additionalProperties": false
+    },
+    "turnstile": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "existingSecret": {
+          "type": "string",
+          "$comment": "EMPTY IS LEGAL AND MUST STAY LEGAL: values-cloud.yaml ships `enabled: true` with this empty on purpose, so the render stops until an install names the Secret. A minLength here — even inside an `if enabled` — would make `helm template -f values-cloud.yaml` fail with a schema error instead of the Deployment's `required`, which explains that siteverify would reject this service's own credentials and answer every anonymous report 503."
+        },
+        "existingSecretKey": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "linear": {
+      "type": "object",
+      "description": "Where the Linear API key comes from IF this deployment ever files into Linear directly. There is deliberately no `enabled` flag — config.ticketSink is the switch, and a second one could disagree with it.",
+      "properties": {
+        "existingSecret": {
+          "type": "string",
+          "$comment": "No minLength for the same reason as turnstile's: verify_chart_wiring.py sets it EMPTY to prove the render refuses ticketSink=linear without it, and that refusal names CLAUDE.md rule 9 and OME-976. A schema error would preempt the one message in this chart that tells an operator the choice is governed by a repo rule."
+        },
+        "existingSecretKey": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "gateway": {
+      "type": "object",
+      "description": "Gateway API, not Ingress: the header manipulation this service's identity model rests on is a typed filters: field on an HTTPRoute. Prerequisites, none installed here — the Gateway API CRDs, a GatewayClass, and Envoy Gateway specifically for SecurityPolicy and BackendTrafficPolicy.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "annotations": { "type": "object" },
+        "parentRef": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "$comment": "Empty is legal here and refused at render by the two routes' `required`. A chart cannot know the name of an object it does not install."
+            },
+            "namespace": { "type": "string" },
+            "sectionName": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "timeouts": {
+          "type": "object",
+          "properties": {
+            "request": { "type": "string", "pattern": "^$|^([0-9]{1,5}(h|m|s|ms)){1,4}$" },
+            "backendRequest": { "type": "string", "pattern": "^$|^([0-9]{1,5}(h|m|s|ms)){1,4}$" }
+          },
+          "additionalProperties": false,
+          "$comment": "Gateway API Duration, matching the engine chart's spelling. `30` without a unit is a schema error here rather than an HTTPRoute the controller rejects after install."
+        },
+        "public": {
+          "type": "object",
+          "properties": {
+            "hostnames": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "rateLimit": {
+              "type": "object",
+              "description": "Spec §7's per-caller edge rate limit, as an Envoy BackendTrafficPolicy on the public route only. Off by default; on in values-cloud.yaml. It needs Envoy Gateway's Redis-backed rate-limit service and a ClientTrafficPolicy establishing the real client address — neither installable here, and both fail open.",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "requests": { "type": "integer", "minimum": 1 },
+                "unit": {
+                  "enum": ["Second", "Minute", "Hour", "Day"],
+                  "description": "Envoy Gateway's RateLimitUnit. An enum here rather than in a template guard because nothing else refuses it: `unit: hour` renders a policy the controller rejects after install, on a hostname that is this repo's first unauthenticated write."
+                },
+                "sourceCIDRs": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 },
+                  "$comment": "One rule per entry, each bucketing per address inside it. An empty list is refused by `report-intake.validate`, which explains that a policy with no rules renders, reports Accepted, and limits nothing."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "identity": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "hostnames": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "cloudflareAccess": {
+              "type": "object",
+              "properties": {
+                "teamDomain": {
+                  "type": "string",
+                  "pattern": "^$|^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$",
+                  "description": "`<team>.cloudflareaccess.com` — a bare host. The issuer and the JWKS URL are both derived from it, so a value carrying a scheme or a path renders `https://https://…/cdn-cgi/access/certs` and the JWT filter fetches nothing."
+                },
+                "audience": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      },
+      "additionalProperties": false,
+      "$comment": "ExternalName is excluded rather than omitted: this Service carries a selector, and an ExternalName Service with one is rejected by the API server — after `helm upgrade` has reported success."
+    },
+    "resources": { "type": "object" },
+    "livenessProbe": {
+      "type": "object",
+      "$comment": "Free-form, and the constraint that matters is not expressible here: liveness must point at /healthz, which never touches storage, and readiness at /readyz, which queries the reports TABLE. A liveness probe that can fail for an external reason turns one bad database into a restart loop across every replica. verify_chart_wiring.py asserts both paths and that they differ."
+    },
+    "readinessProbe": { "type": "object" },
+    "migration": {
+      "type": "object",
+      "description": "The schema, applied as a pre-install/pre-upgrade hook. This service never migrates itself: auto-migrating means every replica racing the same DDL on a fresh database.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "serviceAccountName": { "type": "string", "minLength": 1 },
+        "backoffLimit": { "type": "integer", "minimum": 0 },
+        "ttlSecondsAfterFinished": { "type": "integer", "minimum": 0 },
+        "annotations": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "networkPolicy": {
+      "type": "object",
+      "description": "Who may reach this Service. Under authMode: mesh_or_turnstile this is not hardening layered on the authentication boundary — the in-process peer check authenticates a NETWORK, so this is what makes that network the mesh gateway rather than every pod in the cluster.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "acknowledgeUnrestricted": { "type": "boolean" },
+        "clientNamespace": { "type": "string" },
+        "clientPodNames": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "ingressCIDRs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "allowFrom": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false,
+      "$comment": "No `if enabled then minItems` on the peer lists: three values feed one peer set, so the real condition is that their UNION is non-empty — which is what networkpolicy.yaml checks, with a message saying an ingress rule with no `from:` admits every source. verify_chart_wiring.py asserts that message."
+    },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "affinity": { "type": "object" },
+    "global": { "type": "object" }
+  },
+  "required": ["image", "config"],
+  "additionalProperties": false,
+  "$comment": "additionalProperties:false is the half of this file that earns its keep. `config.authmode`, a `gateway.hostnames` copied from the engine chart, a `podDisruptionBudget` block left behind after a template was deleted — each is accepted silently by Helm and by `extra='ignore'` downstream, and each leaves the pod on a default while the values file says otherwise. `global` is allowed because Helm injects it for subcharts."
+}

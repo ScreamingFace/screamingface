@@ -123,10 +123,11 @@ behavior (URL4 default 32). This is a run-scoped knob, so it follows the same pa
 `URL4_CLOUD_EXTRA_MODELS` and the cache policy env: written by the runner adapter at schedule
 time, read by `runner/main.build_executor`, applied by `Url4Executor`.
 
-**K8s mode — static budget.** `Settings.runner_io_concurrency` (int, default 16). The
-`K8sJobRunner` writes it into each Job's env. Rationale for 16: four times the default 4-slot
-ceiling, so one provider stays saturated with headroom for cache hits and for runs that touch
-two or three providers. A static budget is not work-conserving across Job completions: capacity
+**K8s mode — static budget.** `Settings.runner_io_concurrency` (int, default 4). The
+`K8sJobRunner` writes it into each Job's env. Rationale for 4: it matches the default 4-slot
+provider ceiling exactly, so a run saturates its provider but never piles a backlog behind it
+— a second run's calls interleave as soon as the first run's in-flight calls complete. A
+static budget is not work-conserving across Job completions: capacity
 freed by a finished Job is reclaimed only by runs that start later. That limit is accepted for
 V1 and is the reason Layer 2 exists.
 
@@ -214,7 +215,7 @@ Document in the engine chart and README:
 - **Plumbing tests:** env present → `url4_run` receives the value; env absent → the call shape
   is unchanged (pin the kwarg absence); `K8sJobRunner` manifest carries the env on every Job
   (amended 2026-08-26, implementation review: `runner_io_concurrency` is a required setting
-  with default 16, so no "unset" branch exists — and an explicit entry on every Job beats a
+  with default 4, so no "unset" branch exists — and an explicit entry on every Job beats a
   stale `envFrom` copy, the same invariant `EXTRA_MODELS` carries); local mode injects the
   shared gate; deployed mode does not.
 - **Integration (local spine):** two in-process runs through the mock gateway with a slow
@@ -249,7 +250,7 @@ Document in the engine chart and README:
    both complete; the invariant tests pass deterministically.
 3. A solo local run's dispatch ceiling and completion behavior are unchanged from main.
 4. K8s Jobs carry `URL4_CLOUD_IO_CONCURRENCY` on every Job. (Amended 2026-08-26,
-   implementation review: the setting is required with default 16, so "when unset" is
+   implementation review: the setting is required with default 4, so "when unset" is
    unreachable — and an explicit entry on every Job is what keeps a stale ConfigMap copy from
    reaching a Job through `envFrom`.)
 5. The full `screamingface-engine` gate suite passes.

@@ -1,0 +1,126 @@
+{{- include "report-intake.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "report-intake.fullname" . }}
+  labels:
+    {{- include "report-intake.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "report-intake.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "report-intake.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll the Pods when the ConfigMap changes. Without this a `helm upgrade` that moves
+        # REPORT_INTAKE_AUTH_MODE updates the ConfigMap and changes nothing else — `envFrom` is
+        # read once at container start, so every Pod keeps the old posture and the upgrade
+        # reports success.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      # NOT optional, and not hardening — this service cannot start without it.
+      #
+      # kubelet injects a legacy Docker-link variable for every Service in the namespace, named
+      # from the Service uppercased with `-` as `_`. Install this chart as `report-intake` in a
+      # namespace of its own and its OWN Service produces a prefixed `..._SERVICE_HOST` and
+      # friends; a Postgres named `report-intake-pg` beside it adds six more. `create_app`'s guard
+      # rejects any prefixed name matching no Settings field — correctly, because a name nobody
+      # reads means a value silently on its default — so the Pod CrashLoopBackOffs on names
+      # Kubernetes invented, and the more obvious the naming the likelier it is. Verified on a
+      # real cluster, not reasoned about.
+      #
+      # AIDEV-NOTE: same defect as scoreboard's (#538) and the engine's
+      # `deploy/helm/templates/deployment.yaml:35`. Every pod-carrying template in this chart
+      # carries this line; `test_chart_environment.py` asserts none is ever missed.
+      #
+      # Do NOT spell the injected names literally in this comment: the app-side scanner reads
+      # these templates textually, and an example name reads as a name the chart renders.
+      enableServiceLinks: false
+      serviceAccountName: {{ include "report-intake.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: report-intake
+          image: {{ include "report-intake.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "report-intake.fullname" . }}
+          # The three values that are NOT in the ConfigMap, for the same reason: all three are
+          # credentials. They complete §2.4's surface — with these, every `Settings` field is
+          # rendered.
+          env:
+            {{- include "report-intake.databaseEnv" . | nindent 12 }}
+            {{- if .Values.turnstile.enabled }}
+            - name: REPORT_INTAKE_TURNSTILE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "turnstile.existingSecret is required when turnstile.enabled=true — the chart never holds the secret literal, and without it siteverify rejects this service's own credentials and every anonymous report is answered 503" .Values.turnstile.existingSecret }}
+                  key: {{ .Values.turnstile.existingSecretKey }}
+            {{- end }}
+            # OPTIONAL — the one env entry here that is neither of the things the two above are.
+            # Read `optional: true` as the posture it is: this deployment does not file into
+            # Linear unless someone creates that Secret. The name is stated in every render that
+            # HAS one, so the surface is complete and so turning the sink on is creating a Secret
+            # rather than editing a Deployment; the Secret itself is expected NOT to exist, and a
+            # missing one leaves the variable unset instead of wedging the Pod in
+            # CreateContainerConfigError. If `config.ticketSink: linear` is selected without it,
+            # the app refuses to start and says which variable it wanted — see
+            # `delivery/registry.py`. CLAUDE.md rule 9 governs making that selection.
+            #
+            # GUARDED ON A NON-EMPTY NAME, not on the sink. An empty `linear.existingSecret` is
+            # legal at every layer — values.schema.json gives it no minLength on purpose, and
+            # clearing it is the natural way an operator says "reference no Linear secret at all"
+            # — but `optional: true` does NOT exempt `name` from Kubernetes' own validation. An
+            # empty one is rejected at apply with `secretKeyRef.name: Required value`, AFTER helm
+            # has already run the pre-install migration hook. The refusal an operator should get
+            # for `ticketSink=linear` with no Secret still comes from `report-intake.validate`,
+            # which fires first and says which rule governs the choice.
+            {{- with .Values.linear.existingSecret }}
+            - name: REPORT_INTAKE_LINEAR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $.Values.linear.existingSecretKey }}
+                  optional: true
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

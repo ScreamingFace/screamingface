@@ -1090,7 +1090,10 @@ def test_table_html_widget_is_the_only_focusable_scroll_owner(monkeypatch: Any) 
     assert view._table.tooltip == "Candidate evaluation table"
     assert "role='region'" not in view._table.value
     assert "tabindex='0'" not in view._table.value
-    assert view._html.tooltip == "ScreamingFace evaluation progress"
+    # INVARIANT: the VBox must carry NO tooltip — ipywidgets' frontend reads
+    # `description.length` when a tooltip is set, Box models have no `description`,
+    # and the whole view dies with "Failed to create view for 'VBoxView'".
+    assert view._html.tooltip is None
 
     view.close()
 

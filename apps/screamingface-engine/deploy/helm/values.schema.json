@@ -65,7 +65,7 @@
         "runnerIoConcurrency": {
           "type": "integer",
           "minimum": 1,
-          "description": "Per-run downstream in-flight budget written onto every Runner Job as URL4_CLOUD_IO_CONCURRENCY (OME-908). 16 interleaves concurrent runs at the gateway's per-provider queue; 32 restores the pre-OME-908 width. Local mode ignores this value (its runs share the process fair-share gate)."
+          "description": "Per-run downstream in-flight budget written onto every Runner Job as URL4_CLOUD_IO_CONCURRENCY (OME-908). 4 matches the gateway's per-provider admission ceiling so a run saturates its provider without piling a backlog behind it; 32 restores the pre-OME-908 width. Local mode ignores this value (its runs share the process fair-share gate)."
         },
         "aigatewayBaseUrl": {
           "type": "string"

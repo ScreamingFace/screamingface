@@ -453,7 +453,7 @@ async def test_the_job_carries_the_per_run_io_concurrency() -> None:
     await _runner(client).schedule(TOPIC, "chat(hi)", 60)
 
     env = _container_env(client, job_name(TOPIC))
-    assert env[job_env.IO_CONCURRENCY] == "16"  # the ctor/Settings default
+    assert env[job_env.IO_CONCURRENCY] == "4"  # the ctor/Settings default
 
 
 async def test_an_overridden_io_concurrency_reaches_the_job() -> None:

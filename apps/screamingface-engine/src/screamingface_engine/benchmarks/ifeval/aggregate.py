@@ -411,6 +411,7 @@ def _verification_evidence(sequence: int, mode: str, passed: bool) -> dict[str, 
         "outcome": "PASS" if passed else "FAIL",
         "raw_output": passed,
         "metadata": {"mode": mode},
+        "accounting": None,
     }
 
 

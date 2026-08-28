@@ -29,7 +29,9 @@ from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
+from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.world_config import WorldConfig, WorldConfigError, load_config
+from url4.streaming.interfaces import Executor
 from url4.streaming.lifecycle import run
 
 logger = logging.getLogger(__name__)
@@ -210,7 +212,7 @@ def build_executor(
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     benchmark_assets_root: Path | None = None,
     io_gate: FairShareGate | None = None,
-) -> Url4Executor:
+) -> Executor:
     """Wire an executor over the DECLARED world — without building it yet.
 
     The world is resolved on first ``execute`` (see ``Url4Executor._resolve_world``), so a bad
@@ -302,14 +304,16 @@ def build_executor(
     io_wrap: Callable[[Any], Any] | None = None
     if io_gate is not None and run_key:
         io_wrap = lambda io: FairShareIOLayer(io, io_gate, run_key)  # noqa: E731 - binding read
-    return Url4Executor(
-        world_factory=_world,
-        result_cap=inline_cap,
-        hard_cap=hard_cap,
-        memory_budget=bridge_budget_from_env(env),
-        artifact_store=artifact_store,
-        io_wrap=io_wrap,
-        io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
+    return OperationCapturingExecutor(
+        Url4Executor(
+            world_factory=_world,
+            result_cap=inline_cap,
+            hard_cap=hard_cap,
+            memory_budget=bridge_budget_from_env(env),
+            artifact_store=artifact_store,
+            io_wrap=io_wrap,
+            io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
+        )
     )
 
 

@@ -1,0 +1,151 @@
+# The DEFAULT shape for a cloud deployment of report-intake (OME-1012).
+#
+#   helm install reports apps/report-intake/charts/report-intake -f values-cloud.yaml \
+#     --set gateway.parentRef.name=<your-gateway> \
+#     --set gateway.identity.cloudflareAccess.teamDomain=<team>.cloudflareaccess.com \
+#     --set gateway.identity.cloudflareAccess.audience=<access-application-AUD> \
+#     --set turnstile.existingSecret=<secret holding the Turnstile secret> \
+#     --set database.existingSecret=<secret holding a Postgres URL> \
+#     --set config.allowedNetworks[0]=<your cluster's Pod CIDR> \
+#     --set networkPolicy.clientPodNames[0]=<app.kubernetes.io/name of the mesh gateway's data plane> \
+#     --set networkPolicy.clientNamespace=<its namespace>
+#
+# WHY this lives in its own file rather than in values.yaml: the edge needs a `parentRef.name` and
+# the identity route needs a Cloudflare team and application, and a chart cannot know any of them.
+# Defaulting the cloud posture into values.yaml would make a bare `helm template` fail on a clean
+# checkout — and the guard that then gets deleted under CI pressure is the one refusing an
+# unauthenticated write with no bot gate. So values.yaml stays installable with no edge, exactly
+# as `screamingface-engine` does it, and the posture is opted into here.
+#
+# EVERY value this chart cannot know is EMPTY here and forced by a `required`/`fail` at render.
+# That includes the two peer values above, and they are the ones it is tempting to default: a
+# working-but-overbroad `allowedNetworks` is one nobody is ever forced to narrow, and a
+# NetworkPolicy left off is one nobody is ever forced to write. Both decide who may forge
+# `X-User-Email`, so both are named at install time or the render stops.
+#
+# SPEC §7's EDGE RATE LIMIT IS RENDERED — `gateway.public.rateLimit` below is a
+# `BackendTrafficPolicy` on the public route, bucketing per caller, because the edge is the only
+# layer that can see one (in the cluster the mesh proxy is the TCP peer on every request, so
+# `config.anonRate` is ONE bucket for all anonymous callers and is the service-side backstop).
+#
+# TWO PIECES OF IT ARE STILL OUTSIDE THIS CHART, and both fail open: Envoy Gateway's Redis-backed
+# rate-limit service, and a `ClientTrafficPolicy` on the Gateway that makes Envoy see the real
+# client rather than the load balancer. Neither is installable from here. So is the Cloudflare
+# rate-limiting rule on `reports.screamingface.ai` scoped to `POST /v1/reports`, which sits in
+# front of all of it and is worth having anyway — create it before publishing that hostname.
+
+# The retry sweep runs in every replica and claims rows by a per-row conditional UPDATE against
+# `lease_expires_at`, so the database arbitrates and one report cannot become two tickets. Two
+# replicas is the smallest number that actually exercises that, and it REQUIRES a shared database
+# — set `database.existingSecret` to a Postgres URL, never the image's sqlite default.
+replicaCount: 2
+
+config:
+  # Spec §7's two caller classes. Every request through the edge is one or the other, and the
+  # identity header is the only thing that tells them apart — in a cluster the mesh proxy is the
+  # TCP peer on BOTH.
+  authMode: mesh_or_turnstile
+
+  # WHO MAY PRESENT A MESH-INJECTED IDENTITY — and therefore who may be believed when they claim
+  # to be a person. NARROW THIS to your cluster's actual Pod CIDR.
+  #
+  # EMPTY ON PURPOSE, like `gateway.parentRef.name` and the Access audience above it. The obvious
+  # default is the blanket private ranges (10/8, 172.16/12, 192.168/16, and 100.64/10 for the CNIs
+  # that use it), and that default renders, installs, and works — which is exactly why it is not
+  # here. Nobody is ever forced to narrow a value that already works, and unnarrowed it means any
+  # private address that can reach the ClusterIP Service is inside the set the peer check
+  # authenticates. `report-intake.validate` refuses `mesh_or_turnstile` with this empty, so the
+  # Pod CIDR is named at install time the way the Gateway and the Access audience already are.
+  allowedNetworks: []
+
+  # Left EMPTY on purpose. The browser callers spec §2.1 names — the scoreboard portal and the
+  # aigateway-ui console — are per-deployment hostnames this chart cannot know, and an empty list
+  # installs no CORS middleware at all rather than a permissive one. Add the exact origins
+  # (scheme, host and port, no trailing slash) for the deployment.
+  corsOrigins: []
+
+# THE PUBLIC INTAKE HOSTNAME. This is the deliberate act: an unauthenticated write that reaches
+# the private tracker the team works in. It is accepted (spec §9) because the client producing
+# the richest reports is the one that cannot authenticate — the Python SDK holds a Cloudflare
+# Access token but parses only `exp` from it, so it has no email and no way to present one.
+# Authenticated-only would have made the best reports unsendable.
+#
+# What makes it acceptable is the pair below it: Turnstile on every anonymous caller, and a rate
+# limit in front of the Turnstile call.
+anonymous:
+  enabled: true
+
+turnstile:
+  enabled: true
+  # MUST be set at install time. Without it the render fails rather than producing a pod that
+  # answers 503 to every anonymous report while reporting itself healthy.
+  existingSecret: ""
+  existingSecretKey: turnstile-secret
+
+gateway:
+  enabled: true
+  parentRef:
+    # MUST be set at install time — the Gateway both routes attach to. Left empty the render
+    # fails, rather than attaching the routes to nothing.
+    name: ""
+    namespace: ""
+    sectionName: ""
+
+  public:
+    hostnames:
+      - reports.screamingface.ai
+
+    # SPEC §7's EDGE RATE LIMIT, on the anonymous hostname and nowhere else. `config.anonRate` is
+    # the service-side brake — one bucket, because the mesh proxy is the TCP peer on every request
+    # — and this is the per-caller half.
+    #
+    # IT NEEDS TWO THINGS THIS CHART CANNOT INSTALL OR CHECK, and missing either fails OPEN:
+    # Envoy Gateway's Redis-backed rate-limit service (`type: Global` is the only type that can
+    # bucket per caller), and a `ClientTrafficPolicy` on the Gateway establishing the real client
+    # address — without one, Envoy sees the load balancer and every caller shares its bucket.
+    # DEPLOYMENT.md carries both as install steps; `kubectl get backendtrafficpolicy` reporting
+    # `Accepted=True` is what says the first one landed.
+    #
+    # The Cloudflare rule on this hostname is still wanted. It sits in front of all of the above.
+    rateLimit:
+      enabled: true
+      requests: 20
+      unit: Hour
+      sourceCIDRs:
+        - 0.0.0.0/0
+
+  identity:
+    enabled: true
+    hostnames:
+      - reports-internal.screamingface.ai
+    # Both empty for the same reason `parentRef.name` is: the chart cannot know your Cloudflare
+    # team or application, and a JWT filter that verifies nothing is worse than no filter, because
+    # it looks like one.
+    cloudflareAccess:
+      teamDomain: ""
+      audience: ""
+
+# ON, WITH NO PEERS — so the render stops until you name them.
+#
+# Read what the peer check actually authenticates: a NETWORK, not a workload. Even narrowed to the
+# Pod CIDR above, `config.allowedNetworks` admits every pod in the cluster, and the Service is a
+# plain ClusterIP any of them can dial. The two HTTPRoute filters strip `X-User-Email` only from
+# traffic that goes through the edge; they do nothing for the direct in-cluster path, where
+# `curl -H 'X-User-Email: someone@openmined.org' http://reports-report-intake:9109/v1/reports` is
+# admitted as mesh-verified — and, because `gate.admit` returns early on identity, skips the
+# Turnstile gate and the rate limit as well.
+#
+# In THIS posture the policy is therefore not hardening layered on the authentication boundary; it
+# is what makes "the mesh gateway" mean the mesh gateway rather than "anything in the cluster".
+# Naming the peers needs the `app.kubernetes.io/name` of your mesh gateway's data plane, which is
+# cluster-specific, so it is set at install time and the template refuses to render a policy with
+# no peers rather than emit an allow-all:
+#
+#   --set networkPolicy.clientPodNames[0]=<that label>
+#   --set networkPolicy.clientNamespace=<its namespace>
+#
+# Deliberately not restricting it is still possible and still has to be said out loud — see
+# `networkPolicy.acknowledgeUnrestricted` in values.yaml.
+networkPolicy:
+  enabled: true
+  clientPodNames: []

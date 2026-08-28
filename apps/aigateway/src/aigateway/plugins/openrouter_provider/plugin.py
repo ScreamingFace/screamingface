@@ -36,6 +36,7 @@ from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelAdmission,
+    ModelDiscoverySource,
     ModelEntry,
     ProviderPluginBase,
 )
@@ -76,6 +77,12 @@ from .global_cache import project_global_cache_request
 from .litellm_controls import (
     _has_unsafe_litellm_global_state,
     _strip_openrouter_litellm_controls,
+)
+from .live_models import (
+    LIVE_MODELS_DISCOVERY_SOURCE,
+    fetch_live_model_ids,
+    live_listing_entries,
+    publishable_upstream_ids,
 )
 from .observations import ROUTING_POLICY_OBSERVATIONS
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
@@ -188,6 +195,31 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             ModelEntry(model_name=slug, litellm_params={"model": slug})
             for slug in self.settings.default_models
         ]
+
+    def model_discovery_source(self) -> ModelDiscoverySource | None:
+        # INVARIANT (OME-972): gated on BOTH flags — a disabled provider or
+        # live_models=false declares no source, so the catalog never opens a
+        # cache slot or dials for it (zero egress when off).
+        if not (self.settings.enabled and self.settings.live_models):
+            return None
+        return LIVE_MODELS_DISCOVERY_SOURCE
+
+    async def discover_live_models(
+        self,
+        *,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> tuple[ModelEntry, ...] | None:
+        """The finished live listing: operator-explicit entries, then discovered.
+
+        Three-outcome contract (see the base hook): entries = reached; raises
+        sanitized ``DiscoveryError`` = attempted and failed; None = gated off,
+        not attempted, no connection.
+        """
+        if not (self.settings.enabled and self.settings.live_models):
+            return None
+        raw_ids = await fetch_live_model_ids(client=client, limits=limits)
+        return live_listing_entries(self.settings, publishable_upstream_ids(raw_ids))
 
     async def admit_model(
         self,

@@ -83,6 +83,7 @@ def test_case_result_serializes_every_observed_fact_losslessly() -> None:
                                 '"criterion_status":"MET"}'
                             ),
                             "metadata": {},
+                            "accounting": None,
                         }
                     ],
                     "metadata": {
@@ -158,6 +159,7 @@ def test_invalid_evidence_keeps_exact_raw_output_and_rejection_reason() -> None:
         "valid": False,
         "raw_output": "not json",
         "metadata": {"rejection_reason": "invalid_json"},
+        "accounting": None,
     }
 
 

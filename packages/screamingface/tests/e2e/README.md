@@ -11,8 +11,8 @@ from committed fixtures and goes red when the published number drifts.
 |---|-----|----|-----------|
 | ① | dev | Board registered in the engine (`BUILTIN_BENCHMARKS`) with preparable assets | `uv run screamingface prepare <board>` works |
 | ② | dev | Add the board id to `BOARDS` (`test_boards.py`) and `_ASSET_BUNDLE` (there **and** in `fixtures/slice_snapshot.py`) | e2e lane SKIPS loudly: "no recorded fixtures yet" |
-| ③ | **owner** 💵 | Run the board once for real: `sf.evaluate()` through the deployed gateway with caching ON. Keep `report.json` + a `pg_dump` of `request_cache_entries` (both stay private, never committed) | dump + report on the owner's disk |
-| ④ | dev | `just e2e-bless <board> <model> <dump.sql.gz> <answers.jsonl> --expect-score <report score>` — needs docker + prepared assets; refuses on any mismatch | 3 fixture files written |
+| ③ | **owner** 💵 | Run the board once for real: `sf.evaluate()` through the deployed gateway with caching ON. Keep `report.json` (+ a `pg_dump` of `request_cache_entries` for the single-model path; both stay private, never committed) | recordings on the owner's disk |
+| ④ | dev | Single-model: `just e2e-bless <board> <model> <dump.sql.gz> <answers.jsonl> --expect-score <report score>`. **Fusion (OME-978)**: `just e2e-bless-report <board> <report.json>` — the report alone is the recording; the capture→splice loop synthesizes the tape and the replay must reproduce the report's score/coverage/statuses. Both need docker + prepared assets; both refuse on any mismatch | 3 fixture files written |
 | ⑤ | dev | Commit `fixtures/snapshots/<board>.snapshot.gz` + `.manifest.json` + `fixtures/goldens/<board>.golden.json` in a PR | `test_boards[<board>]` green; CI guards the score forever |
 
 Running the lane locally:

@@ -597,6 +597,30 @@ def test_empty_cases_and_untrusted_failures_have_safe_markup() -> None:
     assert "<script>" not in html
 
 
+def test_a_long_task_scrolls_like_the_answer_instead_of_truncating_early() -> None:
+    """INVARIANT: the task pane gets the same reading affordance as the answer pane —
+    the shared clip limit plus a scrollbox — because a GDPval work request routinely
+    runs thousands of characters and a 600-char hard cut hid the actual task."""
+
+    marker = "THE-TAIL-OF-THE-TASK"
+    long_task = ("lorem ipsum " * 60) + marker  # ~740 chars: past 600, under _TEXT_CLIP
+    long_case = CaseResult(
+        case_id=1,
+        input=long_task,
+        output="the answer",
+        finish_reason="stop",
+        grade=CaseGrade(method="rubric", score=0.0, metrics={}, checks=[]),
+        failures=[],
+        metadata={},
+    )
+    html = report_html(report(candidate("solo", 0.0, cases=(long_case,))))
+    assert marker in html
+    # the question container scrolls rather than growing unbounded
+    q_style = html.split(".sf-pane__q{")[1].split("}")[0]
+    assert "overflow:auto" in q_style
+    assert "max-height" in q_style
+
+
 def test_an_envelope_input_renders_as_a_transcript_not_wire_json() -> None:
     """INVARIANT: multi-turn (envelope) Cases read as a conversation — the rail
     label is the user's question and the pane is a role-labeled transcript; the

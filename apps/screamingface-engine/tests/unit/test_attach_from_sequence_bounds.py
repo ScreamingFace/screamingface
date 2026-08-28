@@ -78,12 +78,18 @@ async def test_conformance_subscribe_still_accepts_one_and_none(
 ) -> None:
     """The guard must not have narrowed the legal range: `1` and `None` still subscribe.
 
+    The stream is ensured FIRST: on a missing stream a resume cursor is now a RECLAIMED
+    stream (`StreamNotFoundError`, OME-1019), not a live wait — the deliberate behavior
+    change this test documents. A cursor on an existing-but-empty stream still waits.
+
     WHY a timeout is the assertion: `subscribe` is an async generator, so the guard does not run
     until the first `__anext__`. Waiting on an empty topic therefore proves BOTH that the value
     was accepted (no `ValueError`) and that the subscription is live and waiting for frames —
     a `TimeoutError` here is the pass condition, not a flake.
     """
     stream = make_stream()
+    topic = _topic()
+    await stream.ensure_stream(topic)
     with pytest.raises(TimeoutError):
         async with asyncio.timeout(0.25):
-            await take(stream, _topic(), 1, cursor)
+            await take(stream, topic, 1, cursor)

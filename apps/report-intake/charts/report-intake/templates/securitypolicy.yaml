@@ -1,0 +1,66 @@
+{{- include "report-intake.validate" . -}}
+{{- if .Values.gateway.identity.enabled -}}
+{{/*
+The identity-injecting edge, mirroring `apps/screamingface-engine/deploy/helm`'s policy because it
+is the same contract: Cloudflare Access authenticates the caller and attaches its signed assertion
+as `Cf-Access-Jwt-Assertion`; Envoy RE-VERIFIES that assertion against Cloudflare's JWKS here and
+maps the verified `email` claim onto `X-User-Email`. This service does no token work at all, which
+is why this object is load-bearing rather than defence in depth.
+
+INVARIANT — FAIL CLOSED. There is no `optional: true` here and there must never be one. With
+`optional: true` the JWT filter is SKIPPED entirely for a token-less request, so `claimToHeaders`
+never runs and whatever the client sent as `X-User-Email` arrives intact. Since this route's
+hostname is inside the mesh, the backend's peer check passes, and the forged address is believed
+and stored. That is why anonymous submission gets its OWN hostname (`anonymous.enabled`) with an
+unconditional strip, instead of this route being made permissive.
+
+INVARIANT — this policy targets the identity HTTPRoute BY NAME, and both names come from one
+helper. A route renamed without renaming it here leaves the route unprotected while this object
+still reports Accepted.
+
+INVARIANT — `claimToHeaders` SETS the header rather than appending, so a client-supplied copy is
+overwritten by the verified value instead of surviving alongside it. Verified against Envoy
+Gateway v1.4.2 with a real Cloudflare Access token (2026-07-30, OME-684): the forged value is
+replaced, not appended, for any header casing, for several forged copies at once, and whether the
+token arrives in the header or the `CF_Authorization` cookie. Re-check on an Envoy Gateway
+upgrade — this is the assumption the whole mode rests on.
+
+PREREQUISITE: Envoy Gateway. `SecurityPolicy` is its extension, not core Gateway API.
+*/}}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ include "report-intake.identityRouteName" . }}-cloudflare-access
+  labels:
+    {{- include "report-intake.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ include "report-intake.identityRouteName" . }}
+  jwt:
+    providers:
+      - name: cloudflare-access
+        {{- $team := required "gateway.identity.cloudflareAccess.teamDomain is required when identity.enabled=true — the issuer and JWKS URL are derived from it" .Values.gateway.identity.cloudflareAccess.teamDomain }}
+        issuer: https://{{ $team }}
+        audiences:
+          # Scopes acceptance to ONE Access application. Without it, any valid token from any
+          # application in the same Cloudflare team authenticates here — and this service turns a
+          # verified token into a stored identity, so that is a wider door than it looks.
+          - {{ required "gateway.identity.cloudflareAccess.audience is required when identity.enabled=true — without an audience check every application in the team is accepted" .Values.gateway.identity.cloudflareAccess.audience | quote }}
+        remoteJWKS:
+          # Path fixed by Cloudflare; derived from the team domain so the two cannot disagree.
+          uri: https://{{ $team }}/cdn-cgi/access/certs
+        extractFrom:
+          headers:
+            # What the Cloudflare edge attaches to a proxied request.
+            - name: Cf-Access-Jwt-Assertion
+          cookies:
+            # The same assertion, as a browser reaching the app directly carries it.
+            - CF_Authorization
+        claimToHeaders:
+          # The one header `identity/mesh_identity.py` reads, and the only module in the service
+          # that names it.
+          - claim: email
+            header: X-User-Email
+{{- end }}

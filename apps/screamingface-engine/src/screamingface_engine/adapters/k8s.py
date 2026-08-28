@@ -133,7 +133,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
         # from `Settings.runner_io_concurrency` and enforced by the run's own URL4 layer.
         # Default matches the setting's default so a directly-constructed runner (tests) is
         # honest about what a scheduled run actually gets.
-        io_concurrency: int = 16,
+        io_concurrency: int = 4,
     ) -> None:
         self._client = client
         self._request_timeout_s = request_timeout_s
