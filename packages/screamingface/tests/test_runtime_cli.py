@@ -7,10 +7,11 @@ import sys
 import threading
 import types
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-from screamingface._runtime import cli, runtime_logging
+from screamingface._runtime import cli, runtime_logging, server
 from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
 from screamingface._runtime.config import RuntimeConfig
 
@@ -584,3 +585,131 @@ def test_the_local_projection_omits_display_fields_a_benchmark_did_not_declare()
 
     assert "focus" not in projected
     assert "dataset_url" not in projected
+
+
+# --- the [runtime] extra preflight (OME-1036) ---------------------------------------------
+
+
+def test_missing_runtime_modules_reports_each_absent_module() -> None:
+    def find_spec(name: str) -> object:
+        return None if name in {"litellm", "tortoise"} else object()
+
+    missing = server._missing_runtime_modules(
+        ("fastapi", "litellm", "tortoise", "uvicorn"), find_spec
+    )
+
+    assert missing == ("litellm", "tortoise")
+
+
+def test_missing_runtime_modules_treats_a_raising_finder_as_absent() -> None:
+    def find_spec(name: str) -> object:
+        raise ModuleNotFoundError(f"No module named {name!r}")
+
+    assert server._missing_runtime_modules(("tortoise",), find_spec) == ("tortoise",)
+
+
+def test_require_runtime_extra_names_missing_modules_and_the_install_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "_missing_runtime_modules", lambda names: ("tortoise",))
+
+    with pytest.raises(RuntimeError) as raised:
+        server.require_runtime_extra()
+
+    message = str(raised.value)
+    assert "tortoise" in message
+    assert 'Install "screamingface[runtime]"' in message
+
+
+def test_the_probe_list_pins_the_colab_gap_differentiators() -> None:
+    # Fresh Colab preinstalls uvicorn and fastapi (gradio needs them) but none of the
+    # rest — exactly the host where the old five-import guard passed and the stack died
+    # inside the child on `from tortoise import Tortoise` (OME-1036).
+    assert {
+        "aiosqlite",
+        "bcrypt",
+        "cryptography",
+        "fastapi",
+        "kubernetes",
+        "litellm",
+        "prometheus_client",
+        "pydantic_settings",
+        "tortoise",
+        "uvicorn",
+    } == set(server._RUNTIME_ONLY_MODULES)
+
+
+def test_serve_logs_the_install_hint_for_an_import_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+
+    def fail(_config: object, _token: str) -> None:
+        raise ModuleNotFoundError("No module named 'tortoise'")
+
+    monkeypatch.setattr(cli, "_serve_logged", fail)
+
+    with pytest.raises(ModuleNotFoundError):
+        cli._serve(config, "token", foreground=True)
+
+    # WHY `.out`: capture_runtime_log routes every line through RuntimeLog, whose console
+    # stream is the process stdout — the stderr the print() targets is replaced by it.
+    rendered = capsys.readouterr().out
+    assert "SCREAMINGFACE_RUNTIME_ERROR No module named 'tortoise'" in rendered
+    assert 'install "screamingface[runtime]"' in rendered
+
+
+def test_serve_keeps_the_plain_runtime_error_for_other_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+
+    def fail(_config: object, _token: str) -> None:
+        raise RuntimeError("the port is taken")
+
+    monkeypatch.setattr(cli, "_serve_logged", fail)
+
+    with pytest.raises(RuntimeError):
+        cli._serve(config, "token", foreground=True)
+
+    rendered = capsys.readouterr().out
+    assert "SCREAMINGFACE_RUNTIME_ERROR the port is taken" in rendered
+    assert "screamingface[runtime]" not in rendered
+
+
+class _DeadProcess:
+    def __init__(self, exit_code: int) -> None:
+        self._exit_code = exit_code
+
+    def poll(self) -> int:
+        return self._exit_code
+
+
+def test_wait_ready_reports_the_log_tail_when_the_child_dies(tmp_path: Path) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    config.log_path.parent.mkdir(parents=True, exist_ok=True)
+    config.log_path.write_text(
+        "[engine] listening\nSCREAMINGFACE_RUNTIME_ERROR No module named 'tortoise'\n"
+    )
+    process = cast(subprocess.Popen[bytes], _DeadProcess(1))
+
+    with pytest.raises(RuntimeError) as raised:
+        cli._wait_ready(process, config, timeout=0.1)
+
+    message = str(raised.value)
+    assert "runtime exited during startup" in message
+    assert "No module named 'tortoise'" in message
+
+
+def test_wait_ready_still_points_at_the_log_when_it_cannot_be_read(tmp_path: Path) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    process = cast(subprocess.Popen[bytes], _DeadProcess(1))
+
+    with pytest.raises(RuntimeError) as raised:
+        cli._wait_ready(process, config, timeout=0.1)
+
+    assert "runtime exited during startup; inspect the runtime log" in str(raised.value)
