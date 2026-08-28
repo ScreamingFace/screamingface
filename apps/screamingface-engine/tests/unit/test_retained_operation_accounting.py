@@ -247,5 +247,24 @@ def test_malformed_omission_count_makes_attempt_fields_unavailable() -> None:
     assert accounting.provider_latency_ms is None
 
 
+def test_attempt_identity_is_retained_only_when_every_attempt_agrees() -> None:
+    accounting = retained_operation_accounting(
+        request_model="model",
+        usage=None,
+        aigw=_aigw(
+            attempts=[
+                _attempt(provider="first", response_model="first/model"),
+                _attempt(provider="second", response_model="second/model"),
+            ]
+        ),
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider is None
+    assert accounting.response_model is None
+    assert accounting.usage.input_tokens == 20
+    assert accounting.provider_latency_ms == 50
+
+
 def test_empty_accounting_collection_has_no_invented_record() -> None:
     assert combine_operation_accounting([]) is None

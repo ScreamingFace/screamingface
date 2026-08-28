@@ -199,8 +199,9 @@ coach, round, or Case by inference.
   run. Extending both root totals and evidence for those paths belongs to `OME-784`.
 - Diagnostics name only the accounting phase and exception type. They never interpolate requests,
   prompts, URL4, parameters, outputs, request keys, or Gateway bodies.
-- Run-level capture need not retain model outputs; the Candidate-local recorder retains only the
-  outputs required by the existing Candidate operation contract.
+- Run-level capture retains only in-memory request identity and accounting; it never retains model
+  outputs. The Candidate-local recorder retains only the outputs required by the existing
+  Candidate operation contract.
 
 ## 6. Non-regression and acceptance
 

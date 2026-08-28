@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from screamingface_engine.operation_accounting import OperationAccounting
-from screamingface_engine.request_identity import model_request_key
+from screamingface_engine.request_identity import ModelRequestKey, model_request_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,23 +31,34 @@ class OperationCall:
     output: str
     finish_reason: str | None
     accounting: OperationAccounting | None
-    request_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RequestAccounting:
+    """Payload-free accounting for one authored model request."""
+
+    request_key: ModelRequestKey
+    accounting: OperationAccounting | None
 
 
 @dataclass(frozen=True, slots=True)
 class _OperationCallIdentity:
     path: str
     params: tuple[tuple[str, str], ...]
-    request_key: str | None
+    request_key: ModelRequestKey | None
 
 
 type OperationCallRecorder = list[OperationCall]
+type RequestAccountingRecorder = list[RequestAccounting]
 
 _recorders: contextvars.ContextVar[tuple[OperationCallRecorder, ...]] = contextvars.ContextVar(
     "screamingface_engine_operation_call_recorders", default=()
 )
 _identity: contextvars.ContextVar[_OperationCallIdentity | None] = contextvars.ContextVar(
     "screamingface_engine_operation_call_identity", default=None
+)
+_accounting_recorders: contextvars.ContextVar[tuple[RequestAccountingRecorder, ...]] = (
+    contextvars.ContextVar("screamingface_engine_request_accounting_recorders", default=())
 )
 
 
@@ -62,6 +73,29 @@ def capture_operation_calls(*, isolated: bool = False) -> Iterator[OperationCall
         yield recorder
     finally:
         _recorders.reset(token)
+
+
+@contextmanager
+def capture_request_accounting() -> Iterator[RequestAccountingRecorder]:
+    """Capture payload-free request accounting for one complete Engine run."""
+
+    recorder: RequestAccountingRecorder = []
+    token = _accounting_recorders.set((*_accounting_recorders.get(), recorder))
+    try:
+        yield recorder
+    finally:
+        _accounting_recorders.reset(token)
+
+
+@contextmanager
+def suspend_request_accounting() -> Iterator[None]:
+    """Exclude one nested execution from every ambient run-accounting ledger."""
+
+    token = _accounting_recorders.set(())
+    try:
+        yield
+    finally:
+        _accounting_recorders.reset(token)
 
 
 @contextmanager
@@ -107,16 +141,20 @@ def record_operation_call(
     identity = _identity.get()
     if identity is None:
         return
-    call = OperationCall(
-        path=identity.path,
-        params=identity.params,
-        output=output,
-        finish_reason=finish_reason,
-        accounting=accounting,
-        request_key=identity.request_key,
-    )
-    for recorder in _recorders.get():
-        recorder.append(call)
+    if _recorders.get():
+        call = OperationCall(
+            path=identity.path,
+            params=identity.params,
+            output=output,
+            finish_reason=finish_reason,
+            accounting=accounting,
+        )
+        for recorder in _recorders.get():
+            recorder.append(call)
+    if identity.request_key is not None:
+        request_accounting = RequestAccounting(identity.request_key, accounting)
+        for recorder in _accounting_recorders.get():
+            recorder.append(request_accounting)
 
 
 def current_operation_calls() -> OperationCallRecorder | None:
@@ -126,10 +164,21 @@ def current_operation_calls() -> OperationCallRecorder | None:
     return active[-1] if active else None
 
 
+def current_request_accounting() -> RequestAccountingRecorder | None:
+    """The innermost payload-free run ledger, or None outside an owned scope."""
+
+    active = _accounting_recorders.get()
+    return active[-1] if active else None
+
+
 __all__ = [
     "OperationCall",
+    "RequestAccounting",
     "capture_operation_calls",
+    "capture_request_accounting",
     "current_operation_calls",
+    "current_request_accounting",
     "operation_call_identity",
     "record_operation_call",
+    "suspend_request_accounting",
 ]

@@ -19,7 +19,10 @@ from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco import runtime as draco_runtime
 from screamingface_engine.benchmarks.draco.definition import CANONICAL_EXAM, DRACO, JUDGE_MODEL
 from screamingface_engine.grading_accounting import capture_grading_requests
-from screamingface_engine.operation_calls import capture_operation_calls
+from screamingface_engine.operation_calls import (
+    capture_operation_calls,
+    capture_request_accounting,
+)
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world_config import ModelSpec
 from url4 import Node, RelExpr, build, expr, render, src, text
@@ -145,8 +148,9 @@ async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) ->
         install_benchmarks(world.node, tmp_path, benchmarks=(DRACO,))
         try:
             with capture_operation_calls() as operation_calls:
-                with capture_grading_requests():
-                    result = await world.node.evaluate(_link(candidate, build(benchmark)))
+                with capture_request_accounting():
+                    with capture_grading_requests():
+                        result = await world.node.evaluate(_link(candidate, build(benchmark)))
         finally:
             await world.aclose()
 

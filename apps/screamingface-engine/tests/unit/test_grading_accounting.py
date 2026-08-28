@@ -18,16 +18,17 @@ from screamingface_engine.operation_accounting import (
     OperationUsage,
 )
 from screamingface_engine.operation_calls import (
-    OperationCall,
-    capture_operation_calls,
+    RequestAccounting,
+    capture_request_accounting,
     operation_call_identity,
     record_operation_call,
+    suspend_request_accounting,
 )
 from screamingface_engine.request_identity import model_request_key
 
 
-class _CountingCalls(list[OperationCall]):
-    def __init__(self, calls: list[OperationCall]) -> None:
+class _CountingCalls(list[RequestAccounting]):
+    def __init__(self, calls: list[RequestAccounting]) -> None:
         super().__init__(calls)
         self.full_iterations = 0
 
@@ -85,7 +86,7 @@ def _record(cost: str) -> None:
 
 def test_unique_owner_receives_the_matching_call_accounting() -> None:
     owner = _owner()
-    with capture_operation_calls():
+    with capture_request_accounting():
         with capture_grading_requests():
             _register(owner)
             _record("0.1")
@@ -98,7 +99,7 @@ def test_unique_owner_receives_the_matching_call_accounting() -> None:
 
 def test_redraws_for_one_owner_are_strictly_aggregated() -> None:
     owner = _owner()
-    with capture_operation_calls():
+    with capture_request_accounting():
         with capture_grading_requests():
             _register(owner)
             _record("0.1")
@@ -113,7 +114,7 @@ def test_redraws_for_one_owner_are_strictly_aggregated() -> None:
 
 def test_revised_requests_for_one_owner_are_strictly_aggregated() -> None:
     owner = _owner()
-    with capture_operation_calls():
+    with capture_request_accounting():
         with capture_grading_requests():
             register_grading_request(
                 owner,
@@ -151,7 +152,7 @@ def test_duplicate_request_owners_disable_attribution_without_payload_logging(
     first = _owner(check_id="rubric-1")
     second = _owner(check_id="rubric-2")
     with caplog.at_level(logging.WARNING):
-        with capture_operation_calls():
+        with capture_request_accounting():
             with capture_grading_requests():
                 _register(first)
                 _register(second)
@@ -169,18 +170,18 @@ def test_missing_scope_or_call_never_invents_accounting() -> None:
     _register(owner)
     assert accounting_for_grading_evidence(owner) is None
 
-    with capture_operation_calls():
+    with capture_request_accounting():
         with capture_grading_requests():
             _register(owner)
             assert accounting_for_grading_evidence(owner) is None
 
 
-def test_candidate_isolated_recorder_does_not_enter_the_run_grading_ledger() -> None:
+def test_suspended_candidate_work_does_not_enter_the_run_grading_ledger() -> None:
     owner = _owner()
-    with capture_operation_calls():
+    with capture_request_accounting():
         with capture_grading_requests():
             _register(owner)
-            with capture_operation_calls(isolated=True):
+            with suspend_request_accounting():
                 _record("0.1")
 
             assert accounting_for_grading_evidence(owner) is None
@@ -199,19 +200,15 @@ def test_repeated_verdict_lookups_do_not_rescan_the_full_run_ledger(
     )
     calls = _CountingCalls(
         [
-            OperationCall(
-                path="/judge",
-                params=(("temperature", "0.2"),),
-                output="verdict",
-                finish_reason="stop",
-                accounting=_accounting("0.1"),
+            RequestAccounting(
                 request_key=first_key if index < 50 else second_key,
+                accounting=_accounting("0.1"),
             )
             for index in range(100)
         ]
     )
     monkeypatch.setattr(
-        "screamingface_engine.grading_accounting.current_operation_calls", lambda: calls
+        "screamingface_engine.grading_accounting.current_request_accounting", lambda: calls
     )
 
     with capture_grading_requests():
@@ -240,7 +237,7 @@ def test_lookup_indexes_calls_appended_after_an_earlier_verdict() -> None:
     first = _owner(check_id="rubric-1")
     second = _owner(check_id="rubric-2")
 
-    with capture_operation_calls():
+    with capture_request_accounting():
         with capture_grading_requests():
             register_grading_request(
                 first,

@@ -228,8 +228,8 @@ def read_aigw(aigw: object) -> CallAccounting | None:
 
     INVARIANT: tokens are summed across EVERY attempt, failures included. A retry genuinely costs
     twice, and the producer contract states outright that a failed attempt may still carry
-    provider-authored usage, so dropping failures under-reports the run. Identity facts (provider,
-    served model) come from the TERMINAL attempt, which is the one that owns them.
+    provider-authored usage, so dropping failures under-reports the run. Identity is retained only
+    when EVERY contributing attempt agrees; a cross-provider/model retry has no single identity.
     """
     envelope = _mapping(aigw)
     if envelope is None:
@@ -254,9 +254,8 @@ def read_aigw(aigw: object) -> CallAccounting | None:
             observed = _attempt_usage(attempt)
             totals = tuple(accumulate(totals[i], observed[i]) for i in range(5))
 
-    terminal = attempts[-1] if attempts else None
-    provider = terminal.get("provider") if terminal is not None else None
-    response_model = terminal.get("response_model") if terminal is not None else None
+    provider = _agreed_attempt_identity(attempts, "provider")
+    response_model = _agreed_attempt_identity(attempts, "response_model")
     complete = (
         accounting is not None
         and accounting.get("capture_status") == "complete"
@@ -269,8 +268,8 @@ def read_aigw(aigw: object) -> CallAccounting | None:
         for attempt in attempts[1:]:
             latency = accumulate(latency, _attempt_latency(attempt))
     return CallAccounting(
-        provider=provider if isinstance(provider, str) and provider else None,
-        response_model=response_model if isinstance(response_model, str) else None,
+        provider=provider,
+        response_model=response_model,
         input_tokens=totals[0],
         output_tokens=totals[1],
         cache_read_tokens=totals[2],
@@ -279,6 +278,18 @@ def read_aigw(aigw: object) -> CallAccounting | None:
         cost_usd=usd_from_aigw(envelope),
         complete=complete,
         provider_latency_ms=latency,
+    )
+
+
+def _agreed_attempt_identity(attempts: list[Mapping[str, Any]], field: str) -> str | None:
+    if not attempts:
+        return None
+    values = tuple(attempt.get(field) for attempt in attempts)
+    first = values[0]
+    return (
+        first
+        if isinstance(first, str) and first.strip() and all(value == first for value in values[1:])
+        else None
     )
 
 

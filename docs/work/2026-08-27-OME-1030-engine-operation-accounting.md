@@ -17,8 +17,8 @@ Event behavior.
 
 ## Planned changes
 
-- Extend `src/screamingface_engine/operation_calls.py` with the shared strict accounting value and
-  run-local capture state.
+- Keep payload-bearing Candidate operation capture local, and add a separate run-local recorder
+  containing only request identity and strict accounting.
 - Deepen connector accounting normalization without adding a timer, attempt counter, or payload
   retention.
 - Add a composition-root streaming `Executor` decorator around the unchanged `Url4Executor`.
@@ -39,6 +39,13 @@ Event behavior.
   attributed, while keeping a solo nested Recipe's envelope absent.
 - Render each DRACO criterion's grading context and invariant Judge intent once, then reuse those
   exact bytes across its seeded judge-pass registrations.
+- Retain accounting for provider-refused terminal calls before the refusal exits the connector.
+- Require provider and served-model identity agreement across every Gateway attempt whose usage
+  contributes to one retained call.
+- Keep accounting fail-open when malformed provider metadata cannot satisfy the strict retained
+  contract: preserve the model answer and retain no accounting rather than failing execution.
+- Split Candidate payload capture from run-level grading accounting capture so the latter never
+  retains model outputs.
 
 ## Test plan
 
@@ -61,6 +68,11 @@ Event behavior.
   deliberately unavailable rather than partially trusted.
 - RED regression that a five-pass DRACO criterion renders its context and intent once rather than
   once per pass.
+- RED connector regression proving a refused response retains its exact accounting.
+- RED normalization regressions for provider/model disagreement across Gateway attempts and for
+  malformed optional identities remaining fail-open.
+- RED capture regression proving the run-level grading ledger retains request identity/accounting
+  but no model output while Candidate-local attribution remains unchanged.
 - Run `uv run ../../.claude/scripts/run_gates.py screamingface-engine` from the repository root.
 
 ## Acceptance
@@ -76,36 +88,34 @@ Event behavior.
 
 ## Outcome
 
-- **Actual files:** added the shared accounting contract, payload-free request identity, grading
-  ownership registry, and generic composition-root capture decorator; deepened connector and
-  operation-call normalization; projected exact accounting through Candidate operations and the
-  DRACO, HealthBench, GDPval, and IFEval contracts; added dedicated contract, normalization,
-  ownership, lifecycle, ambiguity, and board vertical-slice tests; updated approved strict legacy
-  shape and composition tests plus the spec, plan, and task mirror. Review follow-up suppresses an
-  entirely unattributed solo nested-Recipe operation envelope and incrementally indexes grading
-  calls by request key instead of rescanning the run ledger for each verdict. Final review follow-up
-  makes fixed-point cost sums independent of ambient Decimal precision, aggregates every uniquely
-  owned request key for revised grading evidence, and preserves explicit null entries when a
-  multi-operation Candidate cannot be attributed. The final efficiency follow-up renders each
-  DRACO criterion prompt once and reuses the exact bytes across its seeded Judge passes.
-- **Commits:** this implementation commit — `feat(screamingface-engine): retain operation
-  accounting`.
+- **Actual files:** added the strict `OperationAccounting` contract, nominal payload-free request
+  key, grading ownership registry, and composition-root capture decorator. Candidate-local capture
+  retains the outputs required by existing operation attribution; the run-level grading ledger
+  retains only request identity and accounting. DRACO, HealthBench, and GDPval attach uniquely
+  owned judge accounting to Evidence; deterministic IFEval Evidence remains null. Connector
+  hardening retains provider refusals, requires attempt identity agreement, preserves exact
+  fixed-point sums, and makes malformed bookkeeping fail-open. Test-only modules were split without
+  semantic edits to keep every Python file under the 450-line ceiling.
+- **Commits:** `feat(screamingface-engine): retain operation accounting`;
+  `fix(screamingface-engine): harden accounting attribution`;
+  `fix(screamingface-engine): preserve exact accounting evidence`;
+  `perf(screamingface-engine): reuse DRACO judge prompts`; and
+  `fix(screamingface-engine): harden operation accounting boundaries`.
 - **Gates:** `python3 .claude/scripts/run_gates.py screamingface-engine --skip-append-only` — ALL
-  GATES GREEN (ruff check, ruff format, pyright, layering, and full coverage suite). The
-  append-only exception is the explicit owner approval recorded below. Review regressions: 22
-  focused accounting/operation-output tests and 38 benchmark vertical-slice tests passed. Final
-  review regressions: 51 focused accounting and board tests passed; the full Engine gate passed
-  again. The DRACO prompt-render regression failed at five calls before the hoist, passed at one
-  afterward, and the full Engine gate passed once more.
-- **Deviations:** Candidate invocation needed a separate `isolate_operation_calls` switch so its
-  model-call ledger is isolated from grading without discarding the existing nested Candidate
-  outcome capture. This preserves the published behavior while enforcing the planned ownership
-  boundary. Malformed Gateway omission metadata remains deliberately fail-closed: no attempt-level
-  identity, token, latency, or cost facts are trusted when completeness cannot be established, and
-  this is now characterized by a regression test. Request-key hashing remains separate from the
-  catalogue ETag helper because their lengths, serialization rules, and layer ownership differ.
-  The capture scopes overlap by lifetime but have no ordering dependency. No scope, URL4, Gateway,
-  score, live-event, or call-cardinality deviation.
+  GATES GREEN: Ruff check, Ruff format, Pyright, layering, and 2,219 passed / 6 skipped with 91.50%
+  coverage. The focused accounting regression set passed 56 tests. `git diff --check` passed. The
+  append-only exception is the explicit owner approval recorded below.
+- **Non-regression:** no `packages/url4`, AI Gateway, Client, URL4 expression, benchmark data,
+  rubric, scoring formula, retry policy, cache key, model-call cardinality, or live Event change.
+  DRACO prompt rendering was extracted and pinned byte-identical. Root usage remains authoritative;
+  unsupported and ambiguous work remains null rather than guessed. The evolved required-null wire
+  fields require OME-1031's strict Client decoder to deploy first or atomically.
+- **Deviations:** Candidate execution suspends the run-level grading ledger while preserving its
+  existing Candidate-local output recorder; this additional separation was required to satisfy the
+  reviewed no-payload run-scope invariant. Request-key hashing remains separate from the catalogue
+  ETag helper because its serialization, length, and layer ownership differ. The existing PR branch
+  retains the parent name `OME-901-runtime-accounting-lineage`; commits, task mirror, and PR body
+  identify the implementation child OME-1030. No runtime-scope or product-behavior deviation.
 
 ## Confidence-gate decisions
 

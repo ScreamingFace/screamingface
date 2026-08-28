@@ -28,7 +28,7 @@ from screamingface_engine.operation_accounting import (
     OperationUsage,
 )
 from screamingface_engine.operation_calls import (
-    capture_operation_calls,
+    capture_request_accounting,
     operation_call_identity,
     record_operation_call,
 )
@@ -121,7 +121,7 @@ def test_rubric_verdict_retains_its_exact_request_accounting(tmp_path: Path) -> 
     tasks = _rubric_tasks(tmp_path, _CASE_IDS, "gdpval-text")
     verdict = _rubric_verdict("gdpval-text")
 
-    with capture_operation_calls():
+    with capture_request_accounting():
         with capture_grading_requests():
             rows = json.loads(
                 tasks(

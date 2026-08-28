@@ -7,7 +7,12 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from screamingface_engine.operation_calls import current_operation_calls
+from screamingface_engine.operation_calls import (
+    current_request_accounting,
+    operation_call_identity,
+    record_operation_call,
+)
+from screamingface_engine.request_identity import model_request_key
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 from url4.streaming.protocol import LogData
@@ -22,7 +27,7 @@ class _ProbeExecutor(Executor):
         self, url4: str, *, trace: TraceContext | None = None
     ) -> AsyncIterator[ExecStep]:
         del url4, trace
-        recorder = current_operation_calls()
+        recorder = current_request_accounting()
         assert recorder is not None
         self.recorder_ids.append(id(recorder))
         if self.barrier is not None:
@@ -48,10 +53,10 @@ async def test_decorator_owns_one_scope_for_the_whole_inner_iteration() -> None:
     inner = _ProbeExecutor()
     executor = OperationCapturingExecutor(inner)
 
-    assert current_operation_calls() is None
+    assert current_request_accounting() is None
     assert len([step async for step in executor.execute("'hello'")]) == 1
     assert len(inner.recorder_ids) == 1
-    assert current_operation_calls() is None
+    assert current_request_accounting() is None
 
 
 @pytest.mark.asyncio
@@ -73,7 +78,7 @@ async def test_nested_tasks_share_only_their_own_run_recorder() -> None:
     inner = _ProbeExecutor()
 
     async def recorder_id() -> int:
-        recorder = current_operation_calls()
+        recorder = current_request_accounting()
         assert recorder is not None
         return id(recorder)
 
@@ -82,7 +87,7 @@ async def test_nested_tasks_share_only_their_own_run_recorder() -> None:
             self, url4: str, *, trace: TraceContext | None = None
         ) -> AsyncIterator[ExecStep]:
             del url4, trace
-            parent = current_operation_calls()
+            parent = current_request_accounting()
             assert parent is not None
             child_ids = await asyncio.gather(recorder_id(), recorder_id())
             assert child_ids == [id(parent), id(parent)]
@@ -101,7 +106,7 @@ async def test_early_iterator_close_unwinds_the_capture_scope() -> None:
     close = getattr(iterator, "aclose")
     await close()
 
-    assert current_operation_calls() is None
+    assert current_request_accounting() is None
 
 
 @pytest.mark.asyncio
@@ -115,7 +120,7 @@ async def test_cancellation_unwinds_the_capture_scope_in_the_cancelled_task() ->
         try:
             await anext(executor.execute("'hello'"))
         except asyncio.CancelledError:
-            unwound = current_operation_calls() is None
+            unwound = current_request_accounting() is None
             raise
 
     task = asyncio.create_task(consume())
@@ -125,6 +130,33 @@ async def test_cancellation_unwinds_the_capture_scope_in_the_cancelled_task() ->
         await task
 
     assert unwound is True
+
+
+@pytest.mark.asyncio
+async def test_run_recorder_retains_request_accounting_without_model_output() -> None:
+    captured = []
+
+    class _AccountingExecutor(Executor):
+        async def execute(
+            self, url4: str, *, trace: TraceContext | None = None
+        ) -> AsyncIterator[ExecStep]:
+            del url4, trace
+            with operation_call_identity(
+                "/judge", {"seed": "1"}, context="private prompt", intent="grade"
+            ):
+                record_operation_call("private judge output", "stop")
+            recorder = current_request_accounting()
+            assert recorder is not None
+            captured.extend(recorder)
+            yield LogData.at("INFO", "started")
+
+    await _drain(OperationCapturingExecutor(_AccountingExecutor()))
+
+    assert len(captured) == 1
+    assert captured[0].request_key == model_request_key(
+        path="/judge", params={"seed": "1"}, context="private prompt", intent="grade"
+    )
+    assert not hasattr(captured[0], "output")
 
 
 async def _drain(executor: Executor) -> None:

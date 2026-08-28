@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 from screamingface_engine.grading_accounting import capture_grading_requests
-from screamingface_engine.operation_calls import capture_operation_calls
+from screamingface_engine.operation_calls import capture_request_accounting
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 
 
@@ -18,7 +18,10 @@ class OperationCapturingExecutor(Executor):
     async def execute(
         self, url4: str, *, trace: TraceContext | None = None
     ) -> AsyncIterator[ExecStep]:
-        with capture_operation_calls():
+        # WHY accounting wraps request ownership: route handlers register grading owners while
+        # model requests append payload-free facts; both scopes must span the same streamed run.
+        # Their nesting order carries no semantics because neither reads the other on enter/exit.
+        with capture_request_accounting():
             with capture_grading_requests():
                 iterator = self._inner.execute(url4, trace=trace)
                 try:

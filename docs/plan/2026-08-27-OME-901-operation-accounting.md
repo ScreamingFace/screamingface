@@ -17,8 +17,10 @@ The owner approved this revised plan. Work lands in two ordered PRs; neither cha
    grading Evidence, URL4 rendering, retries, cache behavior, and CorrectiveLoop isolation.
 2. Add RED normalization tests for complete/partial/omitted Gateway accounting, cache outcomes,
    multi-call strict sums, model identity disagreement, and existing provider latency.
-3. Add the shared nullable `OperationAccounting` contract and deepen the existing
-   `OperationCall`; do not add a timer, attempt counters, or serialized request identity.
+3. Add the shared nullable `OperationAccounting` contract. Keep the existing payload-bearing
+   `OperationCall` Candidate-local, and add a separate payload-free run record containing only
+   request identity and accounting; do not add a timer, attempt counters, or serialized request
+   identity.
 4. Add RED recorder-scope tests for Candidate isolation, run capture, concurrent runs, nested DAG
    tasks, cancellation, and early async-generator close.
 5. Implement a ScreamingFace Engine composition-root `Executor` decorator that enters the run

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import random
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -69,6 +70,7 @@ from url4.streaming.protocol import CachePolicy
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _truncate_tool_result = truncate_tool_result
+logger = logging.getLogger(__name__)
 
 # Transport-retry policy for the aigateway hop (OME-1016). A transport failure
 # (connection reset, read error, timeout) is transient by nature, so the connector
@@ -593,19 +595,23 @@ async def _chat_completion_loop(
         )
         data = _json_or_raise(resp)
         _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
-        operation_accounting.append(
-            retained_operation_accounting(
-                request_model=real_model_id,
-                usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
-                aigw=data.get("_aigw"),
-                cache=outcome,
-            )
+        retained = _retained_operation_accounting(
+            request_model=real_model_id,
+            usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
+            aigw=data.get("_aigw"),
+            cache=outcome,
         )
+        if retained is not None:
+            operation_accounting.append(retained)
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
         _report_response(choice, outcome)
-        raise_if_unusable(choice, max_tokens=sampling.get("max_tokens"))
+        _raise_if_unusable_with_accounting(
+            choice,
+            max_tokens=sampling.get("max_tokens"),
+            accounting=operation_accounting,
+        )
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
             # Recorded HERE, not per round trip: a tool loop is several round trips serving ONE
@@ -626,6 +632,52 @@ async def _chat_completion_loop(
         code="web_tool_loop_limit",
         permanent=False,
     )
+
+
+def _retained_operation_accounting(
+    *,
+    request_model: str,
+    usage: Mapping[str, object] | None,
+    aigw: object,
+    cache: CacheOutcome,
+) -> OperationAccounting | None:
+    """Fail-open projection of untrusted Gateway accounting onto the strict retained contract."""
+
+    try:
+        return retained_operation_accounting(
+            request_model=request_model,
+            usage=usage,
+            aigw=aigw,
+            cache=cache,
+        )
+    except Exception as exc:
+        # INVARIANT: accounting is optional bookkeeping over an already-consumed response. No
+        # malformed accounting field may replace a successful answer/refusal with a run failure,
+        # and diagnostics disclose only the phase plus exception type — never Gateway payloads.
+        logger.warning("operation accounting unavailable after %s", type(exc).__name__)
+        return None
+
+
+def _raise_if_unusable_with_accounting(
+    choice: Choice,
+    *,
+    max_tokens: object,
+    accounting: list[OperationAccounting],
+) -> None:
+    """Classify one response while retaining a consumed provider refusal."""
+
+    try:
+        raise_if_unusable(choice, max_tokens=max_tokens)
+    except RunnerRequestError as exc:
+        if exc.code == "provider_refusal":
+            # INVARIANT: a refusal remains a terminal Candidate outcome. Record its consumed
+            # accounting before the typed failure exits; the invocation adapter then retains it.
+            record_operation_call(
+                "",
+                choice.finish_reason,
+                combine_operation_accounting(accounting),
+            )
+        raise
 
 
 def _retrieval_request(

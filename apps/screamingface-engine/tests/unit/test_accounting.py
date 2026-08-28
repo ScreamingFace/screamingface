@@ -277,7 +277,9 @@ def test_an_unreported_token_class_stays_none() -> None:
     assert call.cache_creation_tokens == 4000
 
 
-def test_identity_comes_from_the_terminal_attempt() -> None:
+def test_identity_is_unavailable_when_contributing_attempts_disagree() -> None:
+    """INVARIANT: summed usage cannot be attributed to one served model unless every attempt
+    agrees; choosing the terminal attempt would mislabel usage from the failed attempt."""
     attempts = [
         _attempt(provider="openrouter", response_model=None, outcome="transport_error"),
         _attempt(provider="openrouter", response_model="served/by-this", outcome="succeeded"),
@@ -286,7 +288,8 @@ def test_identity_comes_from_the_terminal_attempt() -> None:
     call = read_aigw(_aigw(attempts=attempts))
 
     assert call is not None
-    assert call.response_model == "served/by-this"
+    assert call.provider == "openrouter"
+    assert call.response_model is None
 
 
 def test_absent_accounting_yields_no_evidence_at_all() -> None:
