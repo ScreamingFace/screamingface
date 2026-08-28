@@ -57,7 +57,10 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
     <blockquote>
       <strong>Only a subset of benchmarks is available so far.</strong> This is an early,
       deliberately small set, and we're working on expanding it massively so fusion research can
-      thrive. If there's a benchmark you'd want to run first, we'd love to hear it.
+      thrive. If there's a benchmark you'd want to run first,
+      <a href="https://github.com/ScreamingFace/screamingface/issues" target="_blank" rel="noopener"
+        >we'd love to hear it</a
+      >.
     </blockquote>
 
     <h2>What you can do with it</h2>

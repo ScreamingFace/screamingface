@@ -44,9 +44,9 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
       ScreamingFace is open, Python-first infrastructure for composing model ensembles (it calls
       them
       <strong>fusions</strong>) and measuring them under grading you do not control. It is built
-      around one approach: advancing capability by composition, combining models you already have
-      rather than training new ones. You assemble a fusion from providers you hold keys for,
-      evaluate it against a research benchmark, and read back a score alongside what the run cost.
+      around one approach: advancing capability by composition, combining existing models rather
+      than training new ones. You assemble a fusion from providers you hold keys for, evaluate it
+      against a research benchmark, and read back its score next to its cost.
     </p>
 
     <p>
@@ -58,10 +58,12 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
         rel="noopener"
         >published results</a
       >), an effect that recurs across the ensemble literature, for instance in
-      <em>Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles</em> (Skurikhin
-      et al., Los Alamos). What the Client adds is less that claim than the apparatus around it:
-      grading it does not perform itself, a reproducible record of every run, and cost reported next
-      to accuracy.
+      <a href="https://openreview.net/forum?id=XSIYfTm2h7" target="_blank" rel="noopener"
+        ><em>Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles</em></a
+      >
+      (Skurikhin et al., Los Alamos). The effect itself is not new. What the Client adds is the
+      infrastructure around it: held-out grading, a reproducible record of every run, and cost
+      reported next to accuracy.
     </p>
 
     <h2>What the Client provides</h2>

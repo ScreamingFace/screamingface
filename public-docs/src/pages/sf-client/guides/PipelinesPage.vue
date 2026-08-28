@@ -83,9 +83,9 @@ const pipelineSig = `sf.Pipeline(
     <figure class="not-prose" style="margin: var(--space-8) 0">
       <svg
         class="dg"
-        viewBox="0 0 720 104"
+        viewBox="0 0 906 120"
         role="img"
-        aria-label="The flow of information: member models answer, a synthesizer combines them into one answer, and grading that answer produces the graded answer."
+        aria-label="A Pipeline runs its stages in series: the first stage answers the case, each later stage takes the previous stage's answer as its input, and grading the last stage's answer produces the graded answer."
       >
         <defs>
           <marker
@@ -101,23 +101,30 @@ const pipelineSig = `sf.Pipeline(
           </marker>
         </defs>
         <g class="edge" marker-end="url(#pl-arrow)">
-          <path d="M200 62 H288" />
-          <path d="M450 62 H544" />
+          <path d="M192 80 H240" />
+          <path d="M406 80 H454" />
+          <path d="M644 80 H734" />
         </g>
-        <text x="250" y="50" text-anchor="middle" class="sub">stage</text>
-        <text x="503" y="50" text-anchor="middle" class="sub">grading</text>
-        <rect class="box stage" x="16" y="40" width="184" height="44" />
-        <rect class="box synth" x="300" y="40" width="150" height="44" />
-        <rect class="box graded" x="556" y="40" width="150" height="44" />
+        <rect class="frame" x="16" y="34" width="628" height="80" />
+        <text x="24" y="50" class="sub">Pipeline</text>
+        <text x="216" y="66" text-anchor="middle" class="sub">stage</text>
+        <text x="430" y="66" text-anchor="middle" class="sub">stage</text>
+        <text x="689" y="66" text-anchor="middle" class="sub">grading</text>
+        <rect class="box stage" x="32" y="60" width="160" height="40" />
+        <rect class="box stage" x="246" y="60" width="160" height="40" />
+        <rect class="box synth" x="460" y="60" width="168" height="40" />
+        <rect class="box graded" x="744" y="60" width="150" height="40" />
         <g class="lbl" text-anchor="middle">
-          <text x="108" y="66">members / models</text>
-          <text x="375" y="66">synthesizer</text>
-          <text x="631" y="66">Graded answer</text>
+          <text x="112" y="84">first stage</text>
+          <text x="326" y="84">next stage</text>
+          <text x="544" y="84">last stage</text>
+          <text x="819" y="84">Graded answer</text>
         </g>
       </svg>
       <figcaption class="dgcap">
-        The flow of information: the member models answer, a synthesizer combines them into one
-        answer, and grading that answer produces the graded answer.
+        The flow of information: the first stage answers the case, each later stage takes the
+        previous stage's answer as its input, and grading the last stage's answer produces the
+        graded answer.
       </figcaption>
     </figure>
 
