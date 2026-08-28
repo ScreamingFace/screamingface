@@ -10,7 +10,13 @@ from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
 from screamingface._report_primitives import CaseId
 from screamingface._report_primitives import _case_id as _validate_case_id
-from screamingface.case_result import CaseOperation, CaseStatus, StopReason
+from screamingface.case_result import (
+    CaseOperation,
+    CaseStatus,
+    OperationAccounting,
+    OperationCache,
+    StopReason,
+)
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError
 from screamingface.report import (
@@ -283,9 +289,82 @@ def _case_operations(value: object) -> tuple[CaseOperation, ...]:
     return tuple(_case_operation(item) for item in _sequence(value, "Case Result operations"))
 
 
+def _operation_accounting(value: object, label: str) -> OperationAccounting | None:
+    """Decode one retained ``OperationAccounting``, or ``None`` — never in between.
+
+    INVARIANT: absence stays absence. The Engine already applied the exact-only
+    rule (a partial join publishes null rather than a subtotal), so the Client's
+    only job is to refuse anything it cannot decode faithfully. Every branch here
+    raises instead of substituting a plausible value, because a zero or a dropped
+    field would be read downstream as an observed fact.
+    """
+    if value is None:
+        return None
+    raw = _mapping(value, label)
+    _keys(
+        raw,
+        required={
+            "provider",
+            "request_model",
+            "response_model",
+            "usage",
+            "provider_latency_ms",
+            "cache",
+        },
+        label=label,
+    )
+    usage_raw = _mapping(raw.get("usage"), f"{label} usage")
+    _keys(
+        usage_raw,
+        required={
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_creation_tokens",
+            "reasoning_tokens",
+            "cost_usd",
+        },
+        label=f"{label} usage",
+    )
+    cache_raw = _mapping(raw.get("cache"), f"{label} cache")
+    _keys(cache_raw, required={"hits", "misses", "bypasses", "unknown"}, label=f"{label} cache")
+    latency = raw.get("provider_latency_ms")
+    try:
+        return OperationAccounting(
+            provider=_optional_string(raw.get("provider"), f"{label} provider"),
+            request_model=_optional_string(raw.get("request_model"), f"{label} request_model"),
+            response_model=_optional_string(raw.get("response_model"), f"{label} response_model"),
+            usage=Usage(
+                input_tokens=usage_raw.get("input_tokens"),  # type: ignore[arg-type]
+                output_tokens=usage_raw.get("output_tokens"),  # type: ignore[arg-type]
+                cache_read_tokens=usage_raw.get("cache_read_tokens"),  # type: ignore[arg-type]
+                cache_creation_tokens=usage_raw.get("cache_creation_tokens"),  # type: ignore[arg-type]
+                reasoning_tokens=usage_raw.get("reasoning_tokens"),  # type: ignore[arg-type]
+                cost_usd=usage_raw.get("cost_usd"),  # type: ignore[arg-type]
+            ),
+            provider_latency_ms=(
+                None
+                if latency is None
+                else _positive_or_zero_integer(latency, f"{label} provider_latency_ms")
+            ),
+            cache=OperationCache(
+                hits=cache_raw.get("hits"),  # type: ignore[arg-type]
+                misses=cache_raw.get("misses"),  # type: ignore[arg-type]
+                bypasses=cache_raw.get("bypasses"),  # type: ignore[arg-type]
+                unknown=cache_raw.get("unknown"),  # type: ignore[arg-type]
+            ),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ExecutionError(f"{label} is invalid: {exc}") from exc
+
+
 def _case_operation(value: object) -> CaseOperation:
     raw = _mapping(value, "Case Operation")
-    _keys(raw, required={"operation_id", "output", "finish_reason"}, label="Case Operation")
+    _keys(
+        raw,
+        required={"operation_id", "output", "finish_reason", "accounting"},
+        label="Case Operation",
+    )
     finish_reason_value = raw.get("finish_reason")
     try:
         return CaseOperation(
@@ -296,6 +375,7 @@ def _case_operation(value: object) -> CaseOperation:
                 if finish_reason_value is None
                 else _text(finish_reason_value, "Case Operation finish_reason")
             ),
+            accounting=_operation_accounting(raw.get("accounting"), "Case Operation accounting"),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Operation is invalid: {exc}") from exc
@@ -347,7 +427,7 @@ def _evidence(value: object) -> Evidence:
     raw = _mapping(value, "Evidence")
     _keys(
         raw,
-        required={"sequence", "producer", "valid", "raw_output", "metadata"},
+        required={"sequence", "producer", "valid", "raw_output", "metadata", "accounting"},
         optional={"outcome", "explanation"},
         label="Evidence",
     )
@@ -368,6 +448,7 @@ def _evidence(value: object) -> Evidence:
             explanation=_optional_string(raw.get("explanation"), "Evidence explanation"),
             raw_output=_required(raw, "raw_output", "Evidence"),
             metadata=_mapping(raw.get("metadata"), "Evidence metadata"),
+            accounting=_operation_accounting(raw.get("accounting"), "Evidence accounting"),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Evidence is invalid: {exc}") from exc
@@ -429,6 +510,12 @@ def _keys(
 def _positive_integer(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ExecutionError(f"{label} must be a positive integer")
+    return value
+
+
+def _positive_or_zero_integer(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ExecutionError(f"{label} must be a non-negative integer")
     return value
 
 

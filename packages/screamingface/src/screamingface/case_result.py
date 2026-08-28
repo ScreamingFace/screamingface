@@ -11,6 +11,7 @@ from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json
 from screamingface._report_primitives import (
     CaseId,
     Failure,
+    Usage,
     _case_id,
     _nonblank_text,
     _nonempty_text,
@@ -34,6 +35,96 @@ type RefusalKind = Literal["provider_declined", "model_refusal"]
 
 
 @dataclass(frozen=True, slots=True)
+class OperationCache:
+    """How many consumed responses of one operation the response cache served.
+
+    The four counts sum to the number of model-call responses the owning record
+    represents — provider retries folded inside one Gateway response are NOT
+    extra responses. A confirmed hit contributes zero current tokens and cost:
+    the run really did spend nothing on it, and no avoided-cost estimate is
+    invented (OME-901 spec §0).
+    """
+
+    hits: int
+    misses: int
+    bypasses: int
+    unknown: int
+
+    def __post_init__(self) -> None:
+        for name in ("hits", "misses", "bypasses", "unknown"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"Operation cache {name} must be a non-negative integer")
+        # INVARIANT: the count sum IS the represented response count, so a record
+        # describing zero responses describes nothing and must not exist.
+        if self.hits + self.misses + self.bypasses + self.unknown < 1:
+            raise ValueError("operation cache accounting requires at least one response")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "hits": self.hits,
+            "misses": self.misses,
+            "bypasses": self.bypasses,
+            "unknown": self.unknown,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class OperationAccounting:
+    """What one semantic operation actually consumed, exactly or not at all.
+
+    FEATURE: OME-901 per-operation accounting — the Engine retains the join
+    between model-call accounting and the records that name Candidate operations
+    and grading Evidence, so a completed Report can break its one authoritative
+    total down by stage, model, member and Case.
+
+    INVARIANT: exact-only. Every field is null unless the Engine observed it
+    completely; nothing here is ever divided, inferred from execution order, or
+    defaulted to zero. A false zero would read as "this operation was free".
+
+    ``provider_latency_ms`` is the SUM of complete provider-attempt latencies —
+    not operation wall time, not critical-path duration. It is presented as
+    "Provider time" for exactly that reason.
+    """
+
+    provider: str | None
+    request_model: str | None
+    response_model: str | None
+    usage: Usage
+    provider_latency_ms: int | None
+    cache: OperationCache
+
+    def __post_init__(self) -> None:
+        for name in ("provider", "request_model", "response_model"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(
+                    self, name, _nonblank_text(value, f"Operation accounting {name}")
+                )
+        if not isinstance(self.usage, Usage):
+            raise TypeError("Operation accounting usage must be an sf.Usage")
+        if not isinstance(self.cache, OperationCache):
+            raise TypeError("Operation accounting cache must be an sf.OperationCache")
+        latency = self.provider_latency_ms
+        if latency is not None and (
+            isinstance(latency, bool) or not isinstance(latency, int) or latency < 0
+        ):
+            raise ValueError(
+                "Operation accounting provider_latency_ms must be a non-negative integer or None"
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "provider": self.provider,
+            "request_model": self.request_model,
+            "response_model": self.response_model,
+            "usage": self.usage.to_dict(),
+            "provider_latency_ms": self.provider_latency_ms,
+            "cache": self.cache.to_dict(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class EvidenceProducer:
     """The Engine-known producer of one observed grading result."""
 
@@ -48,6 +139,39 @@ class EvidenceProducer:
         return {"type": self.type, "id": self.id}
 
 
+def _validated_evidence_parts(
+    *,
+    sequence: int,
+    producer: EvidenceProducer,
+    valid: bool,
+    outcome: EvidenceOutcome | None,
+    explanation: str | None,
+    accounting: OperationAccounting | None,
+) -> str | None:
+    """Validate one Evidence's scalar parts; return the normalized explanation.
+
+    Split out of ``Evidence.__init__`` only to keep that constructor readable —
+    the rules themselves are unchanged, and the one that carries meaning is the
+    last: a REJECTED observation may not also claim an outcome or an
+    explanation, because a rejected reply was never interpreted.
+    """
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        raise ValueError("Evidence sequence must be a positive integer")
+    if not isinstance(producer, EvidenceProducer):
+        raise TypeError("Evidence producer must be an sf.EvidenceProducer")
+    if not isinstance(valid, bool):
+        raise TypeError("Evidence valid must be a boolean")
+    if outcome not in {None, "MET", "UNMET", "PASS", "FAIL"}:
+        raise ValueError("Evidence outcome must be MET, UNMET, PASS, FAIL, or None")
+    if explanation is not None:
+        explanation = _string(explanation, "Evidence explanation")
+    if not valid and (outcome is not None or explanation is not None):
+        raise ValueError("invalid Evidence cannot contain an outcome or explanation")
+    if accounting is not None and not isinstance(accounting, OperationAccounting):
+        raise TypeError("Evidence accounting must be an sf.OperationAccounting or None")
+    return explanation
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Evidence:
     """One exact observation accepted or rejected by a grading Check."""
@@ -58,6 +182,7 @@ class Evidence:
     outcome: EvidenceOutcome | None
     explanation: str | None
     raw_output: object
+    accounting: OperationAccounting | None
     _metadata: Mapping[str, object] = field(repr=False)
 
     def __init__(
@@ -70,19 +195,16 @@ class Evidence:
         outcome: EvidenceOutcome | None = None,
         explanation: str | None = None,
         metadata: Mapping[str, object] | None = None,
+        accounting: OperationAccounting | None = None,
     ) -> None:
-        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
-            raise ValueError("Evidence sequence must be a positive integer")
-        if not isinstance(producer, EvidenceProducer):
-            raise TypeError("Evidence producer must be an sf.EvidenceProducer")
-        if not isinstance(valid, bool):
-            raise TypeError("Evidence valid must be a boolean")
-        if outcome not in {None, "MET", "UNMET", "PASS", "FAIL"}:
-            raise ValueError("Evidence outcome must be MET, UNMET, PASS, FAIL, or None")
-        if explanation is not None:
-            explanation = _string(explanation, "Evidence explanation")
-        if not valid and (outcome is not None or explanation is not None):
-            raise ValueError("invalid Evidence cannot contain an outcome or explanation")
+        explanation = _validated_evidence_parts(
+            sequence=sequence,
+            producer=producer,
+            valid=valid,
+            outcome=outcome,
+            explanation=explanation,
+            accounting=accounting,
+        )
         values = {
             "sequence": sequence,
             "producer": producer,
@@ -90,6 +212,7 @@ class Evidence:
             "outcome": freeze_json(outcome, "Evidence outcome"),
             "explanation": explanation,
             "raw_output": freeze_json(raw_output, "Evidence raw_output"),
+            "accounting": accounting,
             "_metadata": freeze_mapping(metadata or {}, "Evidence metadata"),
         }
         for name, value in values.items():
@@ -106,6 +229,7 @@ class Evidence:
             "valid": self.valid,
             "raw_output": thaw_json(self.raw_output),
             "metadata": thaw_mapping(self._metadata),
+            "accounting": None if self.accounting is None else self.accounting.to_dict(),
         }
         if self.outcome is not None:
             value["outcome"] = thaw_json(self.outcome)
@@ -234,6 +358,7 @@ class CaseOperation:
     operation_id: str
     output: str | None
     finish_reason: str | None
+    accounting: OperationAccounting | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -247,12 +372,17 @@ class CaseOperation:
                 "finish_reason",
                 _nonblank_text(self.finish_reason, "Case Operation finish_reason"),
             )
+        if self.accounting is not None and not isinstance(self.accounting, OperationAccounting):
+            raise TypeError("Case Operation accounting must be an sf.OperationAccounting or None")
 
     def to_dict(self) -> dict[str, object]:
         return {
             "operation_id": self.operation_id,
             "output": self.output,
             "finish_reason": self.finish_reason,
+            # Required-nullable, mirroring the Engine: the key is always present so
+            # a reader can tell "no accounting retained" from "older payload".
+            "accounting": None if self.accounting is None else self.accounting.to_dict(),
         }
 
 

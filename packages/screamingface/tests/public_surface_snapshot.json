@@ -36,6 +36,8 @@
       "ModelParameter",
       "ModelParameterSchema",
       "OAuthFlow",
+      "OperationAccounting",
+      "OperationCache",
       "OperationInfo",
       "Pipeline",
       "PlanningError",
@@ -284,7 +286,8 @@
       "Evidence": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, sequence: 'int', producer: 'EvidenceProducer', valid: 'bool', raw_output: 'object', outcome: 'EvidenceOutcome | None' = None, explanation: 'str | None' = None, metadata: 'Mapping[str, object] | None' = None) -> 'None'",
+          "__init__": "method (self, *, sequence: 'int', producer: 'EvidenceProducer', valid: 'bool', raw_output: 'object', outcome: 'EvidenceOutcome | None' = None, explanation: 'str | None' = None, metadata: 'Mapping[str, object] | None' = None, accounting: 'OperationAccounting | None' = None) -> 'None'",
+          "accounting": "field",
           "explanation": "field",
           "metadata": "property",
           "outcome": "field",
@@ -534,6 +537,30 @@
           "provider": "field",
           "status": "field",
           "wait": "method (self, *, poll_interval: 'float' = 0.5, timeout: 'float | None' = None) -> 'Connection'"
+        }
+      },
+      "OperationAccounting": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str | None', request_model: 'str | None', response_model: 'str | None', usage: 'Usage', provider_latency_ms: 'int | None', cache: 'OperationCache') -> None",
+          "cache": "field",
+          "provider": "field",
+          "provider_latency_ms": "field",
+          "request_model": "field",
+          "response_model": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "usage": "field"
+        }
+      },
+      "OperationCache": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, hits: 'int', misses: 'int', bypasses: 'int', unknown: 'int') -> None",
+          "bypasses": "field",
+          "hits": "field",
+          "misses": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "unknown": "field"
         }
       },
       "OperationInfo": {
@@ -948,6 +975,8 @@
       "EvidenceProducer",
       "Failure",
       "MemberResult",
+      "OperationAccounting",
+      "OperationCache",
       "OperationInfo",
       "Report",
       "Usage"
@@ -1028,7 +1057,8 @@
       "Evidence": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, sequence: 'int', producer: 'EvidenceProducer', valid: 'bool', raw_output: 'object', outcome: 'EvidenceOutcome | None' = None, explanation: 'str | None' = None, metadata: 'Mapping[str, object] | None' = None) -> 'None'",
+          "__init__": "method (self, *, sequence: 'int', producer: 'EvidenceProducer', valid: 'bool', raw_output: 'object', outcome: 'EvidenceOutcome | None' = None, explanation: 'str | None' = None, metadata: 'Mapping[str, object] | None' = None, accounting: 'OperationAccounting | None' = None) -> 'None'",
+          "accounting": "field",
           "explanation": "field",
           "metadata": "property",
           "outcome": "field",
@@ -1074,6 +1104,30 @@
           "operation_id": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "usage": "field"
+        }
+      },
+      "OperationAccounting": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str | None', request_model: 'str | None', response_model: 'str | None', usage: 'Usage', provider_latency_ms: 'int | None', cache: 'OperationCache') -> None",
+          "cache": "field",
+          "provider": "field",
+          "provider_latency_ms": "field",
+          "request_model": "field",
+          "response_model": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "usage": "field"
+        }
+      },
+      "OperationCache": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, hits: 'int', misses: 'int', bypasses: 'int', unknown: 'int') -> None",
+          "bypasses": "field",
+          "hits": "field",
+          "misses": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "unknown": "field"
         }
       },
       "OperationInfo": {

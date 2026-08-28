@@ -46,6 +46,8 @@ from screamingface.report import (
     EvidenceProducer,
     Failure,
     MemberResult,
+    OperationAccounting,
+    OperationCache,
     Report,
     Usage,
 )
@@ -102,6 +104,8 @@ __all__ = [
     "Report",
     "ScreamingFaceError",
     "SelfCorrective",
+    "OperationAccounting",
+    "OperationCache",
     "Usage",
     "Url4",
     "benchmarks",
