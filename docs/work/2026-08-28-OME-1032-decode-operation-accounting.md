@@ -1,9 +1,9 @@
 ---
 ticket: OME-1032
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-08-28
-finished:
+finished: 2026-08-28
 ---
 
 # OME-1032 — Decode retained per-operation accounting in the Client
@@ -25,6 +25,12 @@ field), and the e2e harness boots the Engine from the same checkout so there is
 no version skew.
 
 ## Planned changes
+
+- Review follow-up: make the wire decoder enforce the Engine's canonical
+  fixed-point `cost_usd` grammar and replace every production `type: ignore`
+  with typed boundary validation. Extract the accounting decoder/value seam so
+  this feature does not materially deepen the Client's already-large result
+  modules.
 
 - `packages/screamingface/src/screamingface/case_result.py`
   - new `OperationCache` value (hits/misses/bypasses/unknown; ≥1 response).
@@ -53,7 +59,8 @@ RED first:
 - a MISSING `accounting` key refuses loudly (`is missing 'accounting'`) — the
   required-nullable contract, and the reason this must land with the Engine.
 - strictness: unknown sub-field, negative tokens, negative `provider_latency_ms`,
-  blank provider text, malformed `cost_usd`, and an all-zero `cache` each refuse
+  blank provider text, exponent/leading-zero/non-string `cost_usd`, and an
+  all-zero `cache` each refuse
   with a named error rather than a silent null or a false zero.
 - the invariant the parent spec names: absence stays absence — a null accounting
   never becomes a zeroed value.
@@ -69,20 +76,28 @@ RED first:
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, plus two not foreseen:
-  - `src/screamingface/case_result.py` — `OperationCache` + `OperationAccounting`
-    values; `accounting` on `CaseOperation` and `Evidence` (+ `to_dict`);
+  - `src/screamingface/operation_accounting.py` — focused `OperationCache` +
+    `OperationAccounting` public values, extracted during review so the feature
+    does not materially grow the already-large Case Result module.
+  - `src/screamingface/case_result.py` — `accounting` on `CaseOperation` and
+    `Evidence` (+ `to_dict`);
     `_validated_evidence_parts` extracted so `Evidence.__init__` stays under the
     complexity gate (rules unchanged, only relocated).
-  - `src/screamingface/_evaluation/results.py` — `_operation_accounting`
-    decoder, `_positive_or_zero_integer`, `accounting` required on both owners.
+  - `src/screamingface/_evaluation/operation_accounting.py` — focused strict
+    wire decoder; canonical fixed-point cost and typed integer/cache boundaries.
+  - `src/screamingface/_evaluation/results.py` — `accounting` required on both
+    owners and delegated to the focused decoder.
   - `src/screamingface/report.py`, `src/screamingface/__init__.py` — exports.
-  - `tests/test_operation_accounting_decode.py` (new, 21 tests).
+  - `tests/test_operation_accounting_decode.py` (new, 29 tests after review
+    hardening, including exponent/leading-zero/leading-plus/Decimal cost refusal).
   - NOT planned: `tests/public_surface_snapshot.json` regenerated deliberately
     (`UPDATE_SURFACE_SNAPSHOT=1`) for the two new public values.
   - NOT planned: prior-test payload fixtures updated (see Deviations).
 - **Commits:** see git log on `OME-1032-decode-operation-accounting`.
 - **Gates:** `run_gates.py screamingface --skip-append-only` → ALL GATES GREEN.
-  Client suite 1229 passed / 17 skipped. Docker e2e lane on the COMBINED tree
+  Ruff check, Ruff format, Pyright, full Client suite with coverage ≥95%,
+  deterministic notebook check, wheel build, and distribution check all passed.
+  Docker e2e lane on the COMBINED tree
   (engine branch + this): **64 passed, 4 skipped, 0 failures** — the
   `draco-3pass` golden replay that is red on PR #762 is green here, with no
   re-blessing, confirming the expression did not move.
@@ -102,3 +117,9 @@ RED first:
      validation extracted to a module-level helper rather than weakening the gate.
   4. The e2e lane needs `SCREAMINGFACE_E2E_ASSETS` and a regenerated
      `synthetic.manifest.json` (gitignored, per worktree) — environment, not code.
+  5. The touched `case_result.py` and `_evaluation/results.py` remain above the
+     current 450-line target because they already exceeded it before this unit
+     (585 and 547 lines respectively). Review extraction removed this feature's
+     material growth: accounting now lives in focused 97- and 129-line modules;
+     the remaining pre-existing split is deliberately not bundled into this wire
+     contract fix.

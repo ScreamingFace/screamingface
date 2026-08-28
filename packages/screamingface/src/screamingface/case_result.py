@@ -11,11 +11,11 @@ from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json
 from screamingface._report_primitives import (
     CaseId,
     Failure,
-    Usage,
     _case_id,
     _nonblank_text,
     _nonempty_text,
 )
+from screamingface.operation_accounting import OperationAccounting
 
 # The Engine's versioned wrapper for native multi-turn Candidate input; kept in lock-step
 # with url4-cloud's `benchmarks/contract.py` CANDIDATE_INPUT_SCHEMA.
@@ -32,104 +32,6 @@ type StopReason = Literal["passed", "max_rounds"]
 # the Engine's runner classifies a refusal from (OME-745, `runner/model_response.py`);
 # never carried on the wire.
 type RefusalKind = Literal["provider_declined", "model_refusal"]
-
-
-@dataclass(frozen=True, slots=True)
-class OperationCache:
-    """How many consumed responses of one operation the response cache served.
-
-    The four counts sum to the number of model-call responses the owning record
-    represents — provider retries folded inside one Gateway response are NOT
-    extra responses. A confirmed hit contributes zero current tokens and cost:
-    the run really did spend nothing on it, and no avoided-cost estimate is
-    invented (OME-901 spec §0).
-    """
-
-    hits: int
-    misses: int
-    bypasses: int
-    unknown: int
-
-    def __post_init__(self) -> None:
-        for name in ("hits", "misses", "bypasses", "unknown"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError(f"Operation cache {name} must be a non-negative integer")
-        # INVARIANT: the count sum IS the represented response count, so a record
-        # describing zero responses describes nothing and must not exist.
-        if self.hits + self.misses + self.bypasses + self.unknown < 1:
-            raise ValueError("operation cache accounting requires at least one response")
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "hits": self.hits,
-            "misses": self.misses,
-            "bypasses": self.bypasses,
-            "unknown": self.unknown,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class OperationAccounting:
-    """What one semantic operation actually consumed, exactly or not at all.
-
-    FEATURE: OME-901 per-operation accounting — the Engine retains the join
-    between model-call accounting and the records that name Candidate operations
-    and grading Evidence, so a completed Report can break its one authoritative
-    total down by stage, model, member and Case.
-
-    INVARIANT: exact-only. Every field is null unless the Engine observed it
-    completely; nothing here is ever divided, inferred from execution order, or
-    defaulted to zero. A false zero would read as "this operation was free".
-
-    ``provider_latency_ms`` is the SUM of complete provider-attempt latencies —
-    not operation wall time, not critical-path duration. It is presented as
-    "Provider time" for exactly that reason. ``provider_attempts`` sits beside it
-    because that sum counts EVERY attempt including failures: without the count a
-    flaky route and a slow model read identically, and "$0.50" cannot be told
-    apart from "$0.50 across five retries". A confirmed cache hit is zero
-    attempts — no current provider dispatch happened — while an attempt list the
-    Engine could not fully validate is null rather than a half-counted total.
-    """
-
-    provider: str | None
-    request_model: str | None
-    response_model: str | None
-    usage: Usage
-    provider_latency_ms: int | None
-    provider_attempts: int | None
-    cache: OperationCache
-
-    def __post_init__(self) -> None:
-        for name in ("provider", "request_model", "response_model"):
-            value = getattr(self, name)
-            if value is not None:
-                object.__setattr__(
-                    self, name, _nonblank_text(value, f"Operation accounting {name}")
-                )
-        if not isinstance(self.usage, Usage):
-            raise TypeError("Operation accounting usage must be an sf.Usage")
-        if not isinstance(self.cache, OperationCache):
-            raise TypeError("Operation accounting cache must be an sf.OperationCache")
-        for name in ("provider_latency_ms", "provider_attempts"):
-            value = getattr(self, name)
-            if value is not None and (
-                isinstance(value, bool) or not isinstance(value, int) or value < 0
-            ):
-                raise ValueError(
-                    f"Operation accounting {name} must be a non-negative integer or None"
-                )
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "provider": self.provider,
-            "request_model": self.request_model,
-            "response_model": self.response_model,
-            "usage": self.usage.to_dict(),
-            "provider_latency_ms": self.provider_latency_ms,
-            "provider_attempts": self.provider_attempts,
-            "cache": self.cache.to_dict(),
-        }
 
 
 @dataclass(frozen=True, slots=True)

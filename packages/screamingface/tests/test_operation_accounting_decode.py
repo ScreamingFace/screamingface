@@ -184,6 +184,23 @@ def test_malformed_accounting_refuses_instead_of_degrading(overrides: dict, expe
         _case_operation(_operation_wire(_accounting_wire(**overrides)))
 
 
+@pytest.mark.parametrize(
+    "cost",
+    [
+        pytest.param("1e2", id="positive-exponent"),
+        pytest.param("1E-2", id="negative-exponent"),
+        pytest.param("01.00", id="leading-zero"),
+        pytest.param("+1.00", id="leading-plus"),
+        pytest.param(Decimal("1.00"), id="decimal-object"),
+    ],
+)
+def test_noncanonical_wire_cost_refuses_instead_of_being_normalized(cost: object) -> None:
+    # INVARIANT: Client decoding preserves the Engine's fixed-point wire bytes.
+    # Accepting another Decimal spelling would silently normalize it on export.
+    with pytest.raises(ExecutionError, match="cost_usd.*fixed-point"):
+        _case_operation(_operation_wire(_accounting_wire(usage=_usage_wire(cost_usd=cost))))
+
+
 def test_a_cache_hit_keeps_zero_attempts_rather_than_null() -> None:
     # A confirmed hit performs no current provider dispatch, so zero is the exact
     # truth — the same reason its cost and latency are zero. Decoding it to None

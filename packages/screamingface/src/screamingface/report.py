@@ -32,11 +32,10 @@ from screamingface.case_result import (
     Check,
     Evidence,
     EvidenceProducer,
-    OperationAccounting,
-    OperationCache,
 )
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
+from screamingface.operation_accounting import OperationAccounting, OperationCache
 from screamingface.url4 import Url4
 
 type RecipeKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
