@@ -90,6 +90,10 @@ directory as an application resource. On macOS, the script signs every nested Ma
 before signing the main sidecar executable. Local builds use an ad-hoc identity; release builds use
 `APPLE_SIGNING_IDENTITY` from the imported Developer ID Application certificate.
 
+The copied `Python.framework` is removed before signing. PyInstaller includes equivalent standalone
+Python binaries in `_internal`, while dereferencing the framework's symlinks during resource copying
+produces an ambiguous bundle that Apple signing and notarization reject.
+
 The desktop release workflow passes the same identity to Tauri. Tauri signs the containing app and
 uses the configured Apple ID credentials to notarize the final macOS artifacts. Signing proceeds
 from the innermost PyInstaller libraries outward so later bundle steps do not invalidate signatures.
