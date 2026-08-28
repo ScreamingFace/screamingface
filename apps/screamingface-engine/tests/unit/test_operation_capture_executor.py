@@ -110,6 +110,21 @@ async def test_early_iterator_close_unwinds_the_capture_scope() -> None:
 
 
 @pytest.mark.asyncio
+async def test_iterator_close_from_another_task_unwinds_the_capture_scope() -> None:
+    inner = _ProbeExecutor()
+    iterator = OperationCapturingExecutor(inner).execute("'hello'")
+
+    async def advance() -> ExecStep:
+        return await anext(iterator)
+
+    await asyncio.create_task(advance())
+    close = getattr(iterator, "aclose")
+    await close()
+
+    assert current_request_accounting() is None
+
+
+@pytest.mark.asyncio
 async def test_cancellation_unwinds_the_capture_scope_in_the_cancelled_task() -> None:
     inner = _BlockingExecutor()
     executor = OperationCapturingExecutor(inner)

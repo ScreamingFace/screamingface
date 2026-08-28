@@ -46,10 +46,11 @@ _registry: contextvars.ContextVar[_Registry | None] = contextvars.ContextVar(
 
 
 @contextmanager
-def capture_grading_requests() -> Iterator[None]:
-    token = _registry.set(_Registry())
+def capture_grading_requests(registry: _Registry | None = None) -> Iterator[_Registry]:
+    registry = _Registry() if registry is None else registry
+    token = _registry.set(registry)
     try:
-        yield
+        yield registry
     finally:
         _registry.reset(token)
 

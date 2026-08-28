@@ -76,10 +76,12 @@ def capture_operation_calls(*, isolated: bool = False) -> Iterator[OperationCall
 
 
 @contextmanager
-def capture_request_accounting() -> Iterator[RequestAccountingRecorder]:
+def capture_request_accounting(
+    recorder: RequestAccountingRecorder | None = None,
+) -> Iterator[RequestAccountingRecorder]:
     """Capture payload-free request accounting for one complete Engine run."""
 
-    recorder: RequestAccountingRecorder = []
+    recorder = [] if recorder is None else recorder
     token = _accounting_recorders.set((*_accounting_recorders.get(), recorder))
     try:
         yield recorder

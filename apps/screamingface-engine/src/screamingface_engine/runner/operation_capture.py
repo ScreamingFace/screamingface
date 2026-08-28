@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 from screamingface_engine.grading_accounting import capture_grading_requests
-from screamingface_engine.operation_calls import capture_request_accounting
+from screamingface_engine.operation_calls import (
+    RequestAccountingRecorder,
+    capture_request_accounting,
+)
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 
 
@@ -18,18 +21,28 @@ class OperationCapturingExecutor(Executor):
     async def execute(
         self, url4: str, *, trace: TraceContext | None = None
     ) -> AsyncIterator[ExecStep]:
-        # WHY accounting wraps request ownership: route handlers register grading owners while
-        # model requests append payload-free facts; both scopes must span the same streamed run.
-        # Their nesting order carries no semantics because neither reads the other on enter/exit.
-        with capture_request_accounting():
-            with capture_grading_requests():
-                iterator = self._inner.execute(url4, trace=trace)
-                try:
-                    async for step in iterator:
-                        yield step
-                finally:
-                    close = getattr(iterator, "aclose", None)
-                    if close is not None:
+        requests: RequestAccountingRecorder = []
+        registry = None
+        iterator = self._inner.execute(url4, trace=trace)
+        try:
+            while True:
+                # INVARIANT: ContextVar tokens never cross the outward yield. An abandoned
+                # iterator may be finalized by a different task, while the reused objects keep
+                # one run's accounting and grading ownership alive across every inner step.
+                with capture_request_accounting(requests):
+                    with capture_grading_requests(registry) as registry:
+                        try:
+                            step = await anext(iterator)
+                        except StopAsyncIteration:
+                            return
+                yield step
+        finally:
+            close = getattr(iterator, "aclose", None)
+            if close is not None:
+                # The inner generator's own cleanup may publish final accounting, so reactivate
+                # the same run state while closing it in whichever task owns this finalization.
+                with capture_request_accounting(requests):
+                    with capture_grading_requests(registry):
                         await close()
 
 
