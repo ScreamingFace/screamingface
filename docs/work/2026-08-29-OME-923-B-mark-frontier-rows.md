@@ -117,3 +117,32 @@ open http://127.0.0.1:9166/benchmark.html?id=<id>
 cannot tell why a row won. `OME-770` was pass 1 of 2 and its spec puts the Cost column in pass 2,
 which never ran. Out of scope for B as written; needs an owner call on whether it joins B, joins
 C, or becomes its own item.
+
+
+## Review-fix pass — PR #778 findings, applied here (2026-08-29)
+
+Part A carried the contract; part B is the only caller, so both fixes land on this branch.
+
+| Fix | Change |
+|---|---|
+| Revision keying | The mark is now `(row.spec_id, row.benchmark_revision) in frontier`. One spec can hold rows on several non-comparable revisions and each is judged only within its own. |
+| `top_n` truncation | New `ScoreStore.frontier_candidates()` returns the ranked board **unbounded**; `_build_leaderboard_query` takes `top_n: int | None`. The route computes the frontier from that, never from the truncated `rows`. |
+
+Python suite 532 → **535 passed**. Mutation-checked, both caught: reverting to
+`compute_pareto_frontier(rows)` fails; keying the mark on `spec_id` alone fails.
+
+### The board has no tiebreaker among equal scores — worth someone's attention
+
+Making the truncation test deterministic exposed this. The board's outer ordering is
+`score DESC` with **no** secondary key, so the order among rows tied on score is whatever the
+backend returns: alphabetical by `spec_id` on SQLite (index scan), insertion order on Postgres
+(heap scan). `test_get_leaderboard_breaks_accuracy_ties_by_newer_submission` does not cover
+this — it ties two rows of the SAME spec, which the inner `rn` window orders by
+`submitted_at DESC`. Ordering *across* specs is undefined.
+
+Consequences beyond this ticket: `rank` is not stable for tied rows, and which tied row falls
+outside `top` can differ between environments. The new test works around it by naming the
+hidden row `z-cheapest` and inserting it last, so it sorts out of `top=2` under either scan —
+recorded in an `AIDEV-NOTE` on the test, because renaming those specs would leave the test
+green while proving nothing. **Not fixed here** (it is a pre-existing board-ordering question,
+not a frontier one) and not filed — owner's call.

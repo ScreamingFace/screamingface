@@ -265,15 +265,24 @@ async def get_leaderboard(
         # erroring — a read can, where a write cannot.
         return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
-    # Computed once over the whole board, not per row: membership is a property of the set.
-    # `rows` is the RANKING, so it is one row per spec — the input compute_pareto_frontier
-    # documents as its invariant.
-    frontier = compute_pareto_frontier(rows)
+    # INVARIANT: computed over the UNTRUNCATED board, never over `rows`. `leaderboard()`
+    # orders by score alone and then applies `top`, so a row past the cutoff can tie the
+    # boundary score at a lower cost and dominate a visible row — the mark would then depend
+    # on `top`, which is not a property a claim about money may have (review of PR #778).
+    frontier = compute_pareto_frontier(
+        await _score_store(request).frontier_candidates(benchmark_id)
+    )
 
     return LeaderboardResponse(
         benchmark=benchmark,
         entries=[
-            _ranked_entry(index, row, on_pareto_frontier=row.spec_id in frontier)
+            _ranked_entry(
+                index,
+                row,
+                # Keyed on the revision too: one spec can hold rows on several
+                # non-comparable revisions, and each is judged only within its own.
+                on_pareto_frontier=(row.spec_id, row.benchmark_revision) in frontier,
+            )
             for index, row in enumerate(rows, start=1)
         ],
         my_submissions=[],

@@ -1318,3 +1318,86 @@ async def test_a_private_board_emits_no_frontier_information(
     assert body["my_submissions"], "the owner should still see her own rows"
     for row in body["my_submissions"]:
         assert "on_pareto_frontier" not in row
+
+
+# ---- OME-923 part B: review fixes (PR #778) ----------------------------------
+
+
+async def _priced_rev(
+    store: ScoreStore,
+    *,
+    spec_id: str,
+    score: float,
+    cost: str,
+    revision: str,
+) -> None:
+    """Submit a row, then set its cost AND the revision it was measured against."""
+    created, _ = await store.submit(_submission(spec_id=spec_id, score=score))
+    await Score.filter(id=created.id).update(
+        run_cost_usd=Decimal(cost), benchmark_revision=revision
+    )
+
+
+async def test_frontier_candidates_is_not_truncated_by_top(tortoise_db: None) -> None:
+    """The store seam the fix rests on: the frontier's input ignores `top_n` entirely."""
+    store = ScoreStore()
+    await _register_benchmark(store)
+    for index in range(5):
+        await _priced(store, spec_id=f"spec-{index}", score=0.90 - index / 100, cost="1.00")
+
+    assert len(await store.leaderboard(benchmark_id="hle", top_n=2)) == 2
+    assert len(await store.frontier_candidates("hle")) == 5
+
+
+async def test_a_frontier_mark_does_not_change_with_top(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT: the mark is a claim about the whole board, so it cannot depend on how many
+    rows the caller asked to see. Three rows tie on score and only the cheapest is truly on
+    the frontier; computed over a truncated page, whichever dear row led the page was marked.
+
+    AIDEV-NOTE: the spec_id prefixes are load-bearing. The board's outer ordering is
+    `score DESC` with NO tiebreaker, so the order among equal scores is whatever the backend
+    returns — alphabetical by spec_id on SQLite (index scan), insertion order on Postgres
+    (heap scan). `z-cheapest` sorts last alphabetically AND is inserted last, so it falls
+    outside `top=2` under either. Rename these and the test still passes but stops proving
+    anything.
+    """
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await _priced(store, spec_id="a-dear", score=0.90, cost="5.00")
+    await _priced(store, spec_id="b-dearer", score=0.90, cost="6.00")
+    await _priced(store, spec_id="z-cheapest", score=0.90, cost="1.00")
+
+    full = await async_client.get("/v1/leaderboard/hle", params={"top": 3})
+    cut = await async_client.get("/v1/leaderboard/hle", params={"top": 2})
+
+    assert full.status_code == 200
+    assert cut.status_code == 200
+    marks_full = {e["spec_id"]: e["on_pareto_frontier"] for e in full.json()["entries"]}
+    marks_cut = {e["spec_id"]: e["on_pareto_frontier"] for e in cut.json()["entries"]}
+    assert marks_full == {"a-dear": False, "b-dearer": False, "z-cheapest": True}
+    # The dominator is off the page here, which is exactly the case that used to flip a mark.
+    assert "z-cheapest" not in marks_cut
+    for spec_id, marked in marks_cut.items():
+        assert marks_full[spec_id] == marked, f"{spec_id} changed mark with top"
+
+
+async def test_two_revisions_of_one_spec_are_marked_independently(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """A benchmark with NO registered revision filters nothing, so one spec appears once per
+    revision. Keyed on spec_id alone, the rev-2 row inherited the mark its own spec earned on
+    rev-1 — while a rev-2 peer beat it on BOTH axes."""
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await _priced_rev(store, spec_id="fusion-a", score=0.90, cost="1.00", revision="rev-1")
+    await _priced_rev(store, spec_id="fusion-a", score=0.50, cost="9.00", revision="rev-2")
+    await _priced_rev(store, spec_id="rival", score=0.80, cost="2.00", revision="rev-2")
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    marked = {(e["spec_id"], e["benchmark_revision"]) for e in entries if e["on_pareto_frontier"]}
+    assert marked == {("fusion-a", "rev-1"), ("rival", "rev-2")}
