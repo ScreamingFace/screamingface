@@ -7,7 +7,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
 const { isDark } = storeToRefs(useThemeStore())
 
-const GH = 'https://github.com/OpenMined/screamingface/tree/main'
+const GH = 'https://github.com/ScreamingFace/screamingface/tree/main'
 
 const localDiagram = (dark: boolean) =>
   `/diagrams/screamingface-request-architecture-local-${dark ? 'dark' : 'light'}.svg`

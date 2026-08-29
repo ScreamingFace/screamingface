@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Must track the builder's Python minor exactly — see the INVARIANT at the top of this file.
 FROM python:3.13-slim-bookworm AS runtime
 
-LABEL org.opencontainers.image.source="https://github.com/openmined/screamingface" \
+LABEL org.opencontainers.image.source="https://github.com/ScreamingFace/screamingface" \
       org.opencontainers.image.description="ScreamingFace benchmark scoreboard" \
       org.opencontainers.image.licenses="MIT"
 

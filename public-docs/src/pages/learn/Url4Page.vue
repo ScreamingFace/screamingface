@@ -4,8 +4,8 @@ import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import { learnNavigation as navigation } from '@/navigation/learn'
 
-const GH_TREE = 'https://github.com/OpenMined/screamingface/tree/main'
-const GH_BLOB = 'https://github.com/OpenMined/screamingface/blob/main'
+const GH_TREE = 'https://github.com/ScreamingFace/screamingface/tree/main'
+const GH_BLOB = 'https://github.com/ScreamingFace/screamingface/blob/main'
 
 const examples = `https://x!summarize                         # fetch a source, then apply an intent
 (article=https://x)!use $article            # bind a source to a name, reference it as $article

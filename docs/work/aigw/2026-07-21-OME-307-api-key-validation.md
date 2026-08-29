@@ -61,7 +61,7 @@ credential storage and existing OAuth behavior.
 - **Implementation commits:**
   - `85a7d9c8` - `feat(aigateway): add actionable API key validation`
   - `97bb8d36` - `fix(aigateway): harden validation and refresh races`
-- **Merged:** PR [#420](https://github.com/OpenMined/screamingface/pull/420), merge commit
+- **Merged:** PR [#420](https://github.com/ScreamingFace/screamingface/pull/420), merge commit
   `66deae0a`, on 2026-07-23.
 - **Scope:** 59 files, 8,536 insertions and 488 deletions across validation core, provider adapters,
   routes, lifecycle stores and focused regression coverage.

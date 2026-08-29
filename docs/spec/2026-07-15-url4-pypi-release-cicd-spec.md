@@ -107,5 +107,5 @@ stay current like the apps'.
 ## Owner actions (out of band, before first publish)
 
 1. Reserve the `url4` PyPI project name; add a Trusted Publisher →
-   `OpenMined/screamingface`, workflow `release-url4.yml`, environment `pypi`.
+   `ScreamingFace/screamingface`, workflow `release-url4.yml`, environment `pypi`.
 2. Create the `pypi` GitHub Environment (optionally required reviewers / branch limits).

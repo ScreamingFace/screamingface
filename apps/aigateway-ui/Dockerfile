@@ -41,7 +41,7 @@ RUN npm run build
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 
-LABEL org.opencontainers.image.source="https://github.com/openmined/screamingface" \
+LABEL org.opencontainers.image.source="https://github.com/ScreamingFace/screamingface" \
       org.opencontainers.image.description="ScreamingFace AI Gateway admin console" \
       org.opencontainers.image.licenses="MIT"
 

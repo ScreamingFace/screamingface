@@ -745,7 +745,7 @@ DRACO consists of 100 research tasks, each paired with expert crafted rubrics
 averaging ~40 evaluation criteria.
 
 This notebook evaluates DRACO using new models (August 2026) and fusions of these models on
-[screamingface](https://github.com/OpenMined/screamingface)."""),
+[screamingface](https://github.com/ScreamingFace/screamingface)."""),
         nbformat.v4.new_markdown_cell("""\
 <img src="assets/draco-benchmark.svg" width="900"
   alt="DRACO at a glance: 100 research tasks, ~40 weighted rubric criteria each, judge

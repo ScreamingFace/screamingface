@@ -41,7 +41,7 @@ an honest documentation front door — no selling, no invented numbers. Folded i
   values so the Quickstart widgets are unchanged.
 - **"Learn more" section** (renamed from "SDK"): new pages `Architecture` (first), `url4`,
   `ScreamingFace Engine`, `url4 SDK` under `/learn/*`, written from the codebase + product
-  positioning and linking to `github.com/OpenMined/screamingface`. New `src/navigation/learn.ts`,
+  positioning and linking to `github.com/ScreamingFace/screamingface`. New `src/navigation/learn.ts`,
   new routes, navbar + landing-card updates, removed the old `/sdk` stub. Real request-architecture
   diagrams copied to `public/diagrams/` and embedded theme-aware on the Architecture page.
 

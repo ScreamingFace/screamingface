@@ -1,6 +1,6 @@
 # Claude in this repo — the guide
 
-Everything Claude-related in `OpenMined/screamingface`: skills, agents, cards, scripts,
+Everything Claude-related in `ScreamingFace/screamingface`: skills, agents, cards, scripts,
 process, and the context that used to bloat `CLAUDE.md`. `CLAUDE.md` stays minimal and
 mandatory; this file is the map.
 

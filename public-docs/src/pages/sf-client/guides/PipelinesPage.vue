@@ -617,7 +617,7 @@ const pipelineSig = `sf.Pipeline(
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/README.md"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/README.md"
           target="_blank"
           rel="noopener"
           >Recipe composition in the package README</a
