@@ -59,6 +59,14 @@
     return entry.verified_by_screamingface === true;
   }
 
+  // INVARIANT: strict `=== true`, mirroring isReproducible. This mark is a public claim
+  // about money, and the field is absent from any server older than OME-923 part B — an
+  // absent or junk value must render as "not marked" rather than guess. A truthy test
+  // would mark on the string "false" across a version skew.
+  function isParetoMarked(entry) {
+    return !!entry && entry.on_pareto_frontier === true;
+  }
+
   function sotaScore(entries) {
     var best = null;
     (entries || []).forEach(function (entry) {
@@ -127,6 +135,7 @@
 
   return {
     isReproducible: isReproducible,
+    isParetoMarked: isParetoMarked,
     bestEntryScore: bestEntryScore,
     sotaScore: sotaScore,
     isSota: isSota,

@@ -127,6 +127,26 @@ table .btn { white-space: nowrap; }
   white-space: nowrap;
 }
 
+/* OME-923 part B: the Pareto-frontier mark — "no other row is both better and cheaper".
+   Drawn in CSS rather than set as a glyph: IBM Plex Mono is not guaranteed to carry
+   U+25C6, and a font fallback would render this mark differently machine to machine.
+   Colour is --info, deliberately NOT --gain: gold is rationed to the win and the
+   highest-score row already holds it, so a gold mark here would collapse two separate
+   claims into one look. Not --success either, because green means verified and OME-820
+   withdrew that signal. */
+.col-mark .pareto-mark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--info-text-low);
+  transform: rotate(45deg);
+}
+/* Matches the markbox convention: the deep text-low tone reads on a light ground, the
+   vivid solid reads on a dark one. */
+[data-theme="dark"] .col-mark .pareto-mark {
+  background: var(--info-solid);
+}
+
 /* ---- rail pinning: the one deliberate override in this file ---------- */
 /* WHY: style.css ships `.rail { position: relative }` plus a `.rail.stuck`
    variant its own comment documents as "(JS toggles .stuck + a spacer to hold

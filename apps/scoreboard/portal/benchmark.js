@@ -132,8 +132,20 @@
   // (?pool=verified), which makes the verified run a real row that can be badged
   // truthfully; the medal lands there. OME-770's frontier mark also belongs in
   // this cell. Until one of them ships, this column is intentionally blank.
-  function renderMarkSlot() {
-    return P.el("td", "col-mark");
+  // FEATURE: OME-923 part B. The slot OME-769 reserved and left empty; the server decides
+  // membership (scores/pareto.py) and this only renders the answer.
+  //
+  // INVARIANT: colour is never the only carrier. The diamond shows the mark and the
+  // sr-only text names it. The gold row background stays the SEPARATE highest-score
+  // signal, so a row can carry one, both or neither.
+  function renderMarkSlot(entry) {
+    var td = P.el("td", "col-mark");
+    if (!L.isParetoMarked(entry)) return td;
+    var mark = P.el("span", "pareto-mark");
+    mark.setAttribute("aria-hidden", "true");
+    td.appendChild(mark);
+    td.appendChild(P.el("span", "sr-only", "best score for cost"));
+    return td;
   }
 
   // The vendored .score-cell recipe: the number plus a proportional track. Its
@@ -176,7 +188,7 @@
       if (isLeader) tr.className = "sota";
 
       tr.appendChild(P.el("td", "num", entry.rank));
-      tr.appendChild(renderMarkSlot());
+      tr.appendChild(renderMarkSlot(entry));
 
       var specTd = P.el("td", "cell-wrap");
       specTd.appendChild(P.link("mono", "spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id), entry.spec_id));

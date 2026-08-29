@@ -204,3 +204,35 @@ test("bestEntryScore: a malformed entry is skipped, not propagated", () => {
 
   assert.equal(L.bestEntryScore(board), 0.5);
 });
+
+
+/* ---- OME-923 part B: the Pareto frontier mark ------------------------------ */
+
+test("isParetoMarked marks a row the server flagged", () => {
+  assert.equal(L.isParetoMarked({ on_pareto_frontier: true }), true);
+});
+
+test("isParetoMarked does not mark an unflagged row", () => {
+  assert.equal(L.isParetoMarked({ on_pareto_frontier: false }), false);
+});
+
+test("isParetoMarked does not mark when the field is absent", () => {
+  // INVARIANT: an older server, or any response without the field, must render as
+  // "not marked" rather than throwing or guessing. The board makes no cost claim it
+  // was not handed.
+  assert.equal(L.isParetoMarked({ score: 0.9 }), false);
+  assert.equal(L.isParetoMarked({}), false);
+});
+
+test("isParetoMarked is strict, so a truthy non-true value never marks", () => {
+  // WHY strict === true, mirroring isReproducible: the mark asserts a public claim
+  // about money. A truthy check would mark on "false", 1, or any junk the field
+  // ever carried across a version skew.
+  assert.equal(L.isParetoMarked({ on_pareto_frontier: "false" }), false);
+  assert.equal(L.isParetoMarked({ on_pareto_frontier: 1 }), false);
+});
+
+test("isParetoMarked tolerates a missing entry", () => {
+  assert.equal(L.isParetoMarked(null), false);
+  assert.equal(L.isParetoMarked(undefined), false);
+});

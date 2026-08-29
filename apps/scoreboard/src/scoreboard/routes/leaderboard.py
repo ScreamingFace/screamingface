@@ -15,6 +15,7 @@ from scoreboard.routes.dependencies import (
 from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.frontier import compute_frontier
 from scoreboard.scores.models import Benchmark
+from scoreboard.scores.pareto import compute_pareto_frontier
 from scoreboard.scores.schemas import (
     BaselineSchema,
     BenchmarkSchema,
@@ -69,6 +70,19 @@ class RankedLeaderboardEntry(BaseModel):
     # fixed-6dp JSON serializer, so the wire form cannot drift between the DTOs
     # (spec 2.4).
     run_cost_usd: RunCostUsd
+
+    # FEATURE: OME-923 part B — this row is on the Pareto frontier: no other row on the
+    # board is both at least as good and at least as cheap, and strictly better on one.
+    #
+    # WHY here and not on LeaderboardEntry: it is COMPUTED per request, like `rank`, not
+    # stored. That placement is also what keeps OME-894 D5 true without a special case —
+    # a private board returns `entries: []` and puts the caller's own rows in
+    # `my_submissions`, which are plain LeaderboardEntry, so this aggregate over everyone
+    # else's costs can never reach a participant.
+    #
+    # INVARIANT: False when the row has no cost. Absent cost means "not reported", never
+    # zero, so an unpriced row neither qualifies nor dominates (OME-770 D8).
+    on_pareto_frontier: bool
 
 
 class LeaderboardResponse(BaseModel):
@@ -142,8 +156,12 @@ async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
     return benchmark_to_schema(benchmark)
 
 
-def _ranked_entry(rank: int, entry: LeaderboardEntry) -> RankedLeaderboardEntry:
-    return RankedLeaderboardEntry(rank=rank, **entry.model_dump())
+def _ranked_entry(
+    rank: int, entry: LeaderboardEntry, *, on_pareto_frontier: bool
+) -> RankedLeaderboardEntry:
+    return RankedLeaderboardEntry(
+        rank=rank, on_pareto_frontier=on_pareto_frontier, **entry.model_dump()
+    )
 
 
 def _history_submission(score: ScoreSchema) -> HistorySubmission:
@@ -247,9 +265,17 @@ async def get_leaderboard(
         # erroring — a read can, where a write cannot.
         return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
+    # Computed once over the whole board, not per row: membership is a property of the set.
+    # `rows` is the RANKING, so it is one row per spec — the input compute_pareto_frontier
+    # documents as its invariant.
+    frontier = compute_pareto_frontier(rows)
+
     return LeaderboardResponse(
         benchmark=benchmark,
-        entries=[_ranked_entry(index, row) for index, row in enumerate(rows, start=1)],
+        entries=[
+            _ranked_entry(index, row, on_pareto_frontier=row.spec_id in frontier)
+            for index, row in enumerate(rows, start=1)
+        ],
         my_submissions=[],
         baselines=baselines,
         scoped_to_caller=False,

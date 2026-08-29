@@ -676,6 +676,10 @@ _PUBLIC_BENCHMARK_FIELDS = {
 }
 _PUBLIC_BOARD_ENTRY_FIELDS = {
     "benchmark_revision",
+    # OME-923 part B: a deliberate addition to the public board. Owner-approved change to
+    # this OME-894 guard (2026-08-29); the assertion stays exact so any OTHER field
+    # appearing here still fails, which is the leak this guard exists to catch.
+    "on_pareto_frontier",
     "ran_with_providers",
     "rank",
     "run_cost_usd",
@@ -1224,3 +1228,93 @@ async def test_the_private_response_never_contradicts_itself(
     steady = (await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")).json()
     assert steady["scoped_to_caller"] is True
     assert steady["benchmark"]["visibility"] == "private"
+
+
+# ---- OME-923 part B: Pareto frontier marks -----------------------------------
+
+
+async def _priced(
+    store: ScoreStore,
+    *,
+    spec_id: str,
+    score: float,
+    cost: str | None,
+) -> None:
+    """Submit a row and then set its run cost directly.
+
+    WHY not a `run_cost_usd` argument on `_submission`: that helper is prior-cycle test
+    code, and sdlc rule 5 keeps prior tests unmodified. Writing the column afterwards
+    mirrors how this file already backdates `submitted_at`.
+    """
+    created, _ = await store.submit(_submission(spec_id=spec_id, score=score))
+    if cost is not None:
+        await Score.filter(id=created.id).update(run_cost_usd=Decimal(cost))
+
+
+async def test_get_leaderboard_marks_the_pareto_frontier(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """FEATURE: OME-923 part B — the board marks best-score-for-the-money rows."""
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await _priced(store, spec_id="best-value", score=0.90, cost="1.00")
+    # Same score, nine times the price: dominated, even though nobody outscored it (D7).
+    await _priced(store, spec_id="same-score-dearer", score=0.90, cost="9.00")
+    await _priced(store, spec_id="cheapest", score=0.70, cost="0.10")
+    # Beaten on both axes by `cheapest`.
+    await _priced(store, spec_id="dominated", score=0.60, cost="5.00")
+    # INVARIANT: the top score, but unpriced — excluded, and it must not knock out
+    # anything either. Read as zero it would win the board outright on an unknown.
+    await _priced(store, spec_id="unpriced", score=0.95, cost=None)
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    marked = {entry["spec_id"] for entry in entries if entry["on_pareto_frontier"]}
+    assert marked == {"best-value", "cheapest"}
+    # The highest-score row is a SEPARATE claim: `unpriced` leads on score and holds no
+    # frontier mark, so a row can be one, both or neither.
+    assert entries[0]["spec_id"] == "unpriced"
+    assert entries[0]["on_pareto_frontier"] is False
+
+
+async def test_get_leaderboard_marks_nothing_when_no_row_reports_a_cost(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """Today's real board: OME-770 shipped the column, nothing has ever filled it. It must
+    render as an ordinary board, not error and not mark anything."""
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await _priced(store, spec_id="spec-a", score=0.90, cost=None)
+    await _priced(store, spec_id="spec-b", score=0.70, cost=None)
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert len(entries) == 2
+    assert all(entry["on_pareto_frontier"] is False for entry in entries)
+
+
+async def test_a_private_board_emits_no_frontier_information(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT (OME-894 D5): a participant sees no aggregate. The frontier is an aggregate
+    over everyone's costs, so it must not reach a private board in any form — including via
+    the caller's own rows."""
+    await _seed_private_challenge()
+    await Benchmark.filter(id=PRIVATE_ID).update(visibility="private")
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # `entries` is the public ranking and a private board has none, so the flag is never
+    # emitted for anyone — the privacy rule holds by construction, not by a special case.
+    assert body["entries"] == []
+    assert body["my_submissions"], "the owner should still see her own rows"
+    for row in body["my_submissions"]:
+        assert "on_pareto_frontier" not in row
