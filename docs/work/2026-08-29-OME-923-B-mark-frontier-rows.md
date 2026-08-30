@@ -146,3 +146,71 @@ hidden row `z-cheapest` and inserting it last, so it sorts out of `top=2` under 
 recorded in an `AIDEV-NOTE` on the test, because renaming those specs would leave the test
 green while proving nothing. **Not fixed here** (it is a pre-existing board-ordering question,
 not a frontier one) and not filed — owner's call.
+
+
+## Self-review pass — privacy regression fixed (2026-08-30)
+
+Ten independent lens-reviews of this branch returned 24 findings. Nine of them shared one root
+cause: the two-query split introduced by the previous pass to fix the `top_n` finding.
+
+### The regression, reproduced before fixing
+
+`frontier_candidates()` was issued **after** the `turned_private()` guard. On `origin/main` that
+guard was the last `await` before the response — deliberately, per PR #719 (OME-894 review round
+21) and its own docstring: *"the decision is re-checked against fresh state before anything
+unscoped leaves."* The new call put the widest read on the whole path after it: unbounded, every
+spec, with `submitted_by` and `run_cost_usd`.
+
+Reproduced with the repo's own race harness, `_flip_private_during("frontier_candidates")`:
+
+```
+AssertionError: LEAKED 2 rows
+```
+
+Both participants of a private board published, with `scoped_to_caller: false`, on a board that
+was private by the time it answered. Exactly what
+`test_a_flip_during_the_ranking_query_does_not_publish_the_board` exists to prevent.
+
+### The fix — one read, taken before the guard
+
+`ScoreStore.leaderboard` now accepts `top_n: int | None`; `None` returns the board whole. The
+route takes **one** read, before the guard, computes the frontier from it, and serves the page
+as a prefix of the same list. `frontier_candidates()` is deleted.
+
+Chosen over a new store method deliberately: the existing race test hooks
+`ScoreStore.leaderboard`, so routing around it would have left that test green while testing
+nothing.
+
+This closes four of the reported findings at once — the privacy race, the snapshot skew (a mark
+computed about a different version of a row than the one displayed, including a null-cost row
+being marked), the self-contradicting response body, and running the app's most expensive query
+twice per request.
+
+### Guards added
+
+- `test_the_public_board_takes_exactly_one_ranking_read` — pins the SHAPE of the fix, so a
+  reintroduced second query fails even when the leak itself is hard to time.
+  Mutation-checked: putting a second read back after the guard fails it.
+- `test_the_board_can_be_read_whole` — the `top_n=None` seam.
+
+Suite 535 → **542 passed**.
+
+## Still open from the self-review — NOT fixed here
+
+1. **A submitter can mint their own revision cohort.** `benchmark_revision` is free-form client
+   input (`_resolve_benchmark_revision`, and the store's own comment: "metadata is
+   client-supplied and unvalidated"). On a benchmark whose `Benchmark.revision` is NULL the
+   board filters nothing, so a submitter sending a unique revision becomes a cohort of one and
+   is unconditionally marked "best score for cost". This is a consequence of the per-cohort
+   decision taken 2026-08-29; the alternative considered then — no marks on an unpinned board —
+   would have closed it. **Owner decision required.**
+2. **The mark is unreadable to sighted users.** The diamond is `aria-hidden`, the only text is
+   `.sr-only`, the column header is empty, and there is no legend or `title`. A screen-reader
+   user is told "best score for cost"; a sighted user sees an unexplained blue diamond, with no
+   Cost column to infer it from.
+3. **`OME-770` D11 provenance** — the mark asserts a cost claim built on self-reported numbers
+   without saying so.
+4. **O(n^2) frontier runs synchronously in an async route**, over an unbounded row count with no
+   cap or rate limit.
+5. **Test gaps** — no second-benchmark test (cross-benchmark scoping is correct in code but
+   unpinned); `renderMarkSlot` is never executed by any test; the a11y contract is unasserted.

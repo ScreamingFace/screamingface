@@ -256,22 +256,28 @@ async def get_leaderboard(
     if is_private:
         return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
-    rows = await _score_store(request).leaderboard(
-        benchmark_id=benchmark_id,
-        top_n=min(top, MAX_LEADERBOARD_TOP),
-    )
+    # INVARIANT: ONE read, and every await that touches participant data happens BEFORE the
+    # `turned_private` re-check below. An earlier revision of this route fetched the frontier
+    # in a SECOND query placed after the guard; a flip landing during that query published the
+    # whole private board — reproduced, two participants' rows leaked (self-review, 2026-08-30).
+    # `turned_private` must stay the last await before the response, which its own docstring
+    # states: "the decision is re-checked against fresh state before anything unscoped leaves."
+    #
+    # INVARIANT: the frontier is computed over the WHOLE board, never over the truncated page.
+    # `leaderboard()` orders by score alone and then applies `top`, so a row past the cutoff
+    # can tie the boundary score at a lower cost and dominate a visible row — the mark would
+    # then depend on `top`, which is not a property a claim about money may have (review of
+    # PR #778). Taking the page as a prefix of the same result keeps the marks and the rows on
+    # ONE snapshot, so a row can never be stamped with a verdict computed about a different
+    # version of itself.
+    board = await _score_store(request).leaderboard(benchmark_id=benchmark_id, top_n=None)
     if await turned_private(benchmark_id):
         # The board went private while the ranking query ran. Answer it correctly rather than
         # erroring — a read can, where a write cannot.
         return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
-    # INVARIANT: computed over the UNTRUNCATED board, never over `rows`. `leaderboard()`
-    # orders by score alone and then applies `top`, so a row past the cutoff can tie the
-    # boundary score at a lower cost and dominate a visible row — the mark would then depend
-    # on `top`, which is not a property a claim about money may have (review of PR #778).
-    frontier = compute_pareto_frontier(
-        await _score_store(request).frontier_candidates(benchmark_id)
-    )
+    frontier = compute_pareto_frontier(board)
+    rows = board[: min(top, MAX_LEADERBOARD_TOP)]
 
     return LeaderboardResponse(
         benchmark=benchmark,

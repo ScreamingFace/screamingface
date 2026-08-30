@@ -1338,15 +1338,43 @@ async def _priced_rev(
     )
 
 
-async def test_frontier_candidates_is_not_truncated_by_top(tortoise_db: None) -> None:
-    """The store seam the fix rests on: the frontier's input ignores `top_n` entirely."""
+async def test_the_board_can_be_read_whole(tortoise_db: None) -> None:
+    """The store seam the fix rests on: `top_n=None` returns the board entire, which is what
+    lets the route serve the page and the frontier from ONE read."""
     store = ScoreStore()
     await _register_benchmark(store)
     for index in range(5):
         await _priced(store, spec_id=f"spec-{index}", score=0.90 - index / 100, cost="1.00")
 
     assert len(await store.leaderboard(benchmark_id="hle", top_n=2)) == 2
-    assert len(await store.frontier_candidates("hle")) == 5
+    assert len(await store.leaderboard(benchmark_id="hle", top_n=None)) == 5
+
+
+async def test_the_public_board_takes_exactly_one_ranking_read(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT: one read, so nothing unscoped can be fetched AFTER the `turned_private`
+    guard. A second read placed after that guard leaked both participants of a private board
+    when the flip landed during it (self-review, 2026-08-30). This pins the shape of the fix:
+    a reintroduced second query fails here even if the leak itself is hard to time."""
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await _priced(store, spec_id="spec-a", score=0.90, cost="1.00")
+    calls: list[object] = []
+    real = ScoreStore.leaderboard
+
+    async def _counting(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(kwargs.get("top_n", args[1] if len(args) > 1 else None))
+        return await real(self, *args, **kwargs)
+
+    ScoreStore.leaderboard = _counting  # type: ignore[method-assign]
+    try:
+        response = await async_client.get("/v1/leaderboard/hle")
+    finally:
+        ScoreStore.leaderboard = real  # type: ignore[method-assign]
+
+    assert response.status_code == 200
+    assert calls == [None], f"expected one whole-board read, got {calls}"
 
 
 async def test_a_frontier_mark_does_not_change_with_top(

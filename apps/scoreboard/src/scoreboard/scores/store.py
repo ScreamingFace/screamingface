@@ -902,7 +902,18 @@ class ScoreStore:
     async def cleanup_expired_idempotency_keys(self, now: datetime) -> int:
         return await IdempotencyKey.filter(expires_at__lte=now).delete()
 
-    async def leaderboard(self, benchmark_id: str, top_n: int = 50) -> list[LeaderboardEntry]:
+    async def leaderboard(
+        self, benchmark_id: str, top_n: int | None = 50
+    ) -> list[LeaderboardEntry]:
+        """The ranked board. `top_n=None` returns it whole.
+
+        WHY None: the Pareto frontier must be computed over the WHOLE board (OME-923), and
+        the public route must not issue a second read to get it — see the route's comment on
+        why one read is a privacy requirement, not just an efficiency one.
+
+        AIDEV-NOTE: unbounded is not unlimited — the `rn == 1` collapse leaves at most one row
+        per (spec_id, benchmark_revision), so this grows with distinct specs, not submissions.
+        """
         conn = Tortoise.get_connection("default")
         # The board is defined by the revision its benchmark is registered at; entries measured
         # against anything else are not comparable to it and do not rank (OME-775).
@@ -916,28 +927,6 @@ class ScoreStore:
         rows = _to_python_rows(result.rows)
 
         return [LeaderboardEntry(**row) for row in rows]
-
-    async def frontier_candidates(self, benchmark_id: str) -> list[LeaderboardEntry]:
-        """Every row the board ranks, UNBOUNDED — the input `compute_pareto_frontier` needs.
-
-        FEATURE: OME-923 part B.
-
-        WHY not `leaderboard(top_n=...)`: that query orders by score alone and then truncates,
-        so a row just past the cutoff can tie the boundary score at a lower cost and dominate a
-        visible row it was never compared against. The frontier would then change with `top`,
-        which is not a property a claim about money may have (review of PR #778).
-
-        AIDEV-NOTE: unbounded by design, but not unbounded in size — the `rn == 1` collapse
-        leaves at most one row per (spec_id, benchmark_revision), so this grows with the board's
-        distinct specs, not with submission count.
-        """
-        conn = Tortoise.get_connection("default")
-        benchmark = await Benchmark.get_or_none(id=benchmark_id)
-        result = await execute_pypika(
-            _build_leaderboard_query(benchmark_id, None, benchmark.revision if benchmark else None),
-            using_db=conn,
-        )
-        return [LeaderboardEntry(**row) for row in _to_python_rows(result.rows)]
 
     async def list_for_spec(
         self,
