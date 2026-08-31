@@ -116,4 +116,11 @@ RED first, in this order:
      `# type: ignore` was replaced with a typed helper). No test from a prior cycle was touched
      — the gate's append-only check confirms this.
 
-- **Commits:** see below (filled at commit).
+- **Commits:** two, on branch `OME-1044-tavily-retrieval-cache`:
+  - `feat(aigateway): cache Tavily retrieval results in the global cache`
+  - `docs(work): finalize the OME-1044 ledger outcome`
+
+  AIDEV-NOTE: identified by MESSAGE, not by sha, on purpose. The branch was rebased onto
+  `origin/main` before the PR (which rewrote both shas), and the repo squash-merges, so every
+  pre-merge sha is ephemeral. The durable one is the squash commit on `main` — recorded in the
+  Linear close-comment per the card's `close_template`, which is the right place for it.
