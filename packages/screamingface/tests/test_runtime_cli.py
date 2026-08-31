@@ -713,3 +713,53 @@ def test_wait_ready_still_points_at_the_log_when_it_cannot_be_read(tmp_path: Pat
         cli._wait_ready(process, config, timeout=0.1)
 
     assert "runtime exited during startup; inspect the runtime log" in str(raised.value)
+
+
+# --- embedded server configuration (OME-990) ----------------------------------------------
+
+
+def _recording_uvicorn(configs: list[dict[str, object]]) -> types.ModuleType:
+    # WHY a stub and not the real package: the SDK test job installs only the notebook extra
+    # (screamingface-tests.yml), so uvicorn is absent here exactly as it is after a plain
+    # `pip install screamingface` — the same reason `_stub_runtime_extra` exists above.
+    class Config:
+        def __init__(self, app: object, **options: object) -> None:
+            configs.append(options)
+
+    module = types.ModuleType("uvicorn")
+    module.Config = Config  # type: ignore[attr-defined]
+    return module
+
+
+def test_every_embedded_server_is_configured_without_an_access_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # INVARIANT (OME-990): a run starts as `GET /?q=<url4 expression>` and the expression
+    # carries the user's prompt verbatim, so uvicorn's access line writes that prompt into
+    # runtime.log — which `_runtime_log_tail` also echoes back into the notebook when the
+    # stack fails to start.
+    #
+    # WHY every construction and not merely one: uvicorn clears the `uvicorn.access`
+    # handlers for the Config being built AT THAT MOMENT, but each later Config re-runs
+    # dictConfig and re-creates them, and the HTTP protocol re-reads `hasHandlers()` per
+    # connection. One server passing the flag does not protect a process that afterwards
+    # builds another Config without it — so the assertion is over the whole sweep.
+    configs: list[dict[str, object]] = []
+
+    class Recorder:
+        def __init__(self, config: object, *, name: str) -> None:
+            self.config, self.name = config, name
+
+    monkeypatch.setitem(sys.modules, "uvicorn", _recording_uvicorn(configs))
+    # WHY patch the factory itself: `_embedded_server_type` is @cache'd and subclasses
+    # uvicorn.Server, so a stub installed through it would outlive this test.
+    monkeypatch.setattr(server, "_embedded_server_type", lambda: Recorder)
+
+    server._server(object(), 9105, "AI Gateway")
+    server._server(object(), 9106, "Engine")
+
+    assert len(configs) == 2, "both the gateway and the Engine must be configured"
+    assert all(options.get("access_log") is False for options in configs)
+    # The rest of the boot contract is unchanged by this ticket.
+    assert all(options["host"] == "127.0.0.1" for options in configs)
+    assert all(options["lifespan"] == "on" for options in configs)
