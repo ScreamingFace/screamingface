@@ -47,9 +47,22 @@ Two further decisions were escalated during part A (2026-08-29):
 5. **Standard Pareto dominance**, not the ticket's literal *"no other has both a higher score and
    a lower cost"*. Read strictly, that keeps a row scoring the same at nine times the price
    because nobody outscored it. Exact ties on both axes still both qualify.
-6. **Part A returns `frozenset[str]` of `spec_id`** — robust to the ranking route's re-sorting.
-   Valid only for the collapsed board; `list_owned_entries()` does not collapse and is not a
-   valid input.
+6. **Part A returns `frozenset[tuple[str, str | None]]`, keyed on
+   `(spec_id, benchmark_revision)`.** Rows are compared only within one revision; a spec can
+   hold rows on several non-comparable revisions and each is judged inside its own cohort.
+   Keys survive the ranking route's re-sorting.
+
+   An earlier revision of this decision returned `frozenset[str]` of `spec_id` alone. Review of
+   PR #778 showed that is wrong on any benchmark with no registered revision: the board filters
+   nothing there, one spec appears once per revision, and the bare key let a row beaten on BOTH
+   axes inherit the mark its own spec earned elsewhere. Recorded rather than silently replaced,
+   because dropping the revision again is the exact regression to avoid.
+
+7. **The frontier is computed over the whole ranked board, never a `top_n` page.** `leaderboard()`
+   orders by score alone before truncating, so a row past the cutoff can tie the boundary score at
+   a lower cost and dominate a visible row. The caller passes `top_n=None` and serves the page as a
+   prefix of the same result — which also keeps marks and rows on one snapshot, and keeps the
+   `turned_private` guard the last read before a public response.
 
 ## Don't regress
 
