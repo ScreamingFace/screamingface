@@ -30,8 +30,14 @@ One has a one-line fix and should land before anything else."
 - `packages/screamingface/src/screamingface/_runtime/server.py` — `_server()`, the shared
   factory booting the **gateway** and the **engine**: pass `access_log=False` to
   `uvicorn.Config`.
-- `packages/screamingface/tests/test_runtime_cli.py` — new test asserting *every* uvicorn
-  configuration the runtime builds disables access logging, without booting a server.
+- `packages/screamingface/src/screamingface/_runtime/runtime_logging.py` — `_open_private()`,
+  used by both `RuntimeLog.__init__` and `_rotate`, so the log is created `0600` **and** an
+  existing world-readable log is tightened on reopen. The Linear issue names this in its own
+  Verify line ("check the file mode while there") and calls the `0644`/`0600` split with
+  `runtime.json` an aggravating detail.
+- `packages/screamingface/tests/test_runtime_cli.py` — a test asserting *every* uvicorn
+  configuration the runtime builds disables access logging (without booting a server), plus
+  three file-mode tests (create, remediate-on-reopen, survive-rotation).
 
 **Not in this unit** — `run_scoreboard()` (`server.py:258`) also omits `access_log`, but it
 runs in a separate interpreter and its query strings are leaderboard filters (`?top=<int>`),
@@ -55,6 +61,8 @@ silently re-armed request logging for the whole process.
 
 - Every uvicorn server the client runtime starts in-process has access logging disabled.
 - A local run no longer writes `GET /?q=<expression>` access lines into `runtime.log`.
+- `runtime.log` is `0600` on creation, on reopen of an existing wider-moded file, and after
+  rotation.
 - No prior test modified; `run_gates.py screamingface` green (incl. `--cov-fail-under=95`).
 
 **Deliberately NOT claimed:** that `runtime.log` is free of prompt text. The adversarial
@@ -89,21 +97,29 @@ because litellm is imported *inside* the capture, so `LITELLM_LOG=DEBUG` turns t
 full prompt/completion transcript; and prompt text is embedded in url4/litellm exception
 *messages*, kept out today only by first-party discipline with no sink-level control.
 
-**Follow-ups to file** (none block this PR): chmod `runtime.log` `0600` + remediate existing
-backups; suppress the `uvicorn.error` WS ticket line; pin
-`litellm.redact_messages_in_exceptions` and neutralise `LITELLM_LOG` in the runtime env;
-install a redacting `setLogRecordFactory` for the capture's lifetime (aigateway already ships
-that pattern at `core/auth/log_filter.py:71-85`); `access_log=False` in `run_scoreboard()`.
+Finding 4 is **addressed in this unit** — `_open_private` creates the log `0600` and
+tightens an existing world-readable one on reopen — because the Linear issue asks for it
+directly. Its second half is not: **rotated backups** (`runtime.log.1` … `.5`) written by an
+earlier version keep their old mode until they rotate through, and no pass removes the
+prompts already inside them.
+
+**Follow-ups to file** (none block this PR): remediate existing rotated backups; suppress the
+`uvicorn.error` WS ticket line; pin `litellm.redact_messages_in_exceptions` and neutralise
+`LITELLM_LOG` in the runtime env; install a redacting `setLogRecordFactory` for the capture's
+lifetime (aigateway already ships that pattern at `core/auth/log_filter.py:71-85`);
+`access_log=False` in `run_scoreboard()`.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned — `_runtime/server.py` (one `uvicorn.Config` call) and
-  `tests/test_runtime_cli.py` (one test + one helper, appended).
+- **Actual files:** `_runtime/server.py` (one `uvicorn.Config` call);
+  `_runtime/runtime_logging.py` (`_open_private` + both open sites);
+  `tests/test_runtime_cli.py` (4 tests + 1 helper, appended);
+  `docs/tasks/2026-08-25-OME-990-runtime-log-prompts.md` (mirror).
 - **Commits:** `fix(screamingface): stop logging prompt-bearing query strings` (sha assigned
   at squash-merge).
 - **Gates:** `run_gates.py screamingface` — **ALL GATES GREEN**: append-only test check (vs
   HEAD) · ruff check · ruff format --check · pyright · `pytest --cov=screamingface
-  --cov-fail-under=95` (**1278 passed, 17 skipped**) · check_notebooks · uv build ·
+  --cov-fail-under=95` (**1281 passed, 17 skipped**) · check_notebooks · uv build ·
   check_distribution. RED was confirmed first: the new test failed on
   `options.get("access_log") is False` with both configs constructed and every other
   assertion passing.

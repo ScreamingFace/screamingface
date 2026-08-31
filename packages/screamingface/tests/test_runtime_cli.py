@@ -763,3 +763,51 @@ def test_every_embedded_server_is_configured_without_an_access_log(
     # The rest of the boot contract is unchanged by this ticket.
     assert all(options["host"] == "127.0.0.1" for options in configs)
     assert all(options["lifespan"] == "on" for options in configs)
+
+
+# --- runtime log file mode (OME-990) ------------------------------------------------------
+
+
+def test_the_runtime_log_is_created_with_private_permissions(tmp_path: Path) -> None:
+    # INVARIANT (OME-990): runtime.log holds the same class of secret as runtime.json beside
+    # it — prompt-bearing output, and the Engine's WS capability ticket. runtime.json is
+    # deliberately 0600 (`_write_state`); this file must not be the 0644 exception.
+    path = tmp_path / "runtime.log"
+
+    runtime_logging.RuntimeLog(path).close()
+
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_a_world_readable_runtime_log_is_tightened_when_it_is_reopened(tmp_path: Path) -> None:
+    # WHY reopening matters: creating the file privately does nothing for the logs already on
+    # disk from before this change. Every `screamingface up` reopens the same path, so the
+    # reopen is the remediation path for an existing world-readable log.
+    path = tmp_path / "runtime.log"
+    path.write_text("leaked ?q=an+earlier+prompt\n")
+    path.chmod(0o644)
+
+    runtime_logging.RuntimeLog(path).close()
+
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_rotation_keeps_the_replacement_log_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: `_rotate` reopens the path, so a mode applied only in __init__ would be silently
+    # dropped the first time a busy runtime rolled its log over.
+    path = tmp_path / "runtime.log"
+    monkeypatch.setattr(runtime_logging, "MAX_LOG_BYTES", 100)
+    monkeypatch.setattr(runtime_logging, "LOG_BACKUPS", 2)
+    log = runtime_logging.RuntimeLog(path)
+
+    log.write("x" * 100 + "\n")
+    log.write("after the roll\n")
+    log.close()
+
+    assert path.with_name("runtime.log.1").exists()
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600

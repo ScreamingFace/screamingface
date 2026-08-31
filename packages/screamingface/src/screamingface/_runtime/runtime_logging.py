@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import io
+import os
 import sys
 import threading
 from collections.abc import Iterator
@@ -14,6 +15,23 @@ MAX_LOG_BYTES = 10 * 1024 * 1024
 LOG_BACKUPS = 5
 
 _service = contextvars.ContextVar("screamingface_runtime_log_service", default="supervisor")
+
+
+def _open_private(path: Path) -> TextIO:
+    """Open the runtime log for append, readable only by its owner.
+
+    INVARIANT (OME-990): this file carries the same class of secret as the ``runtime.json``
+    beside it — prompt-bearing output and the Engine's WS capability ticket — and that file
+    has been ``0600`` since it started holding the owner token.
+    """
+    # WHY both the mode argument AND the chmod: the mode is applied only when the file is
+    # CREATED, so opening privately protects a new log but leaves a `runtime.log` written
+    # 0644 by an earlier version at its old mode forever. The chmod is what remediates the
+    # logs already on disk, on the reopen every `screamingface up` performs.
+    descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    stream = os.fdopen(descriptor, "a", encoding="utf-8")
+    path.chmod(0o600)
+    return stream
 
 
 @contextlib.contextmanager
@@ -32,7 +50,7 @@ class RuntimeLog(io.TextIOBase):
         self._lock = threading.Lock()
         self._buffer = ""
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._stream = path.open("a", encoding="utf-8")
+        self._stream = _open_private(path)
 
     def write(self, value: str) -> int:
         with self._lock:
@@ -81,7 +99,7 @@ class RuntimeLog(io.TextIOBase):
                 source.replace(self._path.with_name(f"{self._path.name}.{index + 1}"))
         if self._path.exists():
             self._path.replace(self._path.with_name(f"{self._path.name}.1"))
-        self._stream = self._path.open("a", encoding="utf-8")
+        self._stream = _open_private(self._path)
 
 
 @contextlib.contextmanager
