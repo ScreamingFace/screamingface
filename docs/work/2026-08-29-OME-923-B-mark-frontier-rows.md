@@ -260,10 +260,10 @@ closes a third self-review finding.
 The three test gaps the self-review named: cross-benchmark scoping (correct in code, unpinned),
 `renderMarkSlot` never executed by any test, and the mark's accessibility contract unasserted.
 
-**Not fixed, deliberately:** the O(n²) dominance scan. It is bounded by priced rows within one
-cohort, which is zero today and grows with distinct specs rather than submissions. Part A's own
-AIDEV-NOTE already says a sort-based scan would be faster and harder to read for no reachable
-benefit; that judgement has not changed, and part A is merged at 100% coverage.
+**~~Not fixed, deliberately: the O(n²) dominance scan.~~ REVERSED 2026-08-31 — see below.**
+The reasoning recorded here was that the scan is "bounded by priced rows within one cohort,
+which grows with distinct specs rather than submissions". That is not a bound: `spec_id` is a
+client-supplied `CharField(255)`, so distinct specs are exactly what a submitter chooses.
 
 
 ### Outcome of this pass
@@ -313,3 +313,64 @@ harness — the card's gate names `tests/portal/leaderboard-logic.test.js` expli
 a second JS test file would need a card change. All the *decisions* live in
 `leaderboard-logic.js` and are covered; what remains unpinned is the wiring, verified visually
 instead. Recorded rather than papered over.
+
+
+## P1 from review — the unbounded quadratic frontier (2026-08-31)
+
+Reviewer, verbatim: *"`top_n=None` removes the public endpoint's previous 200-row bound, then
+`compute_pareto_frontier` compares every priced row against every other row."*
+
+Confirmed on every point, and it is worse than the earlier note admitted:
+
+| | |
+|---|---|
+| `origin/main` public path | `leaderboard(top_n=min(top, MAX_LEADERBOARD_TOP))` — bounded at 200 |
+| this branch, before the fix | `leaderboard(top_n=None)` — unbounded |
+| `spec_id` | client-supplied `CharField(255)` — so `n` is attacker-chosen |
+
+The privacy fix removed an existing bound and put a quadratic scan behind it. Both halves are
+mine and the dismissal above was wrong.
+
+### Fix — sort-and-sweep, O(n log n)
+
+`_cohort_frontier` now walks the distinct costs cheapest-first, carrying the best score seen at
+any strictly lower cost. Within one cost only the rows at that cost's best score can survive;
+those qualify exactly when they beat everything cheaper. Whole-board semantics are unchanged —
+this is the same answer, computed differently.
+
+Measured on this machine over a trade-off curve where nothing dominates anything:
+
+| n | build rows | sweep | pairwise |
+|---|---|---|---|
+| 3,000 | 0.01s | 0.002s | 0.41s |
+| 8,000 | 0.02s | 0.006s | 2.82s |
+| 12,000 | 0.03s | 0.008s | **6.38s** |
+
+### The first version of the guard test was worthless
+
+`test_a_large_board_does_not_take_quadratic_time` originally built 5,000 rows with **random**
+costs — and a reintroduced pairwise scan **passed it in 0.4s**. `any()` short-circuits the
+moment a dominator is found, and over random points nearly every row is dominated immediately,
+so the scan never reaches its quadratic case. Caught by mutation-checking the test rather than
+trusting it.
+
+Rewritten against the worst case: a perfect trade-off curve at n=12,000 where every row
+qualifies and nothing can short-circuit. The 2s bound now has ~50x headroom green and fails a
+pairwise scan by 3x.
+
+### Guards
+
+- `test_the_sweep_agrees_with_the_pairwise_definition` — 300 randomised boards against a
+  brute-force oracle written the obvious slow way, over a deliberately tiny value space so ties
+  on one axis, both axes, and across revisions occur constantly.
+- `test_a_large_board_does_not_take_quadratic_time` — as above.
+
+Mutation-checked, 3 of 3 caught: reintroducing the pairwise scan (6.5s, fails), dropping ties so
+only the first row at the best score wins, and relaxing `>` to `>=` so an equal-scoring dearer
+row survives. All 17 pre-existing part A tests pass unchanged, which is the real safety net —
+the sweep had to reproduce them exactly.
+
+**Residual, stated plainly:** the row *load* is still O(n) and unbounded, because whole-board
+semantics require it. That is one query returning one row per (spec_id, benchmark_revision),
+which is the same shape of read the endpoint always did; what is gone is the quadratic
+amplification on top of it.

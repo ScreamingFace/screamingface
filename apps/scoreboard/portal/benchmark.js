@@ -154,7 +154,7 @@
     var mark = P.el("span", "pareto-mark");
     mark.setAttribute("aria-hidden", "true");
     td.appendChild(mark);
-    td.appendChild(P.el("span", "sr-only", "best score for cost"));
+    td.appendChild(P.el("span", "sr-only", "on the Pareto frontier: best score for cost"));
     return td;
   }
 

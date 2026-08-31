@@ -50,9 +50,13 @@ def compute_pareto_frontier(entries: Sequence[LeaderboardEntry]) -> frozenset[Pa
     property a claim about money may have. The ticket says "no other submission on the same
     board", and the board is not the visible page (found in review of PR #778).
 
-    AIDEV-NOTE: quadratic within a cohort, and deliberately so — a cohort is bounded by the
-    board's distinct spec count, where this is a few thousand comparisons. A sort-based
-    frontier scan would be faster and harder to read for no reachable benefit.
+    AIDEV-NOTE: O(n log n) in the cohort size, by sort-and-sweep rather than the obvious
+    pairwise scan. The route reads the board UNBOUNDED so the frontier cannot depend on `top`,
+    and `spec_id` is client-supplied — so the row count is attacker-controlled, and a pairwise
+    scan would be a quadratic amount of Decimal work on every anonymous request (found in
+    review, 2026-08-31). An earlier note here reasoned that the count "grows with distinct
+    specs, not submissions" and called that bounded. It is not: distinct specs are exactly what
+    a submitter chooses.
     """
     # WHY grouped first: one pass does the revision partitioning and the None-narrowing, and
     # drops unpriced rows from BOTH sides of the comparison — an unpriced row must neither
@@ -69,12 +73,36 @@ def compute_pareto_frontier(entries: Sequence[LeaderboardEntry]) -> frozenset[Pa
     return frozenset(
         (spec_id, revision)
         for revision, priced in cohorts.items()
-        for spec_id, score, cost in priced
-        if not any(
-            _dominates(other_score, other_cost, score, cost)
-            for _, other_score, other_cost in priced
-        )
+        for spec_id in _cohort_frontier(priced)
     )
+
+
+def _cohort_frontier(priced: list[tuple[str, float, Decimal]]) -> list[str]:
+    """The frontier of one comparable cohort, by a single sweep up the cost axis.
+
+    Walk the distinct costs cheapest-first, carrying `best_cheaper` — the highest score seen at
+    any STRICTLY lower cost. For rows sharing one cost, only those at that cost's best score can
+    survive, since a same-cost row scoring higher dominates the rest. Those survivors are then
+    on the frontier exactly when they beat everything cheaper.
+
+    INVARIANT: identical to the pairwise definition in `_dominates`, ties included — a cost
+    group whose best score beats `best_cheaper` contributes EVERY row holding that score, which
+    is the ticket's "ties both qualify". `test_the_sweep_agrees_with_the_pairwise_definition`
+    pins the equivalence against a brute-force oracle.
+    """
+    by_cost: dict[Decimal, list[tuple[str, float]]] = {}
+    for spec_id, score, cost in priced:
+        by_cost.setdefault(cost, []).append((spec_id, score))
+
+    winners: list[str] = []
+    best_cheaper: float | None = None
+    for cost in sorted(by_cost):
+        group = by_cost[cost]
+        group_best = max(score for _, score in group)
+        if best_cheaper is None or group_best > best_cheaper:
+            winners.extend(spec_id for spec_id, score in group if score == group_best)
+        best_cheaper = group_best if best_cheaper is None else max(best_cheaper, group_best)
+    return winners
 
 
 def _dominates(

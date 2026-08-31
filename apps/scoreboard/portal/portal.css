@@ -147,6 +147,17 @@ table .btn { white-space: nowrap; }
   background: var(--info-solid);
 }
 
+/* Forced-colors (Windows High Contrast) overrides `background` on non-text elements, which
+   would erase this mark completely and leave the row with NO per-row signal — precisely the
+   failure "never colour alone" exists to prevent, since the shape is the carrier here. Opt out
+   of the override and paint with a system colour so the diamond survives. */
+@media (forced-colors: active) {
+  .pareto-mark {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}
+
 /* ---- rail pinning: the one deliberate override in this file ---------- */
 /* WHY: style.css ships `.rail { position: relative }` plus a `.rail.stuck`
    variant its own comment documents as "(JS toggles .stuck + a spacer to hold
