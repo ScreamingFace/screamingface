@@ -85,5 +85,6 @@ def build_job_runner(
             tolerations=settings.runner_tolerations,
             job_ttl_s=settings.effective_job_ttl_s,
             extra_models=extra_models,
+            io_concurrency=settings.runner_io_concurrency,
         )
     return None

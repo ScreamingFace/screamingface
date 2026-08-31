@@ -168,6 +168,41 @@ caller's identity and aigateway decides, including whether an absent identity is
   without contacting aigateway, so the listing and the detail cannot disagree.
 - Cache behaviour is observable at `/metrics` (`screamingface_engine_catalog_*`).
 
+## Fair scheduling of concurrent runs
+
+The gateway admits only `AIGW_PROVIDER_MAX_CONCURRENCY` calls per provider at once (default 4,
+FIFO), and one benchmark-scale run — a cold DRACO grading phase is ~20k judge calls against one
+provider — keeps that queue continuously full for hours at URL4's default width (32 in flight).
+A second concurrent run then waits behind the first's arrivals for as long as they last. The
+design is `docs/spec/2026-08-26-OME-908-fair-run-scheduling.md`; the short version of what ships
+here:
+
+- **Deployed mode** — every Runner Job carries a static per-run budget,
+  `URL4_CLOUD_IO_CONCURRENCY`, written by the App from `runner_io_concurrency` (chart:
+  `config.runnerIoConcurrency`, default 4). URL4's own run-wide cap enforces it. 4 matches the
+  gateway's per-provider admission ceiling, so a run saturates its provider but never piles a
+  backlog behind it — a second run's calls interleave as soon as the first run's in-flight
+  calls complete; 32 restores the previous behavior exactly.
+- **Local mode** — `local_io_capacity` (default 32) is ONE shared fair-share gate every local
+  run dispatches through (`runner/fair_share.py`): a solo run gets the whole capacity, concurrent
+  runs split it near-evenly, and a finished run's share reverts instantly. The gate replaces
+  (not stacks under) URL4's per-run cap, and `URL4_CLOUD_IO_CONCURRENCY` is never read locally.
+- Both knobs are observable: `screamingface_engine_fair_share_*` gauges/counter at `/metrics`
+  (local mode), and the per-Run env on every Job spec (deployed).
+
+Operator notes that bound the design:
+
+- The gateway-side companion (an identity-keyed fair provider queue) is a separate ticket; what
+  ships here shapes arrivals, which already interleaves two equal runs near 50/50 at the queue.
+- `AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES` on the gateway can raise a specific provider's
+  ceiling — bounded by the upstream account's real limits, which the cap exists to protect.
+- `timeout_s` in `url4.toml` must stay comfortably above the worst fair-share queue wait: two
+  16-wide runs against 4 slots at ~30 s/call means a call can wait ~4 minutes, so the deployed
+  600 s default is right and a lower one converts fairness into timeouts.
+- Runner Jobs must be able to co-schedule (see `runner.resources` in the chart): if the cluster
+  fits only one benchmark Job at a time, the symptom looks identical but the fix is capacity,
+  not scheduling.
+
 ## Per-run cache policy
 
 A different cache from the one above: aigateway's **response** cache, which answers an identical

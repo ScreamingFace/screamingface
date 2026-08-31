@@ -181,6 +181,12 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         env.pop(job_env.EXTRA_MODELS, None)
         if self._extra_models is not None:
             env.update(job_env.extra_models_to_env(self._extra_models()))
+        # INVARIANT (OME-908): local mode's downstream bound is the shared fair-share gate,
+        # NEVER this env — a copy exported in the operator's shell would stack a per-run
+        # `BoundedIOLayer` UNDER the gate and re-introduce exactly the static bound local
+        # mode replaced. Popped unconditionally; the gate reaches runs through the
+        # executor factory's `io_gate`, not through env.
+        env.pop(job_env.IO_CONCURRENCY, None)
         return env
 
     # --- the JobRunner port -----------------------------------------------------------------
