@@ -1273,7 +1273,7 @@ async def _row(
     spec_id: str,
     score: float,
     cost: str | None,
-    revision: str = _PINNED,
+    revision: str | None = _PINNED,
 ) -> None:
     """Submit a row, then set the revision it was measured against and its cost.
 
@@ -1322,9 +1322,13 @@ async def test_get_leaderboard_marks_nothing_when_no_row_reports_a_cost(
     """Today's real board: OME-770 shipped the column, nothing has ever filled it. It must
     render as an ordinary board, not error and not mark anything."""
     store = ScoreStore()
-    await _register_benchmark(store)
-    await _priced(store, spec_id="spec-a", score=0.90, cost=None)
-    await _priced(store, spec_id="spec-b", score=0.70, cost=None)
+    # WHY pinned: with an unregistered revision the D12 gate returns an empty frontier before
+    # compute_pareto_frontier is ever called, so this test passed no matter how a null cost was
+    # treated. Proven in review by patching the frontier to mark EVERY row — this test still
+    # passed. Pinning the board restores it as a real guard on the null-cost rule.
+    await _register_pinned(store)
+    await _row(store, spec_id="spec-a", score=0.90, cost=None)
+    await _row(store, spec_id="spec-b", score=0.70, cost=None)
 
     response = await async_client.get("/v1/leaderboard/hle")
 
@@ -1395,8 +1399,9 @@ async def test_the_public_board_takes_exactly_one_ranking_read(
     when the flip landed during it (self-review, 2026-08-30). This pins the shape of the fix:
     a reintroduced second query fails here even if the leak itself is hard to time."""
     store = ScoreStore()
-    await _register_benchmark(store)
-    await _priced(store, spec_id="spec-a", score=0.90, cost="1.00")
+    # Pinned, so this exercises the whole-board read — the path the frontier depends on.
+    await _register_pinned(store)
+    await _row(store, spec_id="spec-a", score=0.90, cost="1.00")
     calls: list[object] = []
     real = ScoreStore.leaderboard
 
@@ -1515,3 +1520,34 @@ async def test_the_frontier_is_scoped_to_one_benchmark(
     entries = response.json()["entries"]
     assert [entry["spec_id"] for entry in entries] == ["local"]
     assert entries[0]["on_pareto_frontier"] is True
+
+
+async def test_a_board_that_cannot_be_marked_keeps_its_row_bound(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT: the board is read UNBOUNDED only when a frontier will be computed from it.
+
+    `origin/main` capped the public read at MAX_LEADERBOARD_TOP. Reading the whole board is the
+    price of a frontier that cannot depend on `top` — but a board the D12 gate closes marks
+    nothing, so paying it there would drop the cap for no gain. `spec_id` is client-supplied,
+    so that row count is chosen by submitters (found in review, 2026-08-31).
+    """
+    store = ScoreStore()
+    await _register_benchmark(store)  # no registered revision, so the gate is closed
+    await _row(store, spec_id="spec-a", score=0.90, cost="1.00", revision=None)
+    calls: list[object] = []
+    real = ScoreStore.leaderboard
+
+    async def _counting(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(kwargs.get("top_n", args[1] if len(args) > 1 else None))
+        return await real(self, *args, **kwargs)
+
+    ScoreStore.leaderboard = _counting  # type: ignore[method-assign]
+    try:
+        response = await async_client.get("/v1/leaderboard/hle", params={"top": 25})
+    finally:
+        ScoreStore.leaderboard = real  # type: ignore[method-assign]
+
+    assert response.status_code == 200
+    assert calls == [25], f"a closed-gate board must stay bounded, got {calls}"
+    assert all(e["on_pareto_frontier"] is False for e in response.json()["entries"])

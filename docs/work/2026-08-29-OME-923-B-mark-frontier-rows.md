@@ -374,3 +374,36 @@ the sweep had to reproduce them exactly.
 semantics require it. That is one query returning one row per (spec_id, benchmark_revision),
 which is the same shape of read the endpoint always did; what is gone is the quadratic
 amplification on top of it.
+
+## Self-review round 1 (2026-08-31) — 14 findings, 6 distinct issues
+
+Five lenses over the state after the fail-closed and Cost-column pass. Fixed:
+
+| Issue | Fix |
+|---|---|
+| `formatCost` rendered one cent two ways — `0.009999` printed `$0.0100`, `0.010000` printed `$0.01`. Same money, two formats, and in the ascending Cost column the four-decimal string sits above the two-decimal one and reads as larger. | Branch on the ROUNDED value. |
+| Two costs inside one cent render identically while only one is marked — the board contradicting itself with nothing on the page to explain it. | The cost cell carries a `title` with the exact stored figure. |
+| `test_get_leaderboard_marks_nothing_when_no_row_reports_a_cost` had gone **vacuous**. Its board is unpinned, so D12 returns an empty frontier before `compute_pareto_frontier` is ever reached. Proven in review by patching the frontier to mark EVERY row: the test still passed. | Pinned the board. Mutation-checked: it now catches a null cost read as zero. |
+| The legend advertised the frontier mark on boards where the gate guarantees none, and on the empty board. A key for a symbol that appears nowhere reads as "nothing here is good value" — the opposite of what the gate is saying. | The frontier item hides itself unless a row carries the mark; the whole legend hides on an empty board. Separators are CSS-generated so hiding an item leaves no dangling middot. |
+| The label said "best score for cost", but frontier membership means only "not beaten on both axes" — so the cheapest row carries that claim however badly it scores. | Both the legend and the sr-only label now read "no submission is both better and cheaper". |
+| A board the gate closes still read UNBOUNDED, dropping `origin/main`'s 200-row cap for no gain. | The whole board is read only when a frontier will be computed from it. |
+
+Mutation-checked, 3 of 3 caught. Python 546, Node 40.
+
+### Open, needs an owner call
+
+**The Cost column re-introduces horizontal overflow.** Two lenses measured it independently in
+Chrome against the real stylesheets: table min-content 802px to 905px. At a ~858px content box
+(roughly a 900px window — a half-screen laptop, tablet landscape) `.table-wrap` overflow goes
+from 0 to 47px, pushing about half the "Run Locally" Copy button behind the scroll. Below 640px
+`.col-run` collapses, so mobile is unaffected; the window is viewport ~700-1010px.
+
+This is the exact failure `benchmark.js`'s own comment records as the reason `total_questions`
+was removed — the precedent being that a new column is paid for by removing one. Nothing was
+removed or width-capped to pay for Cost. Which column gives way, or whether the scroll is
+acceptable, is a product decision.
+
+### Not acted on
+
+- Two independent `SELECT`s of `Benchmark.revision` (the gate's and the query's) could disagree
+  within one request. Speculative, low, and narrower than the race the single read closed.

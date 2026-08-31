@@ -75,12 +75,12 @@
          The provenance line is OME-770 D11: the frontier is computed over self-reported costs
          and the UI must say so rather than present them as verified. -->
     <p id="leaderboard-legend" class="meta legend" hidden>
-      <span class="pareto-mark" aria-hidden="true"></span>
-      <span>on the Pareto frontier — best score for cost</span>
-      <span class="legend-sep" aria-hidden="true">·</span>
-      <span>gold row = highest score</span>
-      <span class="legend-sep" aria-hidden="true">·</span>
-      <span>costs are self-reported, not verified by re-running</span>
+      <span id="legend-pareto" class="legend-item" hidden>
+        <span class="pareto-mark" aria-hidden="true"></span>
+        <span>on the Pareto frontier — no submission is both better and cheaper</span>
+      </span>
+      <span class="legend-item">gold row = highest score</span>
+      <span class="legend-item">costs are self-reported, not verified by re-running</span>
     </p>
 
     <div class="foot">

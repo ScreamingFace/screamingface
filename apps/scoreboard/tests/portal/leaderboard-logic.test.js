@@ -308,3 +308,14 @@ test("formatCost keeps a sub-cent cost visible instead of rounding it to zero", 
   assert.equal(L.formatCost({ run_cost_usd: "0.000900" }), "$0.0009");
   assert.equal(L.formatCost({ run_cost_usd: "0.000001" }), "<$0.0001");
 });
+
+test("formatCost does not render one cent in two different formats", () => {
+  // Found in review: the sub-cent branch was chosen on the UNROUNDED value but rendered with
+  // toFixed(4), so 0.009999 printed "$0.0100" while 0.010000 printed "$0.01". The same money in
+  // two formats, and in the ascending Cost column the four-decimal string sits above the
+  // two-decimal one and reads as the larger number.
+  assert.equal(L.formatCost({ run_cost_usd: "0.009999" }), "$0.01");
+  assert.equal(L.formatCost({ run_cost_usd: "0.010000" }), "$0.01");
+  // Genuinely sub-cent values still keep their four places.
+  assert.equal(L.formatCost({ run_cost_usd: "0.009000" }), "$0.0090");
+});

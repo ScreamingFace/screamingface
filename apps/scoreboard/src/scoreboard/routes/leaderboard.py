@@ -270,7 +270,15 @@ async def get_leaderboard(
     # PR #778). Taking the page as a prefix of the same result keeps the marks and the rows on
     # ONE snapshot, so a row can never be stamped with a verdict computed about a different
     # version of itself.
-    board = await _score_store(request).leaderboard(benchmark_id=benchmark_id, top_n=None)
+    # WHY conditional: the whole board is read ONLY when a frontier will actually be computed
+    # from it. A board the D12 gate closes marks nothing, so reading it unbounded would drop
+    # `origin/main`'s 200-row cap for no gain — and `spec_id` is client-supplied, so that row
+    # count is chosen by submitters (found in review, 2026-08-31).
+    pinned = benchmark.revision is not None
+    board = await _score_store(request).leaderboard(
+        benchmark_id=benchmark_id,
+        top_n=None if pinned else min(top, MAX_LEADERBOARD_TOP),
+    )
     if await turned_private(benchmark_id):
         # The board went private while the ranking query ran. Answer it correctly rather than
         # erroring — a read can, where a write cannot.
@@ -287,7 +295,7 @@ async def get_leaderboard(
     # cannot see the benchmark. The route already holds `benchmark.revision`, so the gate costs
     # nothing here and leaves the function honest for any caller with legitimately mixed
     # revisions.
-    frontier = compute_pareto_frontier(board) if benchmark.revision is not None else frozenset()
+    frontier = compute_pareto_frontier(board) if pinned else frozenset()
     rows = board[: min(top, MAX_LEADERBOARD_TOP)]
 
     return LeaderboardResponse(

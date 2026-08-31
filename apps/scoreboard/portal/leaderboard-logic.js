@@ -113,7 +113,15 @@
     if (value === null) return "\u2014";
     if (value === 0) return "$0.00";
     if (value >= 0.01) return "$" + _group(value.toFixed(2));
-    if (value >= 0.0001) return "$" + value.toFixed(4);
+    if (value >= 0.0001) {
+      // INVARIANT: one cent has exactly one rendering. Choosing the branch on the UNROUNDED
+      // value let 0.009999 round back up to "$0.0100" while 0.010000 rendered "$0.01" — the
+      // same money in two formats, which reads as mis-sorted in the ascending Cost column
+      // (found in review, 2026-08-31).
+      var four = value.toFixed(4);
+      if (parseFloat(four) >= 0.01) return "$" + parseFloat(four).toFixed(2);
+      return "$" + four;
+    }
     return "<$0.0001";
   }
 

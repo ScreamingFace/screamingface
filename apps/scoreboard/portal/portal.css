@@ -262,6 +262,18 @@ td.col-open { white-space: nowrap; }
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
-.legend-sep {
+/* WHY a generated separator rather than markup: the frontier item hides itself on boards that
+   can carry no mark, and a literal separator span would leave a dangling middot behind it. */
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.legend-item + .legend-item::before {
+  content: "·";
   color: var(--ink-3);
+  margin-right: var(--space-2);
+}
+.legend-item[hidden] {
+  display: none;
 }

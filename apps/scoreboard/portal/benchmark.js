@@ -154,7 +154,9 @@
     var mark = P.el("span", "pareto-mark");
     mark.setAttribute("aria-hidden", "true");
     td.appendChild(mark);
-    td.appendChild(P.el("span", "sr-only", "on the Pareto frontier: best score for cost"));
+    td.appendChild(
+      P.el("span", "sr-only", "on the Pareto frontier: no submission is both better and cheaper")
+    );
     return td;
   }
 
@@ -212,7 +214,13 @@
       // formatSubmitter already renders an em-dash for a null/blank submitter.
       tr.appendChild(P.el("td", null, P.formatSubmitter(entry.submitted_by)));
       tr.appendChild(renderScoreCell(entry.score, barMin, barMax));
-      tr.appendChild(P.el("td", "num", L.formatCost(entry)));
+      // WHY the title: the cell rounds to cents, but the frontier compares the full stored
+      // Decimal — so two rows inside one cent render identically while only one is marked. The
+      // exact figure has to be recoverable, or the board contradicts itself with nothing on the
+      // page to explain it (found in review, 2026-08-31).
+      var costTd = P.el("td", "num", L.formatCost(entry));
+      if (L.costNumber(entry) !== null) costTd.title = "$" + entry.run_cost_usd;
+      tr.appendChild(costTd);
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
 
       var runTd = document.createElement("td");
@@ -344,6 +352,7 @@
     var statusNode = document.getElementById("leaderboard-status");
     var wrap = document.getElementById("leaderboard-wrap");
     var legend = document.getElementById("leaderboard-legend");
+    var legendPareto = document.getElementById("legend-pareto");
     var nameNode = document.getElementById("benchmark-name");
     var descNode = document.getElementById("benchmark-desc");
 
@@ -384,7 +393,8 @@
           P.clear(document.getElementById("leaderboard-body"));
           P.showEmpty(statusNode, "No submissions yet. Be the first.");
           wrap.hidden = false;
-          legend.hidden = false;
+          // No rows at all: the key would point at nothing.
+          legend.hidden = true;
           return;
         }
         renderSummary(state.entries);
@@ -393,6 +403,11 @@
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);
         wrap.hidden = false;
+        // INVARIANT: the frontier key appears only when a row actually carries the mark.
+        // On a board the D12 gate closed, or one where every cost is null, nothing is
+        // marked — and a key for a symbol that appears nowhere reads as 'no submission
+        // here is good value', which is the opposite of what the gate is saying.
+        legendPareto.hidden = !state.entries.some(L.isParetoMarked);
         legend.hidden = false;
       },
       function (err) {
