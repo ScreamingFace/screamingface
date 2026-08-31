@@ -63,7 +63,22 @@
       <div id="leaderboard-climb" class="climb" aria-hidden="true"></div>
     </div>
 
-    <div id="leaderboard-wrap" class="table-wrap" hidden>
+    <!-- OME-923: the Cost column pushes this table's min-content past the container between
+         roughly 700px and 1010px of viewport, so it scrolls horizontally there. Keeping the
+         scroll rather than dropping a column is an owner decision (2026-08-31); the columns
+         stay for now.
+         A scrollable region MUST be focusable or a keyboard-only user cannot reach what is
+         off-screen — here that is the whole "Run Locally" Copy button (WCAG 2.1.1). tabindex
+         makes it arrow-scrollable; role+aria-label give the now-focusable region a name, which
+         a focusable region requires. -->
+    <div
+      id="leaderboard-wrap"
+      class="table-wrap"
+      tabindex="0"
+      role="region"
+      aria-label="Leaderboard, scrollable"
+      hidden
+    >
       <table aria-label="Leaderboard">
         <thead id="leaderboard-head"></thead>
         <tbody id="leaderboard-body"></tbody>

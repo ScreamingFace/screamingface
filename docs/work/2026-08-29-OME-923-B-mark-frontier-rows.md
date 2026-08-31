@@ -399,9 +399,19 @@ from 0 to 47px, pushing about half the "Run Locally" Copy button behind the scro
 `.col-run` collapses, so mobile is unaffected; the window is viewport ~700-1010px.
 
 This is the exact failure `benchmark.js`'s own comment records as the reason `total_questions`
-was removed — the precedent being that a new column is paid for by removing one. Nothing was
-removed or width-capped to pay for Cost. Which column gives way, or whether the scroll is
-acceptable, is a product decision.
+was removed — the precedent being that a new column is paid for by removing one.
+
+**Owner decision, 2026-08-31: keep the scroll, keep the columns.** No column is dropped for now.
+
+That made a second defect the reason this was worth acting on at all: `.table-wrap` had
+`overflow-x: auto` but **no `tabindex`**, so the scroll existed only for a mouse. A keyboard-only
+user could not reach anything off-screen — which at these widths is the entire "Run Locally"
+Copy button (WCAG 2.1.1 Keyboard). The container is now `tabindex="0"` with `role="region"` and
+an `aria-label` (a focusable region needs an accessible name), plus a `:focus-visible` ring so
+the focus lands somewhere visible.
+
+Worth noting the scroll predates this ticket — every board wider than its container had the same
+unreachable-content problem. The Cost column made it reachable in practice, not novel.
 
 ### Not acted on
 

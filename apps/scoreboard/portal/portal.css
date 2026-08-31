@@ -277,3 +277,10 @@ td.col-open { white-space: nowrap; }
 .legend-item[hidden] {
   display: none;
 }
+
+/* The scroll container is focusable (see benchmark.html), so it needs a visible focus ring like
+   any other focus target — otherwise keyboard users land somewhere invisible. */
+.table-wrap:focus-visible {
+  outline: var(--border-strong) solid var(--focus);
+  outline-offset: 2px;
+}
