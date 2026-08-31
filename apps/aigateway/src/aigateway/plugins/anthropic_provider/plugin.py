@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping
 from typing import TYPE_CHECKING, Any
 
-from aigateway.core.api_key_strategy import ApiKeyStrategy
+from aigateway.core.api_key_strategy import API_KEY_AUTH_TYPE, ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.model_discovery_scope import DiscoveryScope, ProviderAuthContext
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
 from aigateway.core.plugin_base import (
@@ -56,7 +57,7 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_index import ProfileIndexStore
-    from aigateway.core.profile_models import AuthMode
+    from aigateway.core.profile_models import AuthMode, AuthType
 
 
 # OME-305: this provider's contribution to a global cache key. The date names the
@@ -68,6 +69,14 @@ GLOBAL_CACHE_ADAPTER_REVISION = (
 )
 
 _GATEWAY_MODEL_PREFIX = "anthropic/"
+
+
+def _discovery_api_key_headers(api_key: str) -> dict[str, str]:
+    # INVARIANT: Anthropic's REST API authenticates a raw API key with ``x-api-key``.
+    # ``Authorization: Bearer`` is its OAUTH shape — sending a raw key that way 401s. The
+    # chat builder below can use Bearer because LiteLLM re-maps it before the wire; a
+    # direct catalog dial has no such translation layer.
+    return {"x-api-key": api_key}
 
 
 def _api_key_headers(api_key: str) -> dict[str, str]:
@@ -85,37 +94,85 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
     def register_models(self) -> list[ModelEntry]:
         return list(self.settings.models)
 
+    def model_discovery_scope(self) -> DiscoveryScope:
+        # INVARIANT (OME-1026): Anthropic's catalog answers FOR THE CALLING KEY, so its
+        # listing is per-account data by construction. It is therefore PRIVATE: cached
+        # per authenticated profile and served only to that profile's owner. There is no
+        # deployment discovery credential and no shared Anthropic snapshot.
+        # AIDEV-NOTE: this plugin deliberately does NOT implement ``discover_live_models``.
+        # The base default returns None, so even if something asked the shared catalog for
+        # Anthropic rows, there is no code path that could produce credentialed ones.
+        if not self.settings.live_models:
+            return DiscoveryScope.NONE
+        return DiscoveryScope.PROFILE_CREDENTIAL
+
     def model_discovery_source(self) -> ModelDiscoverySource | None:
-        # INVARIANT (OME-1026 D3): live discovery is OPT-IN on the operator's dedicated
-        # credential. Declaring no source is the port's documented "no attempt, no
-        # connection" signal, so the catalog never opens a cache slot or dials — which is
-        # what makes "no key configured" mean literally zero Anthropic catalog egress.
-        # AIDEV-NOTE: account API keys and Claude-subscription OAuth tokens are deliberately
-        # NOT consulted here. One process-local snapshot serves every account, so an account
-        # credential would publish one account's entitlements to all of them.
-        if not (self.settings.live_models and self.settings.discovery_api_key is not None):
+        # Supplies the private cache's POLICY (ttl / stale / damping) and revision. The
+        # private identity is composed from profile OWNERSHIP data, never from this key and
+        # never from the credential.
+        if not self.settings.live_models:
             return None
         return ANTHROPIC_MODELS_DISCOVERY_SOURCE
 
-    async def discover_live_models(
+    def profile_discovery_unsupported_reason(self, *, auth_type: AuthType) -> str | None:
+        # INVARIANT (zero egress on unverified auth): Anthropic's Models API is verified
+        # only for API keys. Claude-subscription OAuth tokens are NOT known to work with
+        # /v1/models, and this has not been probed — so an OAuth profile must not spend a
+        # credentialed request to find out. Refusing here, before any credential is read,
+        # is what makes "OAuth profile ⇒ zero Models-API egress" true by construction
+        # rather than by a 401 handler.
+        if auth_type != API_KEY_AUTH_TYPE:
+            return "unsupported_auth_type"
+        return None
+
+    def discovery_credential_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialBlobStore | None = None,
+    ) -> CredentialStrategy:
+        """The credential strategy whose headers authenticate a MODELS-API dial.
+
+        # WHY separate from ``api_key_strategy_for``: the chat path's header builder emits
+        # ``Authorization: Bearer <key>`` because LiteLLM re-maps it downstream, but
+        # Anthropic's REST catalog authenticates raw keys with ``x-api-key`` — a bearer
+        # token there is an OAuth credential, not an API key. Same stored blob, same
+        # encrypted store, same class: only the header projection differs.
+        # INVARIANT: reusing ``ApiKeyStrategy`` keeps the store the ONLY component that
+        # decrypts, so neither core nor this plugin ever holds a plaintext key of its own.
+        """
+        return ApiKeyStrategy(
+            profile_name,
+            service=credential_service_for(profile_name),
+            account=self.settings.keychain_account,
+            header_builder=_discovery_api_key_headers,
+            credential_store=credential_store,
+        )
+
+    async def discover_profile_models(
         self,
         *,
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
+        auth: ProviderAuthContext,
     ) -> tuple[ModelEntry, ...] | None:
-        """The finished live listing: operator-explicit entries, then discovered ids.
+        """This PROFILE's finished listing: operator-explicit entries, then discovered ids.
 
         Three-outcome contract (see the base hook): entries = the catalog was reached;
-        raises sanitized ``DiscoveryError`` = attempted and FAILED, which the catalog maps
-        to its stale-then-seeds ladder; None = gated off, not attempted, no connection.
+        raises sanitized ``DiscoveryError`` = attempted and FAILED, which the private
+        catalog maps to its stale-then-seeds ladder; None = gated off, no connection.
         """
-        key = self.settings.discovery_api_key
-        if not (self.settings.live_models and key is not None):
+        if not self.settings.live_models:
+            return None
+        # Defense in depth: the private catalog already consulted
+        # ``profile_discovery_unsupported_reason``. Re-checking costs nothing and makes the
+        # zero-egress guarantee local to the function that would otherwise do the dialing.
+        if self.profile_discovery_unsupported_reason(auth_type=auth.auth_type) is not None:
             return None
         raw_ids = await fetch_live_model_ids(
             client=client,
             limits=limits,
-            api_key=key,
+            auth_headers=auth.headers,
             api_version=self.settings.api_version,
         )
         return live_listing_entries(self.settings, publishable_model_ids(raw_ids))

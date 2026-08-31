@@ -10,15 +10,17 @@ Wiring happens through the plugin registry, not through direct imports.
 
 AIDEV-NOTE (OME-653): the implementation is split across ``_ports`` (value types
 and the credential port), ``_provider`` (auth, model registration, dispatch),
-``_contract`` (the OME-479 chat-parameter hooks) and ``_resolvers`` (duck-typed
-credential resolution) purely to keep each file within the repository's 450-line
-limit. That layout is an implementation detail — THIS module is the public
-surface, and every name below is importable exactly as it was from the former
-single ``plugin_base`` module. Import from here, never from a half.
+``_contract`` (the OME-479 chat-parameter hooks), ``_model_discovery`` (the OME-1026
+model-LIST discovery hooks) and ``_resolvers`` (duck-typed credential resolution)
+purely to keep each file within the repository's 450-line limit, split by
+RESPONSIBILITY rather than by line count. That layout is an implementation detail —
+THIS module is the public surface, and every name below is importable exactly as it
+was from the former single ``plugin_base`` module. Import from here, never from a half.
 """
 
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass, GlobalCacheProjection
-from ._contract import ModelDiscoverySource, ProviderPluginBase
+from ._contract import ProviderPluginBase
+from ._model_discovery import ModelDiscoverySource
 from ._ports import (
     CredentialStrategy,
     ModelAdmission,

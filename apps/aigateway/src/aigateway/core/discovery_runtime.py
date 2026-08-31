@@ -20,13 +20,18 @@ comes from the provider's own fixed allowlisted constants — never a caller-sup
 or response-derived URL, never a followed redirect.
 
 INVARIANT (credentials, narrowed by OME-1026): no credential is in scope on the
-``observe`` path, which still reads PUBLIC catalogs only. That is no longer true of
-every consumer of the shared client: a provider MAY attach an operator-configured
-DEPLOYMENT discovery credential as static headers to its OWN allowlisted origin, and
-the live model catalog named above does exactly that for Anthropic's
-credentialed-only listing. Never an ACCOUNT credential, and never on this path.
+``observe`` path, which reads PUBLIC catalogs only. That is not true of every consumer
+of the shared client: the PRIVATE profile catalog
+(``core.profile_model_catalog``) dials a provider's credentialed-only listing with ONE
+authenticated profile's OWN stored credential, projected into headers by that
+profile's credential strategy and sent only to the provider's own allowlisted origin.
+Its result is cached under that profile's private identity and served only to its
+owner. There is deliberately NO deployment-wide discovery credential: an
+operator-configured key would make one party's entitlements the whole deployment's
+listing, which is why ``PUBLIC_GLOBAL`` discovery is defined as "no credential was
+used to fetch it" rather than "no credential was needed".
 AIDEV-NOTE: adding request logging or an httpx event hook to this shared client can
-now touch a credential. It could not before OME-1026.
+now touch an ACCOUNT credential — one profile's own. It could not before OME-1026.
 """
 
 from __future__ import annotations

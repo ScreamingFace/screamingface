@@ -37,12 +37,14 @@ from aigateway.core.parameter_discovery import (
     DiscoveryError,
     DiscoveryHttpClient,
     DiscoveryLimits,
+    DiscoverySourceRef,
     fetch_discovery_json,
 )
 from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS
 
 from .observations import LOCAL_SOURCE, MODEL_SOURCE, _dedup_sorted, _observation
 from .openapi_schema import openapi_request_schema_present, parse_openapi_endpoint_observations
+from .settings import GATEWAY_MODEL_PREFIX, is_valid_upstream_model_id
 
 # Fixed public sources (the async fetch step passes these to the bounded
 # transport; the parsers below never dereference a URL themselves).
@@ -238,6 +240,67 @@ _OPENAPI_MIN_TIMEOUT_S = 10.0
 _OPENAPI_MIN_BYTES = 4_000_000
 _OPENAPI_MIN_DEPTH = 32
 _OPENAPI_MIN_NODES = 150_000
+
+
+def upstream_model_for_discovery(model: str) -> str | None:
+    """The upstream catalog key for a gateway id, or None when there is none.
+
+    ONE predicate shared by ``chat_discovery_source`` and
+    ``discover_chat_parameter_snapshot``: the source declaration and the fetch must
+    agree on exactly which ids are discoverable, or the runtime sees a provider that
+    promised evidence and then reported NO ATTEMPT. It applies the SAME strip as
+    ``prepare_chat_body``, so discovery and dispatch also agree on model identity.
+    """
+    if not model.startswith(GATEWAY_MODEL_PREFIX):
+        return None
+    upstream = model[len(GATEWAY_MODEL_PREFIX) :]
+    return upstream if is_valid_upstream_model_id(upstream) else None
+
+
+def openrouter_chat_discovery_source(model: str) -> DiscoverySourceRef | None:
+    """Declare the public catalog for ``model``, or nothing when it is not ours.
+
+    OME-629: declared BEFORE any fetch, so the observation cache can judge a stored
+    entry's trustworthiness without paying for a round trip. The revision names the
+    reading as well as the source.
+
+    # INVARIANT: the SAME predicate gates this and the fetch below — a model this
+    # provider cannot dispatch has nothing to discover. Owning it here (rather than
+    # only in the fetch) makes "declared a source, then reported NOT ATTEMPTED"
+    # structurally unreachable, which is the one inconsistency the runtime cannot
+    # distinguish from a real outage.
+    # AIDEV-NOTE (OME-647): ``source`` is the provider's CACHE-KEY label, not a
+    # published claim about which document an observation came from — that provenance
+    # rides on each observation. The snapshot draws on the catalog AND the OpenAPI
+    # document, and the REVISION names the pair.
+    """
+    if upstream_model_for_discovery(model) is None:
+        return None
+    return DiscoverySourceRef(source=MODEL_SOURCE, revision=SNAPSHOT_SOURCE_REVISION)
+
+
+async def discover_openrouter_chat_snapshot(
+    model: str,
+    *,
+    client: DiscoveryHttpClient,
+    limits: DiscoveryLimits | None = None,
+) -> ProviderDiscoverySnapshot | None:
+    """The DYNAMIC source for a gateway model id (OME-479 §5.1).
+
+    Strips the gateway prefix to the upstream id the public catalog is keyed by — the
+    SAME rule as ``prepare_chat_body``, so discovery and dispatch agree on identity. A
+    value that is not a valid gateway id is not dispatchable, so there is nothing to
+    discover: return None WITHOUT opening a connection — NOT ATTEMPTED, which is a
+    different claim from "attempted and failed".
+
+    # INVARIANT: never enables a parameter (only a rule does); off the chat dispatch
+    # path; a sanitized DiscoveryError from the fetch PROPAGATES so the cache can
+    # degrade honestly rather than store a failure as fresh.
+    """
+    upstream = upstream_model_for_discovery(model)
+    if upstream is None:
+        return None
+    return await discover_openrouter_snapshot(upstream, client=client, limits=limits)
 
 
 def openapi_discovery_limits(limits: DiscoveryLimits) -> DiscoveryLimits:

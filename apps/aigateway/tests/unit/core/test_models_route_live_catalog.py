@@ -17,11 +17,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from aigateway.core.background_refresh import BackgroundRefreshManager
 from aigateway.core.discovery_runtime import DiscoveryRuntime
-from aigateway.core.model_catalog import ModelCatalog, ModelListingProvider
+from aigateway.core.model_catalog import ModelCatalog
 from aigateway.core.parameter_discovery import (
     DiscoveryError,
-    DiscoveryHttpClient,
     DiscoveryLimits,
     RawResponse,
 )
@@ -327,18 +327,29 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
 ) -> None:
     _enable_openrouter(monkeypatch, OpenRouterPluginSettings(enabled=True))
 
-    class _SlowClient:
+    callers = 6
+    # The barrier that makes this deterministic: the ONE in-flight refresh is held
+    # until all six callers have executed ``start_or_join``, then released.
+    # WHY it replaced ``await asyncio.sleep(0.2)``: a sleep only assumes the six
+    # arrive while the dial is outstanding. Under the coverage gate they do not — line
+    # tracing spreads the six requests out far enough that the first refresh finishes
+    # first, and the late callers then start refreshes of their own (five distinct
+    # manager task ids were observed, against one upstream dial). The contract this
+    # test states is unchanged; only the synchronisation is no longer a guess.
+    all_joined = asyncio.Event()
+
+    class _HeldClient:
         def __init__(self) -> None:
             self.dialed: list[str] = []
 
         async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
             self.dialed.append(url)
-            await asyncio.sleep(0.2)
+            await asyncio.wait_for(all_joined.wait(), 10)
             return RawResponse(
                 status=200, content_type="application/json", body=_strict_body(["openai/gpt-5"])
             )
 
-    http = _SlowClient()
+    http = _HeldClient()
     app = cast(FastAPI, authenticated_client.app)
     app.state.discovery_runtime = DiscoveryRuntime(
         client=http,
@@ -349,34 +360,49 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
     )
     app.state.model_catalog = ModelCatalog(clock=_Clock())
 
-    # WHY instrument the catalog instead of timing the client: every caller
-    # enters ``entries_for`` and all but the winner park on the single-flight,
-    # so its peak depth IS the concurrency. Client-side start stamps prove
-    # nothing — the pool launches all six threads at once, so they are all ~t0
-    # even if the server answered them strictly one after another.
-    depth = {"now": 0, "peak": 0}
-    unwrapped = ModelCatalog.entries_for
+    # WHY instrument the task manager instead of timing the client: client-side
+    # start stamps prove nothing — the pool launches all six threads at once, so
+    # they are all ~t0 even if the server answered them strictly one after
+    # another. The manager is where single-flight now lives, so the two facts that
+    # matter are observable there: how many DISTINCT tasks were created for the
+    # provider's key, and how many callers were parked on one at the same moment.
+    # OME-1026 F2 (owner-approved re-pin): this test previously counted callers
+    # inside ``ModelCatalog.entries_for``, which every caller used to enter before
+    # parking on the observation cache's single-flight lock. The route now waits on
+    # ONE manager-owned task with its own budget, so exactly one caller reaches
+    # ``entries_for`` and the other five join the task. The invariant is unchanged
+    # and the guarantee is stronger — one task rather than six coroutines on a lock —
+    # so the probe moved to where the joining happens.
+    joined: list[tuple[object, int]] = []
+    waiters = {"now": 0, "peak": 0}
+    start_or_join = BackgroundRefreshManager.start_or_join
+    wait_up_to = BackgroundRefreshManager.wait_up_to
 
-    async def _counting_entries_for(
-        self: ModelCatalog,
-        plugin: ModelListingProvider,
-        *,
-        client: DiscoveryHttpClient,
-        limits: DiscoveryLimits | None,
-    ) -> tuple[ModelEntry, ...] | None:
-        depth["now"] += 1
-        depth["peak"] = max(depth["peak"], depth["now"])
+    def _recording_start_or_join(self, key, factory):
+        task = start_or_join(self, key, factory)
+        if task is not None and key[0] == "openrouter":
+            joined.append((key, id(task)))
+            if len(joined) == callers:
+                # Every caller has joined, so the held dial may now complete. Both this
+                # and the wait above run on the app's single event loop, so the release
+                # is ordered after the sixth join with no lock and no sleep.
+                all_joined.set()
+        return task
+
+    async def _counting_wait_up_to(self, task, *, timeout: float) -> bool:
+        waiters["now"] += 1
+        waiters["peak"] = max(waiters["peak"], waiters["now"])
         try:
-            return await unwrapped(self, plugin, client=client, limits=limits)
+            return await wait_up_to(self, task, timeout=timeout)
         finally:
-            depth["now"] -= 1
+            waiters["now"] -= 1
 
-    monkeypatch.setattr(ModelCatalog, "entries_for", _counting_entries_for)
+    monkeypatch.setattr(BackgroundRefreshManager, "start_or_join", _recording_start_or_join)
+    monkeypatch.setattr(BackgroundRefreshManager, "wait_up_to", _counting_wait_up_to)
 
     def _get(_n: int) -> int:
         return authenticated_client.get("/v1/models").status_code
 
-    callers = 6
     with ThreadPoolExecutor(max_workers=callers) as pool:
         statuses = list(pool.map(_get, range(callers)))
 
@@ -384,9 +410,15 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
     # INVARIANT: single-flight — one refresh serves every contemporaneous caller,
     # so a burst of listings costs ONE upstream fetch chain, not N.
     assert http.dialed == [LIVE_MODELS_URL]
-    # ...and all six really were in flight together, so the single dial is
+    # All six callers asked for the provider's refresh...
+    assert len(joined) == callers, joined
+    # ...and every one of them was handed the SAME task object, which is what
+    # "joined" means here — not six tasks that happened to share a cache.
+    assert len({task_id for _key, task_id in joined}) == 1, joined
+    assert len({key for key, _task_id in joined}) == 1, "one identity, one refresh"
+    # ...and they really were parked on it together, so the single dial is
     # single-flight and not just a cache hit behind a serialized server.
-    assert depth["peak"] == callers
+    assert waiters["peak"] == callers, waiters
 
 
 def test_a_raising_discovery_source_stays_loud_on_the_listing_route(

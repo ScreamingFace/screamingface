@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
-from pydantic import SecretStr
-
 from aigateway.core.plugin_base import ModelEntry
 from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSettings
 
@@ -171,41 +168,38 @@ def test_anthropic_provider_uses_injected_settings() -> None:
     assert strategy.credential_account() == "account-custom"
 
 
-def test_discovery_api_key_is_secret_and_optional(monkeypatch) -> None:
-    """OME-1026 U1 — the discovery credential is optional and never renders in the clear.
+def test_there_is_no_deployment_discovery_credential(monkeypatch) -> None:
+    """OME-1026 rework — the dedicated deployment discovery key was REMOVED.
 
-    # INVARIANT (D2): live Anthropic discovery is OPT-IN. The default MUST be None so a
-    # deployment that configures nothing performs zero catalog egress and lists exactly
-    # today's compiled seeds.
-    # INVARIANT (credential hygiene): the value is a ``SecretStr``, so no repr of the
-    # settings object — the shape that reaches a log line, a traceback frame, or a
-    # debug dump — can carry the key material.
+    # WHY this test replaces the three that previously specified that key: the owner
+    # decision is that Anthropic discovery is PRIVATE and profile-scoped. A
+    # deployment-wide credential would make one key's entitlements the whole
+    # deployment's listing and would answer "whose models are these?" with "the
+    # operator's", which is the design that was rejected.
+    # INVARIANT: absence is asserted structurally (the field does not exist) AND
+    # operationally (setting the old env var changes nothing), so a well-meaning
+    # re-introduction fails here rather than silently restoring global egress.
     """
     _clear_anthropic_env(monkeypatch)
 
-    assert AnthropicPluginSettings().discovery_api_key is None
+    assert "discovery_api_key" not in AnthropicPluginSettings.model_fields
 
-    secret = "sk-ant-not-a-real-key-0123456789"
-    monkeypatch.setenv("AIGW_ANTHROPIC_DISCOVERY_API_KEY", secret)
+    monkeypatch.setenv("AIGW_ANTHROPIC_DISCOVERY_API_KEY", "sk-ant-not-a-real-key-0123456789")
     settings = AnthropicPluginSettings()
 
-    assert settings.discovery_api_key is not None
-    # The provider may still READ it deliberately to build the dial headers.
-    assert settings.discovery_api_key.get_secret_value() == secret
-    # ...but no accidental stringification exposes it.
-    assert secret not in repr(settings)
-    assert secret not in str(settings)
-    assert secret not in repr(settings.discovery_api_key)
-    assert secret not in str(settings.discovery_api_key)
+    assert not hasattr(settings, "discovery_api_key")
+    # ``extra="ignore"``: the stale variable is dropped, not stored under another name.
+    assert "not-a-real-key" not in repr(settings)
+    assert "not-a-real-key" not in str(settings.model_dump())
 
 
 def test_live_models_defaults_true_and_env_overrides(monkeypatch) -> None:
-    """OME-1026 U1 — the fast off-switch that keeps the key configured.
+    """OME-1026 rework — the off-switch for Anthropic's live catalog.
 
-    # WHY default True while the feature is still opt-in: the real opt-in is the KEY
-    # (D3 — the source is declared iff ``live_models and discovery_api_key is not None``),
-    # so this flag mirrors OpenRouter's naming and exists to silence discovery WITHOUT
-    # unconfiguring the credential.
+    # WHY default True is safe with no credential in sight: the flag only decides
+    # whether the provider DECLARES a discovery scope. Egress still requires an
+    # authenticated api-key profile whose owner asks for its own model list, so a
+    # deployment that stores no key performs zero catalog egress with the flag on.
     """
     _clear_anthropic_env(monkeypatch)
 
@@ -213,37 +207,3 @@ def test_live_models_defaults_true_and_env_overrides(monkeypatch) -> None:
 
     monkeypatch.setenv("AIGW_ANTHROPIC_LIVE_MODELS", "false")
     assert AnthropicPluginSettings().live_models is False
-
-
-@pytest.mark.parametrize("blank", ["", " ", "   ", "\t", "\n", " \t\n "])
-def test_a_blank_discovery_api_key_is_treated_as_absent(monkeypatch, blank: str) -> None:
-    """OME-1026: a DECLARED-but-empty key is not a credential — it must read as absent.
-
-    # WHY normalize here rather than at the two gates: an env var that exists but holds an
-    # empty string is a real deployment shape (compose ``${VAR}`` interpolation of an unset
-    # host var, an existing-but-empty k8s Secret key, a chart that emits every key). Left
-    # raw, ``SecretStr('')`` is not None, so D3's ``discovery_api_key is not None`` predicate
-    # would declare a source and dial Anthropic with an empty ``x-api-key``.
-    # INVARIANT: blank in, ``None`` out — so D3's predicate stays literally true and every
-    # consumer of this field inherits the fix instead of repeating the check.
-    """
-    _clear_anthropic_env(monkeypatch)
-    monkeypatch.setenv("AIGW_ANTHROPIC_DISCOVERY_API_KEY", blank)
-
-    assert AnthropicPluginSettings().discovery_api_key is None
-
-    # Direct construction normalizes identically — tests and callers cannot bypass it.
-    assert AnthropicPluginSettings(discovery_api_key=SecretStr(blank)).discovery_api_key is None
-
-
-def test_a_real_discovery_api_key_survives_normalization_untouched(monkeypatch) -> None:
-    """The blank-value rule must not trim or otherwise mangle a real credential."""
-    _clear_anthropic_env(monkeypatch)
-    secret = "sk-ant-not-a-real-key-0123456789"
-    monkeypatch.setenv("AIGW_ANTHROPIC_DISCOVERY_API_KEY", secret)
-
-    settings = AnthropicPluginSettings()
-
-    assert settings.discovery_api_key is not None
-    assert settings.discovery_api_key.get_secret_value() == secret
-    assert secret not in repr(settings)

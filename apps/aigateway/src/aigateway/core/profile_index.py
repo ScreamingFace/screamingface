@@ -1,3 +1,15 @@
+"""The account-scoped profile index row: read, and mutate through its CAS.
+
+The index row is the sole cross-worker serializer for profile ownership (OME-307):
+every mutation below runs its decision INSIDE an ``ORMStore.mutate`` callback, so the
+decision is re-evaluated against the latest committed row on each CAS retry.
+
+WHY the ownership RULES live next door in :mod:`aigateway.core.profile_index_ownership`
+and not here: they are pure predicates over an index document with no I/O, while this
+store is already at the source-file size limit. The conflict types are re-exported here
+(PEP 484 redundant alias) because callers import them from this module.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,6 +17,16 @@ import logging
 from datetime import datetime
 
 from .credential_blob.store import CredentialBlobStore, ORMStore
+from .profile_index_ownership import (
+    CredentialOwnershipConflict as CredentialOwnershipConflict,
+)
+from .profile_index_ownership import (
+    ProfileTransitionConflict as ProfileTransitionConflict,
+)
+from .profile_index_ownership import (
+    bump_credential_generation,
+    require_expected_ownership,
+)
 from .profile_models import AuthType, Profile, ProfileDefaults, ProfileIndex, ProfileState
 
 logger = logging.getLogger(__name__)
@@ -12,10 +34,6 @@ logger = logging.getLogger(__name__)
 INDEX_CREDENTIAL_SERVICE = "aigateway:index"
 _LEGACY_INDEX_ACCOUNT = "default"
 _INDEX_ACCOUNT_PREFIX = "account:"
-
-
-class ProfileTransitionConflict(RuntimeError):
-    """Raised when a stale authentication flow no longer owns a pending profile."""
 
 
 def _index_account_for(account_id: str) -> str:
@@ -52,8 +70,26 @@ class ProfileIndexStore:
         legacy = ProfileIndex.model_validate_json(raw)
         return ProfileIndex(profiles=[p for p in legacy.profiles if p.account_id == account_id])
 
-    async def upsert(self, profile: Profile, *, require_present: bool = False) -> None:
+    async def upsert(
+        self,
+        profile: Profile,
+        *,
+        require_present: bool = False,
+        credential_owner_unchanged: bool = False,
+        expected_credential_generation: int | None = None,
+        expected_auth_type: AuthType | None = None,
+    ) -> None:
         """Insert or replace ``profile`` in its account index row.
+
+        ``credential_owner_unchanged`` suppresses the credential-generation bump for a
+        write that does NOT replace the credential's owner — today only a routine token
+        refresh (see :func:`_bump_credential_generation` for the contract).
+
+        # WHY it defaults to ``False``, i.e. to bumping: the two mistakes are not
+        # symmetric. Bumping when nothing changed costs one avoidable catalog refetch;
+        # NOT bumping when the owner changed lets one owner's cached private catalog be
+        # served under another's credential. A new call site that forgets to think about
+        # this gets the safe answer.
 
         INVARIANT: when ``require_present`` (the caller observed the profile as existing when
         its operation began), a concurrent delete that removed it WINS — publication raises
@@ -62,6 +98,16 @@ class ProfileIndexStore:
         latest committed index on every ``ORMStore.mutate`` CAS retry; the index-row CAS is the
         sole cross-worker serializer. Default ``False`` keeps first-time API-key/OAuth creates
         and error-marking writes unconditional.
+
+        INVARIANT (OME-1026 adversarial B2): ``expected_credential_generation`` and
+        ``expected_auth_type`` make publication conditional on OWNERSHIP, not merely on
+        presence. ``require_present`` alone is satisfied by a profile a DIFFERENT owner now
+        holds — which is how a stale refresh restored the previous owner's metadata over a
+        committed replacement while the durable generation stayed the replacement's. Both
+        checks run inside the same mutator as the presence check, so they are re-evaluated on
+        every CAS retry and are safe across workers. Raises
+        :class:`CredentialOwnershipConflict` (a ``ProfileTransitionConflict``, so existing
+        handlers keep working) when either no longer matches.
         """
         if not profile.account_id:
             raise ValueError("profile.account_id is required")
@@ -73,8 +119,18 @@ class ProfileIndexStore:
                 # WHY: legacy installs used one global row; seed the account row lazily
                 # so existing profiles survive the storage-shape split.
                 idx = legacy_seed if raw is None else ProfileIndex.model_validate_json(raw)
-                if require_present and not any(p.id == profile.id for p in idx.profiles):
+                current = next((p for p in idx.profiles if p.id == profile.id), None)
+                if require_present and current is None:
                     raise ProfileTransitionConflict("profile was concurrently deleted")
+                require_expected_ownership(
+                    idx,
+                    current,
+                    profile_id=profile.id,
+                    expected_generation=expected_credential_generation,
+                    expected_auth_type=expected_auth_type,
+                )
+                if not credential_owner_unchanged:
+                    bump_credential_generation(idx, profile.id)
                 idx.profiles = [p for p in idx.profiles if p.id != profile.id] + [profile]
                 return idx.model_dump_json()
 
@@ -171,6 +227,7 @@ class ProfileIndexStore:
                 }
                 if account_label is not None:
                     changes["account_label"] = account_label
+                bump_credential_generation(idx, profile.id)
                 published = current.model_copy(update=changes)
                 # INVARIANT: merge lifecycle fields into the row validated by this CAS. A
                 # metadata PATCH that committed after the callback's earlier read must survive.
@@ -317,6 +374,21 @@ class ProfileIndexStore:
             for p in idx.profiles
             if p.account_id == account_id and (provider is None or p.provider == provider)
         ]
+
+    async def get_with_credential_generation(
+        self, account_id: str, provider: str, name: str
+    ) -> tuple[Profile, int] | None:
+        """The profile AND its durable credential generation, from ONE index read.
+
+        # WHY combined rather than a second lookup (OME-1026 F3): reading the index
+        # decrypts a credential blob. The private model catalog needs both values on
+        # every request, and splitting them would double that decryption per request.
+        """
+        idx = await self.read(account_id)
+        for p in idx.profiles:
+            if p.account_id == account_id and p.provider == provider and p.name == name:
+                return p, idx.credential_generations.get(p.id, 0)
+        return None
 
     async def get(self, account_id: str, provider: str, name: str) -> Profile | None:
         idx = await self.read(account_id)

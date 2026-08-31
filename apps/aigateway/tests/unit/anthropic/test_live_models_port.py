@@ -1,25 +1,31 @@
 """OME-1026 U5/U6: the publishable-id policy, the provider-owned merge, and the port.
 
-FEATURE: opt-in live Anthropic model discovery — turning a walked catalog into the finished
-rows ``GET /v1/models`` publishes, and gating the whole thing on the operator's opt-in.
+FEATURE: profile-scoped live Anthropic model discovery — turning a walked catalog into the
+finished rows one PROFILE's model list publishes, using that profile's own stored credential.
 
 INVARIANT (D8, provider-owned merge): the PROVIDER owns the merge of operator-explicit models
 with discovered ids. Core receives finished rows and never learns which were seeds, so seed
 provenance cannot leak into route logic.
 
-INVARIANT (D3, opt-in): ``model_discovery_source()`` returns None unless a discovery key is
-configured AND ``live_models`` is true. Returning None is the port's documented "no attempt,
-no connection" signal, so every off state means literally zero catalog egress.
+INVARIANT (OME-1026 rework, scope): Anthropic's catalog answers FOR THE CALLING KEY, so its
+listing is PROFILE_CREDENTIAL — one private snapshot per authenticated profile. The provider
+implements ``discover_profile_models`` and deliberately NOT the public ``discover_live_models``,
+so there is no code path that could produce credentialed rows for the shared catalog.
+
+INVARIANT (zero egress when off): ``live_models=false`` withdraws the scope and the source, and
+both the public and the private hook return None. Returning None is the port's documented "no
+attempt, no connection" signal.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
-from pydantic import SecretStr
 
-from aigateway.core.parameter_discovery import DiscoveryError
+from aigateway.core.model_discovery_scope import DiscoveryScope, ProviderAuthContext
+from aigateway.core.parameter_discovery import DiscoveryError, RawResponse
 from aigateway.core.plugin_base import ModelEntry
 from aigateway.plugins.anthropic_provider.live_models import (
     ANTHROPIC_MODELS_DISCOVERY_SOURCE,
@@ -41,6 +47,64 @@ class _LoudClient:
     async def get(self, url: str, *, timeout_s: float, max_bytes: int, headers: Any = None) -> Any:
         self.dialed.append(url)
         raise AssertionError(f"discovery is OFF but a dial was attempted: {url}")
+
+
+class _OnePageClient:
+    """A canned single-page catalog that RECORDS the exact wire headers."""
+
+    def __init__(self) -> None:
+        self.headers_seen: list[dict[str, str]] = []
+
+    async def get(
+        self, url: str, *, timeout_s: float, max_bytes: int, headers: Any = None
+    ) -> RawResponse:
+        assert headers is not None
+        self.headers_seen.append(dict(headers))
+        if url != "https://api.anthropic.com/v1/models?limit=1000":
+            raise AssertionError(f"unexpected dial: {url}")
+        body = json.dumps(
+            {
+                "data": [
+                    {"id": "claude-opus-5", "type": "model"},
+                    {"id": "claude-opus-5-20260801", "type": "model"},
+                ],
+                "has_more": False,
+            }
+        )
+        return RawResponse(status=200, content_type="application/json", body=body)
+
+
+class _FakeCredentialStore:
+    """The encrypted store's seam: hands back one profile's decrypted blob.
+
+    # WHY a fake rather than the real ORMStore: this test is about which HEADER the
+    # provider projects a stored key into, not about persistence. The real store needs a
+    # database and a master key, neither of which changes the header shape.
+    """
+
+    def __init__(self, blob: dict[str, str]) -> None:
+        self._blob = json.dumps(blob)
+        self.reads = 0
+
+    async def read(self, service: str, account: str) -> str | None:
+        self.reads += 1
+        return self._blob
+
+    # INVARIANT: discovery only READS a credential. These three complete the
+    # ``CredentialBlobStore`` protocol so the type checker accepts the seam, and they
+    # fail the test if the discovery path ever mutates stored credential material.
+    async def write(self, service: str, account: str, value: str) -> None:
+        raise AssertionError("discovery must never write a credential")
+
+    async def delete(self, service: str, account: str) -> None:
+        raise AssertionError("discovery must never delete a credential")
+
+    async def mutate(self, service: str, account: str, mutator: object) -> None:
+        raise AssertionError("discovery must never mutate a credential")
+
+
+def _api_key_auth() -> ProviderAuthContext:
+    return ProviderAuthContext(headers={"x-api-key": _FAKE_KEY}, auth_type="api_key")
 
 
 def _settings(**overrides: Any) -> AnthropicPluginSettings:
@@ -194,59 +258,52 @@ def test_live_listing_keeps_unfolded_alias_snapshot_order_after_dedupe() -> None
 
 
 # --------------------------------------------------------------------------------------
-# U6 — the port on the plugin.
+# The private port on the plugin (OME-1026 rework).
 # --------------------------------------------------------------------------------------
 
 
-def test_no_discovery_key_declares_no_source() -> None:
+def test_anthropic_declares_a_private_profile_scope() -> None:
+    """INVARIANT: Anthropic's listing is per-account data BY CONSTRUCTION.
+
+    # WHY not PUBLIC_GLOBAL: ``GET /v1/models`` upstream answers "what may the calling
+    # key call". One shared snapshot would therefore publish whichever account's
+    # credential happened to fetch it to every other account.
+    """
     plugin = AnthropicProviderPlugin(settings=_settings())
 
-    assert plugin.model_discovery_source() is None
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        pytest.param({"live_models": False}, id="live_models_off_no_key"),
-        pytest.param(
-            {"live_models": False, "discovery_api_key": SecretStr(_FAKE_KEY)},
-            id="live_models_off_with_key",
-        ),
-        pytest.param({}, id="no_key_at_all"),
-    ],
-)
-def test_every_off_combination_declares_no_source(overrides: dict[str, Any]) -> None:
-    plugin = AnthropicProviderPlugin(settings=_settings(**overrides))
-
-    assert plugin.model_discovery_source() is None
-
-
-def test_a_configured_key_declares_the_expected_source() -> None:
-    plugin = AnthropicProviderPlugin(settings=_settings(discovery_api_key=SecretStr(_FAKE_KEY)))
-
+    assert plugin.model_discovery_scope() is DiscoveryScope.PROFILE_CREDENTIAL
     source = plugin.model_discovery_source()
-
-    assert source is not None
     assert source == ANTHROPIC_MODELS_DISCOVERY_SOURCE
-    # INVARIANT: the cache identity carries NO credential material — the snapshot is
-    # deployment-wide, and a key in the identity would silently shard it per credential.
+    # INVARIANT: the declared source carries cache POLICY only. The private identity is
+    # composed by the profile catalog from ownership data; a credential in either field
+    # would put secret-derived material into cache keys and log lines.
+    assert source is not None
     assert _FAKE_KEY not in source.key
     assert _FAKE_KEY not in source.revision
 
 
+def test_live_models_off_withdraws_the_scope_and_the_source() -> None:
+    plugin = AnthropicProviderPlugin(settings=_settings(live_models=False))
+
+    assert plugin.model_discovery_scope() is DiscoveryScope.NONE
+    assert plugin.model_discovery_source() is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "overrides",
-    [
-        pytest.param({}, id="no_key_at_all"),
-        pytest.param({"live_models": False}, id="live_models_off_no_key"),
-        pytest.param(
-            {"live_models": False, "discovery_api_key": SecretStr(_FAKE_KEY)},
-            id="live_models_off_with_key",
-        ),
-    ],
+    [pytest.param({}, id="discovery_on"), pytest.param({"live_models": False}, id="discovery_off")],
 )
-async def test_discovery_off_returns_none_with_zero_egress(overrides: dict[str, Any]) -> None:
+async def test_the_public_hook_is_never_implemented_for_anthropic(
+    overrides: dict[str, Any],
+) -> None:
+    """INVARIANT (structural, not a rule to remember): no public Anthropic listing exists.
+
+    # WHY assert it even with discovery ON: this is the guarantee that one account's
+    # entitlements cannot reach the deployment-wide catalog. The shared ``ModelCatalog``
+    # also refuses the private scope, so the leak is denied twice — but only THIS
+    # assertion fails if someone re-adds a deployment-credentialed public fetch.
+    """
     plugin = AnthropicProviderPlugin(settings=_settings(**overrides))
     client = _LoudClient()
 
@@ -254,64 +311,108 @@ async def test_discovery_off_returns_none_with_zero_egress(overrides: dict[str, 
     assert client.dialed == []
 
 
-@pytest.mark.asyncio
-async def test_an_oauth_only_configuration_never_dials_for_discovery() -> None:
-    """The locked refutation: a Claude-subscription token is NOT a discovery credential.
+def test_an_oauth_profile_is_refused_before_any_credential_is_touched() -> None:
+    """The locked refutation: a Claude-subscription token is NOT a Models-API credential.
 
-    # WHY pinned: OAuth is the Anthropic provider's normal auth path, so "we already have a
-    # token, use it" is the tempting shortcut. One shared snapshot serves every account, so
-    # an account credential would publish one user's entitlements to everyone.
+    # WHY refuse rather than try: Anthropic's ``/v1/models`` is verified for API keys
+    # only, and this has not been probed with an OAuth token. Refusing on the declared
+    # auth type means an OAuth profile spends ZERO credentialed requests to find out.
     """
+    plugin = AnthropicProviderPlugin(settings=_settings())
+
+    assert plugin.profile_discovery_unsupported_reason(auth_type="oauth") == (
+        "unsupported_auth_type"
+    )
+    assert plugin.profile_discovery_unsupported_reason(auth_type="api_key") is None
+
+
+@pytest.mark.asyncio
+async def test_an_oauth_auth_context_never_dials_even_if_it_reaches_the_provider() -> None:
+    """Defence in depth: the catalog gates first, and the provider re-checks."""
     plugin = AnthropicProviderPlugin(settings=_settings())
     client = _LoudClient()
 
-    assert plugin.model_discovery_source() is None
-    assert await plugin.discover_live_models(client=client) is None
+    entries = await plugin.discover_profile_models(
+        client=client,
+        auth=ProviderAuthContext(
+            headers={"authorization": "Bearer oauth-token"}, auth_type="oauth"
+        ),
+    )
+
+    assert entries is None
     assert client.dialed == []
 
 
 @pytest.mark.asyncio
-async def test_a_healthy_snapshot_returns_merged_entries() -> None:
-    import json
+async def test_discovery_off_returns_none_for_the_private_hook_with_zero_egress() -> None:
+    plugin = AnthropicProviderPlugin(settings=_settings(live_models=False))
+    client = _LoudClient()
 
-    from aigateway.core.parameter_discovery import RawResponse
+    entries = await plugin.discover_profile_models(client=client, auth=_api_key_auth())
 
-    class _OnePageClient:
-        def __init__(self) -> None:
-            self.headers_seen: list[dict[str, str]] = []
+    assert entries is None
+    assert client.dialed == []
 
-        async def get(
-            self, url: str, *, timeout_s: float, max_bytes: int, headers: Any = None
-        ) -> RawResponse:
-            assert headers is not None
-            self.headers_seen.append(dict(headers))
-            if url != "https://api.anthropic.com/v1/models?limit=1000":
-                raise AssertionError(f"unexpected dial: {url}")
-            body = json.dumps(
-                {
-                    "data": [
-                        {"id": "claude-opus-5", "type": "model"},
-                        {"id": "claude-opus-5-20260801", "type": "model"},
-                    ],
-                    "has_more": False,
-                }
-            )
-            return RawResponse(status=200, content_type="application/json", body=body)
 
-    plugin = AnthropicProviderPlugin(
-        settings=_settings(discovery_api_key=SecretStr(_FAKE_KEY), api_version="2023-06-01")
-    )
+@pytest.mark.asyncio
+async def test_a_healthy_profile_snapshot_returns_merged_entries() -> None:
+    plugin = AnthropicProviderPlugin(settings=_settings(api_version="2023-06-01"))
     client = _OnePageClient()
 
-    entries = await plugin.discover_live_models(client=client)
+    entries = await plugin.discover_profile_models(client=client, auth=_api_key_auth())
 
     assert entries is not None
     assert [entry.model_name for entry in entries] == [
         "claude-opus-5",
         "claude-opus-5-20260801",
     ]
-    # The configured api_version travels with the key, not a hardcoded copy.
+    # INVARIANT (the wire shape): a RAW key authenticates with ``x-api-key``.
+    # ``Authorization: Bearer`` is Anthropic's OAUTH shape — the chat path may use it
+    # because LiteLLM re-maps it downstream, but a direct catalog dial has no such
+    # translation layer, so a bearer-shaped raw key would 401.
     assert client.headers_seen == [{"x-api-key": _FAKE_KEY, "anthropic-version": "2023-06-01"}]
+
+
+@pytest.mark.asyncio
+async def test_only_allowlisted_auth_headers_reach_the_wire() -> None:
+    """INVARIANT (header hardening): the provider decides what leaves, not the caller.
+
+    # WHY: the auth context is built from a credential strategy whose header set may grow
+    # (a beta header, a cookie, a proxy artefact). Forwarding whatever it contains would
+    # let an unrelated header — or a caller-influenced one — be sent to Anthropic
+    # alongside the key.
+    """
+    plugin = AnthropicProviderPlugin(settings=_settings(api_version="2023-06-01"))
+    client = _OnePageClient()
+
+    await plugin.discover_profile_models(
+        client=client,
+        auth=ProviderAuthContext(
+            headers={
+                "x-api-key": _FAKE_KEY,
+                "cookie": "session=should-not-travel",
+                "x-forwarded-for": "10.0.0.1",
+                "anthropic-version": "1999-01-01",
+            }
+        ),
+    )
+
+    # The provider's own api_version wins over one smuggled in through the context.
+    assert client.headers_seen == [{"x-api-key": _FAKE_KEY, "anthropic-version": "2023-06-01"}]
+
+
+@pytest.mark.asyncio
+async def test_an_auth_context_with_no_usable_header_fails_closed() -> None:
+    plugin = AnthropicProviderPlugin(settings=_settings())
+    client = _LoudClient()
+
+    with pytest.raises(DiscoveryError) as exc:
+        await plugin.discover_profile_models(
+            client=client, auth=ProviderAuthContext(headers={"x-unrelated": "value"})
+        )
+
+    assert exc.value.reason == "missing_credential"
+    assert client.dialed == [], "no unauthenticated dial"
 
 
 @pytest.mark.asyncio
@@ -320,31 +421,46 @@ async def test_a_discovery_error_propagates_untouched() -> None:
         async def get(self, url: str, *, timeout_s: float, max_bytes: int, headers: Any = None):
             raise DiscoveryError("unreachable")
 
-    plugin = AnthropicProviderPlugin(settings=_settings(discovery_api_key=SecretStr(_FAKE_KEY)))
+    plugin = AnthropicProviderPlugin(settings=_settings())
 
-    # INVARIANT: the provider does NOT catch its own failures — core owns the
-    # stale/fallback ladder, and swallowing the error here would return None, which the
-    # cache stores as a successful refresh and thereby evicts the last good listing.
+    # INVARIANT: the provider does NOT catch its own failures — the private catalog owns
+    # the stale/fallback ladder, and swallowing the error here would return None, which
+    # that catalog treats as an inconsistency rather than a failed attempt.
     with pytest.raises(DiscoveryError) as exc:
-        await plugin.discover_live_models(client=_FailingClient())
+        await plugin.discover_profile_models(client=_FailingClient(), auth=_api_key_auth())
 
     assert exc.value.reason == "unreachable"
     assert _FAKE_KEY not in str(exc.value)
 
 
-@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+def test_the_auth_context_repr_hides_the_credential() -> None:
+    """The context is a frame local for the whole dial — its repr reaches tracebacks."""
+    auth = _api_key_auth()
+
+    assert _FAKE_KEY not in repr(auth)
+    assert _FAKE_KEY not in str(auth)
+    assert "x-api-key" in repr(auth), "header NAMES stay visible for debugging"
+
+
 @pytest.mark.asyncio
-async def test_a_blank_discovery_key_declares_no_source_and_never_dials(blank: str) -> None:
-    """OME-1026 (D3, opt-in): a declared-but-blank key is OFF — no source, zero egress.
+async def test_the_discovery_strategy_reuses_the_stored_key_with_the_catalog_header() -> None:
+    """FEATURE: the owner never re-enters a key that is already stored.
 
-    # WHY a ``_LoudClient`` rather than a canned catalog: the assertion that matters is that
-    # nothing is dialed at all. A client that raises on any dial is the only witness that
-    # distinguishes "not attempted" from "attempted and failed" — the failure ladder also
-    # ends in seeds, so a seeds-only assertion would pass either way.
+    # WHY a second strategy rather than reusing the chat one: same stored blob, same
+    # encrypted store, same class — only the header projection differs (``x-api-key``
+    # for the REST catalog vs the chat path's bearer shape). Reusing ``ApiKeyStrategy``
+    # keeps the store the ONLY component that decrypts.
     """
-    plugin = AnthropicProviderPlugin(settings=_settings(discovery_api_key=SecretStr(blank)))
-    client = _LoudClient()
+    plugin = AnthropicProviderPlugin(settings=_settings())
+    store = _FakeCredentialStore({"auth_type": "api_key", "api_key": _FAKE_KEY})
 
-    assert plugin.model_discovery_source() is None
-    assert await plugin.discover_live_models(client=client) is None
-    assert client.dialed == []
+    strategy = plugin.discovery_credential_strategy_for("acct-a:work", credential_store=store)
+    headers = await strategy.get_authorization_header()
+
+    assert headers == {"x-api-key": _FAKE_KEY}
+    assert store.reads == 1, "the key is read from the store, never re-entered"
+    # The chat strategy for the same profile projects the SAME key differently.
+    chat_headers = await plugin.api_key_strategy_for(
+        "acct-a:work", credential_store=store
+    ).get_authorization_header()
+    assert chat_headers == {"Authorization": f"Bearer {_FAKE_KEY}"}

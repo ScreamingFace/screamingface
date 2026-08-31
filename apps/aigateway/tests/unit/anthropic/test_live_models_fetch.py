@@ -22,7 +22,6 @@ import json
 from typing import Any
 
 import pytest
-from pydantic import SecretStr
 
 from aigateway.core.parameter_discovery import DiscoveryError, DiscoveryLimits, RawResponse
 from aigateway.plugins.anthropic_provider import live_models
@@ -74,7 +73,7 @@ class _CatalogClient:
     ) -> RawResponse:
         self.dialed.append(url)
         assert headers is not None, f"credential-less catalog dial to {url}"
-        assert headers["x-api-key"] == _FAKE_KEY, "the discovery key must ride every dial"
+        assert headers["x-api-key"] == _FAKE_KEY, "the profile's key must ride every dial"
         assert headers["anthropic-version"] == _API_VERSION
         self.headers_seen.append(dict(headers))
         if self._delay_s:
@@ -88,7 +87,7 @@ async def _fetch(client: Any, *, limits: DiscoveryLimits | None = None) -> tuple
     return await fetch_live_model_ids(
         client=client,
         limits=limits,
-        api_key=SecretStr(_FAKE_KEY),
+        auth_headers={"x-api-key": _FAKE_KEY},
         api_version=_API_VERSION,
     )
 

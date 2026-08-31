@@ -10,6 +10,9 @@ A rule is the only thing that enables a parameter, so every hook here that
 returns EVIDENCE — observations, tool verdicts, discovered snapshots — is
 incapable of enabling one by construction.
 
+The MODEL-LIST discovery hooks live in ``._model_discovery`` and are mixed in below —
+an independent responsibility with self-contained defaults, unlike these hooks.
+
 AIDEV-NOTE: ``ProviderPluginBase`` is the name plugins subclass and the name the
 package exports; splitting it from ``ProviderPluginCore`` keeps each file within
 the repository's 450-line limit and nothing more. See ``._provider`` for why the
@@ -19,7 +22,6 @@ contract half is the subclass rather than a mixin.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 # Runtime (not TYPE_CHECKING) import: the default transport capability and both
@@ -31,7 +33,12 @@ from ..chat_parameters import (
     overlay_tool_capabilities,
     stream_transport_capability,
 )
-from ._ports import ModelEntry, PluginSettings
+
+# Runtime import: ``DiscoveryScope.NONE`` is RETURNED by the default
+# ``model_discovery_scope`` below, not merely annotated. Safe — the scope module is
+# leaf vocabulary (dataclass + enum) and imports nothing that reaches plugin_base.
+from ._model_discovery import ModelDiscoveryContract
+from ._ports import PluginSettings
 from ._provider import ProviderPluginCore
 
 if TYPE_CHECKING:
@@ -46,27 +53,9 @@ if TYPE_CHECKING:
     from ..profile_models import AuthMode
 
 
-@dataclass(frozen=True)
-class ModelDiscoverySource:
-    """Identity + cache policy of a provider's live MODEL-LIST source (OME-972).
-
-    # WHY a separate type from ``DiscoverySourceRef``: the model list is one
-    # process-local cached document per provider, shared across accounts, so
-    # its policy (how fresh the LISTING must be) is provider knowledge and rides
-    # on the declaration —
-    # parameter evidence keys per model and takes its policy from app settings.
-    # INVARIANT: declared BEFORE any fetch, like every discovery source ref —
-    # the cache judges a stored snapshot by this ``revision`` without dialing.
-    """
-
-    key: str
-    revision: str
-    ttl_s: float
-    stale_ttl_s: float
-    failure_ttl_s: float
-
-
-class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings]):
+class ProviderPluginBase[TSettings: PluginSettings](
+    ModelDiscoveryContract, ProviderPluginCore[TSettings]
+):
     """Contract for an aigateway provider plugin.
 
     Each plugin owns: model contributions, the OAuth strategy, the auth UI
@@ -269,58 +258,6 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
 
         Default: None — no dynamic source; the caller relies on labelled-local
         observations alone.
-        """
-        return None
-
-    def model_discovery_source(self) -> ModelDiscoverySource | None:
-        """Identity + cache policy of this provider's live model-LIST source (OME-972).
-
-        The listing sibling of ``chat_discovery_source``: one process-local cached
-        document per provider, shared across accounts and declared before any
-        fetch so the catalog can trust or expire a stored snapshot without dialing.
-
-        INVARIANT: returning a source commits the provider to answering
-        ``discover_live_models`` with entries or a sanitized ``DiscoveryError`` —
-        a ``None`` there is an inconsistency the catalog fails the attempt on
-        rather than caching (the same rule ``DiscoveryRuntime.observe`` enforces).
-
-        Default: None — no live model-list discovery; ``register_models()`` seeds
-        are the provider's whole listing.
-        """
-        return None
-
-    async def discover_live_models(
-        self,
-        *,
-        client: DiscoveryHttpClient,
-        limits: DiscoveryLimits | None = None,
-    ) -> tuple[ModelEntry, ...] | None:
-        """This provider's complete live LISTING from its fixed provider catalog (OME-972).
-
-        Returns ready ``ModelEntry`` rows (the provider owns its own merge of
-        explicitly configured operator models with discovered ids), fetched
-        through the INJECTED bounded transport — never a raw client, never a
-        caller-supplied URL. Never runs on the chat dispatch path, and never
-        changes what is dispatchable — only what is listed.
-
-        INVARIANT (credentials, narrowed by OME-1026): never an ACCOUNT
-        credential. A provider MAY attach an operator-configured DEPLOYMENT
-        discovery credential as static headers to its OWN allowlisted origin —
-        the opt-in shape Anthropic's credentialed-only catalog requires. Per-user
-        API keys and OAuth tokens stay out: one shared snapshot serves every
-        account, so an account credential would leak one account's entitlements
-        into everyone else's listing.
-
-        INVARIANT (three outcomes, same contract as
-        ``discover_chat_parameter_snapshot``): entries = the source was reached;
-        raises sanitized ``DiscoveryError`` = attempted and FAILED (the catalog
-        maps this to stale/fallback); ``None`` = NOT attempted, no connection.
-
-        AIDEV-NOTE: ``None`` must not be widened to cover failure — the cache
-        stores every normal return as a successful refresh, so a ``None``
-        returned for a failure would be stored labelled fresh and evict the last
-        good listing. ``ModelCatalog`` converts an inconsistent None into a
-        failed attempt for exactly this reason.
         """
         return None
 

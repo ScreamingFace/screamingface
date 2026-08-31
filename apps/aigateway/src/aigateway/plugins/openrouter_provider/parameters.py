@@ -12,12 +12,16 @@ OpenAI param for OpenRouter — is the P0 promotion, projected through
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ParameterSchema,
+    ProviderParameterObservation,
     ToolCapability,
 )
-from aigateway.core.parameter_projection import WRAPPER_KEY
+from aigateway.core.parameter_projection import WRAPPER_KEY, IncompatibleParametersError
 from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     LOGPROBS_SCHEMA,
@@ -32,12 +36,17 @@ from aigateway.core.standard_parameters import (
     TOP_P_SCHEMA,
     WEB_SEARCH_EXCLUDED_DOMAINS_SCHEMA,
     WEB_SEARCH_SCHEMA,
+    direct_parameter_observations,
     direct_rule,
     function_calling_rules,
     provider_native_rule,
+    tool_parameter_observations,
 )
 
+from .discovery import REVIEWED_ENDPOINT_OBSERVATIONS
+from .observations import LOCAL_SOURCE, ROUTING_POLICY_OBSERVATIONS
 from .routing_policy import routing_policy_rules
+from .web_search import WEB_SEARCH_EXCLUDED_DOMAINS_PARAM, WEB_SEARCH_PARAM
 
 # OpenRouter is API-key only (no OAuth); its auth-mode intersection is a single
 # mode, so every proven rule is enabled under it.
@@ -326,3 +335,66 @@ def openrouter_chat_parameter_tools(
     # OME-583: the accepted tools[].type discriminator(s); drives supported_tools +
     # the detail contract's tools section.
     return _TOOL_CAPABILITIES
+
+
+def validate_openrouter_parameter_combination(body: Mapping[str, Any]) -> None:
+    """Refuse combinations that are individually legal and jointly meaningless.
+
+    Each rule above validates ONE field, so a dependency between two of them has no
+    other place to live: the classifier accepts both, and only this check can see the
+    pair. Raising here keeps the refusal off the dispatch path entirely.
+    """
+    if "top_logprobs" in body and body.get("logprobs") is not True:
+        raise IncompatibleParametersError(
+            ("logprobs", "top_logprobs"),
+            reason="top_logprobs_requires_logprobs_true",
+        )
+    if WEB_SEARCH_EXCLUDED_DOMAINS_PARAM in body and body.get(WEB_SEARCH_PARAM) is not True:
+        raise IncompatibleParametersError(
+            (WEB_SEARCH_PARAM, WEB_SEARCH_EXCLUDED_DOMAINS_PARAM),
+            reason="web_search_excluded_domains_requires_web_search_true",
+        )
+
+
+def openrouter_chat_parameter_observations(
+    *, model: str, auth_type: AuthMode | None = None
+) -> tuple[ProviderParameterObservation, ...]:
+    """Labelled-local endpoint evidence (NO network) for the detail contract.
+
+    OME-479 §5.3: every accepted field shows its gateway status — an unruled field
+    (e.g. top_p) stays visible-but-DISABLED (``projection_not_implemented``), while a
+    ruled+observed field (temperature, ``provider_params.top_k``) is ENABLED and
+    carries its provenance. The live per-model catalog overlays this via
+    ``discover_openrouter_chat_snapshot``; endpoint-level evidence is
+    model-independent, so it does not vary by model here.
+
+    OME-583: tools + tool_choice are ALSO ruled → ENABLED, evidenced here (same
+    labelled-local source) so every enabled tool path is fully backed (§4.4).
+    OME-584: response_format is likewise ruled → ENABLED, evidenced here.
+    OME-585: seed is already evidenced by the sampling constant; n (a non-sampling
+    control) is evidenced here alongside response_format — both ruled → ENABLED.
+    OME-704: the five price/privacy routing controls are ruled → ENABLED, and carry
+    their OWN source label (openrouter:routing-policy) because they are evidence
+    about routing behaviour, not about the model's sampling surface.
+
+    # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+    """
+    return (
+        REVIEWED_ENDPOINT_OBSERVATIONS
+        + ROUTING_POLICY_OBSERVATIONS
+        + tool_parameter_observations(
+            openrouter_chat_parameter_tools(model=model, auth_type=auth_type),
+            source=LOCAL_SOURCE,
+        )
+        + direct_parameter_observations(
+            (
+                "response_format",
+                "n",
+                "logprobs",
+                "top_logprobs",
+                "web_search",
+                "web_search_excluded_domains",
+            ),
+            source=LOCAL_SOURCE,
+        )
+    )

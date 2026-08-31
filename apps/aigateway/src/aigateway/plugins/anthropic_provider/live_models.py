@@ -1,17 +1,22 @@
 """OME-1026 — live discovery of the Anthropic model catalog (credentialed, OPT-IN).
 
-FEATURE: automatic model discovery — ``GET /v1/models`` lists the Claude models this
-deployment can actually use NOW, discovered from ``GET https://api.anthropic.com/v1/models``,
-instead of only the compiled seed aliases frozen at release time. A newly released model
-appears without a gateway release; a retired alias disappears instead of 404-ing at dispatch.
+FEATURE: automatic model discovery — a profile's model listing shows the Claude models
+THAT ACCOUNT can actually use NOW, discovered from ``GET https://api.anthropic.com/v1/models``
+with the account's own stored key, instead of only the compiled seed aliases frozen at release
+time. A newly released model appears without a gateway release; a retired alias disappears
+instead of 404-ing at dispatch.
 
-INVARIANT (opt-in, deployment-owned credential): Anthropic's catalog is credentialed-only
-(401 without ``x-api-key``), so discovery runs ONLY when the operator configures the dedicated
-``AIGW_ANTHROPIC_DISCOVERY_API_KEY``. Account API keys (``credential_blobs``) and
-Claude-subscription OAuth tokens are OFF LIMITS: one process-local snapshot serves every
-account, so an account credential would leak one account's entitlements into everyone's
-listing. The discovery key is never used for chat, never logged, never part of the cache
-identity, and never attached to any origin but the allowlisted Anthropic one.
+INVARIANT (PROFILE-SCOPED credential): Anthropic's catalog is credentialed-only (401 without
+``x-api-key``), and the credential is always the CALLER's own already-stored profile key,
+supplied as an allowlisted header context built by that profile's ``CredentialStrategy``.
+This module never reads a stored key, never sees a ``SecretStr`` setting, and never learns
+which account it is fetching for. The resulting snapshot describes ONE account's
+entitlements, so it is cached only under that profile's private identity — never in the
+shared ``ModelCatalog`` and never in ``GET /v1/models``.
+
+INVARIANT (header hardening): only the allowlisted auth header names below reach the wire,
+and only at the single allowlisted origin, checked before the connection opens. A caller
+cannot smuggle an extra header through the auth context.
 
 INVARIANT (fail-closed, all-or-nothing): this envelope carries NO ``total_count`` — unlike
 OpenRouter's, completeness cannot be reconciled by counting. Completeness therefore means the
@@ -33,11 +38,9 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 from urllib.parse import urlencode
-
-from pydantic import SecretStr
 
 from aigateway.core.model_capabilities import canonical_model_id
 from aigateway.core.parameter_discovery import (
@@ -72,10 +75,11 @@ _MAX_CATALOG_MODELS = 2_000
 # the per-page envelope timeout.
 _AGGREGATE_TIMEOUT_S = 10.0
 
-# INVARIANT (D9): identity + cache policy declared BEFORE any fetch (§5.3), so the catalog
-# can trust or expire a stored snapshot without dialing. The key names the SOURCE and
-# carries NO credential material — the snapshot is deployment-wide, and a credential in the
-# cache identity would silently shard it per key.
+# INVARIANT: identity + cache policy declared BEFORE any fetch (§5.3), so the catalog can
+# trust or expire a stored snapshot without dialing. The key names the SOURCE and carries NO
+# credential material. Under the profile-scoped design the PRIVATE cache composes this key
+# with the owning ``(account_id, provider, profile_name)`` identity — a credential must never
+# appear in a cache key, so ownership data does the scoping and this supplies only policy.
 ANTHROPIC_MODELS_DISCOVERY_SOURCE = ModelDiscoverySource(
     key="anthropic:models:list",
     revision="anthropic:models:list-v1",
@@ -178,11 +182,40 @@ def _page_url(cursor: str | None) -> str:
     return f"{MODELS_LIST_URL}?{urlencode(query)}"
 
 
+# INVARIANT (header hardening): the ONLY auth header names this module will put on the
+# wire. The auth context is built by a credential strategy, but a strategy is provider
+# config and this list is the module's own last word — so a future strategy (or a
+# mis-wired one) cannot smuggle a cookie, a proxy header, or a second credential into a
+# credentialed dial. Compared case-insensitively: HTTP field names are case-insensitive,
+# so an allowlist that only matched lowercase would be trivially bypassed by spelling.
+_ALLOWED_AUTH_HEADERS = frozenset({"x-api-key", "authorization"})
+
+
+def _discovery_headers(auth_headers: Mapping[str, str], api_version: str) -> dict[str, str]:
+    """The exact headers for a credentialed catalog dial: allowlisted auth + version.
+
+    # WHY filter rather than trust: ``auth_headers`` crosses a port boundary. Filtering
+    # here means the set of header names that can reach Anthropic is a property of THIS
+    # module, readable in one place, instead of a property of whatever built the mapping.
+    """
+    allowed = {
+        name: value for name, value in auth_headers.items() if name.lower() in _ALLOWED_AUTH_HEADERS
+    }
+    if not allowed:
+        # Fail closed with a sanitized reason. Dialing a credentialed catalog with no
+        # credential would spend a request to learn 401, and the honest answer — "this
+        # profile produced no usable auth header" — is already known here.
+        raise DiscoveryError("missing_credential")
+    # ``anthropic-version`` last: it is gateway-owned protocol framing, so it must not be
+    # overridable by whatever the auth context happened to carry.
+    return {**allowed, "anthropic-version": api_version}
+
+
 async def fetch_live_model_ids(
     *,
     client: DiscoveryHttpClient,
     limits: DiscoveryLimits | None = None,
-    api_key: SecretStr,
+    auth_headers: Mapping[str, str],
     api_version: str,
 ) -> tuple[str, ...]:
     """Every publishable-candidate model id in the catalog, or a sanitized ``DiscoveryError``.
@@ -191,24 +224,20 @@ async def fetch_live_model_ids(
     any page discards everything, so the caller's cache can never store a partial catalog as
     fresh.
 
-    # WHY ``api_key`` stays a ``SecretStr`` all the way in: the plaintext is MATERIALISED
-    # on exactly one line — the header construction below — and this frame's own local
-    # renders as ``SecretStr('**********')``. A plain ``str`` parameter would ALSO put the
-    # plaintext in this frame, which any traceback (pytest's ``-l`` included) renders, so the
-    # SecretStr strictly reduces the rendered-plaintext surface and can never enlarge it.
-    # AIDEV-NOTE: it does not reduce that surface to a single line. The dict built below is a
-    # live local of this frame for the whole walk and is re-bound as a parameter in
+    ``auth_headers`` are already-built provider auth headers (from the owning profile's
+    ``CredentialStrategy``); this function never reads or decrypts a stored credential and
+    never learns whose key it is holding.
+
+    # AIDEV-NOTE (credential exposure, measured not assumed): the filtered mapping below is
+    # a live local of this frame for the whole walk and is re-bound as a parameter in
     # ``fetch_discovery_json`` and in the adapter. So IF a locals-capturing error reporter
     # were ever added (sentry-sdk, for one, captures frame locals by default), it would see
     # the plaintext there. None is installed today and nothing in ``src/`` renders locals;
-    # ``ModelCatalog`` also sanitizes an escaping exception to its type name. THAT is what
-    # keeps this bounded — not this parameter's type.
+    # ``ModelCatalog``/``ProfileModelCatalog`` also sanitize an escaping exception to its
+    # type name. THAT is what keeps this bounded — not any parameter's static type.
     """
     bounds = limits if limits is not None else DiscoveryLimits()
-    headers = {
-        "x-api-key": api_key.get_secret_value(),
-        "anthropic-version": api_version,
-    }
+    headers = _discovery_headers(auth_headers, api_version)
     # INVARIANT (D7): first occurrence wins and upstream order survives — dict keys preserve
     # insertion order, so this dedupes without sorting or folding anything.
     collected: dict[str, None] = {}

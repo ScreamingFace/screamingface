@@ -69,3 +69,15 @@ class ProfileIndex(BaseModel):
     # generation never leaks. Kept as a sibling map (not a Profile field) precisely to avoid
     # exposing it via ``Profile.model_dump``.
     oauth_generations: dict[str, int] = Field(default_factory=dict)
+    # OME-1026 F3: profile_id -> monotonic CREDENTIAL generation, bumped inside the same
+    # atomic index CAS that publishes a credential. Distinct from oauth_generations, which
+    # is an OAuth *flow ownership* nonce with its own CAS semantics; overloading that map
+    # would make a credential change look like a superseded OAuth flow.
+    # INVARIANT: this is the private model cache's identity fence. A wall-clock stamp could
+    # repeat within one tick, letting a replaced key inherit the previous key's cache
+    # identity. Being durable AND advancing inside the CAS makes it collision-free across
+    # workers and across restarts.
+    # INVARIANT: same reason as oauth_generations for living here rather than on Profile —
+    # ProfileIndex is never returned by the API, so the generation cannot leak through
+    # ``Profile.model_dump``.
+    credential_generations: dict[str, int] = Field(default_factory=dict)

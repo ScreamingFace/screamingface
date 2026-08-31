@@ -46,7 +46,8 @@ from ..core.auth.cloudflare_identity import (
 )
 from ..core.auth.models import Account
 from ..core.profile_index import ProfileIndexStore
-from .auth import delete_profile_for_account, upsert_api_key_profile
+from .auth import upsert_api_key_profile
+from .profile_routes import delete_profile_for_account
 
 logger = logging.getLogger(__name__)
 
