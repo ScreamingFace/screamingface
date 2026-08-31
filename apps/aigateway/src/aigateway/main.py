@@ -40,6 +40,7 @@ from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
+from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
 from .core.request_cache.upload_job import CacheUploadRunner
 from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .core.usage_accounting.hooks import build_accounting_handler
@@ -59,6 +60,7 @@ from .routes import (
     models,
     oauth_connections,
     providers,
+    tavily_retrieval_cache,
 )
 from .routes.chat_accounting import accounting_error_response
 
@@ -374,6 +376,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.request_cache_store = TortoiseRequestCacheStore(
         availability=ConfiguredCacheAvailability(settings.request_cache_enabled)
     )
+    # OME-1044: the Tavily retrieval lane takes no availability gate — it is unconditional
+    # (owner decision), so unlike the response cache above there is nothing to configure.
+    app.state.tavily_retrieval_cache_store = TavilyRetrievalCacheStore()
 
     _configure_fake_anthropic_oauth(app)
     _configure_fake_codex_oauth(app)
@@ -414,6 +419,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_admission.router)
     app.include_router(providers.router)
     app.include_router(model_parameters.router)
+    app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))
