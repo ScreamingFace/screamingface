@@ -38,6 +38,9 @@ from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSetti
 # deliberately omits — retired upstream, so a healthy snapshot must drop it.
 _COMPILED_SEED = "openrouter/anthropic/claude-fable-5"
 
+# A deadlock bound, not a timing assumption — the happy path releases in milliseconds.
+_RENDEZVOUS_TIMEOUT_S = 10.0
+
 
 class _Clock:
     def now(self) -> float:
@@ -327,18 +330,35 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
 ) -> None:
     _enable_openrouter(monkeypatch, OpenRouterPluginSettings(enabled=True))
 
-    class _SlowClient:
+    callers = 6
+    # WHY a rendezvous, not a slow fetch: the peak-depth assertion needs every caller in
+    # the catalog AT ONCE. A fixed sleep only HOPES so — on a loaded runner late threads
+    # are served by the refresh that already finished and never overlap (CI: `assert
+    # 4 == 6` on 3.12, gateway behaving perfectly, OME-1055). Waiting for the last
+    # caller makes the overlap structural.
+    all_callers_in = asyncio.Event()
+    # AIDEV-NOTE: a dict like `depth` below — written on the loop, read after the join.
+    rendezvous = {"timed_out": False}
+
+    class _RendezvousClient:
+        """Upstream stub that answers only once every caller is parked behind it."""
+
         def __init__(self) -> None:
             self.dialed: list[str] = []
 
         async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
             self.dialed.append(url)
-            await asyncio.sleep(0.2)
+            # INVARIANT: the fetch never outruns the burst it exists to serve. The timeout
+            # keeps a real failure-to-assemble loud and bounded instead of hanging.
+            try:
+                await asyncio.wait_for(all_callers_in.wait(), timeout=_RENDEZVOUS_TIMEOUT_S)
+            except TimeoutError:
+                rendezvous["timed_out"] = True
             return RawResponse(
                 status=200, content_type="application/json", body=_strict_body(["openai/gpt-5"])
             )
 
-    http = _SlowClient()
+    http = _RendezvousClient()
     app = cast(FastAPI, authenticated_client.app)
     app.state.discovery_runtime = DiscoveryRuntime(
         client=http,
@@ -366,6 +386,8 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
     ) -> tuple[ModelEntry, ...] | None:
         depth["now"] += 1
         depth["peak"] = max(depth["peak"], depth["now"])
+        if depth["now"] == callers:
+            all_callers_in.set()
         try:
             return await unwrapped(self, plugin, client=client, limits=limits)
         finally:
@@ -376,11 +398,14 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
     def _get(_n: int) -> int:
         return authenticated_client.get("/v1/models").status_code
 
-    callers = 6
     with ThreadPoolExecutor(max_workers=callers) as pool:
         statuses = list(pool.map(_get, range(callers)))
 
     assert statuses == [200] * callers
+    # A timed-out rendezvous means the burst never assembled, so the assertions below
+    # would measure a serialized run. Name that cause instead of a bare depth mismatch.
+    msg = f"rendezvous timed out — peak overlap {depth['peak']} of {callers} callers"
+    assert not rendezvous["timed_out"], msg
     # INVARIANT: single-flight — one refresh serves every contemporaneous caller,
     # so a burst of listings costs ONE upstream fetch chain, not N.
     assert http.dialed == [LIVE_MODELS_URL]
