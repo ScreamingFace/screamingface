@@ -70,6 +70,19 @@
       </table>
     </div>
 
+    <!-- OME-923 part B: the marks are unreadable without a key — the mark column header is
+         deliberately empty and the per-row label is sr-only, so a sighted reader had nothing.
+         The provenance line is OME-770 D11: the frontier is computed over self-reported costs
+         and the UI must say so rather than present them as verified. -->
+    <p id="leaderboard-legend" class="meta legend" hidden>
+      <span class="pareto-mark" aria-hidden="true"></span>
+      <span>best score for cost</span>
+      <span class="legend-sep" aria-hidden="true">·</span>
+      <span>gold row = highest score</span>
+      <span class="legend-sep" aria-hidden="true">·</span>
+      <span>costs are self-reported, not verified by re-running</span>
+    </p>
+
     <div class="foot">
       <span>😱 screamingface</span>
       <span><a href="https://github.com/ScreamingFace/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>

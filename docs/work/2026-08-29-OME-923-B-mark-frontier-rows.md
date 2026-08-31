@@ -214,3 +214,102 @@ Suite 535 → **542 passed**.
    cap or rate limit.
 5. **Test gaps** — no second-benchmark test (cross-benchmark scoping is correct in code but
    unpinned); `renderMarkSlot` is never executed by any test; the a11y contract is unasserted.
+
+
+## Legibility + fail-closed pass (2026-08-31)
+
+Rebased onto `main` — part A merged as `7cd43141`, so this branch now carries part B alone.
+
+Two owner decisions taken today, both closing self-review findings.
+
+| # | Decision | Source |
+|---|---|---|
+| D12 | **No marks on a benchmark with no registered revision.** Fail closed: if the board cannot say which revision it is about, it makes no best-value claim. | owner, 2026-08-31 |
+| D13 | **Add the Cost column and a legend**, completing the minimum of `OME-770` pass 2. The mark is a claim about money and the money was nowhere on the page. | owner, 2026-08-31 |
+
+### D12 — why the gate lives in the route
+
+`benchmark_revision` is free-form client input (`_resolve_benchmark_revision`; the store's own
+comment: "metadata is client-supplied and unvalidated"), and `_build_leaderboard_query` filters on
+revision **only** when the benchmark has a registered one. So on a NULL-revision board a submitter
+could send a unique revision, land in a cohort of one, and be marked "best score for cost"
+unconditionally.
+
+`compute_pareto_frontier` is pure over rows and merged — it cannot see the benchmark. The gate
+therefore sits in the route, which already holds `benchmark.revision`. The function keeps its
+per-cohort behaviour for any caller that legitimately has mixed revisions, with the restriction
+stated as an INVARIANT and pinned by a test, so the trap is documented rather than latent.
+
+Unaffected: DRACO, IFEval and HealthBench all registered revisions under `OME-775`, so their
+queries filter to one revision and they mark exactly as before. Only the legacy demo boards
+(`hle`, `livetruth`) lose marks — and `OME-986` is retiring those.
+
+### D13 — the display trap this walks into
+
+`OME-770` §2.4 is explicit: the wire form is a **string** at fixed 6dp, and JavaScript compares
+strings lexicographically, so `"1000.000000" < "3.500000"` is `true`. Any sort or comparison in
+the portal must `parseFloat` first. D2 of the same spec requires rounding for display so a
+six-decimal figure cannot overflow the column. Both belong in `leaderboard-logic.js` where the
+Node gate can see them, not inline in `benchmark.js`.
+
+The legend also carries `OME-770` D11's provenance requirement — costs are self-reported — which
+closes a third self-review finding.
+
+### Also in this pass
+
+The three test gaps the self-review named: cross-benchmark scoping (correct in code, unpinned),
+`renderMarkSlot` never executed by any test, and the mark's accessibility contract unasserted.
+
+**Not fixed, deliberately:** the O(n²) dominance scan. It is bounded by priced rows within one
+cohort, which is zero today and grows with distinct specs rather than submissions. Part A's own
+AIDEV-NOTE already says a sort-based scan would be faster and harder to read for no reachable
+benefit; that judgement has not changed, and part A is merged at 100% coverage.
+
+
+### Outcome of this pass
+
+- **Files:** `routes/leaderboard.py` (the D12 gate), `portal/leaderboard-logic.js`
+  (`costNumber` / `compareCost` / `formatCost`), `portal/benchmark.js` (Cost column, cost
+  comparator branch, legend visibility), `portal/benchmark.html` (the legend),
+  `portal/portal.css` (legend layout; the mark selector unscoped from `.col-mark` so it can be
+  reused in the key), plus tests on both sides.
+- **Gates:** ALL GREEN. Python **543 passed**, Node 30 → **39 passed**.
+- **Mutation-checked, 4 of 4 caught:** removing the D12 gate; letting cost fall through to the
+  generic numeric compare; comparing the cost string without `parseFloat`; collapsing sub-cent
+  costs to `$0.00`.
+
+### A trap found while wiring the column
+
+`benchmark.js`'s generic numeric comparator is `(av || 0) - (bv || 0)`. Pointing the new Cost
+column at it would have coerced a **null cost to 0 and sorted unpriced rows as the cheapest on
+the board** — the same "a null cost never reads as zero" rule the frontier itself rests on,
+broken in the UI rather than the maths. Cost therefore gets its own comparator that converts
+first and keeps unpriced rows last in **both** directions. That is now the single most
+load-bearing of the new Node tests.
+
+### Verified against a seeded board
+
+Eight rows on a pinned revision, including two the earlier demo could not exercise: a
+cache-served run at exactly `$0.000000` and a sub-cent run at `$0.000900`.
+
+| | rank | spec | score | cost |
+|---|---|---|---|---|
+| | 1 | big-panel-5x | 0.842 | $48.10 |
+| **◆** | 2 | claude-gemini-fusion | 0.842 | $12.40 |
+| | 3 | legacy-import | 0.810 | — |
+| **◆** | 4 | gpt-solo | 0.795 | $3.20 |
+| **◆** | 5 | cheap-trio | 0.771 | $0.94 |
+| | 6 | wasteful-duo | 0.760 | $9.80 |
+| **◆** | 7 | cache-served | 0.702 | $0.00 |
+| | 8 | sub-cent | 0.688 | $0.0009 |
+
+`cache-served` at a genuine `$0.00` takes a mark; `sub-cent` is correctly dominated by it on
+both axes. `legacy-import` renders an em dash and neither qualifies nor dominates.
+
+### Still not pinned by a test
+
+`renderMarkSlot`, the Cost cell and the legend are DOM code in `benchmark.js`, which has no test
+harness — the card's gate names `tests/portal/leaderboard-logic.test.js` explicitly, and adding
+a second JS test file would need a card change. All the *decisions* live in
+`leaderboard-logic.js` and are covered; what remains unpinned is the wiring, verified visually
+instead. Recorded rather than papered over.

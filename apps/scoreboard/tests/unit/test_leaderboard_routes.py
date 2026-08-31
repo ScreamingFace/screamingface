@@ -1251,21 +1251,58 @@ async def _priced(
         await Score.filter(id=created.id).update(run_cost_usd=Decimal(cost))
 
 
+# INVARIANT (D12): only a benchmark with a REGISTERED revision carries frontier marks, so every
+# marking test below pins one. Rows must carry the same revision or the ranking query filters
+# them out entirely (OME-775).
+_PINNED = "rev-1"
+
+
+async def _register_pinned(store: ScoreStore) -> None:
+    await store.register_benchmark(
+        benchmark_id="hle",
+        display_name="Humanity's Last Exam",
+        description="Fixture benchmark",
+        dataset_url="https://example.test/hle.jsonl",
+        revision=_PINNED,
+    )
+
+
+async def _row(
+    store: ScoreStore,
+    *,
+    spec_id: str,
+    score: float,
+    cost: str | None,
+    revision: str = _PINNED,
+) -> None:
+    """Submit a row, then set the revision it was measured against and its cost.
+
+    WHY written afterwards rather than passed to `_submission`: that helper is prior-cycle test
+    code and sdlc rule 5 keeps it unmodified. This mirrors how the file already backdates
+    `submitted_at`.
+    """
+    created, _ = await store.submit(_submission(spec_id=spec_id, score=score))
+    updates: dict[str, object] = {"benchmark_revision": revision}
+    if cost is not None:
+        updates["run_cost_usd"] = Decimal(cost)
+    await Score.filter(id=created.id).update(**updates)
+
+
 async def test_get_leaderboard_marks_the_pareto_frontier(
     async_client: httpx.AsyncClient,
 ) -> None:
     """FEATURE: OME-923 part B — the board marks best-score-for-the-money rows."""
     store = ScoreStore()
-    await _register_benchmark(store)
-    await _priced(store, spec_id="best-value", score=0.90, cost="1.00")
+    await _register_pinned(store)
+    await _row(store, spec_id="best-value", score=0.90, cost="1.00")
     # Same score, nine times the price: dominated, even though nobody outscored it (D7).
-    await _priced(store, spec_id="same-score-dearer", score=0.90, cost="9.00")
-    await _priced(store, spec_id="cheapest", score=0.70, cost="0.10")
+    await _row(store, spec_id="same-score-dearer", score=0.90, cost="9.00")
+    await _row(store, spec_id="cheapest", score=0.70, cost="0.10")
     # Beaten on both axes by `cheapest`.
-    await _priced(store, spec_id="dominated", score=0.60, cost="5.00")
-    # INVARIANT: the top score, but unpriced — excluded, and it must not knock out
-    # anything either. Read as zero it would win the board outright on an unknown.
-    await _priced(store, spec_id="unpriced", score=0.95, cost=None)
+    await _row(store, spec_id="dominated", score=0.60, cost="5.00")
+    # INVARIANT: the top score, but unpriced — excluded, and it must not knock out anything
+    # either. Read as zero it would win the board outright on an unknown.
+    await _row(store, spec_id="unpriced", score=0.95, cost=None)
 
     response = await async_client.get("/v1/leaderboard/hle")
 
@@ -1273,8 +1310,8 @@ async def test_get_leaderboard_marks_the_pareto_frontier(
     entries = response.json()["entries"]
     marked = {entry["spec_id"] for entry in entries if entry["on_pareto_frontier"]}
     assert marked == {"best-value", "cheapest"}
-    # The highest-score row is a SEPARATE claim: `unpriced` leads on score and holds no
-    # frontier mark, so a row can be one, both or neither.
+    # The highest-score row is a SEPARATE claim: `unpriced` leads on score and holds no frontier
+    # mark, so a row can be one, both or neither.
     assert entries[0]["spec_id"] == "unpriced"
     assert entries[0]["on_pareto_frontier"] is False
 
@@ -1392,10 +1429,10 @@ async def test_a_frontier_mark_does_not_change_with_top(
     anything.
     """
     store = ScoreStore()
-    await _register_benchmark(store)
-    await _priced(store, spec_id="a-dear", score=0.90, cost="5.00")
-    await _priced(store, spec_id="b-dearer", score=0.90, cost="6.00")
-    await _priced(store, spec_id="z-cheapest", score=0.90, cost="1.00")
+    await _register_pinned(store)
+    await _row(store, spec_id="a-dear", score=0.90, cost="5.00")
+    await _row(store, spec_id="b-dearer", score=0.90, cost="6.00")
+    await _row(store, spec_id="z-cheapest", score=0.90, cost="1.00")
 
     full = await async_client.get("/v1/leaderboard/hle", params={"top": 3})
     cut = await async_client.get("/v1/leaderboard/hle", params={"top": 2})
@@ -1411,21 +1448,70 @@ async def test_a_frontier_mark_does_not_change_with_top(
         assert marks_full[spec_id] == marked, f"{spec_id} changed mark with top"
 
 
-async def test_two_revisions_of_one_spec_are_marked_independently(
+# NOTE: a route-level test for cross-revision cohorts lived here. After D12 the route never
+# computes a frontier on a board with mixed revisions — an unpinned board marks nothing, and
+# a pinned one is filtered to a single revision — so the scenario is unreachable through HTTP.
+# `test_an_unpinned_benchmark_carries_no_frontier_marks` below pins the new behaviour, and
+# tests/unit/scores/test_pareto.py still covers the per-cohort function directly.
+
+
+async def test_an_unpinned_benchmark_carries_no_frontier_marks(
     async_client: httpx.AsyncClient,
 ) -> None:
-    """A benchmark with NO registered revision filters nothing, so one spec appears once per
-    revision. Keyed on spec_id alone, the rev-2 row inherited the mark its own spec earned on
-    rev-1 — while a rev-2 peer beat it on BOTH axes."""
+    """INVARIANT (D12): fail closed on a board with no REGISTERED revision.
+
+    `benchmark_revision` is free-form client input, and `_build_leaderboard_query` applies its
+    revision filter ONLY when the benchmark has a registered revision. Combined with per-cohort
+    comparison, a submitter on such a board could send a unique revision, land in a cohort of
+    one, and be marked "best score for cost" unconditionally — however bad and however dear.
+
+    The board still ranks and lists every row. It just makes no cost claim about any of them.
+    """
     store = ScoreStore()
-    await _register_benchmark(store)
-    await _priced_rev(store, spec_id="fusion-a", score=0.90, cost="1.00", revision="rev-1")
-    await _priced_rev(store, spec_id="fusion-a", score=0.50, cost="9.00", revision="rev-2")
-    await _priced_rev(store, spec_id="rival", score=0.80, cost="2.00", revision="rev-2")
+    await _register_benchmark(store)  # deliberately no revision registered
+    await _priced(store, spec_id="honest", score=0.90, cost="1.00")
+    await _priced_rev(store, spec_id="gamer", score=0.10, cost="99.00", revision="mine-2026")
 
     response = await async_client.get("/v1/leaderboard/hle")
 
     assert response.status_code == 200
     entries = response.json()["entries"]
-    marked = {(e["spec_id"], e["benchmark_revision"]) for e in entries if e["on_pareto_frontier"]}
-    assert marked == {("fusion-a", "rev-1"), ("rival", "rev-2")}
+    assert len(entries) == 2, "the board must still list its rows"
+    assert all(entry["on_pareto_frontier"] is False for entry in entries)
+
+
+async def test_the_frontier_is_scoped_to_one_benchmark(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT: "no other submission on the same board" — the frontier must not reach across
+    benchmarks. Different exams, different scales; a cheap high score on another board says
+    nothing about value on this one.
+
+    Correct in the query today (`where benchmark_id == ...`), but no test registered a second
+    benchmark, so a frontier computed over the entire table would have passed the whole suite.
+    """
+    store = ScoreStore()
+    await _register_pinned(store)
+    await store.register_benchmark(
+        benchmark_id="other",
+        display_name="Other Benchmark",
+        description="Fixture benchmark",
+        dataset_url="https://example.test/other.jsonl",
+        revision=_PINNED,
+    )
+    # The only priced row on `hle`, and a poor one.
+    await _row(store, spec_id="local", score=0.50, cost="5.00")
+    # Better AND cheaper — but on a different board, so it must not dominate anything here.
+    foreign, _ = await store.submit(
+        _submission(benchmark_id="other", spec_id="foreign", score=0.99)
+    )
+    await Score.filter(id=foreign.id).update(
+        benchmark_revision=_PINNED, run_cost_usd=Decimal("0.01")
+    )
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert [entry["spec_id"] for entry in entries] == ["local"]
+    assert entries[0]["on_pareto_frontier"] is True

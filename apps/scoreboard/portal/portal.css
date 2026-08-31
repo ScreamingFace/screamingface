@@ -134,7 +134,7 @@ table .btn { white-space: nowrap; }
    highest-score row already holds it, so a gold mark here would collapse two separate
    claims into one look. Not --success either, because green means verified and OME-820
    withdrew that signal. */
-.col-mark .pareto-mark {
+.pareto-mark {
   display: inline-block;
   width: 8px;
   height: 8px;
@@ -143,7 +143,7 @@ table .btn { white-space: nowrap; }
 }
 /* Matches the markbox convention: the deep text-low tone reads on a light ground, the
    vivid solid reads on a dark one. */
-[data-theme="dark"] .col-mark .pareto-mark {
+[data-theme="dark"] .pareto-mark {
   background: var(--info-solid);
 }
 
@@ -241,3 +241,16 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 
 /* The catalogue's Open link never breaks across lines. */
 td.col-open { white-space: nowrap; }
+
+/* The mark's key. `.meta` already carries the mono/micro/ink-2 treatment every small label on
+   this page uses; this only lays it out. */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.legend-sep {
+  color: var(--ink-3);
+}

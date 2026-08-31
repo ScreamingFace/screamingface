@@ -276,7 +276,18 @@ async def get_leaderboard(
         # erroring — a read can, where a write cannot.
         return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
-    frontier = compute_pareto_frontier(board)
+    # INVARIANT (D12, owner 2026-08-31): fail closed on a board with no REGISTERED revision.
+    # `benchmark_revision` is free-form client input (`_resolve_benchmark_revision`), and the
+    # ranking query filters on revision ONLY when the benchmark declares one. Without that
+    # filter a submitter can send a unique revision, land in a cohort of one, and be marked
+    # "best score for cost" unconditionally. A board that cannot say which revision it is about
+    # makes no best-value claim at all.
+    #
+    # WHY here and not inside compute_pareto_frontier: that function is pure over rows and
+    # cannot see the benchmark. The route already holds `benchmark.revision`, so the gate costs
+    # nothing here and leaves the function honest for any caller with legitimately mixed
+    # revisions.
+    frontier = compute_pareto_frontier(board) if benchmark.revision is not None else frozenset()
     rows = board[: min(top, MAX_LEADERBOARD_TOP)]
 
     return LeaderboardResponse(

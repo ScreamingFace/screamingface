@@ -67,6 +67,56 @@
     return !!entry && entry.on_pareto_frontier === true;
   }
 
+  /* ---- cost (OME-770 pass 2, delivered with OME-923) ---------------------- */
+
+  // INVARIANT: `run_cost_usd` crosses the wire as a STRING at fixed 6 decimal places
+  // ("12.400000"), never a number — OME-770 section 2.4 chose that so the form is identical on
+  // SQLite and Postgres. The consequence is that every comparison must convert first:
+  // "1000.000000" < "3.500000" is TRUE in JavaScript.
+  //
+  // INVARIANT: absent is UNKNOWN, never 0. A null must not become the cheapest row on the
+  // board — that is the same rule the frontier itself rests on (OME-770 D8).
+  function costNumber(entry) {
+    if (!entry) return null;
+    var raw = entry.run_cost_usd;
+    if (raw === null || raw === undefined || raw === "") return null;
+    var value = parseFloat(raw);
+    return isFinite(value) ? value : null;
+  }
+
+  // WHY cost gets its own comparator instead of benchmark.js's generic numeric branch: that
+  // branch is `(av || 0) - (bv || 0)`, which coerces a null cost to 0 and sorts an unpriced row
+  // as the cheapest on the board. Unknown is neither cheap nor dear, so it sorts LAST whichever
+  // way the column is pointed — the direction flip is deliberately after the null checks.
+  function compareCost(a, b, dir) {
+    var av = costNumber(a);
+    var bv = costNumber(b);
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    var res = av - bv;
+    return dir === "desc" ? -res : res;
+  }
+
+  function _group(text) {
+    var parts = text.split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return parts.join(".");
+  }
+
+  // OME-770 D2: full precision is stored, the UI rounds — a six-decimal figure must not
+  // overflow the column. Sub-cent values keep four places rather than collapsing to "$0.00",
+  // because a cache-heavy run costing fractions of a cent is not free, and free vs nearly-free
+  // is the distinction this column exists to show.
+  function formatCost(entry) {
+    var value = costNumber(entry);
+    if (value === null) return "\u2014";
+    if (value === 0) return "$0.00";
+    if (value >= 0.01) return "$" + _group(value.toFixed(2));
+    if (value >= 0.0001) return "$" + value.toFixed(4);
+    return "<$0.0001";
+  }
+
   function sotaScore(entries) {
     var best = null;
     (entries || []).forEach(function (entry) {
@@ -136,6 +186,9 @@
   return {
     isReproducible: isReproducible,
     isParetoMarked: isParetoMarked,
+    costNumber: costNumber,
+    compareCost: compareCost,
+    formatCost: formatCost,
     bestEntryScore: bestEntryScore,
     sotaScore: sotaScore,
     isSota: isSota,
