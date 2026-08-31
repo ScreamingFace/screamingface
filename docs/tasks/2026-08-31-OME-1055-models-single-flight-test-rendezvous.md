@@ -1,12 +1,12 @@
 ---
 id: OME-1055
 linear_url: https://linear.app/openmined/issue/OME-1055/make-the-v1models-single-flight-concurrency-test-deterministic
-status: in_progress
+status: done
 type: task
 priority: 2
 labels: [aigateway, agentic, autonomous, task]
 created: 2026-08-31
-closed:
+closed: 2026-08-31
 ---
 
 # Make the /v1/models single-flight concurrency test deterministic

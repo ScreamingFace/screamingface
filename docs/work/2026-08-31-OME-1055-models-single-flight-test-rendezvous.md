@@ -1,9 +1,9 @@
 ---
 ticket: OME-1055
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-08-31
-finished:
+finished: 2026-08-31
 ---
 
 # OME-1055 — Make the /v1/models single-flight concurrency test deterministic
@@ -63,9 +63,57 @@ than a new test file:
 - `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` all green.
 - CI green on both 3.12 and 3.13.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** as planned — only
+  `apps/aigateway/tests/unit/core/test_models_route_live_catalog.py` (+29 / -4), plus this
+  ledger and the `docs/tasks/` mirror. No production code touched.
+
+- **Commits:**
+  - `9f2a2d4d` — test(aigateway): make the /v1/models single-flight test deterministic
+
+- **Gates:** `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` — ALL GREEN.
+  ruff check / ruff format --check / pyright / check_no_enterprise.py /
+  `pytest --cov=aigateway --cov-fail-under=80` (4108 passed). File 449 lines, under the 450 rule.
+
+- **Verification evidence:**
+
+  | Probe | Design | Result |
+  |---|---|---|
+  | RED-1 — upstream fetch made instant | original | `assert 1 == 6` — reproduces the CI signature |
+  | RED-2 — rendezvous made unreachable | fixed | new guard fires with its diagnostic, bounded by the timeout |
+  | Stagger — callers arrive 0.15s apart | original | `assert 2 == 6` |
+  | Stagger — callers arrive 0.15s apart | **fixed** | **pass** |
+  | 30x loop, coverage on, every 2nd run pinned to 2 CPUs | fixed | 30/30 pass |
+
+  RED-1 also justifies keeping the assertion the fix repairs: with ZERO overlap,
+  `http.dialed == [LIVE_MODELS_URL]` still passed. The peak-depth assertion is the only
+  thing separating "single-flight works" from "a serialized server hit a warm cache".
+
+- **Deviations:**
+  1. **Append-only gate bypassed (rule 5).** The unit's deliverable IS a change to a prior
+     test, so the gate necessarily fires; adding a new file would have left the flake in
+     place. Owner approved the specific edit; ran with `--skip-append-only`. Verified the
+     gate does flag it when the flag is omitted:
+     `M tests/unit/core/test_models_route_live_catalog.py (removed/changed old line(s)
+     [330, 336, 341, 379] …)`. No other gate was skipped or weakened.
+  2. **RED/GREEN inverted in form, not in substance.** With no production code to drive,
+     RED was executed as a deterministic reproduction of the defect (RED-1) plus a
+     verification that the new guard catches a real overlap failure (RED-2), rather than as
+     a new failing test file. Declared in the Test plan up front.
+  3. **Diagnostic message reworded after RED-2.** The first version read "only 6 of 6 callers
+     ever overlapped" under the probe — self-contradictory, because the probe timed out while
+     the overlap genuinely happened. Changed to "rendezvous timed out — peak overlap N of M",
+     which is accurate in every case. RED-2 earned its keep here.
+  4. **Comments trimmed twice to satisfy the 450-line rule** (459 -> 453 -> 449). One comment
+     was deleted outright under rule 12 for restating the code beneath it.
+
+- **Residual uncertainty:** the original failure was never reproduced under true CI
+  conditions — 27 isolated local runs of the old test passed, and CI runs it inside the full
+  4107-test suite. The mechanism is inferred from the assertion signature and the structure
+  of the test, both of which the probes reproduce exactly. CI on both 3.12 and 3.13 is the
+  real verdict.
+
+- **Follow-up noted, not actioned:** the CI logs also show six `RuntimeError: Event loop is
+  closed` lines at teardown of this test. Pre-existing, unrelated to the peak assertion, and
+  out of scope here.
