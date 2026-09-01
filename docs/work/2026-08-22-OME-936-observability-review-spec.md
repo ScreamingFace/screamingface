@@ -51,6 +51,32 @@ PR #688 is a **draft** and stays that way until the owner confirms readiness (20
 The spec is under review; iterations land on this branch. Do not mark ready, do not merge,
 and do not close `OME-936` until that confirmation is given in plain words.
 
+## Maintenance pass — 2026-09-01 (branch kept mergeable)
+
+The branch had drifted 166 commits behind `main` over the review window. Rebased onto
+`origin/main` (clean, no conflicts) and corrected three things the drift caused. **Still a
+draft — the standing instruction above is untouched.**
+
+- **CI was red for a drift reason, not a content reason.** The `disable` job failed in 5 s
+  with `can't open file '.github/scripts/preview_contract.py'`. That script exists on `main`
+  and never existed on this branch, so the merge-ref run called a file the branch's tree did
+  not have. The rebase is the fix; nothing in the PR's own content was wrong.
+- **Duplicate mirror for `OME-945`, removed.** `OME-945`'s mirror reached `main` separately
+  (executed with `OME-914`, filename `…-pypi-and-readme-issue-links.md`) while this PR sat
+  open. Merging as-is would have left two files for one ticket asserting different statuses
+  (`in_progress` on main vs `backlog` here). Deleted this branch's
+  `…-OME-945-org-repoint.md`; kept `main`'s newer copy and carried over the one thing it
+  lacked, the spec pointer every other Phase-0 mirror has.
+- **Two mirrors restated against current Linear.** `OME-973` is **Done** (closed
+  2026-08-26; implemented as epic `OME-1002`) — status and body updated. `OME-976` is
+  **still Backlog and its status is left alone**, because it is genuinely unresolved: the
+  epic shipped `LinearSink` but deliberately inert (rule 9 governs *selecting* the adapter,
+  and every deployment keeps the `queue` default), so the decision is still owed. The mirror
+  now records that consequence rather than implying the question went away.
+
+The other nine Phase-0 sub-issue mirrors (`OME-937`–`944`, `946`) were re-checked against
+Linear and are all still `Backlog` — accurate as written, left untouched.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned (spec + 12 mirrors + ledger).
