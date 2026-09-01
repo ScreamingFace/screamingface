@@ -10,14 +10,11 @@ import {
 
 const importCell = `import screamingface as sf`
 
-const connect = `import os
-
-sf.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])
-sf.connect("anthropic", api_key=os.environ["ANTHROPIC_API_KEY"])`
+const connect = `sf.connect()  # opens the connection panel; log in when prompted`
 
 const build = `fusion = sf.Fusion(
-    ["openrouter/deepseek/deepseek-v4-pro", "anthropic/claude-opus-4-8"],
-    synthesizer="anthropic/claude-opus-4-8",
+    ["openrouter/openai/gpt-5.5", "openrouter/google/gemini-3-flash-preview"],
+    synthesizer="openrouter/openai/gpt-5.5",
 )`
 
 const run = `report = sf.evaluate(fusion, benchmark="ifeval", limit=3)`
@@ -41,11 +38,9 @@ candidate.score`
 
     <Note>
       You need the Client installed (see
-      <RouterLink to="/sf-client/installation">Installation</RouterLink>) and API keys for
-      OpenRouter and Anthropic. This tutorial talks to the hosted engine and connects both providers
-      explicitly below; the
-      <RouterLink to="/sf-client/guides/connections">Connect a provider</RouterLink> guide covers
-      OAuth and the interactive panel.
+      <RouterLink to="/sf-client/installation">Installation</RouterLink>). No provider keys needed
+      — the hosted engine supplies shared OpenRouter credits. You will log in with your browser in
+      step 2.
     </Note>
 
     <h2>1 · Import the library</h2>
@@ -56,13 +51,12 @@ candidate.score`
       <NbCell :count="1" :code="importCell" />
     </div>
 
-    <h2>2 · Connect your providers</h2>
+    <h2>2 · Log in</h2>
 
     <p>
-      The fusion below uses one model from OpenRouter and one from Anthropic, so connect both. Each
-      call hands a key to the engine, which stores it encrypted and uses it to reach that provider;
-      the key never lands in your recipe or your report. Read keys from the environment rather than
-      pasting them into a cell.
+      The hosted engine comes with shared OpenRouter credits — no key to paste. Call
+      <code>sf.connect()</code> to open the connection panel: it will prompt you to log in through
+      your browser, then show OpenRouter as connected.
     </p>
 
     <div class="not-prose">
@@ -74,8 +68,7 @@ candidate.score`
     <p>
       Give <code>sf.Fusion</code> two model routes and a synthesizer. The two members answer the
       same question in parallel; the synthesizer reads both drafts and writes the single answer that
-      gets graded. Here the second model plays both roles — a member and the synthesizer — which is
-      a fine way to start.
+      gets graded. Here the first model doubles as the synthesizer — a fine way to start.
     </p>
 
     <div class="not-prose">
