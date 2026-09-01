@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -51,6 +52,62 @@ def test_create_api_key_connection_is_active_and_typed(authenticated_client) -> 
     assert data["provider"] == "anthropic"
     # The raw key must never be echoed back.
     assert _KEY not in resp.text
+
+
+def test_create_api_key_connection_overrides_a_stale_insert_shape(
+    authenticated_client,
+    credential_blobs,
+) -> None:
+    from tortoise.backends.base.executor import EXECUTOR_CACHE
+
+    cache_key = ("default", None, "oauth_connections")
+    previous = EXECUTOR_CACHE.get(cache_key)
+    old_columns = [
+        "id",
+        "provider",
+        "label",
+        "status",
+        "identity_sub",
+        "identity_email",
+        "identity_name",
+        "identity_raw",
+        "credential_locator",
+        "created_at",
+        "last_used_at",
+        "last_refreshed_at",
+        "error_message",
+        "account_id",
+    ]
+    old_insert = (
+        'INSERT INTO "oauth_connections" '
+        '("id","provider","label","status","identity_sub","identity_email",'
+        '"identity_name","identity_raw","credential_locator","created_at",'
+        '"last_used_at","last_refreshed_at","error_message","account_id") '
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    )
+    EXECUTOR_CACHE[cache_key] = (
+        old_columns,
+        old_insert,
+        old_columns,
+        old_insert,
+        'DELETE FROM "oauth_connections" WHERE "id"=?',
+        {},
+    )
+    try:
+        resp = _create(authenticated_client, label="stale-shape")
+    finally:
+        if previous is None:
+            EXECUTOR_CACHE.pop(cache_key, None)
+        else:
+            EXECUTOR_CACHE[cache_key] = previous
+
+    assert resp.status_code == 201, resp.text
+    with sqlite3.connect(credential_blobs.db_path) as conn:
+        row = conn.execute(
+            "select auth_type from oauth_connections where id = ?",
+            (resp.json()["id"],),
+        ).fetchone()
+    assert row == ("api_key",)
 
 
 def test_create_writes_key_to_chat_read_slot_encrypted(
