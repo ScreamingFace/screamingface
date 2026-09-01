@@ -3362,7 +3362,7 @@ wheels = [
 
 [[package]]
 name = "screamingface"
-version = "0.1.1.post5"
+version = "0.1.1.post6"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
