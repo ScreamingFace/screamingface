@@ -1551,3 +1551,34 @@ async def test_a_board_that_cannot_be_marked_keeps_its_row_bound(
     assert response.status_code == 200
     assert calls == [25], f"a closed-gate board must stay bounded, got {calls}"
     assert all(e["on_pareto_frontier"] is False for e in response.json()["entries"])
+
+
+async def test_the_board_query_trusts_the_revision_it_is_given(tortoise_db: None) -> None:
+    """INVARIANT: ONE read of `Benchmark.revision` decides both the D12 gate and the ranking
+    query's revision filter.
+
+    They were two independent SELECTs of the same row: the route read it to decide whether to
+    compute a frontier at all, and `leaderboard()` read it again to build the filter. A
+    re-registration landing between them opens the gate on one value while the query filters on
+    another — the frontier is then computed over mixed revisions and the cohort-of-one gap D12
+    exists to close is open for that request.
+    """
+    store = ScoreStore()
+    await _register_pinned(store)
+    await _row(store, spec_id="spec-a", score=0.90, cost="1.00")
+
+    reads: list[int] = []
+    real = Benchmark.get_or_none
+
+    def _counting(*args, **kwargs):  # type: ignore[no-untyped-def]
+        reads.append(1)
+        return real(*args, **kwargs)
+
+    Benchmark.get_or_none = _counting  # type: ignore[method-assign]
+    try:
+        rows = await store.leaderboard(benchmark_id="hle", top_n=None, registered_revision=_PINNED)
+    finally:
+        Benchmark.get_or_none = real  # type: ignore[method-assign]
+
+    assert [row.spec_id for row in rows] == ["spec-a"]
+    assert reads == [], "the store must trust the revision it was given, not re-read it"

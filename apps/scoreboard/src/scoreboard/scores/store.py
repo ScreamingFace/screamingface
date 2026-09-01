@@ -366,6 +366,17 @@ class SubmitOutcome(NamedTuple):
     created: bool
 
 
+class _Unset:
+    """Distinguishes "caller did not supply a revision" from "caller supplied None".
+
+    None is a meaningful value here — it is what an unregistered benchmark has, and it means
+    "filter nothing" — so a plain `None` default could not tell the two apart.
+    """
+
+
+_UNSET = _Unset()
+
+
 def _build_leaderboard_query(
     benchmark_id: str, top_n: int | None, registered_revision: str | None
 ) -> QueryBuilder:
@@ -903,7 +914,11 @@ class ScoreStore:
         return await IdempotencyKey.filter(expires_at__lte=now).delete()
 
     async def leaderboard(
-        self, benchmark_id: str, top_n: int | None = 50
+        self,
+        benchmark_id: str,
+        top_n: int | None = 50,
+        *,
+        registered_revision: str | None | _Unset = _UNSET,
     ) -> list[LeaderboardEntry]:
         """The ranked board. `top_n=None` returns it whole.
 
@@ -917,11 +932,17 @@ class ScoreStore:
         conn = Tortoise.get_connection("default")
         # The board is defined by the revision its benchmark is registered at; entries measured
         # against anything else are not comparable to it and do not rank (OME-775).
-        benchmark = await Benchmark.get_or_none(id=benchmark_id)
+        # INVARIANT: when the caller supplies the revision, it is NOT read again. The route
+        # decides whether to compute a frontier at all from `Benchmark.revision`, and this query
+        # filters on it — two independent SELECTs of one row meant a re-registration landing
+        # between them could open the gate on one value while the query filtered on another,
+        # computing a frontier over mixed revisions and reopening the cohort-of-one gap D12
+        # closes. One read now decides both (found in review, 2026-09-01).
+        if isinstance(registered_revision, _Unset):
+            benchmark = await Benchmark.get_or_none(id=benchmark_id)
+            registered_revision = benchmark.revision if benchmark else None
         result = await execute_pypika(
-            _build_leaderboard_query(
-                benchmark_id, top_n, benchmark.revision if benchmark else None
-            ),
+            _build_leaderboard_query(benchmark_id, top_n, registered_revision),
             using_db=conn,
         )
         rows = _to_python_rows(result.rows)

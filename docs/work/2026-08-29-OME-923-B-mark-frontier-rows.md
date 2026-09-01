@@ -413,10 +413,10 @@ the focus lands somewhere visible.
 Worth noting the scroll predates this ticket — every board wider than its container had the same
 unreachable-content problem. The Cost column made it reachable in practice, not novel.
 
-### Not acted on
+### Not acted on at the time — now fixed, see below
 
 - Two independent `SELECT`s of `Benchmark.revision` (the gate's and the query's) could disagree
-  within one request. Speculative, low, and narrower than the race the single read closed.
+  within one request.
 
 
 ## Round 2 did NOT run (2026-09-01)
@@ -460,3 +460,33 @@ if more than one item ever hides.
 Worth noting the shape: **I introduced this bug in the round-1 fix, in the very line whose
 comment claims it prevents the problem.** Third time in this unit that a fix has landed a defect
 next to itself.
+
+
+## One read decides the gate and the filter (2026-09-01)
+
+The route read `Benchmark.revision` through `_get_benchmark_or_404` to decide whether to compute
+a frontier at all, and `ScoreStore.leaderboard` read the same row again to build the query's
+revision filter. Two `SELECT`s, so a re-registration landing between them opens the gate on one
+value while the query filters on another — the frontier is then computed over mixed revisions
+and the cohort-of-one gap D12 exists to close is open for that request.
+
+`leaderboard()` now takes `registered_revision` and does not re-read when given it; the route
+passes the value it already holds. A sentinel distinguishes "not supplied" from "supplied None",
+because `None` is meaningful here — it is what an unregistered benchmark has, and it means
+"filter nothing".
+
+This also removes a database round trip from every board request.
+
+Mutation-checked: restoring the re-read fails
+`test_the_board_query_trusts_the_revision_it_is_given`.
+
+## Everything with a clear fix is now fixed
+
+What remains, and why each is not a "clear fix":
+
+| Item | Why it is not taken |
+|---|---|
+| `renderMarkSlot`, the Cost cell and the legend have no unit test | `benchmark.js` has no harness, and the card's gate names one JS file explicitly. Adding a second means changing `.claude/sdlc.local.md`, which is a card change, not a code fix. |
+| The board has no tiebreaker among equal scores, so `rank` is unstable for ties | The *mechanism* is clear — add a secondary sort key. The *semantics* are a product decision: on a tie, does the newer submission rank higher, or the one that got there first? Extending the same-spec rule ("newer wins") to different participants is not obviously the fair answer on a public leaderboard. Pre-existing, unfiled. |
+| A negative cost written out-of-band bypasses validation | Needs a `CHECK` constraint and a migration on a shared table, for a state only reachable by bypassing the API. Schema work under stack rule S1, and not this ticket's. |
+| The row load is O(n) and unbounded on a pinned board | Inherent to whole-board semantics. The quadratic amplification is gone; what remains is one query returning one row per (spec_id, benchmark_revision), the same shape the endpoint always issued. |

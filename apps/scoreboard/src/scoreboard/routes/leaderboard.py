@@ -278,6 +278,9 @@ async def get_leaderboard(
     board = await _score_store(request).leaderboard(
         benchmark_id=benchmark_id,
         top_n=None if pinned else min(top, MAX_LEADERBOARD_TOP),
+        # The same read that decided `pinned` above also builds the query's revision filter, so
+        # the gate and the filter can never disagree within one request.
+        registered_revision=benchmark.revision,
     )
     if await turned_private(benchmark_id):
         # The board went private while the ranking query ran. Answer it correctly rather than
