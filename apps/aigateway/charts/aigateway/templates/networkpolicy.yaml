@@ -47,7 +47,7 @@ spec:
       # Job Pods; applying this 9105-only rule to them is what denied the gateway's snapshot
       # PUTs to Garage:3900 under the default networkPolicy.enabled=true — the bundled
       # Garage gets its own scoped policy (templates/garage.yaml) instead.
-      app.kubernetes.io/component: gateway
+      app.kubernetes.io/component: {{ include "aigateway.componentLabel" . }}
   policyTypes:
     - Ingress
     - Egress

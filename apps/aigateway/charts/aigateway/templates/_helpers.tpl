@@ -64,6 +64,40 @@ app.kubernetes.io/name: {{ include "aigateway.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
+{{/*
+The gateway Pod's `app.kubernetes.io/component` value — the ONE place this chart decides it.
+
+INVARIANT: the Pod template AND every selector that must name the gateway (the Service, the
+NetworkPolicy, Garage's :3900 ingress) derive from this helper, so they cannot drift apart.
+
+WHY configurable: `selectorLabels` (name+instance) match EVERY workload this chart renders — the
+migrate Job and the bundled Garage included — so a selector that must name the gateway needs a
+component label. But a platform that owns the network boundary may already have its own name for
+this Pod (`component: server` across sf-aigw / sf-report-intake / sf-scoreboard). Hardcoding
+`gateway` forced such a platform to restate it through `podLabels`, which rendered AFTER the Pod
+template's own labels: the duplicate key won on the Pod, the Service selector kept demanding
+`gateway`, and the Service matched ZERO Pods — Pod Running, Argo Synced, no Endpoints, nothing in
+any log. Set `componentLabel` to adopt an existing convention and every selector moves with it.
+*/}}
+{{- define "aigateway.componentLabel" -}}
+{{- .Values.componentLabel | default "gateway" -}}
+{{- end -}}
+
+{{/*
+Refuse the `podLabels` spelling that silently empties this chart's Service.
+
+`podLabels` cannot express a label this chart's selectors depend on: YAML duplicate-key
+precedence decides the winner with no Helm error and no API-server rejection, so the override
+detaches every caller from the gateway while everything still reports healthy. `componentLabel`
+is the supported spelling because it moves the Pod label and the selectors together.
+*/}}
+{{- define "aigateway.validatePodLabels" -}}
+{{- $reserved := "app.kubernetes.io/component" -}}
+{{- if hasKey (.Values.podLabels | default dict) $reserved -}}
+{{- fail (printf "podLabels sets %s=%q, which this chart's Service and NetworkPolicy select on. podLabels renders after the Pod template's own labels, so the override wins on the Pod and leaves the Service matching zero Pods (Pod Running, Argo Synced, no Endpoints). Set componentLabel=%q instead — it moves the Pod label and every selector together." $reserved (get .Values.podLabels $reserved) (get .Values.podLabels $reserved)) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "aigateway.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
 {{- default (include "aigateway.fullname" .) .Values.serviceAccount.name -}}

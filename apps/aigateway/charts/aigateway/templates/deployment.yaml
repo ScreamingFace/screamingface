@@ -23,7 +23,7 @@ spec:
         # chart renders, so any selector that must name the gateway — the Service, the
         # NetworkPolicy — needs this label to stay scoped now that Garage Pods carry the same
         # name/instance pair. Template labels only: see the selector note above.
-        app.kubernetes.io/component: gateway
+        app.kubernetes.io/component: {{ include "aigateway.componentLabel" . }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

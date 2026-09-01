@@ -187,6 +187,6 @@ spec:
         - podSelector:
             matchLabels:
               {{- include "aigateway.selectorLabels" . | nindent 14 }}
-              app.kubernetes.io/component: gateway
+              app.kubernetes.io/component: {{ include "aigateway.componentLabel" . }}
 {{- end }}
 {{- end }}

@@ -404,6 +404,61 @@ check(
     gw_service["spec"]["selector"].get("app.kubernetes.io/component") == "gateway",
     "the Service routes ONLY to gateway Pods, not merely saved by the named targetPort",
 )
+
+# WHY these four (regression, 2026-09-01): the checks above render DEFAULT values, where the
+# component label can only come from the chart itself — so they all passed while the deployed
+# gateway had no Endpoints for 40 minutes. The platform sets `podLabels`, which rendered AFTER the
+# Pod template's own labels, so its `component: server` won on the Pod by YAML duplicate-key
+# precedence while this Service selector still demanded `gateway`. Zero Endpoints, Pod Running,
+# Argo Synced, nothing in any log. A default-only render cannot see that class of break, so the
+# gate now renders the OVERRIDE path too: the Pod label and every selector must move together,
+# and the spelling that caused the outage must be refused outright.
+gw_component = render(
+    GATEWAY_CHART, GATEWAY_RELEASE, "--set", "componentLabel=server", "--set", "snapshot.enabled=true"
+)
+gwc_deployment = find_named(gw_component, "Deployment", f"{GATEWAY_RELEASE}-aigateway")
+gwc_service = find_named(gw_component, "Service", f"{GATEWAY_RELEASE}-aigateway")
+gwc_policy = find_named(gw_component, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway")
+gwc_garage_policy = find_named(
+    gw_component, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway-garage"
+)
+
+check(
+    gwc_deployment["spec"]["template"]["metadata"]["labels"].get(
+        "app.kubernetes.io/component"
+    )
+    == "server"
+    and gwc_service["spec"]["selector"].get("app.kubernetes.io/component") == "server",
+    "componentLabel moves the Pod label and the Service selector together — the Service keeps "
+    "selecting the Pod it fronts under a platform's own component convention",
+)
+check(
+    gwc_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    == "server",
+    "componentLabel moves the gateway NetworkPolicy podSelector too",
+)
+check(
+    any(
+        peer.get("podSelector", {}).get("matchLabels", {}).get(
+            "app.kubernetes.io/component"
+        )
+        == "server"
+        for rule in gwc_garage_policy["spec"]["ingress"]
+        for peer in rule.get("from", [])
+    ),
+    "componentLabel moves Garage's :3900 ingress peer too — the snapshot PUTs keep working",
+)
+_pod_label_clash = render_fails(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set-string",
+    "podLabels.app\\.kubernetes\\.io/component=server",
+)
+check(
+    _pod_label_clash is not None and "componentLabel" in _pod_label_clash,
+    "podLabels cannot set app.kubernetes.io/component — the render is refused and names "
+    "componentLabel, instead of silently emptying the Service",
+)
 check(
     garage_sts["spec"]["template"]["metadata"]["labels"].get("app.kubernetes.io/component")
     == "garage",

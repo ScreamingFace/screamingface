@@ -1,4 +1,5 @@
 {{- include "aigateway.validateAuth" . -}}
+{{- include "aigateway.validatePodLabels" . -}}
 {{- include "aigateway.validateSnapshot" . -}}
 apiVersion: v1
 kind: ConfigMap
