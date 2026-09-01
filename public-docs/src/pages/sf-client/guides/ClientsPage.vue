@@ -92,7 +92,7 @@ client = sf.Client(
       Most of the time you'll reach for the <strong>module-level shortcuts</strong>:
       <code>sf.evaluate(...)</code>, <code>sf.connect(...)</code>, and the rest. They're the
       shortest to write, which is why the
-      <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> and every notebook use
+      <RouterLink to="/sf-client/first-fusion">Quickstart</RouterLink> and every notebook use
       them.
     </p>
 
