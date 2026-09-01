@@ -1,5 +1,5 @@
 import pytest
-from _k8s_fakes import FakeCreatedJob, fake_created_job
+from _k8s_fakes import FakeCoreV1, FakeCreatedJob, fake_created_job
 from kubernetes.client import ApiException
 
 from screamingface_engine.adapters.factory import build_job_runner
@@ -102,6 +102,7 @@ async def test_k8s_runner_job_carries_the_configured_resources_and_ttl() -> None
     runner = build_job_runner(
         settings,
         k8s_client_factory=lambda: client,
+        core_client_factory=FakeCoreV1,
     )
     assert runner is not None
     name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=57600)
@@ -118,6 +119,7 @@ async def test_k8s_runner_job_without_configured_resources_still_gets_its_ttl() 
     runner = build_job_runner(
         _k8s_settings(),
         k8s_client_factory=lambda: client,
+        core_client_factory=FakeCoreV1,
     )
     assert runner is not None
     name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)

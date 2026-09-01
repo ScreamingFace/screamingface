@@ -9,7 +9,7 @@ of truth for one value, and the quiet one wins.
 from typing import Any
 
 import pytest
-from _k8s_fakes import FakeCreatedJob, fake_created_job
+from _k8s_fakes import FakeCoreV1, FakeCreatedJob, fake_created_job
 
 from screamingface_engine import job_env as runner_job_env
 from screamingface_engine.adapters.factory import build_job_runner
@@ -91,6 +91,7 @@ def test_the_factory_threads_the_configmap_name_from_settings() -> None:
     runner = build_job_runner(
         settings,
         k8s_client_factory=_RecordingBatchApi,
+        core_client_factory=FakeCoreV1,
     )
 
     assert isinstance(runner, K8sJobRunner)

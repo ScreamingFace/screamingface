@@ -1,12 +1,28 @@
+import asyncio
 from dataclasses import dataclass
 
 import pytest
-from _k8s_fakes import FakeCreatedJob, fake_created_job
+from _k8s_fakes import (
+    FakeCoreV1,
+    FakeCreatedJob,
+    FakeLimitRange,
+    FakeLimitRangeItem,
+    FakeLimitRangeSpec,
+    FakeQuota,
+    FakeQuotaList,
+    FakeQuotaStatus,
+    fake_created_job,
+)
 from kubernetes.client import ApiException
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.k8s import K8sJobRunner
-from url4.streaming.interfaces import JobAlreadyExists, JobRunner, job_name
+from url4.streaming.interfaces import (
+    JobAlreadyExists,
+    JobRunner,
+    JobRunnerAtCapacity,
+    job_name,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -469,3 +485,200 @@ async def test_an_overridden_io_concurrency_reaches_the_job() -> None:
 
     env = _container_env(client, job_name(TOPIC))
     assert env[job_env.IO_CONCURRENCY] == "9"
+
+
+# --- quota admission (OME-1065) -------------------------------------------------------------
+
+# The deployed Runner Pod's charge: requests 200m/256Mi, limits.memory 1Gi, and the
+# namespace LimitRange's defaulted limits.cpu 500m (the runner sets no limits.cpu).
+_ADMISSION_RESOURCES = {
+    "requests": {"cpu": "200m", "memory": "256Mi"},
+    "limits": {"memory": "1Gi"},
+}
+
+
+def _quota(used: dict[str, str], hard: dict[str, str]) -> FakeQuota:
+    return FakeQuota(status=FakeQuotaStatus(used=used, hard=hard))
+
+
+def _limitrange(
+    default: dict[str, str] | None = None,
+    default_request: dict[str, str] | None = None,
+) -> FakeLimitRange:
+    return FakeLimitRange(
+        spec=FakeLimitRangeSpec(
+            limits=[
+                FakeLimitRangeItem(
+                    type="Container", default=default, defaultRequest=default_request
+                )
+            ]
+        )
+    )
+
+
+def _admission_runner(client: FakeBatchV1, core: FakeCoreV1) -> K8sJobRunner:
+    return K8sJobRunner(
+        client,
+        core_client=core,
+        image="registry/screamingface-engine:1",
+        namespace="url4",
+        resources=_ADMISSION_RESOURCES,
+    )
+
+
+async def test_schedule_refuses_when_the_quota_has_no_headroom() -> None:
+    client = FakeBatchV1()
+    core = FakeCoreV1(
+        quotas=[
+            _quota(
+                used={
+                    "requests.cpu": "1900m",
+                    "requests.memory": "2Gi",
+                    "limits.cpu": "7",
+                    "limits.memory": "10Gi",
+                    "pods": "7",
+                },
+                hard={
+                    "requests.cpu": "2",
+                    "requests.memory": "3Gi",
+                    "limits.cpu": "8",
+                    "limits.memory": "12Gi",
+                    "pods": "8",
+                },
+            )
+        ],
+        limitranges=[_limitrange(default={"cpu": "500m", "memory": "512Mi"})],
+    )
+    runner = _admission_runner(client, core)
+
+    with pytest.raises(JobRunnerAtCapacity):
+        await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+
+    assert client.jobs == {}
+
+
+async def test_schedule_creates_the_job_when_the_quota_has_headroom() -> None:
+    client = FakeBatchV1()
+    core = FakeCoreV1(
+        quotas=[
+            _quota(
+                used={
+                    "requests.cpu": "1000m",
+                    "requests.memory": "1Gi",
+                    "limits.cpu": "4",
+                    "limits.memory": "6Gi",
+                    "pods": "4",
+                },
+                hard={
+                    "requests.cpu": "2",
+                    "requests.memory": "3Gi",
+                    "limits.cpu": "8",
+                    "limits.memory": "12Gi",
+                    "pods": "8",
+                },
+            )
+        ],
+        limitranges=[_limitrange(default={"cpu": "500m", "memory": "512Mi"})],
+    )
+    runner = _admission_runner(client, core)
+
+    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+
+    assert name == job_name(TOPIC)
+    assert job_name(TOPIC) in client.jobs
+
+
+async def test_quota_accounting_includes_limitrange_defaults() -> None:
+    """REGRESSION (OME-1064): the runner sets no `limits.cpu`, so the namespace LimitRange
+    supplies it — the arithmetic is wrong by 500m per Pod if that default is not accounted for.
+    """
+    client = FakeBatchV1()
+    core = FakeCoreV1(
+        quotas=[_quota(used={"limits.cpu": "600m"}, hard={"limits.cpu": "1"})],
+        limitranges=[_limitrange(default={"cpu": "500m", "memory": "512Mi"})],
+    )
+    runner = _admission_runner(client, core)
+
+    with pytest.raises(JobRunnerAtCapacity):
+        await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+
+    assert client.jobs == {}
+
+
+async def test_concurrent_schedules_cannot_jointly_overshoot_the_ceiling() -> None:
+    """The reservation counter closes the read-modify-write race between quota refreshes:
+    ten concurrent schedules fit (0 + 10*200m = 2000m), the eleventh is refused.
+    """
+    client = FakeBatchV1()
+    core = FakeCoreV1(
+        quotas=[_quota(used={"requests.cpu": "0"}, hard={"requests.cpu": "2"})],
+        limitranges=[_limitrange(default={"cpu": "500m", "memory": "512Mi"})],
+    )
+    runner = _admission_runner(client, core)
+
+    results = await asyncio.gather(
+        *(runner.schedule(f"topic-{i}", "chat(hi)", deadline_s=60) for i in range(11)),
+        return_exceptions=True,
+    )
+
+    accepted = [r for r in results if isinstance(r, str)]
+    refused = [r for r in results if isinstance(r, JobRunnerAtCapacity)]
+    assert len(accepted) == 10
+    assert len(refused) == 1
+    assert len(client.jobs) == 10
+
+
+async def test_schedule_proceeds_when_the_quota_cannot_be_read() -> None:
+    class Boom(FakeCoreV1):
+        def list_namespaced_resource_quota(
+            self, namespace: str, *, _request_timeout: float | None = None
+        ) -> FakeQuotaList:
+            raise ApiException(status=403)
+
+    client = FakeBatchV1()
+    runner = _admission_runner(client, Boom())
+
+    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+
+    assert name == job_name(TOPIC)
+    assert job_name(TOPIC) in client.jobs
+
+
+async def test_schedule_proceeds_when_the_namespace_has_no_quota() -> None:
+    client = FakeBatchV1()
+    runner = _admission_runner(client, FakeCoreV1())
+
+    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+
+    assert name == job_name(TOPIC)
+    assert job_name(TOPIC) in client.jobs
+
+
+async def test_a_failed_create_releases_the_reservation() -> None:
+    class Flaky(FakeBatchV1):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fail_creates = 1
+
+        def create_namespaced_job(
+            self, namespace: str, body, *, _request_timeout: float | None = None
+        ) -> FakeCreatedJob:
+            if self.fail_creates > 0:
+                self.fail_creates -= 1
+                raise ApiException(status=500)
+            return super().create_namespaced_job(namespace, body, _request_timeout=_request_timeout)
+
+    client = Flaky()
+    core = FakeCoreV1(
+        quotas=[_quota(used={"requests.cpu": "1700m"}, hard={"requests.cpu": "2"})],
+        limitranges=[_limitrange(default={"cpu": "500m", "memory": "512Mi"})],
+    )
+    runner = _admission_runner(client, core)
+
+    with pytest.raises(ApiException):
+        await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+
+    # The reservation was released, so the retry still fits (1700 + 200 = 1900 <= 2000).
+    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+    assert name == job_name(TOPIC)
+    assert job_name(TOPIC) in client.jobs

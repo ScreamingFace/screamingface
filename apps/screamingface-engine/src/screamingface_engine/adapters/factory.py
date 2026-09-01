@@ -9,7 +9,11 @@ import functools
 from collections.abc import Callable, Sequence
 from typing import Any, cast
 
-from screamingface_engine.adapters.k8s import BatchV1JobsClient, K8sJobRunner
+from screamingface_engine.adapters.k8s import (
+    BatchV1JobsClient,
+    CoreV1QuotaClient,
+    K8sJobRunner,
+)
 from screamingface_engine.config import Settings
 from url4.streaming.interfaces import JobRunner
 
@@ -49,10 +53,18 @@ def _in_cluster_batch_client() -> BatchV1JobsClient:  # pragma: no cover - live 
     return cast(BatchV1JobsClient, BatchV1Api(_in_cluster_api_client()))
 
 
+def _in_cluster_core_client() -> CoreV1QuotaClient:  # pragma: no cover - live cluster (INFRA)
+    """The quota/limitrange read surface, sharing the process's single cached ApiClient."""
+    from kubernetes.client import CoreV1Api
+
+    return cast(CoreV1QuotaClient, CoreV1Api(_in_cluster_api_client()))
+
+
 def build_job_runner(
     settings: Settings,
     *,
     k8s_client_factory: Callable[[], BatchV1JobsClient] = _in_cluster_batch_client,
+    core_client_factory: Callable[[], CoreV1QuotaClient] = _in_cluster_core_client,
     extra_models: Callable[[], Sequence[str]] | None = None,
 ) -> JobRunner | None:
     """Selects the `JobRunner` adapter for `settings.runner`.
@@ -68,6 +80,7 @@ def build_job_runner(
         # source of truth, and it is next to the Job spec that uses it.
         return K8sJobRunner(
             k8s_client_factory(),
+            core_client=core_client_factory(),
             request_timeout_s=_K8S_REQUEST_TIMEOUT_S,
             image=settings.runner_image,
             namespace=settings.namespace,
