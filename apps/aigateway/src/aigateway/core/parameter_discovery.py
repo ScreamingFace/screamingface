@@ -3,15 +3,14 @@
 FEATURE: safe dynamic observation transport. Providers fetch their own FIXED
 catalogs: public ones (OpenRouter/HF/Gemini) to enrich the detailed contract with
 raw support evidence, and — since OME-1026 — one credentialed catalog, Anthropic's
-model LIST, behind an operator-supplied deployment key. This module owns the safety
+model LIST, with the authenticated profile's stored API key. This module owns the safety
 envelope; provider parsers own the shape.
 
 INVARIANT (§5.2): the caller (a provider integration) supplies a FIXED https URL
 and its own allowlisted origins — never a caller-supplied or response-derived
-URL, never a followed redirect. Credentials: never an ACCOUNT credential, and
-never on the default path. OME-1026 (D1) narrowed this by exception — a provider
-MAY attach an operator-configured DEPLOYMENT discovery credential as static
-headers to its OWN allowlisted origin, validated before the dial opens. Every failure is raised as a
+URL, never a followed redirect. Credentials are absent on the default path. A provider
+MAY attach one authenticated profile's own stored credential as static headers to
+its OWN allowlisted origin, validated before the dial opens. Every failure is raised as a
 ``DiscoveryError`` carrying ONLY a stable reason code — never a raw body or a
 raw exception string (that would leak upstream content into API output).
 
@@ -160,7 +159,7 @@ async def fetch_discovery_json(
 
     Order matters: origin/scheme are validated BEFORE the client is dialed, so a
     non-allowlisted or insecure URL never opens a connection — which is also what
-    makes ``headers`` safe to carry a deployment credential (OME-1026 D1): it
+    makes ``headers`` safe to carry a profile credential (OME-1026): it
     cannot leave for a host the caller did not allowlist.
 
     ``headers`` is OPTIONAL and defaults to the legacy behavior. With no headers the

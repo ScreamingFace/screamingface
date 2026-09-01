@@ -1601,3 +1601,49 @@ Apply the owner's explicit naming decision: the shared auth-route context module
   no push.
 
 Status: **DONE**.
+
+## Final-review credential-ownership remediation (2026-09-01)
+
+### Intent
+
+Resolve the two retained findings from the scoped multi-agent review without widening OME-1026:
+preserve a replacement owner's private catalog when a stale manual refresh fails after losing its
+ownership race, and align discovery docstrings with the shipped profile-credential security model.
+
+### Planned changes
+
+- Append a deterministic regression test for the failing-refresh ownership-race branch.
+- In that branch only, keep the replacement owner's private catalog after
+  `ProfileTransitionConflict`, while preserving retirement when the failing refresh still owns the
+  profile.
+- Replace the rejected deployment-key wording in the two identified Python docstrings.
+- Do not address the three sub-threshold open questions, change provider behavior, alter schema, or
+  add a migration.
+
+### Test plan and acceptance
+
+- RED: the appended race test proves that the stale failing refresh causes an avoidable second
+  private-catalog dial on the replacement owner at `83b1a44f`.
+- GREEN: the replacement listing remains fresh with no second dial; existing success/error paths pass.
+- Verify no stale deployment-key assertion remains in the two reviewed modules.
+- Run focused ownership/auth tests and the complete AIGateway gate runner.
+- Acceptance: no isolation or API behavior change beyond preventing the losing refresh from retiring
+  another owner's private catalog; no unrelated dirty file touched.
+
+### Outcome
+
+- Appended a deterministic error-branch race regression in its own focused test module rather than
+  growing the existing 473-line ownership-fence test file.
+- RED reproduced the reviewed defect exactly: the replacement owner warmed once, then the first
+  listing performed a second dial because the losing refresh had retired that catalog.
+- GREEN keeps the replacement owner's private catalog only when `mark_authenticated_error` raises
+  `ProfileTransitionConflict`; an error still owned by the current profile retains the prior
+  retirement behavior.
+- Replaced the rejected deployment-key claims in `core/parameter_discovery.py` and Anthropic's
+  parameter-discovery docstring with the shipped profile-credential allowlisted-origin contract.
+- Focused ownership/auth tests: **121 passed**. Ruff, format, Pyright, enterprise guard, and full
+  coverage gate: **ALL GATES GREEN**.
+- The three sub-threshold review questions remain unchanged for owner adjudication. No schema,
+  migration, dependency, provider protocol, commit, or push.
+
+Status: **DONE**.

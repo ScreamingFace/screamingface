@@ -166,8 +166,13 @@ async def _profile_refresh_lifecycle(
                 expected_last_refreshed_at=expected_last_refreshed_at,
             )
         except ProfileTransitionConflict:
-            pass
-        _invalidate_profile_session(request.app, plugin, account_id, name)
+            # INVARIANT: this refresh no longer owns the profile, so it may evict its
+            # stale strategy but must not retire the replacement owner's private catalog.
+            _invalidate_profile_session(
+                request.app, plugin, account_id, name, retire_private_catalog=False
+            )
+        else:
+            _invalidate_profile_session(request.app, plugin, account_id, name)
         raise HTTPException(
             status_code=401,
             detail={

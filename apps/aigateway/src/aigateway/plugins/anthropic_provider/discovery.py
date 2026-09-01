@@ -3,8 +3,8 @@
 Anthropic has no live PARAMETER discovery: §6.3 forbids spending credentials on parameter
 discovery, and there is no unauthenticated Anthropic catalog to parse. OME-1026 narrowed §6.3
 for the model LIST ONLY — ``live_models.py`` may dial the credentialed Models API with the
-operator's dedicated deployment key to discover which model IDS exist. That says nothing about
-which PARAMETERS a model accepts, so the ONLY honest parameter evidence here is still
+authenticated profile's stored API key to discover which model IDS it can access. That says nothing
+about which PARAMETERS a model accepts, so the ONLY honest parameter evidence here is still
 reviewed labelled-static — the standard chat fields the
 INSTALLED litellm ``AnthropicConfig`` transform accepts (source ``anthropic:static``, NO
 network), used as the detail contract's observation source.
