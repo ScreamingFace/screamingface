@@ -39,3 +39,21 @@ every Runner Job (`URL4_CLOUD_IO_CONCURRENCY`, default 4 — written uncondition
 work-conserving fewest-in-flight gate for local runs (`local_io_capacity`, default 32).
 Layer 2 remains the companion gateway ticket — text drafted in the work ledger, filing
 pending the owner (Linear writes are owner/MCP actions).
+
+## Update 2026-09-01 — Layer 0's measurement resolved, and it moves the locus
+
+The 2026-09-01 `draco-3pass` incident (`OME-1064`) supplied the Layer 0 measurement this spec
+asked for, and it points at the alternative locus the checklist named: **k8s Job
+co-scheduling**, not the gateway queue.
+
+Six of nine candidates completed 0 of 100 cases because their Runner Pods were never created
+(`exceeded quota: ns-ceiling`). The gateway served 4,000–5,800 req/min with zero errors
+throughout — a run that cannot get a Pod never reaches it, so no gateway-side fairness
+mechanism could have helped those candidates.
+
+Layer 1 (shipped, PR #750) is unaffected: it throttles concurrency *inside* one run. Layer 2
+is not wrong but is **not sufficient**, and is not the first constraint to relieve. `OME-1065`
+adds the admission queue that cross-run fairness needs to order, and is now set as a
+**blocked-by** on this issue.
+
+Detail: `docs/spec/2026-09-01-OME-1064-runner-capacity-admission.md` §2.1 and §4.2.
