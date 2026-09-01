@@ -15,7 +15,17 @@ serviceAccount:
   name: ""
 
 podAnnotations: {}
+# Extra Pod labels. MUST NOT contain `app.kubernetes.io/component` — the Service and the
+# NetworkPolicy select on it, and podLabels renders last, so an entry here would win on the Pod
+# and leave the Service with no Endpoints. The render fails if you try; use `componentLabel`.
 podLabels: {}
+
+# The gateway Pod's `app.kubernetes.io/component`, applied to the Pod template and to every
+# selector that names the gateway (Service, NetworkPolicy, Garage's :3900 ingress) at once.
+# Override it to adopt a platform convention that already names this Pod something else, e.g.
+# `server`. It must stay distinct from the migrate Job (`migrate`) and the bundled Garage
+# (`garage`), which share this release's name+instance labels.
+componentLabel: gateway
 
 podSecurityContext: {}
 
