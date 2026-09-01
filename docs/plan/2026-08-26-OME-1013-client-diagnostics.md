@@ -43,10 +43,13 @@ Keep the public surface shallow and the implementation deep:
 ### 3 · Evaluation context and execution evidence
 
 - RED first: one context per top-level sync/async Evaluation, multiple candidate execution slots,
-  validated effective model configuration, bounded safe breadcrumbs, public run ids and optional
-  trace evidence.
+  validated effective model configuration, bounded safe breadcrumbs and optional trace evidence;
+  private stream topics never become public run ids.
 - GREEN: one observer-compatible context that can see lifecycle events without consuming or
   changing user/progress callbacks.
+- Before compilation, retain only caller candidate name/kind. After compilation, replace that
+  fallback with the compiler-produced models and operation topology instead of recursively
+  reconstructing every concrete Recipe subtype in diagnostics.
 - Do not mint traces here; retain only evidence made available by `OME-967` or existing events.
 
 ### 4 · workflow boundary and interruption
@@ -77,6 +80,16 @@ Keep the public surface shallow and the implementation deep:
   exception renderer rather than installing `set_custom_exc`.
 - Keep HTTP submission and browser fact collection in `OME-1014`.
 - Run the full `screamingface` gate lane and the mandatory wisdom/confidence review.
+
+### 7 · review hardening
+
+- RED first: successful and repeated per-exception rendering returns the native traceback lines
+  while displaying the local receipt toolbar once.
+- RED first: internal Event stream topics are absent while valid trace ids remain observable.
+- RED first: the receipt construction boundary is a typed evidence aggregate and rejects unsafe
+  top-level error fields rather than accepting arbitrary mappings assembled by tests or callers.
+- GREEN: preserve the native exception as the sole error presentation; keep the widget additive,
+  use SFDS danger styling for export failures, and remove diagnostics-owned Recipe recursion.
 
 ## Risks and controls
 

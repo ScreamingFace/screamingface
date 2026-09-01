@@ -75,11 +75,11 @@ def test_sync_evaluation_failure_stages_one_receipt_and_preserves_exception() ->
         {
             "candidate": "opus",
             "status": "running",
-            "run_id": "internal-stream-topic",
             "trace_id": _fixtures.TRACE_ID,
         }
     ]
     encoded = receipt.to_json()
+    assert "internal-stream-topic" not in encoded
     assert "private answer instruction" not in encoded
     assert "user:secret" not in encoded
     assert "token=secret" not in encoded
@@ -136,7 +136,6 @@ def test_preparation_failure_retains_safe_caller_candidate_identity() -> None:
         {
             "name": "opus",
             "kind": "model",
-            "models": ["provider/opus"],
         }
     ]
     assert "private answer instruction" not in receipt.to_json()
@@ -184,10 +183,27 @@ async def test_async_evaluation_failure_uses_the_same_receipt_contract() -> None
         {
             "candidate": "opus",
             "status": "running",
-            "run_id": "internal-stream-topic",
             "trace_id": _fixtures.TRACE_ID,
         }
     ]
+
+
+def test_preparation_failure_does_not_reconstruct_composite_recipe_models() -> None:
+    candidate = sf.Fusion(
+        ["provider/opus", "provider/gpt"],
+        synthesizer="provider/synth",
+        name="panel",
+    )
+    with sf.Client(
+        engine_url="https://engine.example",
+        run_transport=_fixtures.FailingTransport(AssertionError("transport must not run")),
+    ) as client:
+        with pytest.raises(TypeError, match="benchmark is required"):
+            cast(Any, client).evaluate(candidate)
+
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert receipt.to_dict()["context"]["candidates"] == [{"name": "panel", "kind": "fusion"}]
 
 
 def test_malformed_trace_context_is_not_fabricated() -> None:

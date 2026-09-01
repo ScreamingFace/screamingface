@@ -15,15 +15,11 @@ from screamingface._diagnostics.capture import (
     _engine_document,
     _error_document,
 )
-from screamingface._diagnostics.model import _new_receipt
+from screamingface._diagnostics.model import _new_receipt, _ReceiptEvidence
 from screamingface._diagnostics.store import _STORE
 from screamingface._evaluation.model import Candidate, _Evaluation
-from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.diagnostic import DiagnosticReceipt
 from screamingface.events import Event, Span, Terminated
-from screamingface.fusion import Fusion
-from screamingface.model import Model
-from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe, _recipe_kind
 
 _SESSION_ID = f"session_{uuid4().hex}"
@@ -105,7 +101,6 @@ class _EvaluationDiagnostic:
                 candidate.name,
                 {"candidate": candidate.name, "status": "running"},
             )
-            execution["run_id"] = event.run_id
             if trace_id := _trace_id(event.traceparent):
                 execution["trace_id"] = trace_id
             if isinstance(event, Terminated):
@@ -131,17 +126,19 @@ class _EvaluationDiagnostic:
             executions = tuple(dict(value) for value in self._executions.values())
             breadcrumbs = tuple(dict(value) for value in self._breadcrumbs)
         return _new_receipt(
-            diagnostic_id=f"diag_{uuid4().hex}",
-            session_id=_SESSION_ID,
-            occurred_at=datetime.now(UTC),
-            elapsed_seconds=max(0.0, time.monotonic() - self._started_at),
-            operation="evaluate",
-            outcome=outcome,
-            client=_client_document(),
-            error=_error_document(error),
-            context=context,
-            executions=executions,
-            breadcrumbs=breadcrumbs,
+            _ReceiptEvidence(
+                diagnostic_id=f"diag_{uuid4().hex}",
+                session_id=_SESSION_ID,
+                occurred_at=datetime.now(UTC),
+                elapsed_seconds=max(0.0, time.monotonic() - self._started_at),
+                operation="evaluate",
+                outcome=outcome,
+                client=_client_document(),
+                error=_error_document(error),
+                context=context,
+                executions=executions,
+                breadcrumbs=breadcrumbs,
+            )
         )
 
     def stage(self, error: BaseException) -> DiagnosticReceipt | None:
@@ -217,29 +214,12 @@ def _caller_candidate_documents(value: object) -> tuple[dict[str, object], ...]:
                 {
                     "name": recipe.name,
                     "kind": _recipe_kind(recipe),
-                    "models": list(dict.fromkeys(_declared_models(recipe))),
                 }
             )
         except Exception:
             _logger.exception("ScreamingFace candidate diagnostic projection failed")
             continue
     return tuple(selected)
-
-
-def _declared_models(recipe: Recipe) -> tuple[str, ...]:
-    if isinstance(recipe, Model):
-        return (recipe.model,)
-    if isinstance(recipe, Fusion):
-        nested = (*recipe.members, recipe.synthesizer)
-    elif isinstance(recipe, Pipeline):
-        nested = recipe.stages
-    elif isinstance(recipe, CorrectiveLoop):
-        nested = (*recipe.members, recipe.judge)
-    elif isinstance(recipe, SelfCorrective):
-        nested = (recipe.member,)
-    else:
-        return ()
-    return tuple(model for child in nested for model in _declared_models(child))
 
 
 def _relative_operation(event: Event) -> str | None:

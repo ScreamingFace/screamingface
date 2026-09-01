@@ -26,7 +26,7 @@ from _evaluation_diagnostic_fixtures import (
 from IPython.core.interactiveshell import InteractiveShell
 
 import screamingface as sf
-from screamingface._diagnostics.model import _new_receipt
+from screamingface._diagnostics.model import _new_receipt, _ReceiptEvidence
 from screamingface._diagnostics.store import _STORE
 from screamingface._evaluation.runner import evaluate_sync
 from screamingface._ui.diagnostic_view import (
@@ -51,17 +51,19 @@ def _receipt(
     outcome: str = "failed",
 ) -> DiagnosticReceipt:
     return _new_receipt(
-        diagnostic_id=diagnostic_id,
-        session_id="session_example",
-        occurred_at=datetime(2026, 8, 26, 17, 38, tzinfo=UTC),
-        elapsed_seconds=1.25,
-        operation="evaluate",
-        outcome=outcome,
-        client={"name": "screamingface-python", "host": "notebook"},
-        error={"type": "TypeError"},
-        context={"engine": {"host": "engine.example", "mode": "hosted"}},
-        executions=[],
-        breadcrumbs=[],
+        _ReceiptEvidence(
+            diagnostic_id=diagnostic_id,
+            session_id="session_example",
+            occurred_at=datetime(2026, 8, 26, 17, 38, tzinfo=UTC),
+            elapsed_seconds=1.25,
+            operation="evaluate",
+            outcome=outcome,
+            client={"name": "screamingface-python", "host": "notebook"},
+            error={"type": "TypeError"},
+            context={"engine": {"host": "engine.example", "mode": "hosted"}},
+            executions=[],
+            breadcrumbs=[],
+        )
     )
 
 
@@ -112,8 +114,10 @@ def test_evaluation_attaches_one_renderer_to_the_original_raw_exception(
 
     assert caught.value is error
     renderer = getattr(error, "_render_traceback_")
-    assert renderer() == []
-    assert renderer() == []
+    first = renderer()
+    second = renderer()
+    assert "TypeError: benchmark is required" in "".join(first)
+    assert second == first
     receipt = sf.diagnostics.last()
     assert receipt is not None
     assert published == [receipt]
@@ -182,6 +186,29 @@ def test_notebook_renderer_falls_back_to_the_existing_renderer(
     _attach_notebook_renderer(error, _receipt())
 
     assert error._render_traceback_() == expected
+
+
+def test_notebook_renderer_preserves_existing_traceback_after_successful_display(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    error = sf.ExecutionError("The Engine disconnected.", code="websocket_disconnected")
+    expected = error._render_traceback_()
+    published: list[DiagnosticReceipt] = []
+    monkeypatch.setattr(
+        "screamingface._ui.diagnostic_view.running_in_notebook",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "screamingface._ui.diagnostic_view._display_notebook_diagnostic",
+        published.append,
+    )
+    receipt = _receipt()
+
+    _attach_notebook_renderer(error, receipt)
+
+    assert error._render_traceback_() == expected
+    assert error._render_traceback_() == expected
+    assert published == [receipt]
 
 
 def test_raw_exception_fallback_retains_its_python_traceback(
@@ -368,7 +395,8 @@ def test_export_failure_is_reported_inside_the_panel(
 
 def test_panel_uses_sfds_app_tokens_and_colab_theme_contract() -> None:
     assert "border-radius:0" in _STYLE
-    assert "var(--sf-danger-solid)" not in _STYLE
+    assert "var(--sf-danger-solid)" in _STYLE
+    assert "var(--sf-blind)" not in _STYLE.split("<style>")[-1]
     assert "var(--sf-accent)" in _STYLE
     assert "background:var(--sf-gain)" not in _STYLE
     assert ".sf-diagnostic__toolbar.widget-hbox" in _STYLE

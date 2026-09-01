@@ -30,9 +30,9 @@ The identities describe different scopes and are never substituted for one anoth
 ```text
 Client/kernel session                     session_id
 └─ one failed public operation            diagnostic_id
-   ├─ candidate URL4 execution            run_id + trace_id, when observable
+   ├─ candidate URL4 execution            trace_id, when observable
    │  └─ relevant failed Gateway request  gateway_call_id, when observable
-   └─ candidate URL4 execution            run_id + trace_id, when observable
+   └─ candidate URL4 execution            trace_id, when observable
 ```
 
 - Every real failed or interrupted top-level operation receives a new `diagnostic_id`.
@@ -43,9 +43,10 @@ Client/kernel session                     session_id
 - A `trace_id` represents one bounded URL4 execution tree. One notebook session is never one
   long-lived trace.
 - One Evaluation may contain multiple candidate execution records. Each may have its own trace.
-- `run_id` is the existing public execution id carried by `Event`/`CandidateResult` and sourced
-  from the CloudEvent subject. Retain it when observed, but do not confuse it with a trace, a
-  notebook session, an authorization credential, or an idempotency key.
+- The `Event.run_id` seen by the Client transport is currently an internal stream topic. It is not
+  a stable public execution identity and is never copied into the receipt as `run_id`. A future
+  stable execution identity requires an explicit Engine/Client contract; diagnostics do not rename
+  or infer one from transport plumbing.
 - A `gateway_call_id` identifies only the relevant concrete Gateway request when that fact is
   already observable. The diagnostic does not enumerate every Gateway call; the execution trace
   is the retrieval key for the tree.
@@ -86,7 +87,7 @@ final Report decoding.
 
 The capture context gains facts monotonically as the workflow advances:
 
-1. public operation and caller-supplied Benchmark/candidate inputs;
+1. public operation and the caller-supplied Benchmark/candidate name and kind only;
 2. compiled candidate identity and recipe topology;
 3. validated effective model configuration after preflight;
 4. bounded lifecycle evidence and execution identities while events arrive;
@@ -144,6 +145,11 @@ message.
   name and outcome.
 
 Breadcrumbs never include Event log bodies, payloads, URL4, prompts or responses.
+
+Before compilation, the receipt may retain only a Recipe's public name and canonical kind. The
+compiler-produced `Candidate` is the sole authority for models and operation topology. This avoids
+a second diagnostics-owned traversal that must learn every concrete Recipe subtype and prevents
+unvalidated prompts or parameters from entering the receipt.
 
 ## Interruption
 
@@ -243,7 +249,8 @@ contract.
 3. A returned partial `Report` stages nothing.
 4. Receipt serialization is deterministic, versioned and byte-identical to explicit export.
 5. The store evicts deterministically under both count and byte pressure.
-6. Candidate execution identities remain separate; missing traces stay absent.
+6. Candidate executions remain separate; valid trace ids are retained, internal stream topics are
+   absent, and missing traces stay absent.
 7. Validated execution configuration is present when preflight completed; rejected values are not.
 8. Tests prove every forbidden content/secret source is absent from a representative receipt.
 9. A capture/store failure cannot change the operation exception observed by the caller.

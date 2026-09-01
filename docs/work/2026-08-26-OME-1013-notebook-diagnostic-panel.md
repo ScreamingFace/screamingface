@@ -8,6 +8,9 @@ finished: 2026-08-27
 
 # OME-1013 — Render local diagnostics in notebooks
 
+> This `done` status records the completed notebook-panel iteration, not closure of the parent
+> Linear issue. The authoritative ticket mirror remains `in_progress` until the full PR lands.
+
 ## Intent
 
 Present a retained local diagnostic receipt as an SFDS notebook panel when an exception escapes a

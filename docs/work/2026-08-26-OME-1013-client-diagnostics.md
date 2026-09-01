@@ -8,6 +8,9 @@ finished: 2026-08-26
 
 # OME-1013 — Assemble local Client diagnostic receipts
 
+> This `done` status records the completed receipt-capture iteration, not closure of the parent
+> Linear issue. The authoritative ticket mirror remains `in_progress` until the full PR lands.
+
 ## Intent
 
 Give early ScreamingFace users a concrete, privacy-safe artifact when an Evaluation raises or is
@@ -43,7 +46,8 @@ future report-intake mapping remains a separate adapter and is not designed into
 - `sf.diagnostics.last()` and `sf.diagnostics.get(ref)` return immutable local receipts.
 - Receipts support `to_dict()`, `to_json()`, and explicit `.export()` using the Report convention.
 - One top-level failed Evaluation produces one unique receipt containing separate observable
-  candidate executions; each retains the existing public Event `run_id` when observed.
+  candidate executions; valid trace ids are retained when observed, but private Event stream
+  topics are not published as `run_id`.
 - Normal receipts contain no prompts, responses, URL4, notebook source, raw logs, secrets,
   environment dumps, source lines, locals, or absolute paths.
 - Capture is bounded, local-only and fail-open; normal Python exception behavior is unchanged.

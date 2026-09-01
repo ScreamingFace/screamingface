@@ -41,7 +41,7 @@ _STYLE = (
   font:500 12px/1.45 var(--f-mono)}
 .sf-diagnostic__status:empty{display:none}
 .sf-diagnostic__status--ok{color:var(--sf-success)}
-.sf-diagnostic__status--bad{color:var(--sf-blind)}
+.sf-diagnostic__status--bad{color:var(--sf-danger-solid)}
 .sf-diagnostic__preview{margin-top:8px;border:1px solid var(--sf-line-2);
   background:var(--sf-surface)}
 .sf-diagnostic__preview-label{padding:8px 12px;border-bottom:1px solid var(--sf-line);
@@ -123,15 +123,15 @@ def _attach_notebook_renderer(error: BaseException, receipt: DiagnosticReceipt) 
 
     def render() -> list[str]:
         nonlocal shown
-        if shown:
-            return []
-        try:
-            _display_notebook_diagnostic(receipt)
-        except Exception:
-            # INVARIANT: optional presentation can never hide the operation's real traceback.
-            return fallback()
-        shown = True
-        return []
+        if not shown:
+            try:
+                _display_notebook_diagnostic(receipt)
+            except Exception:
+                # INVARIANT: optional presentation can never hide the operation's real traceback.
+                return fallback()
+            shown = True
+        # INVARIANT: the toolbar is additive; IPython uses these lines as the native traceback.
+        return fallback()
 
     # WHY: IPython asks the exception value for this protocol. An instance attachment also covers
     # raw TypeError/ValueError failures without wrapping them or intercepting unrelated cells.

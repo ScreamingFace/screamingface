@@ -4,48 +4,66 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
 
 from screamingface.diagnostic import DiagnosticReceipt
 
+_SAFE_ERROR_FIELDS = frozenset(
+    {"type", "code", "status", "permanent", "retryable", "hint", "details", "chain"}
+)
 
-def _new_receipt(
-    *,
-    diagnostic_id: str,
-    session_id: str,
-    occurred_at: datetime,
-    elapsed_seconds: float,
-    operation: str,
-    outcome: str,
-    client: Mapping[str, object],
-    error: Mapping[str, object],
-    context: Mapping[str, object],
-    executions: Sequence[Mapping[str, object]],
-    breadcrumbs: Sequence[Mapping[str, object]],
-) -> DiagnosticReceipt:
+
+@dataclass(frozen=True, slots=True)
+class _ReceiptEvidence:
+    """Typed evidence assembled for one immutable diagnostic receipt."""
+
+    diagnostic_id: str
+    session_id: str
+    occurred_at: datetime
+    elapsed_seconds: float
+    operation: str
+    outcome: str
+    client: Mapping[str, object]
+    error: Mapping[str, object]
+    context: Mapping[str, object]
+    executions: Sequence[Mapping[str, object]] = ()
+    breadcrumbs: Sequence[Mapping[str, object]] = ()
+
+
+def _new_receipt(evidence: _ReceiptEvidence) -> DiagnosticReceipt:
     """Validate and freeze one receipt assembled by the private capture layer."""
 
-    if not isinstance(occurred_at, datetime) or occurred_at.tzinfo is None:
+    if not isinstance(evidence.occurred_at, datetime) or evidence.occurred_at.tzinfo is None:
         raise ValueError("Diagnostic occurred_at must be timezone-aware")
+    _validate_error(evidence.error)
     document: dict[str, object] = {
         "schema": "screamingface.diagnostic/v1",
-        "diagnostic_id": _nonblank(diagnostic_id, "Diagnostic id"),
-        "session_id": _nonblank(session_id, "Diagnostic session id"),
-        "occurred_at": _timestamp_text(occurred_at),
-        "elapsed_seconds": elapsed_seconds,
-        "operation": _nonblank(operation, "Diagnostic operation"),
-        "outcome": _nonblank(outcome, "Diagnostic outcome"),
-        "client": dict(client),
-        "error": dict(error),
-        "context": dict(context),
-        "executions": [dict(value) for value in executions],
-        "breadcrumbs": [dict(value) for value in breadcrumbs],
+        "diagnostic_id": _nonblank(evidence.diagnostic_id, "Diagnostic id"),
+        "session_id": _nonblank(evidence.session_id, "Diagnostic session id"),
+        "occurred_at": _timestamp_text(evidence.occurred_at),
+        "elapsed_seconds": evidence.elapsed_seconds,
+        "operation": _nonblank(evidence.operation, "Diagnostic operation"),
+        "outcome": _nonblank(evidence.outcome, "Diagnostic outcome"),
+        "client": dict(evidence.client),
+        "error": dict(evidence.error),
+        "context": dict(evidence.context),
+        "executions": [dict(value) for value in evidence.executions],
+        "breadcrumbs": [dict(value) for value in evidence.breadcrumbs],
     }
     frozen = _freeze(document)
     if not isinstance(frozen, Mapping):
         raise AssertionError("a diagnostic document must remain a mapping")
     return DiagnosticReceipt._from_frozen(frozen)
+
+
+def _validate_error(value: Mapping[str, object]) -> None:
+    # INVARIANT: generic receipt assembly may freeze safe evidence, never widen capture policy.
+    unsafe = sorted(set(value) - _SAFE_ERROR_FIELDS)
+    if unsafe:
+        raise ValueError(f"Diagnostic contains unsafe error fields: {', '.join(unsafe)}")
+    _nonblank(value.get("type"), "Diagnostic error type")
 
 
 def _freeze(value: object) -> object:
@@ -84,4 +102,4 @@ def _timestamp_text(value: datetime) -> str:
     return rendered.replace("+00:00", "Z")
 
 
-__all__ = ["_new_receipt"]
+__all__ = ["_new_receipt", "_ReceiptEvidence"]

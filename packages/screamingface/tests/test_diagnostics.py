@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 import screamingface as sf
-from screamingface._diagnostics.model import _new_receipt
+from screamingface._diagnostics.model import _new_receipt, _ReceiptEvidence
 from screamingface._diagnostics.store import _DiagnosticStore
 
 
@@ -16,26 +16,28 @@ def _receipt(
     error_message: str = "The Engine disconnected.",
 ) -> sf.DiagnosticReceipt:
     return _new_receipt(
-        diagnostic_id=diagnostic_id,
-        session_id="session_test",
-        occurred_at=datetime(2026, 8, 26, 14, 3, 11, 204000, tzinfo=UTC),
-        elapsed_seconds=0.5,
-        operation="evaluate",
-        outcome="failed",
-        client={"name": "screamingface-python", "version": "0.1.1.post5"},
-        error={
-            "type": "ExecutionError",
-            "code": "websocket_disconnected",
-            "message": error_message,
-        },
-        context={"benchmark": {"id": "draco", "revision": "rev-1"}},
-        executions=(
-            {
-                "candidate": "candidate-a",
-                "trace_id": "0123456789abcdef0123456789abcdef",
+        _ReceiptEvidence(
+            diagnostic_id=diagnostic_id,
+            session_id="session_test",
+            occurred_at=datetime(2026, 8, 26, 14, 3, 11, 204000, tzinfo=UTC),
+            elapsed_seconds=0.5,
+            operation="evaluate",
+            outcome="failed",
+            client={"name": "screamingface-python", "version": "0.1.1.post5"},
+            error={
+                "type": "ExecutionError",
+                "code": "websocket_disconnected",
+                "hint": error_message,
             },
-        ),
-        breadcrumbs=({"sequence": 1, "stage": "execution", "event": "started"},),
+            context={"benchmark": {"id": "draco", "revision": "rev-1"}},
+            executions=(
+                {
+                    "candidate": "candidate-a",
+                    "trace_id": "0123456789abcdef0123456789abcdef",
+                },
+            ),
+            breadcrumbs=({"sequence": 1, "stage": "execution", "event": "started"},),
+        )
     )
 
 
@@ -57,7 +59,7 @@ def test_receipt_serialization_is_deterministic_and_versioned() -> None:
         "error": {
             "type": "ExecutionError",
             "code": "websocket_disconnected",
-            "message": "The Engine disconnected.",
+            "hint": "The Engine disconnected.",
         },
         "context": {"benchmark": {"id": "draco", "revision": "rev-1"}},
         "executions": [
@@ -71,6 +73,23 @@ def test_receipt_serialization_is_deterministic_and_versioned() -> None:
     assert json.loads(receipt.to_json()) == receipt.to_dict()
     assert '": ' not in receipt.to_json()
     assert '", ' not in receipt.to_json()
+
+
+def test_receipt_construction_rejects_unsafe_error_fields() -> None:
+    with pytest.raises(ValueError, match="unsafe error fields: message"):
+        _new_receipt(
+            _ReceiptEvidence(
+                diagnostic_id="diag_unsafe",
+                session_id="session_test",
+                occurred_at=datetime(2026, 8, 26, tzinfo=UTC),
+                elapsed_seconds=0.5,
+                operation="evaluate",
+                outcome="failed",
+                client={"name": "screamingface-python"},
+                error={"type": "ExecutionError", "message": "private server response"},
+                context={},
+            )
+        )
 
 
 def test_receipt_to_dict_returns_an_independent_tree() -> None:
