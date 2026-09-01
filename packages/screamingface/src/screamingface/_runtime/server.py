@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib.util
 import json
 import os
 import signal
@@ -9,7 +10,7 @@ import socket
 import subprocess
 import sys
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from functools import cache
 from types import FrameType
 from typing import Any, Protocol
@@ -34,12 +35,70 @@ class Server(Protocol):
     async def serve(self) -> None: ...
 
 
+# The modules ONLY the "runtime" extra provides AND the local boot path reaches before it
+# can serve: the gateway app (fastapi, litellm, pydantic_settings, tortoise, bcrypt,
+# cryptography), its sqlite database (aiosqlite), the Engine app (kubernetes — adapters.k8s
+# imports it at module level; prometheus_client for metrics), and the servers (uvicorn).
+#
+# WHY probed with find_spec and not imported: the check must stay fast (importing litellm
+# alone costs seconds) and must run in CI, which installs no runtime extra.
+#
+# WHY a fixed list and not "import the vendored apps": the vendored aigateway, scoreboard,
+# and screamingface_engine packages import nothing heavy, so importing them proves nothing
+# about the extra — the Colab gap (OME-1036). Fresh Colab preinstalls uvicorn and fastapi
+# (gradio needs them) but not tortoise, so the old five-import guard passed on a plain
+# install and the stack died inside the child with a raw ModuleNotFoundError. Keep this
+# tuple in step with the "runtime" extra in pyproject.toml.
+_RUNTIME_ONLY_MODULES: tuple[str, ...] = (
+    "aiosqlite",
+    "bcrypt",
+    "cryptography",
+    "fastapi",
+    "kubernetes",
+    "litellm",
+    "prometheus_client",
+    "pydantic_settings",
+    "tortoise",
+    "uvicorn",
+)
+
+
+def _missing_runtime_modules(
+    names: Sequence[str], find_spec: Callable[[str], Any] = importlib.util.find_spec
+) -> tuple[str, ...]:
+    """The probed names that are not importable, in probe order.
+
+    ``find_spec`` is a parameter so tests can simulate a host without the extra; the
+    default locates a module WITHOUT executing it.
+    """
+    missing: list[str] = []
+    for name in names:
+        try:
+            located = find_spec(name)
+        except (ImportError, ValueError):
+            # find_spec raises for a broken parent package or an invalid name; either way
+            # this module is not usable, which is the answer the caller needs.
+            located = None
+        if located is None:
+            missing.append(name)
+    return tuple(missing)
+
+
 def require_runtime_extra() -> RuntimeSource:
     # INVARIANT (OME-1001): the runtime source activates before ANY runtime app
     # import — in a checkout, the live apps/ code must shadow the stale build-time
     # copies a dev venv carries in site-packages.
     source = resolve_source(os.environ)
     activate(source)
+    # WHY before `enable_local_providers` (which mutates os.environ): a refused boot must
+    # leave no trace beyond the error, and find_spec imports nothing, so nothing about the
+    # provider defaults matters to the probe (OME-1036).
+    missing = _missing_runtime_modules(_RUNTIME_ONLY_MODULES)
+    if missing:
+        raise RuntimeError(
+            f"Local runtime dependencies are missing: {', '.join(missing)}. "
+            'Install "screamingface[runtime]".'
+        )
     # Configure provider discovery before importing URL4 Cloud: its compiled model world may load
     # AI Gateway plugins, whose module-level instances capture provider settings at import time.
     enable_local_providers(os.environ)

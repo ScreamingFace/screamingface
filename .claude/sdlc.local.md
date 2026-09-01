@@ -27,6 +27,15 @@ stacks:
       # covering nothing. A missing explicit path exits 1. Add new test files here
       # by name (OME-798).
       - node --test tests/portal/leaderboard-logic.test.js
+  - name: report-intake
+    root: apps/report-intake
+    skill: sdlc-python
+    test_globs: ["tests/**"]
+    gates:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run pyright
+      - uv run pytest --cov=report_intake --cov-fail-under=80 -q
   - name: url4
     root: packages/url4
     skill: sdlc-python
@@ -143,6 +152,25 @@ ledger_dir: docs/work/
 - INVARIANTS: public artifact allowlist in `src/scoreboard/portal.py` (PUBLIC_ARTIFACTS /
   FORBIDDEN_ARTIFACTS — forbidden routes must stay 404); portal + artifacts stay app-local
   (`portal/`, `artifacts/`).
+
+## report-intake (python)
+
+- INVARIANTS: `Settings` (`env_prefix="REPORT_INTAKE_"`) is the sole authority on this
+  service's environment — every variable it reads is a field, the chart renders exactly that
+  set, and `create_app` refuses to start on a `REPORT_INTAKE_*` name matching no field.
+  `FORWARDED_ALLOW_IPS` is the one exception, because it is uvicorn's, and it must stay
+  disjoint from `REPORT_INTAKE_ALLOWED_NETWORKS`.
+- `/healthz` never grows a storage import and never sits behind an auth check — a probe that
+  can fail for an external reason is how a pod fails its own kubelet probe. `/readyz` is the
+  one that may fail closed, it answers from `app.state.readiness_check`, and there is exactly
+  one of it.
+- Content-bearing material (prompts, model responses, cell source, log bodies, url4
+  expressions) is **rejected**, never stored and never rendered into a ticket body. Nothing is
+  ever authorized by `trace_id` or `run_id`. `X-User-Email` is honoured only when the mesh
+  injected it and is named in exactly one module — keep it out of any general header allowlist.
+- Strict complexity tier (`max-complexity = 8`, `max-statements = 26`, `max-branches = 7`,
+  `max-returns = 3`), baselined in `apps/report-intake/docs/complexity-baseline.md`. This app
+  is greenfield; it does not inherit aigateway's Day-1 grandfathering.
 
 ## ledger naming (D8)
 

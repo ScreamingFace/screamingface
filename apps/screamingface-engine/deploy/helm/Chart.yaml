@@ -15,7 +15,7 @@ keywords:
   - kubernetes-jobs
   - websocket
 sources:
-  - https://github.com/openmined/screamingface
+  - https://github.com/ScreamingFace/screamingface
 # NATS (JetStream) is the telemetry bus between the Runner Jobs and the App (spec §9). It is
 # declared as an optional chart dependency: default-disabled so an existing cluster NATS can be
 # reused via `config.natsUrl`. Enable with `--set nats.enabled=true` after `helm dependency build`.

@@ -295,7 +295,7 @@ Live probe through the ASGI app against a fresh SQLite database:
 3. **The review tool could not report through `ReportFindings`** — not available in this
    environment; findings came back as prose and were re-verified by hand.
 4. At the time of writing, no PR was open. Superseded: opened as
-   [#582](https://github.com/OpenMined/screamingface/pull/582) (2026-08-14), CI green,
+   [#582](https://github.com/ScreamingFace/screamingface/pull/582) (2026-08-14), CI green,
    awaiting review. Nothing outward-facing was sent.
 
 ## Code-review pass 2 (2026-08-13) — four findings, all verified

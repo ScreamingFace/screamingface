@@ -481,7 +481,7 @@ const fusionSig = `sf.Fusion(
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>00_quickstart.ipynb</code></a

@@ -325,6 +325,7 @@ def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
         "valid": record.get("valid") is True,
         "raw_output": record["raw_output"],
         "metadata": {},
+        "accounting": record.get("accounting"),
     }
     if value["valid"]:
         value["outcome"] = record["criterion_status"]

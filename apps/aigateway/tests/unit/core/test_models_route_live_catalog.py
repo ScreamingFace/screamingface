@@ -38,6 +38,9 @@ from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSetti
 # deliberately omits — retired upstream, so a healthy snapshot must drop it.
 _COMPILED_SEED = "openrouter/anthropic/claude-fable-5"
 
+# A deadlock bound, not a timing assumption — the happy path releases in milliseconds.
+_RENDEZVOUS_TIMEOUT_S = 10.0
+
 
 class _Clock:
     def now(self) -> float:
@@ -328,28 +331,29 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
     _enable_openrouter(monkeypatch, OpenRouterPluginSettings(enabled=True))
 
     callers = 6
-    # The barrier that makes this deterministic: the ONE in-flight refresh is held
-    # until all six callers have executed ``start_or_join``, then released.
-    # WHY it replaced ``await asyncio.sleep(0.2)``: a sleep only assumes the six
-    # arrive while the dial is outstanding. Under the coverage gate they do not — line
-    # tracing spreads the six requests out far enough that the first refresh finishes
-    # first, and the late callers then start refreshes of their own (five distinct
-    # manager task ids were observed, against one upstream dial). The contract this
-    # test states is unchanged; only the synchronisation is no longer a guess.
+    # Hold the one manager-owned refresh until every caller has joined it. This keeps
+    # the OME-1055 rendezvous deterministic after OME-1026 moved single-flight from
+    # ModelCatalog to BackgroundRefreshManager.
     all_joined = asyncio.Event()
+    rendezvous = {"timed_out": False}
 
-    class _HeldClient:
+    class _RendezvousClient:
+        """Upstream stub that answers only once every caller is parked behind it."""
+
         def __init__(self) -> None:
             self.dialed: list[str] = []
 
         async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
             self.dialed.append(url)
-            await asyncio.wait_for(all_joined.wait(), 10)
+            try:
+                await asyncio.wait_for(all_joined.wait(), timeout=_RENDEZVOUS_TIMEOUT_S)
+            except TimeoutError:
+                rendezvous["timed_out"] = True
             return RawResponse(
                 status=200, content_type="application/json", body=_strict_body(["openai/gpt-5"])
             )
 
-    http = _HeldClient()
+    http = _RendezvousClient()
     app = cast(FastAPI, authenticated_client.app)
     app.state.discovery_runtime = DiscoveryRuntime(
         client=http,
@@ -407,6 +411,10 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
         statuses = list(pool.map(_get, range(callers)))
 
     assert statuses == [200] * callers
+    # A timed-out rendezvous means the burst never assembled, so the assertions below
+    # would measure a serialized run. Name that cause instead of a bare depth mismatch.
+    msg = f"rendezvous timed out: {len(joined)} of {callers} joined, peak waiters {waiters['peak']}"
+    assert not rendezvous["timed_out"], msg
     # INVARIANT: single-flight — one refresh serves every contemporaneous caller,
     # so a burst of listings costs ONE upstream fetch chain, not N.
     assert http.dialed == [LIVE_MODELS_URL]

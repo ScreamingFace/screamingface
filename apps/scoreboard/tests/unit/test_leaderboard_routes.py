@@ -11,7 +11,7 @@ import pytest_asyncio
 from scoreboard.config import Settings
 from scoreboard.main import create_app
 from scoreboard.scores.baseline_store import BaselineStore
-from scoreboard.scores.models import Score
+from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import BaselineImportRow, ClientInfo, ScoreSubmission
 from scoreboard.scores.store import ScoreStore
 
@@ -650,3 +650,577 @@ async def test_list_benchmarks_exposes_the_focus_line(async_client: httpx.AsyncC
     by_id = {benchmark["id"]: benchmark for benchmark in response.json()["benchmarks"]}
     assert by_id["draco"]["focus"] == "Research reports with citations"
     assert by_id["hle"]["focus"] is None
+
+
+# --- OME-894 regression guard ----------------------------------------------------------------
+# INVARIANT: a PUBLIC benchmark read ANONYMOUSLY is unchanged by private-leaderboard work. The
+# risk in OME-894 is not failing to hide the private board — it is quietly breaking the public
+# one while doing so. These are written BEFORE any privacy behaviour exists, so they fail for
+# the right reason if a later step regresses the public path.
+#
+# WHY some assertions are supersets and others exact: the plan deliberately ADDS
+# `visibility` to the benchmark DTO and a private flag to the board response, so pinning those
+# key sets exactly would force editing this guard — a prior test — one step later. Superset
+# there still catches a REMOVED or renamed field, which is the regression that matters. Where
+# the plan adds nothing, the assertion is exact, because an unexpected new key on an entry is
+# exactly how participant data would leak.
+
+_PUBLIC_BENCHMARK_FIELDS = {
+    "created_at",
+    "dataset_url",
+    "description",
+    "display_name",
+    "focus",
+    "id",
+    "revision",
+}
+_PUBLIC_BOARD_ENTRY_FIELDS = {
+    "benchmark_revision",
+    "ran_with_providers",
+    "rank",
+    "run_cost_usd",
+    "score",
+    "spec_id",
+    "submitted_at",
+    "submitted_by",
+    "total_questions",
+    "url4_expression",
+    "verified_by_screamingface",
+}
+_PUBLIC_HISTORY_ITEM_FIELDS = {
+    "benchmark_revision",
+    "correct_questions",
+    "id",
+    "run_cost_usd",
+    "score",
+    "submitted_at",
+    "submitted_by",
+    "total_questions",
+    "verified_by_screamingface",
+}
+_PUBLIC_FRONTIER_FIELDS = {
+    "benchmark_id",
+    "closed_count",
+    "current",
+    "open_count",
+    "open_share",
+    "trend",
+}
+
+
+async def _seed_public_board(store: ScoreStore) -> None:
+    await _register_benchmark(store)
+    await store.submit(_submission(spec_id="spec-a", score=0.60, submitted_by="alice@example.test"))
+    await store.submit(_submission(spec_id="spec-b", score=0.90, submitted_by="bob@example.test"))
+
+
+async def test_ome894_guard_public_catalogue_is_unchanged_anonymously(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/benchmarks")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"benchmarks"}
+    assert _PUBLIC_BENCHMARK_FIELDS <= set(body["benchmarks"][0])
+    # The catalogue must never carry a score of any kind — it is the one path a private
+    # benchmark stays listed on (OME-894 D4), so a score here would leak on that path.
+    assert not {"score", "entries", "submissions"} & set(body["benchmarks"][0])
+
+
+async def test_ome894_guard_public_board_is_unchanged_anonymously(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {"benchmark", "entries", "baselines"} <= set(body)
+    entries = body["entries"]
+    assert len(entries) == 2
+    assert set(entries[0]) == _PUBLIC_BOARD_ENTRY_FIELDS
+    # Ranked, best first, numbered from 1 — an anonymous public read still gets real ranks.
+    assert [entry["rank"] for entry in entries] == [1, 2]
+    assert [entry["score"] for entry in entries] == [0.90, 0.60]
+    # INVARIANT (OME-834): the domain is never published, on any path.
+    assert [entry["submitted_by"] for entry in entries] == ["bob", "alice"]
+
+
+async def test_ome894_guard_public_history_is_unchanged_anonymously(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/leaderboard/hle/spec-a/history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"benchmark_id", "spec_id", "submissions"}
+    assert set(body["submissions"][0]) == _PUBLIC_HISTORY_ITEM_FIELDS
+    assert body["submissions"][0]["submitted_by"] == "alice"
+
+
+async def test_ome894_guard_public_frontier_is_unchanged_anonymously(
+    async_client: httpx.AsyncClient,
+) -> None:
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/leaderboard/hle/frontier")
+
+    assert response.status_code == 200
+    assert set(response.json()) == _PUBLIC_FRONTIER_FIELDS
+
+
+# --- OME-894: private boards ------------------------------------------------------------------
+
+PRIVATE_ID = "healthbench-worst30"
+ALICE_EMAIL = "alice@example.test"
+BOB_EMAIL = "bob@example.test"
+
+
+@pytest_asyncio.fixture
+async def header_mode_client(
+    tortoise_db: None, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[httpx.AsyncClient]:
+    # Same idiom as tests/unit/test_scores_routes.py: FORWARDED_ALLOW_IPS must be pinned
+    # DISJOINT from allowed_networks or create_app's overlap guard refuses to start, and
+    # ASGITransport's fake peer is ("127.0.0.1", 123) so 127.0.0.1/32 is the trusted network.
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "192.0.2.1")
+    settings = Settings.model_validate(
+        {
+            "database_url": "sqlite://:memory:",
+            "cors_origins": [],
+            "auth_mode": "cloudflare_headers",
+            "allowed_networks": "127.0.0.1/32",
+        }
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(settings)), base_url="http://test"
+    ) as client:
+        yield client
+
+
+def _private_submission(
+    *, submitted_by: str, spec_id: str, score: float, revision: str | None = "rev-current"
+) -> ScoreSubmission:
+    return ScoreSubmission(
+        benchmark_id=PRIVATE_ID,
+        spec_id=spec_id,
+        url4_expression=f"url4://benchmark/{PRIVATE_ID}/{spec_id}",
+        submitted_by=submitted_by,
+        score=score,
+        total_questions=100,
+        correct_questions=int(score * 100),
+        ran_with_providers=["openai"],
+        benchmark_revision=revision,
+    )
+
+
+async def _seed_private_challenge() -> ScoreStore:
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id=PRIVATE_ID,
+        display_name="HealthBench Worst-30% Challenge",
+        revision="rev-current",
+        visibility="private",
+    )
+    await store.submit(
+        _private_submission(submitted_by=ALICE_EMAIL, spec_id="spec-alice", score=0.60),
+        identity_verified=True,
+    )
+    await store.submit(
+        _private_submission(submitted_by=BOB_EMAIL, spec_id="spec-bob", score=0.90),
+        identity_verified=True,
+    )
+    return store
+
+
+def _as(email: str) -> dict[str, str]:
+    return {"X-User-Email": email}
+
+
+async def test_private_catalogue_entry_is_listed_and_marked(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # Owner decision (Irina, 2026-08-24): listed and marked, since participants must be able to
+    # find the challenge to enter it. The catalogue carries no scores, so listing leaks nothing.
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get("/v1/benchmarks")
+
+    assert response.status_code == 200
+    entry = response.json()["benchmarks"][0]
+    assert entry["id"] == PRIVATE_ID
+    assert entry["visibility"] == "private"
+
+
+async def test_anonymous_caller_sees_no_entries_on_a_private_board(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entries"] == []
+    assert body["my_submissions"] == []
+    # INVARIANT: a bare empty list is indistinguishable from "nobody has submitted". The response
+    # says the listing was scoped, so a client can tell hidden-by-design from empty.
+    assert body["scoped_to_caller"] is True
+    assert body["benchmark"]["visibility"] == "private"
+
+
+async def test_a_participant_sees_only_their_own_rows(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # INVARIANT: `entries` is the RANKING, and a private board has none — so it is empty for
+    # everyone, including a participant. Their own rows are a different thing and live under a
+    # different key, which is why no rank has to be suppressed and no client contract changes.
+    assert body["entries"] == []
+    mine = body["my_submissions"]
+    assert [row["spec_id"] for row in mine] == ["spec-alice"]
+    # Bob outscored Alice; nothing about that reaches her.
+    assert all(row["submitted_by"] == "alice" for row in mine)
+
+
+async def test_a_private_board_carries_no_rank_at_all(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # Telling a participant they are 4th tells them three people beat them. The field is ABSENT
+    # rather than null: these rows were never ranked, so there is no rank to null out. That also
+    # keeps RankedLeaderboardEntry.rank a required int, so no client contract changes.
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL)
+    )
+
+    mine = response.json()["my_submissions"]
+    assert mine
+    assert all("rank" not in row for row in mine)
+
+
+async def test_a_participant_sees_their_row_from_another_revision(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # OME-894 D8 / OME-909: rank is suppressed here, so the registered-revision filter has no
+    # purpose — and applying it would hide her own submission with no explanation.
+    store = await _seed_private_challenge()
+    await store.submit(
+        _private_submission(
+            submitted_by=ALICE_EMAIL,
+            spec_id="spec-alice-old",
+            score=0.55,
+            revision="rev-obsolete",
+        ),
+        identity_verified=True,
+    )
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL)
+    )
+
+    assert sorted(row["spec_id"] for row in response.json()["my_submissions"]) == [
+        "spec-alice",
+        "spec-alice-old",
+    ]
+
+
+async def test_history_is_served_for_the_callers_own_spec(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/spec-alice/history", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.status_code == 200
+    assert [row["submitted_by"] for row in response.json()["submissions"]] == ["alice"]
+
+
+async def test_history_for_another_participants_spec_is_404_not_403(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT: a 403 would confirm the spec exists, and spec ids are guessable model names.
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/spec-bob/history", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.status_code == 404
+
+
+async def test_history_for_a_nonexistent_spec_matches_another_participants(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT: the two must be INDISTINGUISHABLE. A public board answers an unknown spec with
+    # 200 and an empty list; if a private board kept that while 404-ing another participant's
+    # spec, the status code alone would reveal which specs exist — the exact disclosure the
+    # 404-not-403 rule above exists to prevent.
+    await _seed_private_challenge()
+
+    theirs = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/spec-bob/history", headers=_as(ALICE_EMAIL)
+    )
+    nonexistent = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/spec-nobody-ever/history", headers=_as(ALICE_EMAIL)
+    )
+
+    assert theirs.status_code == nonexistent.status_code == 404
+    assert theirs.json() == nonexistent.json()
+
+
+async def test_anonymous_history_on_a_private_board_is_404(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(f"/v1/leaderboard/{PRIVATE_ID}/spec-alice/history")
+
+    assert response.status_code == 404
+
+
+async def test_frontier_is_unavailable_on_a_private_board(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # An aggregate over everyone by definition, and it publishes the running-best score and when
+    # it changed — most of what the challenge hides. Unavailable even to a participant.
+    await _seed_private_challenge()
+
+    anonymous = await header_mode_client.get(f"/v1/leaderboard/{PRIVATE_ID}/frontier")
+    participant = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/frontier", headers=_as(ALICE_EMAIL)
+    )
+
+    assert anonymous.status_code == 404
+    assert participant.status_code == 404
+
+
+async def test_disabled_auth_mode_yields_nothing_on_a_private_board(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT (OME-894 D2): with auth disabled there is no verified identity, so a supplied
+    # header is an unverified claim and the board is readable by nobody. Staff read it out of
+    # band. The `async_client` fixture runs in disabled mode, which is the deployed default.
+    await _seed_private_challenge()
+
+    board = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL))
+    history = await async_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/spec-alice/history", headers=_as(ALICE_EMAIL)
+    )
+
+    assert board.json()["entries"] == []
+    assert board.json()["my_submissions"] == []
+    assert history.status_code == 404
+
+
+# --- review round 3: identity-scoped responses must not be shared-cacheable -------------------
+# A private response varies by caller at a fixed URL. Without an explicit policy a shared cache
+# may reuse one participant's response for another. The current proxy may not cache these, but
+# keeping the policy at the privacy boundary stops a future proxy change becoming a data leak.
+
+CACHE_POLICY = "private, no-store"
+
+
+async def test_a_private_board_is_not_shared_cacheable(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.headers["cache-control"] == CACHE_POLICY
+    assert "X-User-Email" in response.headers["vary"]
+
+
+async def test_an_anonymous_private_board_read_is_not_shared_cacheable(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # The empty response is identity-dependent too — caching it for a participant would hide
+    # their own rows from them.
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+
+    assert response.headers["cache-control"] == CACHE_POLICY
+
+
+async def test_private_history_is_not_shared_cacheable(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/spec-alice/history", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.headers["cache-control"] == CACHE_POLICY
+
+
+async def test_the_privacy_preserving_404_is_not_shared_cacheable(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT: the refusal is identity-dependent as well — caching alice's 404 for bob's spec
+    # and replaying it to bob would deny him his own history.
+    await _seed_private_challenge()
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}/spec-bob/history", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.status_code == 404
+    assert response.headers["cache-control"] == CACHE_POLICY
+
+
+async def test_a_public_board_carries_no_private_cache_policy(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Regression guard: a public board is identical for every caller and must stay ordinarily
+    # cacheable. Marking it no-store would quietly cost the board its caching.
+    await _seed_public_board(ScoreStore())
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.headers.get("cache-control") != CACHE_POLICY
+
+
+# --- review round 21: a read must not answer from a visibility read that has gone stale -------
+# Round 20 closed this on the WRITE path and left every read deciding from a visibility read and
+# then running a query, with nothing in between. The seed job flips boards while requests are in
+# flight. Found in review of PR #719.
+
+
+def _flip_private_during(method: str) -> tuple[object, object]:
+    """Land the flip while `ScoreStore.<method>` is running — after the visibility read."""
+    real = getattr(ScoreStore, method)
+
+    async def _hook(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        await Benchmark.filter(id=PRIVATE_ID).update(visibility="private")
+        return await real(self, *args, **kwargs)
+
+    return real, _hook
+
+
+async def _two_participants() -> None:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id=PRIVATE_ID, display_name="HB")
+    for who, spec in ((ALICE_EMAIL, "alice-spec"), (BOB_EMAIL, "bob-spec")):
+        await store.submit(
+            _private_submission(submitted_by=who, spec_id=spec, score=0.8, revision=None),
+            identity_verified=True,
+        )
+
+
+async def test_a_flip_during_the_ranking_query_does_not_publish_the_board(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT: nothing unscoped leaves once the board is private. This returned BOTH participants'
+    # entries with `scoped_to_caller: false` on a board that was private by the time it answered.
+    await _two_participants()
+    real, hook = _flip_private_during("leaderboard")
+
+    ScoreStore.leaderboard = hook  # type: ignore[method-assign]
+    try:
+        response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+    finally:
+        ScoreStore.leaderboard = real  # type: ignore[method-assign]
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["entries"] == []
+    assert body["scoped_to_caller"] is True
+    assert ALICE_EMAIL.split("@")[0] not in response.text
+    assert BOB_EMAIL.split("@")[0] not in response.text
+
+
+async def test_a_flip_during_the_history_query_withholds_the_rows(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Those rows were fetched UNSCOPED. Once the board is private they are not ours to return, and
+    # the private branch answers exactly this shape with a 404.
+    await _two_participants()
+    real, hook = _flip_private_during("list_for_spec")
+
+    ScoreStore.list_for_spec = hook  # type: ignore[method-assign]
+    try:
+        response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}/bob-spec/history")
+    finally:
+        ScoreStore.list_for_spec = real  # type: ignore[method-assign]
+
+    assert response.status_code == 404
+    assert "bob-spec" not in response.text or response.json().get("submissions") is None
+
+
+async def test_a_flip_during_the_frontier_query_withholds_the_aggregate(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # D5: a private board publishes no aggregate, to participants either.
+    await _two_participants()
+    real, hook = _flip_private_during("list_all_for_benchmark")
+
+    ScoreStore.list_all_for_benchmark = hook  # type: ignore[method-assign]
+    try:
+        response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}/frontier")
+    finally:
+        ScoreStore.list_all_for_benchmark = real  # type: ignore[method-assign]
+
+    assert response.status_code == 404
+
+
+async def test_an_undisturbed_public_read_is_unchanged(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # The regression guard: re-deciding must cost nothing when no flip happens, which is every real
+    # request. One extra indexed read on the public branch, and the same body as before.
+    await _two_participants()
+
+    response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert len(body["entries"]) == 2
+    assert body["scoped_to_caller"] is False
+
+
+async def test_the_private_response_never_contradicts_itself(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # INVARIANT: `scoped_to_caller: true` and `visibility: "private"` are the same fact stated
+    # twice, so no body may carry one without the other. The re-decision path reached
+    # `_private_leaderboard` with a benchmark read BEFORE the flip and passed it through, so a
+    # client trusting `visibility` — the field D4 added for exactly this — saw a public board.
+    await _two_participants()
+    real, hook = _flip_private_during("leaderboard")
+
+    ScoreStore.leaderboard = hook  # type: ignore[method-assign]
+    try:
+        flipped = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+    finally:
+        ScoreStore.leaderboard = real  # type: ignore[method-assign]
+
+    body = flipped.json()
+    assert body["scoped_to_caller"] is True
+    assert body["benchmark"]["visibility"] == "private"
+
+    # And the same holds on the ordinary private path, which must stay in step with it.
+    await Benchmark.filter(id=PRIVATE_ID).update(visibility="private")
+    steady = (await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")).json()
+    assert steady["scoped_to_caller"] is True
+    assert steady["benchmark"]["visibility"] == "private"

@@ -26,6 +26,14 @@ from dataclasses import dataclass
 from decimal import Decimal, localcontext
 from typing import Any
 
+from screamingface_engine.operation_accounting import (
+    OperationAccounting,
+    OperationCache,
+    OperationUsage,
+)
+from screamingface_engine.runner.cache_readback import CacheOutcome
+from screamingface_engine.world_config import provider_of
+
 __all__ = [
     "OPENROUTER_CREDIT_UNIT",
     "PRICING_VERSION",
@@ -33,6 +41,7 @@ __all__ = [
     "CallAccounting",
     "accumulate",
     "read_aigw",
+    "retained_operation_accounting",
     "usd_from_aigw",
 ]
 
@@ -75,6 +84,9 @@ class CallAccounting:
     cache_creation_tokens: int | None
     reasoning_tokens: int | None
     cost_usd: Decimal | None
+    complete: bool
+    provider_latency_ms: int | None
+    attempts: int | None
 
 
 def accumulate[T: (int, Decimal)](prior: T | None, new: T | None) -> T | None:
@@ -204,6 +216,10 @@ def _attempt_usage(attempt: Mapping[str, Any]) -> tuple[int | None, ...]:
     )
 
 
+def _attempt_latency(attempt: Mapping[str, Any]) -> int | None:
+    return _count(attempt.get("latency_ms"))
+
+
 def read_aigw(aigw: object) -> CallAccounting | None:
     """Evidence for one gateway call, or `None` when there is no `_aigw` block to read.
 
@@ -213,17 +229,21 @@ def read_aigw(aigw: object) -> CallAccounting | None:
 
     INVARIANT: tokens are summed across EVERY attempt, failures included. A retry genuinely costs
     twice, and the producer contract states outright that a failed attempt may still carry
-    provider-authored usage, so dropping failures under-reports the run. Identity facts (provider,
-    served model) come from the TERMINAL attempt, which is the one that owns them.
+    provider-authored usage, so dropping failures under-reports the run. The pre-existing live/root
+    Usage contract takes identity from the terminal attempt; retained operation accounting applies
+    its stricter all-attempt agreement policy separately.
     """
     envelope = _mapping(aigw)
     if envelope is None:
         return None
     accounting = _mapping(envelope.get("usage_accounting"))
     raw_attempts = accounting.get("attempts") if accounting is not None else None
+    attempts_are_well_formed = isinstance(raw_attempts, list) and all(
+        _mapping(attempt) is not None for attempt in raw_attempts
+    )
     attempts = (
         [m for a in raw_attempts if (m := _mapping(a)) is not None]
-        if (isinstance(raw_attempts, list))
+        if isinstance(raw_attempts, list)
         else []
     )
 
@@ -239,6 +259,17 @@ def read_aigw(aigw: object) -> CallAccounting | None:
     terminal = attempts[-1] if attempts else None
     provider = terminal.get("provider") if terminal is not None else None
     response_model = terminal.get("response_model") if terminal is not None else None
+    complete = (
+        accounting is not None
+        and accounting.get("capture_status") == "complete"
+        and _count(accounting.get("omitted_attempts")) == 0
+        and attempts_are_well_formed
+    )
+    latency = None
+    if attempts:
+        latency = _attempt_latency(attempts[0])
+        for attempt in attempts[1:]:
+            latency = accumulate(latency, _attempt_latency(attempt))
     return CallAccounting(
         provider=provider if isinstance(provider, str) and provider else None,
         response_model=response_model if isinstance(response_model, str) else None,
@@ -248,4 +279,123 @@ def read_aigw(aigw: object) -> CallAccounting | None:
         cache_creation_tokens=totals[3],
         reasoning_tokens=totals[4],
         cost_usd=usd_from_aigw(envelope),
+        complete=complete,
+        provider_latency_ms=latency,
+        # INVARIANT: a count only exists where every attempt was validated. Counting a list
+        # the reader had to skip entries from would publish a retry story that never happened.
+        attempts=len(attempts) if attempts_are_well_formed else None,
+    )
+
+
+def _agreed_attempt_identity(attempts: list[Mapping[str, Any]], field: str) -> str | None:
+    if not attempts:
+        return None
+    values = tuple(attempt.get(field) for attempt in attempts)
+    first = values[0]
+    return (
+        first
+        if isinstance(first, str) and first.strip() and all(value == first for value in values[1:])
+        else None
+    )
+
+
+def _retained_attempt_identities(aigw: object) -> tuple[str | None, str | None]:
+    """Provider and served model shared by every contributing attempt."""
+
+    envelope = _mapping(aigw)
+    accounting = _mapping(envelope.get("usage_accounting")) if envelope is not None else None
+    raw_attempts = accounting.get("attempts") if accounting is not None else None
+    if not isinstance(raw_attempts, list):
+        return None, None
+    attempts = [_mapping(attempt) for attempt in raw_attempts]
+    if any(attempt is None for attempt in attempts):
+        return None, None
+    complete_attempts = [attempt for attempt in attempts if attempt is not None]
+    return (
+        _agreed_attempt_identity(complete_attempts, "provider"),
+        _agreed_attempt_identity(complete_attempts, "response_model"),
+    )
+
+
+def retained_operation_accounting(
+    *,
+    request_model: str,
+    usage: Mapping[str, object] | None,
+    aigw: object,
+    cache: CacheOutcome,
+) -> OperationAccounting:
+    """Normalize one consumed response without changing live/root Usage reporting."""
+
+    call = read_aigw(aigw)
+    complete = call is not None and call.complete
+    retained_provider, retained_response_model = (
+        _retained_attempt_identities(aigw) if complete else (None, None)
+    )
+    if cache.status == "hit":
+        return OperationAccounting(
+            # INVARIANT: a cache hit performs no current provider dispatch. Its provider identity
+            # is therefore the canonical provider for the declared route, never an attempt copied
+            # from incomplete or stored Gateway evidence.
+            provider=provider_of(request_model),
+            request_model=request_model,
+            response_model=retained_response_model,
+            usage=OperationUsage(
+                input_tokens=0,
+                output_tokens=0,
+                cache_read_tokens=0,
+                cache_creation_tokens=0,
+                reasoning_tokens=0,
+                cost_usd="0",
+            ),
+            provider_latency_ms=0,
+            # A hit performs no current provider dispatch, so zero attempts is the exact
+            # truth on this path — the same reason cost and latency are zero, not null.
+            provider_attempts=0,
+            cache=_operation_cache(cache),
+        )
+    reported = usage or {}
+    return OperationAccounting(
+        provider=(
+            retained_provider if complete else provider_of(request_model) if call is None else None
+        ),
+        request_model=request_model,
+        response_model=retained_response_model,
+        usage=OperationUsage(
+            input_tokens=(
+                call.input_tokens
+                if complete and call is not None
+                else _count(reported.get("prompt_tokens"))
+                if call is None
+                else None
+            ),
+            output_tokens=(
+                call.output_tokens
+                if complete and call is not None
+                else _count(reported.get("completion_tokens"))
+                if call is None
+                else None
+            ),
+            cache_read_tokens=call.cache_read_tokens if complete and call is not None else None,
+            cache_creation_tokens=(
+                call.cache_creation_tokens if complete and call is not None else None
+            ),
+            reasoning_tokens=call.reasoning_tokens if complete and call is not None else None,
+            cost_usd=(
+                format(call.cost_usd, "f")
+                if complete and call is not None and call.cost_usd is not None
+                else None
+            ),
+        ),
+        provider_latency_ms=(call.provider_latency_ms if complete and call is not None else None),
+        provider_attempts=(call.attempts if complete and call is not None else None),
+        cache=_operation_cache(cache),
+    )
+
+
+def _operation_cache(cache: CacheOutcome) -> OperationCache:
+    return OperationCache(
+        hits=int(cache.status == "hit"),
+        misses=int(cache.status == "miss"),
+        bypasses=int(cache.status == "bypass"),
+        unknown=int(cache.status is None),
     )

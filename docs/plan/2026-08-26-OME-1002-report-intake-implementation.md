@@ -135,6 +135,15 @@ REPORT_INTAKE_RETENTION_DAYS           REPORT_INTAKE_ANON_RATE_{LIMIT,WINDOW_S,M
 FORWARDED_ALLOW_IPS                    (uvicorn's own; deliberately unprefixed — not a Settings field)
 ```
 
+**Amended by `OME-1009`'s follow-up pass** with the four fields the `linear` sink reads —
+`REPORT_INTAKE_LINEAR_{API_KEY,TEAM_ID,API_URL,TIMEOUT_S}`. All four are inert unless
+`TICKET_SINK` names that sink, and the chart renders all four regardless: a field the chart never
+renders can only ever hold its declared default in production, which is the failure the equality
+below exists to catch. `LINEAR_API_KEY` is the third secret-valued name and is read from a Secret
+on the Deployment, never the ConfigMap. Recorded here rather than only in the test that
+transcribes this list — the list is frozen, not sealed, and what it forbids is a field arriving
+with neither.
+
 Names that appeared in the draft chart and **do not exist**: `IDENTITY_MODE`,
 `TRUSTED_PROXY_NETWORKS`, `SINK`, `ANONYMOUS_ENABLED`, `TURNSTILE_ENABLED`,
 `TURNSTILE_SITE_KEY`. The site key is a browser-side value this service never reads; rendering

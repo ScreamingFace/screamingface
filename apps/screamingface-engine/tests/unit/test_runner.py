@@ -17,6 +17,7 @@ from screamingface_engine.runner.main import (
     params_from_env,
     result_delivery_from_env,
 )
+from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
 from url4.core.errors import ResolutionError
@@ -305,7 +306,7 @@ async def test_build_executor_returns_an_executor_over_the_aigateway_world() -> 
     async with _stub_aigateway_client() as client:
         executor = build_executor({}, _declared(), client=client)
 
-        assert isinstance(executor, Url4Executor)
+        assert isinstance(executor, OperationCapturingExecutor)
         frames = [f async for f in executor.execute(f"/{_MODEL}(ctx)!go")]
 
     completed = frames[-1]
@@ -317,7 +318,7 @@ async def test_build_executor_returns_an_executor_over_the_aigateway_world() -> 
 async def test_a_config_with_no_aigateway_table_is_deny_by_default() -> None:
     executor = build_executor({}, WorldConfig())
 
-    assert isinstance(executor, Url4Executor)
+    assert isinstance(executor, OperationCapturingExecutor)
     with pytest.raises(ResolutionError):
         async for _ in executor.execute(f"/{_MODEL}(ctx)!go"):
             pass
@@ -505,9 +506,13 @@ def test_build_executor_wires_the_bridge_budget_from_env() -> None:
     # the executor. A declared-empty world keeps this synchronous — the world is only
     # built on first `execute`, which this test never runs.
     executor = build_executor({job_env.BRIDGE_MEMORY_BUDGET_BYTES: "2048"}, WorldConfig())
-    assert executor._memory_budget == 2048
+    assert isinstance(executor, OperationCapturingExecutor)
+    assert isinstance(executor._inner, Url4Executor)
+    assert executor._inner._memory_budget == 2048
 
 
 def test_build_executor_defaults_the_bridge_budget() -> None:
     executor = build_executor({}, WorldConfig())
-    assert executor._memory_budget == job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES
+    assert isinstance(executor, OperationCapturingExecutor)
+    assert isinstance(executor._inner, Url4Executor)
+    assert executor._inner._memory_budget == job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES

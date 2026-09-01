@@ -1,0 +1,68 @@
+{{- include "report-intake.validate" . -}}
+{{- if .Values.gateway.identity.enabled -}}
+{{/*
+THE IDENTITY HOSTNAME — Cloudflare Access in front, and the SecurityPolicy beside this file
+re-verifying that assertion and setting `X-User-Email` from the verified `email` claim.
+
+A caller who arrives here is mesh-verified: the bot gate is skipped, the address is bound into the
+stored row, and a responder can answer them. That is the whole reason a second hostname exists.
+
+INVARIANT: this route removes `CF-Connecting-IP` and NOT `X-User-Email`. The asymmetry with the
+public route is deliberate, in both directions:
+
+  - `CF-Connecting-IP` is removed here too. Nothing in the JWT filter touches it, and spec §7 says
+    to strip inbound copies at the edge — a verified caller is still not the authority on the
+    rate-limit key.
+  - `X-User-Email` is NOT in the remove list, and must not be added to it. The SecurityPolicy's
+    `claimToHeaders` SETS that header (verified against Envoy Gateway v1.4.2: a forged copy is
+    replaced, not appended). Listing it here as well would make the outcome depend on the relative
+    order of the JWT filter and this route filter — and the failure direction of guessing wrong is
+    an identity header stripped after it was legitimately injected, i.e. every mesh caller
+    silently demoted to anonymous.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "report-intake.identityRouteName" . }}
+  labels:
+    {{- include "report-intake.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity
+  {{- with .Values.gateway.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    - name: {{ required "gateway.parentRef.name is required when gateway.enabled=true — the Gateway this route attaches to" .Values.gateway.parentRef.name }}
+      {{- with .Values.gateway.parentRef.namespace }}
+      namespace: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  {{- with .Values.gateway.identity.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            # Scoped to the write endpoint for the same reason the public route is — see the
+            # comment there. It matters slightly less here (Access gates the hostname) and is kept
+            # identical anyway: the probes have no reader through an edge, and a route that
+            # published them would make the two hostnames differ in what they expose for no reason
+            # anyone could state.
+            value: /v1/reports
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove:
+              - CF-Connecting-IP
+      timeouts:
+        request: {{ .Values.gateway.timeouts.request | quote }}
+        backendRequest: {{ .Values.gateway.timeouts.backendRequest | quote }}
+      backendRefs:
+        - name: {{ include "report-intake.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

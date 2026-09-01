@@ -117,7 +117,7 @@ from url4.peer.server import Request, Url4Node
 if TYPE_CHECKING:  # `url4.HttpIOLayer` still type-checks; see __getattr__ below.
     from url4.io.http import HttpIOLayer
 
-__version__ = "1.5.0"
+__version__ = "1.5.1"
 
 
 # AIDEV-NOTE: HttpIOLayer is resolved lazily (PEP 562) so `import url4` never

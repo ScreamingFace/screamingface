@@ -31,7 +31,7 @@ const docs = [
   },
 ]
 
-const GITHUB = 'https://github.com/OpenMined'
+const GITHUB = 'https://github.com/ScreamingFace'
 </script>
 
 <template>

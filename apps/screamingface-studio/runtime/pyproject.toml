@@ -1,0 +1,23 @@
+[project]
+name = "screamingface-studio-sidecar-build"
+version = "0.1.0"
+description = "Build environment for the ScreamingFace Studio runtime sidecar"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "screamingface[runtime]",
+]
+
+[tool.uv.sources]
+aigateway = { path = "../../aigateway", editable = true }
+url4 = { path = "../../../packages/url4", editable = true }
+screamingface = { path = "../../../packages/screamingface", editable = true }
+scoreboard = { path = "../../scoreboard", editable = true }
+
+[tool.uv]
+environments = ["sys_platform == 'darwin'"]
+package = false
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.16,<7",
+]

@@ -175,7 +175,7 @@ def _decode_rubric_evaluations(values: Sequence[object], case_id: int) -> list[d
 
 def _valid_case_record(value: Mapping[str, Any], case_id: int) -> bool:
     # WHY: `operations` (OME-843) is the one optional key — present only when the
-    # Engine attributed member outputs; its absence keeps the legacy shape valid.
+    # Engine attributed named model outputs; its absence keeps the legacy shape valid.
     if set(value) - {"operations"} != _CASE_RECORD_FIELDS:
         return False
     answer = value.get("answer")

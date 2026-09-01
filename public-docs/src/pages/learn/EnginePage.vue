@@ -4,7 +4,7 @@ import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import { learnNavigation as navigation } from '@/navigation/learn'
 
-const GH_TREE = 'https://github.com/OpenMined/screamingface/tree/main'
+const GH_TREE = 'https://github.com/ScreamingFace/screamingface/tree/main'
 
 const point = `import screamingface as sf
 

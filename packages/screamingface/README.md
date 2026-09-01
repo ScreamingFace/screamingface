@@ -84,11 +84,12 @@ editable_python = score.url4.to_python()
 replayed_report = sf.evaluate(score.url4)
 ```
 
-`Url4.to_python()` is local and no-spend: it produces an editable `sf.Model`, `sf.Fusion`,
-`sf.Pipeline`, `sf.CorrectiveLoop`, or `sf.SelfCorrective` plus the recovered Benchmark call. Raw
-URL4 evaluation does not accept `benchmark=` or `limit=` because either would imply recompiling an
-already-complete expression. Replay starts a new, potentially paid Run; identical URL4 does not
-guarantee identical model output.
+`Url4.to_python()` is local and no-spend: it returns a `str` of Python source, not live objects —
+the `sf.Model`, `sf.Fusion`, `sf.Pipeline`, `sf.CorrectiveLoop`, or `sf.SelfCorrective` written
+back out as editable code, plus the recovered Benchmark call. Raw URL4 evaluation does not accept
+`benchmark=` or `limit=` because either would imply recompiling an already-complete expression.
+Replay starts a new, potentially paid Run; identical URL4 does not guarantee identical model
+output.
 
 Every Client-compiled Candidate URL4 contains exactly one inert `_sf_recipe` source with the
 versioned `screamingface.recipe.v1` descriptor. It preserves the public Recipe structure and names
@@ -210,7 +211,19 @@ stateful protocols without a Client-interpreted workflow language.
 pip install screamingface
 ```
 
-Python 3.12 or newer is required.
+Python 3.12 or newer is required. This command installs the hosted client. The local stack
+(`screamingface up`) also needs the runtime services and notebook tools:
+
+```bash
+pip install "screamingface[runtime,notebook]"
+```
+
+### Troubleshooting
+
+`SCREAMINGFACE_RUNTIME_ERROR No module named 'X'` from `screamingface up` — common on
+Colab, which preinstalls some of the runtime dependencies: the `[runtime]` extra is not
+installed. Run `pip install "screamingface[runtime,notebook]"` and start again with
+`screamingface up`. `screamingface doctor` names the missing modules.
 
 ## Client configuration
 

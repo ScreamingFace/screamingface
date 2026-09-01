@@ -26,6 +26,7 @@ from screamingface_engine.benchmarks.contract import (
     validate_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import CandidateAnswer
+from screamingface_engine.grading_accounting import reconcile_candidate_grading_accounting
 
 
 class SelectedCase(BaseModel):
@@ -130,7 +131,7 @@ def finalize_candidate_result(
         case for case in typed_cases if case.grade is not None and case.grade.score is not None
     )
     scored = scorer(gradeable) if gradeable else None
-    return CandidateResult(
+    result = CandidateResult(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
         case_count=len(typed_cases),
@@ -140,6 +141,8 @@ def finalize_candidate_result(
         cases=typed_cases,
         failures=typed_failures,
     )
+    reconcile_candidate_grading_accounting(result)
+    return result
 
 
 def public_error(

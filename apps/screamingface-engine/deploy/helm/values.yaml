@@ -99,6 +99,16 @@ config:
   # detection it depends on. This bounds SPEND on runs whose client died; `jobDeadlineS` above
   # remains the backstop.
   orphanGraceS: 120
+  # Per-run downstream in-flight budget written onto every Runner Job as
+  # `URL4_CLOUD_IO_CONCURRENCY` (OME-908). The gateway admits only a few calls per provider at
+  # once (`AIGW_PROVIDER_MAX_CONCURRENCY`, default 4), and a benchmark-scale run at URL4's
+  # default width (32) keeps that queue continuously full for hours — a second concurrent run
+  # then starves behind the first's arrivals. 4 matches the provider ceiling exactly: a run
+  # saturates its provider but never piles a backlog behind it, so a second run's calls
+  # interleave as soon as the first run's in-flight calls complete. 32 restores the previous
+  # behavior exactly. Local mode does not use this value (its runs share the process's
+  # fair-share gate instead; see the README's "Fair scheduling" section).
+  runnerIoConcurrency: 4
   # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
   # image's own default. Must be one of the models that url4.toml declares.
   aigatewayModel: ""
@@ -362,6 +372,10 @@ runner:
   # responses) — with nothing set it schedules BestEffort: placed blind, evicted first, and
   # free to OOM the node it shares. Memory limit always; no CPU limit, so a run can burst into
   # idle CPU instead of being CFS-throttled mid-inference.
+  # CO-SCHEDULING (OME-908 Layer 3): size these so at least two benchmark Jobs fit at once.
+  # If the cluster admits only one at a time, a second run sits `Pending` until the first
+  # exits — the same caller-visible symptom as gateway queue starvation, but the fix is
+  # capacity (requests/quotas/tolerations), never `config.runnerIoConcurrency`.
   resources:
     requests:
       cpu: 200m

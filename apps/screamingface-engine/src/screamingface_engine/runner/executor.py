@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from screamingface_engine import job_env
 from screamingface_engine.artifacts import ArtifactWriter
@@ -706,6 +706,8 @@ class Url4Executor(Executor):
         artifact_store: ArtifactWriter | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None = None,
         world_factory: WorldFactory | None = None,
+        io_wrap: Callable[[IOLayer], IOLayer] | None = None,
+        io_concurrency: int | None = None,
     ) -> None:
         self._io = io
         self._queue_cap = queue_cap
@@ -722,6 +724,26 @@ class Url4Executor(Executor):
         self._artifact_store = artifact_store
         self._world_aclose = world_aclose
         self._world_factory = world_factory
+        # FEATURE (OME-908): the run's downstream admission policy, injected as data.
+        # `io_wrap` is the LOCAL shape — one wrapper binding this run into the process's
+        # shared `FairShareGate` — and when set it REPLACES URL4's per-run bound, so the
+        # `url4_run` call below passes `concurrency=None` explicitly (an opt-out; leaving
+        # the kwarg off would stack `BoundedIOLayer(32)` under the gate and re-create the
+        # static cap the gate exists to replace). `io_concurrency` is the DEPLOYED shape —
+        # a static per-run budget a one-shot Job enforces through that same layer. Neither
+        # set ⇒ the kwarg is omitted entirely and URL4's own default applies, which keeps
+        # an unconfigured run byte-identical to a pre-OME-908 one.
+        self._io_wrap = io_wrap
+        self._io_concurrency = io_concurrency
+        self._io_wrapped = False
+        # Derived ONCE, at construction, from the injected policy: which `concurrency` (if
+        # any) the `url4_run` call states. See the policy comment above for why gate-mode
+        # must say `None` explicitly while an unconfigured run says nothing at all.
+        self._run_kwargs: dict[str, Any] = (
+            {"concurrency": None}
+            if io_wrap is not None
+            else ({} if io_concurrency is None else {"concurrency": io_concurrency})
+        )
 
     async def execute(
         self, url4: str, *, trace: TraceContext | None = None
@@ -754,8 +776,9 @@ class Url4Executor(Executor):
                         observer=bridge,
                         trace_id=trace.trace_id,
                         root_span_id=trace.root_span_id,
+                        **self._run_kwargs,
                     )
-                return await url4_run(url4, self._io, observer=bridge)
+                return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
             finally:
                 bridge.close()
 
@@ -793,9 +816,14 @@ class Url4Executor(Executor):
         The factory owns cleanup of anything it allocated before failing, so there is no
         half-built world to tear down here.
         """
-        if self._world_factory is None or self._io is not None:
-            return
-        self._io, self._world_aclose = await self._world_factory()
+        if self._io is None and self._world_factory is not None:
+            self._io, self._world_aclose = await self._world_factory()
+        # FEATURE (OME-908): the admission wrapper binds ONCE, to whatever io this run
+        # uses — the resolved world or a directly injected test io — and a second
+        # `execute` on the same executor must not wrap the wrapper.
+        if self._io_wrap is not None and self._io is not None and not self._io_wrapped:
+            self._io = self._io_wrap(self._io)
+            self._io_wrapped = True
 
     async def _aclose_world(self) -> None:
         if self._world_aclose is None:

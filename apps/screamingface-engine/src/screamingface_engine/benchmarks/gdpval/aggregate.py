@@ -409,6 +409,7 @@ def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
         "valid": valid,
         "raw_output": str(record.get("raw_output", "")),
         "metadata": {},
+        "accounting": record.get("accounting"),
     }
     if valid:
         value["outcome"] = "MET" if record.get("criteria_met") is True else "UNMET"

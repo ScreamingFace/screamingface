@@ -1,0 +1,390 @@
+"""Exact-only accounting retained beside semantic Benchmark operations."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from screamingface_engine.operation_accounting import combine_operation_accounting
+from screamingface_engine.runner.accounting import retained_operation_accounting
+from screamingface_engine.runner.cache_readback import CacheOutcome, CacheStatus
+
+
+def _attempt(
+    *,
+    provider: str = "openrouter",
+    response_model: str | None = "anthropic/claude-served",
+    input_tokens: int | None = 10,
+    output_tokens: int | None = 4,
+    latency_ms: int | None = 25,
+) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "response_model": response_model,
+        "latency_ms": latency_ms,
+        "usage": {
+            "input": {"total": input_tokens, "cache_read": 2, "cache_write": 1},
+            "output": {"total": output_tokens, "reasoning": 3},
+        },
+    }
+
+
+def _aigw(
+    *,
+    capture_status: str = "complete",
+    omitted_attempts: int = 0,
+    attempts: list[object] | None = None,
+    cost: str = "0.25",
+) -> dict[str, Any]:
+    rows = [_attempt()] if attempts is None else attempts
+    return {
+        "usage_accounting": {
+            "capture_status": capture_status,
+            "omitted_attempts": omitted_attempts,
+            "attempts": rows,
+            "cache": {"status": "miss", "reference": None},
+        },
+        "request_economics": {
+            "direct_cost_status": "complete",
+            "known_direct_cost_subtotals": [
+                {"amount": cost, "unit": "openrouter_credits", "source": "provider"}
+            ],
+        },
+    }
+
+
+def _cache(status: CacheStatus | None) -> CacheOutcome:
+    return CacheOutcome(status=status, reason=None, key=None, age_s=None)
+
+
+def test_complete_gateway_evidence_retains_all_exact_fields() -> None:
+    accounting = retained_operation_accounting(
+        request_model="openrouter/anthropic/claude",
+        usage=None,
+        aigw=_aigw(attempts=[_attempt(), _attempt(input_tokens=20, latency_ms=35)]),
+        cache=_cache("miss"),
+    )
+
+    assert accounting.model_dump() == {
+        "provider": "openrouter",
+        "request_model": "openrouter/anthropic/claude",
+        "response_model": "anthropic/claude-served",
+        "usage": {
+            "input_tokens": 30,
+            "output_tokens": 8,
+            "cache_read_tokens": 4,
+            "cache_creation_tokens": 2,
+            "reasoning_tokens": 6,
+            "cost_usd": "0.25",
+        },
+        "provider_latency_ms": 60,
+        "provider_attempts": 2,
+        "cache": {"hits": 0, "misses": 1, "bypasses": 0, "unknown": 0},
+    }
+
+
+def test_retained_identity_requires_every_contributing_attempt_to_agree() -> None:
+    accounting = retained_operation_accounting(
+        request_model="openrouter/anthropic/claude",
+        usage=None,
+        aigw=_aigw(
+            attempts=[
+                _attempt(provider="first", response_model="first/model"),
+                _attempt(provider="second", response_model="second/model"),
+            ]
+        ),
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider is None
+    assert accounting.response_model is None
+    assert accounting.usage.input_tokens == 20
+
+
+def test_partial_or_omitted_gateway_attempts_are_not_presented_as_complete() -> None:
+    for aigw in (
+        _aigw(capture_status="partial"),
+        _aigw(omitted_attempts=1),
+    ):
+        accounting = retained_operation_accounting(
+            request_model="model",
+            usage={"prompt_tokens": 99, "completion_tokens": 10},
+            aigw=aigw,
+            cache=_cache("miss"),
+        )
+
+        assert accounting.usage.input_tokens is None
+        assert accounting.usage.output_tokens is None
+        assert accounting.usage.cache_read_tokens is None
+        assert accounting.provider_latency_ms is None
+
+
+def test_malformed_gateway_attempts_are_not_presented_as_complete() -> None:
+    accounting = retained_operation_accounting(
+        request_model="model",
+        usage={"prompt_tokens": 99, "completion_tokens": 10},
+        aigw=_aigw(attempts=[_attempt(), "not an attempt"]),
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider is None
+    assert accounting.response_model is None
+    assert accounting.usage.input_tokens is None
+    assert accounting.usage.output_tokens is None
+    assert accounting.usage.cost_usd is None
+    assert accounting.provider_latency_ms is None
+
+
+def test_provider_usage_is_the_narrow_fallback_when_gateway_accounting_is_absent() -> None:
+    accounting = retained_operation_accounting(
+        request_model="anthropic/claude",
+        usage={"prompt_tokens": 12, "completion_tokens": 7},
+        aigw=None,
+        cache=_cache(None),
+    )
+
+    assert accounting.provider == "anthropic"
+    assert accounting.usage.input_tokens == 12
+    assert accounting.usage.output_tokens == 7
+    assert accounting.usage.cache_read_tokens is None
+    assert accounting.usage.cost_usd is None
+    assert accounting.provider_latency_ms is None
+    assert accounting.cache.unknown == 1
+
+
+def test_confirmed_cache_hit_is_zero_current_consumption_not_unknown() -> None:
+    accounting = retained_operation_accounting(
+        request_model="openrouter/anthropic/claude",
+        usage={"prompt_tokens": 999, "completion_tokens": 123},
+        aigw=None,
+        cache=_cache("hit"),
+    )
+
+    assert accounting.usage.model_dump() == {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0,
+        "reasoning_tokens": 0,
+        "cost_usd": "0",
+    }
+    assert accounting.provider_latency_ms == 0
+    assert accounting.cache.hits == 1
+
+
+def test_cache_hit_uses_route_provider_and_rejects_partial_served_identity() -> None:
+    accounting = retained_operation_accounting(
+        request_model="openrouter/anthropic/claude",
+        usage=None,
+        aigw=_aigw(
+            capture_status="partial",
+            attempts=[_attempt(provider="observed-elsewhere", response_model="partial/model")],
+        ),
+        cache=_cache("hit"),
+    )
+
+    assert accounting.provider == "openrouter"
+    assert accounting.response_model is None
+
+
+def test_several_rounds_sum_strictly_and_disagreeing_identity_becomes_unknown() -> None:
+    first = retained_operation_accounting(
+        request_model="model",
+        usage=None,
+        aigw=_aigw(cost="0.1"),
+        cache=_cache("miss"),
+    )
+    second = retained_operation_accounting(
+        request_model="model",
+        usage=None,
+        aigw=_aigw(
+            cost="0.2",
+            attempts=[_attempt(provider="another", response_model="served/elsewhere")],
+        ),
+        cache=_cache("bypass"),
+    )
+
+    combined = combine_operation_accounting([first, second])
+
+    assert combined is not None
+    assert combined.provider is None
+    assert combined.response_model is None
+    assert combined.request_model == "model"
+    assert combined.usage.input_tokens == 20
+    assert combined.usage.cost_usd == "0.3"
+    assert combined.provider_latency_ms == 50
+    assert combined.cache.misses == 1
+    assert combined.cache.bypasses == 1
+
+
+def test_unknown_part_poisons_only_its_own_field() -> None:
+    known = retained_operation_accounting(
+        request_model="model",
+        usage=None,
+        aigw=_aigw(),
+        cache=_cache("miss"),
+    )
+    partial = retained_operation_accounting(
+        request_model="model",
+        usage={"prompt_tokens": 8, "completion_tokens": 2},
+        aigw=None,
+        cache=_cache("bypass"),
+    )
+
+    combined = combine_operation_accounting([known, partial])
+
+    assert combined is not None
+    assert combined.usage.input_tokens == 18
+    assert combined.usage.cost_usd is None
+    assert combined.provider_latency_ms is None
+    assert combined.cache.misses == 1
+    assert combined.cache.bypasses == 1
+
+
+def test_combined_cost_preserves_every_fixed_point_digit() -> None:
+    first = retained_operation_accounting(
+        request_model="model",
+        usage=None,
+        aigw=_aigw(cost="1.123456789012345678901234567890123"),
+        cache=_cache("miss"),
+    )
+    second = retained_operation_accounting(
+        request_model="model",
+        usage=None,
+        aigw=_aigw(cost="2.000000000000000000000000000000001"),
+        cache=_cache("miss"),
+    )
+
+    combined = combine_operation_accounting([first, second])
+
+    assert combined is not None
+    assert combined.usage.cost_usd == "3.123456789012345678901234567890124"
+
+
+def test_malformed_omission_count_makes_attempt_fields_unavailable() -> None:
+    aigw = _aigw()
+    usage_accounting = aigw["usage_accounting"]
+    assert isinstance(usage_accounting, dict)
+    usage_accounting["omitted_attempts"] = "0"
+
+    accounting = retained_operation_accounting(
+        request_model="model",
+        usage={"prompt_tokens": 99, "completion_tokens": 10},
+        aigw=aigw,
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider is None
+    assert accounting.response_model is None
+    assert accounting.usage.input_tokens is None
+    assert accounting.usage.output_tokens is None
+    assert accounting.usage.cost_usd is None
+    assert accounting.provider_latency_ms is None
+
+
+def test_attempt_identity_is_retained_only_when_every_attempt_agrees() -> None:
+    accounting = retained_operation_accounting(
+        request_model="model",
+        usage=None,
+        aigw=_aigw(
+            attempts=[
+                _attempt(provider="first", response_model="first/model"),
+                _attempt(provider="second", response_model="second/model"),
+            ]
+        ),
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider is None
+    assert accounting.response_model is None
+    assert accounting.usage.input_tokens == 20
+    assert accounting.provider_latency_ms == 50
+
+
+def test_empty_accounting_collection_has_no_invented_record() -> None:
+    assert combine_operation_accounting([]) is None
+
+
+# FEATURE: OME-901 per-operation accounting — the attempt count is what separates
+# "this model is slow" from "this route is flaky", because `provider_latency_ms` sums
+# latency across EVERY attempt including failures. Without the count, $0.50 spent in one
+# call and $0.50 spent across five retries are byte-identical in a completed Report.
+def test_complete_evidence_retains_how_many_provider_attempts_it_took() -> None:
+    accounting = retained_operation_accounting(
+        request_model="openrouter/anthropic/claude",
+        usage=None,
+        aigw=_aigw(attempts=[_attempt(), _attempt(latency_ms=35)]),
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider_attempts == 2
+    assert accounting.model_dump()["provider_attempts"] == 2
+
+
+def test_attempts_sum_across_the_rounds_of_one_semantic_operation() -> None:
+    # A tool loop is several round trips serving ONE operation, so its attempts add up the
+    # same way its latency and tokens do.
+    combined = combine_operation_accounting(
+        [
+            retained_operation_accounting(
+                request_model="model",
+                usage=None,
+                aigw=_aigw(attempts=[_attempt(), _attempt()]),
+                cache=_cache("miss"),
+            ),
+            retained_operation_accounting(
+                request_model="model",
+                usage=None,
+                aigw=_aigw(attempts=[_attempt()]),
+                cache=_cache("miss"),
+            ),
+        ]
+    )
+
+    assert combined is not None
+    assert combined.provider_attempts == 3
+
+
+def test_a_confirmed_cache_hit_took_zero_provider_attempts() -> None:
+    # INVARIANT: a hit performs no current provider dispatch, so zero is the exact truth
+    # here — the same reason cost and latency are zero rather than null on this path.
+    accounting = retained_operation_accounting(
+        request_model="model",
+        usage={"prompt_tokens": 99, "completion_tokens": 10},
+        aigw=_aigw(),
+        cache=_cache("hit"),
+    )
+
+    assert accounting.provider_attempts == 0
+    assert accounting.provider_latency_ms == 0
+
+
+def test_attempts_the_engine_could_not_validate_are_never_counted() -> None:
+    # INVARIANT: exact-only. A list the Engine did not fully validate is not a count; a
+    # wrong count would read as a complete retry story that never happened.
+    for aigw in (
+        _aigw(capture_status="partial"),
+        _aigw(omitted_attempts=1),
+        _aigw(attempts=[_attempt(), "not-a-mapping"]),
+    ):
+        accounting = retained_operation_accounting(
+            request_model="model",
+            usage={"prompt_tokens": 99, "completion_tokens": 10},
+            aigw=aigw,
+            cache=_cache("miss"),
+        )
+
+        assert accounting.provider_attempts is None
+
+
+def test_absent_gateway_accounting_never_infers_a_single_attempt() -> None:
+    # The narrow provider-usage fallback knows tokens but nothing about dispatch, and a
+    # defaulted 1 would be a guess wearing the shape of an observation.
+    accounting = retained_operation_accounting(
+        request_model="model",
+        usage={"prompt_tokens": 12, "completion_tokens": 3},
+        aigw=None,
+        cache=_cache("miss"),
+    )
+
+    assert accounting.provider_attempts is None
+    assert accounting.usage.input_tokens == 12

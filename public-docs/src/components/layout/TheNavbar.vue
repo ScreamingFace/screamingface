@@ -130,7 +130,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 {{ product.name }}
               </RouterLink>
               <a
-                href="https://github.com/OpenMined"
+                href="https://github.com/ScreamingFace"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="sm:hidden block px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 border-t border-border"
@@ -185,7 +185,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
           <!-- GitHub link -->
           <a
-            href="https://github.com/OpenMined"
+            href="https://github.com/ScreamingFace"
             target="_blank"
             rel="noopener noreferrer"
             class="hidden sm:flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border hover:border-primary/50 transition-colors duration-200"

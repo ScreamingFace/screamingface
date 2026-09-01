@@ -17,6 +17,12 @@ from pydantic import (
     model_validator,
 )
 
+from screamingface_engine.operation_accounting import (
+    OperationAccounting,
+    OperationCache,
+    OperationUsage,
+)
+
 CANDIDATE_ROUTE = "/benchmarks/candidate"
 # The source name a client binds its Candidate expression under, so the protocol's `$candidate`
 # resolves. Published in every Benchmark resource: a client cannot be expected to infer it.
@@ -60,6 +66,7 @@ class Evidence(_StrictWireModel):
     explanation: str | None = Field(default=None, exclude_if=lambda value: value is None)
     raw_output: Any
     metadata: dict[str, Any]
+    accounting: OperationAccounting | None
 
     @field_validator("raw_output")
     @classmethod
@@ -139,8 +146,8 @@ class CaseResult(_StrictWireModel):
     grade: CaseGrade | None
     failures: list[Failure]
     metadata: dict[str, Any]
-    # WHY: excluded when None so solo-Candidate and pre-OME-843 artifacts stay
-    # byte-identical; consumers see the key only when member outputs were attributed.
+    # WHY: excluded when None so unattributed and pre-OME-843 artifacts stay byte-identical;
+    # consumers see the key only when named model operations were attributed.
     operations: list[OperationOutput] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -190,6 +197,7 @@ class OperationOutput(_StrictWireModel):
     operation_id: str = Field(min_length=1)
     output: str | None
     finish_reason: str | None
+    accounting: OperationAccounting | None
 
     @field_validator("finish_reason")
     @classmethod
@@ -218,8 +226,8 @@ class CandidateInvocation(_StrictWireModel):
     finish_reason: str | None
     refusal: str | None
     execution: CorrectiveExecution | None
-    # WHY: excluded when None so a solo Candidate's envelope stays byte-identical to
-    # the pre-OME-843 contract — the key exists only when the Engine attributed.
+    # WHY: excluded when None so an unattributed Candidate envelope stays byte-identical to
+    # the pre-OME-843 contract — the key exists only when the Engine attributed named operations.
     operations: list[OperationOutput] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -576,6 +584,9 @@ __all__ = [
     "CandidateResult",
     "CorrectiveExecution",
     "OperationOutput",
+    "OperationAccounting",
+    "OperationCache",
+    "OperationUsage",
     "Check",
     "Evidence",
     "EvidenceProducer",

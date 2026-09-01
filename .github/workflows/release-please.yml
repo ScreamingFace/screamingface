@@ -18,7 +18,10 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          # Releases are created by the repository token, not a PAT: GITHUB_TOKEN with the
+          # workflow's `permissions` (contents: write, pull-requests: write) can create
+          # releases, tags, and release PRs, and cannot expire or lose scopes like a PAT.
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       # release-please bumps `version` in pyproject.toml and stops there, but every uv.lock
       # records that same version — so the release PR it just opened already fails

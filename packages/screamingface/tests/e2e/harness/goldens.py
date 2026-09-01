@@ -66,9 +66,13 @@ class GoldenMismatch(AssertionError):
 class GoldenReport(BaseModel):
     """The frozen expected outcome of one board replay.
 
-    ``models`` and ``limit`` are the replay INPUTS (which candidate to build, how many
-    cases to select) — without them a golden could not be re-run; everything else is
-    the expected OUTPUT.
+    ``kind``, ``models``, ``recipe``, ``synthesizer`` and ``limit`` are the replay
+    INPUTS (which candidate to build, how many cases to select) — without them a
+    golden could not be re-run; everything else is the expected OUTPUT. For
+    ``kind: "model"`` (the default — every golden blessed before OME-978) the
+    candidate is ``models[0]``; for ``kind: "fusion"`` the candidate is the recipe
+    named ``recipe`` with ``models`` as its ordered members and ``synthesizer`` as
+    the model that merges them.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -76,13 +80,32 @@ class GoldenReport(BaseModel):
     schema_: str = Field(alias="schema", default=GOLDEN_SCHEMA)
     board: str = Field(min_length=1)
     revision: str = Field(min_length=1)
+    kind: Literal["model", "fusion"] = "model"
+    recipe: str | None = None
     models: tuple[str, ...] = ()
+    synthesizer: str | None = None
     limit: int | None = None
     expression_sha: str = Field(pattern=_SHA256_HEX)
     final_score: str | None
     case_count: int = Field(ge=0)
     gradeable_count: int = Field(ge=0)
     case_statuses: dict[str, CaseStatus]
+
+    @model_validator(mode="after")
+    def _fusion_lineup_is_complete(self) -> GoldenReport:
+        # INVARIANT: a fusion golden must be re-runnable — recipe name, ≥2 members
+        # and the synthesizer are its replay inputs, so a hole here refuses at load.
+        if self.kind == "fusion":
+            if not self.recipe:
+                raise ValueError("a fusion golden requires its recipe name")
+            if not self.synthesizer:
+                raise ValueError("a fusion golden requires its synthesizer route")
+            if len(self.models) < 2:
+                raise ValueError(
+                    f"a fusion golden lists its member routes in order — got "
+                    f"{len(self.models)}, need at least 2 members"
+                )
+        return self
 
     @model_validator(mode="after")
     def _counters_agree_with_statuses(self) -> GoldenReport:
@@ -117,6 +140,32 @@ class ActualOutcome:
     final_score: float | None
     case_statuses: dict[str, str]
     coverage: float
+
+
+def build_candidate(golden: GoldenReport):  # -> sf.Model | sf.Fusion
+    """The golden's replay INPUT, rebuilt: the exact candidate the bless ran.
+
+    ``kind: "model"`` → ``sf.Model(models[0])`` (the pre-OME-978 behaviour, pinned);
+    ``kind: "fusion"`` → ``sf.Fusion(models, name=recipe, synthesizer=synthesizer)``
+    with the members in the golden's recorded order — member order is part of the
+    rendered url4 expression, so reordering would fail the expression rung, not
+    silently reshuffle the run.
+    """
+    import screamingface as sf
+
+    if golden.kind == "fusion":
+        # The validator guarantees recipe + synthesizer + ≥2 members on this branch.
+        return sf.Fusion(
+            list(golden.models),
+            name=golden.recipe,
+            synthesizer=golden.synthesizer or "",
+        )
+    if len(golden.models) != 1:
+        raise ValueError(
+            f"golden for '{golden.board}' names {len(golden.models)} models; a "
+            f"'model' golden replays exactly one candidate model"
+        )
+    return sf.Model(golden.models[0])
 
 
 def canonical_score(score: float | None) -> str | None:

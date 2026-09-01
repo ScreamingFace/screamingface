@@ -42,13 +42,18 @@ from screamingface_engine.benchmarks.healthbench.case_evaluation import (
 )
 from screamingface_engine.benchmarks.healthbench.check_policy import HEALTHBENCH_CHECK
 from screamingface_engine.benchmarks.healthbench.exam import Exam, ExamMean
-from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
+from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.healthbench.prompts import (
     build_grader_prompt,
     render_rubric_item,
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.grading_accounting import (
+    GradingEvidenceOwner,
+    accounting_for_grading_evidence,
+    register_grading_request,
+)
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -108,12 +113,12 @@ def _install_protocol_once(
         node.data(cases_route, _cases(root, case_ids), media_type="application/json")
     routes = frozenset(node.processor_routes())
     endpoints = (
-        (tasks_route, _rubric_tasks(root, case_ids)),
+        (tasks_route, _rubric_tasks(root, case_ids, benchmark_id)),
         # The mid-run check surface the corrective loop consumes. It closes over `node`
         # so the judge route resolves per request — installation must still work in a
         # world holding no model routes.
         (check_surface_route, check_surface(node, root, HEALTHBENCH_CHECK)),
-        (verdict_route, _rubric_verdict),
+        (verdict_route, _rubric_verdict(benchmark_id)),
         (rubric_evaluation_route, _rubric_evaluation),
         (
             case_evaluation_route,
@@ -179,7 +184,7 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     return cases
 
 
-def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
+def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     # The fan-out point: one Candidate answer in, N ready-to-send judge tasks out.
     # Receives the Candidate's output (context) + the Case id (intent); pulls the
     # PRIVATE rubric off disk — the first time the answer key touches the flow.
@@ -201,6 +206,20 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
             tasks: list[dict[str, str]] = []
             for item in items:
                 rendered = render_rubric_item(item["points"], item["criterion"])
+                grader_prompt = build_grader_prompt(transcript, evaluator_text, rendered)
+                owner = GradingEvidenceOwner(
+                    benchmark_id=benchmark_id,
+                    case_id=case_id,
+                    check_id=str(item["rubric_id"]),
+                    sequence=1,
+                )
+                register_grading_request(
+                    owner,
+                    path="/" + JUDGE_MODEL.removeprefix("/"),
+                    params=dict(JUDGE_PARAMS),
+                    context=grader_prompt,
+                    intent="",
+                )
                 rubric_record = records.bind_rubric_item(
                     rendered, case_id=case_id, rubric_id=item["rubric_id"]
                 )
@@ -211,7 +230,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
                         # INVARIANT: the judge prompt is fully rendered HERE, engine-
                         # side, so its bytes match the reference `grade_sample` exactly
                         # — nothing about the prompt is assembled inside the expression.
-                        "grader_prompt": build_grader_prompt(transcript, evaluator_text, rendered),
+                        "grader_prompt": grader_prompt,
                         # Dedup: the full Case record (Candidate's whole output) rides
                         # the FIRST task only; the rest carry "{}" — case_evaluation.py
                         # hoists it back to one record per Case.
@@ -232,37 +251,49 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...]):
     return rubric_tasks
 
 
-def _rubric_verdict(request: Request) -> str:
+def _rubric_verdict(benchmark_id: str):
     # The parse gate between "the judge said something" and "we have a verdict":
     # context = the raw judge reply, intent = "case_id:rubric_id" (Engine-stamped,
     # never trusted from the judge).
     # Reference counterpart: the parse-and-retry half of `grade_sample`
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
-    try:
-        case_id, rubric_id = binding_key(request.intent)
-        record = bind(
-            request.context,
-            case_id=case_id,
-            rubric_id=rubric_id,
-            producer_id=JUDGE_MODEL,
+    def rubric_verdict(request: Request) -> str:
+        try:
+            case_id, rubric_id = binding_key(request.intent)
+            record = bind(
+                request.context,
+                case_id=case_id,
+                rubric_id=rubric_id,
+                producer_id=JUDGE_MODEL,
+            )
+        except ValueError as exc:
+            raise _unavailable(str(exc)) from exc
+        if record.get("valid") is not True:
+            # WHY transient, not a returned record: the expression's `;retry=` on this
+            # route re-resolves the NESTED judge call, so each re-ask draws a fresh
+            # sample at provider-default temperature — the reference's retry mechanism,
+            # bounded (`grade_sample` loops forever on the same condition). After the
+            # bounded retries the error propagates and the CASE fails loudly, keeping
+            # the reply head as audit evidence.
+            raw = str(record.get("raw_output") or "")
+            raise ResolutionError(
+                f"invalid judge reply for case {case_id} rubric {rubric_id} "
+                f"({record.get('reason')}): {raw[:200]!r}",
+                code="judge_reply_invalid",
+                permanent=False,
+            )
+        accounting = accounting_for_grading_evidence(
+            GradingEvidenceOwner(
+                benchmark_id=benchmark_id,
+                case_id=case_id,
+                check_id=str(rubric_id),
+                sequence=1,
+            )
         )
-    except ValueError as exc:
-        raise _unavailable(str(exc)) from exc
-    if record.get("valid") is not True:
-        # WHY transient, not a returned record: the expression's `;retry=` on this
-        # route re-resolves the NESTED judge call, so each re-ask draws a fresh
-        # sample at provider-default temperature — the reference's retry mechanism,
-        # bounded (`grade_sample` loops forever on the same condition). After the
-        # bounded retries the error propagates and the CASE fails loudly, keeping
-        # the reply head as audit evidence.
-        raw = str(record.get("raw_output") or "")
-        raise ResolutionError(
-            f"invalid judge reply for case {case_id} rubric {rubric_id} "
-            f"({record.get('reason')}): {raw[:200]!r}",
-            code="judge_reply_invalid",
-            permanent=False,
-        )
-    return compact_json(record)
+        record["accounting"] = accounting.model_dump() if accounting is not None else None
+        return compact_json(record)
+
+    return rubric_verdict
 
 
 def _rubric_evaluation(request: Request) -> str:

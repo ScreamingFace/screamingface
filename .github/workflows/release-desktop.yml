@@ -9,17 +9,27 @@ permissions:
 jobs:
   build-and-release:
     name: Build ${{ matrix.target }}
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-26
+          - target: x86_64-apple-darwin
+            runner: macos-26-intel
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -48,6 +58,16 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
+      - name: Select Apple signing identity
+        shell: bash
+        run: |
+          identity="$(security find-identity -v -p codesigning | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
+          if [[ -z "$identity" ]]; then
+            echo "No Developer ID Application identity was imported" >&2
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+
       - name: Build and create draft release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -55,13 +75,14 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_BUNDLER_DMG_IGNORE_CI: "true"
         with:
           projectPath: apps/screamingface-studio
-          tagName: desktop-v__VERSION__
-          releaseName: ScreamingFace Desktop v__VERSION__
+          tagName: studio-v__VERSION__
+          releaseName: ScreamingFace Studio v__VERSION__
           releaseBody: See the assets below to download and install this version.
           releaseDraft: true
           prerelease: false

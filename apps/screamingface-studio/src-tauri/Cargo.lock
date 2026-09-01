@@ -75,6 +75,7 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "cocoa 0.26.1",
+ "libc",
  "log",
  "objc",
  "serde",

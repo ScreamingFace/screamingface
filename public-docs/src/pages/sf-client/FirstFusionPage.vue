@@ -122,18 +122,20 @@ candidate.score`
     <h2>How far this goes</h2>
 
     <p>
-      What you built is a <strong>parallel fan-out</strong>: the members answer at once and a
-      synthesizer folds their drafts into one. That is one of two ways recipes compose. The other is
-      a <RouterLink to="/sf-client/api/pipelines">Pipeline</RouterLink>, the serial counterpart,
-      where each stage refines the previous stage's answer instead of running alongside it.
+      What you built is a <strong>parallel fan-out</strong>: each member answers the question on its
+      own and a synthesizer folds their drafts into one. That is one of two ways recipes compose.
+      The other is a <RouterLink to="/sf-client/api/pipelines">Pipeline</RouterLink>, the serial
+      counterpart, where each stage refines the previous stage's answer instead of running alongside
+      it.
     </p>
 
     <p>
-      Recipes nest, so the reach is larger than it looks. A member, a synthesizer, or a pipeline
-      stage can itself be a <RouterLink to="/sf-client/api/fusions">Fusion</RouterLink> or a
-      Pipeline: a fusion of pipelines, a pipeline whose last stage is a fusion, a fusion whose
-      synthesizer is itself a fusion. Every one is built from those same two moves, parallel and
-      serial. Start flat, like here, and add depth when a task needs it.
+      Recipes nest, so these two types compose into much larger systems. A member, a synthesizer, or
+      a pipeline stage can itself be a
+      <RouterLink to="/sf-client/api/fusions">Fusion</RouterLink> or a Pipeline: a fusion of
+      pipelines, a pipeline whose last stage is a fusion, a fusion whose synthesizer is itself a
+      fusion. Every one is built from those same two moves, parallel and serial. Start flat, like
+      here, and add depth when a task needs it.
     </p>
 
     <h2>Where to go next</h2>
@@ -146,7 +148,7 @@ candidate.score`
       <li>
         <strong
           ><RouterLink to="/sf-client/quickstartPage"
-            >Reproduce DRACO state-of-art</RouterLink
+            >Reproduce DRACO state-of-the-art</RouterLink
           ></strong
         >
         — put a fusion up against its solo models on a real board.
