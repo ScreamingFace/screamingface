@@ -417,3 +417,46 @@ unreachable-content problem. The Cost column made it reachable in practice, not 
 
 - Two independent `SELECT`s of `Benchmark.revision` (the gate's and the query's) could disagree
   within one request. Speculative, low, and narrower than the race the single read closed.
+
+
+## Round 2 did NOT run (2026-09-01)
+
+All five agents failed with a session limit; the workflow returned an empty findings array and
+its journal holds zero result lines. **That empty result is a failure, not a clean round** — it
+is exactly the shape of false reassurance this ledger keeps recording, so it is written down as
+a non-result rather than a pass.
+
+Reviewed directly instead, without subagents.
+
+### Verified sound
+
+- `Decimal("0.10")` and `Decimal("0.1000")` compare equal AND hash equal, so they share one cost
+  group in the sweep; the lower-scoring row is correctly dominated.
+- `Decimal("-0")` collapses onto `Decimal("0")` the same way.
+- A cohort of one, and a cohort tied on both axes, both behave.
+- Float scores differing in the last bit (`0.1 + 0.2` vs `0.3`) count as strictly better. That is
+  consistent with `frontier.py`'s existing rule — scores are carried through from the database
+  unchanged, never arithmetic — so it is not a new hazard.
+- The tab strip navigates by `href`, a full page load, so the legend cannot go stale between
+  benchmarks. Sorting re-renders rows but never changes which are marked.
+
+### Found and fixed — the legend rendered a LEADING middot
+
+The CSS-generated separator was written specifically to avoid a dangling middot when the
+frontier item hides, and it did not work. `display: none` does not remove an element from the
+sibling chain, so `.legend-item + .legend-item::before` still matched a hidden predecessor. On
+any board that marks nothing the legend opened with a stray `·`.
+
+Verified in Chrome against the real stylesheets before and after:
+
+```
+before:  ·  gold row = highest score ·  costs are self-reported…
+after:      gold row = highest score ·  costs are self-reported…
+```
+
+Fixed with `:not([hidden])` on both sides, and the general sibling combinator so it stays correct
+if more than one item ever hides.
+
+Worth noting the shape: **I introduced this bug in the round-1 fix, in the very line whose
+comment claims it prevents the problem.** Third time in this unit that a fix has landed a defect
+next to itself.

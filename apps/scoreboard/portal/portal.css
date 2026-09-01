@@ -269,7 +269,11 @@ td.col-open { white-space: nowrap; }
   align-items: center;
   gap: var(--space-2);
 }
-.legend-item + .legend-item::before {
+/* INVARIANT: `:not([hidden])` on BOTH sides. `display: none` does not remove an element from
+   the sibling chain, so a bare `+`/`~` still matches a hidden predecessor — with the frontier
+   item hidden, the legend rendered a LEADING middot (verified in Chrome, 2026-09-01). The
+   general sibling combinator is deliberate: it stays correct if more than one item ever hides. */
+.legend-item:not([hidden]) ~ .legend-item:not([hidden])::before {
   content: "·";
   color: var(--ink-3);
   margin-right: var(--space-2);
