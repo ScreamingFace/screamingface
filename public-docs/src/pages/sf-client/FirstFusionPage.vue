@@ -147,7 +147,7 @@ candidate.score`
       </li>
       <li>
         <strong
-          ><RouterLink to="/sf-client/quickstartPage"
+          ><RouterLink to="/sf-client/reproduce-draco"
             >Reproduce DRACO state-of-the-art</RouterLink
           ></strong
         >

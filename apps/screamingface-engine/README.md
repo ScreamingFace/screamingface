@@ -1,5 +1,7 @@
 # screamingface-engine
 
+> **Looking to use ScreamingFace in your work?** [Start here](https://docs.screamingface.ai). This file serves as a developer reference.
+
 The ScreamingFace Engine: the runtime that turns a `url4` expression into a
 graded benchmark result. The Client talks only to an Engine, never to providers
 directly. It is a demand-driven, memoized DAG executor and streams usage as it
