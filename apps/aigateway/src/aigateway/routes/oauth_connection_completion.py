@@ -26,7 +26,7 @@ from ..core.pending_auth import PendingAuthEntry
 from ..core.plugin_base import (
     credential_service_provider_for,
 )
-from ._auth_context import _credential_store_for_app
+from .auth_context import _credential_store_for_app
 from .credential_persistence import (
     SupportsCredentialPersistence,
     persist_credentials_or_503,

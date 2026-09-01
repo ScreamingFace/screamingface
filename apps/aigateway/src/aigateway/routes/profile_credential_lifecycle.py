@@ -42,7 +42,7 @@ from ..core.profile_models import (
     ProfileState,
     credential_name_for,
 )
-from ._auth_context import _index_store
+from .auth_context import _index_store
 from .profile_models import auth_provider_for as profile_models_auth_provider
 
 logger = logging.getLogger(__name__)

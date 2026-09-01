@@ -204,3 +204,34 @@ def test_the_routing_policy_seam_still_resolves_inside_the_openrouter_plugin() -
 )
 def test_the_openrouter_plugin_module_keeps_its_imported_surface(name: str) -> None:
     assert hasattr(openrouter_plugin_module, name)
+
+
+def test_model_discovery_contract_uses_the_public_module_filename() -> None:
+    """The owner-facing module name has no private-file prefix and no legacy shim."""
+    public_module = _SRC / "core/plugin_base/model_discovery.py"
+    private_module = _SRC / "core/plugin_base/_model_discovery.py"
+
+    assert public_module.is_file()
+    assert not private_module.exists()
+
+    from aigateway.core.plugin_base.model_discovery import (
+        ModelDiscoveryContract,
+        ModelDiscoverySource,
+    )
+
+    assert ModelDiscoveryContract.__module__ == "aigateway.core.plugin_base.model_discovery"
+    assert ModelDiscoverySource.__module__ == "aigateway.core.plugin_base.model_discovery"
+
+
+def test_auth_context_uses_the_public_module_filename() -> None:
+    """Shared auth-route context has no private-file prefix and no legacy shim."""
+    public_module = _SRC / "routes/auth_context.py"
+    private_module = _SRC / "routes/_auth_context.py"
+
+    assert public_module.is_file()
+    assert not private_module.exists()
+
+    from aigateway.routes.auth_context import _index_store, _registry
+
+    assert _index_store.__module__ == "aigateway.routes.auth_context"
+    assert _registry.__module__ == "aigateway.routes.auth_context"

@@ -16,8 +16,8 @@ from pydantic import BaseModel
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.credential_blob.store import CredentialBlobMutationConflict
-from ._auth_context import _pending
 from .auth import _complete_oauth_for_app
+from .auth_context import _pending
 from .oauth_loopback import _CALLBACK_HTML, _callback_failure_html
 
 logger = logging.getLogger(__name__)

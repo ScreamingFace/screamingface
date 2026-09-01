@@ -24,12 +24,12 @@ from ..core.profile_index import (
 from ..core.profile_models import (
     ProfileDefaults,
 )
-from ._auth_context import (
+from .auth import _credential_strategy_for_app, upsert_api_key_profile
+from .auth_context import (
     _credential_store_for_app,
     _index_store,
     _registry,
 )
-from .auth import _credential_strategy_for_app, upsert_api_key_profile
 from .profile_credential_lifecycle import (
     _invalidate_profile_session,
     _profile_refresh_lifecycle,

@@ -10,7 +10,7 @@ A rule is the only thing that enables a parameter, so every hook here that
 returns EVIDENCE — observations, tool verdicts, discovered snapshots — is
 incapable of enabling one by construction.
 
-The MODEL-LIST discovery hooks live in ``._model_discovery`` and are mixed in below —
+The MODEL-LIST discovery hooks live in ``.model_discovery`` and are mixed in below —
 an independent responsibility with self-contained defaults, unlike these hooks.
 
 AIDEV-NOTE: ``ProviderPluginBase`` is the name plugins subclass and the name the
@@ -33,13 +33,13 @@ from ..chat_parameters import (
     overlay_tool_capabilities,
     stream_transport_capability,
 )
+from ._ports import PluginSettings
+from ._provider import ProviderPluginCore
 
 # Runtime import: ``DiscoveryScope.NONE`` is RETURNED by the default
 # ``model_discovery_scope`` below, not merely annotated. Safe — the scope module is
 # leaf vocabulary (dataclass + enum) and imports nothing that reaches plugin_base.
-from ._model_discovery import ModelDiscoveryContract
-from ._ports import PluginSettings
-from ._provider import ProviderPluginCore
+from .model_discovery import ModelDiscoveryContract
 
 if TYPE_CHECKING:
     from ..chat_parameters import (

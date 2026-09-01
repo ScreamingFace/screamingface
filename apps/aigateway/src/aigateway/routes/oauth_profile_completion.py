@@ -30,7 +30,7 @@ from ..core.profile_models import (
     ProfileState,
     credential_name_for,
 )
-from ._auth_context import _index_store_for_app
+from .auth_context import _index_store_for_app
 from .oauth_connection_completion import _mark_connection_error
 from .oauth_loopback import _close_loopback_callback
 

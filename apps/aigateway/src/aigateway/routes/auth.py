@@ -25,7 +25,8 @@ from ..core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
-from ._auth_context import (
+from .api_key_validation import normalize_api_key, require_valid_api_key
+from .auth_context import (
     _credential_store_for_app,
     _index_store,
     _pending,
@@ -33,7 +34,6 @@ from ._auth_context import (
     _registry,
     _registry_for_app,
 )
-from .api_key_validation import normalize_api_key, require_valid_api_key
 from .credential_persistence import (
     SupportsCredentialSlot,
     persist_credentials_or_503,
