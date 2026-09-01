@@ -394,11 +394,11 @@ catalog snapshot, held per process (see the replica note below). Default **on**.
   deviation — one malformed row included — fails the **whole** refresh. Nothing partial or
   salvaged is ever cached as fresh, so an upstream schema drift degrades to the last good
   snapshot (then to seeds) instead of silently publishing a shrunken listing.
-- **Refresh latency is paid inline** by whichever request finds the snapshot cold or expired:
-  one fetch per catalog page (two pages at the current ~420-model catalog size), hard-bounded
-  by a 10 s aggregate deadline across the whole pagination chain. Concurrent callers share that one refresh (single-flight) and all
-  receive the same answer; failures are damped to one attempt per 30 s, so an outage costs at
-  most one slow request per damping window.
+- **Refresh work is bounded separately from request latency.** A request that finds the snapshot
+  cold waits at most `min(AIGW_DISCOVERY_TIMEOUT_SECONDS, 3 s)` and then serves compiled seeds while
+  the refresh continues in the background. The refresh itself remains hard-bounded by the 10 s
+  aggregate deadline across its pagination chain. Concurrent callers share one refresh
+  (single-flight); failures are damped to one attempt per 30 s.
 - **Each replica caches independently.** The snapshot is process-local (no shared store), so
   every worker and every replica performs its own refresh and may briefly serve a different
   tier than its peers during an upstream incident. Sizing note: N replicas ⇒ up to N catalog
@@ -413,22 +413,66 @@ catalog snapshot, held per process (see the replica note below). Default **on**.
   keeps serving, and the next attempt (after 30 s damping) normally succeeds. Fail-safe and
   self-healing, but expect occasional truncation reasons in the logs that are drift, not loss.
 
-## Live Anthropic Model Discovery (OME-1026)
+## Profile-Scoped Anthropic Model Discovery (OME-1026)
 
-`GET /v1/models` can also list the Claude models this deployment can actually use now, discovered
-from the Anthropic Models API. Anthropic's catalog is credentialed-only, so unlike the OpenRouter
-catalog above this is **opt-in** and inert by default: set `AIGW_ANTHROPIC_DISCOVERY_API_KEY` to a
-deployment-owned Anthropic key to enable it, unset it (or leave it empty — a blank or
-whitespace-only value is read as no key at all) to roll back. `AIGW_ANTHROPIC_LIVE_MODELS=false`
-is the fast off-switch that keeps the key configured, and `AIGW_DISCOVERY_ENABLED=false` silences it
-with all other discovery traffic — each off-switch means the exact compiled seed listing and zero
-Anthropic catalog egress. It reuses the same snapshot cache, degrade ladder, single-flight refresh,
-per-replica behavior, and `tier=` logging described above.
+Anthropic's Models API answers **for the calling key**, so a live Anthropic listing describes one
+account's entitlements — not the deployment's. It is therefore **private and per-profile**, served
+only to the owner of the credential it was fetched with:
 
-**Before choosing the key:** the Models API answers for the CALLING key, so that one key's
-entitlements decide what every account sees LISTED (dispatch stays per-account). Full operator
-guidance — publication of aliases vs date-stamped snapshots, fail-closed cursor-walk semantics,
-bounds, and the cost profile — is in
+```
+GET /v1/auth/anthropic/profiles/{name}/models
+```
+
+`GET /v1/models` lists Anthropic's compiled seed catalog and performs **zero** Anthropic catalog
+egress, whatever credentials accounts have stored. That listing also has a bounded user-facing
+budget: each public provider is waited for at most `min(AIGW_DISCOVERY_TIMEOUT_SECONDS, 3 s)`,
+after which the response carries that provider's compiled seeds while its refresh continues in the
+background — so neither a provider's own aggregate refresh deadline nor a raised dial timeout
+becomes the route's latency. There is **no deployment discovery key** —
+`AIGW_ANTHROPIC_DISCOVERY_API_KEY` does not exist and setting it has no effect. Private discovery
+uses the profile's existing `credential_blobs` key, so an owner never re-enters it.
+
+Nothing needs turning on: an authenticated api-key profile is the opt-in. `AIGW_ANTHROPIC_LIVE_MODELS=false`
+and the global `AIGW_DISCOVERY_ENABLED=false` each mean the exact compiled listing and zero Anthropic
+catalog egress. OAuth (Claude-subscription) profiles are refused before any credential is read.
+
+The endpoint answers `200` with a `status` (`fresh` / `stale` / `refreshing` / `fallback`), a
+sanitized `reason`, and rows shaped exactly like `/v1/models` rows. A cold profile waits at most
+**3 seconds** and then answers `refreshing` while the refresh continues in the background. That 3 s
+is a **hard maximum, not a default**: raising `AIGW_DISCOVERY_TIMEOUT_SECONDS` above it lengthens
+the provider *dial* deadline (useful for a slowly paginating catalog) and cannot lengthen any
+caller's wait. A lower value is honoured as-is. The same ceiling applies to `GET /v1/models`.
+
+Snapshots and in-flight refreshes are each bounded by `AIGW_DISCOVERY_CACHE_MAX_ENTRIES`
+(default 512), and the retained rows by `AIGW_DISCOVERY_PROFILE_CACHE_MAX_ROWS` (default 16384
+model rows). The row budget exists because an identity count bounds nothing about size: a provider
+caps its own catalog walk (Anthropic at 2000 models), so 512 identities alone would admit over a
+million retained rows per worker. It is a **row count, not a byte budget** — no per-row byte size
+is claimed, because none has been measured.
+
+Retained rows **never** exceed the configured maximum; there is no carve-out. A single snapshot
+larger than the whole budget is refused rather than cached, with `reason=cache_row_budget_exceeded`,
+and the refusal is damped by the provider's own failure TTL so it does not re-dial on every
+request. That profile keeps its previous snapshot if it still has one (`status=stale`), and
+otherwise answers with the compiled seeds. If you see that reason, raise
+`AIGW_DISCOVERY_PROFILE_CACHE_MAX_ROWS` — it is distinct from `model_catalog_too_large`, which
+means the *provider* refused its own walk.
+
+Caches are **process-local**, as with the OpenRouter catalog above: N replicas mean up to N
+refreshes per TTL per *actively viewed* profile, and a credential change invalidates only the worker
+that served it. That is safe rather than merely tolerable — the credential generation is part of the
+cache identity, so another worker's older snapshot is unreadable under the new credential and the
+worst case is a redundant fetch, never a stale answer. There is no shared cache to size or secure.
+
+A `409 credential_owner_changed` on `POST /v1/auth/{provider}/profiles/{name}/refresh` is **expected
+behaviour, not a fault**: the profile's credential was replaced while that refresh was talking to the
+provider, so the refresh published nothing — no token, no metadata, no generation change — and the
+new credential's listing was left untouched. Retry only if the refresh is still wanted. A routine
+same-owner token refresh does not change the credential generation and so keeps the profile's warm
+listing.
+
+Full operator guidance — scopes, statuses and reason codes, isolation and credential-rotation
+semantics, bounds, and the cost profile — is in
 [`docs/anthropic-model-discovery.md`](docs/anthropic-model-discovery.md).
 
 ## Operations Notes
