@@ -20,8 +20,8 @@ can hold a defensible "best score for the money" claim on one board.
 | Part | What | State |
 |---|---|---|
 | A | Compute the frontier — a pure function, unit-testable without a DB | **Done**, PR #778 |
-| B | Mark qualifying rows, distinct from the gold highest-score mark | gated |
-| C | Accuracy-vs-cost chart with the frontier drawn | gated |
+| B | Mark qualifying rows, distinct from the gold highest-score mark | **In review**, PR #786; merge-gated |
+| C | Accuracy-vs-cost chart with the frontier drawn | **Implemented**; merge-gated |
 
 A → B → C. A gates the other two. B carries most of the value at a fraction of C's cost.
 
@@ -41,6 +41,11 @@ Irina answered the four open questions on 2026-08-24:
    and visually distinct mark.
 3. **Imported baselines are excluded** — they have no run cost and were never run by us.
 4. **3D charts are out of scope here.** OME-923 covers accuracy vs cost only; OME-324 keeps 3D.
+
+Scope clarification recorded on Linear on 2026-09-01: Part C supersedes only OME-324's
+accuracy-vs-cost slice. OME-324 retains speed-related 2D views, the 3D speed/score/cost view, and
+efficiency sliders. OME-325 remains separate contributor-recognition work; Pareto membership is
+not a contributor badge or ranking input without a further product decision.
 
 Two further decisions were escalated during part A (2026-08-29):
 
@@ -76,3 +81,7 @@ Two further decisions were escalated during part A (2026-08-29):
 ## Ledger
 
 `docs/work/2026-08-29-OME-923-pareto-frontier-compute.md` (part A)
+
+`docs/work/2026-08-29-OME-923-B-mark-frontier-rows.md` (part B)
+
+`docs/work/2026-09-01-OME-923-C-pareto-chart.md` (part C)

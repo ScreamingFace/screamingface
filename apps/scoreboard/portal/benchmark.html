@@ -63,6 +63,31 @@
       <div id="leaderboard-climb" class="climb" aria-hidden="true"></div>
     </div>
 
+    <section id="pareto-chart-section" class="pareto-chart-section" hidden>
+      <h2>Score for cost</h2>
+      <figure class="pareto-chart-figure">
+        <!-- The table below is the accessible data source. This SVG is a visual summary with
+             native hover tooltips, so hiding it prevents dozens of duplicate data announcements. -->
+        <div
+          class="pareto-chart-scroll"
+          tabindex="0"
+          role="region"
+          aria-label="Score for cost chart, horizontally scrollable"
+        >
+          <div id="pareto-chart" aria-hidden="true"></div>
+        </div>
+        <figcaption class="pareto-chart-caption">
+          <span class="pareto-chart-key"><span class="pareto-chart-key__dominated" aria-hidden="true"></span>dominated</span>
+          <span class="pareto-chart-key"><span class="pareto-chart-key__frontier" aria-hidden="true"></span>Pareto frontier</span>
+          <span class="pareto-chart-key"><span class="pareto-chart-key__leader" aria-hidden="true"></span>highest score</span>
+          <span class="pareto-chart-key"><span class="pareto-chart-key__unpriced" aria-hidden="true"></span>cost n/a</span>
+          <span id="pareto-chart-meta"></span>
+          <span>Costs are self-reported, not verified by re-running.</span>
+          <span>Frontier membership considers the full board; this chart plots only the submissions shown on this page.</span>
+        </figcaption>
+      </figure>
+    </section>
+
     <!-- OME-923: the Cost column pushes this table's min-content past the container between
          roughly 700px and 1010px of viewport, so it scrolls horizontally there. Keeping the
          scroll rather than dropping a column is an owner decision (2026-08-31); the columns
@@ -108,6 +133,7 @@
        which benchmark.js reads at render time. Both are `defer`, so they execute in
        document order. -->
   <script src="leaderboard-logic.js" defer></script>
+  <script src="pareto-chart.js" defer></script>
   <script src="main.js" defer></script>
   <script src="benchmark.js" defer></script>
   <script src="theme.js" defer></script>

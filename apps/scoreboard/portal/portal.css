@@ -288,3 +288,82 @@ td.col-open { white-space: nowrap; }
   outline: var(--border-strong) solid var(--focus);
   outline-offset: 2px;
 }
+
+/* ---- score/cost Pareto chart (OME-923 part C) ----------------------- */
+.pareto-chart-section { margin-top: var(--space-7); }
+.pareto-chart-figure { background: var(--bg); }
+.pareto-chart__svg { min-width: 560px; }
+.pareto-chart-scroll { overflow-x: auto; }
+.pareto-chart-scroll:focus-visible {
+  outline: var(--border-strong) solid var(--focus);
+  outline-offset: 2px;
+}
+
+.pareto-chart__grid {
+  stroke: var(--line);
+  stroke-width: var(--border-hairline);
+}
+.pareto-chart__axis,
+.pareto-chart__tick-mark {
+  stroke: var(--ink-3);
+  stroke-width: var(--border-hairline);
+}
+.pareto-chart__tick,
+.pareto-chart__gutter-label { fill: var(--ink-2); }
+.pareto-chart__axis-label { fill: var(--ink); font-weight: var(--weight-semibold); }
+.pareto-chart__frontier-line {
+  fill: none;
+  stroke: var(--info-text-low);
+  stroke-width: var(--border-strong);
+}
+.pareto-chart__dominated-point { fill: var(--ink-3); }
+.pareto-chart__frontier-point { fill: var(--info-text-low); stroke: var(--bg); stroke-width: 3px; }
+.pareto-chart__unpriced-point { fill: var(--bg); stroke: var(--ink-3); stroke-width: var(--border-strong); }
+.pareto-chart__leader-ring { fill: none; stroke: var(--gain); stroke-width: var(--border-strong); }
+.pareto-chart__gutter-line {
+  stroke: var(--line-2);
+  stroke-width: var(--border-hairline);
+  stroke-dasharray: 4 4;
+}
+.pareto-chart__point:hover .pareto-chart__dominated-point,
+.pareto-chart__point:hover .pareto-chart__frontier-point,
+.pareto-chart__point:hover .pareto-chart__unpriced-point { stroke: var(--ink); }
+
+.pareto-chart-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+.pareto-chart-key { display: inline-flex; align-items: center; gap: var(--space-2); }
+.pareto-chart-key__dominated,
+.pareto-chart-key__frontier,
+.pareto-chart-key__leader,
+.pareto-chart-key__unpriced {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+}
+.pareto-chart-key__dominated { border-radius: 50%; background: var(--ink-3); }
+.pareto-chart-key__frontier { width: 8px; height: 8px; background: var(--info-text-low); transform: rotate(45deg); }
+.pareto-chart-key__leader { border-radius: 50%; border: var(--border-strong) solid var(--gain); }
+.pareto-chart-key__unpriced { border-radius: 50%; border: var(--border-strong) solid var(--ink-3); }
+
+[data-theme="dark"] .pareto-chart__frontier-line { stroke: var(--info-solid); }
+[data-theme="dark"] .pareto-chart__frontier-point,
+[data-theme="dark"] .pareto-chart-key__frontier { fill: var(--info-solid); background: var(--info-solid); }
+
+@media (forced-colors: active) {
+  .pareto-chart__frontier-line,
+  .pareto-chart__frontier-point,
+  .pareto-chart__dominated-point,
+  .pareto-chart__unpriced-point,
+  .pareto-chart__leader-ring { forced-color-adjust: auto; stroke: CanvasText; }
+  .pareto-chart__frontier-point { fill: CanvasText; }
+}
+
+@media (max-width: 620px) {
+  .pareto-chart-section { margin-top: var(--space-5); }
+  .pareto-chart-caption { align-items: flex-start; }
+}

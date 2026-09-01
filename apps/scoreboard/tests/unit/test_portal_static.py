@@ -176,3 +176,25 @@ def test_served_markdown_carries_no_internal_references(tmp_path: Path) -> None:
                 f"{route} is publicly served and leaks {leaks}. Keep internal references out of "
                 "the portal tree — put the reasoning in docs/work/ instead."
             )
+
+
+def test_pareto_chart_shell_is_bounded_provenanced_and_loaded_before_its_caller() -> None:
+    """Part C stays hidden by default and explains the limits of its public claim."""
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    html = (portal / "benchmark.html").read_text(encoding="utf-8")
+    script = (portal / "benchmark.js").read_text(encoding="utf-8")
+
+    assert re.search(r'<section[^>]*id="pareto-chart-section"[^>]*hidden', html)
+    assert re.search(r'<div[^>]*class="pareto-chart-scroll"[^>]*tabindex="0"', html)
+    assert 'aria-label="Score for cost chart, horizontally scrollable"' in html
+    assert 'id="pareto-chart"' in html
+    assert 'aria-hidden="true"' in html
+    assert "Costs are self-reported, not verified by re-running." in html
+    assert "Frontier membership considers the full board" in html
+    assert "plots only the submissions shown on this page" in html
+
+    logic_at = html.index('<script src="leaderboard-logic.js"')
+    chart_at = html.index('<script src="pareto-chart.js"')
+    caller_at = html.index('<script src="benchmark.js"')
+    assert logic_at < chart_at < caller_at
+    assert "SFParetoChart.render" in script
