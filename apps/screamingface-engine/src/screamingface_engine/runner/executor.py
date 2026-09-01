@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from screamingface_engine import job_env
 from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
+from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
@@ -736,6 +738,10 @@ class Url4Executor(Executor):
         self._io_wrap = io_wrap
         self._io_concurrency = io_concurrency
         self._io_wrapped = False
+        # FEATURE (OME-1069): the most recent run's process-level summary, recorded in
+        # `execute` and read back by the composition root for its terminal/summary log lines.
+        # `None` until a run has executed (or when the caller closed the generator early).
+        self._last_summary: RunSummary | None = None
         # Derived ONCE, at construction, from the injected policy: which `concurrency` (if
         # any) the `url4_run` call states. See the policy comment above for why gate-mode
         # must say `None` explicitly while an unconfigured run says nothing at all.
@@ -750,13 +756,11 @@ class Url4Executor(Executor):
     ) -> AsyncIterator[ExecStep]:
         """Run `url4` to completion, yielding `ExecStep` frames as observation events arrive.
 
-        Runs the engine in a separate task (`_drive`) while draining its events through the
-        `_Bridge` on this task, so a slow consumer never blocks the engine's synchronous
-        observer callback. On exit — including early return by the caller not exhausting the
-        iterator — any still-running driving task is cancelled and awaited, and an already
-        finished task's exception (if not itself a cancellation) is retrieved so it isn't
-        reported as "never retrieved". The world is always closed via `_aclose_world`, even
-        when the run failed or was cancelled.
+        The engine runs in a separate task while this generator drains its events through the
+        `_Bridge`, so a slow consumer never blocks the engine's synchronous observer callback
+        (see `_run_steps`). On exit — including early return by the caller not exhausting the
+        iterator — the world is always closed via `_aclose_world`, even when the run failed
+        or was cancelled.
         """
         # INVARIANT: the world is resolved HERE, not in the composition root. Anything raised
         # before `lifecycle.run` publishes its first frame is invisible — no NATS connection,
@@ -766,6 +770,43 @@ class Url4Executor(Executor):
         await self._resolve_world()
         bridge = _Bridge(self._queue_cap, memory_budget=self._memory_budget)
         state = _RunState()
+        started = time.monotonic()
+        try:
+            async for step in self._run_steps(url4, trace, bridge, state, started):
+                yield step
+        except asyncio.CancelledError:
+            # The run was stopped (deadline, an external stop, the caller's cancellation).
+            # `lifecycle.run` publishes Terminated(stopped) and re-raises; the summary
+            # records the outcome so the composition root can log it.
+            self._record_summary("stopped", trace, started, bridge, state)
+            raise
+        except Exception as exc:
+            # A failed run states no cost and no cache counts: neither is exact, and a
+            # partial figure would read as a complete one. The error code/type follow the
+            # stream's own `_error_info` vocabulary (code, or None when the exception
+            # carries none).
+            self._record_summary("failed", trace, started, bridge, state, error=exc)
+            raise
+        finally:
+            await self._aclose_world()
+
+    async def _run_steps(
+        self,
+        url4: str,
+        trace: TraceContext | None,
+        bridge: _Bridge,
+        state: _RunState,
+        started: float,
+    ) -> AsyncIterator[ExecStep]:
+        """Drive the engine task and yield its wire frames, ending with `Completed`.
+
+        The engine runs in a separate task (`_drive`) while this generator drains its events
+        through the `_Bridge`, so a slow consumer never blocks the engine's synchronous
+        observer callback. On exit — including early return by the caller not exhausting the
+        iterator — any still-running driving task is cancelled and awaited, and an already
+        finished task's exception (if not itself a cancellation) is retrieved so it isn't
+        reported as "never retrieved".
+        """
 
         async def _drive() -> str:
             try:
@@ -800,7 +841,14 @@ class Url4Executor(Executor):
                 hard_cap=self._hard_cap,
                 store=self._artifact_store,
             )
-            yield Completed(result=result, subtree_cost=state.build_subtree())
+            subtree = state.build_subtree()
+            # FEATURE (OME-1069): recorded BEFORE the Completed yield, because
+            # `lifecycle.run` breaks out of its `async for` on Completed and never resumes
+            # this generator — code after the yield would never run. The summary is the
+            # operator's one-stop answer in a Job's logs; exact-only, like the stream's
+            # own cost frames.
+            self._record_summary("succeeded", trace, started, bridge, state, subtree=subtree)
+            yield Completed(result=result, subtree_cost=subtree)
         finally:
             if not task.done():
                 task.cancel()
@@ -808,7 +856,50 @@ class Url4Executor(Executor):
                     await task
             elif not task.cancelled():
                 task.exception()
-            await self._aclose_world()
+
+    def _record_summary(
+        self,
+        outcome: RunOutcome,
+        trace: TraceContext | None,
+        started: float,
+        bridge: _Bridge,
+        state: _RunState,
+        *,
+        subtree: CostUsageData | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        """Record the run's process-level summary (OME-1069).
+
+        Exact-only, like the rest of the run's accounting: cost and cache counters are
+        stated only for a completed run — a failed run's figures are partial and must not
+        read as exact. The error code/type follow the stream's own `_error_info`
+        vocabulary.
+        """
+
+        code = getattr(error, "code", None) if error is not None else None
+        self._last_summary = RunSummary(
+            outcome=outcome,
+            trace_id=trace.trace_id if trace is not None else None,
+            error_code=code if isinstance(code, str) else None,
+            error_type=type(error).__name__ if error is not None else None,
+            duration_s=time.monotonic() - started,
+            cost_usd=subtree.cost.total_usd if subtree is not None else None,
+            pricing_version=subtree.pricing_version if subtree is not None else None,
+            cache_attributes=state.cache_counters.attributes() if subtree is not None else None,
+            dropped_logs=bridge.dropped,
+            high_water=bridge.high_water,
+        )
+
+    def last_summary(self) -> RunSummary | None:
+        """The most recent run's process-level summary, or None if no run executed.
+
+        FEATURE (OME-1069): read by the composition root after `lifecycle.run` returns to
+        log the run's terminal outcome and summary. `None` covers both "never executed"
+        and "the caller closed the generator before it completed" — the two shapes a
+        caller cannot tell apart, and neither has a summary to state.
+        """
+
+        return self._last_summary
 
     async def _resolve_world(self) -> None:
         """Build the world on first execute. Idempotent; a failure leaves nothing to close.
