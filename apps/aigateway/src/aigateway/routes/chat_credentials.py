@@ -79,7 +79,29 @@ def resolved_auth_mode(
             return profileless_mode
         if plugin.available_auth_modes() == ("none",):
             return "none"
-    return auth_mode_for_target(profile, connection)
+    auth_mode = auth_mode_for_target(profile, connection)
+    if auth_mode not in _available_auth_modes(plugin):
+        raise _unsupported_auth_mode_error(plugin, auth_mode)
+    return auth_mode
+
+
+def _available_auth_modes(plugin: Any) -> tuple[AuthMode, ...]:
+    modes = getattr(plugin, "available_auth_modes", None)
+    if not callable(modes):
+        return ("oauth",)
+    return cast("tuple[AuthMode, ...]", tuple(cast(Any, modes)()))
+
+
+def _unsupported_auth_mode_error(plugin: Any, auth_mode: str) -> HTTPException:
+    provider = getattr(plugin, "custom_llm_provider", "")
+    detail = {
+        "code": "api_key_not_supported"
+        if auth_mode == "api_key"
+        else "provider_does_not_use_oauth",
+    }
+    if isinstance(provider, str) and provider:
+        detail["provider"] = provider
+    return HTTPException(status_code=400, detail=detail)
 
 
 _BUCKET_A_FIELDS = (
@@ -118,6 +140,31 @@ def _oauth_connection_store(request: Request) -> OAuthConnectionStore:
     store = OAuthConnectionStore()
     request.app.state.oauth_connections = store
     return store
+
+
+async def _repair_api_key_only_connection_auth_type(
+    request: Request,
+    *,
+    plugin: Any,
+    connection: OAuthConnection,
+) -> OAuthConnection:
+    auth_type = auth_mode_for_target(None, connection)
+    modes = _available_auth_modes(plugin)
+    if auth_type != "oauth" or "oauth" in modes or "api_key" not in modes:
+        return connection
+    # INVARIANT: an api-key-only provider has no OAuth path. Retag the connection
+    # before parameter validation and credential reads so failures stay recoverable
+    # through the connection-native replace-key endpoint.
+    repaired = await _oauth_connection_store(request).set_auth_type(connection, "api_key")
+    if repaired is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "connection_conflict",
+                "message": "Connection changed during auth-type repair",
+            },
+        )
+    return repaired
 
 
 async def _active_oauth_connection_for_profile(
@@ -183,6 +230,11 @@ async def _credential_target_for_chat(
             profile_name=profile_name,
         )
         if connection is not None:
+            connection = await _repair_api_key_only_connection_auth_type(
+                request,
+                plugin=plugin,
+                connection=connection,
+            )
             return None, connection, ProfileDefaults()
         if not _allows_chatless_profile(plugin):
             raise HTTPException(

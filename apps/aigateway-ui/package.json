@@ -13,7 +13,7 @@
     "test:ci": "vitest run --coverage --reporter=default --reporter=junit --outputFile=results.xml"
   },
   "dependencies": {
-    "next": "16.3.1",
+    "next": "16.3.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1"
@@ -25,14 +25,14 @@
     "@types/node": "^26",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "^6.0.5",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitejs/plugin-react": "^6.1.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9",
-    "eslint-config-next": "16.3.1",
+    "eslint-config-next": "16.3.2",
     "jsdom": "^30.0.1",
     "openapi-typescript": "^7.13.0",
     "stylelint": "^17.14.1",
-    "stylelint-declaration-strict-value": "^1.10.6",
+    "stylelint-declaration-strict-value": "^1.12.1",
     "typescript": "^5",
     "vitest": "^4.1.10"
   }

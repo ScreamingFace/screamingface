@@ -10,11 +10,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
+from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
@@ -22,6 +24,26 @@ from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSetti
 
 def _plugin(*, enabled: bool) -> OpenRouterProviderPlugin:
     return OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=enabled))
+
+
+def _account_id(client) -> str:
+    return client.get("/v1/auth/me").json()["id"]
+
+
+def _create_openrouter_connection(client) -> dict[str, Any]:
+    response = client.post(
+        "/v1/oauth/connections/api-key",
+        json={"provider": "openrouter", "label": "work-openrouter", "api_key": "sk-or-v1-test"},
+    )
+    assert response.status_code == 201, response.text
+    return cast("dict[str, Any]", response.json())
+
+
+async def _set_connection_auth_type(account_id: str, connection_id: str, auth_type: str) -> None:
+    connection = await OAuthConnectionStore().get(account_id, UUID(connection_id))
+    assert connection is not None
+    connection.auth_type = auth_type
+    await connection.save(update_fields=["auth_type"])
 
 
 # --- D1: normal auto-discovery, no loader/registry edits ---
@@ -195,6 +217,93 @@ def test_chat_openrouter_byok_end_to_end(
     assert resp.status_code == 200, resp.text
     assert captured["model"] == "openrouter/anthropic/claude-fable-5"
     assert captured["api_key"] == "sk-or-v1-test"
+
+
+def test_chat_repairs_openrouter_oauth_connection_with_api_key_blob(
+    enabled_openrouter,
+    authenticated_client,
+) -> None:
+    account_id = _account_id(authenticated_client)
+    created = _create_openrouter_connection(authenticated_client)
+    authenticated_client.portal.call(
+        _set_connection_auth_type,
+        account_id,
+        created["id"],
+        "oauth",
+    )
+    captured: dict[str, Any] = {}
+
+    async def fake_chat_completion(_self, body):
+        captured.update(body)
+        return SimpleNamespace(
+            model_dump=lambda: {"id": "or-1", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    with patch(
+        "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin.chat_completion",
+        fake_chat_completion,
+    ):
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openrouter/anthropic/claude-fable-5",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert captured["api_key"] == "sk-or-v1-test"
+    repaired = authenticated_client.portal.call(
+        OAuthConnectionStore().get,
+        account_id,
+        UUID(created["id"]),
+    )
+    assert repaired is not None
+    assert repaired.auth_type == "api_key"
+
+
+def test_chat_corrupted_openrouter_oauth_connection_without_key_does_not_dispatch(
+    enabled_openrouter,
+    credential_blobs,
+    authenticated_client,
+) -> None:
+    account_id = _account_id(authenticated_client)
+    created = _create_openrouter_connection(authenticated_client)
+    authenticated_client.portal.call(
+        _set_connection_auth_type,
+        account_id,
+        created["id"],
+        "oauth",
+    )
+    credential_blobs.delete(
+        f"aigateway:openrouter:{credential_key_for(account_id, created['id'])}",
+        "default",
+    )
+
+    with patch(
+        "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin.chat_completion",
+    ) as dispatched:
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openrouter/anthropic/claude-fable-5",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert response.status_code == 401
+    detail = response.json()["detail"]
+    assert detail["code"] == "auth_required"
+    assert detail["reauth_url"] == f"/v1/oauth/connections/{created['id']}/api-key"
+    dispatched.assert_not_called()
+    connection = authenticated_client.portal.call(
+        OAuthConnectionStore().get,
+        account_id,
+        UUID(created["id"]),
+    )
+    assert connection is not None
+    assert connection.auth_type == "api_key"
+    assert connection.status == "error"
 
 
 def test_chat_openrouter_stream_rejected_before_dispatch(

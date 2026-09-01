@@ -123,6 +123,16 @@ def find(docs: list[dict], kind: str) -> dict:
     raise AssertionError(f"no {kind} in the rendered chart")
 
 
+def find_named(docs: list[dict], kind: str, name: str) -> dict:
+    """The document of `kind` named `name`. The aigateway chart can render TWO NetworkPolicies
+    (gateway + bundled Garage), and garage.yaml sorts before networkpolicy.yaml — so `find`
+    would silently return whichever renders first. Policies are looked up by name."""
+    for doc in docs:
+        if doc.get("kind") == kind and doc.get("metadata", {}).get("name") == name:
+            return doc
+    raise AssertionError(f"no {kind} named {name!r} in the rendered chart")
+
+
 def find_data_owner(docs: list[dict], key: str) -> dict:
     """Return the single rendered object whose data contains ``key``."""
     matches = [doc for doc in docs if key in doc.get("data", {})]
@@ -314,7 +324,7 @@ def cidr_overlap(
 print("aigateway chart")
 gw = render(GATEWAY_CHART, GATEWAY_RELEASE)
 gw_config = find(gw, "ConfigMap")
-gw_policy = find(gw, "NetworkPolicy")
+gw_policy = find_named(gw, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway")
 gw_service = find(gw, "Service")
 gw_deployment = find(gw, "Deployment")
 
@@ -362,6 +372,211 @@ gw_prod = render(
 check(
     "aigateway-ui" in peer_names(find(gw_prod, "NetworkPolicy"), "ingress"),
     "values-prod.yaml also admits the console (it overrides clientPodNames wholesale)",
+)
+
+print("\naigateway snapshot wiring (bundled Garage)")
+# The bundled Garage shares the release's selectorLabels (name+instance), so every selector
+# that must name ONE side needs the component label. These checks pin the review fix: the
+# gateway policy must not capture Garage Pods (that denied the snapshot PUTs to :3900), and
+# Garage must get its own scoped policy admitting exactly the gateway.
+gw_snap = render(GATEWAY_CHART, GATEWAY_RELEASE, "--set", "snapshot.enabled=true")
+gw_snap_policy = find_named(gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway")
+garage_policy = find_named(gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway-garage")
+garage_sts = find(gw_snap, "StatefulSet")
+gw_pod_labels = gw_deployment["spec"]["template"]["metadata"]["labels"]
+
+check(
+    gw_pod_labels.get("app.kubernetes.io/component") == "gateway",
+    "gateway Pods carry component: gateway — distinct from garage/migrate under shared selectorLabels",
+)
+check(
+    "app.kubernetes.io/component"
+    not in gw_deployment["spec"]["selector"]["matchLabels"],
+    "the gateway Deployment selector stays name+instance — spec.selector is immutable, so "
+    "adding the component label there breaks `helm upgrade` of an existing release",
+)
+check(
+    gw_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    == "gateway",
+    "the gateway NetworkPolicy selects ONLY gateway Pods — it cannot capture Garage or migrate Pods",
+)
+check(
+    gw_service["spec"]["selector"].get("app.kubernetes.io/component") == "gateway",
+    "the Service routes ONLY to gateway Pods, not merely saved by the named targetPort",
+)
+
+# WHY these four (regression, 2026-09-01): the checks above render DEFAULT values, where the
+# component label can only come from the chart itself — so they all passed while the deployed
+# gateway had no Endpoints for 40 minutes. The platform sets `podLabels`, which rendered AFTER the
+# Pod template's own labels, so its `component: server` won on the Pod by YAML duplicate-key
+# precedence while this Service selector still demanded `gateway`. Zero Endpoints, Pod Running,
+# Argo Synced, nothing in any log. A default-only render cannot see that class of break, so the
+# gate now renders the OVERRIDE path too: the Pod label and every selector must move together,
+# and the spelling that caused the outage must be refused outright.
+gw_component = render(
+    GATEWAY_CHART, GATEWAY_RELEASE, "--set", "componentLabel=server", "--set", "snapshot.enabled=true"
+)
+gwc_deployment = find_named(gw_component, "Deployment", f"{GATEWAY_RELEASE}-aigateway")
+gwc_service = find_named(gw_component, "Service", f"{GATEWAY_RELEASE}-aigateway")
+gwc_policy = find_named(gw_component, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway")
+gwc_garage_policy = find_named(
+    gw_component, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway-garage"
+)
+
+check(
+    gwc_deployment["spec"]["template"]["metadata"]["labels"].get(
+        "app.kubernetes.io/component"
+    )
+    == "server"
+    and gwc_service["spec"]["selector"].get("app.kubernetes.io/component") == "server",
+    "componentLabel moves the Pod label and the Service selector together — the Service keeps "
+    "selecting the Pod it fronts under a platform's own component convention",
+)
+check(
+    gwc_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    == "server",
+    "componentLabel moves the gateway NetworkPolicy podSelector too",
+)
+check(
+    any(
+        peer.get("podSelector", {}).get("matchLabels", {}).get(
+            "app.kubernetes.io/component"
+        )
+        == "server"
+        for rule in gwc_garage_policy["spec"]["ingress"]
+        for peer in rule.get("from", [])
+    ),
+    "componentLabel moves Garage's :3900 ingress peer too — the snapshot PUTs keep working",
+)
+_pod_label_clash = render_fails(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set-string",
+    "podLabels.app\\.kubernetes\\.io/component=server",
+)
+check(
+    _pod_label_clash is not None and "componentLabel" in _pod_label_clash,
+    "podLabels cannot set app.kubernetes.io/component — the render is refused and names "
+    "componentLabel, instead of silently emptying the Service",
+)
+check(
+    garage_sts["spec"]["template"]["metadata"]["labels"].get("app.kubernetes.io/component")
+    == "garage",
+    "bundled Garage Pods carry component: garage",
+)
+check(
+    garage_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    == "garage",
+    "the Garage NetworkPolicy selects ONLY Garage Pods",
+)
+check(
+    [p["port"] for rule in garage_policy["spec"]["ingress"] for p in rule.get("ports", [])]
+    == [3900],
+    "Garage admits exactly one ingress port: the S3 API on 3900",
+)
+
+admitted_peer: dict[str, str] = {}
+for rule in garage_policy["spec"]["ingress"]:
+    for element in rule.get("from", []):
+        labels = element.get("podSelector", {}).get("matchLabels", {})
+        if labels.get("app.kubernetes.io/component") == "gateway":
+            admitted_peer = labels
+check(
+    bool(admitted_peer)
+    and admitted_peer.get("app.kubernetes.io/name") == "aigateway"
+    and admitted_peer.get("app.kubernetes.io/instance") == GATEWAY_RELEASE,
+    "Garage's 3900 ingress names THIS release's gateway Pods (name+instance+component)",
+)
+check(
+    all(gw_pod_labels.get(key) == value for key, value in admitted_peer.items()),
+    "the peer Garage admits IS the label set the gateway Deployment renders — the pair holds",
+)
+check(
+    gw_snap_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    == "gateway",
+    "with snapshots on, the gateway policy still selects only gateway Pods",
+)
+
+check(
+    not any(doc.get("kind") == "StatefulSet" for doc in gw),
+    "snapshot disabled by default renders no Garage StatefulSet",
+)
+gw_no_np = render(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    "networkPolicy.enabled=false",
+)
+check(
+    not any(doc.get("kind") == "NetworkPolicy" for doc in gw_no_np),
+    "networkPolicy.enabled=false renders NO policies at all — gateway or Garage",
+)
+
+print("\naigateway snapshot refusals")
+# The single-writer invariant (spec: logged single-replica assumption) is enforced at render,
+# not left to operator discipline — two schedulers firing the same second-resolution stamp
+# would interleave their archive/manifest PUTs.
+replica_error = render_fails(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    "replicaCount=2",
+)
+check(
+    replica_error is not None and "replicaCount=1" in replica_error,
+    "REFUSES snapshots on more than one replica, naming the single-writer invariant",
+)
+external_error = render_fails(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    "snapshot.garage.enabled=false",
+    "--set-string",
+    "snapshot.storage.endpointUrl=http://s3.example.com",
+)
+check(
+    external_error is not None and "bundled Garage" in external_error,
+    "REFUSES to mint credentials for an external store — both keys or existingSecret required",
+)
+gw_external = render(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    "snapshot.garage.enabled=false",
+    "--set-string",
+    "snapshot.storage.endpointUrl=http://s3.example.com",
+    "--set-string",
+    "snapshot.storage.accessKey=AKIAEXTERNAL",
+    "--set-string",
+    "snapshot.storage.secretKey=SKEXTERNAL",
+)
+external_secret = find_named(
+    gw_external, "Secret", f"{GATEWAY_RELEASE}-aigateway-snapshot-storage"
+)
+check(
+    external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY"] == "AKIAEXTERNAL"
+    and external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY"] == "SKEXTERNAL",
+    "external mode renders the OPERATOR's pair verbatim — nothing is generated",
+)
+bundled_secret = find_named(
+    gw_snap, "Secret", f"{GATEWAY_RELEASE}-aigateway-snapshot-storage"
+)
+check(
+    bundled_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY"].startswith("GK"),
+    "bundled Garage still GENERATES its GK… key pair when no values are supplied",
+)
+gw_multi = render(GATEWAY_CHART, GATEWAY_RELEASE, "--set", "replicaCount=2")
+check(
+    isinstance(gw_multi, list) and len(gw_multi) > 0,
+    "more than one replica renders fine while snapshots are OFF — the guard is scoped",
 )
 
 print("\naigateway-ui chart")

@@ -1,6 +1,6 @@
 [project]
 name = "screamingface"
-version = "0.1.1.post5"
+version = "0.1.1.post6"
 description = "Evaluate Models and Fusions on URL4-native research benchmarks"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -48,7 +48,7 @@ runtime = [
     "immutabledict>=4.2.0",
     "kubernetes>=31.0.0",
     "langdetect>=1.0.9",
-    "litellm==1.97.0",
+    "litellm==1.98.0",
     "nats-py>=2.9.0",
     "nltk>=3.9.1",
     # WHY pinned exactly, like `datasets`: these flatten GDPval's reference PDFs and Word

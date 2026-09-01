@@ -27,7 +27,7 @@ flash = sf.Model("openrouter/google/gemini-3-flash-preview")
 fusion = sf.Fusion([gpt, flash], synthesizer="openrouter/openai/gpt-5.5")
 
 # Score the solo model beside the fusion, on the same cases.
-report = sf.evaluate([gpt, fusion], benchmark="ifeval", limit=3)
+report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
 {c.name: c.score for c in report.candidates}`
 
 const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview': 1.0}`

@@ -104,3 +104,13 @@ def test_k8s_runner_receives_deployment_scheduling() -> None:
             "effect": "NoSchedule",
         }
     ]
+
+
+def test_k8s_runner_receives_the_settings_io_concurrency() -> None:
+    """OME-908: the per-run downstream budget reaches the runner that writes it onto Jobs."""
+    settings = Settings(runner="k8s", runner_io_concurrency=9)
+
+    runner = build_job_runner(settings, k8s_client_factory=_FakeBatchApi)
+
+    assert isinstance(runner, K8sJobRunner)
+    assert runner._io_concurrency == 9

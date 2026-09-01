@@ -91,7 +91,7 @@ const runRecent: NbCheckItem[] = [
   { label: 'Finalized pareto-cross (1/1 cases scored)' },
 ]
 
-// Scores from a real draco/lite run: one case, ten criteria, one judge pass.
+// Scores from a draco-3pass run: one case (limit=1), ten criteria, three judge passes.
 const studyCandidates = [
   { id: 'claude-fable-5', name: 'claude-fable-5', score: 88.0, casesScored: 1, casesTotal: 1 },
   { id: 'claude-opus-4.8', name: 'claude-opus-4.8', score: 100.0, casesScored: 1, casesTotal: 1 },
@@ -259,10 +259,10 @@ fusions = [
 
 candidates = (*solos, *fusions)   # 16 candidate roots, one shared case set`
 
-const load = `draco = sf.benchmarks.get("draco/lite")
+const load = `draco = sf.benchmarks.get("draco-3pass")
 draco.title, draco.revision, draco.case_count`
 
-const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
+const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limit=1)`
 </script>
 
 <template>
@@ -275,9 +275,8 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     <p>
       By the end, you'll have a scored comparison of <strong>16 candidates</strong>: seven solo
       models and nine fusions built from those models, all on one
-      <a href="https://arxiv.org/abs/2602.11685" target="_blank" rel="noopener">DRACO</a> case with
-      ten criteria and one judge pass each. The whole thing runs as a single request of roughly 80
-      to 85 provider calls.
+      <a href="https://arxiv.org/abs/2602.11685" target="_blank" rel="noopener">DRACO</a> case
+      (<code>limit=1</code>) with ten criteria and three judge passes each.
     </p>
 
     <blockquote>
@@ -490,16 +489,16 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     </ul>
 
     <p>
-      <code>sf.benchmarks.list()</code> shows what this engine has. <code>draco/lite</code> only
-      appears if its pinned judge model is in the gateway catalog, so if it is missing, the engine's
+      <code>sf.benchmarks.list()</code> shows what this engine has. <code>draco-3pass</code> only
+      appears if its judge model is in the gateway catalog, so if it is missing, the engine's
       configuration is the place to look rather than your own code.
     </p>
 
     <p>
-      <code>draco/lite</code> is a reduced form of the full benchmark: one pinned case and ten
-      criteria spanning all four rubric sections, with a single judge pass per criterion. It runs
-      the same protocol as <code>draco</code>, which uses all 100 cases and five judge passes per
-      criterion, so you can rehearse the full run at a small fraction of its cost.
+      <code>draco-3pass</code> runs the same 100-case dataset and rubric as the canonical
+      <code>draco</code> board, judging each answer three times instead of five. Passing
+      <code>limit=1</code> pins this tutorial to a single case, keeping costs low; the
+      full 100-case run is a completely different scale of spend.
     </p>
 
     <h2>5 · Evaluate</h2>
@@ -514,7 +513,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
       <NbCell :count="5" :code="evaluate">
         <EvaluationReport
           title="16 candidates"
-          benchmark="draco/lite"
+          benchmark="draco-3pass"
           phase="complete"
           elapsed="4M 51S"
           :done="16"
@@ -545,10 +544,10 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
     </p>
 
     <blockquote>
-      <strong>This step costs money.</strong> Expect roughly 80–85 provider calls: ten answers, nine
-      syntheses, plus ten judge passes per graded candidate. It's minutes and cents rather than
-      hours and dollars, but it's not free. <code>draco</code> at 100 cases is a completely
-      different scale of spend.
+      <strong>This step costs money.</strong> Expect ten model answers, nine syntheses, and thirty
+      judge passes per graded candidate (ten criteria × three passes), for one case. It's minutes
+      and cents rather than hours and dollars, but it's not free. <code>draco-3pass</code> at all
+      100 cases — or the five-pass <code>draco</code> — is a completely different scale of spend.
     </blockquote>
 
     <p>
@@ -569,7 +568,7 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco/lite")`
       <NbCell :count="6" code="report">
         <CandidateScores
           :candidates="studyCandidates"
-          benchmark="draco/lite"
+          benchmark="draco-3pass"
           case-label="1 case"
           :limit="9"
         />

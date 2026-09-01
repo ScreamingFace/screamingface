@@ -12,7 +12,7 @@ const docs = [
   },
   {
     title: 'Quickstart',
-    to: '/sf-client/quickstartPage',
+    to: '/sf-client/first-fusion',
     kicker: 'tutorial',
     desc: 'Compose a fusion, run it against a benchmark, and read how it compares to its best single member.',
   },
@@ -50,7 +50,7 @@ const GITHUB = 'https://github.com/ScreamingFace'
       </p>
 
       <div class="actions">
-        <RouterLink class="btn btn--primary" to="/sf-client/quickstartPage">Quickstart</RouterLink>
+        <RouterLink class="btn btn--primary" to="/sf-client/first-fusion">Quickstart</RouterLink>
         <RouterLink class="btn btn--sec" to="/sf-client">Overview</RouterLink>
         <RouterLink class="btn btn--sec" to="/sf-client/installation">Installation</RouterLink>
         <a class="btn btn--sec" :href="GITHUB" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -124,7 +124,7 @@ const GITHUB = 'https://github.com/ScreamingFace'
       </div>
       <nav class="foot__links">
         <RouterLink to="/sf-client">Overview</RouterLink>
-        <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink>
+        <RouterLink to="/sf-client/first-fusion">Quickstart</RouterLink>
         <a :href="GITHUB" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </footer>

@@ -43,6 +43,7 @@ from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseReque
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
 from .core.request_cache.upload_job import CacheUploadRunner
 from .core.secrets.factory import build_secret_store, set_active_secret_store
+from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
 from .plugins.taxonomy.plugin import TaxonomyPlugin
@@ -221,8 +222,25 @@ async def _lifespan(app):
             build_accounting_handler
         )
 
+        # Weekly cache-snapshot to Garage (OME-1021): armed only when enabled, owned by
+        # this lifespan — started here, cancelled and awaited in the finally below.
+        if app.state.settings.cache_snapshot_enabled:
+            # The builder (exporter + store + publish protocol) lives in
+            # core/snapshot_publish.py; the lifespan keeps only WHEN — armed here, stopped
+            # in the finally below.
+            app.state.cache_snapshot_scheduler = build_snapshot_scheduler(app.state.settings)
+            app.state.cache_snapshot_scheduler.start()
+            logger.info(
+                "cache snapshot scheduler armed (weekly Friday 05:00 UTC, bucket=%s)",
+                app.state.settings.cache_snapshot_s3_bucket,
+            )
+
         yield
     finally:
+        # The scheduler's owned task must never outlive the app: cancel and await it.
+        scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+        if scheduler is not None:
+            await scheduler.stop()
         # §9.12: closed explicitly here rather than left to __del__, which is not
         # guaranteed to run and cannot await. An unclosed handler leaks its connection
         # pool across TestClient lifecycles and across a reload in dev.

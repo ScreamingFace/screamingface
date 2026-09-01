@@ -28,3 +28,4 @@ Executed together with `OME-914` on one branch — the two are halves of the sam
 
 - Ledger: `docs/work/2026-08-28-OME-914-org-repoint.md`
 - Branch: `OME-914-org-repoint`
+- Spec: `docs/spec/2026-08-22-observability-traceability-review.md`
