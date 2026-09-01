@@ -490,3 +490,42 @@ What remains, and why each is not a "clear fix":
 | The board has no tiebreaker among equal scores, so `rank` is unstable for ties | The *mechanism* is clear — add a secondary sort key. The *semantics* are a product decision: on a tie, does the newer submission rank higher, or the one that got there first? Extending the same-spec rule ("newer wins") to different participants is not obviously the fair answer on a public leaderboard. Pre-existing, unfiled. |
 | A negative cost written out-of-band bypasses validation | Needs a `CHECK` constraint and a migration on a shared table, for a state only reachable by bypassing the API. Schema work under stack rule S1, and not this ticket's. |
 | The row load is O(n) and unbounded on a pinned board | Inherent to whole-board semantics. The quadratic amplification is gone; what remains is one query returning one row per (spec_id, benchmark_revision), the same shape the endpoint always issued. |
+
+
+## Tie ordering, and the negative-cost question (2026-09-01)
+
+### D14 — on a tie, the earlier submission ranks higher
+
+Owner decision. The outer ordering was `score DESC` with no secondary key, so the order among
+tied rows was whatever the backend returned: alphabetical by `spec_id` on SQLite (index scan),
+insertion order on Postgres (heap scan). `rank` was not stable across environments, and which
+tied row fell outside `top` moved with it.
+
+Now `score DESC, submitted_at ASC`. Deliberately ascending, while the `rn` window above it stays
+`submitted_at DESC` — they answer different questions. The window picks WHICH submission
+represents a spec, where the newest wins; this orders SPECS against each other, where the
+earlier claim to a score ranks first.
+
+`test_get_leaderboard_breaks_accuracy_ties_by_newer_submission` is unaffected: it ties two
+submissions of the SAME spec, which the window resolves before the outer sort sees them.
+
+The guard names its specs so alphabetical order contradicts arrival order, so it can only pass
+if arrival time decides. And `test_a_frontier_mark_does_not_change_with_top` carried an
+AIDEV-NOTE claiming its `z-` prefix was load-bearing because ordering was undefined — no longer
+true, and corrected in place rather than left to mislead.
+
+This closes the pre-existing item recorded twice above as "not a frontier problem, unfiled".
+
+### Negative costs are already rejected
+
+Checked rather than assumed. `ScoreSubmission.run_cost_usd` is
+`Field(default=None, ge=0, allow_inf_nan=False)`, and `Decimal("-1.50")` is refused at the API
+today. No operator module writes the column either — `seed.py`, `import_baselines.py` and
+`retire_benchmark.py` never touch it.
+
+So the exposure is only a direct database write, which nothing in the product does. The review
+finding was about defence in depth, not a reachable bug.
+
+**Out of scope here, and left unfiled:** a `CHECK (run_cost_usd >= 0)` constraint would close it
+at the storage layer, but that is a migration on a shared table under stack rule S1, for a state
+no code path can produce. It belongs with `OME-822`'s contract work, not with marking rows.

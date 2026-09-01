@@ -439,6 +439,16 @@ def _build_leaderboard_query(
         )
         .where(ranked.rn == 1)
         .orderby(ranked.score, order=Order.desc)
+        # INVARIANT: on a tie, first to get there ranks higher (owner, 2026-09-01). Without a
+        # secondary key the order among tied rows was whatever the backend returned —
+        # alphabetical by spec_id on SQLite, insertion order on Postgres — so `rank` was not
+        # stable across environments and which tied row fell outside `top` moved with it.
+        #
+        # WHY ascending here while the rn window above uses submitted_at DESC: they answer
+        # different questions. The window picks WHICH submission represents a spec, and the
+        # newest wins. This orders SPECS against each other, where the earlier claim to a score
+        # ranks first.
+        .orderby(ranked.submitted_at, order=Order.asc)
     )
     # WHY optional: the Pareto frontier must be computed over the WHOLE ranked board. This
     # ordering is by score alone, so truncating first can hide a row that ties the boundary

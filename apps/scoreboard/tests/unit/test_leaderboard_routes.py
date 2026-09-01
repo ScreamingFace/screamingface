@@ -1426,12 +1426,11 @@ async def test_a_frontier_mark_does_not_change_with_top(
     rows the caller asked to see. Three rows tie on score and only the cheapest is truly on
     the frontier; computed over a truncated page, whichever dear row led the page was marked.
 
-    AIDEV-NOTE: the spec_id prefixes are load-bearing. The board's outer ordering is
-    `score DESC` with NO tiebreaker, so the order among equal scores is whatever the backend
-    returns — alphabetical by spec_id on SQLite (index scan), insertion order on Postgres
-    (heap scan). `z-cheapest` sorts last alphabetically AND is inserted last, so it falls
-    outside `top=2` under either. Rename these and the test still passes but stops proving
-    anything.
+    AIDEV-NOTE: `z-cheapest` must be the row that falls outside `top=2`, and it is because it
+    is submitted LAST — ties now rank earliest-first (owner, 2026-09-01), so arrival order
+    decides. The `z-` prefix is a leftover from when the outer ordering had no tiebreaker at all
+    and the order among ties was backend-dependent; it is harmless now but no longer what makes
+    this test work. Reorder the submissions and the test still passes while proving nothing.
     """
     store = ScoreStore()
     await _register_pinned(store)
@@ -1582,3 +1581,36 @@ async def test_the_board_query_trusts_the_revision_it_is_given(tortoise_db: None
 
     assert [row.spec_id for row in rows] == ["spec-a"]
     assert reads == [], "the store must trust the revision it was given, not re-read it"
+
+
+async def test_tied_scores_rank_the_earlier_submission_first(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """Owner decision (2026-09-01): on a tie, first to get there ranks higher.
+
+    The outer ordering was `score DESC` with NO secondary key, so the order among rows tied on
+    score was whatever the backend happened to return — alphabetical by spec_id on SQLite (index
+    scan), insertion order on Postgres (heap scan). `rank` was therefore not stable across
+    environments, and which tied row fell outside `top` differed with it.
+
+    AIDEV-NOTE: the spec_ids are chosen so alphabetical order CONTRADICTS arrival order. If the
+    tiebreaker is ever dropped, SQLite would return `a-second` first and this fails; rename them
+    and the test still passes while proving nothing.
+    """
+    store = ScoreStore()
+    await _register_pinned(store)
+    await _row(store, spec_id="z-first", score=0.90, cost="1.00")
+    await _row(store, spec_id="a-second", score=0.90, cost="2.00")
+    await Score.filter(spec_id="z-first").update(
+        submitted_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    )
+    await Score.filter(spec_id="a-second").update(
+        submitted_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    )
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert [entry["spec_id"] for entry in entries] == ["z-first", "a-second"]
+    assert [entry["rank"] for entry in entries] == [1, 2]
