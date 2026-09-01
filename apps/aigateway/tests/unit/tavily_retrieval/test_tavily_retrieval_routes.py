@@ -102,6 +102,83 @@ def test_a_different_exclusion_set_never_reads_the_other_row(cache_client: TestC
     assert cache_client.post(LOOKUP, json=restricted).json()["status"] == "miss"
 
 
+def test_the_native_tavily_spelling_of_excluded_domains_is_refused(
+    cache_client: TestClient,
+) -> None:
+    # INVARIANT (OME-1044 review F1): the contract field is `excluded_domains`, but
+    # Tavily's native spelling is `exclude_domains`. A silently ignored field would key
+    # the request WITHOUT the exclusion the caller actually sent — the wrong-hit path
+    # that defeats the leakage guard. Extra fields are FORBIDDEN, so the native
+    # spelling is a 422 on both endpoints, never a keyed request.
+    for endpoint, body in (
+        (LOOKUP, {**_SEARCH, "exclude_domains": ["arxiv.org"]}),
+        (ENTRIES, {**_SEARCH, "result": _RESULT, "exclude_domains": ["arxiv.org"]}),
+    ):
+        response = cache_client.post(endpoint, json=body)
+        assert response.status_code == 422, response.text
+        types = {err["type"] for err in response.json()["detail"]}
+        assert "extra_forbidden" in types
+
+
+def test_an_unknown_field_is_refused(cache_client: TestClient) -> None:
+    # INVARIANT (OME-1044 review F1): this is a cache-key endpoint — every
+    # output-affecting field must be in the key or rejected. A field this route does
+    # not know cannot be keyed, so it must not be silently dropped.
+    for endpoint, body in (
+        (LOOKUP, {**_SEARCH, "bogus": 1}),
+        (ENTRIES, {**_SEARCH, "result": _RESULT, "bogus": 1}),
+    ):
+        response = cache_client.post(endpoint, json=body)
+        assert response.status_code == 422, response.text
+        types = {err["type"] for err in response.json()["detail"]}
+        assert "extra_forbidden" in types
+
+
+def test_a_store_failure_is_a_bypass_with_the_rfc_9211_header(
+    cache_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: a store failure is a BYPASS, never a miss — reporting a miss would
+    # invite a write to a store that just failed to read. The RFC 9211 member carries
+    # the published reason as `detail`, which is what the Runner's parser surfaces.
+    from aigateway.core.request_cache.store import CacheUnavailable
+    from aigateway.core.request_cache.tavily_store import TavilyRetrievalCacheStore
+
+    async def _broken_get(self, key_hash: str) -> None:
+        raise CacheUnavailable("test store failure")
+
+    # Patch the CLASS method: the store instance was created in the app lifespan, and
+    # a bound lookup at call time picks up the patched method.
+    monkeypatch.setattr(TavilyRetrievalCacheStore, "get", _broken_get)
+    response = cache_client.post(LOOKUP, json=_SEARCH)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"status": "bypass", "reason": "cache_unavailable", "result": None}
+    assert response.headers["Cache-Status"] == "aigateway; fwd=bypass; detail=cache_unavailable"
+
+
+# --- the RFC 9211 Cache-Status header (spec §Interface) ----------------------
+
+
+def test_a_miss_publishes_the_rfc_9211_cache_status_header(cache_client: TestClient) -> None:
+    # INVARIANT (spec §Interface): the endpoints emit `Cache-Status` (RFC 9211) PLUS
+    # the `X-AIGW-Cache*` fallback triple, so the Runner's parser reads the standard
+    # field first. A miss is `fwd=miss` — the cache was consulted and had nothing.
+    miss = cache_client.post(LOOKUP, json=_SEARCH)
+    assert miss.status_code == 200, miss.text
+    assert miss.headers["Cache-Status"] == "aigateway; fwd=miss"
+    assert miss.headers["X-AIGW-Cache"] == "miss"
+
+
+def test_a_hit_publishes_the_rfc_9211_cache_status_header(cache_client: TestClient) -> None:
+    # INVARIANT (spec §Interface): a hit is `hit; key=<prefix>`, and the prefix is the
+    # SAME 12-character prefix the legacy header carries — enough to correlate two
+    # requests, never the whole digest.
+    cache_client.post(ENTRIES, json={**_SEARCH, "result": _RESULT})
+    hit = cache_client.post(LOOKUP, json=_SEARCH)
+    assert hit.status_code == 200, hit.text
+    assert hit.headers["Cache-Status"] == (f"aigateway; hit; key={hit.headers['X-AIGW-Cache-Key']}")
+    assert len(hit.headers["X-AIGW-Cache-Key"]) == 12
+
+
 def test_the_exclusion_order_does_not_split_one_logical_set(cache_client: TestClient) -> None:
     first = {**_SEARCH, "excluded_domains": ["arxiv.org", "semanticscholar.org"]}
     reordered = {**_SEARCH, "excluded_domains": ["SemanticScholar.org", "arxiv.org"]}

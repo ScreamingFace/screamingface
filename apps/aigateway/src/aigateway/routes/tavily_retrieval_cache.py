@@ -31,7 +31,7 @@ from __future__ import annotations
 from typing import Final
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.cache_ports import CACHE_UNAVAILABLE_REASON
@@ -49,6 +49,12 @@ from .chat_cache_stage import CACHE_HEADER, KEY_HEADER, KEY_PREFIX_LENGTH, REASO
 
 router = APIRouter()
 
+# The RFC 9211 field the spec (OME-1043 §Interface) promises alongside the legacy
+# `X-AIGW-Cache*` triple. The Runner's parser reads this field FIRST and falls back to
+# the triple, so both must be emitted — the standard field is the contract, the triple
+# is the legacy fallback.
+CACHE_STATUS_HEADER: Final = "Cache-Status"
+
 # WHY a cap: the row is plaintext in a table shared with the chat lane and has no expiry,
 # so an unbounded fill would let one caller grow every deployment's cache without limit.
 # 256 KiB sits far above the Runner's own 32 KiB truncation cap, so no legitimate fill
@@ -57,7 +63,17 @@ MAX_RESULT_BYTES: Final = 256 * 1024
 
 
 class _Description(BaseModel):
-    """A retrieval request as the Runner describes it. Never a key, never a credential."""
+    """A retrieval request as the Runner describes it. Never a key, never a credential.
+
+    INVARIANT: extra fields are FORBIDDEN, never ignored. This is a cache-key endpoint:
+    every output-affecting field must either be in the key or be rejected. A silently
+    ignored field would key a request WITHOUT a policy the caller actually sent — the
+    wrong-hit path OME-1044 review F1 reproduced with Tavily's native
+    ``exclude_domains`` spelling, which is not a member of this model and must be a
+    ``422``, not a keyed request.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     provider: str
     tool: str
@@ -109,6 +125,27 @@ def _key_hash(body: _Description) -> str:
     return tavily_retrieval_key(key)
 
 
+def _cache_status_value(status: str, *, reason: str | None, key_hash: str | None) -> str:
+    """The RFC 9211 ``Cache-Status`` member for this lane (spec §Interface).
+
+    hit    → ``aigateway; hit; key=<prefix>``
+    miss   → ``aigateway; fwd=miss``
+    bypass → ``aigateway; fwd=bypass; detail=<reason>``
+
+    The member name is the cache identity the Runner's parser selects, and every value
+    is an RFC 8941 Token (hex prefix, ``fwd``/``detail`` keywords, the published reason
+    vocabulary), so nothing needs quoting.
+    """
+    if status == "hit":
+        assert key_hash is not None  # INVARIANT: a hit always publishes its key prefix
+        return f"aigateway; hit; key={key_hash[:KEY_PREFIX_LENGTH]}"
+    if status == "miss":
+        return "aigateway; fwd=miss"
+    if reason is not None:
+        return f"aigateway; fwd=bypass; detail={reason}"
+    return "aigateway; fwd=bypass"
+
+
 def _publish(
     response: Response,
     status: str,
@@ -117,12 +154,19 @@ def _publish(
     key_hash: str | None = None,
     age_seconds: int | None = None,
 ) -> None:
-    """Emit the same header triple the chat lane emits, so one parser reads both.
+    """Emit the RFC 9211 ``Cache-Status`` member plus the legacy header triple.
 
-    AIDEV-NOTE: the constants are imported from `chat_cache_stage` rather than respelled —
-    the Runner's `read_cache_outcome` matches these names exactly, and a second spelling
-    would read as "no cache information" rather than as an error.
+    The Runner's parser reads ``Cache-Status`` FIRST and falls back to the triple, so
+    both are emitted: the standard field is the contract, the triple is the legacy
+    fallback an older Runner still understands.
+
+    AIDEV-NOTE: the triple constants are imported from `chat_cache_stage` rather than
+    respelled — the Runner's `read_cache_outcome` matches these names exactly, and a
+    second spelling would read as "no cache information" rather than as an error.
     """
+    response.headers[CACHE_STATUS_HEADER] = _cache_status_value(
+        status, reason=reason, key_hash=key_hash
+    )
     response.headers[CACHE_HEADER] = status
     if reason is not None:
         response.headers[REASON_HEADER] = reason

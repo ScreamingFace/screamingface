@@ -19,6 +19,7 @@ import json
 
 import pytest
 
+from aigateway.core.request_cache.revisions import active_cache_revisions
 from aigateway.core.request_cache.tavily_retrieval import (
     OPERATION,
     TAVILY_PROVIDER,
@@ -87,6 +88,15 @@ def test_the_operation_namespaces_this_lane_away_from_the_chat_lane() -> None:
     # chat key can never collide even in principle.
     assert OPERATION == "retrieval.tavily"
     assert OPERATION != "chat.completions"
+
+
+def test_the_contract_revision_is_registered_in_the_snapshot_revision_set() -> None:
+    # INVARIANT (OME-1044 review F3): the revision is inside the key hash, so a
+    # snapshot manifest must cover it too — otherwise rows keyed under different
+    # constants load cleanly and then never hit. `active_cache_revisions()` is what
+    # the manifest stamps and the upload compares, so the Tavily revision must be a
+    # member with the exact constant.
+    assert active_cache_revisions()["tavily_retrieval"] == TAVILY_RETRIEVAL_CONTRACT_REVISION
 
 
 def test_the_key_builder_accepts_no_identity_profile_or_credential_input() -> None:
