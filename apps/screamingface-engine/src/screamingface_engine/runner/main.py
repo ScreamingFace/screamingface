@@ -10,11 +10,13 @@ layering note in :mod:`screamingface_engine.runner`.
 import asyncio
 import logging
 import os
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -26,15 +28,28 @@ from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry,
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
+from screamingface_engine.logs import run_scope
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
+from screamingface_engine.runner.summary import RunSummary
 from screamingface_engine.world_config import WorldConfig, WorldConfigError, load_config
-from url4.streaming.interfaces import Executor
 from url4.streaming.lifecycle import run
+from url4.streaming.protocol import CachePolicy
+from url4.streaming.trace import parse_traceparent
 
 logger = logging.getLogger(__name__)
+
+
+class _SummarizingExecutor(Protocol):
+    """The executor surface the runner's terminal logging needs beyond the port.
+
+    A Protocol rather than the concrete wrapper so `_log_terminal` is testable with a fake
+    that records a summary and nothing else — the function needs exactly this accessor.
+    """
+
+    def last_summary(self) -> RunSummary | None: ...
 
 
 class RunnerConfigError(ValueError):
@@ -212,7 +227,7 @@ def build_executor(
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     benchmark_assets_root: Path | None = None,
     io_gate: FairShareGate | None = None,
-) -> Executor:
+) -> OperationCapturingExecutor:
     """Wire an executor over the DECLARED world — without building it yet.
 
     The world is resolved on first ``execute`` (see ``Url4Executor._resolve_world``), so a bad
@@ -228,6 +243,10 @@ def build_executor(
     ``build_aigateway_world`` as ``tavily_api_key``; when it is unset, the built world disables
     the web-search/web-fetch tool loop entirely (deny-by-default — see
     ``web_tools.build_client``), rather than leaving it half-configured.
+
+    The concrete return type (not the ``Executor`` port) is deliberate: the composition root
+    reads the run's process-level summary back off the wrapper after the run (OME-1069), and
+    the wrapper is the only executor this function ever builds.
     """
 
     async def _world() -> World:
@@ -249,6 +268,7 @@ def build_executor(
         # demand. Identity is forwarded when present and simply absent locally, where every caller
         # is anonymous. The old unconditional token requirement made every deployed run fail
         # before it issued a single request, because a deployed caller has no way to obtain one.
+        cache = job_env.cache_policy_from_env(env)
         world = await build_aigateway_world(
             AigatewayConfig(
                 base_url=section.base_url,
@@ -265,7 +285,7 @@ def build_executor(
             # process serves. `cache_policy_from_env` is total, so an env that states nothing
             # yields a policy that states nothing, which the connector sends as no `cache` field
             # at all — participation, without this half re-deciding what silence means.
-            cache=job_env.cache_policy_from_env(env),
+            cache=cache,
             client=client,
             tavily_api_key=env.get(job_env.TAVILY_API_KEY),
             tavily_client=tavily_client,
@@ -289,6 +309,20 @@ def build_executor(
                     ),
                 )
                 cleanup.pop_all()
+        # FEATURE (OME-1069): the world's resolved shape, logged once per run. The topic comes
+        # from the run's own env (`run_key`); the trace id is appended by the run-context
+        # filter, which is bound by the time the world is built. Model ids are public catalog
+        # names; `web_tools` is derived from the PRESENCE of the Tavily key, never the key
+        # itself; `cache` states whether the run declared a policy, not the policy's content.
+        logger.info(
+            "runner world topic=%s models=%d default_model=%s web_tools=%s cache=%s outbound=%s",
+            run_key,
+            len(section.models),
+            section.default_model,
+            "enabled" if world.web_tools_enabled else "disabled",
+            _cache_stated(cache),
+            "allowed" if section.allow_outbound else "denied",
+        )
         return world.node, world.aclose
 
     inline_cap, hard_cap, artifact_store = result_delivery_from_env(env)
@@ -317,25 +351,137 @@ def build_executor(
     )
 
 
+def _cache_stated(policy: CachePolicy) -> str:
+    """Whether a run's cache policy stated anything — 'stated' or 'not-stated'.
+
+    Its own token rather than the rendered policy: "did not declare" and "declared an
+    all-unset policy" are different statements, and the world log only needs the first.
+    """
+
+    if policy.participate is not None or policy.max_age is not None:
+        return "stated"
+    return "not-stated"
+
+
+def _nats_host(url: str) -> str:
+    """The NATS host for a log line — never the userinfo, which may carry credentials."""
+
+    if "://" in url:
+        return urlsplit(url).hostname or url
+    return url.rsplit("@", 1)[-1]
+
+
+def _log_boot(params: RunnerParams, traceparent: str | None) -> None:
+    """The Job's first line: what this run is, sanitized.
+
+    The expression itself is never logged — it is the caller's and may carry prompts; its
+    LENGTH is enough to tell a large Evaluation from a smoke run (the control plane's own
+    precedent). The NATS URL is reduced to its host for the same reason.
+    """
+
+    logger.info(
+        "runner boot topic=%s url4_chars=%d deadline_s=%s nats_host=%s traceparent=%s",
+        params.topic,
+        len(params.url4),
+        params.deadline_s,
+        _nats_host(params.nats_url),
+        "present" if traceparent else "absent",
+    )
+
+
+def _log_terminal(executor: _SummarizingExecutor, topic: str, started: float) -> None:
+    """The run's process-level outcome and summary — the operator's one-stop answer.
+
+    Exact-only, like the stream's own cost frames: a failed run states no cost and no cache
+    counts, because neither is exact. The summary's `trace_id` is the one the executor
+    received from `lifecycle.run` — exactly the id on the stream frames.
+    """
+
+    summary = executor.last_summary()
+    duration_s = time.monotonic() - started
+    if summary is None:
+        logger.warning(
+            "run ended without an executor summary topic=%s duration_s=%.1f",
+            topic,
+            duration_s,
+        )
+        return
+    code = f" code={summary.error_code}" if summary.error_code is not None else ""
+    error_type = f" type={summary.error_type}" if summary.error_type is not None else ""
+    logger.info(
+        "run finished topic=%s outcome=%s%s%s duration_s=%.1f",
+        topic,
+        summary.outcome,
+        code,
+        error_type,
+        duration_s,
+    )
+    if summary.outcome != "succeeded":
+        return
+    cost = (
+        "unpriced"
+        if summary.pricing_version == "unpriced"
+        else (f"{summary.cost_usd}" if summary.cost_usd is not None else "unknown")
+    )
+    fields = [
+        f"topic={topic}",
+        f"trace_id={summary.trace_id or 'none'}",
+        f"outcome={summary.outcome}",
+        f"duration_s={duration_s:.1f}",
+        f"cost_usd={cost}",
+        f"pricing={summary.pricing_version or 'unknown'}",
+    ]
+    fields.extend(f"{key}={value}" for key, value in (summary.cache_attributes or {}).items())
+    fields.append(f"dropped_logs={summary.dropped_logs}")
+    fields.append(f"high_water={summary.high_water}")
+    logger.info("run summary %s", " ".join(fields))
+
+
+async def _run_and_log(
+    executor: OperationCapturingExecutor,
+    publisher: JetStreamPublisher,
+    params: RunnerParams,
+    traceparent: str | None,
+) -> None:
+    """Drive one run, then log its terminal outcome and summary from the executor's record.
+
+    `lifecycle.run` publishes the terminal frame and returns normally on failure, so the
+    outcome is read back from the executor rather than inferred from an exception.
+    """
+
+    started = time.monotonic()
+    try:
+        await run(
+            publisher,
+            executor,
+            params.topic,
+            params.url4,
+            traceparent=traceparent,
+            deadline_s=params.deadline_s,
+        )
+    finally:
+        _log_terminal(executor, params.topic, started)
+
+
 def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
     async def _main() -> None:
         params = params_from_env(os.environ)
         executor = build_executor(os.environ, benchmarks=BUILTIN_BENCHMARKS)
         traceparent = os.environ.get(job_env.TRACEPARENT)
         publisher = JetStreamPublisher(params.nats_url)
-        await run_and_reclaim(
-            publisher,
-            params.topic,
-            lambda: run(
+        _log_boot(params, traceparent)
+        # The trace id the run's own frames will carry: parsed from the App-forwarded
+        # traceparent, or None when the caller sent none (the stream then mints one, which
+        # the executor records and the summary line reports). Bound for the whole run so
+        # every process log line inside it carries topic and trace id.
+        trace_id = parse_traceparent(traceparent)
+        with run_scope(params.topic, trace_id):
+            await run_and_reclaim(
                 publisher,
-                executor,
                 params.topic,
-                params.url4,
-                traceparent=traceparent,
-                deadline_s=params.deadline_s,
-            ),
-            grace_s=stream_grace_s(os.environ),
-        )
+                lambda: _run_and_log(executor, publisher, params, traceparent),
+                grace_s=stream_grace_s(os.environ),
+            )
 
     asyncio.run(_main())
 
