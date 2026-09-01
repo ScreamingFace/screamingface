@@ -79,3 +79,35 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "aigateway.authSecretName" -}}
 {{- required "auth.existingSecret is required" .Values.auth.existingSecret -}}
 {{- end -}}
+
+{{- define "aigateway.snapshotSecretName" -}}
+{{- printf "%s-snapshot-storage" (include "aigateway.fullname" .) -}}
+{{- end -}}
+
+{{/*
+Refuse the one replica shape the snapshot design does not support.
+
+INVARIANT (spec, accepted limitations): the weekly export assumes a SINGLE gateway replica.
+Object keys share the second-resolution `cache-snapshots/<stamp>` prefix, and every replica
+runs its own scheduler aimed at the same Friday 05:00 UTC — two replicas therefore fire with
+the SAME stamp and can interleave their PUTs, pairing one replica's archive bytes with the
+other's manifest. The v1 contract logs this as a single-replica assumption rather than
+serializing (cross-replica locking is named future work), so the chart enforces what the
+spec assumed: snapshots on means one writer, or the render fails here — not silently, a
+week later, as a corrupted backup pair.
+*/}}
+{{- define "aigateway.validateSnapshot" -}}
+{{- if and .Values.snapshot.enabled (gt (int .Values.replicaCount) 1) -}}
+{{- fail (printf "snapshot.enabled=true requires replicaCount=1 (got %d): every replica runs its own export scheduler against the same second-resolution cache-snapshots/<stamp> keys, so two replicas firing at Friday 05:00 UTC can overwrite each other's archive/manifest pair. This is the spec's logged single-replica invariant (OME-1021); cross-replica serialization (Postgres advisory lock / CronJob) is future work. Set replicaCount=1 or snapshot.enabled=false." (int .Values.replicaCount)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "aigateway.snapshotEndpoint" -}}
+{{- /* The S3 endpoint the gateway signs against: the bundled Garage Service when enabled,
+     else the operator-declared external endpoint (the app fails fast if it is missing). */ -}}
+{{- if .Values.snapshot.garage.enabled -}}
+{{- printf "http://%s-garage:3900" (include "aigateway.fullname" .) -}}
+{{- else -}}
+{{- .Values.snapshot.storage.endpointUrl -}}
+{{- end -}}
+{{- end -}}

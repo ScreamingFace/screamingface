@@ -255,3 +255,47 @@ networkPolicy:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# Weekly response-cache snapshot to Garage (OME-1021). Schedule-only: the gateway's
+# in-process scheduler exports `request_cache_entries` every Friday 05:00 UTC into the
+# OME-952 snapshot format and PUTs the archive + manifest to object storage under
+# `cache-snapshots/<stamp>` in a dedicated bucket. Retention is keep-all — expiry is a
+# bucket lifecycle rule, an operator decision.
+snapshot:
+  # Master switch: turns the in-process scheduler on (`AIGW_CACHE_SNAPSHOT_ENABLED=true`).
+  # Storage must be configured when enabled; the app refuses to boot otherwise.
+  enabled: false
+  # The only schedule form the app accepts (UTC). Change only together with the code.
+  schedule: "0 5 * * 5"
+  # Bundled Garage, mirroring the Engine chart's self-configuring single-node instance
+  # (OME-929): Garage v2.3.0 creates its own layout, adopts the key pair from the snapshot
+  # Secret, and creates the bucket on first boot — no bootstrap step, no post-install hook.
+  garage:
+    enabled: true
+    image: dxflrs/garage:v2.3.0
+    replicaCount: 1
+    # When networkPolicy.enabled (chart default), a Garage-scoped NetworkPolicy admits ONLY
+    # the gateway's snapshot PUTs on 3900 — Garage's sole client. Set networkPolicy.enabled,
+    # not a garage-local flag, to drop it.
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+    resources: {}
+  # The S3-compatible target. With `garage.enabled`, the endpoint is the bundled Service
+  # and the key pair comes from the chart-owned Secret; with `garage.enabled: false`, point
+  # at any S3-compatible endpoint — bringing BOTH halves of its key pair
+  # (endpointUrl + accessKey + secretKey) or an existingSecret. A chart-generated pair is
+  # for the bundled Garage only (it adopts it at first boot); an external store cannot know
+  # a minted key, so the render refuses external mode without operator-supplied credentials.
+  storage:
+    endpointUrl: ""
+    bucket: screamingface-cache-snapshots
+    region: garage
+    accessKey: ""
+    secretKey: ""
+    # Alternative to accessKey/secretKey: a pre-existing Secret holding
+    # AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY / AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY.
+    existingSecret: ""
