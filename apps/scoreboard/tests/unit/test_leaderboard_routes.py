@@ -1154,6 +1154,30 @@ async def test_a_flip_during_the_ranking_query_does_not_publish_the_board(
     assert BOB_EMAIL.split("@")[0] not in response.text
 
 
+async def test_a_flip_during_the_pareto_projection_does_not_publish_the_board(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The new whole-board projection is also participant data and precedes the exit guard."""
+    await _two_participants()
+    revision = "rev-current"
+    await Benchmark.filter(id=PRIVATE_ID).update(revision=revision)
+    await Score.filter(benchmark_id=PRIVATE_ID).update(benchmark_revision=revision)
+    real, hook = _flip_private_during("leaderboard_pareto_inputs")
+
+    ScoreStore.leaderboard_pareto_inputs = hook  # type: ignore[method-assign]
+    try:
+        response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+    finally:
+        ScoreStore.leaderboard_pareto_inputs = real  # type: ignore[method-assign]
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["entries"] == []
+    assert body["scoped_to_caller"] is True
+    assert ALICE_EMAIL.split("@")[0] not in response.text
+    assert BOB_EMAIL.split("@")[0] not in response.text
+
+
 async def test_a_flip_during_the_history_query_withholds_the_rows(
     async_client: httpx.AsyncClient,
 ) -> None:
@@ -1391,32 +1415,78 @@ async def test_the_board_can_be_read_whole(tortoise_db: None) -> None:
     assert len(await store.leaderboard(benchmark_id="hle", top_n=None)) == 5
 
 
-async def test_the_public_board_takes_exactly_one_ranking_read(
+async def test_the_public_board_keeps_its_display_read_bounded(
     async_client: httpx.AsyncClient,
 ) -> None:
-    """INVARIANT: one read, so nothing unscoped can be fetched AFTER the `turned_private`
-    guard. A second read placed after that guard leaked both participants of a private board
-    when the flip landed during it (self-review, 2026-08-30). This pins the shape of the fix:
-    a reintroduced second query fails here even if the leak itself is hard to time."""
+    """The full frontier uses its own narrow projection; the display read stays bounded.
+
+    Both reads happen before `turned_private`, so this does not reopen the privacy race that
+    occurred when a second participant-data read was placed after that guard.
+    """
     store = ScoreStore()
     # Pinned, so this exercises the whole-board read — the path the frontier depends on.
     await _register_pinned(store)
     await _row(store, spec_id="spec-a", score=0.90, cost="1.00")
     calls: list[object] = []
+    frontier_calls: list[object] = []
     real = ScoreStore.leaderboard
+    real_frontier = ScoreStore.leaderboard_pareto_inputs
 
     async def _counting(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         calls.append(kwargs.get("top_n", args[1] if len(args) > 1 else None))
         return await real(self, *args, **kwargs)
 
+    async def _counting_frontier(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        frontier_calls.append(kwargs.get("registered_revision"))
+        return await real_frontier(self, *args, **kwargs)
+
     ScoreStore.leaderboard = _counting  # type: ignore[method-assign]
+    ScoreStore.leaderboard_pareto_inputs = _counting_frontier  # type: ignore[method-assign]
     try:
         response = await async_client.get("/v1/leaderboard/hle")
     finally:
         ScoreStore.leaderboard = real  # type: ignore[method-assign]
+        ScoreStore.leaderboard_pareto_inputs = real_frontier  # type: ignore[method-assign]
 
     assert response.status_code == 200
-    assert calls == [None], f"expected one whole-board read, got {calls}"
+    assert calls == [50], f"expected a bounded display read, got {calls}"
+    assert frontier_calls == [_PINNED]
+
+
+async def test_a_concurrent_replacement_cannot_transfer_its_frontier_mark(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The two projections may see different commits, so membership is keyed by row id.
+
+    The display query sees the old best run. Before the frontier projection, a higher-scoring
+    run replaces it as this spec's ranked row. Keying only on (spec_id, revision) transfers the
+    new run's mark onto the stale row in the response; exact source identity must leave it
+    unmarked instead.
+    """
+    store = ScoreStore()
+    await _register_pinned(store)
+    await _row(store, spec_id="moving", score=0.80, cost="1.00")
+
+    real_frontier = ScoreStore.leaderboard_pareto_inputs
+    inserted = False
+
+    async def _replace_then_read(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal inserted
+        if not inserted:
+            inserted = True
+            await _row(ScoreStore(), spec_id="moving", score=0.90, cost="2.00")
+        return await real_frontier(self, *args, **kwargs)
+
+    ScoreStore.leaderboard_pareto_inputs = _replace_then_read  # type: ignore[method-assign]
+    try:
+        response = await async_client.get("/v1/leaderboard/hle")
+    finally:
+        ScoreStore.leaderboard_pareto_inputs = real_frontier  # type: ignore[method-assign]
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert [(entry["spec_id"], entry["score"]) for entry in entries] == [("moving", 0.80)]
+    assert entries[0]["on_pareto_frontier"] is False
 
 
 async def test_a_frontier_mark_does_not_change_with_top(

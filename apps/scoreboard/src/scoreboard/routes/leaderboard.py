@@ -15,7 +15,7 @@ from scoreboard.routes.dependencies import (
 from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.frontier import compute_frontier
 from scoreboard.scores.models import Benchmark
-from scoreboard.scores.pareto import compute_pareto_frontier
+from scoreboard.scores.pareto import compute_pareto_frontier_ids
 from scoreboard.scores.schemas import (
     BaselineSchema,
     BenchmarkSchema,
@@ -256,7 +256,7 @@ async def get_leaderboard(
     if is_private:
         return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
-    # INVARIANT: ONE read, and every await that touches participant data happens BEFORE the
+    # INVARIANT: every await that touches participant data happens BEFORE the
     # `turned_private` re-check below. An earlier revision of this route fetched the frontier
     # in a SECOND query placed after the guard; a flip landing during that query published the
     # whole private board — reproduced, two participants' rows leaked (self-review, 2026-08-30).
@@ -267,20 +267,21 @@ async def get_leaderboard(
     # `leaderboard()` orders by score alone and then applies `top`, so a row past the cutoff
     # can tie the boundary score at a lower cost and dominate a visible row — the mark would
     # then depend on `top`, which is not a property a claim about money may have (review of
-    # PR #778). Taking the page as a prefix of the same result keeps the marks and the rows on
-    # ONE snapshot, so a row can never be stamped with a verdict computed about a different
-    # version of itself.
-    # WHY conditional: the whole board is read ONLY when a frontier will actually be computed
-    # from it. A board the D12 gate closes marks nothing, so reading it unbounded would drop
-    # `origin/main`'s 200-row cap for no gain — and `spec_id` is client-supplied, so that row
-    # count is chosen by submitters (found in review, 2026-08-31).
+    # PR #778). The complete-board read is a minimal projection; the page itself remains
+    # bounded so client-controlled recipes and display metadata are never materialised en masse.
     pinned = benchmark.revision is not None
-    board = await _score_store(request).leaderboard(
+    store = _score_store(request)
+    rows = await store.leaderboard(
         benchmark_id=benchmark_id,
-        top_n=None if pinned else min(top, MAX_LEADERBOARD_TOP),
+        top_n=min(top, MAX_LEADERBOARD_TOP),
         # The same read that decided `pinned` above also builds the query's revision filter, so
         # the gate and the filter can never disagree within one request.
         registered_revision=benchmark.revision,
+    )
+    frontier_inputs = (
+        await store.leaderboard_pareto_inputs(benchmark_id, registered_revision=benchmark.revision)
+        if pinned
+        else []
     )
     if await turned_private(benchmark_id):
         # The board went private while the ranking query ran. Answer it correctly rather than
@@ -298,8 +299,7 @@ async def get_leaderboard(
     # cannot see the benchmark. The route already holds `benchmark.revision`, so the gate costs
     # nothing here and leaves the function honest for any caller with legitimately mixed
     # revisions.
-    frontier = compute_pareto_frontier(board) if pinned else frozenset()
-    rows = board[: min(top, MAX_LEADERBOARD_TOP)]
+    frontier_ids = compute_pareto_frontier_ids(frontier_inputs) if pinned else frozenset()
 
     return LeaderboardResponse(
         benchmark=benchmark,
@@ -307,9 +307,10 @@ async def get_leaderboard(
             _ranked_entry(
                 index,
                 row,
-                # Keyed on the revision too: one spec can hold rows on several
-                # non-comparable revisions, and each is judged only within its own.
-                on_pareto_frontier=(row.spec_id, row.benchmark_revision) in frontier,
+                # The display and frontier projections are separate bounded/narrow reads. An
+                # exact stored-row identity prevents a concurrent replacement for this spec
+                # from transferring its mark onto the older row rendered here.
+                on_pareto_frontier=row.source_id in frontier_ids,
             )
             for index, row in enumerate(rows, start=1)
         ],

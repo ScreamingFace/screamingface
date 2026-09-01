@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from decimal import InvalidOperation
+from decimal import Decimal, InvalidOperation
 from typing import Any, NamedTuple, cast
 from uuid import UUID
 
@@ -21,9 +21,11 @@ from tortoise.transactions import in_transaction
 from scoreboard.classification.openness import Openness
 
 from .models import Benchmark, IdempotencyKey, Score
+from .pareto import ParetoEntry
 from .schemas import (
     BenchmarkSchema,
     LeaderboardEntry,
+    LeaderboardStoreEntry,
     ScoreSchema,
     ScoreSubmission,
     Visibility,
@@ -405,6 +407,7 @@ def _build_leaderboard_query(
     ranked = (
         Query.from_(scores)
         .select(
+            scores.id,
             scores.spec_id,
             scores.benchmark_revision,
             scores.score,
@@ -426,6 +429,7 @@ def _build_leaderboard_query(
     query = (
         Query.from_(ranked)
         .select(
+            ranked.id,
             ranked.spec_id,
             ranked.benchmark_revision,
             ranked.score,
@@ -454,6 +458,44 @@ def _build_leaderboard_query(
     # ordering is by score alone, so truncating first can hide a row that ties the boundary
     # score at a lower cost and dominates a visible one (OME-923, review of PR #778).
     return query if top_n is None else query.limit(top_n)
+
+
+def _build_pareto_inputs_query(benchmark_id: str, registered_revision: str | None) -> QueryBuilder:
+    """Return every best-per-spec frontier input without loading display payloads."""
+    scores = Score.get_table()
+    row_number = (
+        RowNumber()
+        .over(scores.spec_id, scores.benchmark_revision)
+        .orderby(scores.score, order=Order.desc)
+        .orderby(scores.submitted_at, order=Order.desc)
+        .as_("rn")
+    )
+    ranked = (
+        Query.from_(scores)
+        .select(
+            scores.id,
+            scores.spec_id,
+            scores.benchmark_revision,
+            scores.score,
+            scores.run_cost_usd,
+            row_number,
+        )
+        .where(scores.benchmark_id == benchmark_id)
+    )
+    if registered_revision is not None:
+        ranked = ranked.where(scores.benchmark_revision == registered_revision)
+    ranked = ranked.as_("ranked")
+    return (
+        Query.from_(ranked)
+        .select(
+            ranked.id,
+            ranked.spec_id,
+            ranked.benchmark_revision,
+            ranked.score,
+            ranked.run_cost_usd,
+        )
+        .where(ranked.rn == 1)
+    )
 
 
 class ScoreStore:
@@ -929,16 +971,8 @@ class ScoreStore:
         top_n: int | None = 50,
         *,
         registered_revision: str | None | _Unset = _UNSET,
-    ) -> list[LeaderboardEntry]:
-        """The ranked board. `top_n=None` returns it whole.
-
-        WHY None: the Pareto frontier must be computed over the WHOLE board (OME-923), and
-        the public route must not issue a second read to get it — see the route's comment on
-        why one read is a privacy requirement, not just an efficiency one.
-
-        AIDEV-NOTE: unbounded is not unlimited — the `rn == 1` collapse leaves at most one row
-        per (spec_id, benchmark_revision), so this grows with distinct specs, not submissions.
-        """
+    ) -> list[LeaderboardStoreEntry]:
+        """The ranked display board. ``top_n=None`` remains available to internal callers."""
         conn = Tortoise.get_connection("default")
         # The board is defined by the revision its benchmark is registered at; entries measured
         # against anything else are not comparable to it and do not rank (OME-775).
@@ -956,8 +990,29 @@ class ScoreStore:
             using_db=conn,
         )
         rows = _to_python_rows(result.rows)
+        for row in rows:
+            row["source_id"] = str(row.pop("id"))
+        return [LeaderboardStoreEntry(**row) for row in rows]
 
-        return [LeaderboardEntry(**row) for row in rows]
+    async def leaderboard_pareto_inputs(
+        self, benchmark_id: str, *, registered_revision: str | None
+    ) -> list[ParetoEntry]:
+        """The unbounded, minimal projection needed for a public Pareto frontier."""
+        conn = Tortoise.get_connection("default")
+        result = await execute_pypika(
+            _build_pareto_inputs_query(benchmark_id, registered_revision), using_db=conn
+        )
+        rows = _to_python_rows(result.rows)
+        return [
+            ParetoEntry(
+                source_id=str(row["id"]),
+                spec_id=cast(str, row["spec_id"]),
+                benchmark_revision=cast(str | None, row["benchmark_revision"]),
+                score=cast(float, row["score"]),
+                run_cost_usd=cast(Decimal | None, row["run_cost_usd"]),
+            )
+            for row in rows
+        ]
 
     async def list_for_spec(
         self,

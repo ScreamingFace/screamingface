@@ -433,6 +433,12 @@ class LeaderboardEntry(BaseModel):
     run_cost_usd: RunCostUsd
 
 
+class LeaderboardStoreEntry(LeaderboardEntry):
+    """Store-only leaderboard row carrying identity across independent projections."""
+
+    source_id: str = Field(exclude=True)
+
+
 class BaselineSchema(BaseModel):
     """Read DTO for an imported single-model baseline ('line to beat')."""
 

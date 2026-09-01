@@ -127,7 +127,7 @@ table .btn { white-space: nowrap; }
   white-space: nowrap;
 }
 
-/* OME-923 part B: the Pareto-frontier mark — "no other row is both better and cheaper".
+/* OME-923 part B: the Pareto-frontier mark — no row is no-worse on both axes and better on one.
    Drawn in CSS rather than set as a glyph: IBM Plex Mono is not guaranteed to carry
    U+25C6, and a font fallback would render this mark differently machine to machine.
    Colour is --info, deliberately NOT --gain: gold is rationed to the win and the

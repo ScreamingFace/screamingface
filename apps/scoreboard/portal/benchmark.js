@@ -155,7 +155,7 @@
     mark.setAttribute("aria-hidden", "true");
     td.appendChild(mark);
     td.appendChild(
-      P.el("span", "sr-only", "on the Pareto frontier: no submission is both better and cheaper")
+      P.el("span", "sr-only", "on the Pareto frontier: no submission has an equal-or-higher score at an equal-or-lower cost, with one strict improvement")
     );
     return td;
   }

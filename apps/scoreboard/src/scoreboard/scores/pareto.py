@@ -12,6 +12,7 @@ meaning. Qualifying this one keeps a grep for either honest (OME-923).
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 
 from .schemas import LeaderboardEntry
@@ -24,7 +25,20 @@ from .schemas import LeaderboardEntry
 ParetoKey = tuple[str, str | None]
 
 
-def compute_pareto_frontier(entries: Sequence[LeaderboardEntry]) -> frozenset[ParetoKey]:
+@dataclass(frozen=True)
+class ParetoEntry:
+    """The leaderboard fields and row identity needed for Pareto computation."""
+
+    source_id: str
+    spec_id: str
+    benchmark_revision: str | None
+    score: float
+    run_cost_usd: Decimal | None
+
+
+def compute_pareto_frontier(
+    entries: Sequence[LeaderboardEntry | ParetoEntry],
+) -> frozenset[ParetoKey]:
     """The `(spec_id, benchmark_revision)` pairs whose score-for-cost no comparable entry beats.
 
     FEATURE: OME-923 — "best score for the money" is a set, not a single row, so several
@@ -51,33 +65,45 @@ def compute_pareto_frontier(entries: Sequence[LeaderboardEntry]) -> frozenset[Pa
     board", and the board is not the visible page (found in review of PR #778).
 
     AIDEV-NOTE: O(n log n) in the cohort size, by sort-and-sweep rather than the obvious
-    pairwise scan. The route reads the board UNBOUNDED so the frontier cannot depend on `top`,
-    and `spec_id` is client-supplied — so the row count is attacker-controlled, and a pairwise
-    scan would be a quadratic amount of Decimal work on every anonymous request (found in
-    review, 2026-08-31). An earlier note here reasoned that the count "grows with distinct
-    specs, not submissions" and called that bounded. It is not: distinct specs are exactly what
-    a submitter chooses.
+    pairwise scan. The route feeds it a deliberately narrow projection because the number of
+    distinct specs is client-controlled; it must never materialise every recipe and display
+    field merely to calculate the frontier.
     """
     # WHY grouped first: one pass does the revision partitioning and the None-narrowing, and
     # drops unpriced rows from BOTH sides of the comparison — an unpriced row must neither
     # qualify nor dominate. Excluding it from only the output would still let an unknown cost
     # beat a real one.
-    cohorts: dict[str | None, list[tuple[str, float, Decimal]]] = {}
+    return frozenset((spec_id, revision) for _, spec_id, revision, _, _ in _pareto_members(entries))
+
+
+def compute_pareto_frontier_ids(entries: Sequence[ParetoEntry]) -> frozenset[str]:
+    """Exact stored rows on the frontier, for correlating separate query projections."""
+    return frozenset(
+        source_id for source_id, _, _, _, _ in _pareto_members(entries) if source_id is not None
+    )
+
+
+def _pareto_members(
+    entries: Sequence[LeaderboardEntry | ParetoEntry],
+) -> list[tuple[str | None, str, str | None, float, Decimal]]:
+    cohorts: dict[str | None, list[tuple[str | None, str, float, Decimal]]] = {}
     for entry in entries:
         cost = entry.run_cost_usd
         if cost is not None:
             cohorts.setdefault(entry.benchmark_revision, []).append(
-                (entry.spec_id, entry.score, cost)
+                (getattr(entry, "source_id", None), entry.spec_id, entry.score, cost)
             )
 
-    return frozenset(
-        (spec_id, revision)
+    return [
+        (source_id, spec_id, revision, score, cost)
         for revision, priced in cohorts.items()
-        for spec_id in _cohort_frontier(priced)
-    )
+        for source_id, spec_id, score, cost in _cohort_frontier(priced)
+    ]
 
 
-def _cohort_frontier(priced: list[tuple[str, float, Decimal]]) -> list[str]:
+def _cohort_frontier(
+    priced: list[tuple[str | None, str, float, Decimal]],
+) -> list[tuple[str | None, str, float, Decimal]]:
     """The frontier of one comparable cohort, by a single sweep up the cost axis.
 
     Walk the distinct costs cheapest-first, carrying `best_cheaper` — the highest score seen at
@@ -90,17 +116,21 @@ def _cohort_frontier(priced: list[tuple[str, float, Decimal]]) -> list[str]:
     is the ticket's "ties both qualify". `test_the_sweep_agrees_with_the_pairwise_definition`
     pins the equivalence against a brute-force oracle.
     """
-    by_cost: dict[Decimal, list[tuple[str, float]]] = {}
-    for spec_id, score, cost in priced:
-        by_cost.setdefault(cost, []).append((spec_id, score))
+    by_cost: dict[Decimal, list[tuple[str | None, str, float]]] = {}
+    for source_id, spec_id, score, cost in priced:
+        by_cost.setdefault(cost, []).append((source_id, spec_id, score))
 
-    winners: list[str] = []
+    winners: list[tuple[str | None, str, float, Decimal]] = []
     best_cheaper: float | None = None
     for cost in sorted(by_cost):
         group = by_cost[cost]
-        group_best = max(score for _, score in group)
+        group_best = max(score for _, _, score in group)
         if best_cheaper is None or group_best > best_cheaper:
-            winners.extend(spec_id for spec_id, score in group if score == group_best)
+            winners.extend(
+                (source_id, spec_id, score, cost)
+                for source_id, spec_id, score in group
+                if score == group_best
+            )
         best_cheaper = group_best if best_cheaper is None else max(best_cheaper, group_best)
     return winners
 
