@@ -33,10 +33,10 @@ from .schemas import (
 
 # INVARIANT: columns the raw leaderboard projection must convert itself. The
 # projection bypasses the ORM, so nothing else will do it.
-_RAW_ROW_FIELDS = ("ran_with_providers", "run_cost_usd")
+_RAW_ROW_FIELDS = ("ran_with_providers", "authors", "run_cost_usd")
 # Columns whose DTO type admits None, so an unreadable value can degrade in place.
 # Anything not listed here forces the row to be dropped instead — see _to_python_rows.
-_NULLABLE_RAW_FIELDS = frozenset({"run_cost_usd"})
+_NULLABLE_RAW_FIELDS = frozenset({"authors", "run_cost_usd"})
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         spec_id=model.spec_id,
         url4_expression=model.url4_expression,
         submitted_by=model.submitted_by,
+        authors=_resolved_authors(model.authors, model.submitted_by),
         submitted_at=model.submitted_at,
         score=model.score,
         total_questions=model.total_questions,
@@ -117,6 +118,19 @@ def _resolve_benchmark_revision(submission: ScoreSubmission) -> str | None:
     return candidate if isinstance(candidate, str) and candidate else None
 
 
+def _resolved_authors(authors: list[str] | None, submitted_by: str | None) -> list[str] | None:
+    """The backwards-compatible author credit shown for one stored submission."""
+    if authors is not None:
+        return authors
+    return [submitted_by] if submitted_by is not None else None
+
+
+def _resolve_raw_row_authors(row: dict[str, Any]) -> None:
+    """Apply legacy author fallback only when a raw projection selected the field."""
+    if "authors" in row:
+        row["authors"] = _resolved_authors(row.get("authors"), row.get("submitted_by"))
+
+
 def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dict[str, object]:
     return {
         "benchmark_id": submission.benchmark_id,
@@ -125,6 +139,7 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "spec_id": submission.spec_id,
         "url4_expression": submission.url4_expression,
         "submitted_by": submission.submitted_by,
+        "authors": submission.authors,
         "score": submission.score,
         "total_questions": submission.total_questions,
         "correct_questions": submission.correct_questions,
@@ -265,6 +280,9 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     drop = True
                     break
         if not drop:
+            # NULL is not an empty credit line. It means a legacy/unspecified submission and
+            # therefore reads exactly as the old UI did: the submitter is its sole author.
+            _resolve_raw_row_authors(row)
             kept.append(row)
     return kept
 
@@ -371,6 +389,20 @@ class BenchmarkVisibilityChanged(Exception):
     """
 
 
+class ConcurrentScoreUpdate(Exception):
+    """A deduplicated row changed identity while its provenance was being corrected.
+
+    INVARIANT (OME-1054): the update is filtered on the row's immutable identity — id, benchmark,
+    content hash and submitter — so `rowcount != 1` means the row is no longer the one the request
+    resolved. Refusing beats returning an in-memory correction the database never accepted.
+
+    WHY its own type rather than `IntegrityError`: that subclasses `OperationalError`, which the
+    route maps to **503 store-unavailable**. A lost race is not the store being down, and telling a
+    client to come back later when the honest answer is "retry, someone else moved this row" sends
+    them to the wrong remedy. Mapped to 409, for the same reason `BenchmarkVisibilityChanged` is.
+    """
+
+
 class SubmitOutcome(NamedTuple):
     score: ScoreSchema
     created: bool
@@ -419,6 +451,7 @@ def _build_leaderboard_query(
             scores.ran_with_providers,
             scores.submitted_at,
             scores.submitted_by,
+            scores.authors,
             scores.verified_by_screamingface,
             scores.url4_expression,
             scores.run_cost_usd,
@@ -459,6 +492,7 @@ def _build_leaderboard_query(
             ranked.ran_with_providers,
             ranked.submitted_at,
             ranked.submitted_by,
+            ranked.authors,
             ranked.verified_by_screamingface,
             ranked.url4_expression,
             ranked.run_cost_usd,
@@ -766,6 +800,7 @@ class ScoreStore:
         existing: Score,
         submission: ScoreSubmission,
         *,
+        content_hash: str,
         per_submitter: bool,
         identity_verified: bool,
     ) -> Score:
@@ -788,6 +823,60 @@ class ScoreStore:
         )
         if readable is None:
             raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
+
+        # FEATURE: OME-1054 — recipe identity deliberately excludes mutable provenance. A
+        # corrected explicit author list or metadata object therefore updates the deduped row,
+        # rather than pretending success while discarding the correction.
+        #
+        # INVARIANT: a public content hash is global across submitters. Requiring the SAME stored
+        # hash, benchmark and submitter prevents someone who copied another team's candidate (or
+        # merely reused its idempotency key) from rewriting that team's credit. In production the
+        # submitter is mesh-verified; disabled mode explicitly trusts this field for development.
+        updates: dict[str, object] = {}
+        same_candidate_owner = (
+            existing.content_hash == content_hash
+            and cast(str, getattr(existing, "benchmark_id")) == submission.benchmark_id
+            and submission.submitted_by is not None
+            and existing.submitted_by == submission.submitted_by
+        )
+        if same_candidate_owner:
+            # None means "not specified", so an old client replay cannot erase newer provenance.
+            # Empty containers remain meaningful explicit replacements where the wire contract
+            # permits them (metadata may be {}, while authors=[] is rejected at validation).
+            if submission.authors is not None:
+                updates["authors"] = submission.authors
+            if submission.metadata is not None:
+                updates["metadata"] = submission.metadata
+
+        if not updates:
+            return readable
+
+        async with in_transaction() as connection:
+            # This is now a write path. Take the same benchmark lock as insertion so a visibility
+            # flip cannot turn a public, unverified replay into a private-row mutation mid-write.
+            await self._revalidate_visibility(
+                submission.benchmark_id,
+                per_submitter,
+                connection=connection,
+                lock=True,
+            )
+            updated = await (
+                Score.filter(
+                    id=existing.id,
+                    benchmark_id=submission.benchmark_id,
+                    content_hash=content_hash,
+                    submitted_by=submission.submitted_by,
+                )
+                .using_db(connection)
+                .update(**updates)
+            )
+            if updated != 1:
+                # The row's immutable identity changing would violate the model contract. Refuse
+                # instead of returning an in-memory correction the database did not accept.
+                raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
+
+        for name, value in updates.items():
+            setattr(readable, name, value)
         return readable
 
     def visibility_query(
@@ -917,6 +1006,7 @@ class ScoreStore:
             confirmed = await self._confirm_replayable(
                 existing,
                 submission,
+                content_hash=content_hash,
                 per_submitter=per_submitter,
                 identity_verified=identity_verified,
             )
@@ -971,6 +1061,7 @@ class ScoreStore:
                 confirmed = await self._confirm_replayable(
                     existing,
                     submission,
+                    content_hash=content_hash,
                     per_submitter=per_submitter,
                     identity_verified=identity_verified,
                 )
@@ -1111,6 +1202,11 @@ class ScoreStore:
                 ran_with_providers=row.ran_with_providers,
                 submitted_at=row.submitted_at,
                 submitted_by=row.submitted_by,
+                # A private board is currently the ONLY surface where a participant sees a credit
+                # line at all (OME-894 D2 scopes reads to the submitter, and `entries` is empty
+                # for everyone), so omitting this dropped the feature exactly where it matters and
+                # degraded silently rather than raising, because the DTO field has a default.
+                authors=_resolved_authors(row.authors, row.submitted_by),
                 verified_by_screamingface=row.verified_by_screamingface,
                 url4_expression=row.url4_expression,
                 run_cost_usd=row.run_cost_usd,

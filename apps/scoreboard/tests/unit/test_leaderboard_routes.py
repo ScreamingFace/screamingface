@@ -202,6 +202,10 @@ async def test_get_spec_history_returns_submissions_newest_first(
         "correct_questions",
         "submitted_at",
         "submitted_by",
+        # OME-1051: history credits the exact author list, independently of ownership.
+        # Owner-approved contract change (2026-09-02), same reasoning as the two
+        # public field sets below: exact assertion kept, not loosened.
+        "authors",
         "verified_by_screamingface",
         # Widened for OME-770: the history response intentionally carries the run
         # cost. The set stays exhaustive on purpose — it is the guard that catches
@@ -675,6 +679,11 @@ _PUBLIC_BENCHMARK_FIELDS = {
     "revision",
 }
 _PUBLIC_BOARD_ENTRY_FIELDS = {
+    # OME-1051: owner-approved contract change (2026-09-02) — the public payload gains
+    # `authors`. The assertion stays EXACT rather than being loosened to a subset
+    # check, matching the OME-775 precedent: a subset check would let a future field
+    # enter the public payload with no test noticing.
+    "authors",
     "benchmark_revision",
     # OME-923 part B: a deliberate addition to the public board. Owner-approved change to
     # this OME-894 guard (2026-08-29); the assertion stays exact so any OTHER field
@@ -692,6 +701,11 @@ _PUBLIC_BOARD_ENTRY_FIELDS = {
     "verified_by_screamingface",
 }
 _PUBLIC_HISTORY_ITEM_FIELDS = {
+    # OME-1051: owner-approved contract change (2026-09-02) — the public payload gains
+    # `authors`. The assertion stays EXACT rather than being loosened to a subset
+    # check, matching the OME-775 precedent: a subset check would let a future field
+    # enter the public payload with no test noticing.
+    "authors",
     "benchmark_revision",
     "correct_questions",
     "id",
@@ -752,6 +766,7 @@ async def test_ome894_guard_public_board_is_unchanged_anonymously(
     assert [entry["score"] for entry in entries] == [0.90, 0.60]
     # INVARIANT (OME-834): the domain is never published, on any path.
     assert [entry["submitted_by"] for entry in entries] == ["bob", "alice"]
+    assert [entry["authors"] for entry in entries] == [["bob"], ["alice"]]
 
 
 async def test_ome894_guard_public_history_is_unchanged_anonymously(
@@ -766,6 +781,7 @@ async def test_ome894_guard_public_history_is_unchanged_anonymously(
     assert set(body) == {"benchmark_id", "spec_id", "submissions"}
     assert set(body["submissions"][0]) == _PUBLIC_HISTORY_ITEM_FIELDS
     assert body["submissions"][0]["submitted_by"] == "alice"
+    assert body["submissions"][0]["authors"] == ["alice"]
 
 
 async def test_ome894_guard_public_frontier_is_unchanged_anonymously(

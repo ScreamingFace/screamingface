@@ -31,7 +31,8 @@
     // identities, and providers.length > 1 is not a valid fusion/solo test.
     // Keeping the honest label until a backend field exists.
     { key: "ran_with_providers", label: "Backends", sort: null },
-    { key: "submitted_by", label: "Author", sort: "string", dir: "asc" },
+    { key: "submitted_by", label: "Submitter", sort: "string", dir: "asc" },
+    { key: "authors", label: "Authors", sort: "string", dir: "asc" },
     { key: "score", label: "Score", sort: "number", dir: "desc", cls: "num" },
     // WHY Questions is gone: OME-769's column list is #, Name, Models, Author,
     // Accuracy, Submitted, Run locally — Questions is not in it. Adding Author
@@ -211,8 +212,8 @@
       tr.appendChild(specTd);
 
       tr.appendChild(P.el("td", null, P.formatProviders(entry.ran_with_providers)));
-      // formatSubmitter already renders an em-dash for a null/blank submitter.
       tr.appendChild(P.el("td", null, P.formatSubmitter(entry.submitted_by)));
+      tr.appendChild(P.el("td", null, P.formatAuthors(entry.authors)));
       tr.appendChild(renderScoreCell(entry.score, barMin, barMax));
       // WHY the title: the cell rounds to cents, but the frontier compares the full stored
       // Decimal — so two rows inside one cent render identically while only one is marked. The

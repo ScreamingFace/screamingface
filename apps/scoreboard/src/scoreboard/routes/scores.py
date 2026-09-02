@@ -42,6 +42,7 @@ from scoreboard.scores.schemas import (
 )
 from scoreboard.scores.store import (
     BenchmarkVisibilityChanged,
+    ConcurrentScoreUpdate,
     PrivateBoardRequiresIdentity,
     ScoreStore,
 )
@@ -58,6 +59,11 @@ UNTRUSTED_PEER_DETAIL = (
 MISSING_IDENTITY_DETAIL = (
     f"Missing {HEADER_USER_EMAIL} — this service resolves the submitter from the identity "
     "header the mesh gateway injects after verifying Cloudflare Access."
+)
+
+
+CONCURRENT_UPDATE_DETAIL = (
+    "another request changed this submission while its authors were being corrected; retry"
 )
 
 
@@ -222,6 +228,15 @@ async def submit_score(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=VISIBILITY_CHANGED_DETAIL,
+            ) from exc
+        except ConcurrentScoreUpdate as exc:
+            # Same reasoning as the visibility 409 above: nothing is wrong with the request, and a
+            # retry resolves the row again and re-applies the correction. Caught BEFORE the outer
+            # `except OperationalError`, which would otherwise answer 503 store-unavailable for a
+            # race the store handled perfectly well (OME-1054).
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=CONCURRENT_UPDATE_DETAIL,
             ) from exc
         except PrivateBoardRequiresIdentity as exc:
             raise HTTPException(

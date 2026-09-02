@@ -1,6 +1,6 @@
 # OME-1051 — Multiple authors on a leaderboard submission
 
-Status: draft, awaiting owner approval before any code.
+Status: approved for implementation on 2026-09-01.
 Epic. Sub-issues: `OME-1052` (display · scoreboard), `OME-1053` (client · py-screamingface),
 `OME-1054` (resubmission updates the stored list).
 
@@ -11,13 +11,12 @@ Epic. Sub-issues: `OME-1052` (display · scoreboard), `OME-1053` (client · py-s
 | Job | Consumer |
 | --- | --- |
 | **Authorization subject** — who owns the row on a private board, who owns an idempotency key | `list_owned_entries(owner=…)`, `_resolve_owned`, the scoped key |
-| **Credit line** — who gets named for the result | `portal/benchmark.js:34`, a column already labelled **"Author"** |
+| **Submitter display** — who sent the result | the existing portal column, renamed **"Submitter"** |
+| **Credit line** — who gets named for the result | the new portal **"Authors"** column |
 
-A Fusion built by two people can only carry one name. Splitting the two jobs is the whole change:
-`authors` becomes the credit, `submitted_by` keeps the authorization.
-
-The portal column is already called "Author" while the field behind it is `submitted_by`. The
-display intent predates the data.
+A Fusion built by two people can only carry one credit line. Splitting the two jobs is the whole
+change: `authors` becomes the credit, while `submitted_by` keeps authorization and remains visible
+as the submitter. The portal therefore shows two distinct columns: **Submitter** and **Authors**.
 
 ## 2. Owner decisions (2026-08-31)
 
@@ -66,8 +65,9 @@ authors: list[str] | None = None
 on `ScoreSubmission`. Bounded, because this is a public write path and `OME-969` is an open finding
 that submission `metadata` is unbounded — do not add a second unbounded field next to it:
 
-- at most **N** entries (see §8 Q1)
+- at most **10** entries
 - each at most 255 characters, matching the `submitted_by` column
+- every entry must have syntactically valid email form; no deliverability or ownership check
 - empty list rejected as a field error, not silently treated as null: `authors=[]` is a client bug,
   and "no authors" is not a state this feature has.
 
@@ -123,22 +123,18 @@ are responsible for getting it right" and "you are responsible and cannot fix it
 
 Same shape as `run_cost_usd`, which has the identical interaction recorded on `OME-1029`.
 
-## 8. Questions for the owner
+## 8. Owner decisions (2026-09-01)
 
-1. **How many authors at most?** Proposal: 10. Arbitrary but bounded, and raising a cap is cheap
-   where removing one is not.
-2. **Must an author be an email?** The ticket says "co-author email addresses" and D1's trust model
-   assumes allowlisted humans. Proposal: validate loosely as an address and reject anything else,
-   so the local-part trim in §5 always means something. Display names would need a different
-   publishing rule and should not be smuggled into this field.
-3. **Does an author list survive a benchmark going public?** Nothing here changes on a visibility
-   flip, so yes — a list written while private becomes visible when the board opens. Flagging
-   because "I only named my teammate for the private challenge" is a reasonable thing for a
-   participant to have assumed.
+1. **At most 10 authors.** Raising the cap later is cheap; the public write path stays bounded.
+2. **Authors are email addresses, validated for syntax only.** There is no deliverability,
+   ownership, allowlist or domain check. Display names need a separate publishing contract.
+3. **The list survives publication.** A list stored while a benchmark is private remains attached
+   when it becomes public; public JSON exposes local parts only, under the rule in §5.
+4. **Submitter and authors are both displayed.** The former Author column is renamed Submitter and
+   a separate Authors column is added; submission history shows the same two fields.
 
 ## 9. Out of scope
 
 - The SDK's `authors=` parameter (`OME-1053`, py-screamingface).
-- Updating a stored list on resubmission (`OME-1054`).
 - Any change to who may *read* a private board (D2 settles it: the submitter).
 - Any change to idempotency-key ownership, which stays with `submitted_by`.

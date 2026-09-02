@@ -17,6 +17,7 @@ from scoreboard.scores.frontier import compute_frontier
 from scoreboard.scores.models import Benchmark
 from scoreboard.scores.pareto import compute_pareto_frontier_ids
 from scoreboard.scores.schemas import (
+    Authors,
     BaselineSchema,
     BenchmarkSchema,
     FrontierResponse,
@@ -58,6 +59,7 @@ class RankedLeaderboardEntry(BaseModel):
     ran_with_providers: list[str]
     submitted_at: datetime
     submitted_by: SubmittedBy
+    authors: Authors = None
     verified_by_screamingface: bool
     url4_expression: str
     # AIDEV-NOTE: this class mirrors LeaderboardEntry field-for-field plus `rank`,
@@ -122,6 +124,7 @@ class HistorySubmission(BaseModel):
     correct_questions: int | None
     submitted_at: datetime
     submitted_by: SubmittedBy
+    authors: Authors = None
     verified_by_screamingface: bool
     run_cost_usd: RunCostUsd
 
@@ -173,6 +176,7 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
         correct_questions=score.correct_questions,
         submitted_at=score.submitted_at,
         submitted_by=score.submitted_by,
+        authors=score.authors,
         verified_by_screamingface=score.verified_by_screamingface,
         run_cost_usd=score.run_cost_usd,
     )
