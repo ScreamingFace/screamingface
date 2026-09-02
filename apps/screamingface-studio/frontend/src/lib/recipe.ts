@@ -19,6 +19,7 @@ export type RecipeKind = "solo" | "fusion" | "pipeline";
 export type SoloNode = {
   kind: "solo";
   id: string;
+  name?: string;
   model: SavedModel | null;
   prompt: string;
   params: ModelParam[];
@@ -77,12 +78,13 @@ export function convertKind(node: RecipeNode, kind: RecipeKind): RecipeNode {
   if (node.kind === kind) return node;
   const carry: RecipeNode | null =
     node.kind === "solo" && node.model ? { ...node, id: createUuid() } : null;
-  if (kind === "solo") return { ...createSolo(), id: node.id };
+  if (kind === "solo") return { ...createSolo(), id: node.id, name: node.name };
   if (kind === "fusion") {
     const base = createFusion();
     return {
       ...base,
       id: node.id,
+      name: node.name,
       members: carry ? [carry, createSolo()] : base.members,
     };
   }
@@ -90,6 +92,7 @@ export function convertKind(node: RecipeNode, kind: RecipeKind): RecipeNode {
   return {
     ...base,
     id: node.id,
+    name: node.name,
     stages: carry ? [carry, createSolo()] : base.stages,
   };
 }

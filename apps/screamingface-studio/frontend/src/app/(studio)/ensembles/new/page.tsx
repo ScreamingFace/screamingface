@@ -1973,6 +1973,65 @@ function PipelineBody({
   );
 }
 
+function NodeLabel({
+  node,
+  roleLabel,
+  onChange,
+}: {
+  node: RecipeNode;
+  roleLabel: string;
+  onChange: (next: RecipeNode) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const named = Boolean(node.name && node.name.trim());
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        value={node.name ?? ""}
+        placeholder={roleLabel}
+        aria-label="Rename"
+        className="h-6 w-36 px-2 text-xs"
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => onChange({ ...node, name: event.target.value })}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === "Escape") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    );
+  }
+  return (
+    <span className="group/label flex min-w-0 items-center gap-1">
+      <span
+        className={cn(
+          "min-w-0 truncate",
+          named
+            ? "max-w-[11rem] text-xs font-medium text-foreground/90"
+            : roleTagClass(),
+        )}
+      >
+        {named ? node.name : roleLabel}
+      </span>
+      <button
+        type="button"
+        aria-label="Rename"
+        title="Rename"
+        onClick={(event) => {
+          event.stopPropagation();
+          setEditing(true);
+        }}
+        className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/label:opacity-100"
+      >
+        <Pencil className="size-3" />
+      </button>
+    </span>
+  );
+}
+
 function RecipeNodeCard({
   node,
   onChange,
@@ -2016,33 +2075,42 @@ function RecipeNodeCard({
     return (
       <article className={cn("min-w-[16rem]", soloChrome())}>
         <div className="flex items-center justify-between gap-2">
-          {model ? (
-            <button
-              type="button"
-              onClick={() => setCollapsed((value) => !value)}
-              aria-expanded={!collapsed}
-              className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-            >
-              <ChevronRight
-                className={cn(
-                  "size-3.5 shrink-0 text-muted-foreground transition-transform",
-                  !collapsed && "rotate-90",
-                )}
-              />
-              <span className={roleTagClass()}>{roleLabel}</span>
-              <ProviderDot provider={model.providerId} />
-              <span className="truncate font-mono text-xs text-foreground/90">
-                {model.name}
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            {model ? (
+              <button
+                type="button"
+                aria-label={collapsed ? "Expand" : "Collapse"}
+                aria-expanded={!collapsed}
+                onClick={() => setCollapsed((value) => !value)}
+                className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              >
+                <ChevronRight
+                  className={cn("size-3.5 transition-transform", !collapsed && "rotate-90")}
+                />
+              </button>
+            ) : (
+              <span className="grid size-5 shrink-0 place-items-center">
+                <span className="size-1.5 rounded-full bg-muted-foreground/40" />
               </span>
-            </button>
-          ) : (
-            <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <span className={roleTagClass()}>{roleLabel}</span>
+            )}
+            <NodeLabel node={node} roleLabel={roleLabel} onChange={onChange} />
+            {model ? (
+              <button
+                type="button"
+                onClick={() => setCollapsed((value) => !value)}
+                className="flex min-w-0 items-center gap-1.5"
+              >
+                <ProviderDot provider={model.providerId} />
+                <span className="truncate font-mono text-xs text-foreground/90">
+                  {model.name}
+                </span>
+              </button>
+            ) : (
               <span className="truncate text-xs text-muted-foreground/70">
                 · pick a model
               </span>
-            </span>
-          )}
+            )}
+          </div>
           {controls}
         </div>
         {!model && (
@@ -2066,24 +2134,24 @@ function RecipeNodeCard({
     );
   }
 
-  // Fusion / Pipeline — a bare structural grouping (no card chrome).
+  // Fusion / Pipeline — a bare structural grouping.
   return (
     <div className={cn("flex flex-col gap-2", depth > 0 && "pl-0.5")}>
       <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => setCollapsed((value) => !value)}
-          aria-expanded={!collapsed}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-        >
-          <ChevronRight
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground transition-transform",
-              !collapsed && "rotate-90",
-            )}
-          />
-          <span className={roleTagClass()}>{roleLabel}</span>
-          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <button
+            type="button"
+            aria-label={collapsed ? "Expand" : "Collapse"}
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed((value) => !value)}
+            className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          >
+            <ChevronRight
+              className={cn("size-3.5 transition-transform", !collapsed && "rotate-90")}
+            />
+          </button>
+          <NodeLabel node={node} roleLabel={roleLabel} onChange={onChange} />
+          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             {kindLabel(node.kind)}
           </span>
           {collapsed && (
@@ -2091,7 +2159,7 @@ function RecipeNodeCard({
               {describeRecipe(node)}
             </span>
           )}
-        </button>
+        </div>
         {controls}
       </div>
       {!collapsed && (
