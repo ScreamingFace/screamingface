@@ -197,9 +197,10 @@ async def _schedule(
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
     except JobRunnerAtCapacity as exc:
         # WHY 503 and not 429: nothing about THIS caller or request was rate-limited — the
-        # substrate is saturated, and an identical retry later succeeds. Any substrate with a
-        # finite declared ceiling raises this — the in-process runner on its admission limit, a
-        # queue-backed runner on queue depth — and the caller maps it to a retry-after response.
+        # substrate is saturated, and an identical retry later succeeds. Which substrates can
+        # saturate, and why retrying is safe, is `JobRunnerAtCapacity`'s own contract (the
+        # shapes: one shared event loop, a queue-depth ceiling, a scheduler's exhausted quota)
+        # — this handler maps, it does not restate; the port's docstring stays the one source.
         raise ProblemException(
             status=503,
             title="Service Unavailable",
