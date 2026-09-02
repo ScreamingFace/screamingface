@@ -713,3 +713,101 @@ def test_wait_ready_still_points_at_the_log_when_it_cannot_be_read(tmp_path: Pat
         cli._wait_ready(process, config, timeout=0.1)
 
     assert "runtime exited during startup; inspect the runtime log" in str(raised.value)
+
+
+# --- embedded server configuration (OME-990) ----------------------------------------------
+
+
+def _recording_uvicorn(configs: list[dict[str, object]]) -> types.ModuleType:
+    # WHY a stub and not the real package: the SDK test job installs only the notebook extra
+    # (screamingface-tests.yml), so uvicorn is absent here exactly as it is after a plain
+    # `pip install screamingface` — the same reason `_stub_runtime_extra` exists above.
+    class Config:
+        def __init__(self, app: object, **options: object) -> None:
+            configs.append(options)
+
+    module = types.ModuleType("uvicorn")
+    module.Config = Config  # type: ignore[attr-defined]
+    return module
+
+
+def test_every_embedded_server_is_configured_without_an_access_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # INVARIANT (OME-990): a run starts as `GET /?q=<url4 expression>` and the expression
+    # carries the user's prompt verbatim, so uvicorn's access line writes that prompt into
+    # runtime.log — which `_runtime_log_tail` also echoes back into the notebook when the
+    # stack fails to start.
+    #
+    # WHY every construction and not merely one: uvicorn clears the `uvicorn.access`
+    # handlers for the Config being built AT THAT MOMENT, but each later Config re-runs
+    # dictConfig and re-creates them, and the HTTP protocol re-reads `hasHandlers()` per
+    # connection. One server passing the flag does not protect a process that afterwards
+    # builds another Config without it — so the assertion is over the whole sweep.
+    configs: list[dict[str, object]] = []
+
+    class Recorder:
+        def __init__(self, config: object, *, name: str) -> None:
+            self.config, self.name = config, name
+
+    monkeypatch.setitem(sys.modules, "uvicorn", _recording_uvicorn(configs))
+    # WHY patch the factory itself: `_embedded_server_type` is @cache'd and subclasses
+    # uvicorn.Server, so a stub installed through it would outlive this test.
+    monkeypatch.setattr(server, "_embedded_server_type", lambda: Recorder)
+
+    server._server(object(), 9105, "AI Gateway")
+    server._server(object(), 9106, "Engine")
+
+    assert len(configs) == 2, "both the gateway and the Engine must be configured"
+    assert all(options.get("access_log") is False for options in configs)
+    # The rest of the boot contract is unchanged by this ticket.
+    assert all(options["host"] == "127.0.0.1" for options in configs)
+    assert all(options["lifespan"] == "on" for options in configs)
+
+
+# --- runtime log file mode (OME-990) ------------------------------------------------------
+
+
+def test_the_runtime_log_is_created_with_private_permissions(tmp_path: Path) -> None:
+    # INVARIANT (OME-990): runtime.log holds the same class of secret as runtime.json beside
+    # it — prompt-bearing output, and the Engine's WS capability ticket. runtime.json is
+    # deliberately 0600 (`_write_state`); this file must not be the 0644 exception.
+    path = tmp_path / "runtime.log"
+
+    runtime_logging.RuntimeLog(path).close()
+
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_a_world_readable_runtime_log_is_tightened_when_it_is_reopened(tmp_path: Path) -> None:
+    # WHY reopening matters: creating the file privately does nothing for the logs already on
+    # disk from before this change. Every `screamingface up` reopens the same path, so the
+    # reopen is the remediation path for an existing world-readable log.
+    path = tmp_path / "runtime.log"
+    path.write_text("leaked ?q=an+earlier+prompt\n")
+    path.chmod(0o644)
+
+    runtime_logging.RuntimeLog(path).close()
+
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_rotation_keeps_the_replacement_log_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: `_rotate` reopens the path, so a mode applied only in __init__ would be silently
+    # dropped the first time a busy runtime rolled its log over.
+    path = tmp_path / "runtime.log"
+    monkeypatch.setattr(runtime_logging, "MAX_LOG_BYTES", 100)
+    monkeypatch.setattr(runtime_logging, "LOG_BACKUPS", 2)
+    log = runtime_logging.RuntimeLog(path)
+
+    log.write("x" * 100 + "\n")
+    log.write("after the roll\n")
+    log.close()
+
+    assert path.with_name("runtime.log.1").exists()
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
