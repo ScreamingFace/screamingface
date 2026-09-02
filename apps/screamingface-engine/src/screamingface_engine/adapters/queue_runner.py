@@ -276,7 +276,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # cancellation path too; the bare `raise` still propagates the cancellation.
             # (BaseException also covers KeyboardInterrupt/SystemExit reaching this await —
             # releasing there is harmless, and they still propagate.)
-            await self._release_reservation(topic)
+            await self._release_reservation(topic, caller_key(identity))
             raise
         self._scheduled_at[topic] = self._clock()
         return job_name(topic)
@@ -508,8 +508,18 @@ class QueueJobRunner(IdentityAwareJobRunner):
             self._in_flight_by_caller.setdefault(caller, {})[topic] = self._clock()
             self._caller_of_topic[topic] = caller
 
-    async def _release_reservation(self, topic: str) -> None:
-        """Release a reservation whose run was not durably accepted (a publish failure)."""
+    async def _release_reservation(self, topic: str, caller: str) -> None:
+        """Release THIS caller's reservation for a run that was not durably accepted
+        (a publish failure or a cancellation mid-publish).
+
+        WHY a targeted pop and not `_forget_in_flight`: the shared helper wipes the topic
+        from EVERY caller that holds it — the right tool for "the run is over", the wrong
+        one for "this schedule attempt never landed". A re-scheduled topic can be held by
+        a second identity (admission overwrites `_caller_of_topic` but not the first
+        caller's dict entry); a failed publish under the second identity would then also
+        erase the FIRST caller's still-live admission — an under-count that lets that
+        caller exceed its in-flight cap. Only the pair that was reserved is released.
+        """
         async with self._admission_lock:
             # WHY the floor: `_refresh_if_stale` RESETS the counter on every refresh, and
             # the refresh can land between this run's reserve and its release (a sibling
@@ -518,7 +528,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # every subsequent admission check. A release below zero is the refresh having
             # already accounted for this reservation; clamp, and the counter stays honest.
             self._reserved = max(0, self._reserved - 1)
-            self._forget_in_flight(topic)
+            by_caller = self._in_flight_by_caller.get(caller)
+            if by_caller is not None:
+                by_caller.pop(topic, None)
+                if not by_caller:
+                    del self._in_flight_by_caller[caller]
+            if not any(topic in topics for topics in self._in_flight_by_caller.values()):
+                self._caller_of_topic.pop(topic, None)
 
     async def _refresh_if_stale(self) -> None:
         """Re-read the queue's depth and oldest-message age when the cache is stale.

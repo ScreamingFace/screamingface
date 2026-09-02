@@ -405,3 +405,49 @@ async def test_a_schedule_cancelled_mid_publish_releases_its_reservation() -> No
     key_a = "a@example.com"
     assert key_a not in runner._in_flight_by_caller, "no dead topic may linger"
     queue.finish()
+
+
+# --- 7. a failed re-admission may not erase the first caller's slot (review follow-up) ------
+
+
+class _FailingQueue(_FakeQueue):
+    """A queue that publishes fine until armed, then rejects — the transient broker error
+    that leaves an admitted-but-unpublished run behind."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_next = False
+
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None
+    ) -> None:
+        if self.fail_next:
+            self.fail_next = False
+            raise OSError("broker unavailable")
+        await super().publish(message, identity=identity)
+
+
+async def test_a_failed_readmission_releases_only_its_own_callers_slot() -> None:
+    """A re-scheduled topic can be held by TWO callers at once (admission overwrites
+    `_caller_of_topic` but not the first caller's dict entry). The release used the shared
+    `_forget_in_flight`, whose no-frame path wipes EVERY caller holding the topic — so a
+    failed publish under the SECOND identity also erased the FIRST caller's still-live
+    admission, under-counting it and letting it exceed its in-flight cap. The release now
+    pops exactly the caller/topic pair it reserved."""
+    key_a = "a@example.com"
+    key_b = "b@example.com"
+    queue = _FailingQueue()
+    runner = _runner(queue, caller_inflight_cap=2)
+
+    # Caller A's admission of the shared topic — durable, still live.
+    await runner.schedule("t-shared", "'hi'", 60, identity=CALLER_A)
+    # Caller B re-admits the same topic, then its publish fails.
+    queue.fail_next = True
+    with pytest.raises(OSError):
+        await runner.schedule("t-shared", "'hi'", 60, identity=CALLER_B)
+
+    assert "t-shared" in runner._in_flight_by_caller[key_a], "A's slot must survive B's failure"
+    assert key_b not in runner._in_flight_by_caller, "B's own failed entry is released"
+    # (`_caller_of_topic` is write-only bookkeeping — the wipe scans every caller — so its
+    # stale B entry is harmless; the in-flight maps above are the contract.)
+    assert runner._reserved == 1, "exactly one live reservation remains"
