@@ -568,3 +568,37 @@ Part B's stated gate is "`OME-1029` merged, a client release carrying it, then a
 reporting a cost". The first two are **done**. Only a real submission from someone running
 `post6`/`post7` remains — no longer a release cycle, just one run. Whether any live row already
 carries a cost is a production read and has not been checked from here.
+
+
+## Integrated with partial-run coverage (2026-09-02)
+
+`OME-1056`'s follow-up PR #820 merged as `2b47ae3c`. Part B was then merged with that
+`main` as `32193f16`, preserving Part C's stacked ancestry rather than rebasing eleven reviewed
+commits.
+
+The conflict was semantic, not just textual. #820 makes `Benchmark.case_count` define which runs
+are comparable; Part B adds a second, unbounded projection for Pareto membership. Filtering only
+the visible table would let a hidden one-case run with a higher score and lower cost dominate a
+complete row and suppress its mark. The route now passes one benchmark snapshot's registered
+revision and case count to both the bounded display query and the minimal Pareto projection.
+
+`test_a_partial_run_neither_ranks_nor_shapes_the_pareto_frontier` pins the combined invariant:
+a one-case row scoring `0.99` at `$0.01` is absent and cannot dominate the complete row scoring
+`0.80` at `$5.00`; the complete row remains marked.
+
+Verification:
+
+- focused cross-PR set: **110 passed**
+- full Scoreboard Python suite: **576 passed, 3 skipped, 3 deselected**
+- coverage: **88.54%** (80% gate)
+- portal logic: **40 passed**
+- `run_gates.py scoreboard`: append-only, Ruff, format, Pyright, pytest+coverage, and Node —
+  **all green**
+
+One diagnostic invocation was wrong: running the package-scoped pytest environment from the
+monorepo root collected every package and failed on dependencies that environment deliberately
+does not install. Re-running the identical command from `apps/scoreboard` produced the clean
+576-test result above; the repository's gate runner had already passed.
+
+The release/data gate is unchanged. A published client can send cost, but Part B still waits for a
+real priced run to be visible on a live ranked board before merge.
