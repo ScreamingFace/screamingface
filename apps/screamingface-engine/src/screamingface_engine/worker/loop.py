@@ -21,6 +21,7 @@ from screamingface_engine.config import Settings
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
     HEARTBEAT_INTERVAL_S,
+    derived_heartbeat_interval_s,
     KILL_GRACE_S,
     ClaimedMessage,
     RunSupervisor,
@@ -179,13 +180,15 @@ def run_worker(settings: Settings | None = None) -> None:
     settings = settings if settings is not None else Settings()
     queue = RunQueue(
         settings.nats_url,
+        stream=settings.run_queue_stream,
         ack_wait_s=settings.run_queue_ack_wait_s,
         max_deliver=settings.run_queue_max_deliver,
         max_ack_pending=settings.run_queue_max_ack_pending,
         duplicate_window_s=settings.run_queue_duplicate_window_s,
         max_age_s=settings.run_queue_max_age_s,
     )
-    publisher = JetStreamPublisher(settings.nats_url)
+    # The publisher's sweep must exclude the CONFIGURED queue stream, not a stale constant.
+    publisher = JetStreamPublisher(settings.nats_url, run_queue_stream=settings.run_queue_stream)
     worker = Worker(
         queue=queue,
         publisher=publisher,
@@ -196,6 +199,11 @@ def run_worker(settings: Settings | None = None) -> None:
         drain_grace_s=settings.worker_drain_grace_s,
         io_capacity=settings.worker_io_capacity,
         memory_budget_bytes=settings.worker_memory_budget_bytes,
+        # INVARIANT: the heartbeat cadence is DERIVED from the configured `ack_wait`, not
+        # left at the constant — a heartbeat slower than `ack_wait` redelivers a still-
+        # running run to a second worker (double execution). `derived_heartbeat_interval_s`
+        # keeps `heartbeat <= ack_wait / 3` for every legal configuration.
+        heartbeat_interval_s=derived_heartbeat_interval_s(settings.run_queue_ack_wait_s),
     )
     asyncio.run(worker.run())
 

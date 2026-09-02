@@ -409,3 +409,20 @@ class Settings(BaseSettings):
                 f"still valid re-opens replay"
             )
         return self
+
+    @model_validator(mode="after")
+    def _enforce_ack_wait_floor(self) -> Self:
+        """INVARIANT: the worker's heartbeat cadence is derived as ``ack_wait / 3`` (capped
+        at 20s), and it must never collapse below ~1s or the in-progress cadence hammers the
+        broker — and must always stay well under ``ack_wait``, or JetStream redelivers a
+        STILL-RUNNING run to a second worker and it executes twice. The derivation guarantees
+        the ratio for every legal value; this floor bounds the legal range so the derived
+        cadence stays sane. Refused at startup rather than as a mid-flight double execution.
+        """
+        if self.run_queue_ack_wait_s < 3.0:
+            raise ValueError(
+                f"run_queue_ack_wait_s={self.run_queue_ack_wait_s} is below the floor of 3s — "
+                f"the worker derives its heartbeat as ack_wait/3 and refuses to run one that "
+                f"would hammer the broker or fall behind the redelivery clock"
+            )
+        return self

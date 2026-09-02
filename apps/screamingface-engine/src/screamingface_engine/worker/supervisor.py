@@ -25,8 +25,10 @@ from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
 from screamingface_engine import job_env
+from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.logs import run_scope
 from screamingface_engine.runner_queue import decode_message, topic_of_message
+from screamingface_engine.subjects import ENQUEUED_AT_HEADER
 from url4.streaming.protocol import (
     ErrorInfo,
     OutboundFrame,
@@ -70,6 +72,21 @@ DEADLINE_MARGIN_S = 30.0
 # How often the worker extends a claimed message's ack_wait while its child runs. Far
 # below the queue's default ack_wait (60s), so a 16-hour run is never redelivered.
 HEARTBEAT_INTERVAL_S = 20.0
+
+
+def derived_heartbeat_interval_s(ack_wait_s: float) -> float:
+    """The heartbeat cadence the worker runs for a queue with this `ack_wait`.
+
+    WHY derived and not configured: the heartbeat exists to keep `in_progress` fresher than
+    `ack_wait`, or JetStream assumes the delivery was lost and redelivers a STILL-RUNNING run
+    to a second worker — the double execution the mechanism exists to prevent. The invariant
+    `heartbeat <= ack_wait / 3` must hold for EVERY configuration; deriving it from the one
+    knob that can violate it makes the invariant hold by construction instead of by an
+    operator remembering a comment. The cap keeps the default cadence (20s at the default
+    60s `ack_wait`); `Settings` floors `ack_wait` at 3s so the derived cadence never
+    collapses below 1s and hammers the broker.
+    """
+    return min(HEARTBEAT_INTERVAL_S, ack_wait_s / 3.0)
 
 
 class ClaimedMessage(Protocol):
@@ -144,6 +161,13 @@ class RunSupervisor:
         self._draining = draining
         self._terminating = terminating
         self._children = children
+        # Topics with a run CURRENTLY executing on this worker. A redelivered duplicate
+        # (an `ack_wait` shorter than a supervision gap, a broker hiccup) claims here while
+        # the original is still alive; without this set the duplicate would fork a second
+        # child for one topic and race its sibling to the terminal frame. Sync-guarded —
+        # the check-and-add below has no await between it, so on the single event loop it is
+        # atomic against every other claim.
+        self._topics_in_flight: set[str] = set()
         self._heartbeat_interval_s = heartbeat_interval_s
         self._deadline_margin_s = deadline_margin_s
         self._kill_grace_s = kill_grace_s
@@ -158,18 +182,46 @@ class RunSupervisor:
         """
         topic = topic_of_message(msg.data)
         with run_scope(topic):
-            # One check for three cases: redelivery of a run that already finished, a
-            # cancel that landed before the claim, and a stale message whose run is over.
-            if await self._terminal_frame_exists(topic):
+            if topic in self._topics_in_flight:
+                # A duplicate claim of a run THIS worker is already executing (redelivery
+                # racing the in-flight original). The original owns the outcome — its
+                # terminal frame and its ack — so the duplicate is acked away immediately:
+                # spawning a second child for one topic would race it to the stream, and
+                # leaving it unacked would redeliver it in a loop until the original ends.
+                logger.warning("duplicate claim of %s acked away; the run is already executing here", topic)
                 await msg.ack()
                 return
-            if self._capability_expired(msg):
-                await self._publish_terminal(
-                    topic, "failed", QUEUE_EXPIRED, "the run's capability expired while queued"
-                )
-                await msg.ack()
-                return
-            await self._run_child(msg, topic)
+            self._topics_in_flight.add(topic)
+            try:
+                await self._claim(msg, topic)
+            finally:
+                self._topics_in_flight.discard(topic)
+
+    async def _claim(self, msg: ClaimedMessage, topic: str) -> None:
+        """The claim gates and the run, after the duplicate guard has admitted the topic."""
+        # One check for three cases: redelivery of a run that already finished, a
+        # cancel that landed before the claim, and a stale message whose run is over.
+        try:
+            already_terminal = await self._terminal_frame_exists(topic)
+        except QueueReadError:
+            # WHY a local skip and not a crash: the stream tail was UNREADABLE — a transient
+            # broker error, not an answer. The worker's supervisors share one TaskGroup, and
+            # an error escaping here cancels every co-located run (each one SIGKILLed in its
+            # cleanup) — one momentary NATS blip killing N healthy runs. Returning WITHOUT
+            # the ack leaves the message for redelivery: the next attempt re-runs this check
+            # and, once the broker is readable again, the dedupe answer is the real one.
+            logger.warning("stream tail unreadable for %s; leaving the claim for redelivery", topic)
+            return
+        if already_terminal:
+            await msg.ack()
+            return
+        if self._capability_expired(msg):
+            await self._publish_terminal(
+                topic, "failed", QUEUE_EXPIRED, "the run's capability expired while queued"
+            )
+            await msg.ack()
+            return
+        await self._run_child(msg, topic)
 
     async def _run_child(self, msg: ClaimedMessage, topic: str) -> None:
         """Fork the run as a child, supervise it to its terminal frame, then ack."""
@@ -231,19 +283,40 @@ class RunSupervisor:
     def _capability_expired(self, msg: ClaimedMessage) -> bool:
         """Whether the run's capability has expired while it sat in the queue.
 
-        The run's deadline counts from when the message was published: a message claimed
+        The run's deadline counts from when the message was PUBLISHED: a message claimed
         after ``deadline_s`` has elapsed has no time left to run, so executing it would
         only produce an immediate timeout. The worker drops it with a named
         ``queue_expired`` frame instead of executing it late. A message with no readable
         timestamp or deadline is treated as not expired — the safe direction.
+
+        WHY the stamped header and not `msg.metadata.timestamp`: nats-py's metadata
+        records the DELIVERY moment — when this worker PULLED the message — so a backlogged
+        run reads as age ~0 exactly when it waited the longest, and the drop below never
+        fired for the runs it exists to catch. The publisher stamps the enqueue wall-clock
+        on the message (`subjects.ENQUEUED_AT_HEADER`); a message without the stamp (published
+        before it existed) falls back to the delivery timestamp — the pre-stamp semantics,
+        never worse.
         """
-        published_at = getattr(getattr(msg, "metadata", None), "timestamp", None)
+        published_at = self._published_at(msg)
         if published_at is None:
             return False
         raw_deadline = decode_message(msg.data).get(job_env.JOB_DEADLINE_S)
         if raw_deadline is None:
             return False
         return (datetime.now(UTC) - published_at).total_seconds() >= float(raw_deadline)
+
+    def _published_at(self, msg: ClaimedMessage) -> datetime | None:
+        """The message's enqueue moment: the stamped header first, delivery time as fallback."""
+        headers = getattr(msg, "headers", None) or {}
+        raw = headers.get(ENQUEUED_AT_HEADER) if hasattr(headers, "get") else None
+        if raw:
+            try:
+                stamped = datetime.fromisoformat(raw)
+            except ValueError:
+                stamped = None
+            if stamped is not None:
+                return stamped if stamped.tzinfo is not None else stamped.replace(tzinfo=UTC)
+        return getattr(getattr(msg, "metadata", None), "timestamp", None)
 
     # --- the child ------------------------------------------------------------------------
 
@@ -303,9 +376,10 @@ class RunSupervisor:
     async def _wait_for_child(self, proc: _ChildProcess, hard_wall_s: float | None) -> str:
         """Wait for the child to exit, bounded by the hard wall; return how it ended.
 
-        ``"finished"`` — the child exited on its own, or was SIGTERM'd by the drain
-        handler. ``"draining"`` — the drain handler fired and the child had to be
-        SIGKILL'd. ``"deadline"`` — the hard wall expired and the worker killed it.
+        ``"finished"`` — the child exited on its own. ``"draining"`` — the drain handler
+        fired (the supervisor terminated THIS child): it exited from the SIGTERM within the
+        kill grace, or had to be SIGKILL'd. ``"deadline"`` — the hard wall expired and the
+        worker killed it.
         """
         wait_task = asyncio.create_task(proc.wait())
         term_task = asyncio.create_task(self._terminating.wait())
@@ -319,10 +393,13 @@ class RunSupervisor:
             term_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await term_task
-        if wait_task in done:
-            await wait_task
-            return "finished"
         if term_task in done:
+            # Checked BEFORE `wait_task in done`, deliberately: when BOTH completed — the
+            # drain fired and the child exited in the same scheduling batch — the exit is
+            # the drain's doing (or landed microseconds before its SIGTERM, which is
+            # operationally the same event). Reading that race as a natural "finished"
+            # would hand the classifier a drain kill as the child's own exit, and a child
+            # that dies from the SIGTERM (rc -15) would be published as a failure.
             # The drain handler fired and SIGTERM'd the child, but it is still alive.
             try:
                 await asyncio.wait_for(wait_task, timeout=self._kill_grace_s)
@@ -336,6 +413,9 @@ class RunSupervisor:
                 proc.kill()
             await proc.wait()
             return "draining"
+        if wait_task in done:
+            await wait_task
+            return "finished"
         # The hard wall expired: SIGTERM, then SIGKILL.
         wait_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -367,7 +447,15 @@ class RunSupervisor:
                 DEADLINE_EXCEEDED,
                 "the run exceeded its deadline and was killed",
             )
-        elif outcome == "draining" or self._draining.is_set():
+        elif outcome == "draining":
+            # WHY `outcome` alone and not `or self._draining.is_set()`: the drain flag is
+            # GLOBAL — set for the whole grace window, while unrelated children keep exiting
+            # for their OWN reasons (an OOM, a crash) inside that window. Trusting the flag
+            # relabeled every such exit as a benign drain-stop, masking real failures during
+            # rolling deploys — precisely when someone is watching deploy health. The
+            # drain-caused kills are exactly the ones `_wait_for_child` reports as
+            # `"draining"` (it saw the drain fire for THIS child); that causality is the
+            # classifier's only input.
             status, code, message = (
                 "stopped",
                 WORKER_DRAINING,

@@ -33,9 +33,16 @@ pytestmark = pytest.mark.asyncio
 class _FakeMsg:
     """A claimed queue message: records acks and in-progress heartbeats."""
 
-    def __init__(self, data: bytes, *, published_at: datetime | None = None) -> None:
+    def __init__(
+        self,
+        data: bytes,
+        *,
+        published_at: datetime | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.data = data
         self.metadata = SimpleNamespace(timestamp=published_at or datetime.now(UTC))
+        self.headers = headers
         self.acked = False
         self.in_progress_calls = 0
 
@@ -573,3 +580,158 @@ async def test_a_dead_heartbeat_task_does_not_break_the_runs_cleanup() -> None:
     await supervise  # must NOT re-raise the heartbeat's ConnectionError
     assert msg.acked
     assert proc not in worker._supervisor._children, "a finished run must release its child"
+
+
+# --- review follow-ups: classification, expiry stamp, blast radius, duplicates ------------
+
+
+def test_an_unrelated_failure_during_drain_is_not_relabeled_a_drain_stop() -> None:
+    """The drain flag is GLOBAL; a child that OOMs or crashes for its OWN reasons during
+    the grace window used to be relabeled `stopped/worker_draining`, masking real failures
+    during rolling deploys. Only a child the drain actually terminated (`outcome ==
+    "draining"`) classifies as a drain-stop."""
+    worker = _worker(_FakeQueue(), _FakePublisher())
+    worker._draining.set()
+    classify = worker._supervisor._classify
+
+    oom = classify("finished", 137)
+    assert oom is not None and oom[0] == "failed" and oom[1] == OOM_KILLED
+
+    crash = classify("finished", 1)
+    assert crash is not None and crash[0] == "failed" and crash[1] == CHILD_EXITED
+
+    drain_kill = classify("draining", None)
+    assert drain_kill is not None and drain_kill[0] == "stopped" and drain_kill[1] == WORKER_DRAINING
+
+
+async def test_a_child_exit_racing_the_drain_signal_reads_as_draining() -> None:
+    """When the drain fires and the child exits in the same scheduling batch, BOTH wait
+    tasks complete — and the exit is the drain's doing. Reading that race as a natural
+    "finished" hands the classifier a drain kill (rc -15) as the child's own failure."""
+    proc = _FakeProcess(exit_code=-15)
+    proc.release(-15)  # already gone by the time the drain fires
+    worker = _worker(_FakeQueue(), _FakePublisher())
+    worker._terminating.set()
+
+    outcome = await worker._supervisor._wait_for_child(proc, hard_wall_s=None)
+
+    assert outcome == "draining"
+
+
+async def test_a_backlogged_run_expires_from_its_enqueue_stamp_not_its_delivery() -> None:
+    """`msg.metadata.timestamp` is the DELIVERY moment (~now at claim time), so a run that
+    sat backlogged past its deadline read as age ~0 and the expiry drop never fired. The
+    publisher stamps the enqueue wall-clock; the claim gate must measure from THAT."""
+    from screamingface_engine.subjects import ENQUEUED_AT_HEADER
+
+    body = _message("topic-backlogged", deadline_s=60)
+    msg = _FakeMsg(
+        body,
+        # Delivery is fresh (the pull just happened); the enqueue stamp is 120s old.
+        published_at=datetime.now(UTC),
+        headers={ENQUEUED_AT_HEADER: (datetime.now(UTC) - timedelta(seconds=120)).isoformat()},
+    )
+    worker = _worker(_FakeQueue(), _FakePublisher(), spawn=_async_proc(_FakeProcess()))
+
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked, "an expired run is acked away, not redelivered"
+    assert worker._supervisor._topics_in_flight == set()
+    assert all(
+        getattr(e.data, "error", None) is not None
+        and e.data.error.code == "queue_expired"
+        for e in worker._publisher.published
+    ), f"expected a queue_expired frame, got {worker._publisher.published}"
+    # And it never forked a child for an expired run.
+    assert not worker._supervisor._children
+
+
+async def test_one_unreadable_dedupe_read_kills_no_runs_and_leaves_the_claim() -> None:
+    """The supervisors share one TaskGroup: an error escaping a claim's dedupe read — a
+    momentary NATS blip, not a JetStream verdict — cancelled EVERY co-located run. A
+    transient read now skips THAT claim only (no ack: the queue redelivers), and the
+    healthy sibling runs to completion untouched."""
+
+    from screamingface_engine.adapters.jetstream import QueueReadError
+
+    class _BlipPublisher(_FakePublisher):
+        def __init__(self) -> None:
+            super().__init__()
+            self.blips = 0
+
+        async def last_frame(self, topic: str) -> Any:
+            if topic == "topic-blip":
+                self.blips += 1
+                raise QueueReadError("stream tail unreadable for topic-blip")
+            return await super().last_frame(topic)
+
+    publisher = _BlipPublisher()
+    healthy = _async_proc(_FakeProcess(exit_code=0, hang=True))
+    worker = _worker(_FakeQueue(), publisher, spawn=healthy)
+    blip_msg = _FakeMsg(_message("topic-blip"))
+    healthy_msg = _FakeMsg(_message("topic-healthy"))
+
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(worker._supervisor.supervise(blip_msg))
+        tg.create_task(worker._supervisor.supervise(healthy_msg))
+        await _wait_until(lambda: publisher.blips >= 1)
+        await _wait_until(lambda: worker._supervisor._children)
+        for proc in tuple(worker._supervisor._children):
+            proc.release(0)
+
+    assert not blip_msg.acked, "an unreadable tail is not 'no terminal frame' — redeliver it"
+    assert healthy_msg.acked
+
+
+async def test_a_duplicate_claim_of_a_running_topic_is_acked_away_without_a_second_child():
+    """Redelivery can race an in-flight original (an `ack_wait` shorter than a supervision
+    gap). The duplicate used to fork a SECOND child for one topic, racing its sibling to
+    the terminal frame. It is now acked away — the original owns the outcome."""
+    proc = _FakeProcess(hang=True)
+    spawns: list[Any] = []
+
+    async def _spawn(*args: Any, **kwargs: Any) -> Any:
+        spawns.append(args)
+        return proc
+
+    worker = _worker(_FakeQueue(), _FakePublisher(), spawn=_spawn)
+    body = _message("topic-dup")
+    original = asyncio.ensure_future(worker._supervisor.supervise(_FakeMsg(body)))
+
+    await _wait_until(lambda: len(spawns) == 1)  # the original is mid-run
+
+    duplicate = _FakeMsg(body)
+    await worker._supervisor.supervise(duplicate)
+
+    assert duplicate.acked, "the duplicate is done — acked, not left to redeliver in a loop"
+    assert len(spawns) == 1, "no second child for one topic"
+
+    proc.release(0)
+    await original
+    assert original.done() and not original.cancelled()
+
+
+def test_the_heartbeat_is_derived_from_the_ack_wait() -> None:
+    """The heartbeat must stay at `ack_wait / 3` (capped at the 20s constant) for EVERY
+    configuration: slower, and JetStream redelivers a still-running run to a second
+    worker — the double execution the heartbeat exists to prevent."""
+    from screamingface_engine.worker.supervisor import derived_heartbeat_interval_s
+
+    assert derived_heartbeat_interval_s(60.0) == 20.0
+    assert derived_heartbeat_interval_s(30.0) == 10.0
+    assert derived_heartbeat_interval_s(15.0) == 5.0
+    assert derived_heartbeat_interval_s(3.0) == 1.0
+    for ack_wait in (3.0, 9.5, 60.0, 600.0):
+        assert derived_heartbeat_interval_s(ack_wait) <= ack_wait / 3.0 + 1e-9
+
+
+def test_settings_refuse_an_ack_wait_the_heartbeat_cannot_survive(monkeypatch: Any) -> None:
+    """Below 3s the derived heartbeat collapses under 1s; refused at startup rather than
+    as a mid-flight double execution."""
+    from pydantic import ValidationError
+
+    from screamingface_engine.config import Settings
+
+    monkeypatch.setenv("URL4_CLOUD_RUN_QUEUE_ACK_WAIT_S", "2")
+    with pytest.raises(ValidationError, match="run_queue_ack_wait_s"):
+        Settings()
