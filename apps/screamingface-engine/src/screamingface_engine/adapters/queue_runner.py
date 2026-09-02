@@ -233,11 +233,27 @@ class QueueJobRunner(IdentityAwareJobRunner):
         fetch and registration — pathological, and its claim-time gate still catches
         the tombstone once it proceeds. A stream that already ends in a terminal frame,
         or that does not exist at all (never attached, never scheduled), is untouched.
+
+        WHY the tail is RE-READ between the ask and the tombstone (review follow-up):
+        the first read is one control-timeout old by then, and nothing orders `stop()`
+        against the run itself — a fast run can claim, execute, and publish
+        `Terminated(succeeded)` entirely inside the ask's window. Writing the tombstone
+        after that appended `stopped` AFTER the real outcome, and `status()` — a
+        last-frame read on an append-only stream — reported a succeeded run as stopped,
+        forever. The re-read sees the success frame and returns; the residual window
+        (success landing between the re-read and the publish) is two broker round trips
+        wide, and the confirmation ask below still reaches a live worker, whose own
+        publish is suppressed by `_publish_if_needed`'s re-read.
         """
         frame = await self._publisher.last_frame(topic)
         if isinstance(frame, TerminatedEvent):
             return
         if await self._request_control(topic):
+            return
+        # The ask's window is where a run can finish: re-read the tail BEFORE writing the
+        # marker, and a run that completed during the ask keeps its real outcome.
+        frame = await self._publisher.last_frame(topic)
+        if isinstance(frame, TerminatedEvent):
             return
         if frame is None and not await self._publisher.stream_exists(topic):
             return

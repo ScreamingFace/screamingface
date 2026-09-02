@@ -300,3 +300,40 @@ async def test_a_claim_landing_mid_stop_is_still_cancelled_with_one_frame() -> N
     # the worker skips — the existing before-claim test's mechanism, now also the fate
     # of any claim that arrives after this stop.
     assert isinstance(await publisher.last_frame("t-raced"), TerminatedEvent)
+
+
+# --- review follow-up: the tombstone must not land after the run's real outcome ------------
+
+
+class _CompletingMidAskPublisher(_FakePublisher):
+    """A run that finishes INSIDE the control ask's window: the entry read saw nothing,
+    but by the time the ask has timed out the run has claimed, executed, and published
+    its genuine `Terminated(succeeded)`."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reads = 0
+        self._last_frame = None
+
+    async def last_frame(self, topic: str) -> Any:
+        self.reads += 1
+        if self.reads >= 2:
+            # The run completed during the ask: the stream now ends in success.
+            self._last_frame = _terminated("t-midask", "succeeded")
+        return self._last_frame
+
+
+async def test_a_run_completing_inside_the_ask_window_keeps_its_real_outcome() -> None:
+    """`stop()` used to write the tombstone from an entry-time read one control-timeout
+    old: a fast run could claim, execute, and succeed entirely inside the ask's window,
+    and the tombstone appended `stopped` AFTER the success — `status()`, a last-frame
+    read on an append-only stream, then reported a succeeded run as stopped forever. The
+    tail is re-read before the marker; a completed run is left untouched."""
+    publisher = _CompletingMidAskPublisher()
+    control = _ScriptedControl([TimeoutError("nobody yet"), TimeoutError("gone")])
+    runner = _runner(publisher, control)
+
+    await runner.stop("t-midask")
+
+    assert publisher.published == [], "a run that succeeded needs no second terminal frame"
+    assert await runner.status("t-midask") == "succeeded"

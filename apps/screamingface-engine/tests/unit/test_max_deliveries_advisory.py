@@ -22,7 +22,7 @@ from screamingface_engine.adapters.max_deliveries import (
     topic_of_advisory,
 )
 from screamingface_engine.runner_queue import encode_message
-from url4.streaming.protocol import TerminatedEvent
+from url4.streaming.protocol import TerminatedData, TerminatedEvent, source_for
 
 T0 = datetime(2026, 9, 2, 9, 0, 0, tzinfo=UTC)
 
@@ -64,9 +64,13 @@ def test_topic_of_advisory_returns_none_for_garbage() -> None:
 
 
 class _FakePublisher:
-    def __init__(self) -> None:
+    def __init__(self, last_frame: Any = None) -> None:
         self.published: list[Any] = []
         self.ensured: list[str] = []
+        self._last_frame = last_frame
+
+    async def last_frame(self, topic: str) -> Any:
+        return self._last_frame
 
     async def ensure_stream(self, topic: str) -> None:
         self.ensured.append(topic)
@@ -91,3 +95,31 @@ async def test_the_advisor_publishes_a_named_terminal_failure() -> None:
     assert frame.data.status == "failed"
     assert frame.data.error is not None and frame.data.error.code == MAX_DELIVERIES
     assert frame.source.endswith("t-gave-up")
+
+
+def _terminated(topic: str, status: str) -> TerminatedEvent:
+    return TerminatedEvent(
+        id="x",
+        source=source_for(topic),
+        subject=topic,
+        time=T0,
+        data=TerminatedData(status=status),
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_advisor_never_overwrites_a_run_that_actually_finished() -> None:
+    """The advisory and the run race: a worker on its FINAL redelivery can complete and
+    publish `Terminated(succeeded)` right as the expired ack_wait fires the advisory —
+    the run finished, the broker merely missed the ack. Publishing unconditionally
+    appended `failed` AFTER the success, and status() — a last-frame read — reported a
+    succeeded run as failed. The advisor reads the tail first; a terminal frame means
+    the run already has its outcome."""
+    advisor = MaxDeliveriesAdvisor("nats://localhost:4222", clock=lambda: T0)
+    success = _terminated("t-finished", "succeeded")
+    publisher = _FakePublisher(last_frame=success)
+
+    await advisor._handle(publisher, _advisory("t-finished"))
+
+    assert publisher.published == [], "the run's own outcome stands"
+    assert publisher.ensured == [], "nothing was declared on its account either"

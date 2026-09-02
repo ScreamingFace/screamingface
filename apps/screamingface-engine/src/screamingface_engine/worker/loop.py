@@ -275,15 +275,24 @@ class Worker:
                 if topic in self._starting:
                     # A run this worker is STARTING: the child has not registered yet, but
                     # the App must not tombstone a run this worker is about to own — that
-                    # is how a run ends with two terminal frames. Reply now (the App
-                    # writes nothing) and mark the topic cancelled; the supervisor enacts
-                    # the cancel the moment the child registers.
-                    await msg.respond(b"ok")
+                    # is how a run ends with two terminal frames. Mark the topic cancelled
+                    # and reply; the supervisor enacts the cancel the moment the child
+                    # registers.
+                    #
+                    # WHY the mark BEFORE the reply: `respond` is real network I/O — a
+                    # suspension point. In the other order, the spawn could complete and
+                    # the supervisor's registration check (`if topic in self._cancelled`)
+                    # could run while `respond` was in flight, find the mark absent, and
+                    # let the child run to completion — while the App, already holding
+                    # "ok", wrote no tombstone: the caller believes the run was stopped
+                    # and it never was. By the time the ack is SENT, the cancellation is
+                    # recorded, so the registration check sees it on every schedule order.
                     self._cancelled.add(topic)
+                    await msg.respond(b"ok")
                 continue
-            await msg.respond(b"ok")
             self._cancelled.add(topic)
             proc.terminate()
+            await msg.respond(b"ok")
 
     async def _drain(self) -> None:
         """The drain phase: let children finish naturally up to ``drain_grace_s``, then
