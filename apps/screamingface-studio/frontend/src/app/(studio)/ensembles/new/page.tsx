@@ -2062,9 +2062,13 @@ function RecipeNodeCard({
         : role === "synthesizer"
           ? "Synthesizer"
           : "Recipe";
+  const handleKindChange = (next: RecipeNode) => {
+    setCollapsed(false);
+    onChange(next);
+  };
   const controls = (
     <div className="flex shrink-0 items-center gap-1">
-      <KindDropdown node={node} onChange={onChange} />
+      <KindDropdown node={node} onChange={handleKindChange} />
       {onRemove && <RemoveButton onRemove={onRemove} />}
     </div>
   );
@@ -2120,7 +2124,7 @@ function RecipeNodeCard({
               onAdd={(picked) => {
                 onChange({ ...node, model: picked });
                 onUseModels([picked]);
-                setCollapsed(true);
+                setCollapsed(false);
               }}
             />
           </div>
