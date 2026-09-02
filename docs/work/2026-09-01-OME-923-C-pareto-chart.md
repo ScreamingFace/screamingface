@@ -61,3 +61,14 @@ membership, exclude unknown cost from the numeric axis, and preserve OME-324/325
   frontier mark, covering revision-unpinned/older-response states without inventing membership in
   the browser. The all-null state was kept in the pure suite instead of a duplicate visual smoke,
   because its specified result is the absence of the chart.
+
+## 2026-09-02 — Restacked after Part B merge
+
+- Part B PR #786 was squash-merged to `main` as `d0e1d7dd` after the owner explicitly waived the
+  live non-null-cost rollout gate.
+- Merged `origin/main` into this branch without rewriting history. Inherited Part B conflicts were
+  resolved to the exact `main` versions; the chart HTML/CSS additions were retained.
+- Verified the resulting comparison is exactly `main` plus the original 14 Part C files: 796
+  insertions and 6 deletions, with no Part B files leaking back into the PR diff.
+- `uv run python .claude/scripts/run_gates.py scoreboard` — all gates green, including both portal
+  Node suites.
