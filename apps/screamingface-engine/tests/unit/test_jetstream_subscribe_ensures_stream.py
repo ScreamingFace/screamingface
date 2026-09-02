@@ -156,10 +156,10 @@ async def test_consumers_never_leave_frames_unacked() -> None:
     """
     from nats.js.api import AckPolicy
 
-    from screamingface_engine.adapters.jetstream import _consumer_config
+    from screamingface_engine.adapters.jetstream import _broadcast_consumer_config
 
-    assert _consumer_config(None).ack_policy is AckPolicy.NONE
-    assert _consumer_config(7).ack_policy is AckPolicy.NONE
+    assert _broadcast_consumer_config(None).ack_policy is AckPolicy.NONE
+    assert _broadcast_consumer_config(7).ack_policy is AckPolicy.NONE
 
 
 async def test_streams_are_created_with_retention_limits() -> None:
