@@ -1752,6 +1752,13 @@ function nodeChrome(depth: number, role: NodeRole): string {
     : "rounded-lg bg-muted/30 ring-1 ring-inset ring-border/40 p-2.5";
 }
 
+function roleTagClass(role: NodeRole): string {
+  return cn(
+    "shrink-0 font-mono text-[11px] uppercase tracking-wide",
+    role === "synthesizer" ? "text-accent" : "text-muted-foreground",
+  );
+}
+
 function KindSwitch({
   node,
   onChange,
@@ -1781,49 +1788,18 @@ function KindSwitch({
   );
 }
 
-function SoloBody({
+// Prompt + parameters — only shown for a solo that already has a model, and collapsible.
+function SoloConfig({
   node,
   onChange,
-  providers,
-  onUseModels,
-  onModelChosen,
 }: {
   node: SoloNode;
   onChange: (next: RecipeNode) => void;
-  providers: ModelProvider[];
-  onUseModels: (models: Model[]) => void;
-  onModelChosen?: () => void;
 }) {
   const [showParams, setShowParams] = useState((node.params?.length ?? 0) > 0);
   const paramCount = node.params?.length ?? 0;
   return (
     <div className="flex flex-col gap-2.5">
-      {node.model ? (
-        <div className="flex items-center justify-between gap-2 rounded-lg border bg-background px-3 py-2">
-          <span className="flex min-w-0 items-center gap-2">
-            <ProviderDot provider={node.model.providerId} />
-            <span className="truncate font-mono text-sm">{node.model.name}</span>
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-xs text-muted-foreground"
-            onClick={() => onChange({ ...node, model: null })}
-          >
-            Change
-          </Button>
-        </div>
-      ) : (
-        <InlineModelPicker
-          providers={providers}
-          onAdd={(model) => {
-            onChange({ ...node, model });
-            onUseModels([model]);
-            onModelChosen?.();
-          }}
-        />
-      )}
       <Textarea
         rows={2}
         value={node.prompt}
@@ -2058,6 +2034,21 @@ function PipelineBody({
   );
 }
 
+function RemoveButton({ onRemove }: { onRemove: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-6 text-muted-foreground"
+      aria-label="Remove element"
+      onClick={onRemove}
+    >
+      <X className="size-3.5" />
+    </Button>
+  );
+}
+
 function RecipeNodeCard({
   node,
   onChange,
@@ -2079,9 +2070,8 @@ function RecipeNodeCard({
   depth?: number;
   orientation?: Orientation;
 }) {
-  const isSolo = node.kind === "solo";
   const [collapsed, setCollapsed] = useState(
-    () => isSolo && Boolean((node as SoloNode).model),
+    () => node.kind === "solo" && Boolean((node as SoloNode).model),
   );
   const roleLabel =
     role === "member"
@@ -2091,6 +2081,77 @@ function RecipeNodeCard({
         : role === "synthesizer"
           ? "Synthesizer"
           : "Recipe";
+
+  if (node.kind === "solo") {
+    const model = node.model;
+    return (
+      <article className={cn("h-full", nodeChrome(depth, role))}>
+        <div className="flex items-center justify-between gap-2">
+          {model ? (
+            <button
+              type="button"
+              onClick={() => setCollapsed((value) => !value)}
+              aria-expanded={!collapsed}
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+            >
+              <ChevronRight
+                className={cn(
+                  "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                  !collapsed && "rotate-90",
+                )}
+              />
+              <span className={roleTagClass(role)}>{roleLabel}</span>
+              <ProviderDot provider={model.providerId} />
+              <span className="truncate font-mono text-xs text-foreground/90">
+                {model.name}
+              </span>
+            </button>
+          ) : (
+            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="ml-1 size-1.5 shrink-0 rounded-full bg-muted-foreground/40"
+              />
+              <span className={roleTagClass(role)}>{roleLabel}</span>
+            </span>
+          )}
+          <div className="flex shrink-0 items-center gap-1">
+            {model && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px] text-muted-foreground"
+                onClick={() => onChange({ ...node, model: null })}
+              >
+                Change
+              </Button>
+            )}
+            <KindSwitch node={node} onChange={onChange} />
+            {onRemove && <RemoveButton onRemove={onRemove} />}
+          </div>
+        </div>
+        {!model && (
+          <div className="mt-2.5">
+            <InlineModelPicker
+              providers={providers}
+              onAdd={(picked) => {
+                onChange({ ...node, model: picked });
+                onUseModels([picked]);
+                setCollapsed(true);
+              }}
+            />
+          </div>
+        )}
+        {model && !collapsed && (
+          <div className="mt-2.5">
+            <SoloConfig node={node} onChange={onChange} />
+          </div>
+        )}
+      </article>
+    );
+  }
+
   return (
     <article className={cn("h-full", nodeChrome(depth, role))}>
       <div className="flex items-center justify-between gap-2">
@@ -2106,61 +2167,21 @@ function RecipeNodeCard({
               !collapsed && "rotate-90",
             )}
           />
-          <span
-            className={cn(
-              "shrink-0 font-mono text-[11px] uppercase tracking-wide",
-              role === "synthesizer" ? "text-accent" : "text-muted-foreground",
-            )}
-          >
-            {roleLabel}
-          </span>
-          {isSolo && collapsed ? (
-            (node as SoloNode).model ? (
-              <span className="flex min-w-0 items-center gap-1.5">
-                <ProviderDot provider={(node as SoloNode).model!.providerId} />
-                <span className="truncate font-mono text-xs text-foreground/80">
-                  {(node as SoloNode).model!.name}
-                </span>
-              </span>
-            ) : (
-              <span className="truncate text-xs text-muted-foreground/70">
-                Choose a model…
-              </span>
-            )
-          ) : null}
-          {!isSolo && collapsed ? (
+          <span className={roleTagClass(role)}>{roleLabel}</span>
+          {collapsed && (
             <span className="min-w-0 truncate rounded-md bg-background/70 px-1.5 py-0.5 font-mono text-[11px] text-foreground/80">
               {describeRecipe(node)}
             </span>
-          ) : null}
+          )}
         </button>
         <div className="flex shrink-0 items-center gap-1.5">
           <KindSwitch node={node} onChange={onChange} />
-          {onRemove && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6 text-muted-foreground"
-              aria-label="Remove element"
-              onClick={onRemove}
-            >
-              <X className="size-3.5" />
-            </Button>
-          )}
+          {onRemove && <RemoveButton onRemove={onRemove} />}
         </div>
       </div>
       {!collapsed && (
         <div className="mt-3">
-          {node.kind === "solo" ? (
-            <SoloBody
-              node={node}
-              onChange={onChange}
-              providers={providers}
-              onUseModels={onUseModels}
-              onModelChosen={() => setCollapsed(true)}
-            />
-          ) : node.kind === "fusion" ? (
+          {node.kind === "fusion" ? (
             <FusionBody
               node={node}
               onChange={onChange}
