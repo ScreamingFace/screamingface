@@ -6,6 +6,7 @@ from _k8s_fakes import FakeCoreV1, FakeCreatedJob
 
 from screamingface_engine.adapters.factory import build_job_runner
 from screamingface_engine.adapters.k8s import K8sJobRunner
+from screamingface_engine.adapters.queue_runner import QueueJobRunner
 from screamingface_engine.config import Settings
 
 
@@ -65,6 +66,24 @@ def test_k8s_runner_is_built_from_settings() -> None:
 def test_unknown_runner_is_rejected_at_settings_construction() -> None:
     with pytest.raises(ValueError):
         Settings(runner="kubernetes")  # type: ignore[arg-type]
+
+
+def test_queue_runner_is_built_from_settings() -> None:
+    """The queue backend is selectable (OME-1090); the cutover to it is OME-1092, but the
+    adapter must exist and be wired. Nothing connects at construction — the queue, the
+    publisher, and the control client are all lazy."""
+    settings = Settings(
+        runner="queue",
+        nats_url="nats://localhost:4222",
+        runner_io_concurrency=7,
+        capability_lifetime_s=1234,
+    )
+
+    runner = build_job_runner(settings)
+
+    assert isinstance(runner, QueueJobRunner)
+    assert runner._io_concurrency == 7
+    assert runner._capability_lifetime_s == 1234
 
 
 def test_k8s_runner_receives_deployment_scheduling() -> None:

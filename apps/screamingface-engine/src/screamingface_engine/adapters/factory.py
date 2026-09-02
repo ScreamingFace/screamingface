@@ -7,14 +7,18 @@
 
 import functools
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from typing import Any, cast
 
+from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.adapters.k8s import (
     BatchV1JobsClient,
     CoreV1QuotaClient,
     K8sJobRunner,
 )
+from screamingface_engine.adapters.queue_runner import ControlClient, QueueJobRunner
 from screamingface_engine.config import Settings
+from screamingface_engine.runner_queue import RunQueue
 from url4.streaming.interfaces import JobRunner
 
 # WHY a timeout at all: `K8sJobRunner` offloads its blocking calls to a worker thread, so a
@@ -99,5 +103,26 @@ def build_job_runner(
             job_ttl_s=settings.effective_job_ttl_s,
             extra_models=extra_models,
             io_concurrency=settings.runner_io_concurrency,
+        )
+    if settings.runner == "queue":
+        # The OME-1086 substrate (OME-1090): one durable queue + a fixed worker pool. The
+        # queue, the publisher, and the control client all connect lazily, so building the
+        # runner never dials the broker. The cutover to this backend is OME-1092; the
+        # adapter must exist and be selectable now.
+        return QueueJobRunner(
+            queue=RunQueue(
+                settings.nats_url,
+                ack_wait_s=settings.run_queue_ack_wait_s,
+                max_deliver=settings.run_queue_max_deliver,
+                max_ack_pending=settings.run_queue_max_ack_pending,
+                duplicate_window_s=settings.run_queue_duplicate_window_s,
+                max_age_s=settings.run_queue_max_age_s,
+            ),
+            publisher=JetStreamPublisher(settings.nats_url),
+            control=ControlClient(settings.nats_url),
+            clock=lambda: datetime.now(UTC),
+            capability_lifetime_s=settings.capability_lifetime_s,
+            io_concurrency=settings.runner_io_concurrency,
+            extra_models=extra_models,
         )
     return None

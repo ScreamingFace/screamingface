@@ -7,8 +7,12 @@ verified against real time would be both slow and flaky, and the grace window it
 measured in minutes.
 """
 
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import pytest
 
+from screamingface_engine.adapters.queue_runner import QueueJobRunner
 from screamingface_engine.reaper import RunReaper
 
 GRACE = 120.0
@@ -208,6 +212,82 @@ async def test_a_failed_stop_is_retried_rather_than_abandoned() -> None:
 
     assert await reaper.sweep() == ("t",)
     assert runner.stopped == ["t"]
+
+
+@pytest.mark.asyncio
+async def test_an_audience_loss_stop_reaches_a_queued_run() -> None:
+    """The Job path stopped a queued run by deleting a Job that might never have started;
+    the queue runner must stop a QUEUED run the same way. `exists()` is True for a
+    scheduled (queued) run, so the reaper's stop() lands and writes the tombstone."""
+    clock = _FakeClock()
+    publisher = _FakePublisher()
+    runner = QueueJobRunner(
+        queue=_FakeQueue(),
+        publisher=publisher,
+        control=_FakeControl(),
+        clock=_QueueClock(),
+        capability_lifetime_s=100.0,
+    )
+    await runner.schedule("t", "'hi'", 60)
+    reaper = RunReaper(runner, _FakeAudience(), grace_s=GRACE, clock=clock, tick_s=10.0)
+
+    reaper.audience_left("t")
+    clock.advance(GRACE)
+
+    assert await reaper.sweep() == ("t",)
+    assert reaper.reaped_total == 1
+    assert len(publisher.published) == 1
+    assert publisher.published[0].data.status == "stopped"
+
+
+class _QueueClock:
+    """A wall clock for the queue runner, independent of the reaper's monotonic one."""
+
+    def __init__(self) -> None:
+        self.now = datetime(2026, 9, 2, 9, 0, 0, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += timedelta(seconds=seconds)
+
+
+class _FakeQueue:
+    def __init__(self) -> None:
+        self.published: list[bytes] = []
+
+    async def publish(self, message: bytes) -> None:
+        self.published.append(message)
+
+    async def depth(self) -> int:
+        return 0
+
+
+class _FakePublisher:
+    def __init__(self) -> None:
+        self.published: list[Any] = []
+        self.ensured: list[str] = []
+
+    async def last_frame(self, topic: str) -> Any:
+        return None
+
+    async def stream_exists(self, topic: str) -> bool:
+        return True
+
+    async def ensure_stream(self, topic: str) -> None:
+        self.ensured.append(topic)
+
+    async def publish(self, topic: str, event: Any) -> None:
+        self.published.append(event)
+
+    async def flush(self) -> None:
+        pass
+
+
+class _FakeControl:
+    async def request(self, subject: str, payload: bytes, *, timeout: float) -> Any:
+        raise TimeoutError()
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,15 @@ RUN_QUEUE_SUBJECT = f"{RUN_QUEUE_SUBJECT_PREFIX}.work"
 # the pre-stamp semantics, never worse.
 ENQUEUED_AT_HEADER = "Url4-Enqueued-At"
 
+# The run-control channel (OME-1090): a core NATS request/reply subject per run, on which
+# the App asks "is this run running here?" and the owning worker answers by SIGTERMing its
+# child. Every worker subscribes to the wildcard; only the owner replies.
+CONTROL_SUBJECT_PREFIX = "url4.runctl"
+
+
+def control_subject_for(topic: str) -> str:
+    return f"{CONTROL_SUBJECT_PREFIX}.{topic}"
+
 
 def subject_for(topic: str) -> str:
     return f"{PREFIX}.{topic}"
@@ -67,9 +76,12 @@ def topic_of(stream_name: str) -> str:
 
 __all__ = [
     "ENQUEUED_AT_HEADER",
+
+    "CONTROL_SUBJECT_PREFIX",
     "RUN_QUEUE_STREAM",
     "RUN_QUEUE_SUBJECT",
     "RUN_QUEUE_SUBJECT_PREFIX",
+    "control_subject_for",
     "owns_stream",
     "stream_for",
     "subject_for",
