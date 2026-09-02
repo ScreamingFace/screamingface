@@ -63,3 +63,31 @@ async def test_a_sweep_with_the_queue_present_leaves_it_alive() -> None:
 
     assert RUN_QUEUE_STREAM not in js.deleted
     assert js.deleted == [stream_for("dead")]
+
+
+def test_owns_stream_follows_the_configured_queue_name() -> None:
+    """The exclusion must follow the CONFIGURED stream name, not the default constant
+    (review follow-up): the name is a Settings field, and an operator who renames the
+    queue must not have the sweep re-armed against the renamed stream by a stale constant
+    — that deletes the one stream an accepted run may not be lost from."""
+    assert not owns_stream("prod-runq", run_queue_stream="prod-runq")
+    # The default constant is still excluded for callers that pass nothing.
+    assert not owns_stream(RUN_QUEUE_STREAM)
+
+
+@pytest.mark.asyncio
+async def test_a_sweep_with_a_renamed_queue_leaves_it_alive() -> None:
+    """The full path, not just the predicate: a connection configured with a renamed queue
+    stream must skip it during reclamation exactly as it skips the default name."""
+    js = _FakeJetStream(
+        infos=[
+            _info("prod-runq", messages=0, last_seq=42),
+            _info(stream_for("dead"), messages=0, last_seq=9),
+        ]
+    )
+    stream = JetStreamConsumer("nats://unused:4222", run_queue_stream="prod-runq")
+    stream._js = cast(JetStreamContext, js)  # noqa: SLF001
+
+    await stream._sweep_orphans(cast(JetStreamContext, js))  # noqa: SLF001
+
+    assert js.deleted == [stream_for("dead")]

@@ -205,3 +205,37 @@ async def test_the_name_in_use_error_code_remains_benign() -> None:
     another replica or an earlier connection. `ensure_stream` returns normally."""
     fake = _ConflictingStreamJS(err_code=10_058)
     await _queue(fake).ensure_stream()
+
+
+@pytest.mark.asyncio
+async def test_publish_stamps_the_enqueue_moment() -> None:
+    """The publish-time stamp (review follow-up): JetStream's message metadata records the
+    DELIVERY moment, not the enqueue moment — a run that sits backlogged past its deadline
+    and is only then pulled reads as age ~0, and the claim-time expiry drop never fires for
+    exactly the runs it exists to catch. The publisher stamps the acceptance wall-clock;
+    the worker reads it back at claim time."""
+    from screamingface_engine.subjects import ENQUEUED_AT_HEADER
+
+    fake = _FakeJetStream()
+
+    await _queue(fake).publish(
+        encode_message(topic="topic-stamped", url4="gpt()", deadline_s=600)
+    )
+
+    headers = fake.published[0][2]
+    assert ENQUEUED_AT_HEADER in headers
+    stamped = datetime.fromisoformat(headers[ENQUEUED_AT_HEADER])
+    assert stamped.tzinfo is not None
+    assert (datetime.now(UTC) - stamped).total_seconds() < 60
+
+
+def test_the_fleet_ack_pending_default_is_not_replica_derived() -> None:
+    """`max_ack_pending` is a WHOLE-CONSUMER bound shared by every puller in the fleet, not
+    a per-worker limit; deriving it from the stream's replica count capped the entire fleet
+    at 12 in-flight runs. This pins the decoupling so the conflation is not reintroduced."""
+    from screamingface_engine import runner_queue
+
+    assert runner_queue.DEFAULT_MAX_ACK_PENDING != (
+        runner_queue.QUEUE_REPLICAS * runner_queue.DEFAULT_WORKER_SLOTS
+    )
+    assert runner_queue.DEFAULT_MAX_ACK_PENDING >= 64
