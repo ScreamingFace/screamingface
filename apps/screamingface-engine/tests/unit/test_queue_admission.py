@@ -479,3 +479,47 @@ async def test_a_fractional_estimate_is_ceiled_into_a_valid_retry_after_header()
 
     assert resp.status_code == 503
     assert resp.headers["Retry-After"] == "3"
+
+
+# --- 9. a failed retry of a LIVE topic releases only its own reservation (review follow-up) --
+
+
+class _FailsSecondPublishQueue(_FakeQueue):
+    """Publishes the first submission of a topic; rejects the retry — a client retry
+    outside the broker's dedupe window meeting a transient broker error."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._failed_once = False
+
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None
+    ) -> None:
+        from screamingface_engine.runner_queue import topic_of_message
+
+        if topic_of_message(message) == "t-retry" and self.published:
+            self._failed_once = True
+            raise OSError("broker unavailable")
+        await super().publish(message, identity=identity)
+
+
+async def test_a_failed_retry_of_a_live_topic_keeps_the_first_admission_counted() -> None:
+    """A caller's client can re-schedule a STILL-LIVE topic — a retry outside the
+    broker's dedupe window — and that retry's publish can fail. Releasing by the
+    (caller, topic) pair erased the FIRST admission's accounting with the failed
+    retry: the caller's in-flight count silently dropped by one for the rest of the
+    run's lifetime, letting it exceed its cap by exactly that much. The release now
+    removes only the reservation the retry itself minted."""
+    queue = _FailsSecondPublishQueue()
+    runner = _runner(queue, caller_inflight_cap=2)
+    identity = {"sub": "caller-a"}
+
+    await runner.schedule("t-retry", "'hi'", 60, identity=identity)  # live admission
+    with pytest.raises(OSError):
+        await runner.schedule("t-retry", "'hi'", 60, identity=identity)  # retry fails
+    await runner.schedule("t-other", "'hi'", 60, identity=identity)  # count: 2 — at cap
+
+    with pytest.raises(JobRunnerAtCapacity):
+        # If the failed retry had erased the first admission, this would be admitted
+        # (count read 1) — one run PAST the caller's cap.
+        await runner.schedule("t-third", "'hi'", 60, identity=identity)

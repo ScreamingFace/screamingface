@@ -224,6 +224,12 @@ class _ConflictingStreamJS(_FakeJetStream):
     def __init__(self, err_code: int) -> None:
         super().__init__()
         self._err_code = err_code
+        # The benign path (10058) continues into the widening check — an already-wide
+        # stream answers "no widening needed".
+        self.legacy = StreamConfig(
+            name=RUN_QUEUE_STREAM,
+            subjects=[f"{RUN_QUEUE_SUBJECT_PREFIX}.>"],
+        )
 
     async def add_stream(self, **kwargs: Any) -> object:
         raise BadRequestError(
@@ -326,3 +332,4 @@ async def test_widening_a_legacy_stream_preserves_its_own_config() -> None:
     assert config.num_replicas == 3
     assert config.duplicate_window == 120.0
     assert config.max_age == 86_400.0
+
