@@ -1932,7 +1932,7 @@ function PipelineBody({
   return (
     <div className="flex flex-row items-center gap-1.5 pb-1">
       {node.stages.map((stage, index) => (
-        <div key={stage.id} className="flex items-start gap-1.5">
+        <div key={stage.id} className="flex items-center gap-1.5">
           {index > 0 && (
             <ArrowRight className="size-4 shrink-0 text-muted-foreground/70" />
           )}
@@ -2140,7 +2140,12 @@ function RecipeNodeCard({
 
   // Fusion / Pipeline — a bare structural grouping.
   return (
-    <div className={cn("flex flex-col gap-2", depth > 0 && "pl-0.5")}>
+    <div
+      className={cn(
+        "flex flex-col gap-2",
+        depth > 0 && "rounded-xl border border-border/60 bg-muted/10 p-3",
+      )}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <button
