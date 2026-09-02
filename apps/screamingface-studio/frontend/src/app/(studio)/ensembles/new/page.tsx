@@ -1095,6 +1095,9 @@ function RunsPanel({
   const [benchmarkId, setBenchmarkId] = useState("gpqa");
   const [sampleSize, setSampleSize] = useState(100);
   const [full, setFull] = useState(false);
+  const [custom, setCustom] = useState(false);
+  const [useCache, setUseCache] = useState(true);
+  const [saveCache, setSaveCache] = useState(true);
   const [compute, setCompute] = useState<"om" | "own">("om");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -1198,6 +1201,8 @@ function RunsPanel({
           benchmarkName: benchmark.name,
           sampleSize: full ? benchmark.questions : sampleSize,
           full,
+          useCache,
+          saveCache,
           compute: effectiveCompute,
           score,
           baseline,
@@ -1414,23 +1419,41 @@ function RunsPanel({
             <section>
               <p className="mb-3 text-xs text-muted-foreground">Sample Size</p>
               <div className="flex flex-wrap gap-2">
-                {[25, 50, 100, 200].map((size) => (
-                  <Button
-                    key={size}
-                    type="button"
-                    size="sm"
-                    aria-pressed={!full && sampleSize === size}
-                    variant={!full && sampleSize === size ? "default" : "outline"}
-                    disabled={running}
-                    className="font-mono"
-                    onClick={() => {
-                      setSampleSize(size);
-                      setFull(false);
-                    }}
-                  >
-                    {size}q
-                  </Button>
-                ))}
+                {[1, 50, 100].map((size) => {
+                  const active = !full && !custom && sampleSize === size;
+                  return (
+                    <Button
+                      key={size}
+                      type="button"
+                      size="sm"
+                      aria-pressed={active}
+                      variant={active ? "default" : "outline"}
+                      disabled={running}
+                      className="font-mono"
+                      onClick={() => {
+                        setSampleSize(size);
+                        setFull(false);
+                        setCustom(false);
+                      }}
+                    >
+                      {size}q
+                    </Button>
+                  );
+                })}
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-pressed={!full && custom}
+                  variant={!full && custom ? "default" : "outline"}
+                  disabled={running}
+                  className="font-mono"
+                  onClick={() => {
+                    setCustom(true);
+                    setFull(false);
+                  }}
+                >
+                  Custom
+                </Button>
                 <Button
                   type="button"
                   size="sm"
@@ -1438,11 +1461,32 @@ function RunsPanel({
                   variant={full ? "default" : "outline"}
                   disabled={running}
                   className="font-mono"
-                  onClick={() => setFull(true)}
+                  onClick={() => {
+                    setFull(true);
+                    setCustom(false);
+                  }}
                 >
                   Full
                 </Button>
               </div>
+              {!full && custom && (
+                <div className="mt-3 flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    value={sampleSize}
+                    disabled={running}
+                    aria-label="Custom sample size"
+                    className="h-8 w-28 font-mono"
+                    onChange={(event) => {
+                      const next = Number.parseInt(event.target.value, 10);
+                      setSampleSize(Number.isNaN(next) ? 1 : Math.max(1, next));
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">questions</span>
+                </div>
+              )}
               {full && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Full benchmark — {benchmark.questions.toLocaleString()} questions.
@@ -1507,6 +1551,55 @@ function RunsPanel({
                   </p>
                 </div>
               )}
+            </section>
+            <section>
+              <p className="mb-3 text-xs text-muted-foreground">Cache</p>
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="run-use-cache"
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
+                    running && "cursor-not-allowed opacity-50",
+                    useCache ? "border-primary/50 bg-primary/5" : "hover:bg-muted/20",
+                  )}
+                >
+                  <span>
+                    <span className="block text-xs font-medium">Use cache</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Reuse cached answers when a matching request already ran.
+                    </span>
+                  </span>
+                  <Switch
+                    id="run-use-cache"
+                    checked={useCache}
+                    disabled={running}
+                    onCheckedChange={setUseCache}
+                    aria-label="Use cache"
+                  />
+                </label>
+                <label
+                  htmlFor="run-save-cache"
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
+                    running && "cursor-not-allowed opacity-50",
+                    saveCache ? "border-primary/50 bg-primary/5" : "hover:bg-muted/20",
+                  )}
+                >
+                  <span>
+                    <span className="block text-xs font-medium">Save cache</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Store this run&apos;s answers so future runs can reuse them.
+                    </span>
+                  </span>
+                  <Switch
+                    id="run-save-cache"
+                    checked={saveCache}
+                    disabled={running}
+                    onCheckedChange={setSaveCache}
+                    aria-label="Save cache"
+                  />
+                </label>
+              </div>
             </section>
           </div>
         </div>

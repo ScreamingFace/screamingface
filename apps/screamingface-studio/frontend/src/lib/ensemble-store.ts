@@ -34,6 +34,8 @@ export type SavedRun = {
   benchmarkName: string;
   sampleSize: number;
   full: boolean;
+  useCache: boolean;
+  saveCache: boolean;
   compute: "own" | "om";
   score: number;
   baseline: number;
