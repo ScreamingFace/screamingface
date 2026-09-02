@@ -1733,6 +1733,8 @@ function buildDraft(
 
 type Orientation = "vertical" | "horizontal";
 
+type NodeRole = "root" | "member" | "stage" | "synthesizer";
+
 const RECIPE_KINDS: { kind: RecipeKind; label: string }[] = [
   { kind: "solo", label: "Solo" },
   { kind: "fusion", label: "Fusion" },
@@ -1743,14 +1745,12 @@ function nodeChrome(depth: number, role: NodeRole): string {
   if (role === "synthesizer") {
     return depth === 0
       ? "rounded-xl border border-accent/40 bg-accent/5 p-3.5"
-      : "rounded-lg bg-accent/5 ring-1 ring-inset ring-accent/15 p-3";
+      : "rounded-lg bg-accent/5 ring-1 ring-inset ring-accent/15 p-2.5";
   }
   return depth === 0
     ? "rounded-xl border bg-card p-3.5 shadow-sm"
-    : "rounded-lg bg-muted/30 ring-1 ring-inset ring-border/40 p-3";
+    : "rounded-lg bg-muted/30 ring-1 ring-inset ring-border/40 p-2.5";
 }
-
-type NodeRole = "root" | "member" | "stage" | "synthesizer";
 
 function KindSwitch({
   node,
@@ -1786,11 +1786,13 @@ function SoloBody({
   onChange,
   providers,
   onUseModels,
+  onModelChosen,
 }: {
   node: SoloNode;
   onChange: (next: RecipeNode) => void;
   providers: ModelProvider[];
   onUseModels: (models: Model[]) => void;
+  onModelChosen?: () => void;
 }) {
   const [showParams, setShowParams] = useState((node.params?.length ?? 0) > 0);
   const paramCount = node.params?.length ?? 0;
@@ -1818,6 +1820,7 @@ function SoloBody({
           onAdd={(model) => {
             onChange({ ...node, model });
             onUseModels([model]);
+            onModelChosen?.();
           }}
         />
       )}
@@ -2005,10 +2008,7 @@ function PipelineBody({
         {node.stages.map((stage, index) => (
           <div
             key={stage.id}
-            className={cn(
-              "flex gap-2",
-              horizontal ? "items-stretch" : "flex-col",
-            )}
+            className={cn("flex gap-2", horizontal ? "items-stretch" : "flex-col")}
           >
             {index > 0 && (
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -2079,41 +2079,33 @@ function RecipeNodeCard({
   depth?: number;
   orientation?: Orientation;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const collapsible = node.kind !== "solo";
+  const isSolo = node.kind === "solo";
+  const [collapsed, setCollapsed] = useState(
+    () => isSolo && Boolean((node as SoloNode).model),
+  );
   const roleLabel =
     role === "member"
       ? `Member ${(index ?? 0) + 1}`
       : role === "stage"
         ? `Stage ${(index ?? 0) + 1}`
         : role === "synthesizer"
-          ? "Synthesizer · required"
+          ? "Synthesizer"
           : "Recipe";
   return (
     <article className={cn("h-full", nodeChrome(depth, role))}>
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          {collapsible ? (
-            <button
-              type="button"
-              aria-label={collapsed ? "Expand" : "Collapse"}
-              aria-expanded={!collapsed}
-              onClick={() => setCollapsed((value) => !value)}
-              className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-            >
-              <ChevronRight
-                className={cn("size-3.5 transition-transform", !collapsed && "rotate-90")}
-              />
-            </button>
-          ) : (
-            <span
-              aria-hidden="true"
-              className={cn(
-                "ml-1.5 mr-0.5 size-1.5 shrink-0 rounded-full",
-                role === "synthesizer" ? "bg-accent/60" : "bg-muted-foreground/40",
-              )}
-            />
-          )}
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          aria-expanded={!collapsed}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        >
+          <ChevronRight
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              !collapsed && "rotate-90",
+            )}
+          />
           <span
             className={cn(
               "shrink-0 font-mono text-[11px] uppercase tracking-wide",
@@ -2122,12 +2114,26 @@ function RecipeNodeCard({
           >
             {roleLabel}
           </span>
-          {collapsed && (
+          {isSolo && collapsed ? (
+            (node as SoloNode).model ? (
+              <span className="flex min-w-0 items-center gap-1.5">
+                <ProviderDot provider={(node as SoloNode).model!.providerId} />
+                <span className="truncate font-mono text-xs text-foreground/80">
+                  {(node as SoloNode).model!.name}
+                </span>
+              </span>
+            ) : (
+              <span className="truncate text-xs text-muted-foreground/70">
+                Choose a model…
+              </span>
+            )
+          ) : null}
+          {!isSolo && collapsed ? (
             <span className="min-w-0 truncate rounded-md bg-background/70 px-1.5 py-0.5 font-mono text-[11px] text-foreground/80">
               {describeRecipe(node)}
             </span>
-          )}
-        </div>
+          ) : null}
+        </button>
         <div className="flex shrink-0 items-center gap-1.5">
           <KindSwitch node={node} onChange={onChange} />
           {onRemove && (
@@ -2152,6 +2158,7 @@ function RecipeNodeCard({
               onChange={onChange}
               providers={providers}
               onUseModels={onUseModels}
+              onModelChosen={() => setCollapsed(true)}
             />
           ) : node.kind === "fusion" ? (
             <FusionBody
