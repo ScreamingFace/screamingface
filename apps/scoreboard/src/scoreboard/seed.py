@@ -63,6 +63,13 @@ class SeedBenchmark(BaseModel):
     # Short editorial line for the portal catalogue's "Focus" column (OME-874). Optional: it is
     # copy someone writes, not a value the Engine derives.
     focus: str | None = Field(default=None, max_length=120)
+    # OME-1056: how many cases the Engine benchmark defines, used to keep partial runs out of the
+    # ranking.
+    # INVARIANT: Engine-owned, exactly like `revision`. A row that DECLARES it in deployment
+    # configuration is refused by `_classify_configured`, because a hand-written entry claiming
+    # `case_count: 1` would re-open the hole from the other side — every one-case run would then
+    # rank as complete. It reaches this model only via `_CatalogEntry.as_seed`.
+    case_count: int | None = Field(default=None, ge=1)
 
 
 class _CatalogEntry(BaseModel):
@@ -102,6 +109,11 @@ class _CatalogEntry(BaseModel):
     revision: str = Field(min_length=1, max_length=64)
     focus: str | None = Field(default=None, max_length=120)
     dataset_url: str | None = None
+    # OME-1056: the Engine has always published this and the board discarded it via
+    # `extra="ignore"`, which is why a one-case run could rank as though it were complete.
+    # Optional for the same reason `description` is: a catalogue that omits it costs the board
+    # its ranking filter, not the benchmark its row.
+    case_count: int | None = Field(default=None, ge=1)
 
     @field_validator("description", "focus", mode="after")
     @classmethod
@@ -119,6 +131,7 @@ class _CatalogEntry(BaseModel):
             dataset_url=self.dataset_url,
             revision=self.revision,
             focus=self.focus,
+            case_count=self.case_count,
         )
 
 
@@ -354,7 +367,7 @@ def _classify_configured(
     for row in configured:
         if row.id in published:
             report.shadowed.append(row.id)
-        elif row.revision is not None or row.id in engine_owned:
+        elif row.revision is not None or row.case_count is not None or row.id in engine_owned:
             report.refused.append(row.id)
         elif row.visibility is not None and row.id not in existing_ids:
             # INVARIANT: a row declaring `visibility` OVERRIDES; it never brings a board into
@@ -509,6 +522,7 @@ async def seed_benchmarks(benchmarks: Sequence[SeedBenchmark]) -> list[Benchmark
                 revision=benchmark.revision,
                 focus=benchmark.focus,
                 visibility=benchmark.visibility,
+                case_count=benchmark.case_count,
             )
         )
     return seeded

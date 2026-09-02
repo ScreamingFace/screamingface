@@ -55,6 +55,7 @@ def benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
         focus=model.focus,
         dataset_url=model.dataset_url,
         revision=model.revision,
+        case_count=model.case_count,
         # A pre-migration row can carry NULL; it was world-readable before the column existed,
         # so it reads as public. The column stays nullable so 0008 need not rebuild the table.
         visibility=cast(Visibility, model.visibility or "public"),
@@ -367,7 +368,10 @@ class SubmitOutcome(NamedTuple):
 
 
 def _build_leaderboard_query(
-    benchmark_id: str, top_n: int, registered_revision: str | None
+    benchmark_id: str,
+    top_n: int,
+    registered_revision: str | None,
+    registered_case_count: int | None = None,
 ) -> QueryBuilder:
     scores = Score.get_table()
     # INVARIANT: every entry the board ranks was measured against the revision the benchmark is
@@ -410,6 +414,24 @@ def _build_leaderboard_query(
     )
     if registered_revision is not None:
         ranked = ranked.where(scores.benchmark_revision == registered_revision)
+    # INVARIANT (OME-1056): a run covering fewer cases than the benchmark defines is not
+    # comparable with a complete one, and is ADVANTAGED rather than merely different — fewer
+    # cases makes a perfect score easier, so a one-case run scoring 1.0 outranked a 541-case run
+    # scoring 0.85. A board declaring no count filters nothing, mirroring the revision rule
+    # directly above, so legacy and non-Engine boards are untouched.
+    #
+    # WHY `>=` and not `==`: the predicate asks "did this cover the canonical set", so a run
+    # reporting more cases than registered is anomalous but not a SUBSET, and excluding it would
+    # hide a complete run because the board's count went stale.
+    #
+    # AIDEV-NOTE: this belongs in the INNER query, beside the revision filter and NOT after the
+    # window. SQL evaluates WHERE before window functions, so an excluded row never receives a
+    # row_number — which is the point. Applied outside, a spec whose PARTIAL run scored higher
+    # than its own full run would give the partial row `rn = 1`, and the outer `rn = 1` filter
+    # would then drop that spec's complete run entirely: the invisible-submission failure this
+    # change exists to prevent, reintroduced one level up.
+    if registered_case_count is not None:
+        ranked = ranked.where(scores.total_questions >= registered_case_count)
     ranked = ranked.as_("ranked")
 
     return (
@@ -442,6 +464,7 @@ class ScoreStore:
         revision: str | None = None,
         focus: str | None = None,
         visibility: Visibility | None = None,
+        case_count: int | None = None,
     ) -> BenchmarkSchema:
         defaults: dict[str, object] = {
             "display_name": display_name,
@@ -449,6 +472,7 @@ class ScoreStore:
             "dataset_url": dataset_url,
             "revision": revision,
             "focus": focus,
+            "case_count": case_count,
         }
         if visibility is not None:
             # WHY conditional (OME-894): seeding runs on every deploy, and an omitted visibility
@@ -906,7 +930,10 @@ class ScoreStore:
         benchmark = await Benchmark.get_or_none(id=benchmark_id)
         result = await execute_pypika(
             _build_leaderboard_query(
-                benchmark_id, top_n, benchmark.revision if benchmark else None
+                benchmark_id,
+                top_n,
+                benchmark.revision if benchmark else None,
+                benchmark.case_count if benchmark else None,
             ),
             using_db=conn,
         )
