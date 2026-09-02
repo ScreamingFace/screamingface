@@ -313,6 +313,25 @@ class _JetStreamConnection:
         ended = frame.time if frame.time.tzinfo is not None else frame.time.replace(tzinfo=UTC)
         return (datetime.now(UTC) - ended).total_seconds() > self._orphan_grace_s
 
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The run's last published frame, or None when the stream is missing or empty.
+
+        WHY this exists: the worker's dedupe check (a terminal frame already on the stream
+        means the run is over — redelivery, cancel-before-claim, or stale) and its
+        post-exit check (did the child publish its own terminal frame?) both need to read
+        the stream's tail without subscribing. A missing stream, an empty stream, or an
+        unreadable frame all read as None — the conservative direction for both checks.
+        """
+        js = await self._jetstream()
+        try:
+            raw = await js.get_last_msg(stream_for(topic), subject_for(topic))
+        except APIError:
+            return None
+        try:
+            return decode(raw.data or b"")
+        except ValidationError:
+            return None
+
     async def delete_stream(self, topic: str) -> None:
         """Drop a run's stream entirely, tolerating one that is already gone.
 

@@ -1,0 +1,479 @@
+"""The worker's claim and supervision logic (OME-1089), against fakes.
+
+The worker's contract is mostly about what it does with a claimed message: dedupe,
+spawn, heartbeat, classify, ack. The broker behavior (redelivery, ack_wait, the
+durable consumer) is pinned by the integration suite; here the queue, the publisher,
+and the child process are fakes, so each decision is observable in isolation.
+"""
+
+import asyncio
+import json
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from screamingface_engine import job_env
+from screamingface_engine.runner_queue import encode_message
+from screamingface_engine.worker.loop import Worker
+from screamingface_engine.worker.supervisor import (
+    CHILD_EXITED,
+    DEADLINE_EXCEEDED,
+    KILLED,
+    OOM_KILLED,
+    QUEUE_EXPIRED,
+    WORKER_DRAINING,
+)
+from url4.streaming.protocol import TerminatedData, TerminatedEvent, source_for
+
+pytestmark = pytest.mark.asyncio
+
+
+class _FakeMsg:
+    """A claimed queue message: records acks and in-progress heartbeats."""
+
+    def __init__(self, data: bytes, *, published_at: datetime | None = None) -> None:
+        self.data = data
+        self.metadata = SimpleNamespace(timestamp=published_at or datetime.now(UTC))
+        self.acked = False
+        self.in_progress_calls = 0
+
+    async def ack(self) -> None:
+        self.acked = True
+
+    async def in_progress(self) -> None:
+        self.in_progress_calls += 1
+
+
+class _FakePublisher:
+    """The slice of `JetStreamPublisher` the supervisor uses, recording every call."""
+
+    def __init__(self, last_frame: TerminatedEvent | None = None) -> None:
+        self._last_frame = last_frame
+        self.published: list[Any] = []
+        self.ensured: list[str] = []
+
+    async def last_frame(self, topic: str) -> TerminatedEvent | None:
+        return self._last_frame
+
+    async def ensure_stream(self, topic: str) -> None:
+        self.ensured.append(topic)
+
+    async def publish(self, topic: str, event: Any) -> None:
+        self.published.append(event)
+
+    async def flush(self) -> None:
+        pass
+
+
+class _FakeProcess:
+    """A controllable child: `wait()` blocks until released, or exits immediately."""
+
+    def __init__(
+        self, exit_code: int = 0, *, hang: bool = False, ignores_sigterm: bool = False
+    ) -> None:
+        self._exit_code = exit_code
+        self._hang = hang
+        self._ignores_sigterm = ignores_sigterm
+        self._released = asyncio.Event()
+        self.returncode: int | None = None
+        self.stdout = None
+        self.stderr = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+
+    async def wait(self) -> int:
+        if self._hang:
+            await self._released.wait()
+        self.returncode = self._exit_code
+        return self.returncode
+
+    def release(self, code: int | None = None) -> None:
+        if code is not None:
+            self._exit_code = code
+        self._released.set()
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        if self._ignores_sigterm:
+            return
+        self.release(-15)
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self.release(-9)
+
+
+class _FakeQueue:
+    """A queue that serves scripted batches, then returns empty after each timeout (an
+    empty queue)."""
+
+    def __init__(self, batches: list[list[_FakeMsg]] | None = None) -> None:
+        self._batches = list(batches or [])
+        self.pull_calls: list[tuple[int, float]] = []
+
+    async def pull(self, batch: int, timeout_s: float) -> list[_FakeMsg]:
+        self.pull_calls.append((batch, timeout_s))
+        if self._batches:
+            return self._batches.pop(0)
+        await asyncio.sleep(timeout_s)
+        return []
+
+
+def _worker(
+    queue: _FakeQueue,
+    publisher: _FakePublisher,
+    *,
+    slots: int = 2,
+    spawn: Any = None,
+    **kwargs: Any,
+) -> Worker:
+    return Worker(
+        queue=queue,
+        publisher=publisher,
+        slots=slots,
+        drain_grace_s=kwargs.pop("drain_grace_s", 0.1),
+        io_capacity=kwargs.pop("io_capacity", 4),
+        memory_budget_bytes=kwargs.pop("memory_budget_bytes", 1024**3),
+        spawn=spawn,
+        pull_timeout_s=kwargs.pop("pull_timeout_s", 0.1),
+        heartbeat_interval_s=kwargs.pop("heartbeat_interval_s", 20.0),
+        deadline_margin_s=kwargs.pop("deadline_margin_s", 30.0),
+        kill_grace_s=kwargs.pop("kill_grace_s", 0.05),
+    )
+
+
+def _async_proc(proc: _FakeProcess) -> Any:
+    """A spawn callable that returns a fixed fake process."""
+
+    async def _spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        return proc
+
+    return _spawn
+
+
+async def _wait_until(predicate: Any, timeout_s: float = 2.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
+    while not predicate():
+        if loop.time() > deadline:
+            raise AssertionError("condition not met in time")
+        await asyncio.sleep(0.01)
+
+
+def _message(topic: str, deadline_s: int = 60, grace_s: float = 60.0) -> bytes:
+    """A queue message body with a controllable deadline and stream grace, so the hard-wall
+    tests do not have to wait out the production defaults."""
+    return json.dumps(
+        {
+            job_env.TOPIC: topic,
+            job_env.EXPRESSION: "'hi'",
+            job_env.JOB_DEADLINE_S: str(deadline_s),
+            job_env.STREAM_GRACE_S: str(grace_s),
+        }
+    ).encode()
+
+
+def _terminal(topic: str, status: str = "succeeded") -> TerminatedEvent:
+    return TerminatedEvent(
+        id="already-there",
+        source=source_for(topic),
+        subject=topic,
+        data=TerminatedData(status=status),  # type: ignore[arg-type]
+    )
+
+
+# --- 1. dedupe: a terminal frame already on the stream means ack and skip ------------------
+
+
+async def test_a_terminal_frame_already_on_the_stream_acks_without_spawning() -> None:
+    """Redelivery, cancel-before-claim, and stale messages are one check: a terminal frame
+    on the run's stream means the run is over, so the message is acked and no child is
+    ever spawned."""
+    topic = "t-dedupe"
+    publisher = _FakePublisher(last_frame=_terminal(topic))
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    spawned: list[Any] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawned.append(args)
+        return _FakeProcess()
+
+    worker = _worker(_FakeQueue(), publisher, spawn=fake_spawn)
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked
+    assert not spawned
+    assert not publisher.published
+
+
+# --- 8. queue-time expiry ------------------------------------------------------------------
+
+
+async def test_an_expired_capability_is_acked_with_a_queue_expired_frame() -> None:
+    """A message whose run's deadline has already elapsed while queued is dropped with a
+    named `queue_expired` terminal frame — never executed late."""
+    topic = "t-expired"
+    publisher = _FakePublisher()
+    msg = _FakeMsg(
+        encode_message(topic, "'hi'", 60),
+        published_at=datetime.now(UTC) - timedelta(seconds=100),
+    )
+    spawned: list[Any] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawned.append(args)
+        return _FakeProcess()
+
+    worker = _worker(_FakeQueue(), publisher, spawn=fake_spawn)
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked
+    assert not spawned
+    assert len(publisher.published) == 1
+    frame = publisher.published[0]
+    assert frame.data.status == "failed"
+    assert frame.data.error is not None and frame.data.error.code == QUEUE_EXPIRED
+    assert frame.source == source_for(topic)
+
+
+async def test_a_fresh_message_is_not_expired() -> None:
+    """The expiry check must not drop a message that still has time: the safe direction is
+    to execute."""
+    topic = "t-fresh"
+    publisher = _FakePublisher()
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))  # published now
+    worker = _worker(_FakeQueue(), publisher, spawn=_async_proc(_FakeProcess()))
+    await worker._supervisor.supervise(msg)
+
+    assert not publisher.published
+    assert msg.acked
+
+
+# --- 3. exit classification ----------------------------------------------------------------
+
+
+async def test_a_clean_exit_adds_nothing_when_the_child_published_its_terminal_frame() -> None:
+    """Exit 0 with the child's own terminal frame on the stream: the worker adds nothing —
+    a second terminal frame would be a duplicate."""
+    topic = "t-clean"
+    publisher = _FakePublisher(last_frame=_terminal(topic))
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    worker = _worker(_FakeQueue(), publisher, spawn=_async_proc(_FakeProcess(0)))
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked
+    assert not publisher.published
+
+
+async def test_a_clean_exit_adds_nothing_even_when_the_stream_is_gone() -> None:
+    """Exit 0 with no terminal frame visible: the child's own teardown reclaimed the stream
+    only AFTER publishing its terminal frame, so the worker still adds nothing."""
+    topic = "t-clean-reclaimed"
+    publisher = _FakePublisher()  # no stream at all
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    worker = _worker(_FakeQueue(), publisher, spawn=_async_proc(_FakeProcess(0)))
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked
+    assert not publisher.published
+
+
+async def test_a_nonzero_exit_publishes_a_named_failure() -> None:
+    topic = "t-exit3"
+    publisher = _FakePublisher()
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    worker = _worker(_FakeQueue(), publisher, spawn=_async_proc(_FakeProcess(3)))
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked
+    assert len(publisher.published) == 1
+    frame = publisher.published[0]
+    assert frame.data.status == "failed"
+    assert frame.data.error is not None and frame.data.error.code == CHILD_EXITED
+    assert "3" in (frame.data.error.message or "")
+
+
+async def test_a_signal_death_publishes_a_named_failure() -> None:
+    topic = "t-signal"
+    publisher = _FakePublisher()
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    worker = _worker(_FakeQueue(), publisher, spawn=_async_proc(_FakeProcess(-11)))
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked
+    frame = publisher.published[0]
+    assert frame.data.status == "failed"
+    assert frame.data.error is not None and frame.data.error.code == KILLED
+    assert "11" in (frame.data.error.message or "")
+
+
+async def test_exit_137_publishes_an_oom_failure() -> None:
+    """137 is the OOMKilled exit: the OS killed the run for its memory, and the client
+    must see that name rather than a generic failure."""
+    topic = "t-oom"
+    publisher = _FakePublisher()
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    worker = _worker(_FakeQueue(), publisher, spawn=_async_proc(_FakeProcess(137)))
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked
+    frame = publisher.published[0]
+    assert frame.data.status == "failed"
+    assert frame.data.error is not None and frame.data.error.code == OOM_KILLED
+
+
+# --- 4. the hard wall ----------------------------------------------------------------------
+
+
+async def test_a_hung_child_is_sigterm_then_sigkill_and_publishes_a_deadline_frame() -> None:
+    """A child hung past `deadline_s + STREAM_GRACE_S + margin` gets SIGTERM, then SIGKILL
+    when it ignores that, and the run ends in a named `timed_out` frame."""
+    topic = "t-hung"
+    publisher = _FakePublisher()
+    msg = _FakeMsg(_message(topic, deadline_s=1, grace_s=0))
+    proc = _FakeProcess(hang=True, ignores_sigterm=True)
+    worker = _worker(
+        _FakeQueue(),
+        publisher,
+        spawn=_async_proc(proc),
+        deadline_margin_s=0.05,  # hard wall = 1 + 0 + 0.05
+        kill_grace_s=0.05,
+    )
+    await worker._supervisor.supervise(msg)
+
+    assert proc.terminate_calls == 1
+    assert proc.kill_calls == 1
+    assert msg.acked
+    frame = publisher.published[0]
+    assert frame.data.status == "timed_out"
+    assert frame.data.error is not None and frame.data.error.code == DEADLINE_EXCEEDED
+
+
+async def test_a_child_that_dies_on_sigterm_is_not_sigkilled() -> None:
+    """The SIGKILL is the backstop, not the norm: a child that honors SIGTERM is killed
+    once."""
+    topic = "t-hung-obedient"
+    publisher = _FakePublisher()
+    msg = _FakeMsg(_message(topic, deadline_s=1, grace_s=0))
+    proc = _FakeProcess(hang=True)  # honors SIGTERM
+    worker = _worker(
+        _FakeQueue(),
+        publisher,
+        spawn=_async_proc(proc),
+        deadline_margin_s=0.05,
+        kill_grace_s=0.05,
+    )
+    await worker._supervisor.supervise(msg)
+
+    assert proc.terminate_calls == 1
+    assert proc.kill_calls == 0
+    assert msg.acked
+    assert publisher.published[0].data.status == "timed_out"
+
+
+# --- 5. heartbeats -------------------------------------------------------------------------
+
+
+async def test_heartbeats_keep_a_long_childs_message_unacked() -> None:
+    """While a child runs, the supervisor extends the message's ack_wait with
+    `in_progress()` heartbeats, and the message is not acked until the child exits."""
+    topic = "t-long"
+    publisher = _FakePublisher()
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    proc = _FakeProcess(hang=True)
+    worker = _worker(
+        _FakeQueue(),
+        publisher,
+        spawn=_async_proc(proc),
+        heartbeat_interval_s=0.01,
+    )
+    supervise = asyncio.create_task(worker._supervisor.supervise(msg))
+
+    await _wait_until(lambda: msg.in_progress_calls >= 2)
+    assert not msg.acked, "a live run must not be acked"
+
+    proc.release(0)
+    await supervise
+    assert msg.acked
+
+
+# --- 2. slot accounting --------------------------------------------------------------------
+
+
+async def test_the_fetch_batch_equals_free_slots_and_never_exceeds_them() -> None:
+    """The loop computes the fetch batch from FREE slots: it claims exactly `worker_slots`
+    at first, then exactly one per freed slot — never more than the pool can hold, so a
+    sibling pull consumer is never starved."""
+    queue = _FakeQueue(
+        [
+            [
+                _FakeMsg(encode_message("t1", "'hi'", 60)),
+                _FakeMsg(encode_message("t2", "'hi'", 60)),
+            ],
+            [_FakeMsg(encode_message("t3", "'hi'", 60))],
+        ]
+    )
+    procs: list[_FakeProcess] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    worker = _worker(queue, _FakePublisher(), slots=2, spawn=fake_spawn)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+
+        await _wait_until(lambda: len(procs) == 2)
+        assert queue.pull_calls[0][0] == 2, "the first fetch must claim the whole pool"
+        assert len(worker._active) == 2
+
+        procs[0].release(0)  # one run finishes -> one slot frees
+        await _wait_until(lambda: len(procs) == 3)
+        assert queue.pull_calls[1][0] == 1, "the next fetch must claim exactly the freed slot"
+        assert len(worker._active) == 2, "the pool must never exceed worker_slots"
+
+        for proc in procs:
+            proc.release(0)
+        claim.cancel()
+
+
+# --- 7. drain ------------------------------------------------------------------------------
+
+
+async def test_drain_stops_pulling_and_terminates_children_with_a_worker_draining_reason() -> None:
+    """On the drain signal the worker stops pulling; in-flight children survive to
+    `drain_grace_s`; then they are SIGTERM'd and each run ends in
+    `Terminated(stopped)` with a `worker_draining` reason."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t1", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    worker = _worker(queue, publisher, slots=1, spawn=fake_spawn, drain_grace_s=0.2)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+
+        await _wait_until(lambda: len(procs) == 1)
+        assert len(queue.pull_calls) == 1
+
+        worker._draining.set()
+        await asyncio.sleep(0.1)  # inside the drain grace
+        assert procs[0].terminate_calls == 0, "a child must survive to the drain grace"
+        assert len(queue.pull_calls) == 1, "the worker must stop pulling on the drain signal"
+
+        await _wait_until(lambda: procs[0].terminate_calls == 1)
+        await _wait_until(
+            lambda: bool(publisher.published) and publisher.published[-1].data.status == "stopped"
+        )
+        frame = publisher.published[-1]
+        assert frame.data.error is not None and frame.data.error.code == WORKER_DRAINING
+
+        await claim
+        assert len(queue.pull_calls) == 1

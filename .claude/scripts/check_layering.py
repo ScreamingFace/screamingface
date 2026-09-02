@@ -8,10 +8,17 @@ One image ships two modes, and the whole point of that shape is a rule about wha
         |          |
     control plane   run mode                    Every concrete implementation, in the half that
     (serve)         (run)                       runs it — and the two halves stay disjoint.
+        ^
+        |
+    worker (OME-1089)                           The third mode: claims runs from the queue and
+                                                forks the run as a child process. It may import
+                                                the serving half and `runner_queue`; it must
+                                                import NOTHING from the run half.
 
   Control plane: app · rest · ws · auth · catalog · connections · config · metrics · ops · reaper
                  schemas · adapters.k8s · adapters.factory  (FastAPI, uvicorn, the k8s client)
   Run mode:      runner.executor (the url4 engine) · runner.connector · runner.main
+  Worker:        worker (the claim loop, the supervisor, the exec wrapper)
 
   Shared leaves, importable by BOTH: job_env · subjects · adapters.jetstream · world_config
 
@@ -67,6 +74,7 @@ CONTROL_PLANE = {
     "adapters.factory",
 }
 RUN_MODE = {"runner"}
+WORKER_MODE = {"worker"}
 
 # (subtree under screamingface_engine/, forbidden screamingface_engine submodules, why)
 RULES: list[tuple[str, set[str], str]] = [
@@ -81,6 +89,13 @@ RULES: list[tuple[str, set[str], str]] = [
         RUN_MODE,
         "the control plane schedules runs and reads their log over NATS; it never evaluates an "
         "expression in-process, so it must not reach into the engine-bearing half",
+    ),
+    (
+        "worker",
+        RUN_MODE,
+        "the worker spawns the run as a child process; it never imports it — the run half stays "
+        "a separate crash domain, and the worker's import graph stays the serving half's plus "
+        "the queue",
     ),
 ]
 
@@ -171,13 +186,16 @@ def files_for(subtree: str) -> list[pathlib.Path]:
 
 
 def _half_of(path: pathlib.Path) -> str | None:
-    """Which half a module belongs to: "control-plane", "run-mode", or None for a shared leaf."""
+    """Which half a module belongs to: "control-plane", "run-mode", "worker-mode", or None for a
+    shared leaf."""
     parts = path.relative_to(SRC).with_suffix("").parts
     if not parts:
         return None
     top, two = parts[0], ".".join(parts[:2])
     if top in RUN_MODE:
         return "run-mode"
+    if top in WORKER_MODE:
+        return "worker-mode"
     if top in CONTROL_PLANE or two in CONTROL_PLANE:
         return "control-plane"
     return None
@@ -242,7 +260,8 @@ def main() -> int:
         )
         return 1
     print(
-        "LAYERING OK: screamingface_engine.runner and the control plane stay disjoint."
+        "LAYERING OK: screamingface_engine.runner, the worker, and the control plane stay "
+        "disjoint."
     )
     return 0
 
