@@ -363,3 +363,45 @@ async def test_a_readmitted_topic_does_not_orphan_the_first_callers_slot() -> No
     # And A keeps its full cap — the orphaned entry used to eat one slot forever.
     await runner.schedule("a-1", "'hi'", 60, identity=CALLER_A)
     await runner.schedule("a-2", "'hi'", 60, identity=CALLER_A)
+
+
+# --- 6. a cancelled schedule must not leak its reservation (review follow-up) ---------------
+
+
+class _HangingQueue(_FakeQueue):
+    """A queue whose publish hangs until the test releases it — the cancellation lands
+    mid-publish, exactly the window a client disconnect or upstream timeout hits."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._release = asyncio.Event()
+
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None
+    ) -> None:
+        await self._release.wait()
+
+    def finish(self) -> None:
+        self._release.set()
+
+
+async def test_a_schedule_cancelled_mid_publish_releases_its_reservation() -> None:
+    """`CancelledError` is a BaseException, not an Exception — since 3.8 precisely so
+    `except Exception` cannot swallow it. The release-on-failure clause never ran on a
+    cancelled publish: the reservation leaked (`_reserved` stuck, the caller's in-flight
+    entry a dead topic forever), and a caller whose clients keep disconnecting under
+    load ends up permanently refused for runs that never queued. Cleanup must run on the
+    cancellation path too — with the cancellation still propagating."""
+    queue = _HangingQueue()
+    runner = _runner(queue)
+
+    task = asyncio.create_task(runner.schedule("t-hang", "'hi'", 60, identity=CALLER_A))
+    await asyncio.sleep(0)  # let the task reach the hanging publish
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert runner._reserved == 0, "a cancelled schedule must release its reservation"
+    key_a = "a@example.com"
+    assert key_a not in runner._in_flight_by_caller, "no dead topic may linger"
+    queue.finish()

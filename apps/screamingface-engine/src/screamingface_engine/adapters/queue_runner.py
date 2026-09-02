@@ -267,9 +267,15 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 extra_models=() if self._extra_models is None else self._extra_models(),
             )
             await self._queue.publish(message, identity=identity)
-        except Exception:
-            # The reservation was for a run that was not durably accepted — release it so the
-            # next schedule in this window is not refused for a run that never queued.
+        except BaseException:
+            # WHY BaseException and not Exception: a task cancelled mid-publish (a client
+            # disconnect, an upstream timeout) raises `CancelledError`, which since 3.8 is
+            # NOT an Exception — the release below was skipped and the reservation leaked
+            # forever: the caller's in-flight dict accumulated dead topics until every
+            # later schedule was refused for runs that never queued. Cleanup runs on the
+            # cancellation path too; the bare `raise` still propagates the cancellation.
+            # (BaseException also covers KeyboardInterrupt/SystemExit reaching this await —
+            # releasing there is harmless, and they still propagate.)
             await self._release_reservation(topic)
             raise
         self._scheduled_at[topic] = self._clock()
