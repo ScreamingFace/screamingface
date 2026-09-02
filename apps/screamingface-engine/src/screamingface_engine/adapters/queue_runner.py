@@ -40,6 +40,7 @@ from typing import Any, Protocol
 import nats
 from nats.aio.client import Client
 from nats.aio.msg import Msg
+from nats.errors import NoRespondersError
 
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.runner_queue import DEFAULT_IO_CONCURRENCY, encode_message
@@ -288,7 +289,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 control_subject_for(topic), b"", timeout=self._control_timeout_s
             )
             return True
-        except TimeoutError:
+        except (TimeoutError, NoRespondersError):
+            # A timeout is "nobody replied in time". `NoRespondersError` is the SAME
+            # answer delivered faster: the broker itself reports that NOTHING is
+            # subscribed to `url4.runctl.*` — a pool scaled to zero, mid-rollout, or a
+            # worker that is down. nats-py raises it whenever the server advertises
+            # headers (`no_responders`), and it is NOT a `TimeoutError` subclass, so
+            # leaving it uncaught 500s `DELETE /` instead of tombstoning the queued run.
             return False
 
     async def _publish_tombstone(self, topic: str) -> None:
