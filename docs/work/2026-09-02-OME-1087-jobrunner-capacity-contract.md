@@ -45,7 +45,7 @@ member later.
   `packages/url4/tests/unit/test_jobs_port.py` (new RED test),
   `apps/screamingface-engine/src/screamingface_engine/rest/routes.py` (comment only),
   `docs/work/2026-09-02-OME-1087-jobrunner-capacity-contract.md` (this ledger).
-- **Commits:** <sha — message>
+- **Commits:** `0c44e48f` — fix(url4): correct the JobRunner capacity contract
 - **Gates:**
   - url4: ruff check pass, ruff format pass (112 files), pyright 0 errors,
     pytest 1167 passed, cov 97.55% (>= 95).
