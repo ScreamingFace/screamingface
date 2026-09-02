@@ -1,4 +1,7 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
+
+from screamingface_engine.adapters.k8s import _LimitRangeView
 
 
 @dataclass(frozen=True)
@@ -36,9 +39,15 @@ class FakeQuotaList:
 
 @dataclass
 class FakeLimitRangeItem:
+    """Mirrors `kubernetes.client.V1LimitRangeItem`'s Python attribute names (snake_case),
+    NOT the k8s API's JSON wire names — see the `WHY` on `_LimitRangeItem` in
+    `adapters/k8s.py` (OME-1083). A field spelled after the wire name here would agree with a
+    matching bug in the adapter and never catch the mismatch against the real client.
+    """
+
     type: str
     default: dict[str, str] | None = None
-    defaultRequest: dict[str, str] | None = None
+    default_request: dict[str, str] | None = None
 
 
 @dataclass
@@ -53,22 +62,27 @@ class FakeLimitRange:
 
 @dataclass
 class FakeLimitRangeList:
-    items: list[FakeLimitRange]
+    items: Sequence[_LimitRangeView]
 
 
 class FakeCoreV1:
     """The quota/limitrange read surface for the admission tests.
 
     A subclass can raise ApiException from either read to exercise the degradation path.
+
+    ``limitranges`` accepts anything structurally shaped like `_LimitRangeView` — a
+    `FakeLimitRange`, or a REAL `kubernetes.client.V1LimitRange` (OME-1083's regression test
+    passes the real client type directly, precisely to catch a Protocol/real-client mismatch
+    the hand-rolled fakes agreed with by construction).
     """
 
     def __init__(
         self,
         quotas: list[FakeQuota] | None = None,
-        limitranges: list[FakeLimitRange] | None = None,
+        limitranges: Sequence[_LimitRangeView] | None = None,
     ) -> None:
         self.quotas = quotas or []
-        self.limitranges = limitranges or []
+        self.limitranges: Sequence[_LimitRangeView] = limitranges or []
         self.quota_reads = 0
         self.limitrange_reads = 0
 

@@ -13,7 +13,7 @@ from _k8s_fakes import (
     FakeQuotaStatus,
     fake_created_job,
 )
-from kubernetes.client import ApiException
+from kubernetes.client import ApiException, V1LimitRange, V1LimitRangeItem, V1LimitRangeSpec
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.k8s import K8sJobRunner
@@ -509,7 +509,7 @@ def _limitrange(
         spec=FakeLimitRangeSpec(
             limits=[
                 FakeLimitRangeItem(
-                    type="Container", default=default, defaultRequest=default_request
+                    type="Container", default=default, default_request=default_request
                 )
             ]
         )
@@ -598,6 +598,48 @@ async def test_quota_accounting_includes_limitrange_defaults() -> None:
         limitranges=[_limitrange(default={"cpu": "500m", "memory": "512Mi"})],
     )
     runner = _admission_runner(client, core)
+
+    with pytest.raises(JobRunnerAtCapacity):
+        await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+
+    assert client.jobs == {}
+
+
+async def test_limitrange_default_request_is_read_from_the_real_kubernetes_client_shape() -> None:
+    """REGRESSION (OME-1083): `_limitrange_defaults()` must read the REAL
+    `kubernetes.client.V1LimitRangeItem`'s attribute for a defaulted request
+    (`default_request`, snake_case) rather than the wire-format spelling (`defaultRequest`).
+
+    Deliberately built from the real generated client type, not `FakeLimitRangeItem` — the
+    local fake was written against the same wrong spelling as the bug it exists to catch, so
+    it could never have failed this test. `default` (the limits default) already has
+    coverage via `test_quota_accounting_includes_limitrange_defaults`; this exercises the
+    sibling `default_request` (the requests default) branch, which no prior test reached.
+    """
+    client = FakeBatchV1()
+    real_limitrange = V1LimitRange(
+        spec=V1LimitRangeSpec(
+            limits=[
+                V1LimitRangeItem(
+                    type="Container",
+                    default_request={"cpu": "100m", "memory": "128Mi"},
+                )
+            ]
+        )
+    )
+    core = FakeCoreV1(
+        quotas=[_quota(used={"requests.cpu": "0"}, hard={"requests.cpu": "50m"})],
+        limitranges=[real_limitrange],
+    )
+    # No explicit `requests.cpu` in the Pod spec: the LimitRange's `default_request` must
+    # supply it (100m), which exceeds the 50m ceiling and is refused.
+    runner = K8sJobRunner(
+        client,
+        core_client=core,
+        image="registry/screamingface-engine:1",
+        namespace="url4",
+        resources={"limits": {"memory": "1Gi"}},
+    )
 
     with pytest.raises(JobRunnerAtCapacity):
         await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
