@@ -20,6 +20,8 @@ import {
   Scale,
   Share2,
   Upload,
+  Columns3,
+  Rows3,
   X,
   ZoomIn,
   ZoomOut,
@@ -1729,13 +1731,13 @@ function buildDraft(
   };
 }
 
+type Orientation = "vertical" | "horizontal";
+
 const RECIPE_KINDS: { kind: RecipeKind; label: string }[] = [
   { kind: "solo", label: "Solo" },
   { kind: "fusion", label: "Fusion" },
   { kind: "pipeline", label: "Pipeline" },
 ];
-
-type NodeRole = "root" | "member" | "stage" | "synthesizer";
 
 function nodeChrome(depth: number, role: NodeRole): string {
   if (role === "synthesizer") {
@@ -1747,6 +1749,8 @@ function nodeChrome(depth: number, role: NodeRole): string {
     ? "rounded-xl border bg-card p-3.5 shadow-sm"
     : "rounded-lg bg-muted/30 ring-1 ring-inset ring-border/40 p-3";
 }
+
+type NodeRole = "root" | "member" | "stage" | "synthesizer";
 
 function KindSwitch({
   node,
@@ -1849,20 +1853,42 @@ function SoloBody({
   );
 }
 
-function ChildRail({
+function GroupBox({
+  label,
   tone = "muted",
+  orientation,
   children,
 }: {
+  label: string;
   tone?: "muted" | "accent";
+  orientation: Orientation;
   children: React.ReactNode;
 }) {
+  if (orientation === "vertical") {
+    return (
+      <div
+        className={cn(
+          "flex flex-col gap-2.5 border-l-2 pl-3",
+          tone === "accent" ? "border-accent/30" : "border-border/40",
+        )}
+      >
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        {children}
+      </div>
+    );
+  }
   return (
     <div
       className={cn(
-        "flex flex-col gap-2.5 border-l-2 pl-3",
-        tone === "accent" ? "border-accent/30" : "border-border/40",
+        "rounded-lg border border-dashed p-2.5",
+        tone === "accent" ? "border-accent/40" : "border-border/50",
       )}
     >
+      <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
       {children}
     </div>
   );
@@ -1874,64 +1900,78 @@ function FusionBody({
   providers,
   onUseModels,
   depth,
+  orientation,
 }: {
   node: FusionNode;
   onChange: (next: RecipeNode) => void;
   providers: ModelProvider[];
   onUseModels: (models: Model[]) => void;
   depth: number;
+  orientation: Orientation;
 }) {
+  const horizontal = orientation === "horizontal";
   const setMembers = (members: RecipeNode[]) => onChange({ ...node, members });
   return (
     <div className="flex flex-col gap-2.5">
-      <ChildRail>
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Members · parallel
-        </p>
-        {node.members.map((member, index) => (
-          <RecipeNodeCard
-            key={member.id}
-            node={member}
-            index={index}
-            depth={depth + 1}
-            role="member"
-            providers={providers}
-            onUseModels={onUseModels}
-            onChange={(next) =>
-              setMembers(node.members.map((item, i) => (i === index ? next : item)))
-            }
-            onRemove={
-              node.members.length > 1
-                ? () => setMembers(node.members.filter((_, i) => i !== index))
-                : undefined
-            }
-          />
-        ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 self-start text-xs"
-          onClick={() => setMembers([...node.members, createSolo()])}
+      <GroupBox label="Members · parallel" orientation={orientation}>
+        <div
+          className={cn(
+            horizontal
+              ? "flex flex-row flex-wrap items-start gap-2.5"
+              : "flex flex-col gap-2.5",
+          )}
         >
-          <Plus className="size-3.5" />
-          Add member
-        </Button>
-      </ChildRail>
-      <div className="flex items-center gap-1.5 pl-3 text-[11px] text-muted-foreground">
+          {node.members.map((member, index) => (
+            <div
+              key={member.id}
+              className={horizontal ? "grow basis-[16rem] min-w-[16rem]" : undefined}
+            >
+              <RecipeNodeCard
+                node={member}
+                index={index}
+                depth={depth + 1}
+                role="member"
+                orientation={orientation}
+                providers={providers}
+                onUseModels={onUseModels}
+                onChange={(next) =>
+                  setMembers(node.members.map((item, i) => (i === index ? next : item)))
+                }
+                onRemove={
+                  node.members.length > 1
+                    ? () => setMembers(node.members.filter((_, i) => i !== index))
+                    : undefined
+                }
+              />
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn("h-7 text-xs", horizontal ? "self-center" : "self-start")}
+            onClick={() => setMembers([...node.members, createSolo()])}
+          >
+            <Plus className="size-3.5" />
+            Add member
+          </Button>
+        </div>
+      </GroupBox>
+      <div className="flex items-center gap-1.5 pl-1 text-[11px] text-muted-foreground">
         <ArrowDown className="size-3.5" />
         synthesize
       </div>
-      <ChildRail tone="accent">
+      <GroupBox label="Synthesizer" tone="accent" orientation={orientation}>
         <RecipeNodeCard
           node={node.synthesizer}
           depth={depth + 1}
           role="synthesizer"
+          orientation={orientation}
           providers={providers}
           onUseModels={onUseModels}
           onChange={(next) => onChange({ ...node, synthesizer: next })}
         />
-      </ChildRail>
+      </GroupBox>
     </div>
   );
 }
@@ -1942,58 +1982,79 @@ function PipelineBody({
   providers,
   onUseModels,
   depth,
+  orientation,
 }: {
   node: PipelineNode;
   onChange: (next: RecipeNode) => void;
   providers: ModelProvider[];
   onUseModels: (models: Model[]) => void;
   depth: number;
+  orientation: Orientation;
 }) {
+  const horizontal = orientation === "horizontal";
   const setStages = (stages: RecipeNode[]) => onChange({ ...node, stages });
   return (
-    <div className="flex flex-col gap-2.5">
-      <ChildRail>
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Stages · sequence
-        </p>
+    <GroupBox label="Stages · sequence" orientation={orientation}>
+      <div
+        className={cn(
+          horizontal
+            ? "flex flex-row flex-wrap items-stretch gap-2"
+            : "flex flex-col gap-2.5",
+        )}
+      >
         {node.stages.map((stage, index) => (
-          <div key={stage.id} className="flex flex-col gap-2.5">
+          <div
+            key={stage.id}
+            className={cn(
+              "flex gap-2",
+              horizontal ? "items-stretch" : "flex-col",
+            )}
+          >
             {index > 0 && (
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <ArrowDown className="size-3.5" />
-                then
+                {horizontal ? (
+                  <ArrowRight className="size-4" />
+                ) : (
+                  <>
+                    <ArrowDown className="size-3.5" />
+                    then
+                  </>
+                )}
               </div>
             )}
-            <RecipeNodeCard
-              node={stage}
-              index={index}
-              depth={depth + 1}
-              role="stage"
-              providers={providers}
-              onUseModels={onUseModels}
-              onChange={(next) =>
-                setStages(node.stages.map((item, i) => (i === index ? next : item)))
-              }
-              onRemove={
-                node.stages.length > 1
-                  ? () => setStages(node.stages.filter((_, i) => i !== index))
-                  : undefined
-              }
-            />
+            <div className={horizontal ? "min-w-[16rem]" : undefined}>
+              <RecipeNodeCard
+                node={stage}
+                index={index}
+                depth={depth + 1}
+                role="stage"
+                orientation={orientation}
+                providers={providers}
+                onUseModels={onUseModels}
+                onChange={(next) =>
+                  setStages(node.stages.map((item, i) => (i === index ? next : item)))
+                }
+                onRemove={
+                  node.stages.length > 1
+                    ? () => setStages(node.stages.filter((_, i) => i !== index))
+                    : undefined
+                }
+              />
+            </div>
           </div>
         ))}
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="h-7 self-start text-xs"
+          className={cn("h-7 text-xs", horizontal ? "self-center" : "self-start")}
           onClick={() => setStages([...node.stages, createSolo()])}
         >
           <Plus className="size-3.5" />
           Add stage
         </Button>
-      </ChildRail>
-    </div>
+      </div>
+    </GroupBox>
   );
 }
 
@@ -2006,6 +2067,7 @@ function RecipeNodeCard({
   role = "root",
   index,
   depth = 0,
+  orientation = "vertical",
 }: {
   node: RecipeNode;
   onChange: (next: RecipeNode) => void;
@@ -2015,6 +2077,7 @@ function RecipeNodeCard({
   role?: NodeRole;
   index?: number;
   depth?: number;
+  orientation?: Orientation;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const collapsible = node.kind !== "solo";
@@ -2027,7 +2090,7 @@ function RecipeNodeCard({
           ? "Synthesizer · required"
           : "Recipe";
   return (
-    <article className={cn(nodeChrome(depth, role))}>
+    <article className={cn("h-full", nodeChrome(depth, role))}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           {collapsible ? (
@@ -2097,6 +2160,7 @@ function RecipeNodeCard({
               providers={providers}
               onUseModels={onUseModels}
               depth={depth}
+              orientation={orientation}
             />
           ) : (
             <PipelineBody
@@ -2105,6 +2169,7 @@ function RecipeNodeCard({
               providers={providers}
               onUseModels={onUseModels}
               depth={depth}
+              orientation={orientation}
             />
           )}
         </div>
@@ -2138,6 +2203,7 @@ function EnsembleComposer() {
   const [tab, setTab] = useState<"compose" | "runs">("compose");
   const [copied, setCopied] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [orientation, setOrientation] = useState<"vertical" | "horizontal">("horizontal");
   const [autoSave, setAutoSave] = useState(true);
   const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState("");
@@ -2391,47 +2457,84 @@ function EnsembleComposer() {
         className="m-0 flex min-h-0 flex-1 overflow-hidden"
       >
           <main className="min-w-0 flex-1 overflow-auto px-6 py-6 lg:px-10">
-            <div className="mx-auto flex max-w-2xl flex-col gap-3">
+            <div
+              className={cn(
+                "mx-auto flex flex-col gap-3",
+                orientation === "horizontal" ? "max-w-none" : "max-w-2xl",
+              )}
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground">
                   A unit can be a solo model, a fusion (parallel members + a required
                   synthesizer), or a pipeline (serial stages) — nest to any depth.
                 </p>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="size-7"
-                    aria-label="Zoom out"
-                    disabled={zoom <= 0.5}
-                    onClick={() =>
-                      setZoom((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10))
-                    }
-                  >
-                    <ZoomOut className="size-3.5" />
-                  </Button>
-                  <button
-                    type="button"
-                    className="w-11 text-center font-mono text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
-                    title="Reset zoom"
-                    onClick={() => setZoom(1)}
-                  >
-                    {Math.round(zoom * 100)}%
-                  </button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="size-7"
-                    aria-label="Zoom in"
-                    disabled={zoom >= 1.3}
-                    onClick={() =>
-                      setZoom((value) => Math.min(1.3, Math.round((value + 0.1) * 10) / 10))
-                    }
-                  >
-                    <ZoomIn className="size-3.5" />
-                  </Button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="inline-flex overflow-hidden rounded-lg border">
+                    <button
+                      type="button"
+                      aria-label="Horizontal layout"
+                      aria-pressed={orientation === "horizontal"}
+                      onClick={() => setOrientation("horizontal")}
+                      className={cn(
+                        "grid size-7 place-items-center transition-colors",
+                        orientation === "horizontal"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted/40",
+                      )}
+                    >
+                      <Columns3 className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Vertical layout"
+                      aria-pressed={orientation === "vertical"}
+                      onClick={() => setOrientation("vertical")}
+                      className={cn(
+                        "grid size-7 place-items-center transition-colors",
+                        orientation === "vertical"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted/40",
+                      )}
+                    >
+                      <Rows3 className="size-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="size-7"
+                      aria-label="Zoom out"
+                      disabled={zoom <= 0.5}
+                      onClick={() =>
+                        setZoom((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10))
+                      }
+                    >
+                      <ZoomOut className="size-3.5" />
+                    </Button>
+                    <button
+                      type="button"
+                      className="w-11 text-center font-mono text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+                      title="Reset zoom"
+                      onClick={() => setZoom(1)}
+                    >
+                      {Math.round(zoom * 100)}%
+                    </button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="size-7"
+                      aria-label="Zoom in"
+                      disabled={zoom >= 1.3}
+                      onClick={() =>
+                        setZoom((value) => Math.min(1.3, Math.round((value + 0.1) * 10) / 10))
+                      }
+                    >
+                      <ZoomIn className="size-3.5" />
+                    </Button>
+                  </div>
                 </div>
               </div>
               <div
@@ -2442,6 +2545,7 @@ function EnsembleComposer() {
                   node={root}
                   role="root"
                   depth={0}
+                  orientation={orientation}
                   providers={providers}
                   onUseModels={(models) => addLibraryModels(models)}
                   onChange={setRoot}
