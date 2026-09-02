@@ -17,6 +17,7 @@ worker half (which pulls), so it imports nothing from the run half — only the 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -70,6 +71,42 @@ DEFAULT_MAX_ACK_PENDING = 256
 DEFAULT_DEPTH_CEILING = 10_000
 DEFAULT_IO_CONCURRENCY = 4
 DEFAULT_STATE_CACHE_TTL_S = 2.0
+# The per-caller fairness seam (OME-1091): how many bucket subjects the queue is split into.
+# More buckets mean fewer caller collisions (two callers sharing a bucket share its cap and its
+# round-robin slot), at the cost of more subjects the worker must poll each pull.
+DEFAULT_BUCKET_COUNT = 16
+# The per-caller in-flight cap (OME-1091): how many of one caller's runs may be admitted at
+# once. 8 matches the Client's fan-out (`_MAX_CANDIDATES_IN_FLIGHT`), so one ordinary
+# Evaluation fits while a second concurrent one is refused until the first's runs finish.
+DEFAULT_CALLER_INFLIGHT_CAP = 8
+# The anonymous caller's key: a run with no verified identity is its own caller, so it cannot
+# hide behind another caller's footprint.
+_ANONYMOUS_CALLER = "anonymous"
+
+
+def caller_key(identity: Mapping[str, str] | None) -> str:
+    """The caller's identity value — the verified email — or the anonymous sentinel.
+
+    The bucket key and the per-caller in-flight counter both derive from this one value, so a
+    caller is one caller everywhere. The identity mapping is canonical header name → value
+    (:func:`screamingface_engine.job_env.identity_from_headers`); there is exactly one
+    identity header today, so the value is the mapping's single member.
+    """
+    if not identity:
+        return _ANONYMOUS_CALLER
+    return next(iter(identity.values()), _ANONYMOUS_CALLER)
+
+
+def _consumer_for(subject: str) -> str:
+    """The durable consumer for one bucket subject: `url4-runners-<bucket>`.
+
+    WHY per-bucket rather than one shared name: a durable consumer is identified by
+    (stream, name) and its filter subject is part of its config — reusing one name across
+    buckets would UPDATE the filter on every pull, and messages pending under the old filter
+    would be re-evaluated against the new one. One consumer per bucket keeps each bucket's
+    ack state stable.
+    """
+    return f"{QUEUE_CONSUMER}-{subject.rsplit('.', 1)[-1]}"
 
 
 def _work_queue_consumer_config(
@@ -208,7 +245,12 @@ class RunQueue:
         nats_url: str,
         *,
         stream: str = subjects.RUN_QUEUE_STREAM,
+        # The legacy single subject, kept for backward compatibility: the stream is declared
+        # with the wildcard `url4-runq.>` (so every bucket subject lands in it), and the
+        # per-caller buckets derive from `subject_prefix`.
         subject: str = subjects.RUN_QUEUE_SUBJECT,
+        subject_prefix: str = subjects.RUN_QUEUE_SUBJECT_PREFIX,
+        bucket_count: int = DEFAULT_BUCKET_COUNT,
         duplicate_window_s: float = DEFAULT_DUPLICATE_WINDOW_S,
         max_age_s: float = DEFAULT_QUEUE_MAX_AGE_S,
         ack_wait_s: float = DEFAULT_ACK_WAIT_S,
@@ -225,6 +267,8 @@ class RunQueue:
         self._url = nats_url
         self._stream = stream
         self._subject = subject
+        self._subject_prefix = subject_prefix
+        self._bucket_count = bucket_count
         self._duplicate_window_s = duplicate_window_s
         self._max_age_s = max_age_s
         self._ack_wait_s = ack_wait_s
@@ -238,6 +282,9 @@ class RunQueue:
         self._ensured = False
         # (monotonic time of the read, (depth, first_ts)) — see `_state`.
         self._state_cache: tuple[float, tuple[int, str | None]] | None = None
+        # The round-robin pull's rotation: which bucket the next pull starts at. Advancing by
+        # one per pull means no bucket is permanently first (or last) in the rotation.
+        self._rr_index = 0
 
     async def _jetstream(self) -> JetStreamContext:
         js = self._js
@@ -259,6 +306,25 @@ class RunQueue:
         nc = self._nc
         return nc is not None and nc.is_closed
 
+    @property
+    def _stream_subject(self) -> str:
+        """The stream's subject set: the wildcard over every bucket subject, so one stream
+        holds every caller's runs."""
+        return f"{self._subject_prefix}.>"
+
+    def bucket_subject(self, identity: Mapping[str, str] | None) -> str:
+        """The per-caller queue subject for one caller: a stable hash of the identity VALUE,
+        not the raw address — a subject name is readable by anything with broker access, so
+        the caller's email must never appear in it (spec open question 1).
+        """
+        digest = hashlib.sha256(caller_key(identity).encode("utf-8")).hexdigest()
+        bucket = int(digest[:8], 16) % self._bucket_count
+        return f"{self._subject_prefix}.{bucket:02x}"
+
+    def bucket_subjects(self) -> list[str]:
+        """Every bucket subject, in order — the round-robin pull's rotation."""
+        return [f"{self._subject_prefix}.{i:02x}" for i in range(self._bucket_count)]
+
     async def ensure_stream(self) -> None:
         """Declare the queue stream, tolerating one that already exists.
 
@@ -272,7 +338,7 @@ class RunQueue:
         try:
             await js.add_stream(
                 name=self._stream,
-                subjects=[self._subject],
+                subjects=[self._stream_subject],
                 retention=RetentionPolicy.WORK_QUEUE,
                 storage=StorageType.FILE,
                 num_replicas=self._replicas,
@@ -285,12 +351,17 @@ class RunQueue:
                 # diverged from what this code declares. NOT "already declared": raising here
                 # surfaces the mismatch at startup instead of running on it silently.
                 raise
-            # Already declared — by another replica, or by an earlier connection.
-            pass
+            # Already declared — by another replica, or by an earlier connection. A stream
+            # declared before per-caller buckets (OME-1091) holds only the single work subject;
+            # widen it to the wildcard so bucket publishes land, without touching the rest of
+            # its config (replicas, retention — those are the declaring replica's business).
+            info = await js.stream_info(self._stream)
+            if info.config.subjects != [self._stream_subject]:
+                await js.update_stream(name=self._stream, subjects=[self._stream_subject])
         self._ensured = True
 
-    async def publish(self, message: bytes) -> None:
-        """Publish one run submission, durably.
+    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+        """Publish one run submission to its caller's bucket, durably.
 
         INVARIANT: `Nats-Msg-Id` is the run's TOPIC, read from the message body itself, so a
         retried submission of the same topic is deduplicated by the broker within
@@ -306,7 +377,7 @@ class RunQueue:
         await self.ensure_stream()
         js = await self._jetstream()
         await js.publish(
-            self._subject,
+            self.bucket_subject(identity),
             message,
             headers={
                 "Nats-Msg-Id": topic_of_message(message),
@@ -314,41 +385,72 @@ class RunQueue:
             },
         )
 
-    async def pull(self, batch: int, timeout_s: float) -> list[Msg]:
-        """Pull up to `batch` queued messages, waiting up to `timeout_s` for the first.
+    async def pull(
+        self,
+        batch: int,
+        timeout_s: float,
+        *,
+        subjects: Sequence[str] | None = None,
+    ) -> list[Msg]:
+        """Pull up to `batch` queued messages, round-robin across `subjects` (default: every
+        bucket), waiting up to `timeout_s` in total for the first.
+
+        The round-robin is one message per bucket per cycle: a busy caller cannot drain ahead
+        of a quieter one within a single pull, and the rotation index advances so no bucket is
+        permanently first. Each bucket gets a share of the timeout, so an empty queue still
+        returns within `timeout_s` overall.
 
         Returns the raw NATS messages; the caller acks each after processing. Under the
         EXPLICIT ack policy an unacked message is redelivered after `ack_wait`, up to
         `max_deliver` times.
 
-        WHY a fresh subscription per call: the durable consumer (`url4-runners`) is server-side
-        and persists, so binding and unbinding a client subscription per pull is idempotent and
-        costs one `consumer_info` round trip. A worker that wants to avoid even that can hold
-        the subscription itself.
+        WHY a fresh subscription per call: the durable consumers (`url4-runners-<bucket>`) are
+        server-side and persist, so binding and unbinding a client subscription per pull is
+        idempotent and costs one `consumer_info` round trip. A worker that wants to avoid even
+        that can hold the subscription itself.
         """
+        subjects = list(subjects) if subjects is not None else self.bucket_subjects()
+        if not subjects or batch <= 0:
+            return []
         await self.ensure_stream()
         js = await self._jetstream()
-        sub = await js.pull_subscribe(
-            self._subject,
-            durable=QUEUE_CONSUMER,
-            stream=self._stream,
-            config=_work_queue_consumer_config(
-                ack_wait_s=self._ack_wait_s,
-                max_deliver=self._max_deliver,
-                max_ack_pending=self._max_ack_pending,
-            ),
-        )
-        try:
-            return await sub.fetch(batch, timeout=timeout_s)
-        except TimeoutError:
-            # INVARIANT: an idle poll is a RESULT, not an error. nats-py's `fetch` RAISES
-            # `nats.errors.TimeoutError` (or its `FetchTimeoutError` subclass) when no
-            # message arrives within the window — it never returns an empty list — and
-            # both subclass `TimeoutError`. Left uncaught, the first empty poll unwinds
-            # the worker's claim loop and kills the pool on an idle queue.
-            return []
-        finally:
-            await sub.unsubscribe()
+        collected: list[Msg] = []
+        # The round-robin visits every bucket in rotation, one message per bucket per cycle,
+        # cycling until the batch is filled — so a busy caller cannot drain ahead of a quieter
+        # one, and a message is found wherever it sits. Each bucket gets a share of the
+        # timeout, so the total wait stays within `timeout_s` even when every bucket is empty.
+        per_bucket = timeout_s / max(batch, len(subjects))
+        for slot in range(max(batch, len(subjects))):
+            if len(collected) >= batch:
+                break
+            subject = subjects[(self._rr_index + slot) % len(subjects)]
+            sub = await js.pull_subscribe(
+                subject,
+                durable=_consumer_for(subject),
+                stream=self._stream,
+                config=_work_queue_consumer_config(
+                    ack_wait_s=self._ack_wait_s,
+                    max_deliver=self._max_deliver,
+                    max_ack_pending=self._max_ack_pending,
+                ),
+            )
+            try:
+                # INVARIANT: an empty bucket is a RESULT, not an error. nats-py's `fetch`
+                # RAISES `nats.errors.TimeoutError` (or its `FetchTimeoutError` subclass)
+                # when no message arrives within the window — it never returns an empty
+                # list — and both subclass `TimeoutError`. Left uncaught, the first empty
+                # bucket in the rotation unwinds the worker's claim loop and kills the
+                # pool; with 16 buckets most rotations visit empty buckets before the
+                # one that holds a message.
+                msgs = await sub.fetch(1, timeout=per_bucket)
+            except TimeoutError:
+                continue
+            finally:
+                await sub.unsubscribe()
+            if msgs:
+                collected.append(msgs[0])
+        self._rr_index = (self._rr_index + 1) % len(subjects)
+        return collected
 
     async def _state(self) -> tuple[int, str | None]:
         """(queued message count, first message's publish timestamp) from one stream-info round
@@ -403,6 +505,8 @@ class RunQueue:
 
 __all__ = [
     "DEFAULT_ACK_WAIT_S",
+    "DEFAULT_BUCKET_COUNT",
+    "DEFAULT_CALLER_INFLIGHT_CAP",
     "DEFAULT_DEPTH_CEILING",
     "DEFAULT_DUPLICATE_WINDOW_S",
     "DEFAULT_IO_CONCURRENCY",
@@ -414,6 +518,7 @@ __all__ = [
     "QUEUE_CONSUMER",
     "QUEUE_REPLICAS",
     "RunQueue",
+    "caller_key",
     "decode_message",
     "encode_message",
     "topic_of_message",

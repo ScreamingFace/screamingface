@@ -420,8 +420,21 @@ class RunSupervisor:
         """
         env = dict(os.environ)
         env.update(decode_message(msg.data))
-        env[job_env.IO_CONCURRENCY] = str(self._io_capacity)
+        env[job_env.IO_CONCURRENCY] = str(self._io_budget())
         return env
+
+    def _io_budget(self) -> int:
+        """The spawn-time io budget: `io_capacity / active_children` (the new child included),
+        floored at 1 — the deployed half of OME-908's fair share.
+
+        WHY a division rather than the static `io_capacity`: with `N` children running, each
+        gets `io_capacity / N` of the gateway's downstream capacity, so one benchmark-sized run
+        cannot monopolize it. WHY FIXED at spawn: the budget travels by env and the child is a
+        separate process — it does not rebalance when a sibling exits (the dynamic
+        `FairShareGate` is local-mode only; a cross-process control socket is the declared
+        follow-up).
+        """
+        return max(1, self._io_capacity // max(1, len(self._children) + 1))
 
     async def _spawn_child(self, env: Mapping[str, str]) -> _ChildProcess:
         """Fork the run entrypoint as a supervised child, under its own ``RLIMIT_AS``.

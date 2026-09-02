@@ -214,11 +214,17 @@ async def _schedule(
         # saturate, and why retrying is safe, is `JobRunnerAtCapacity`'s own contract (the
         # shapes: one shared event loop, a queue-depth ceiling, a scheduler's exhausted quota)
         # — this handler maps, it does not restate; the port's docstring stays the one source.
+        #
+        # WHY a derived `Retry-After` (OME-1091): the queue-backed runner attaches its drain
+        # estimate — how long until the queue has room, from depth and observed throughput — so a
+        # client told to retry in 1 second when the true wait is minutes does not retry into a
+        # wall. A runner with no estimate (the in-process and k8s ones) keeps the constant 1.
+        retry_after = exc.retry_after_s
         raise ProblemException(
             status=503,
             title="Service Unavailable",
             detail="the runner is at capacity — retry shortly",
-            headers={"Retry-After": "1"},
+            headers={"Retry-After": str(retry_after) if retry_after is not None else "1"},
         ) from exc
 
 

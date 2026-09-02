@@ -388,6 +388,7 @@ def worker_composition(settings: Settings) -> tuple[RunQueue, JetStreamPublisher
         max_ack_pending=settings.run_queue_max_ack_pending,
         duplicate_window_s=settings.run_queue_duplicate_window_s,
         max_age_s=settings.run_queue_max_age_s,
+        bucket_count=settings.run_queue_bucket_count,
         # INVARIANT: the App and the worker declare the SAME singleton stream, and
         # `ensure_stream` refuses a declaration whose properties diverge from an existing
         # one — so both halves must read this from the same setting. Omitting it here left

@@ -49,9 +49,9 @@ def _advisory(topic: str) -> bytes:
 
 
 def test_the_advisory_subject_names_the_queue_stream_and_consumer() -> None:
-    # The consumer token is wildcarded: consumers are `url4-runners-<bucket>` — ONE token
-    # (dashes are not NATS separators) — so `.*` matches it, while `.url4-runners.*`
-    # would demand a second token and match nothing.
+    # The trailing wildcard covers the per-bucket durable consumers (`url4-runners-<bucket>`,
+    # ONE token — dashes are not NATS separators): `.*` matches every bucket's consumer,
+    # while `.url4-runners.*` would demand a second token and match nothing.
     assert MAX_DELIVERIES_ADVISORY_SUBJECT == (
         "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.url4-runq.*"
     )
