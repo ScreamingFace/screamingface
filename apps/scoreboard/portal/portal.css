@@ -127,6 +127,37 @@ table .btn { white-space: nowrap; }
   white-space: nowrap;
 }
 
+/* OME-923 part B: the Pareto-frontier mark — no row is no-worse on both axes and better on one.
+   Drawn in CSS rather than set as a glyph: IBM Plex Mono is not guaranteed to carry
+   U+25C6, and a font fallback would render this mark differently machine to machine.
+   Colour is --info, deliberately NOT --gain: gold is rationed to the win and the
+   highest-score row already holds it, so a gold mark here would collapse two separate
+   claims into one look. Not --success either, because green means verified and OME-820
+   withdrew that signal. */
+.pareto-mark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--info-text-low);
+  transform: rotate(45deg);
+}
+/* Matches the markbox convention: the deep text-low tone reads on a light ground, the
+   vivid solid reads on a dark one. */
+[data-theme="dark"] .pareto-mark {
+  background: var(--info-solid);
+}
+
+/* Forced-colors (Windows High Contrast) overrides `background` on non-text elements, which
+   would erase this mark completely and leave the row with NO per-row signal — precisely the
+   failure "never colour alone" exists to prevent, since the shape is the carrier here. Opt out
+   of the override and paint with a system colour so the diamond survives. */
+@media (forced-colors: active) {
+  .pareto-mark {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}
+
 /* ---- rail pinning: the one deliberate override in this file ---------- */
 /* WHY: style.css ships `.rail { position: relative }` plus a `.rail.stuck`
    variant its own comment documents as "(JS toggles .stuck + a spacer to hold
@@ -221,3 +252,39 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 
 /* The catalogue's Open link never breaks across lines. */
 td.col-open { white-space: nowrap; }
+
+/* The mark's key. `.meta` already carries the mono/micro/ink-2 treatment every small label on
+   this page uses; this only lays it out. */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+/* WHY a generated separator rather than markup: the frontier item hides itself on boards that
+   can carry no mark, and a literal separator span would leave a dangling middot behind it. */
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* INVARIANT: `:not([hidden])` on BOTH sides. `display: none` does not remove an element from
+   the sibling chain, so a bare `+`/`~` still matches a hidden predecessor — with the frontier
+   item hidden, the legend rendered a LEADING middot (verified in Chrome, 2026-09-01). The
+   general sibling combinator is deliberate: it stays correct if more than one item ever hides. */
+.legend-item:not([hidden]) ~ .legend-item:not([hidden])::before {
+  content: "·";
+  color: var(--ink-3);
+  margin-right: var(--space-2);
+}
+.legend-item[hidden] {
+  display: none;
+}
+
+/* The scroll container is focusable (see benchmark.html), so it needs a visible focus ring like
+   any other focus target — otherwise keyboard users land somewhere invisible. */
+.table-wrap:focus-visible {
+  outline: var(--border-strong) solid var(--focus);
+  outline-offset: 2px;
+}

@@ -676,6 +676,10 @@ _PUBLIC_BENCHMARK_FIELDS = {
 }
 _PUBLIC_BOARD_ENTRY_FIELDS = {
     "benchmark_revision",
+    # OME-923 part B: a deliberate addition to the public board. Owner-approved change to
+    # this OME-894 guard (2026-08-29); the assertion stays exact so any OTHER field
+    # appearing here still fails, which is the leak this guard exists to catch.
+    "on_pareto_frontier",
     "ran_with_providers",
     "rank",
     "run_cost_usd",
@@ -1150,6 +1154,30 @@ async def test_a_flip_during_the_ranking_query_does_not_publish_the_board(
     assert BOB_EMAIL.split("@")[0] not in response.text
 
 
+async def test_a_flip_during_the_pareto_projection_does_not_publish_the_board(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The new whole-board projection is also participant data and precedes the exit guard."""
+    await _two_participants()
+    revision = "rev-current"
+    await Benchmark.filter(id=PRIVATE_ID).update(revision=revision)
+    await Score.filter(benchmark_id=PRIVATE_ID).update(benchmark_revision=revision)
+    real, hook = _flip_private_during("leaderboard_pareto_inputs")
+
+    ScoreStore.leaderboard_pareto_inputs = hook  # type: ignore[method-assign]
+    try:
+        response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")
+    finally:
+        ScoreStore.leaderboard_pareto_inputs = real  # type: ignore[method-assign]
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["entries"] == []
+    assert body["scoped_to_caller"] is True
+    assert ALICE_EMAIL.split("@")[0] not in response.text
+    assert BOB_EMAIL.split("@")[0] not in response.text
+
+
 async def test_a_flip_during_the_history_query_withholds_the_rows(
     async_client: httpx.AsyncClient,
 ) -> None:
@@ -1270,3 +1298,467 @@ async def test_the_frontier_route_passes_the_registered_case_count(
         "the registered case count to compute_frontier"
     )
     assert [point["label"] for point in body["trend"]] == ["honest-full-run"]
+
+
+# ---- OME-923 part B: Pareto frontier marks -----------------------------------
+
+
+async def _priced(
+    store: ScoreStore,
+    *,
+    spec_id: str,
+    score: float,
+    cost: str | None,
+) -> None:
+    """Submit a row and then set its run cost directly.
+
+    WHY not a `run_cost_usd` argument on `_submission`: that helper is prior-cycle test
+    code, and sdlc rule 5 keeps prior tests unmodified. Writing the column afterwards
+    mirrors how this file already backdates `submitted_at`.
+    """
+    created, _ = await store.submit(_submission(spec_id=spec_id, score=score))
+    if cost is not None:
+        await Score.filter(id=created.id).update(run_cost_usd=Decimal(cost))
+
+
+# INVARIANT (D12): only a benchmark with a REGISTERED revision carries frontier marks, so every
+# marking test below pins one. Rows must carry the same revision or the ranking query filters
+# them out entirely (OME-775).
+_PINNED = "rev-1"
+
+
+async def _register_pinned(store: ScoreStore) -> None:
+    await store.register_benchmark(
+        benchmark_id="hle",
+        display_name="Humanity's Last Exam",
+        description="Fixture benchmark",
+        dataset_url="https://example.test/hle.jsonl",
+        revision=_PINNED,
+    )
+
+
+async def _row(
+    store: ScoreStore,
+    *,
+    spec_id: str,
+    score: float,
+    cost: str | None,
+    revision: str | None = _PINNED,
+) -> None:
+    """Submit a row, then set the revision it was measured against and its cost.
+
+    WHY written afterwards rather than passed to `_submission`: that helper is prior-cycle test
+    code and sdlc rule 5 keeps it unmodified. This mirrors how the file already backdates
+    `submitted_at`.
+    """
+    created, _ = await store.submit(_submission(spec_id=spec_id, score=score))
+    updates: dict[str, object] = {"benchmark_revision": revision}
+    if cost is not None:
+        updates["run_cost_usd"] = Decimal(cost)
+    await Score.filter(id=created.id).update(**updates)
+
+
+async def test_get_leaderboard_marks_the_pareto_frontier(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """FEATURE: OME-923 part B — the board marks best-score-for-the-money rows."""
+    store = ScoreStore()
+    await _register_pinned(store)
+    await _row(store, spec_id="best-value", score=0.90, cost="1.00")
+    # Same score, nine times the price: dominated, even though nobody outscored it (D7).
+    await _row(store, spec_id="same-score-dearer", score=0.90, cost="9.00")
+    await _row(store, spec_id="cheapest", score=0.70, cost="0.10")
+    # Beaten on both axes by `cheapest`.
+    await _row(store, spec_id="dominated", score=0.60, cost="5.00")
+    # INVARIANT: the top score, but unpriced — excluded, and it must not knock out anything
+    # either. Read as zero it would win the board outright on an unknown.
+    await _row(store, spec_id="unpriced", score=0.95, cost=None)
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    marked = {entry["spec_id"] for entry in entries if entry["on_pareto_frontier"]}
+    assert marked == {"best-value", "cheapest"}
+    # The highest-score row is a SEPARATE claim: `unpriced` leads on score and holds no frontier
+    # mark, so a row can be one, both or neither.
+    assert entries[0]["spec_id"] == "unpriced"
+    assert entries[0]["on_pareto_frontier"] is False
+
+
+async def test_get_leaderboard_marks_nothing_when_no_row_reports_a_cost(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """Today's real board: OME-770 shipped the column, nothing has ever filled it. It must
+    render as an ordinary board, not error and not mark anything."""
+    store = ScoreStore()
+    # WHY pinned: with an unregistered revision the D12 gate returns an empty frontier before
+    # compute_pareto_frontier is ever called, so this test passed no matter how a null cost was
+    # treated. Proven in review by patching the frontier to mark EVERY row — this test still
+    # passed. Pinning the board restores it as a real guard on the null-cost rule.
+    await _register_pinned(store)
+    await _row(store, spec_id="spec-a", score=0.90, cost=None)
+    await _row(store, spec_id="spec-b", score=0.70, cost=None)
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert len(entries) == 2
+    assert all(entry["on_pareto_frontier"] is False for entry in entries)
+
+
+async def test_a_partial_run_neither_ranks_nor_shapes_the_pareto_frontier(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """OME-1056 and OME-923 must use the same comparable-row population."""
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="hle",
+        display_name="Humanity's Last Exam",
+        revision=_PINNED,
+        case_count=1000,
+    )
+    await _row(store, spec_id="complete", score=0.80, cost="5.00")
+    partial, _ = await store.submit(_submission(spec_id="partial", score=0.99))
+    await Score.filter(id=partial.id).update(
+        benchmark_revision=_PINNED,
+        total_questions=1,
+        run_cost_usd=Decimal("0.01"),
+    )
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert [entry["spec_id"] for entry in entries] == ["complete"]
+    assert entries[0]["on_pareto_frontier"] is True
+
+
+async def test_a_private_board_emits_no_frontier_information(
+    header_mode_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT (OME-894 D5): a participant sees no aggregate. The frontier is an aggregate
+    over everyone's costs, so it must not reach a private board in any form — including via
+    the caller's own rows."""
+    await _seed_private_challenge()
+    await Benchmark.filter(id=PRIVATE_ID).update(visibility="private")
+
+    response = await header_mode_client.get(
+        f"/v1/leaderboard/{PRIVATE_ID}", headers=_as(ALICE_EMAIL)
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # `entries` is the public ranking and a private board has none, so the flag is never
+    # emitted for anyone — the privacy rule holds by construction, not by a special case.
+    assert body["entries"] == []
+    assert body["my_submissions"], "the owner should still see her own rows"
+    for row in body["my_submissions"]:
+        assert "on_pareto_frontier" not in row
+
+
+# ---- OME-923 part B: review fixes (PR #778) ----------------------------------
+
+
+async def _priced_rev(
+    store: ScoreStore,
+    *,
+    spec_id: str,
+    score: float,
+    cost: str,
+    revision: str,
+) -> None:
+    """Submit a row, then set its cost AND the revision it was measured against."""
+    created, _ = await store.submit(_submission(spec_id=spec_id, score=score))
+    await Score.filter(id=created.id).update(
+        run_cost_usd=Decimal(cost), benchmark_revision=revision
+    )
+
+
+async def test_the_board_can_be_read_whole(tortoise_db: None) -> None:
+    """The store seam the fix rests on: `top_n=None` returns the board entire, which is what
+    lets the route serve the page and the frontier from ONE read."""
+    store = ScoreStore()
+    await _register_benchmark(store)
+    for index in range(5):
+        await _priced(store, spec_id=f"spec-{index}", score=0.90 - index / 100, cost="1.00")
+
+    assert len(await store.leaderboard(benchmark_id="hle", top_n=2)) == 2
+    assert len(await store.leaderboard(benchmark_id="hle", top_n=None)) == 5
+
+
+async def test_the_public_board_keeps_its_display_read_bounded(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The full frontier uses its own narrow projection; the display read stays bounded.
+
+    Both reads happen before `turned_private`, so this does not reopen the privacy race that
+    occurred when a second participant-data read was placed after that guard.
+    """
+    store = ScoreStore()
+    # Pinned, so this exercises the whole-board read — the path the frontier depends on.
+    await _register_pinned(store)
+    await _row(store, spec_id="spec-a", score=0.90, cost="1.00")
+    calls: list[object] = []
+    frontier_calls: list[object] = []
+    real = ScoreStore.leaderboard
+    real_frontier = ScoreStore.leaderboard_pareto_inputs
+
+    async def _counting(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(kwargs.get("top_n", args[1] if len(args) > 1 else None))
+        return await real(self, *args, **kwargs)
+
+    async def _counting_frontier(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        frontier_calls.append(kwargs.get("registered_revision"))
+        return await real_frontier(self, *args, **kwargs)
+
+    ScoreStore.leaderboard = _counting  # type: ignore[method-assign]
+    ScoreStore.leaderboard_pareto_inputs = _counting_frontier  # type: ignore[method-assign]
+    try:
+        response = await async_client.get("/v1/leaderboard/hle")
+    finally:
+        ScoreStore.leaderboard = real  # type: ignore[method-assign]
+        ScoreStore.leaderboard_pareto_inputs = real_frontier  # type: ignore[method-assign]
+
+    assert response.status_code == 200
+    assert calls == [50], f"expected a bounded display read, got {calls}"
+    assert frontier_calls == [_PINNED]
+
+
+async def test_a_concurrent_replacement_cannot_transfer_its_frontier_mark(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The two projections may see different commits, so membership is keyed by row id.
+
+    The display query sees the old best run. Before the frontier projection, a higher-scoring
+    run replaces it as this spec's ranked row. Keying only on (spec_id, revision) transfers the
+    new run's mark onto the stale row in the response; exact source identity must leave it
+    unmarked instead.
+    """
+    store = ScoreStore()
+    await _register_pinned(store)
+    await _row(store, spec_id="moving", score=0.80, cost="1.00")
+
+    real_frontier = ScoreStore.leaderboard_pareto_inputs
+    inserted = False
+
+    async def _replace_then_read(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal inserted
+        if not inserted:
+            inserted = True
+            await _row(ScoreStore(), spec_id="moving", score=0.90, cost="2.00")
+        return await real_frontier(self, *args, **kwargs)
+
+    ScoreStore.leaderboard_pareto_inputs = _replace_then_read  # type: ignore[method-assign]
+    try:
+        response = await async_client.get("/v1/leaderboard/hle")
+    finally:
+        ScoreStore.leaderboard_pareto_inputs = real_frontier  # type: ignore[method-assign]
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert [(entry["spec_id"], entry["score"]) for entry in entries] == [("moving", 0.80)]
+    assert entries[0]["on_pareto_frontier"] is False
+
+
+async def test_a_frontier_mark_does_not_change_with_top(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT: the mark is a claim about the whole board, so it cannot depend on how many
+    rows the caller asked to see. Three rows tie on score and only the cheapest is truly on
+    the frontier; computed over a truncated page, whichever dear row led the page was marked.
+
+    AIDEV-NOTE: `z-cheapest` must be the row that falls outside `top=2`, and it is because it
+    is submitted LAST — ties now rank earliest-first (owner, 2026-09-01), so arrival order
+    decides. The `z-` prefix is a leftover from when the outer ordering had no tiebreaker at all
+    and the order among ties was backend-dependent; it is harmless now but no longer what makes
+    this test work. Reorder the submissions and the test still passes while proving nothing.
+    """
+    store = ScoreStore()
+    await _register_pinned(store)
+    await _row(store, spec_id="a-dear", score=0.90, cost="5.00")
+    await _row(store, spec_id="b-dearer", score=0.90, cost="6.00")
+    await _row(store, spec_id="z-cheapest", score=0.90, cost="1.00")
+
+    full = await async_client.get("/v1/leaderboard/hle", params={"top": 3})
+    cut = await async_client.get("/v1/leaderboard/hle", params={"top": 2})
+
+    assert full.status_code == 200
+    assert cut.status_code == 200
+    marks_full = {e["spec_id"]: e["on_pareto_frontier"] for e in full.json()["entries"]}
+    marks_cut = {e["spec_id"]: e["on_pareto_frontier"] for e in cut.json()["entries"]}
+    assert marks_full == {"a-dear": False, "b-dearer": False, "z-cheapest": True}
+    # The dominator is off the page here, which is exactly the case that used to flip a mark.
+    assert "z-cheapest" not in marks_cut
+    for spec_id, marked in marks_cut.items():
+        assert marks_full[spec_id] == marked, f"{spec_id} changed mark with top"
+
+
+# NOTE: a route-level test for cross-revision cohorts lived here. After D12 the route never
+# computes a frontier on a board with mixed revisions — an unpinned board marks nothing, and
+# a pinned one is filtered to a single revision — so the scenario is unreachable through HTTP.
+# `test_an_unpinned_benchmark_carries_no_frontier_marks` below pins the new behaviour, and
+# tests/unit/scores/test_pareto.py still covers the per-cohort function directly.
+
+
+async def test_an_unpinned_benchmark_carries_no_frontier_marks(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT (D12): fail closed on a board with no REGISTERED revision.
+
+    `benchmark_revision` is free-form client input, and `_build_leaderboard_query` applies its
+    revision filter ONLY when the benchmark has a registered revision. Combined with per-cohort
+    comparison, a submitter on such a board could send a unique revision, land in a cohort of
+    one, and be marked "best score for cost" unconditionally — however bad and however dear.
+
+    The board still ranks and lists every row. It just makes no cost claim about any of them.
+    """
+    store = ScoreStore()
+    await _register_benchmark(store)  # deliberately no revision registered
+    await _priced(store, spec_id="honest", score=0.90, cost="1.00")
+    await _priced_rev(store, spec_id="gamer", score=0.10, cost="99.00", revision="mine-2026")
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert len(entries) == 2, "the board must still list its rows"
+    assert all(entry["on_pareto_frontier"] is False for entry in entries)
+
+
+async def test_the_frontier_is_scoped_to_one_benchmark(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT: "no other submission on the same board" — the frontier must not reach across
+    benchmarks. Different exams, different scales; a cheap high score on another board says
+    nothing about value on this one.
+
+    Correct in the query today (`where benchmark_id == ...`), but no test registered a second
+    benchmark, so a frontier computed over the entire table would have passed the whole suite.
+    """
+    store = ScoreStore()
+    await _register_pinned(store)
+    await store.register_benchmark(
+        benchmark_id="other",
+        display_name="Other Benchmark",
+        description="Fixture benchmark",
+        dataset_url="https://example.test/other.jsonl",
+        revision=_PINNED,
+    )
+    # The only priced row on `hle`, and a poor one.
+    await _row(store, spec_id="local", score=0.50, cost="5.00")
+    # Better AND cheaper — but on a different board, so it must not dominate anything here.
+    foreign, _ = await store.submit(
+        _submission(benchmark_id="other", spec_id="foreign", score=0.99)
+    )
+    await Score.filter(id=foreign.id).update(
+        benchmark_revision=_PINNED, run_cost_usd=Decimal("0.01")
+    )
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert [entry["spec_id"] for entry in entries] == ["local"]
+    assert entries[0]["on_pareto_frontier"] is True
+
+
+async def test_a_board_that_cannot_be_marked_keeps_its_row_bound(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """INVARIANT: the board is read UNBOUNDED only when a frontier will be computed from it.
+
+    `origin/main` capped the public read at MAX_LEADERBOARD_TOP. Reading the whole board is the
+    price of a frontier that cannot depend on `top` — but a board the D12 gate closes marks
+    nothing, so paying it there would drop the cap for no gain. `spec_id` is client-supplied,
+    so that row count is chosen by submitters (found in review, 2026-08-31).
+    """
+    store = ScoreStore()
+    await _register_benchmark(store)  # no registered revision, so the gate is closed
+    await _row(store, spec_id="spec-a", score=0.90, cost="1.00", revision=None)
+    calls: list[object] = []
+    real = ScoreStore.leaderboard
+
+    async def _counting(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(kwargs.get("top_n", args[1] if len(args) > 1 else None))
+        return await real(self, *args, **kwargs)
+
+    ScoreStore.leaderboard = _counting  # type: ignore[method-assign]
+    try:
+        response = await async_client.get("/v1/leaderboard/hle", params={"top": 25})
+    finally:
+        ScoreStore.leaderboard = real  # type: ignore[method-assign]
+
+    assert response.status_code == 200
+    assert calls == [25], f"a closed-gate board must stay bounded, got {calls}"
+    assert all(e["on_pareto_frontier"] is False for e in response.json()["entries"])
+
+
+async def test_the_board_query_trusts_the_revision_it_is_given(tortoise_db: None) -> None:
+    """INVARIANT: ONE read of `Benchmark.revision` decides both the D12 gate and the ranking
+    query's revision filter.
+
+    They were two independent SELECTs of the same row: the route read it to decide whether to
+    compute a frontier at all, and `leaderboard()` read it again to build the filter. A
+    re-registration landing between them opens the gate on one value while the query filters on
+    another — the frontier is then computed over mixed revisions and the cohort-of-one gap D12
+    exists to close is open for that request.
+    """
+    store = ScoreStore()
+    await _register_pinned(store)
+    await _row(store, spec_id="spec-a", score=0.90, cost="1.00")
+
+    reads: list[int] = []
+    real = Benchmark.get_or_none
+
+    def _counting(*args, **kwargs):  # type: ignore[no-untyped-def]
+        reads.append(1)
+        return real(*args, **kwargs)
+
+    Benchmark.get_or_none = _counting  # type: ignore[method-assign]
+    try:
+        rows = await store.leaderboard(
+            benchmark_id="hle",
+            top_n=None,
+            registered_revision=_PINNED,
+            registered_case_count=None,
+        )
+    finally:
+        Benchmark.get_or_none = real  # type: ignore[method-assign]
+
+    assert [row.spec_id for row in rows] == ["spec-a"]
+    assert reads == [], "the store must trust the revision it was given, not re-read it"
+
+
+async def test_tied_scores_rank_the_earlier_submission_first(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """Owner decision (2026-09-01): on a tie, first to get there ranks higher.
+
+    The outer ordering was `score DESC` with NO secondary key, so the order among rows tied on
+    score was whatever the backend happened to return — alphabetical by spec_id on SQLite (index
+    scan), insertion order on Postgres (heap scan). `rank` was therefore not stable across
+    environments, and which tied row fell outside `top` differed with it.
+
+    AIDEV-NOTE: the spec_ids are chosen so alphabetical order CONTRADICTS arrival order. If the
+    tiebreaker is ever dropped, SQLite would return `a-second` first and this fails; rename them
+    and the test still passes while proving nothing.
+    """
+    store = ScoreStore()
+    await _register_pinned(store)
+    await _row(store, spec_id="z-first", score=0.90, cost="1.00")
+    await _row(store, spec_id="a-second", score=0.90, cost="2.00")
+    await Score.filter(spec_id="z-first").update(
+        submitted_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    )
+    await Score.filter(spec_id="a-second").update(
+        submitted_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    )
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert [entry["spec_id"] for entry in entries] == ["z-first", "a-second"]
+    assert [entry["rank"] for entry in entries] == [1, 2]

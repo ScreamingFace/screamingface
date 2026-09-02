@@ -15,6 +15,7 @@ from scoreboard.routes.dependencies import (
 from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.frontier import compute_frontier
 from scoreboard.scores.models import Benchmark
+from scoreboard.scores.pareto import compute_pareto_frontier_ids
 from scoreboard.scores.schemas import (
     BaselineSchema,
     BenchmarkSchema,
@@ -69,6 +70,19 @@ class RankedLeaderboardEntry(BaseModel):
     # fixed-6dp JSON serializer, so the wire form cannot drift between the DTOs
     # (spec 2.4).
     run_cost_usd: RunCostUsd
+
+    # FEATURE: OME-923 part B — this row is on the Pareto frontier: no other row on the
+    # board is both at least as good and at least as cheap, and strictly better on one.
+    #
+    # WHY here and not on LeaderboardEntry: it is COMPUTED per request, like `rank`, not
+    # stored. That placement is also what keeps OME-894 D5 true without a special case —
+    # a private board returns `entries: []` and puts the caller's own rows in
+    # `my_submissions`, which are plain LeaderboardEntry, so this aggregate over everyone
+    # else's costs can never reach a participant.
+    #
+    # INVARIANT: False when the row has no cost. Absent cost means "not reported", never
+    # zero, so an unpriced row neither qualifies nor dominates (OME-770 D8).
+    on_pareto_frontier: bool
 
 
 class LeaderboardResponse(BaseModel):
@@ -142,8 +156,12 @@ async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
     return benchmark_to_schema(benchmark)
 
 
-def _ranked_entry(rank: int, entry: LeaderboardEntry) -> RankedLeaderboardEntry:
-    return RankedLeaderboardEntry(rank=rank, **entry.model_dump())
+def _ranked_entry(
+    rank: int, entry: LeaderboardEntry, *, on_pareto_frontier: bool
+) -> RankedLeaderboardEntry:
+    return RankedLeaderboardEntry(
+        rank=rank, on_pareto_frontier=on_pareto_frontier, **entry.model_dump()
+    )
 
 
 def _history_submission(score: ScoreSchema) -> HistorySubmission:
@@ -238,18 +256,69 @@ async def get_leaderboard(
     if is_private:
         return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
-    rows = await _score_store(request).leaderboard(
+    # INVARIANT: every await that touches participant data happens BEFORE the
+    # `turned_private` re-check below. An earlier revision of this route fetched the frontier
+    # in a SECOND query placed after the guard; a flip landing during that query published the
+    # whole private board — reproduced, two participants' rows leaked (self-review, 2026-08-30).
+    # `turned_private` must stay the last await before the response, which its own docstring
+    # states: "the decision is re-checked against fresh state before anything unscoped leaves."
+    #
+    # INVARIANT: the frontier is computed over the WHOLE board, never over the truncated page.
+    # `leaderboard()` orders by score alone and then applies `top`, so a row past the cutoff
+    # can tie the boundary score at a lower cost and dominate a visible row — the mark would
+    # then depend on `top`, which is not a property a claim about money may have (review of
+    # PR #778). The complete-board read is a minimal projection; the page itself remains
+    # bounded so client-controlled recipes and display metadata are never materialised en masse.
+    pinned = benchmark.revision is not None
+    store = _score_store(request)
+    rows = await store.leaderboard(
         benchmark_id=benchmark_id,
         top_n=min(top, MAX_LEADERBOARD_TOP),
+        # The same read that decided `pinned` above also builds the query's revision filter, so
+        # the gate and the filter can never disagree within one request.
+        registered_revision=benchmark.revision,
+        registered_case_count=benchmark.case_count,
+    )
+    frontier_inputs = (
+        await store.leaderboard_pareto_inputs(
+            benchmark_id,
+            registered_revision=benchmark.revision,
+            registered_case_count=benchmark.case_count,
+        )
+        if pinned
+        else []
     )
     if await turned_private(benchmark_id):
         # The board went private while the ranking query ran. Answer it correctly rather than
         # erroring — a read can, where a write cannot.
         return await _private_leaderboard(request, response, benchmark, identity, baselines)
 
+    # INVARIANT (D12, owner 2026-08-31): fail closed on a board with no REGISTERED revision.
+    # `benchmark_revision` is free-form client input (`_resolve_benchmark_revision`), and the
+    # ranking query filters on revision ONLY when the benchmark declares one. Without that
+    # filter a submitter can send a unique revision, land in a cohort of one, and be marked
+    # "best score for cost" unconditionally. A board that cannot say which revision it is about
+    # makes no best-value claim at all.
+    #
+    # WHY here and not inside compute_pareto_frontier: that function is pure over rows and
+    # cannot see the benchmark. The route already holds `benchmark.revision`, so the gate costs
+    # nothing here and leaves the function honest for any caller with legitimately mixed
+    # revisions.
+    frontier_ids = compute_pareto_frontier_ids(frontier_inputs) if pinned else frozenset()
+
     return LeaderboardResponse(
         benchmark=benchmark,
-        entries=[_ranked_entry(index, row) for index, row in enumerate(rows, start=1)],
+        entries=[
+            _ranked_entry(
+                index,
+                row,
+                # The display and frontier projections are separate bounded/narrow reads. An
+                # exact stored-row identity prevents a concurrent replacement for this spec
+                # from transferring its mark onto the older row rendered here.
+                on_pareto_frontier=row.source_id in frontier_ids,
+            )
+            for index, row in enumerate(rows, start=1)
+        ],
         my_submissions=[],
         baselines=baselines,
         scoped_to_caller=False,

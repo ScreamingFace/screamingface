@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from decimal import InvalidOperation
+from decimal import Decimal, InvalidOperation
 from typing import Any, NamedTuple, cast
 from uuid import UUID
 
@@ -21,9 +21,11 @@ from tortoise.transactions import in_transaction
 from scoreboard.classification.openness import Openness
 
 from .models import Benchmark, IdempotencyKey, Score
+from .pareto import ParetoEntry
 from .schemas import (
     BenchmarkSchema,
     LeaderboardEntry,
+    LeaderboardStoreEntry,
     ScoreSchema,
     ScoreSubmission,
     Visibility,
@@ -376,7 +378,7 @@ class SubmitOutcome(NamedTuple):
 
 def _build_leaderboard_query(
     benchmark_id: str,
-    top_n: int,
+    top_n: int | None,
     registered_revision: str | None,
     # WHY no default: a coverage guard that can be forgotten is a guard that reopens the hole one
     # call site over. `registered_revision` beside it is required for the same reason, and the
@@ -409,6 +411,7 @@ def _build_leaderboard_query(
     ranked = (
         Query.from_(scores)
         .select(
+            scores.id,
             scores.spec_id,
             scores.benchmark_revision,
             scores.score,
@@ -445,9 +448,10 @@ def _build_leaderboard_query(
         ranked = ranked.where(scores.total_questions >= registered_case_count)
     ranked = ranked.as_("ranked")
 
-    return (
+    query = (
         Query.from_(ranked)
         .select(
+            ranked.id,
             ranked.spec_id,
             ranked.benchmark_revision,
             ranked.score,
@@ -461,7 +465,64 @@ def _build_leaderboard_query(
         )
         .where(ranked.rn == 1)
         .orderby(ranked.score, order=Order.desc)
-        .limit(top_n)
+        # INVARIANT: on a tie, first to get there ranks higher (owner, 2026-09-01). Without a
+        # secondary key the order among tied rows was whatever the backend returned —
+        # alphabetical by spec_id on SQLite, insertion order on Postgres — so `rank` was not
+        # stable across environments and which tied row fell outside `top` moved with it.
+        #
+        # WHY ascending here while the rn window above uses submitted_at DESC: they answer
+        # different questions. The window picks WHICH submission represents a spec, and the
+        # newest wins. This orders SPECS against each other, where the earlier claim to a score
+        # ranks first.
+        .orderby(ranked.submitted_at, order=Order.asc)
+    )
+    # WHY optional: the Pareto frontier must be computed over the WHOLE ranked board. This
+    # ordering is by score alone, so truncating first can hide a row that ties the boundary
+    # score at a lower cost and dominates a visible one (OME-923, review of PR #778).
+    return query if top_n is None else query.limit(top_n)
+
+
+def _build_pareto_inputs_query(
+    benchmark_id: str,
+    registered_revision: str | None,
+    registered_case_count: int | None,
+) -> QueryBuilder:
+    """Return every best-per-spec frontier input without loading display payloads."""
+    scores = Score.get_table()
+    row_number = (
+        RowNumber()
+        .over(scores.spec_id, scores.benchmark_revision)
+        .orderby(scores.score, order=Order.desc)
+        .orderby(scores.submitted_at, order=Order.desc)
+        .as_("rn")
+    )
+    ranked = (
+        Query.from_(scores)
+        .select(
+            scores.id,
+            scores.spec_id,
+            scores.benchmark_revision,
+            scores.score,
+            scores.run_cost_usd,
+            row_number,
+        )
+        .where(scores.benchmark_id == benchmark_id)
+    )
+    if registered_revision is not None:
+        ranked = ranked.where(scores.benchmark_revision == registered_revision)
+    if registered_case_count is not None:
+        ranked = ranked.where(scores.total_questions >= registered_case_count)
+    ranked = ranked.as_("ranked")
+    return (
+        Query.from_(ranked)
+        .select(
+            ranked.id,
+            ranked.spec_id,
+            ranked.benchmark_revision,
+            ranked.score,
+            ranked.run_cost_usd,
+        )
+        .where(ranked.rn == 1)
     )
 
 
@@ -940,23 +1001,74 @@ class ScoreStore:
     async def cleanup_expired_idempotency_keys(self, now: datetime) -> int:
         return await IdempotencyKey.filter(expires_at__lte=now).delete()
 
-    async def leaderboard(self, benchmark_id: str, top_n: int = 50) -> list[LeaderboardEntry]:
+    async def leaderboard(
+        self,
+        benchmark_id: str,
+        top_n: int | None = 50,
+        *,
+        registered_revision: str | None | _Unset = _UNSET,
+        registered_case_count: int | None | _Unset = _UNSET,
+    ) -> list[LeaderboardStoreEntry]:
+        """The ranked display board. ``top_n=None`` remains available to internal callers."""
         conn = Tortoise.get_connection("default")
         # The board is defined by the revision its benchmark is registered at; entries measured
         # against anything else are not comparable to it and do not rank (OME-775).
-        benchmark = await Benchmark.get_or_none(id=benchmark_id)
+        # INVARIANT: when the caller supplies the revision, it is NOT read again. The route
+        # decides whether to compute a frontier at all from `Benchmark.revision`, and this query
+        # filters on it — two independent SELECTs of one row meant a re-registration landing
+        # between them could open the gate on one value while the query filtered on another,
+        # computing a frontier over mixed revisions and reopening the cohort-of-one gap D12
+        # closes. One read now decides both (found in review, 2026-09-01).
+        if isinstance(registered_revision, _Unset) or isinstance(registered_case_count, _Unset):
+            benchmark = await Benchmark.get_or_none(id=benchmark_id)
+            if isinstance(registered_revision, _Unset):
+                registered_revision = benchmark.revision if benchmark else None
+            if isinstance(registered_case_count, _Unset):
+                registered_case_count = benchmark.case_count if benchmark else None
+        assert not isinstance(registered_revision, _Unset)
+        assert not isinstance(registered_case_count, _Unset)
         result = await execute_pypika(
             _build_leaderboard_query(
                 benchmark_id,
                 top_n,
-                benchmark.revision if benchmark else None,
-                benchmark.case_count if benchmark else None,
+                registered_revision,
+                registered_case_count,
             ),
             using_db=conn,
         )
         rows = _to_python_rows(result.rows)
+        for row in rows:
+            row["source_id"] = str(row.pop("id"))
+        return [LeaderboardStoreEntry(**row) for row in rows]
 
-        return [LeaderboardEntry(**row) for row in rows]
+    async def leaderboard_pareto_inputs(
+        self,
+        benchmark_id: str,
+        *,
+        registered_revision: str | None,
+        registered_case_count: int | None,
+    ) -> list[ParetoEntry]:
+        """The unbounded, minimal projection needed for a public Pareto frontier."""
+        conn = Tortoise.get_connection("default")
+        result = await execute_pypika(
+            _build_pareto_inputs_query(
+                benchmark_id,
+                registered_revision,
+                registered_case_count,
+            ),
+            using_db=conn,
+        )
+        rows = _to_python_rows(result.rows)
+        return [
+            ParetoEntry(
+                source_id=str(row["id"]),
+                spec_id=cast(str, row["spec_id"]),
+                benchmark_revision=cast(str | None, row["benchmark_revision"]),
+                score=cast(float, row["score"]),
+                run_cost_usd=cast(Decimal | None, row["run_cost_usd"]),
+            )
+            for row in rows
+        ]
 
     async def list_for_spec(
         self,
