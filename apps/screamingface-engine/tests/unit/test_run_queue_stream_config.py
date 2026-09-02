@@ -184,7 +184,11 @@ class _ConflictingStreamJS(_FakeJetStream):
         self._err_code = err_code
 
     async def add_stream(self, **kwargs: Any) -> object:
-        raise BadRequestError(code=400, err_code=self._err_code, description="retention policy mismatch")
+        raise BadRequestError(
+            code=400,
+            err_code=self._err_code,
+            description="retention policy mismatch",
+        )
 
 
 async def test_a_config_conflict_under_bad_request_error_is_raised_not_swallowed() -> None:
@@ -218,9 +222,7 @@ async def test_publish_stamps_the_enqueue_moment() -> None:
 
     fake = _FakeJetStream()
 
-    await _queue(fake).publish(
-        encode_message(topic="topic-stamped", url4="gpt()", deadline_s=600)
-    )
+    await _queue(fake).publish(encode_message(topic="topic-stamped", url4="gpt()", deadline_s=600))
 
     headers = fake.published[0][2]
     assert ENQUEUED_AT_HEADER in headers
