@@ -2,16 +2,18 @@
 
 Helm chart for **screamingface-engine** — the stateless REST + WebSocket control plane (spec §9). It renders
 the App **Deployment · Service · ConfigMap · Secret**, one of two edge objects
-(**Ingress** or **HTTPRoute**), and the namespace **RBAC bootstrap**
-(**ServiceAccount · Role · RoleBinding**) that lets the App schedule Runner Jobs in its own
-namespace.
+(**Ingress** or **HTTPRoute**), and the **runner pool** — a fixed worker-pool
+**Deployment + PodDisruptionBudget** (OME-1092) that replaced one-Job-per-run scheduling.
+The control plane holds **no RBAC at all**: it cannot create Pods, and the ServiceAccount
+exists for pod identity only.
 
-**Two paired images.** The Deployment runs the dataset-free control-plane image. Runner Jobs run
-the matching `-benchmark` image with `command: ["screamingface-engine", "run"]`; that image layers private
-grading assets onto the same engine release. `runner.image.tag` defaults to the control-plane
-tag, so upgrades remain paired while rubrics stay off the client-facing pod.
+**Two paired images.** The App Deployment runs the dataset-free control-plane image. The runner
+pool runs the matching `-benchmark` image with `command: ["screamingface-engine", "worker"]`;
+that image layers private grading assets onto the same engine release, and the worker forks each
+run as a child from its own image. `runner.image.tag` defaults to the control-plane tag, so
+upgrades remain paired while rubrics stay off the client-facing pod.
 
-By default a control-plane repository such as `registry.example/screamingface-engine` yields Runner image
+By default a control-plane repository such as `registry.example/screamingface-engine` yields the pool image
 `registry.example/screamingface-engine-benchmark`. Override `runner.image.repository` only when a registry
 uses another name.
 
@@ -89,96 +91,60 @@ bundle version and the controller version are coupled: a controller that cannot 
 installed CRDs leaves the Gateway at `Programmed=Unknown / "Waiting for controller"`, which looks
 exactly like having no controller at all.
 
-## RBAC (spec §9)
+## The runner pool (OME-1092)
 
-The App is stateless — it holds no run state and re-derives each Job's identity from the token's
-topic. To do that it needs, **in its own namespace only**:
+The pool is a Deployment of `runnerPool.replicas` pods, each running
+`screamingface-engine worker` with `runnerPool.workerSlots` run slots. The declared concurrency
+is `replicas × workerSlots`; the queue's `max_ack_pending` derives from the same slot count, so
+the pool and the queue cannot disagree about how many runs one worker may hold.
 
-| API group | Resource   | Verbs                              |
-|-----------|------------|------------------------------------|
-| `batch`   | `jobs`     | create · get · list · watch · delete |
-| `""`      | `pods`     | get · list                         |
-| `""`      | `pods/log` | get                                |
+What the pool's pods get:
 
-The `RoleBinding` targets the App's `ServiceAccount` (the Deployment's subject). These are exactly
-the calls `screamingface_engine.adapters.k8s.K8sJobRunner` makes, and the Role covers the labels the App stamps
-on the Jobs it creates (`screamingface_engine.adapters.k8s.RUNNER_LABELS`).
-
-Note the App needs **no** secrets verbs at all. The Tavily credential is deploy-time and rides
-`envFrom`, so the App only names the Secret; and a Runner Job carries no aigateway credential to
-store, because aigateway resolves the caller from the verified `X-User-Email` header instead.
-
-## The Runner Job
-
-**The code is the source of truth for the Job shape** — `K8sJobRunner._manifest` builds the real
-per-request Job, with a deterministic name `url4-<hash(topic)>`. (A ConfigMap that *described*
-this shape used to ship here; it drifted out of sync with the code and was deleted rather than
-maintained as a second definition.)
-
-What the App schedules:
-
-- the paired benchmark image in run mode — `command: ["screamingface-engine", "run"]`, pinned in
-  `screamingface_engine.adapters.k8s` rather than in values: the command is the mode switch and nothing
-  else, so a chart override could only ever name a mode the image does not have. The image
-  reference itself stays a value (`URL4_CLOUD_RUNNER_IMAGE`, rendered from `runner.image`) so a
-  staged rollout can still pin Jobs to a different tag than the Deployment
-- run-once — `backoffLimit: 0`, `restartPolicy: Never` (retry = new token, new job; spec §2.3)
-- `activeDeadlineSeconds` = `config.jobDeadlineS`, surfacing as `timed_out`
+- the paired benchmark image in worker mode — `command: ["screamingface-engine", "worker"]`,
+  pinned in the template rather than in values: the command is the mode switch and nothing
+  else, so a chart override could only ever name a mode the image does not have
+- the deploy-time runner env by `envFrom` from the runner-env ConfigMap (unchanged from the Job
+  path: Helm owns `AIGATEWAY_BASE_URL`, `URL4_CLOUD_NATS_URL`, the artifact-store settings), plus
+  the Tavily and object-storage Secrets by `envFrom.secretRef` when enabled — never as literals
 - `enableServiceLinks: false` — kubelet's legacy Docker-link vars would export
   `URL4_CLOUD_PORT=tcp://…` for the App's own Service and collide head-on with the app's
   `URL4_CLOUD_` settings prefix
-- `automountServiceAccountToken: false` — the Runner never calls the k8s API
+- `automountServiceAccountToken: false` — the worker never calls the k8s API
 - `securityContext` matching the App's, plus a `RuntimeDefault` seccomp profile and an `emptyDir`
   at `/tmp` (required by `readOnlyRootFilesystem`)
-- `resources` from `runner.resources` — without them the Runner schedules **BestEffort**: placed
-  blind, evicted first, free to OOM the node it shares
-- `nodeSelector` and `tolerations` from the chart's top-level placement values — the Runner and
-  Engine Deployment therefore use the same operator-owned node pool and taint policy
-- `ttlSecondsAfterFinished` — see the invariant below
+- `resources` = `workerSlots × perRunCharge + overhead` — sized so the declared concurrency can
+  actually run rather than scheduling BestEffort
+- `nodeSelector` and `tolerations` from the chart's top-level placement values — the pool and
+  the App Deployment therefore use the same operator-owned node pool and taint policy
+- a `checksum/runner-env` + `checksum/secret` annotation pair, so a ConfigMap/Secret value
+  change alone rolls the pool (the same invariant as the App Deployment)
+- a Prometheus `/metrics` endpoint on `runnerPool.metricsPort` (the worker's own scrape
+  surface — slots, claim latency, run duration, redeliveries, child exit codes)
 
-> **INVARIANT — the TTL floor.** The Job's deterministic *name* is the stateless single-use replay
-> guard: a `409` on create is what rejects a replayed token. Reclaiming the Job deletes that name,
-> so the TTL is not a free cleanup knob.
->
-> `ttlSecondsAfterFinished` counts from **completion**, and the Job already exists for the whole
-> run — so the guard only has to cover the window *after* completion in which the starting token
-> could still be presented. A token carries `exp = iat + iatWindowS`, so it is refused at auth
-> before `exists()` is consulted once that passes. The floor is therefore **`iatWindowS`**; the
-> default adds a 60 s clock-skew margin (120 s at the defaults). `runner.jobTtlSeconds` may only
-> ever **raise** it (e.g. to keep failures around for post-mortem); below the floor `Settings`
-> refuses at startup.
->
-> It deliberately does **not** include `jobDeadlineS`. An earlier version did, conflating "how
-> long a run may take" with "how long a spent token stays replayable", and retained ~960× more
-> objects than the guard needs.
+**Drain (the deploy-interrupts-runs regression).** On SIGTERM the worker stops pulling and keeps
+its in-flight children alive for `runnerPool.drainGraceS`, then terminates the rest with a named
+`worker_draining` frame. The `preStop` starts that drain by SIGTERMing the worker immediately,
+and `terminationGracePeriodSeconds` must stay above `drainGraceS` or the kubelet SIGKILLs
+mid-drain. The PodDisruptionBudget (`maxUnavailable: 0`) is the other half: a node drain or
+voluntary disruption can never take a slot away from a run that is using it.
 
-### Throughput ceiling
-
-One Job + one Pod object per request, each ~7 KB, retained for the TTL. At the corrected default
-that is negligible; it is worth knowing the shape anyway, because it is what caps this design:
-
-| Sustained rate | Objects held (120 s TTL) | Objects held (old 16 h TTL) |
-|---|---|---|
-| 1/min | ~4 | ~1,900 |
-| 1/sec | ~240 | ~115,000 (~820 MB — near etcd's 2 GiB default quota) |
-| 10/sec | ~2,400 | ~1,150,000 |
-
-The App itself does **not** degrade with Job count — `K8sJobRunner` reads by name
-(`read_namespaced_job`), never LISTs. The pressure is on etcd, the apiserver watch cache, and the
-Job controller. Past roughly tens of requests per second the replay guard would need to move off
-the Job name onto a cheap keyed store (e.g. a NATS KV of spent `jti`s), trading the App's
-statelessness for throughput.
+**Admission.** The App admits runs on **queue depth** (OME-1091): a run is refused with 503 +
+`Retry-After` when the queue is at `run_queue_depth_ceiling` or the caller is at its in-flight
+cap. This supersedes the OME-1065 quota-admission feature, which was retired with the Job
+adapter — the counted resource changed from namespace quota headroom to queue depth, and the
+cache-plus-reservation shape did not.
 
 ## Artifact storage (OME-929)
 
 A Run whose serialized result exceeds the inline cap (1 MiB) is parked under its content address,
 and the terminal frame carries only a claim ticket the client redeems over `GET /artifacts/{id}`.
 
-**With `config.runner: k8s` this store cannot be a local directory.** Each run is a separate Job
-pod whose disk is destroyed with it, so a result spilled there can never be served back: the run
-succeeds, and then the client's redemption 404s — after every model call has been paid for. A full
-DRACO 3-pass run is 11,902 calls and a ~3 MiB result, so it spills every time. The App therefore
-**refuses to start** when `runner: k8s` is paired with `artifactStorage.backend: filesystem`.
+**With `config.runner: queue` this store cannot be a local directory.** Each run executes in a
+worker pod whose disk is destroyed with it, so a result spilled there can never be served back:
+the run succeeds, and then the client's redemption 404s — after every model call has been paid
+for. A full DRACO 3-pass run is 11,902 calls and a ~3 MiB result, so it spills every time. The
+App therefore **refuses to start** when `runner: queue` is paired with
+`artifactStorage.backend: filesystem`.
 
 ```yaml
 artifactStorage:
@@ -254,14 +220,17 @@ The App also sets `terminationGracePeriodSeconds` (45s) and a `preStop` sleep (5
 pod is removed from endpoints and sent `SIGTERM` simultaneously, and endpoint removal takes seconds
 to propagate — without the delay every rollout drops live WebSockets and in-flight sync holds.
 
-No `PodDisruptionBudget` ships here. At `replicaCount: 1` a PDB is either a placebo
-(`maxUnavailable: 1` permits a full outage) or a deadlock (`minAvailable: 1` blocks node drains
-forever). Raising replicas for an availability target? Add one at the same time.
+The runner pool's drain is the mirror image: its `preStop` SIGTERMs the worker so the drain runs
+inside the termination grace period, and its `PodDisruptionBudget` (`maxUnavailable: 0`) means a
+node drain or voluntary disruption can never evict a busy worker mid-run.
 
 ## Labels
 
 All resources carry the k8s **recommended labels** (`app.kubernetes.io/name·instance·version·
-managed-by·part-of·component`) via `templates/_helpers.tpl` (docs/protocol.md §9).
+managed-by·part-of·component`) via `templates/_helpers.tpl` (docs/protocol.md §9). The runner
+pool is the one deliberate exception: its pods carry `app.kubernetes.io/name: url4-runner` — the
+label aigateway's NetworkPolicy admits the run workload by (the old Job labels), so the pool
+replaces the Jobs without a CNI change.
 
 ## OCI image annotations
 
@@ -279,7 +248,8 @@ LABEL org.opencontainers.image.title="screamingface-engine" \
 ```
 
 `image.repository` defaults to `ghcr.io/screamingface/screamingface-engine`; the tag defaults to the
-chart `appVersion`. Both the Deployment and every Runner Job resolve to that one reference.
+chart `appVersion`. The App Deployment resolves to that one reference, and the runner pool to its
+`-benchmark` pair.
 
 ## Lint / render
 

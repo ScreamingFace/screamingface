@@ -1,7 +1,8 @@
 """`InProcessJobRunner` — the `JobRunner` over an `asyncio.Task` per run (local mode).
 
-The local-mode counterpart to `K8sJobRunner`: same port, same deterministic `job_name(topic)`
-identity, same single-use 409 guard — a task registry instead of a cluster.
+The local-mode counterpart to the queue-backed runner: same port, same deterministic
+`job_name(topic)` identity, same single-use 409 guard — a task registry instead of a
+queue and a worker pool.
 
 # INVARIANT: engine-free. The concrete `Executor` arrives through an injected
 # factory, so this module imports neither the url4 engine nor
@@ -65,8 +66,8 @@ def _map_status(task: asyncio.Task[None] | None) -> JobStatus:
 class InProcessJobRunner(IdentityAwareJobRunner):
     """`JobRunner` backed by a `dict[str, asyncio.Task]`, one task per run.
 
-    Differs from `K8sJobRunner` in two ways that follow from the substrate rather than from
-    choice:
+    Differs from the queue-backed runner in two ways that follow from the substrate rather
+    than from choice:
 
     * A completed task frees its `job_name` slot immediately (see `exists`), because there is no
       lingering substrate object to block a re-run — where a finished Job persists until its TTL.
@@ -144,9 +145,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
-        Deliberately the same `job_env` keys `K8sJobRunner._env` writes onto a Job spec: the two
-        adapters are two renderings of ONE contract, so `build_executor` cannot tell a local run
-        from a Job's, and a variable added to one adapter is visibly missing from the other.
+        Deliberately the same `job_env` keys the queue codec writes onto a run's message: the
+        two adapters are two renderings of ONE contract, so `build_executor` cannot tell a local
+        run from a worker's, and a variable added to one adapter is visibly missing from the
+        other.
         """
         env = dict(self._base_env)
         env[job_env.TOPIC] = topic
@@ -241,7 +243,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
 
         Cancelling is what produces the run's `Terminated(stopped)` frame: `lifecycle.run`
         publishes it on the way out. No purge here — the REST DELETE route purges separately and
-        the WS stop path deliberately does not, which mirrors `K8sJobRunner`.
+        the WS stop path deliberately does not, which mirrors the queue runner.
         """
         task = self._tasks.get(job_name(topic))
         if task is not None and not task.done():

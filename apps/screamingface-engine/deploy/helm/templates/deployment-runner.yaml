@@ -1,0 +1,142 @@
+# The runner pool (OME-1092): the fixed worker pool that replaced one-Job-per-run scheduling.
+#
+# Each pod runs `screamingface-engine worker` (OME-1089): a slot pool that claims runs from the
+# durable queue and forks each as a supervised child process. The declared concurrency is
+# `replicas × workerSlots`; the queue's `max_ack_pending` derives from the same slot count, so
+# the pool and the queue cannot disagree about how many runs one worker may hold.
+#
+# The pool runs the BENCHMARK image (`screamingface-engine.runnerImage`): the worker forks each
+# run as a child from its own image, and the benchmark image is the one that layers the private
+# grading assets the run mode needs. Private assets therefore still never reach the
+# client-facing App.
+#
+# DRAIN (the deploy-interrupts-runs regression): on SIGTERM the worker stops pulling and keeps
+# its in-flight children alive for `drainGraceS`, then terminates the rest with a named
+# `worker_draining` frame. The preStop starts that drain by SIGTERMing the worker immediately,
+# so the drain runs inside the termination grace period; `terminationGracePeriodSeconds` must
+# stay above `drainGraceS` or the kubelet SIGKILLs mid-drain. The PodDisruptionBudget
+# (`maxUnavailable: 0`) is the other half: a node drain or voluntary disruption can never take
+# a slot away from a run that is using it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "screamingface-engine.fullname" . }}-runner
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runner
+spec:
+  replicas: {{ .Values.runnerPool.replicas }}
+  selector:
+    matchLabels:
+      # The pool's own identity, NOT the chart's selectorLabels: aigateway's NetworkPolicy
+      # admits the run workload by `app.kubernetes.io/name: url4-runner` (the old Job labels),
+      # and the pool replaces the Jobs — so its pods must carry that label or they are denied
+      # at the CNI. `instance` keeps the selector unique to this release.
+      app.kubernetes.io/name: url4-runner
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: url4-runner
+        app.kubernetes.io/part-of: url4-cloud
+        app.kubernetes.io/component: runner
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        # INVARIANT: a ConfigMap/Secret value change alone MUST roll the pool — the worker's
+        # deploy-time env comes from these sources, and a stale env is silently wrong behavior
+        # (the same invariant as the App Deployment's checksum annotations).
+        checksum/runner-env: {{ include (print $.Template.BasePath "/configmap-runner-env.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret-artifact-storage.yaml") . | sha256sum }}
+        checksum/tavily: {{ include (print $.Template.BasePath "/secret-tavily.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      # INVARIANT: kubelet's legacy Docker-link env injection MUST stay off — the same rule as
+      # the App Deployment. The worker's env is the runner-env ConfigMap + the secrets below.
+      enableServiceLinks: false
+      # The worker needs no cluster API at all — it talks to NATS and forks children. No token
+      # is mounted, and the ServiceAccount exists for pod identity only.
+      automountServiceAccountToken: false
+      serviceAccountName: {{ include "screamingface-engine.serviceAccountName" . }}
+      # INVARIANT: must stay above `runnerPool.drainGraceS` — the kubelet SIGKILLs the pod at
+      # this deadline, and a drain cut short interrupts every in-flight run.
+      terminationGracePeriodSeconds: {{ .Values.runnerPool.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: runner
+          image: {{ include "screamingface-engine.runnerImage" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The mode switch (OME-1089): the worker claims runs from the queue and forks each as
+          # a child. Pinned here beside the Deployment that uses it — the entrypoint belongs to
+          # the image, and a values-file override could only name a mode the image does not have.
+          command:
+            - screamingface-engine
+            - worker
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            # The worker's Prometheus /metrics endpoint (prometheus_client.start_http_server).
+            - name: metrics
+              containerPort: {{ .Values.runnerPool.metricsPort }}
+          envFrom:
+            # The deploy-time runner env, unchanged from the Job path: Helm owns these names
+            # (AIGATEWAY_BASE_URL, URL4_CLOUD_NATS_URL, the artifact-store settings), and the
+            # worker's children inherit them from the worker's own env.
+            - configMapRef:
+                name: {{ include "screamingface-engine.fullname" . }}-runner-env
+            {{- if eq .Values.artifactStorage.backend "s3" }}
+            - secretRef:
+                name: {{ include "screamingface-engine.artifactSecretName" . }}
+            {{- end }}
+            {{- if .Values.tavily.enabled }}
+            - secretRef:
+                name: {{ include "screamingface-engine.tavilySecretName" . }}
+            {{- end }}
+          lifecycle:
+            # Start the drain NOW: the worker stops pulling on SIGTERM and keeps its in-flight
+            # children alive for `drainGraceS`. Without this the drain would only start when the
+            # kubelet's own SIGTERM lands, and the grace period would have to cover the whole
+            # drain; with it, the drain runs inside the termination grace period.
+            preStop:
+              exec:
+                command: ["sh", "-c", "kill -TERM 1"]
+          resources:
+            # workerSlots × per-run charge + the worker's own overhead — sized so the declared
+            # concurrency can actually run. Memory limit only; no CPU limit, so a run can burst
+            # into idle CPU instead of being CFS-throttled mid-inference.
+            requests:
+              cpu: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.cpuMillicores) .Values.runnerPool.overhead.cpuMillicores }}m
+              memory: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.memoryMi) .Values.runnerPool.overhead.memoryMi }}Mi
+            limits:
+              memory: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.memoryLimitMi) .Values.runnerPool.overhead.memoryLimitMi }}Mi
+          # INVARIANT: pairs with `securityContext.readOnlyRootFilesystem` — the same rule as
+          # the App Deployment. The worker and its children write temp files; without one
+          # writable path, a transitive dependency that writes one crashes the pod.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

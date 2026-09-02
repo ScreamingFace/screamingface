@@ -42,6 +42,8 @@ from screamingface_engine.metrics import (
     MetricsMiddleware,
     build_metrics,
     register_catalog_metrics,
+    register_max_deliveries_metrics,
+    register_queue_metrics,
     register_reaper_metrics,
 )
 from screamingface_engine.ops import router as ops_router
@@ -126,12 +128,12 @@ def create_app(
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
     register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
+    _register_runner_metrics(app)
     app.add_middleware(MetricsMiddleware)
-    registry = ConnectionRegistry()
-    app.state.registry = registry
-    app.state.interest = interest if interest is not None else registry
+    app.state.registry = ConnectionRegistry()
+    app.state.interest = interest if interest is not None else app.state.registry
     # FEATURE: tie a run's lifetime to its audience (OME-890).
-    _install_orphan_reaper(app, registry, job_runner, settings)
+    _install_orphan_reaper(app, app.state.registry, job_runner, settings)
     # FEATURE: a run the queue gave up on must end in a named failure, not silence
     # (OME-1090).
     _install_max_deliveries_advisor(app, settings)
@@ -143,6 +145,15 @@ def create_app(
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
     customize_openapi(app)
     return app
+
+
+def _register_runner_metrics(app: FastAPI) -> None:
+    """The queue's own signals (depth, oldest-unclaimed age) and the max-deliveries advisories
+    (OME-1092). Registered unconditionally via getters, like the reaper's: a stream-only App
+    exposes no queue series rather than a stale zero, and /metrics never depends on wiring
+    order."""
+    register_queue_metrics(app.state.metrics, lambda: app.state.job_runner)
+    register_max_deliveries_metrics(app.state.metrics, lambda: app.state.max_deliveries_advisor)
 
 
 # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.
@@ -177,10 +188,9 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
                 }
             )
         )
-    if settings.runner in ("k8s", "queue"):
-        # WHY both backends: `k8s` schedules each run as a separate Job pod, and `queue`
-        # (OME-1090) runs each run in a worker pod — either way the run executes in a
-        # different pod than this App, whose disk is destroyed with it, so results spilled
+    if settings.runner == "queue":
+        # WHY: `queue` (OME-1090) runs each run in a worker pod — either way the run executes in
+        # a different pod than this App, whose disk is destroyed with it, so results spilled
         # to a local directory can never be served back.
         raise ValueError(
             f"runner='{settings.runner}' runs each run in its own pod, whose disk is "
@@ -308,7 +318,7 @@ def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:
     Modelled on `_install_orphan_reaper`: the advisor owns no task, the loop is an asyncio
     task on the App's own event loop, and shutdown cancels it and closes the advisor's
     connections so nothing outlives the App. Only the queue backend has a queue to give up
-    on, so a k8s or stream-only App installs nothing.
+    on, so a stream-only App installs nothing.
     """
     app.state.max_deliveries_advisor = None
     app.state.max_deliveries_task = None
@@ -403,9 +413,9 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     )
     app.router.on_shutdown.append(stream.close)
     if job_runner is not None:
-        # The queue runner owns a control connection of its own (OME-1090); the k8s runner
-        # owns nothing to close. `getattr` rather than an isinstance: the factory returns
-        # the port, and the app must not import a concrete adapter.
+        # The queue runner owns a control connection of its own (OME-1090). `getattr` rather
+        # than an isinstance: the factory returns the port, and the app must not import a
+        # concrete adapter.
         aclose = getattr(job_runner, "aclose", None)
         if aclose is not None:
             app.router.on_shutdown.append(aclose)

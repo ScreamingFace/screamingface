@@ -20,7 +20,7 @@
 # size one against.
 replicaCount: 1
 
-# The control-plane image. Runner Jobs use the matching benchmark image configured under
+# The control-plane image. The runner pool uses the matching benchmark image configured under
 # `runner.image`; private grading assets therefore never reach the client-facing process.
 # Build-time OCI labels are listed in README.md (org.opencontainers.image.*).
 image:
@@ -48,17 +48,12 @@ nameOverride: "url4-cloud"
 fullnameOverride: ""
 
 serviceAccount:
-  # The App's ServiceAccount — the RoleBinding subject that lets the stateless App schedule Jobs in
-  # its own namespace (spec §9). Must exist for the RBAC bootstrap; keep `create: true` in-cluster.
+  # The App's ServiceAccount. The Job-scheduling RoleBinding is gone (OME-1092): the control
+  # plane no longer creates Pods, so the ServiceAccount needs no Role — it exists for pod
+  # identity only. Must exist for the bootstrap; keep `create: true` in-cluster.
   create: true
   annotations: {}
   name: ""
-
-# RBAC bootstrap (spec §9): namespace-scoped Role + RoleBinding so the App can manage Runner Jobs
-# ONLY in its own namespace. Verbs are exactly what `K8sJobRunner` calls: create/get/list/watch/
-# delete on batch/jobs, get/list on pods (+ pods/log) for status and logs.
-rbac:
-  create: true
 
 podAnnotations: {}
 podLabels: {}
@@ -91,7 +86,7 @@ config:
   syncMaxWaitS: 30
   # Idle interval between WS heartbeat frames for liveness (spec §6).
   wsHeartbeatS: 15
-  # k8s Job activeDeadlineSeconds ceiling = 16h (spec §3); the Runner Job's hard timeout.
+  # The run deadline ceiling = 16h (spec §3); the worker's hard wall derives from it.
   jobDeadlineS: 57600
   # Seconds a run may keep going with NO WebSocket subscriber before the App stops it (OME-890).
   # 0 disables the reaper. Keep this comfortably above uvicorn's WS ping window (~40s), which is
@@ -99,7 +94,7 @@ config:
   # detection it depends on. This bounds SPEND on runs whose client died; `jobDeadlineS` above
   # remains the backstop.
   orphanGraceS: 120
-  # Per-run downstream in-flight budget written onto every Runner Job as
+  # Per-run downstream in-flight budget written onto every run as
   # `URL4_CLOUD_IO_CONCURRENCY` (OME-908). The gateway admits only a few calls per provider at
   # once (`AIGW_PROVIDER_MAX_CONCURRENCY`, default 4), and a benchmark-scale run at URL4's
   # default width (32) keeps that queue continuously full for hours — a second concurrent run
@@ -112,8 +107,8 @@ config:
   # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
   # image's own default. Must be one of the models that url4.toml declares.
   aigatewayModel: ""
-  # Where scheduled Runner Jobs reach aigateway. Empty = forward nothing, and the Runner falls
-  # back to loopback (127.0.0.1:9105) — which inside a Job Pod is that Pod itself, so any
+  # Where the worker's children reach aigateway. Empty = forward nothing, and the Runner falls
+  # back to loopback (127.0.0.1:9105) — which inside a worker pod is that pod itself, so any
   # deployment doing real inference MUST set this to the aigateway Service URL.
   aigatewayBaseUrl: ""
   # NOTE: there is deliberately no `port` here. The App serves on a hardcoded 9108 (cli.py) and
@@ -121,14 +116,14 @@ config:
   # away from the port actually being listened on. Use `service.port` to change what the cluster
   # dials; the container side is fixed.
 
-# Where over-cap Evaluation results are parked between the Runner Job that produces one and the
+# Where over-cap Evaluation results are parked between the worker that produces one and the
 # App that serves it back (OME-929).
 #
-# WHY this must not be a local directory when `config.runner: k8s`: each run is a separate Job pod
-# whose disk is destroyed with it, so a result spilled there can never be served — the run
-# succeeds, then the client's redemption 404s, after every model call has been paid for. That was
-# the DEFAULT before OME-929 and nothing about it looked wrong. The App now REFUSES to start in
-# that combination, so a k8s deployment must set `backend: s3` here.
+# WHY this must not be a local directory when `config.runner: queue`: each run executes in a
+# worker pod whose disk is destroyed with it, so a result spilled there can never be served —
+# the run succeeds, then the client's redemption 404s, after every model call has been paid for.
+# That was the DEFAULT before OME-929 and nothing about it looked wrong. The App now REFUSES to
+# start in that combination, so a queue deployment must set `backend: s3` here.
 artifactStorage:
   # Spill directory for filesystem mode. Ignored when `backend: s3`. Empty => the code's default
   # (a temp path), which is fine for a single process and catastrophic across pods — hence the
@@ -192,15 +187,15 @@ garage:
 # and run its bounded tool-calling loop. Disabled => the Runner never sees TAVILY_API_KEY and the
 # connector stays deny-by-default (dec:W5), with a request body identical to the no-tools shape.
 #
-# INVARIANT: the App attaches the Secret to each Runner Job by reference (envFrom.secretRef), never the
-# literal key — a Job spec is not a secret (readable with `get jobs`, echoed by `kubectl describe`
+# INVARIANT: the chart attaches the Secret to the runner pool by reference (envFrom.secretRef), never the
+# literal key — a pod spec is not a secret (readable with `get pods`, echoed by `kubectl describe`
 # and the audit log). The App therefore never reads this value and needs NO extra RBAC, and
-# rotating the Secret takes effect on the next Job with no App restart.
+# rotating the Secret takes effect on the next worker rollout with no App restart.
 tavily:
   enabled: false
   # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
   # / Sealed Secrets flow). Empty + enabled => the chart creates one from `apiKey` below.
-  # NOTE: the credential must be keyed `TAVILY_API_KEY` in the Secret — each Runner Job attaches
+  # NOTE: the credential must be keyed `TAVILY_API_KEY` in the Secret — the pool attaches
   # it with `envFrom.secretRef`, which injects keys under their own names and cannot rename.
   existingSecret: ""
   # Dev-only convenience for a chart-created Secret. NEVER commit a real key to a values file;
@@ -349,51 +344,57 @@ readinessProbe:
   periodSeconds: 10
   timeoutSeconds: 5
 
-# Runner Job template (spec §9). Rendered as a documented ConfigMap, NOT a live Job: the App builds
-# the real per-request Job in code (K8sJobRunner._manifest) — this is the operator reference so the
-# scheduled shape (run-once, 16 h deadline, labels the RBAC must cover) is visible and reviewable.
+# Runner pool (OME-1092): the fixed worker pool that replaced one-Job-per-run scheduling.
+#
+# The pool is a Deployment of `replicas` pods, each running `screamingface-engine worker`
+# (OME-1089) with `workerSlots` run slots. The declared concurrency is `replicas × workerSlots`;
+# the queue's `max_ack_pending` derives from the same slot count, so the pool and the queue
+# cannot disagree about how many runs one worker may hold.
+#
+# The pool runs the BENCHMARK image (`runner.image` below): the worker forks each run as a child
+# process from its own image, and the benchmark image is the one that layers the private grading
+# assets the run mode needs. Private assets therefore still never reach the client-facing App.
+runnerPool:
+  replicas: 1
+  # Run slots per worker pod — MUST match `run_queue_worker_slots` (the queue's
+  # `max_ack_pending` is `QUEUE_REPLICAS × this`).
+  workerSlots: 4
+  # Seconds a draining worker keeps its in-flight children alive after SIGTERM before
+  # terminating them (`worker_drain_grace_s`). The preStop starts the drain by SIGTERMing the
+  # worker, so the grace period below must exceed this or the kubelet SIGKILLs mid-drain.
+  drainGraceS: 30
+  # INVARIANT: must stay strictly above `drainGraceS` — the kubelet SIGKILLs the pod at this
+  # deadline, and a drain cut short interrupts every in-flight run.
+  terminationGracePeriodSeconds: 45
+  # The pool's resources are `workerSlots × per-run charge` + the worker's own overhead, so the
+  # declared concurrency can actually run rather than scheduling BestEffort. Memory limit only
+  # (no CPU limit): a run may burst into idle CPU instead of being CFS-throttled mid-inference.
+  perRunCharge:
+    # The old Runner Job's per-run numbers (requests 200m/256Mi, limits.memory 1Gi).
+    cpuMillicores: 200
+    memoryMi: 256
+    memoryLimitMi: 1024
+  overhead:
+    # The worker process's own footprint (the claim loop, the NATS clients, the supervisor).
+    cpuMillicores: 100
+    memoryMi: 128
+    memoryLimitMi: 256
+  # The worker's Prometheus /metrics port (prometheus_client.start_http_server).
+  metricsPort: 9109
+
+# Runner image (spec §9). The pool Deployment runs this image in `worker` mode; the worker
+# forks each run as a child from its own image, so this is the image that must carry the
+# benchmark datasets and private grading assets the control plane must not.
 runner:
-  # Which JobRunner substrate the App schedules on (screamingface_engine.config.RunnerBackend). `k8s` is the
-  # point of this chart; `none` degrades the App to a token-minting NATS bridge that cannot run.
-  backend: k8s
-  # Runner Jobs need benchmark datasets and private grading assets that the control plane must
-  # not carry. Empty values derive `<image.repository>-benchmark` with the control plane's
-  # resolved tag, keeping the two artifacts paired across mirrors and upgrades.
+  # Which JobRunner substrate the App schedules on (screamingface_engine.config.RunnerBackend).
+  # `queue` is the point of this chart; `none` degrades the App to a token-minting NATS bridge
+  # that cannot run.
+  backend: queue
+  # Empty values derive `<image.repository>-benchmark` with the control plane's resolved tag,
+  # keeping the two artifacts paired across mirrors and upgrades.
   image:
     repository: ""
     tag: ""
-  #
-  # NOTE: there is deliberately no `command` here either. The Job's command is the mode switch
-  # `["screamingface-engine", "run"]`, pinned in code beside the Job spec that uses it
-  # (`adapters/k8s.py`). A value here rendered into nothing and was silently ignored, which is
-  # worse than not offering it. The entrypoint belongs to the image.
-  # The Runner Job's own requests/limits, forwarded into every scheduled Job. This is the
-  # workload that actually burns CPU/memory (it drives the url4 DAG engine and buffers model
-  # responses) — with nothing set it schedules BestEffort: placed blind, evicted first, and
-  # free to OOM the node it shares. Memory limit always; no CPU limit, so a run can burst into
-  # idle CPU instead of being CFS-throttled mid-inference.
-  # CO-SCHEDULING (OME-908 Layer 3): size these so at least two benchmark Jobs fit at once.
-  # If the cluster admits only one at a time, a second run sits `Pending` until the first
-  # exits — the same caller-visible symptom as gateway queue starvation, but the fix is
-  # capacity (requests/quotas/tolerations), never `config.runnerIoConcurrency`.
-  resources:
-    requests:
-      cpu: 200m
-      memory: 256Mi
-    limits:
-      memory: 1Gi
-  # Optional EXTENSION of how long finished Jobs are retained (seconds). Unset => the App derives
-  # `iatWindowS` + a 60s clock-skew margin (so 120s at the defaults).
-  #
-  # INVARIANT: the Job's deterministic name IS the single-use replay guard, so this may only ever
-  # be RAISED (e.g. to keep failed runs around for post-mortem); below `iatWindowS` the Job can be
-  # reclaimed while its token is still within `exp`, and is refused at startup.
-  #
-  # WHY it does NOT include jobDeadlineS: ttlSecondsAfterFinished counts from COMPLETION, and the
-  # Job already exists for the whole run — the guard only has to outlive the token, not the run.
-  # Including it retained ~960x more Job/Pod objects than needed (~14 KB of etcd per request), which
-  # is what actually caps this design's throughput.
-  jobTtlSeconds: ""
 
 # Optional in-cluster NATS (JetStream) subchart — default-disabled (see Chart.yaml). Enable only
 # after `helm dependency build`; otherwise reuse an existing NATS via `config.natsUrl`.

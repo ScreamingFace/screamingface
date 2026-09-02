@@ -16,22 +16,20 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
-from typing import Any
 
 import httpx
 import pytest
 from _fakes import FixedGate, RecordingJobRunner
-from _k8s_fakes import FakeCreatedJob, fake_created_job
 from fastapi import FastAPI
 from httpx import ASGITransport
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
-from screamingface_engine.adapters.k8s import K8sJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
+from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world_config import ModelSpec
 from url4.dag import run as url4_run
@@ -146,52 +144,22 @@ async def test_identity_is_forwarded_without_a_credential() -> None:
     assert runner.scheduled[0].identity == IDENTITY
 
 
-# --- the env round trip: both adapters render one contract -----------------------------------
+# --- the env round trip: the codec and the inprocess adapter render one contract ------------
 
 
-class _RecordingBatchApi:
-    def __init__(self) -> None:
-        self.created: list[dict[str, Any]] = []
-
-    def create_namespaced_job(
-        self, namespace: str, body: Any, *, _request_timeout: float | None = None
-    ) -> FakeCreatedJob:
-        self.created.append(dict(body))
-        return fake_created_job(f"uid-{body['metadata']['name']}")
-
-    def read_namespaced_job(
-        self, name: str, namespace: str, *, _request_timeout: float | None = None
-    ) -> Any:  # pragma: no cover
-        raise NotImplementedError
-
-    def delete_namespaced_job(
-        self,
-        name: str,
-        namespace: str,
-        *,
-        propagation_policy: str = "",
-        _request_timeout: float | None = None,
-    ) -> object:  # pragma: no cover
-        raise NotImplementedError
+def _codec_env_of(identity: dict[str, str] | None) -> dict[str, str]:
+    """The deployed rendering of identity: the queue message's per-run env mapping."""
+    return decode_message(encode_message("t", "gpt(hi)", 60, identity=identity))
 
 
-async def test_the_k8s_adapter_writes_identity_as_plain_env_and_the_runner_reads_it_back() -> None:
-    api = _RecordingBatchApi()
-
-    await K8sJobRunner(api, image="runner:test").schedule("t", "gpt(hi)", 60, identity=IDENTITY)
-
-    container = api.created[0]["spec"]["template"]["spec"]["containers"][0]  # type: ignore[index]
-    entries = {entry["name"]: entry for entry in container["env"]}
-    for name in job_env.IDENTITY_HEADER_ENV.values():
-        # Plain `value`, never `valueFrom`: identity is not a credential (see IDENTITY_HEADER_ENV).
-        assert "value" in entries[name], f"{name} must be a plain env value, got {entries[name]}"
-    env = {name: entry["value"] for name, entry in entries.items() if "value" in entry}
+def test_the_queue_codec_writes_identity_as_plain_env_and_the_runner_reads_it_back() -> None:
+    env = _codec_env_of(IDENTITY)
 
     assert job_env.identity_from_env(env) == IDENTITY
 
 
-async def test_the_inprocess_adapter_renders_the_same_env_as_the_k8s_one() -> None:
-    """The two adapters are two renderings of ONE contract — local mode must not diverge."""
+def test_the_inprocess_adapter_renders_the_same_env_as_the_queue_codec() -> None:
+    """The two renderings are ONE contract — local mode must not diverge."""
     runner = InProcessJobRunner(
         stream=InMemoryEventStream(),
         executor_factory=lambda env: _CapturingExecutor(env),
@@ -200,6 +168,7 @@ async def test_the_inprocess_adapter_renders_the_same_env_as_the_k8s_one() -> No
     env = runner._env("t", "gpt(hi)", 60, None, None, IDENTITY)  # noqa: SLF001
 
     assert job_env.identity_from_env(env) == IDENTITY
+    assert job_env.identity_from_env(env) == job_env.identity_from_env(_codec_env_of(IDENTITY))
 
 
 async def test_this_requests_identity_replaces_any_ambient_one() -> None:

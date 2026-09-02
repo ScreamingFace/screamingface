@@ -208,7 +208,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         self._io_concurrency = io_concurrency
         # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows
         # while the app runs, and a model admitted a second ago must reach the very next
-        # run — the same rule as `K8sJobRunner._extra_models`.
+        # run — the same rule as the inprocess adapter's `_extra_models`.
         self._extra_models = extra_models
         self._depth_ceiling = depth_ceiling
         self._caller_inflight_cap = caller_inflight_cap
@@ -265,8 +265,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         """Publish the run to the queue and return its job name.
 
         `credential` is accepted for port compatibility and DELIBERATELY DROPPED, exactly
-        as `K8sJobRunner` drops it: the queue message carries the caller's verified
-        identity, never a bearer token (see the k8s adapter's module INVARIANT).
+        as the inprocess adapter drops it: the queue message carries the caller's verified
+        identity, never a bearer token.
 
         The broker deduplicates a retried submission of the same topic within
         `duplicate_window` (`Nats-Msg-Id` is the topic), which is the queue's
@@ -446,6 +446,16 @@ class QueueJobRunner(IdentityAwareJobRunner):
     async def queue_depth(self) -> int:
         """How many runs are queued — the position notice's input (OME-1090)."""
         return await self._queue.depth()
+
+    def queue_snapshot(self) -> tuple[int | None, float | None]:
+        """The last cached (depth, oldest-unclaimed age) — the /metrics collector's input.
+
+        Sync and lock-free: the values are written under `_admission_lock` by
+        `_refresh_if_stale`, and a scrape reading a half-updated pair is harmless (both are
+        gauges). `None` depth means no reading has happened yet; `None` age means the queue
+        was empty at the last reading.
+        """
+        return self._depth_snapshot, self._oldest_age
 
     async def aclose(self) -> None:
         """Close the control connection. The queue and publisher own their own connections

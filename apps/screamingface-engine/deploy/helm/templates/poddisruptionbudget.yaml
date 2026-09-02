@@ -1,0 +1,23 @@
+# The runner pool's disruption budget (OME-1092): a voluntary disruption may never take a slot
+# away from a run that is using it.
+#
+# WHY `maxUnavailable: 0`: the pool's slots are the fleet's concurrency, and a run is not
+# resumable — a pod evicted mid-run loses the run's PROGRESS (the queue redelivers the message,
+# but the run restarts from scratch). A node drain or cluster autoscaler that evicts a busy
+# worker therefore interrupts live runs, which is exactly the deploy-interrupts-runs regression
+# this budget exists to prevent. `maxUnavailable: 0` means a drain waits for the worker's slots
+# to free up (bounded by the drain grace), and the Deployment's own rollout is already
+# serialized by the preStop + grace period.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "screamingface-engine.fullname" . }}-runner
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runner
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: url4-runner
+      app.kubernetes.io/instance: {{ .Release.Name }}

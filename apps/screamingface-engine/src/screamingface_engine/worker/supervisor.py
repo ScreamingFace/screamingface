@@ -19,6 +19,7 @@ import contextlib
 import logging
 import os
 import sys
+import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
@@ -33,6 +34,7 @@ from screamingface_engine.runner_queue import (
     topic_of_message,
 )
 from screamingface_engine.subjects import ENQUEUED_AT_HEADER
+from screamingface_engine.worker.metrics import WorkerMetrics
 from url4.streaming.protocol import (
     ErrorInfo,
     OutboundFrame,
@@ -183,6 +185,7 @@ class RunSupervisor:
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
         deadline_margin_s: float = DEADLINE_MARGIN_S,
         kill_grace_s: float = KILL_GRACE_S,
+        metrics: WorkerMetrics | None = None,
     ) -> None:
         self._publisher = publisher
         self._spawn = spawn
@@ -213,9 +216,13 @@ class RunSupervisor:
         # Runs claimed but not yet spawned (OME-1090): the control loop answers from here
         # during the spawn window. `None` keeps direct construction (older tests) working.
         self._starting = starting if starting is not None else set()
-        self._heartbeat_interval_s = heartbeat_interval_s
-        self._deadline_margin_s = deadline_margin_s
-        self._kill_grace_s = kill_grace_s
+        self._heartbeat_interval_s, self._deadline_margin_s, self._kill_grace_s = (
+            heartbeat_interval_s,
+            deadline_margin_s,
+            kill_grace_s,
+        )
+        # The worker's Prometheus metrics (OME-1092), shared with the claim loop.
+        self._metrics = metrics
 
     async def supervise(self, msg: ClaimedMessage) -> None:
         """Claim one run and see it through to a terminal frame and an ack.
@@ -225,6 +232,17 @@ class RunSupervisor:
         unacked, so the broker redelivers it (up to ``max_deliver``) instead of losing
         the run.
         """
+        started = time.monotonic()
+        try:
+            await self._supervise(msg)
+        finally:
+            if self._metrics is not None:
+                self._metrics.run_duration_s.observe(time.monotonic() - started)
+
+    async def _supervise(self, msg: ClaimedMessage) -> None:
+        """The body of :meth:`supervise`, wrapped for the run-duration metric."""
+        if self._metrics is not None and self._redelivered(msg):
+            self._metrics.redeliveries.inc()
         topic = await self._topic_or_settle(msg)
         if topic is None:
             return
@@ -365,6 +383,15 @@ class RunSupervisor:
         await msg.ack()
         return True
 
+    def _redelivered(self, msg: ClaimedMessage) -> bool:
+        """Whether this claim is a redelivery: the broker delivered the message before.
+
+        A redelivery means a worker died mid-run (or the ack was lost) — the run's
+        PROGRESS was lost and it restarts from scratch. The counter is the Observability
+        section's redelivery signal.
+        """
+        return getattr(getattr(msg, "metadata", None), "num_delivered", 1) > 1
+
     async def _run_child(self, msg: ClaimedMessage, topic: str) -> None:
         """Fork the run as a child, supervise it to its terminal frame, then ack.
 
@@ -417,6 +444,10 @@ class RunSupervisor:
         output = asyncio.create_task(self._forward_output(proc, topic))
         try:
             outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
+            if self._metrics is not None and proc.returncode is not None:
+                # The child's exit code, labeled by code — 137 is the OOM kill the
+                # Observability section names explicitly.
+                self._metrics.child_exit_codes.labels(code=str(proc.returncode)).inc()
             classification = self._classify(outcome, proc.returncode, topic)
             await self._publish_if_needed(topic, classification)
             await msg.ack()

@@ -94,15 +94,19 @@ def test_the_nats_wire_prefix_is_deliberately_unchanged() -> None:
 
 
 def test_the_runner_pod_labels_are_deliberately_unchanged() -> None:
-    """The Runner Job's Kubernetes labels are an allowlist entry in another app.
+    """The runner pool's labels are an allowlist entry in another app.
 
-    INVARIANT: `apps/aigateway`'s NetworkPolicy admits `url4-runner` by name. Changing this label
-    without changing that chart in the same window denies the Runner at the CNI, which surfaces as
-    a connect timeout with nothing in the gateway's logs.
+    INVARIANT: `apps/aigateway`'s NetworkPolicy admits `url4-runner` by name. Changing this
+    label without changing that chart in the same window denies the pool at the CNI, which
+    surfaces as a connect timeout with nothing in the gateway's logs. The labels moved from
+    the retired Job adapter (`adapters/k8s.py` RUNNER_LABELS) to the runner pool Deployment
+    at the cutover (OME-1092); the contract is unchanged.
     """
-    k8s = (_SRC / "screamingface_engine" / "adapters" / "k8s.py").read_text(encoding="utf-8")
-    assert '"app.kubernetes.io/name": "url4-runner"' in k8s
-    assert '"app.kubernetes.io/part-of": "url4-cloud"' in k8s
+    chart = (_APP_ROOT / "deploy" / "helm" / "templates" / "deployment-runner.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "app.kubernetes.io/name: url4-runner" in chart
+    assert "app.kubernetes.io/part-of: url4-cloud" in chart
 
 
 def test_the_job_env_prefix_is_deliberately_unchanged() -> None:

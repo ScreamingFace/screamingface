@@ -15,7 +15,7 @@ i.e. the whole namespace, which is the hole this policy exists to close.
 
 The peers are the url4-cloud App (it proxies the model catalog) and the Runner Pods (they make the
 chat-completions calls). They share no label — the App carries the url4-cloud chart's name and the
-Jobs carry `url4-runner` (`adapters/k8s.py` RUNNER_LABELS) — so each needs its own element.
+Jobs carry `url4-runner` (the runner pool's labels, `deployment-runner.yaml`) — so each needs its own element.
 */}}
 {{- $ns := .Values.networkPolicy.clientNamespace | default .Release.Namespace -}}
 {{- $peers := list -}}
