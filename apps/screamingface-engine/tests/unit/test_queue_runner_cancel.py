@@ -20,6 +20,8 @@ from typing import Any
 
 import pytest
 
+from nats.errors import NoRespondersError
+
 from screamingface_engine.adapters.queue_runner import QueueJobRunner
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.worker.supervisor import RunSupervisor
@@ -83,16 +85,21 @@ class _FakePublisher:
 
 
 class _FakeControl:
-    """A control client that either replies (the run is running here) or times out."""
+    """A control client that either replies (the run is running here) or reports
+    "nobody is subscribed" — as a timeout, or as nats-py's faster `NoRespondersError`,
+    which the broker itself raises whenever the server advertises headers."""
 
-    def __init__(self, *, reply: bool = True) -> None:
+    def __init__(self, *, reply: bool = True, no_responders: bool = False) -> None:
         self._reply = reply
+        self._no_responders = no_responders
         self.requested: list[tuple[str, bytes, float]] = []
 
     async def request(self, subject: str, payload: bytes, *, timeout: float) -> Any:
         self.requested.append((subject, payload, timeout))
         if self._reply:
             return object()
+        if self._no_responders:
+            raise NoRespondersError()
         raise TimeoutError()
 
 
@@ -218,3 +225,22 @@ async def test_stop_on_an_already_terminal_run_adds_no_second_frame() -> None:
     runner = _runner(publisher, _FakeControl(reply=False))
     await runner.stop("t")
     assert publisher.published == []
+
+
+async def test_no_responders_reads_as_not_running_here_not_an_error() -> None:
+    """nats-py raises `NoRespondersError` — not a `TimeoutError` subclass — when nothing
+    is subscribed to `url4.runctl.*` (a pool scaled to zero, mid-rollout, a worker that
+    is down). `stop()` must read it as "not running here" and tombstone the queued run;
+    uncaught, it 500s `DELETE /` while the run stays queued."""
+    publisher = _FakePublisher()
+    control = _FakeControl(reply=False, no_responders=True)
+    runner = _runner(publisher, control)
+    await runner.schedule("t", "'hi'", 60)
+
+    await runner.stop("t")  # must not raise
+
+    assert control.requested == [("url4.runctl.t", b"", runner._control_timeout_s)]
+    assert len(publisher.published) == 1
+    frame = publisher.published[0]
+    assert isinstance(frame, TerminatedEvent)
+    assert frame.data.status == "stopped"
