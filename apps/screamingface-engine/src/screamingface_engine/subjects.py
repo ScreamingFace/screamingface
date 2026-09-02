@@ -20,6 +20,15 @@ RUN_QUEUE_STREAM = "url4-runq"
 RUN_QUEUE_SUBJECT_PREFIX = "url4-runq"
 RUN_QUEUE_SUBJECT = f"{RUN_QUEUE_SUBJECT_PREFIX}.work"
 
+# The publish-time stamp on every queued run (OME-1088): the wall-clock moment the
+# submission was accepted onto the queue. JetStream's own message metadata records only
+# the DELIVERY timestamp — the moment a worker pulled it — so "how long has this run
+# waited?" (the deadline-expiry drop at claim time) is unanswerable from the metadata.
+# The publisher stamps this header; the worker reads it back. A message without the
+# header (published before the stamp existed) falls back to the delivery timestamp —
+# the pre-stamp semantics, never worse.
+ENQUEUED_AT_HEADER = "Url4-Enqueued-At"
+
 
 def subject_for(topic: str) -> str:
     return f"{PREFIX}.{topic}"
@@ -29,7 +38,7 @@ def stream_for(topic: str) -> str:
     return f"{PREFIX}_{topic}"
 
 
-def owns_stream(stream_name: str) -> bool:
+def owns_stream(stream_name: str, *, run_queue_stream: str = RUN_QUEUE_STREAM) -> bool:
     """Whether a stream on the broker is one of ours.
 
     INVARIANT: the NATS store may be shared with other workloads. Reclamation enumerates every
@@ -40,8 +49,13 @@ def owns_stream(stream_name: str) -> bool:
     accepts. It is named outside the per-run prefix (`url4-runq` does not start with
     `url4-cloud_`), and it is ALSO excluded explicitly here, so a future rename of either side
     cannot silently re-arm the sweep against it.
+
+    The exclusion follows the CONFIGURED queue stream, not the default constant: the name is
+    a Settings field (`run_queue_stream`), and an operator who renames the queue must not have
+    the sweep re-armed against the renamed stream by a stale constant. Composition roots pass
+    their configured name; the default keeps tests and the default deployment on the constant.
     """
-    if stream_name == RUN_QUEUE_STREAM:
+    if stream_name == run_queue_stream:
         return False
     return stream_name.startswith(f"{PREFIX}_")
 
@@ -52,6 +66,7 @@ def topic_of(stream_name: str) -> str:
 
 
 __all__ = [
+    "ENQUEUED_AT_HEADER",
     "RUN_QUEUE_STREAM",
     "RUN_QUEUE_SUBJECT",
     "RUN_QUEUE_SUBJECT_PREFIX",

@@ -277,6 +277,11 @@ class Settings(BaseSettings):
     # worker may hold; with `QUEUE_REPLICAS` replicas of the stream and `worker_slots` runs per
     # worker, that is the most a single worker can legitimately have in flight.
     run_queue_worker_slots: int = runner_queue.DEFAULT_WORKER_SLOTS
+    # WHY fleet-sized: `max_ack_pending` is a WHOLE-CONSUMER bound — the total unacked
+    # messages the queue's durable consumer may hand out across EVERY worker in the fleet,
+    # not a per-worker limit. Size it to the deployment's true fleet concurrency
+    # (worker pods × slots); note the value binds at consumer CREATION, so changing it on a
+    # running queue means deleting and recreating the consumer.
     run_queue_max_ack_pending: int = runner_queue.DEFAULT_MAX_ACK_PENDING
     # WHY a ceiling at all: the serving half must stop accepting when the queue is deeper than
     # the fleet can drain in a reasonable time, rather than piling up unbounded work. THIS unit

@@ -44,7 +44,15 @@ DEFAULT_QUEUE_MAX_AGE_S = 86_400.0
 DEFAULT_ACK_WAIT_S = 60.0
 DEFAULT_MAX_DELIVER = 2
 DEFAULT_WORKER_SLOTS = 4
-DEFAULT_MAX_ACK_PENDING = QUEUE_REPLICAS * DEFAULT_WORKER_SLOTS
+# WHY fleet-sized and not `replicas × slots`: `max_ack_pending` is a WHOLE-CONSUMER bound —
+# the total unacked messages the one durable consumer may hand out across EVERY puller in the
+# fleet — not a per-worker limit. Deriving it from the stream's data-redundancy replica count
+# conflated two unrelated numbers and silently capped the whole fleet at 12 in-flight runs.
+# The default is sized for a fleet (32 pods × 8 slots, with headroom); deployments that size
+# differently must set `run_queue_max_ack_pending` to their fleet's true concurrency. NOTE:
+# the value binds when the consumer is CREATED — `pull_subscribe` is idempotent on existence,
+# not on config, so changing it on a running queue means deleting and recreating the consumer.
+DEFAULT_MAX_ACK_PENDING = 256
 DEFAULT_DEPTH_CEILING = 10_000
 DEFAULT_IO_CONCURRENCY = 4
 DEFAULT_STATE_CACHE_TTL_S = 2.0
@@ -273,13 +281,21 @@ class RunQueue:
         `duplicate_window` — the queue's `JobAlreadyExists` equivalent, with no lookup table.
         The acknowledgement is awaited: the caller must know the run was durably accepted
         before it tells the client so.
+
+        The publish also stamps `Url4-Enqueued-At` (see `subjects.ENQUEUED_AT_HEADER`): the
+        wall-clock acceptance moment. JetStream's delivery metadata carries only the PULL
+        timestamp, so the claim-time "waited past its deadline" check would otherwise measure
+        an always-fresh ~0 and never fire for exactly the backlogged runs it exists to catch.
         """
         await self.ensure_stream()
         js = await self._jetstream()
         await js.publish(
             self._subject,
             message,
-            headers={"Nats-Msg-Id": topic_of_message(message)},
+            headers={
+                "Nats-Msg-Id": topic_of_message(message),
+                subjects.ENQUEUED_AT_HEADER: datetime.now(UTC).isoformat(),
+            },
         )
 
     async def pull(self, batch: int, timeout_s: float) -> list[Msg]:
@@ -326,6 +342,11 @@ class RunQueue:
         `first_ts` (the server sends it; the dataclass does not model it), and `oldest_age`
         needs exactly that field. The raw response is the only path to it, so one request
         serves both signals.
+
+        The dependency on the PRIVATE surface (`_api_request`, `_prefix`) is pinned by
+        `test_nats_private_api_surface.py`: a `uv lock` bump that renames either — or a
+        release that finally models `first_ts` on `StreamState` — fails that test loudly at
+        CI instead of surfacing as admission logic silently misbehaving at runtime.
         """
         now = time.monotonic()
         if self._state_cache is not None and now - self._state_cache[0] < self._state_cache_ttl_s:
