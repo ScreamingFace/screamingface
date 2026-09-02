@@ -46,9 +46,14 @@ class JobRunnerAtCapacity(Exception):
     ``retry_after_s`` is the substrate's own drain estimate — how long the caller should wait
     before retrying — when it can compute one (the queue-backed runner derives it from depth and
     observed throughput). ``None`` means the caller falls back to its own constant.
+
+    DELTA-SECONDS, an integer: this value crosses to HTTP as the ``Retry-After`` header,
+    which RFC 7231 defines as a non-negative decimal integer (or an HTTP-date). An
+    adapter computing the estimate must CEIL it — never round down, or the caller
+    retries sooner than the substrate's own estimate.
     """
 
-    def __init__(self, active: int, limit: int, *, retry_after_s: float | None = None) -> None:
+    def __init__(self, active: int, limit: int, *, retry_after_s: int | None = None) -> None:
         super().__init__(f"runner at capacity: {active} run(s) in flight, limit {limit}")
         self.active = active
         self.limit = limit
