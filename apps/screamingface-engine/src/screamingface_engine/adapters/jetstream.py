@@ -74,9 +74,10 @@ _MAX_STREAM_PAGES = 100
 _MAX_ENSURED_MEMO = 4096
 
 
-def _consumer_config(from_sequence: int | None) -> ConsumerConfig:
-    """Replays from the start of the stream when `from_sequence` is None, else resumes at that
-    1-based stream sequence (attach/resume, spec §8).
+def _broadcast_consumer_config(from_sequence: int | None) -> ConsumerConfig:
+    """The broadcast replay reader's config: replays from the start of the stream when
+    `from_sequence` is None, else resumes at that 1-based stream sequence (attach/resume, spec
+    §8).
 
     INVARIANT: `ack_policy` is NONE, and this is load-bearing rather than a default worth
     inheriting. These consumers are broadcast replay readers — nothing here can act on a
@@ -85,6 +86,9 @@ def _consumer_config(from_sequence: int | None) -> ConsumerConfig:
     anything (nats-py only auto-acks the callback path), which means every frame is redelivered
     after AckWait and delivery stops outright once `max_ack_pending` (server default 1000)
     unacked messages pile up — i.e. any run over ~1000 frames silently truncates mid-stream.
+
+    The run queue's consumer is the OPPOSITE of this in every way that matters; it has its own
+    builder in `runner_queue` (OME-1088).
     """
     if from_sequence is None:
         return ConsumerConfig(deliver_policy=DeliverPolicy.ALL, ack_policy=AckPolicy.NONE)
@@ -352,7 +356,7 @@ class JetStreamConsumer(_JetStreamConnection, EventConsumer):
         sub = await js.subscribe(
             subject_for(topic),
             stream=stream_for(topic),
-            config=_consumer_config(from_sequence),
+            config=_broadcast_consumer_config(from_sequence),
         )
         # WHY: the caller may abandon this generator mid-run (a re-attach cancels the WS pump, a
         # sync GET gives up at `sync_max_wait_s`). Without the unsubscribe the push consumer keeps
