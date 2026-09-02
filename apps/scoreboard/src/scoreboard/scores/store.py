@@ -41,6 +41,13 @@ logger = logging.getLogger(__name__)
 IDEMPOTENCY_TTL = timedelta(hours=24)
 
 
+class _Unset:
+    """Distinguish an omitted update field from an explicit database NULL."""
+
+
+_UNSET = _Unset()
+
+
 def benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
     """The ONE Benchmark -> DTO mapping.
 
@@ -371,7 +378,11 @@ def _build_leaderboard_query(
     benchmark_id: str,
     top_n: int,
     registered_revision: str | None,
-    registered_case_count: int | None = None,
+    # WHY no default: a coverage guard that can be forgotten is a guard that reopens the hole one
+    # call site over. `registered_revision` beside it is required for the same reason, and the
+    # store already states this rule for `_content_hash(per_submitter=...)`. `None` still means
+    # "this board has no registered count", which is a real state — it just has to be said.
+    registered_case_count: int | None,
 ) -> QueryBuilder:
     scores = Score.get_table()
     # INVARIANT: every entry the board ranks was measured against the revision the benchmark is
@@ -464,7 +475,7 @@ class ScoreStore:
         revision: str | None = None,
         focus: str | None = None,
         visibility: Visibility | None = None,
-        case_count: int | None = None,
+        case_count: int | None | _Unset = _UNSET,
     ) -> BenchmarkSchema:
         defaults: dict[str, object] = {
             "display_name": display_name,
@@ -472,8 +483,14 @@ class ScoreStore:
             "dataset_url": dataset_url,
             "revision": revision,
             "focus": focus,
-            "case_count": case_count,
         }
+        if not isinstance(case_count, _Unset):
+            # WHY a sentinel, unlike `visibility` below: direct callers may omit `case_count` to
+            # leave an existing value alone, but an authoritative Engine seed passes explicit
+            # None when its catalogue has no usable count. That must CLEAR a stale value; keeping
+            # the old count beside a newly seeded revision would compare runs against a scope the
+            # Engine no longer claims. A plain None default cannot express both states (OME-1056).
+            defaults["case_count"] = case_count
         if visibility is not None:
             # WHY conditional (OME-894): seeding runs on every deploy, and an omitted visibility
             # must mean "leave it alone" rather than "reset to public" — otherwise a routine

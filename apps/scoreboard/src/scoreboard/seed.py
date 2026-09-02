@@ -85,7 +85,7 @@ class _CatalogEntry(BaseModel):
     AIDEV-NOTE: ``extra="ignore"`` deliberately, opposite to :class:`SeedBenchmark`'s
     ``extra="forbid"``. A configured entry is written by hand here, so a typo must fail the
     deploy; the catalogue is written by another service that will keep growing fields
-    (``case_count``, ``href``, ``check_surface``, whatever comes next), and a board that
+    (``href``, ``check_surface``, whatever comes next), and a board that
     refuses to seed because the Engine added a field is a board that breaks on someone else's
     release. Read the fields the board displays; ignore the rest.
     """
@@ -113,7 +113,28 @@ class _CatalogEntry(BaseModel):
     # `extra="ignore"`, which is why a one-case run could rank as though it were complete.
     # Optional for the same reason `description` is: a catalogue that omits it costs the board
     # its ranking filter, not the benchmark its row.
-    case_count: int | None = Field(default=None, ge=1)
+    case_count: int | None = None
+
+    @field_validator("case_count", mode="before")
+    @classmethod
+    def _unusable_count_is_absent(cls, value: object) -> int | None:
+        """Normalise anything that is not a usable count to None, never reject the entry.
+
+        WHY not `ge=1` here, while `SeedBenchmark` keeps it: this class's doctrine is "require it
+        where it is WRITTEN; tolerate it where it is READ". `ge=1` on the catalogue turned a
+        previously-discarded field into a whole-entry rejection, so a published `case_count: 0` —
+        a benchmark whose dataset failed to load — costs the benchmark its ROW: a new board is
+        never created and an existing board's text stops refreshing, while the deploy exits 0.
+        The field's own comment two lines up already promised the milder outcome.
+
+        Tolerant of the TYPE as well as the value, because the failure being guarded is another
+        service changing a field this board does not own: `{"total": 541}` and `"541"` must both
+        cost the ranking filter, not the row. `bool` is rejected explicitly — it subclasses `int`,
+        so `True` would otherwise arrive as a case count of 1 (OME-1056).
+        """
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            return None
+        return value
 
     @field_validator("description", "focus", mode="after")
     @classmethod

@@ -811,3 +811,36 @@ def test_rotation_keeps_the_replacement_log_private(
     assert path.with_name("runtime.log.1").exists()
     if os.name != "nt":
         assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_the_local_projection_carries_the_case_count() -> None:
+    """OME-1056: the board's ranking filter needs `case_count`, so the local twin must send it.
+
+    INVARIANT: this function's docstring promises "the same fields the Engine's /v1/benchmarks
+    catalogue publishes" and that keeping the two projections in step "is what makes a local
+    leaderboard look like the deployed one". Omitting the count broke that silently and in the
+    worst environment for it: every local seed left the column NULL, so the coverage filter was
+    off exactly where running with `limit=1` is routine, and a one-case run scoring 1.0 still
+    took rank 1 on the local board.
+    """
+
+    class Benchmark:
+        id = "ifeval"
+        title = "IFEval"
+        description = "Deterministic instruction following"
+        revision = "revision-from-engine"
+        case_count = 541
+
+    assert json.loads(scoreboard_seed_json([Benchmark()]))[0]["case_count"] == 541
+
+
+def test_the_local_projection_omits_an_absent_case_count() -> None:
+    # Keep the local JSON projection sparse, like the HTTP catalogue. Once parsed as an
+    # authoritative engine_row, absence becomes None and clears any stale stored scope.
+    class Benchmark:
+        id = "ifeval"
+        title = "IFEval"
+        description = "Deterministic instruction following"
+        revision = "revision-from-engine"
+
+    assert "case_count" not in json.loads(scoreboard_seed_json([Benchmark()]))[0]
