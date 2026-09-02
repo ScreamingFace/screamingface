@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from nats.js.api import RetentionPolicy, StorageType
+from nats.js.errors import BadRequestError
 
 from screamingface_engine.runner_queue import RunQueue, encode_message
 from screamingface_engine.subjects import RUN_QUEUE_STREAM, RUN_QUEUE_SUBJECT
@@ -168,3 +169,39 @@ async def test_an_empty_queue_reports_no_age_even_though_the_server_sends_a_zero
     disagreeing = _FakeJetStream()
     disagreeing._state = {"messages": 2, "first_ts": "0001-01-01T00:00:00Z"}
     assert await _queue(disagreeing, state_cache_ttl_s=0.0).oldest_age() is None
+
+
+# --- the BadRequestError the queue must NOT swallow (review follow-up) ----------------------
+
+
+class _ConflictingStreamJS(_FakeJetStream):
+    """A broker whose `add_stream` answers a REAL config conflict — a 400 carrying a
+    different JetStream err_code (here: 10052, a generic bad-request), the shape an
+    operator-edited or version-skewed stream produces."""
+
+    def __init__(self, err_code: int) -> None:
+        super().__init__()
+        self._err_code = err_code
+
+    async def add_stream(self, **kwargs: Any) -> object:
+        raise BadRequestError(code=400, err_code=self._err_code, description="retention policy mismatch")
+
+
+async def test_a_config_conflict_under_bad_request_error_is_raised_not_swallowed() -> None:
+    """`ensure_stream` tolerates "stream name already in use" (err_code 10058) — but the
+    TYPE alone cannot say that: a genuine configuration conflict answers with the same
+    `BadRequestError`. Treating every 400 as "already declared" ran the queue on settings
+    nobody agreed to, silently. Only 10058 is benign; everything else surfaces."""
+    from nats.js.errors import BadRequestError  # noqa: F811 — local to the conflicting shape
+
+    fake = _ConflictingStreamJS(err_code=10_052)
+    with pytest.raises(BadRequestError, match="retention policy mismatch"):
+        await _queue(fake).ensure_stream()
+    assert fake.added == []  # nothing was declared; nothing was marked ensured
+
+
+async def test_the_name_in_use_error_code_remains_benign() -> None:
+    """The one tolerated 400: err_code 10058, "stream name already in use" — declared by
+    another replica or an earlier connection. `ensure_stream` returns normally."""
+    fake = _ConflictingStreamJS(err_code=10_058)
+    await _queue(fake).ensure_stream()

@@ -158,6 +158,19 @@ def topic_of_message(payload: bytes) -> str:
     return decode_message(payload)[job_env.TOPIC]
 
 
+STREAM_NAME_IN_USE = 10058
+"""JetStream's err_code for "stream name already in use" — the ONE `BadRequestError` the
+queue treats as benign. The type alone cannot say: the server answers a real configuration
+conflict (retention, storage, replicas diverged — an operator edit, or a version-skewed
+rolling deploy) with the SAME 400 type. Swallowing that would run the queue on settings
+nobody agreed to, silently — so only this code is "already declared"; anything else raises."""
+
+
+def _is_stream_name_in_use(exc: BadRequestError) -> bool:
+    """Whether a `BadRequestError` from `add_stream` is the benign name-in-use case."""
+    return getattr(exc, "err_code", None) == STREAM_NAME_IN_USE
+
+
 class RunQueue:
     """The durable, deduplicating run queue: publish on the serving side, pull on the worker
     side, both against one JetStream stream.
@@ -242,7 +255,12 @@ class RunQueue:
                 max_age=self._max_age_s,
                 duplicate_window=self._duplicate_window_s,
             )
-        except BadRequestError:
+        except BadRequestError as exc:
+            if not _is_stream_name_in_use(exc):
+                # A config conflict wearing the same type — retention, storage, or replicas
+                # diverged from what this code declares. NOT "already declared": raising here
+                # surfaces the mismatch at startup instead of running on it silently.
+                raise
             # Already declared — by another replica, or by an earlier connection.
             pass
         self._ensured = True
