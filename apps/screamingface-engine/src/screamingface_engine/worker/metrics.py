@@ -34,6 +34,7 @@ class WorkerMetrics:
     registry: CollectorRegistry
     slots_busy: Gauge
     slots_total: Gauge
+    last_claim_attempt: Gauge
     claim_latency_s: Histogram
     run_duration_s: Histogram
     redeliveries: Counter
@@ -60,6 +61,14 @@ def build_worker_metrics() -> WorkerMetrics:
         slots_total=Gauge(
             "screamingface_engine_worker_slots_total",
             "Run slots this worker has (run_queue_worker_slots).",
+            registry=registry,
+        ),
+        last_claim_attempt=Gauge(
+            "screamingface_engine_worker_last_claim_attempt_unix_seconds",
+            "Unix time of the claim loop's last pull attempt — the loop-liveness signal. "
+            "A wedged claim loop with a live scrape thread passes a /metrics liveness probe; "
+            "this gauge stops advancing when the loop is stuck. Alert when it goes stale "
+            "while slots_busy < slots_total and the queue has depth.",
             registry=registry,
         ),
         claim_latency_s=Histogram(

@@ -10,6 +10,7 @@ per-process registry so tests never collide.
 
 import asyncio
 import json
+import time
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -130,6 +131,15 @@ def test_the_worker_sets_its_slot_total_at_construction() -> None:
     assert _sample_values(metrics, "screamingface_engine_worker_slots_total") == [4.0]
 
 
+async def _wait_until(predicate: Any, timeout_s: float = 2.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
+    while not predicate():
+        if loop.time() > deadline:
+            raise AssertionError("condition not met in time")
+        await asyncio.sleep(0.01)
+
+
 def _async_spawn(proc: _FakeProcess) -> Any:
     """A spawn callable that returns a fixed fake process."""
 
@@ -233,3 +243,82 @@ async def test_the_claim_loop_tracks_busy_slots() -> None:
     # The claim loop observed at least one pull (the claim-latency histogram has a sample).
     assert _sample_values(metrics, "screamingface_engine_worker_claim_latency_s_count")[0] >= 1.0
     assert _sample_values(metrics, "screamingface_engine_worker_drains_total") == [1.0]
+
+
+@pytest.mark.asyncio
+class _HangingProcess(_FakeProcess):
+    """A child that stays alive until released — the mid-run state the busy-slot gauge
+    must reflect."""
+
+    def __init__(self) -> None:
+        super().__init__(exit_code=0)
+        self._released = asyncio.Event()
+
+    async def wait(self) -> int:
+        await self._released.wait()
+        return self.returncode or 0
+
+    def release(self) -> None:
+        self._released.set()
+
+
+@pytest.mark.asyncio
+async def test_the_busy_slot_gauge_counts_the_just_claimed_batch() -> None:
+    """The gauge used to be set BEFORE the newly-claimed tasks registered — a scrape in
+    that window under-reported utilization by the just-claimed batch, biasing capacity
+    dashboards LOW at the moments of highest throughput. It now reflects the post-claim
+    state: while a claimed run is in flight, the gauge shows it."""
+    metrics = build_worker_metrics()
+    proc = _HangingProcess()
+    queue = _FakeQueue(batches=[[_FakeMsg(_message("t-busy2"))]])
+    worker = Worker(
+        queue=queue,
+        publisher=_FakePublisher(),
+        slots=2,
+        drain_grace_s=0.05,
+        io_capacity=4,
+        memory_budget_bytes=1024**3,
+        pull_timeout_s=0.05,
+        spawn=_async_spawn(proc),
+        metrics=metrics,
+    )
+
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        await _wait_until(lambda: bool(worker._supervisor._children))  # noqa: SLF001
+        assert _sample_values(metrics, "screamingface_engine_worker_slots_busy") == [1.0]
+        proc.release()
+        worker._draining.set()  # noqa: SLF001
+        await claim
+
+
+@pytest.mark.asyncio
+async def test_the_claim_loop_stamps_its_last_attempt() -> None:
+    """The loop-liveness signal (review follow-up): a wedged claim loop with a live scrape
+    thread passes a /metrics liveness probe, so the probe is backed by a gauge that stops
+    advancing when the loop is stuck. Every pull attempt stamps it."""
+    metrics = build_worker_metrics()
+    queue = _FakeQueue(batches=[[_FakeMsg(_message("t-attempt"))]])
+    worker = Worker(
+        queue=queue,
+        publisher=_FakePublisher(),
+        slots=2,
+        drain_grace_s=0.05,
+        io_capacity=4,
+        memory_budget_bytes=1024**3,
+        pull_timeout_s=0.05,
+        spawn=_async_spawn(_FakeProcess(exit_code=0)),
+        metrics=metrics,
+    )
+
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        await _wait_until(
+            lambda: _sample_values(metrics, "screamingface_engine_worker_last_claim_attempt_unix_seconds")
+            and _sample_values(metrics, "screamingface_engine_worker_last_claim_attempt_unix_seconds")[0] > 0
+        )
+        worker._draining.set()  # noqa: SLF001
+        await claim
+
+    stamped = _sample_values(metrics, "screamingface_engine_worker_last_claim_attempt_unix_seconds")[0]
+    assert time.time() - stamped < 5.0

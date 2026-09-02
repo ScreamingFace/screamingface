@@ -125,8 +125,12 @@ What the pool's pods get:
 its in-flight children alive for `runnerPool.drainGraceS`, then terminates the rest with a named
 `worker_draining` frame. The `preStop` starts that drain by SIGTERMing the worker immediately,
 and `terminationGracePeriodSeconds` must stay above `drainGraceS` or the kubelet SIGKILLs
-mid-drain. The PodDisruptionBudget (`maxUnavailable: 0`) is the other half: a node drain or
-voluntary disruption can never take a slot away from a run that is using it.
+mid-drain. The PodDisruptionBudget (`maxUnavailable: 1`) does not block voluntary
+disruptions — deliberately: `0` at a small replica count is either a placebo (1 replica: an
+eviction still takes the whole pool) or a deadlock (a drain that can never evict). `1`
+serializes voluntary disruptions — never two pods down at once — and the `preStop` drain, not
+the PDB, is what protects in-flight runs. Expect one runner pod to be evicted during a node
+drain, its runs closing out as `worker_draining`.
 
 **Admission.** The App admits runs on **queue depth** (OME-1091): a run is refused with 503 +
 `Retry-After` when the queue is at `run_queue_depth_ceiling` or the caller is at its in-flight
@@ -221,8 +225,10 @@ pod is removed from endpoints and sent `SIGTERM` simultaneously, and endpoint re
 to propagate — without the delay every rollout drops live WebSockets and in-flight sync holds.
 
 The runner pool's drain is the mirror image: its `preStop` SIGTERMs the worker so the drain runs
-inside the termination grace period, and its `PodDisruptionBudget` (`maxUnavailable: 0`) means a
-node drain or voluntary disruption can never evict a busy worker mid-run.
+inside the termination grace period, and its `PodDisruptionBudget` (`maxUnavailable: 1`)
+serializes voluntary disruptions — never two pods down at once. A busy worker CAN be evicted
+by a node drain; the `preStop` drain is what protects its runs (they close out as
+`worker_draining`, not lost), so an expected eviction is not an incident.
 
 ## Labels
 

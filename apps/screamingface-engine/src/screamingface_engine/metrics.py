@@ -260,11 +260,18 @@ class _QueueCollector:
         if snapshot is None:
             return
         depth, oldest_age = snapshot()
-        yield GaugeMetricFamily(
-            "screamingface_engine_queue_depth",
-            "Runs queued but not yet claimed by a worker.",
-            value=float(depth or 0),
-        )
+        # WHY depth is OMITTED (not rendered as 0) when unknown, like `oldest_age` (review
+        # follow-up): before the first refresh the snapshot has no reading, and a confident
+        # `queue_depth 0` is indistinguishable from a genuinely empty queue — a scrape at
+        # cold start (a rolling restart, when the queue may hold a backlog no worker has
+        # reported on yet) would mask it. An absent series says "no reading yet"; an alert
+        # on depth must be conditioned on the series existing.
+        if depth is not None:
+            yield GaugeMetricFamily(
+                "screamingface_engine_queue_depth",
+                "Runs queued but not yet claimed by a worker.",
+                value=float(depth),
+            )
         if oldest_age is not None:
             yield GaugeMetricFamily(
                 "screamingface_engine_queue_oldest_unclaimed_age_s",

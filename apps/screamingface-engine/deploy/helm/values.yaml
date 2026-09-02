@@ -356,8 +356,9 @@ readinessProbe:
 # assets the run mode needs. Private assets therefore still never reach the client-facing App.
 runnerPool:
   replicas: 1
-  # Run slots per worker pod — MUST match `run_queue_worker_slots` (the queue's
-  # `max_ack_pending` is `QUEUE_REPLICAS × this`).
+  # Run slots per worker pod — MUST match `run_queue_worker_slots`: the chart renders the
+  # fleet's `max_ack_pending` from `replicas × workerSlots`, so the pool and the queue
+  # cannot disagree about how many runs the fleet may hold in flight.
   workerSlots: 4
   # Seconds a draining worker keeps its in-flight children alive after SIGTERM before
   # terminating them (`worker_drain_grace_s`). The preStop starts the drain by SIGTERMing the

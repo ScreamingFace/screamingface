@@ -6,7 +6,7 @@ The App (stateless REST + WebSocket control plane) is running as:
 
 The runner pool (fixed worker pool, OME-1092) is running as:
   Deployment/{{ include "screamingface-engine.fullname" . }}-runner ({{ .Values.runnerPool.replicas }} × {{ .Values.runnerPool.workerSlots }} slots)
-  PodDisruptionBudget/{{ include "screamingface-engine.fullname" . }}-runner (maxUnavailable: 0)
+  PodDisruptionBudget/{{ include "screamingface-engine.fullname" . }}-runner (maxUnavailable: 1 — voluntary disruptions are serialized, not blocked; the preStop drain protects runs)
 
 The control plane holds no RBAC: it cannot create Pods, and the ServiceAccount
 "{{ include "screamingface-engine.serviceAccountName" . }}" exists for pod identity only.

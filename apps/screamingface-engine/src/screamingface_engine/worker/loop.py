@@ -222,6 +222,11 @@ class Worker:
                         self._active.discard(task)
                 continue
             pull_started = time.monotonic()
+            # The loop-liveness signal: stamped on every pull ATTEMPT, before the await —
+            # a loop wedged inside a pull (or never reaching one) stops advancing this
+            # gauge while the scrape thread stays healthy. See the gauge's docstring for
+            # the alert shape.
+            self._metrics.last_claim_attempt.set(time.time())
             try:
                 msgs = await self._queue.pull(free, timeout_s=self._pull_timeout_s)
             except Exception as exc:
@@ -235,6 +240,11 @@ class Worker:
                 # alert fires. `CancelledError` is a `BaseException` and passes through,
                 # so a shutdown still lands.
                 logger.warning("queue pull failed with %r; retrying in %.1fs", exc, _PULL_RETRY_S)
+                # V-5: the failure counter is the alert lever the liveness stamp cannot
+                # be — the stamp advances on every ATTEMPT, so a pull that keeps failing
+                # (or silently returning nothing) still looks alive. A rising counter is
+                # the operator's signal that the worker's broker path needs attention.
+                self._metrics.pull_failures_total.inc()
                 await asyncio.sleep(_PULL_RETRY_S)
                 continue
             self._metrics.claim_latency_s.observe(time.monotonic() - pull_started)
@@ -247,6 +257,12 @@ class Worker:
                 task = tg.create_task(self._supervisor.supervise(msg))
                 self._active.add(task)
                 task.add_done_callback(self._on_task_done)
+            # WHY the busy-slot gauge is set AFTER the add loop, not before (review
+            # follow-up): the old order reported the pre-claim count in the window between
+            # the pull returning and the tasks registering — a scrape landing there during a
+            # bursty claim under-reported utilization by the just-claimed batch, biasing
+            # capacity dashboards LOW at the moments of highest throughput.
+            self._metrics.slots_busy.set(len(self._active))
         await self._drain()
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:

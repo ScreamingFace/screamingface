@@ -117,7 +117,15 @@ def test_the_queue_collector_renders_depth_and_oldest_unclaimed_age() -> None:
 
 def test_the_queue_collector_renders_zero_depth_when_nothing_is_queued() -> None:
     metrics = build_metrics()
-    register_queue_metrics(metrics, lambda: _runner(depth=0, oldest_age=None))
+    runner = _runner(depth=0, oldest_age=None)
+
+    import asyncio
+
+    async def _refresh() -> None:
+        await runner._refresh_if_stale()  # noqa: SLF001
+
+    asyncio.run(_refresh())
+    register_queue_metrics(metrics, lambda: runner)
 
     assert _collector_values(metrics, "screamingface_engine_queue_depth") == [0.0]
     # An empty queue has no oldest message — the age series is absent, not a stale zero.
@@ -159,3 +167,16 @@ def test_the_metrics_are_registered_on_the_apps_own_registry() -> None:
     register_max_deliveries_metrics(metrics, lambda: None)
 
     assert _collector_values(metrics, "screamingface_engine_queue_depth") == []
+
+
+def test_the_queue_collector_omits_depth_before_the_first_reading() -> None:
+    """Cold start (review follow-up): before the first refresh the snapshot has no reading,
+    and a confident `queue_depth 0` is indistinguishable from a genuinely empty queue — a
+    scrape during a rolling restart, when the queue may hold a backlog no worker has
+    reported on yet, would mask it. The series is absent until there IS a reading, exactly
+    like `oldest_age`."""
+    metrics = build_metrics()
+    register_queue_metrics(metrics, lambda: _runner(depth=0, oldest_age=None))
+
+    assert _collector_values(metrics, "screamingface_engine_queue_depth") == []
+    assert _collector_values(metrics, "screamingface_engine_queue_oldest_unclaimed_age_s") == []
