@@ -290,7 +290,7 @@ passed, no live egress (canned transports + the no-egress tripwire).
 | 4 | a sibling profile cannot resolve another profile's discovered-only ID | `test_private_parameter_contract_url.py`, `test_private_parameter_generation_fence.py` |
 | 5 | OAuth profiles do zero Models-API egress, report `unsupported_auth_type`, serve seeds | `tests/unit/anthropic/` |
 | 6 | `live_models=false` and `AIGW_DISCOVERY_ENABLED=false` each yield zero egress | `tests/unit/anthropic/test_settings.py`, `test_model_discovery_scope.py` |
-| 7 | `/v1/models` never contains credential-derived Anthropic rows | `test_models_route_anthropic_scope_boundary.py` |
+| 7 | historical phase: `/v1/models` contained only seeds (superseded below) | `test_models_route_anthropic_scope_boundary.py` |
 | 8 | a malformed or incomplete catalog never replaces a good snapshot | `tests/unit/anthropic/test_live_models_port.py` |
 | 9 | no credential material in any row, cache key, reason, error or log | `test_discovery_acceptance_gaps.py`, `test_profile_model_catalog.py` |
 | 10 | dialed only at `https://api.anthropic.com` with the exact allowlisted headers | `tests/unit/anthropic/test_live_models_fetch.py` |
@@ -298,6 +298,9 @@ passed, no live egress (canned transports + the no-egress tripwire).
 | 12 | retained rows never exceed the hard row limit | `test_profile_catalog_row_bound.py`, `test_profile_snapshot_memory_bound.py` |
 | 13 | every private response path carries `private, no-store` | `test_profile_models_private_cache_policy.py`, both `test_private_cache_policy_*.py` |
 | 14 | focused tests and project gates pass without live egress | see the gate table above |
+
+This acceptance matrix records the superseded explicit-profile-only phase. The
+current `/v1/models` contract is the dated implicit-default section below.
 
 Counts by batch: 55 · 18 · 281 · 25 · 36 · 42. U11 verification is complete on this worktree.
 
@@ -314,3 +317,38 @@ contracts prove each new path exists, each old path is absent, and the exported 
 from the new module. Focused auth/decomposition suites: **362 passed**. The full AIGateway gate is
 green: Ruff, format, Pyright, no-enterprise, tests and coverage. No schema or migration change. Final
 commit authorized by the owner; push explicitly prohibited.
+
+## Implicit default credential (2026-09-02) — supersedes the seeds-only `/v1/models` rule
+
+Authoritative brief:
+`.agent-team-AIGW/live-anthropic-model-discovery/implicit_default_credential_implementation_prompt.md`
+(owner-confirmed product model: ONE implicit credential per provider per account).
+
+- `GET /v1/models` now resolves each `PROFILE_CREDENTIAL` provider's effective credential for the
+  CALLER — hosted: the Profile named `default`; local: the sole active Connection, any label —
+  through one shared resolver (`core/effective_credential.py`) also used by
+  `GET /v1/model-parameters` and chat dispatch.
+- The caller's own credential-scoped live rows join THEIR OWN `/v1/models` response, served from
+  the revision-keyed private catalog. **Unchanged boundary:** a credential-derived row never
+  enters the deployment-global `ModelCatalog` and never another account's response.
+- Every non-resolving outcome — no credential, unsupported auth type, more than one active local
+  Connection (ambiguous; never an arbitrary pick), a non-`default` hosted profile — keeps the
+  byte-compatible compiled seeds with zero provider egress.
+- Connections carry a durable `credential_generation` (migration
+  `0011_connection_credential_generation`), published as generation one for API-key creation and
+  bumped atomically for in-place API-key replacement; generic OAuth activation and refresh do not
+  claim an ownership change. The private cache identity for Connection-backed credentials is
+  `{auth_type}@conn:{id}@gen{n}` under the logical profile name `default`.
+- `/v1/model-parameters` resolves discovered-only ids without `X-Profile` for the effective
+  credential (hosted and local) and fences the finished document on the credential REVISION
+  (409 `credential_generation_changed`), extending the F4 mixed-generation fence to Connection
+  replacement/delete.
+- Every `/v1/models` response class now carries `Cache-Control: private, no-store` plus
+  identity-aware `Vary` via the same route class as the explicit profile listing endpoint.
+- The implicit `default` name never breaks a local tie: `default` plus any other active Connection
+  is ambiguous, serves seeds, and funds zero private discovery egress.
+- Expected discovery failures degrade normally; unexpected programming errors propagate to an
+  awaiting caller or the bounded sanitized background-error sink.
+
+Ledger: `docs/work/2026-08-27-OME-1026-live-anthropic-model-discovery.md`
+(section "Implicit default provider credential (2026-09-02)").

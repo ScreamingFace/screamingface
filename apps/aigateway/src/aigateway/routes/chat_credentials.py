@@ -13,6 +13,11 @@ from typing import Any, cast
 from fastapi import HTTPException, Request
 
 from ..core.credential_strategy_cache import credential_strategy_cache
+from ..core.effective_credential import (
+    AmbiguousCredential,
+    UnknownConnectionLabel,
+    resolve_effective_credential,
+)
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
 from ..core.oauth.store import OAuthConnectionStore, credential_key_for
@@ -26,8 +31,6 @@ from ..core.profile_models import (
     ProfileState,
     credential_name_for,
 )
-
-_DEFAULT_PROFILE_NAME = "default"
 
 
 def auth_mode_for_target(
@@ -120,29 +123,30 @@ def _oauth_connection_store(request: Request) -> OAuthConnectionStore:
     return store
 
 
-async def _active_oauth_connection_for_profile(
+async def _credential_target_for_chat(
     request: Request,
     *,
     account_id: str,
     provider: str,
     profile_name: str,
-) -> OAuthConnection | None:
-    connections = await _oauth_connection_store(request).list(
-        account_id,
+    plugin: Any,
+) -> tuple[Profile | None, OAuthConnection | None, ProfileDefaults]:
+    """Chat's HTTP contract over the SHARED effective-credential resolution.
+
+    # INVARIANT (OME-1026): the resolution rules live in
+    # ``core.effective_credential`` and are shared verbatim with ``GET /v1/models``
+    # and ``GET /v1/model-parameters`` — this function only maps each structured
+    # outcome onto the status codes and bodies chat has always produced.
+    """
+    idx: ProfileIndexStore = request.app.state.profile_index
+    resolution = await resolve_effective_credential(
+        account_id=account_id,
         provider=provider,
-        status="active",
+        profile_name=profile_name,
+        profile_index=idx,
+        connections=_oauth_connection_store(request),
     )
-    if not connections:
-        return None
-
-    for connection in connections:
-        if connection.label == profile_name:
-            return connection
-
-    if profile_name == _DEFAULT_PROFILE_NAME and len(connections) == 1:
-        return connections[0]
-
-    if profile_name == _DEFAULT_PROFILE_NAME:
+    if isinstance(resolution, AmbiguousCredential):
         raise HTTPException(
             status_code=409,
             detail={
@@ -154,36 +158,17 @@ async def _active_oauth_connection_for_profile(
                 ),
             },
         )
-    raise HTTPException(
-        status_code=404,
-        detail={
-            "code": "connection_not_found",
-            "provider": provider,
-            "requested_label": profile_name,
-            "valid_labels": [connection.label for connection in connections],
-        },
-    )
-
-
-async def _credential_target_for_chat(
-    request: Request,
-    *,
-    account_id: str,
-    provider: str,
-    profile_name: str,
-    plugin: Any,
-) -> tuple[Profile | None, OAuthConnection | None, ProfileDefaults]:
-    idx: ProfileIndexStore = request.app.state.profile_index
-    profile = await idx.get(account_id, provider, profile_name)
-    if profile is None:
-        connection = await _active_oauth_connection_for_profile(
-            request,
-            account_id=account_id,
-            provider=provider,
-            profile_name=profile_name,
+    if isinstance(resolution, UnknownConnectionLabel):
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "connection_not_found",
+                "provider": provider,
+                "requested_label": resolution.requested_label,
+                "valid_labels": list(resolution.valid_labels),
+            },
         )
-        if connection is not None:
-            return None, connection, ProfileDefaults()
+    if resolution is None:
         if not _allows_chatless_profile(plugin):
             raise HTTPException(
                 status_code=404,
@@ -194,7 +179,11 @@ async def _credential_target_for_chat(
                 },
             )
         return None, None, ProfileDefaults()
+    if resolution.connection is not None:
+        return None, resolution.connection, ProfileDefaults()
 
+    profile = resolution.profile
+    assert profile is not None  # EffectiveCredential holds exactly one backing
     if profile.state == ProfileState.PENDING:
         raise HTTPException(
             status_code=409,

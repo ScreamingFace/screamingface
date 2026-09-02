@@ -17,7 +17,9 @@ in :mod:`aigateway.core.profile_snapshot_store`.
 INVARIANT (why the shared catalog cannot leak this): ``ModelCatalog`` refuses a
 ``PROFILE_CREDENTIAL`` provider outright, and a provider in that scope implements
 ``discover_profile_models`` — never the public ``discover_live_models``. So a
-credential-derived listing has no code path into ``GET /v1/models``.
+credential-derived listing has no code path into any DEPLOYMENT-GLOBAL cache:
+``GET /v1/models`` shows it only to the caller whose effective credential fetched
+it (OME-1026 U3), keyed by account + logical profile + durable revision.
 """
 
 from __future__ import annotations
@@ -30,10 +32,10 @@ from typing import TYPE_CHECKING, Protocol
 from .background_error_sink import mark_observed
 from .background_refresh import BackgroundRefreshManager
 from .discovery_budget import user_wait_budget
+from .effective_credential import DiscoveryCredentialTarget, profile_discovery_target
 from .errors import AuthError, CredentialNotFoundError
 from .model_discovery_scope import DiscoveryScope, ProviderAuthContext
 from .parameter_discovery import DiscoveryError
-from .profile_models import ProfileState
 from .profile_snapshot_store import (
     ProfileCacheKey,
     ProfileIdentity,
@@ -147,7 +149,39 @@ class ProfileModelCatalog:
         credential_generation: int,
         wait_budget_s: float | None = None,
     ) -> ProfileModelSnapshot:
-        """This profile's private listing, with the trust label the caller must publish.
+        """``snapshot_for_target`` for a bare Profile + its durable generation.
+
+        Kept as the Profile-shaped entry point so every pre-U2 caller (the explicit
+        profile endpoint, the post-commit credential lifecycle) and its tests keep
+        working verbatim; the ONE implementation lives in ``snapshot_for_target``.
+        """
+        return await self.snapshot_for_target(
+            plugin,
+            account_id=account_id,
+            target=profile_discovery_target(profile, credential_generation),
+            client=client,
+            limits=limits,
+            auth_provider=auth_provider,
+            wait_budget_s=wait_budget_s,
+        )
+
+    async def snapshot_for_target(
+        self,
+        plugin: PrivateModelListingProvider,
+        *,
+        account_id: str,
+        target: DiscoveryCredentialTarget,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None,
+        auth_provider: Callable[[], Awaitable[ProviderAuthContext]],
+        wait_budget_s: float | None = None,
+    ) -> ProfileModelSnapshot:
+        """This effective credential's private listing, with its trust label.
+
+        ``target`` is any effective credential — hosted Profile or local Connection
+        (OME-1026 U2); the catalog consumes only its name, auth type, authenticated
+        state and durable revision, so both backings share every gate, bound and
+        isolation property below.
 
         ``auth_provider`` is called ONLY when a dial is actually about to happen,
         and only from inside the background refresh.
@@ -164,9 +198,9 @@ class ProfileModelCatalog:
         # decrypting every tenant credential at startup.
         """
         provider = plugin.custom_llm_provider
-        name = profile.name
+        name = target.profile_name
 
-        refusal = self._refusal_reason(plugin, profile)
+        refusal = self._refusal_reason(plugin, target)
         if refusal is not None:
             return ProfileModelSnapshot(provider, name, "fallback", None, refusal)
         source = plugin.model_discovery_source()
@@ -177,7 +211,7 @@ class ProfileModelCatalog:
             account_id,
             provider,
             name,
-            profile_credential_revision(profile, credential_generation),
+            target.credential_revision,
         )
         # What we could answer with no refresh at all: a fresh snapshot, or a damped
         # verdict while a recent failure suppresses retries. ``stale`` rides along —
@@ -268,8 +302,10 @@ class ProfileModelCatalog:
     # -- internals -----------------------------------------------------------
 
     @staticmethod
-    def _refusal_reason(plugin: PrivateModelListingProvider, profile: Profile) -> str | None:
-        """Why this profile gets no private discovery at all — decided before any I/O.
+    def _refusal_reason(
+        plugin: PrivateModelListingProvider, target: DiscoveryCredentialTarget
+    ) -> str | None:
+        """Why this credential gets no private discovery at all — decided before any I/O.
 
         # AIDEV-NOTE (why the scope default is fail-CLOSED here while
         # ``ModelCatalog._scope_of`` defaults to public): the hazards are mirror
@@ -284,10 +320,10 @@ class ProfileModelCatalog:
             return "not_profile_scoped"
         if plugin.model_discovery_source() is None:
             return "discovery_disabled"
-        if profile.state is not ProfileState.AUTHENTICATED:
-            # A PENDING or ERROR profile has no credential worth spending a request on.
+        if not target.authenticated:
+            # A PENDING or ERROR credential is not worth spending a request on.
             return "profile_not_authenticated"
-        return plugin.profile_discovery_unsupported_reason(auth_type=profile.auth_type)
+        return plugin.profile_discovery_unsupported_reason(auth_type=target.auth_type)
 
     async def _refresh(
         self,
@@ -333,23 +369,21 @@ class ProfileModelCatalog:
             raise
         except Exception as error:
             # Sanitized: the TYPE names the bug class for operators; the message may
-            # carry upstream content and is dropped, and the cause chain is cut so it
-            # cannot resurface downstream. No account id and no profile name — the
-            # latter is user-supplied text in a log line.
+            # carry upstream content and is dropped. No account id and no profile name
+            # — the latter is user-supplied text in a log line. The original error stays
+            # loud so an awaited caller or the bounded background sink observes the bug.
             logger.warning(
-                "private model listing refresh failed provider=%s reason=internal_error type=%s",
+                "private model listing refresh failed unexpectedly provider=%s type=%s",
                 provider,
                 type(error).__name__,
             )
-            sanitized = DiscoveryError("internal_error")
-            self._store.record_failure(key, sanitized)
-            raise sanitized from None
+            raise
         if entries is None:
             # A None under a DECLARED source is an inconsistency, not an empty
             # catalog: caching it as success would evict the last good listing.
-            error = DiscoveryError("no_snapshot")
-            self._store.record_failure(key, error)
-            raise error
+            missing_snapshot = DiscoveryError("no_snapshot")
+            self._store.record_failure(key, missing_snapshot)
+            raise missing_snapshot
         self._store.store(key, entries)
         logger.info("private model listing refreshed provider=%s models=%d", provider, len(entries))
 

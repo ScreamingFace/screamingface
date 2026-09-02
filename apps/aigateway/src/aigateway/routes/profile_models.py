@@ -38,7 +38,7 @@ from .private_cache import private_cache_route
 
 if TYPE_CHECKING:
     from ..core.plugin_base import ModelEntry
-    from ..core.profile_models import Profile
+    from ..core.profile_models import AuthType, Profile
 
 # INVARIANT (F1): the private cache policy is installed as the ROUTE CLASS, so it
 # covers every response this route can produce — including the 401/403 that
@@ -127,28 +127,41 @@ def _payload(
 
 
 def auth_provider_for(app: Any, plugin: Any, account_id: str, profile: Profile):
+    """The deferred auth provider for a bare Profile (see ``deferred_auth_provider``)."""
+    return deferred_auth_provider(
+        app,
+        plugin,
+        credential_name=credential_name_for(account_id, profile.name),
+        auth_type=profile.auth_type,
+    )
+
+
+def deferred_auth_provider(app: Any, plugin: Any, *, credential_name: str, auth_type: AuthType):
     """A callable the catalog invokes ONLY when a dial is actually about to happen.
 
-    Public because the api-key publication path (``routes.auth``) starts the same
-    discovery post-commit, and one builder means one place where a credential is read.
+    Public because the api-key publication path (``routes.auth``) and the implicit
+    ``/v1/models`` composition (OME-1026 U3) start the same discovery, and one builder
+    means one place where a credential is read. ``credential_name`` is the effective
+    credential's blob slot — a Profile's composite name or a Connection's key — so
+    hosted and local backings share this ONE decrypt path.
 
     # WHY a callable rather than a prepared header mapping: building it eagerly would
-    # decrypt this profile's credential on every request, including the ones answered
-    # from cache and the ones refused outright. Deferring it means a warm cache, a
+    # decrypt this credential on every request, including the ones answered from
+    # cache and the ones refused outright. Deferring it means a warm cache, a
     # gated-off provider and an unsupported auth type all cost zero credential reads.
     """
 
     async def _build() -> ProviderAuthContext:
         strategy = plugin.discovery_credential_strategy_for(
-            credential_name_for(account_id, profile.name),
+            credential_name,
             credential_store=app.state.credential_store,
         )
         if strategy is None:
             # The provider declared private discovery but offers no credential path.
             # An empty context makes the catalog fail closed (``missing_credential``)
             # rather than dial unauthenticated.
-            return ProviderAuthContext(headers={}, auth_type=profile.auth_type)
+            return ProviderAuthContext(headers={}, auth_type=auth_type)
         headers = await strategy.get_authorization_header()
-        return ProviderAuthContext(headers=headers, auth_type=profile.auth_type)
+        return ProviderAuthContext(headers=headers, auth_type=auth_type)
 
     return _build

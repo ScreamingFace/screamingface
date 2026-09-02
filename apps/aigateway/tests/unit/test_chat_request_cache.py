@@ -372,15 +372,15 @@ def test_a_different_profile_hits_the_same_global_entry(credential_blobs, cache_
     they share the entry.
     """
     account_id = _account_id(cache_client)
-    for label in ("default", "work"):
+    for label in ("work", "personal"):
         connection = cache_client.portal.call(
             partial(_create_active_connection, account_id, label=label)
         )
         _seed_connection_credentials(credential_blobs, account_id, connection.id)
     counter = _DispatchCounter()
     with patch(_PATCH_TARGET, counter):
-        first = cache_client.post(_CHAT_PATH, json=_chat_body())
-        second = cache_client.post(_CHAT_PATH, json=_chat_body(), headers={"X-Profile": "work"})
+        first = cache_client.post(_CHAT_PATH, json=_chat_body(), headers={"X-Profile": "work"})
+        second = cache_client.post(_CHAT_PATH, json=_chat_body(), headers={"X-Profile": "personal"})
     assert first.status_code == second.status_code == 200
     assert len(counter.calls) == 1, "a different X-Profile shares the global entry"
     assert second.headers["X-AIGW-Cache"] == "hit"

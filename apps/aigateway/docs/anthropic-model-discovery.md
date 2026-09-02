@@ -1,32 +1,31 @@
-# Profile-Scoped Anthropic Model Discovery (OME-1026)
+# Private Anthropic Model Discovery (OME-1026)
 
-An account that has stored an Anthropic API key can ask what **its own key** may call:
+An account that has stored an Anthropic API key can ask what **its own key** may call explicitly:
 
 ```
 GET /v1/auth/anthropic/profiles/{name}/models
 ```
 
-The answer is discovered live from the Anthropic Models API using that profile's already-stored
-credential — the owner never re-enters a key — so a newly released model appears without an
-AI Gateway release and a retired alias disappears instead of 404-ing at dispatch.
+The same private catalog is composed implicitly into `GET /v1/models`: hosted mode resolves the
+Profile named `default`; local mode resolves the sole active Connection, regardless of label.
 
-**`GET /v1/models` is unaffected.** It lists Anthropic's compiled seed catalog and performs zero
-Anthropic catalog egress. That is the whole point of the design: Anthropic's Models API answers
-*for the calling key*, so a live Anthropic listing describes one account's entitlements and must
-never become the deployment's shared listing.
+The answer is discovered using that effective credential's already-stored key, so the owner never
+re-enters it. A private row may appear only in that authenticated caller's response; it never enters
+the deployment-global catalog or another account's response. Missing, unsupported, ambiguous, or
+failed discovery retains the compiled Anthropic seeds.
 
 ## Two discovery scopes
 
 | Scope | Who sees it | Credential | Providers |
 |---|---|---|---|
 | `PUBLIC_GLOBAL` | every account, via `GET /v1/models` | none | OpenRouter |
-| `PROFILE_CREDENTIAL` | one profile's owner, via the endpoint above | that profile's stored key | Anthropic |
+| `PROFILE_CREDENTIAL` | one credential's owner, via the explicit endpoint or their `/v1/models` | that Profile/Connection's stored key | Anthropic |
 
 A provider declares its scope, and the two paths are separate code: a `PUBLIC_GLOBAL` provider
 implements `discover_live_models`, a `PROFILE_CREDENTIAL` provider implements
 `discover_profile_models`. Anthropic deliberately does **not** implement the public hook, and the
-shared catalog refuses the private scope before it even consults a source — so there is no code
-path that could publish a credential-derived Anthropic row on `/v1/models`.
+shared catalog refuses the private scope before it consults a source. `/v1/models` composes its
+caller's private result separately, without publishing it into that shared catalog.
 
 Designed for, but not implemented by, this unit: public Hugging Face discovery (`PUBLIC_GLOBAL`,
 OME-1035) and profile-scoped direct OpenAI/Gemini discovery (`PROFILE_CREDENTIAL`).
@@ -37,10 +36,9 @@ OME-1035) and profile-scoped direct OpenAI/Gemini discovery (`PROFILE_CREDENTIAL
 deployment-owned key whose entitlements defined what every account saw listed; that design was
 rejected, and the setting was removed rather than deprecated. Setting the variable has no effect.
 
-The only Anthropic credentials the gateway holds are per-account profile credentials in
-`credential_blobs` (AES-256-GCM), and private discovery reads them through the same credential
-strategy the chat path uses — only the header projection differs (`x-api-key` for the REST catalog,
-which is what a raw key requires; the chat path's bearer shape is re-mapped by LiteLLM downstream).
+Anthropic credentials remain per-account Profile or Connection credentials in `credential_blobs`
+(AES-256-GCM), and private discovery reads them through the same credential strategy chat uses.
+Only the header projection differs (`x-api-key` for the REST catalog).
 
 ## Off-switches
 
@@ -50,7 +48,7 @@ which is what a raw key requires; the chat path's bearer shape is re-mapped by L
 | `AIGW_DISCOVERY_ENABLED=false` | Global discovery kill switch; silences this with all other discovery traffic, same answer shape |
 
 Each means the **exact** compiled seed listing and **zero** Anthropic catalog egress. Nothing needs
-turning *on*: an authenticated api-key profile is the opt-in, and it is the profile owner's own act.
+turning *on*: the caller's effective API-key credential is the opt-in.
 
 ## What the endpoint returns
 
@@ -134,6 +132,10 @@ not been probed.
 
 - The cache identity is `(account_id, provider, profile_name, credential_revision)`. Two accounts
   with a profile of the same name hold two unrelated listings.
+- Connection-backed identities use a fresh row UUID plus an API-key ownership generation. API-key
+  replacement advances it; generic OAuth activation and refresh do not claim an ownership change.
+- More than one active local Connection is ambiguous. A Connection labelled `default` never
+  breaks that tie for an implicit request.
 - `credential_revision` is a **non-secret** generation token derived from the profile's auth type
   and its **durable ownership generation** — the strictly-advancing counter the profile index bumps
   inside the atomic CAS that publishes a credential. Never from the key, and never from a

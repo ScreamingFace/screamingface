@@ -31,6 +31,14 @@ class BaseOAuthConnection(Model):
     last_used_at = fields.DatetimeField(null=True)
     last_refreshed_at = fields.DatetimeField(null=True)
     error_message: Any = fields.TextField(null=True)
+    # INVARIANT (OME-1026 U2): the durable, strictly-advancing, NON-SECRET fence for
+    # "which credential owner produced this connection's private discovery snapshots".
+    # Bumped with an atomic F()+1 inside the SAME conditional UPDATE that publishes a
+    # credential (create/complete/reactivate), so replacing the stored key — which
+    # keeps this row's id — retires every cache identity the old credential produced.
+    # WHY not last_refreshed_at: a wall clock can assign two replacements one tick
+    # (the profile-side F3 defect); an integer under the row lock cannot.
+    credential_generation = fields.IntField(default=0, db_default="0")
 
 
 class OAuthConnection(BaseOAuthConnection):

@@ -423,18 +423,20 @@ only to the owner of the credential it was fetched with:
 GET /v1/auth/anthropic/profiles/{name}/models
 ```
 
-`GET /v1/models` lists Anthropic's compiled seed catalog and performs **zero** Anthropic catalog
-egress, whatever credentials accounts have stored. That listing also has a bounded user-facing
-budget: each public provider is waited for at most `min(AIGW_DISCOVERY_TIMEOUT_SECONDS, 3 s)`,
-after which the response carries that provider's compiled seeds while its refresh continues in the
-background — so neither a provider's own aggregate refresh deadline nor a raised dial timeout
-becomes the route's latency. There is **no deployment discovery key** —
+`GET /v1/models` resolves the caller's effective credential implicitly: the `default` Profile in
+hosted mode, or the sole active Connection in local mode. Its private rows join only that caller's
+response; missing, unsupported, ambiguous, or failed discovery retains the compiled seeds. The
+listing waits at most `min(AIGW_DISCOVERY_TIMEOUT_SECONDS, 3 s)` while refresh work may continue in
+the background, so a raised dial timeout cannot become route latency. There is **no deployment
+discovery key** —
 `AIGW_ANTHROPIC_DISCOVERY_API_KEY` does not exist and setting it has no effect. Private discovery
-uses the profile's existing `credential_blobs` key, so an owner never re-enters it.
+uses the effective Profile or Connection's existing `credential_blobs` key, so an owner never
+re-enters it. More than one active local Connection is ambiguous; a `default` label is not a
+tie-breaker and funds no discovery egress.
 
-Nothing needs turning on: an authenticated api-key profile is the opt-in. `AIGW_ANTHROPIC_LIVE_MODELS=false`
-and the global `AIGW_DISCOVERY_ENABLED=false` each mean the exact compiled listing and zero Anthropic
-catalog egress. OAuth (Claude-subscription) profiles are refused before any credential is read.
+Nothing needs turning on: an effective API-key credential is the opt-in.
+`AIGW_ANTHROPIC_LIVE_MODELS=false` and the global `AIGW_DISCOVERY_ENABLED=false` each mean the exact
+compiled listing and zero Anthropic catalog egress. OAuth credentials are refused before read.
 
 The endpoint answers `200` with a `status` (`fresh` / `stale` / `refreshing` / `fallback`), a
 sanitized `reason`, and rows shaped exactly like `/v1/models` rows. A cold profile waits at most

@@ -16,9 +16,10 @@ consulted off the chat critical path only.
 INVARIANT (OME-1026 scope): this catalog serves ``PUBLIC_GLOBAL`` providers ONLY.
 One snapshot per provider is shared with every account, so a credential-derived
 (``PROFILE_CREDENTIAL``) listing is refused outright — see ``_public_source``. Private
-per-profile snapshots live in ``profile_model_catalog`` and never pass through
-here, which is what makes "no account's models can enter GET /v1/models"
-structural rather than a rule each caller must remember.
+per-credential snapshots live in ``profile_model_catalog`` and never pass through
+here; ``GET /v1/models`` composes them per CALLER (OME-1026 U3), so "no account's
+models can enter a cache another account reads" stays structural rather than a
+rule each caller must remember.
 """
 
 from __future__ import annotations

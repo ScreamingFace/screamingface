@@ -5,6 +5,7 @@ from typing import cast
 from uuid import UUID
 
 from tortoise.exceptions import DoesNotExist
+from tortoise.expressions import F
 
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from aigateway.core.auth.models import Account
@@ -105,6 +106,9 @@ class OAuthConnectionStore:
             label=label,
             status="active",
             auth_type="api_key",
+            # OME-1026 U2: an active row means a PUBLISHED credential, so the durable
+            # fence starts at 1 — 0 is reserved for rows that predate the fence.
+            credential_generation=1,
             credential_locator=credential_locator_for(
                 credential_provider or provider,
                 account_id,
@@ -319,12 +323,17 @@ class OAuthConnectionStore:
             status="active",
             error_message=None,
             last_refreshed_at=refreshed_at,
+            # OME-1026 U2: re-keying keeps this row's id, so the durable fence is what
+            # retires the old key's private snapshots. Atomic under the row lock —
+            # two concurrent replaces serialize here and each gets its own generation.
+            credential_generation=F("credential_generation") + 1,
         )
         if updated != 1:
             return None
         connection.status = "active"
         connection.error_message = None
         connection.last_refreshed_at = refreshed_at
+        await connection.refresh_from_db(fields=["credential_generation"])
         return connection
 
     async def mark_revoked(

@@ -3,7 +3,7 @@ ticket: OME-1026
 stack: aigateway
 status: done
 started: 2026-08-27
-finished: 2026-08-27
+finished: 2026-09-02
 ---
 
 # OME-1026 — Live Anthropic model discovery for /v1/models
@@ -1647,3 +1647,268 @@ ownership race, and align discovery docstrings with the shipped profile-credenti
   migration, dependency, provider protocol, commit, or push.
 
 Status: **DONE**.
+
+## Implicit default provider credential (2026-09-02)
+
+### Intent
+
+Deliver the owner-confirmed product contract recorded in
+`.agent-team-AIGW/live-anthropic-model-discovery/implicit_default_credential_implementation_prompt.md`:
+`GET /v1/models` resolves each provider's ONE effective credential automatically
+(hosted `default` Profile, or the sole active local Connection), contributes that
+caller's credential-scoped live rows to their own response, and retains static seeds
+on missing/unsupported/ambiguous/failed discovery. `/v1/model-parameters` and chat
+resolve the SAME effective credential. The Engine's declared-world projection and all
+prior discovery safety properties are preserved. Supersedes the earlier rule that
+`/v1/models` may never contain credential-derived Anthropic rows; the invariant is now:
+private rows may appear only in the authenticated caller's own response, never in a
+deployment-global cache or another account's response.
+
+### Planned changes
+
+- U1 `core/effective_credential.py` (new): `EffectiveCredential` value object +
+  `AmbiguousCredential`/`UnknownConnectionLabel` refusals + `resolve_effective_credential`
+  (Profile named `default` first; else sole active provider Connection; never an
+  arbitrary pick). `routes/chat_credentials._credential_target_for_chat` becomes a thin
+  mapping onto its existing HTTP contract.
+- U2 `core/oauth/models/oauth_connection.py`: durable non-secret
+  `credential_generation` IntField (default 0) + migration `0011`; atomic `F()+1`
+  bumps in `store.reactivate`/`complete_pending`/`complete_active`; `create_api_key`
+  publishes at generation 1. Connection cache revision `{auth_type}@conn:{id}@gen{N}`.
+  Post-commit private-catalog invalidation on replace/delete in
+  `routes/oauth_connections.py`.
+- U3 `core/profile_model_catalog.py`: target-shaped `snapshot_for_target` (existing
+  `snapshot_for` delegates); `routes/models.py` composes PUBLIC_GLOBAL (unchanged
+  `ModelCatalog`) and PROFILE_CREDENTIAL (resolver + private catalog) concurrently
+  under the same 3s wait ceiling; router gains `private_cache_route()`.
+- U4 `routes/model_parameters.py`: `_private_catalog_ids` resolves through the shared
+  resolver; the mixed-generation fence becomes a credential-revision fence covering the
+  local Connection identity.
+- U5: update OME-1026 docs/planning artifacts that still state the superseded
+  exclusion rule; pin Engine/Python-Client boundary only if a gap is proven.
+
+### Test plan
+
+RED-first per unit: resolver unit tests (hosted/local/none/ambiguous/pending/error/
+credential-free + listing–chat agreement); connection revision & lifecycle-fence tests
+(replace, delete/recreate, stale in-flight publish, deactivation) with injected clocks
+and barriers, no sleeps; migration test for 0011; `/v1/models` route tests (hosted +
+local live rows without `X-Profile`, byte-identical seeds + zero egress on
+none/unsupported/ambiguous, account A/B isolation, OpenRouter stays global, ordering,
+3s ceiling, private cache policy + Vary on every response class);
+`/v1/model-parameters` discovered-only ID resolution without `X-Profile` for both
+backings + cross-account/ambiguity/superseded-generation refusals; chat dispatch parity.
+Prior tests are append-only except assertions that directly encode the superseded
+exclusion contract in `tests/unit/core/test_models_route_anthropic_scope_boundary.py`
+(each replacement recorded below).
+
+### Acceptance
+
+Completion criteria 1–10 of the implementation prompt demonstrated; all AIGateway
+gates green (`run_gates.py aigateway`, append-only gate `--base origin/main` with only
+pre-approved exceptions plus the recorded superseded-contract replacements); no
+commit/push/PR/live egress without authorization; worktree's unrelated files untouched.
+
+### Outcome
+
+Status: DONE (verification: all AIGateway gates green; NOT committed — commit/push/PR
+update not authorized).
+
+Delivered as planned, U1–U5, TDD (RED observed before every production change):
+
+- **U1** `src/aigateway/core/effective_credential.py` (new): `EffectiveCredential`,
+  `AmbiguousCredential`, `UnknownConnectionLabel`, `resolve_effective_credential`,
+  `connection_credential_revision`. `routes/chat_credentials.py` now maps the shared
+  resolver onto its unchanged HTTP contract (`_active_oauth_connection_for_profile`
+  removed; unused `_DEFAULT_PROFILE_NAME` removed). Tests:
+  `tests/unit/core/test_effective_credential_resolution.py` (13).
+- **U2** durable Connection revision: `credential_generation` IntField on
+  `BaseOAuthConnection` + migration
+  `src/aigateway/migrations/0011_connection_credential_generation.py` (S1 satisfied;
+  migration test `tests/unit/test_migration_0011_connection_credential_generation.py`
+  proves populated-DB apply, idempotence, backfill 0, NOT NULL + SQL default).
+  Atomic `F()+1` inside the conditional UPDATEs (`reactivate`, `complete_pending`,
+  `complete_active`), generation 1 on `create_api_key`, in-memory bump in full-save
+  `complete`. Post-commit retirement of the logical `default` private identity on
+  connection key replace/delete via `retire_connection_credential` in
+  `routes/profile_credential_lifecycle.py` (called from `routes/oauth_connections.py`).
+  Tests: `tests/unit/core/test_connection_credential_revision.py` (9), incl. proof a
+  replaced credential cannot read the previous snapshot and a stale in-flight refresh
+  publishes only under its own identity.
+- **U3** `GET /v1/models` composes per caller: `routes/models.py` gained
+  `_all_listings`/`_private_listing` (one gather: PUBLIC_GLOBAL via unchanged
+  `_live_listings` — signature preserved for
+  `tests/unit/core/test_models_route_public_budget.py` — plus PROFILE_CREDENTIAL via
+  resolver + `ProfileModelCatalog.snapshot_for_target` under the same
+  `user_wait_budget` ceiling) and `route_class=private_cache_route()`.
+  `routes/profile_models.py` generalized the deferred credential reader as
+  `deferred_auth_provider(credential_name, auth_type)`; `auth_provider_for` delegates.
+  `core/profile_model_catalog.py`: `snapshot_for_target` accepts any
+  `DiscoveryCredentialTarget` (Protocol moved to `core/effective_credential.py` with a
+  `profile_discovery_target` adapter during REFACTOR to hold the 450-line bound).
+  Tests: `tests/unit/core/test_models_route_effective_credential.py` (12) and
+  `tests/unit/core/test_models_route_private_budget_and_cache.py` (4: gated
+  bounded-wait-not-work, rendezvous concurrency proof, cache policy on 200 and 401).
+- **U4** `routes/model_parameters.py`: `_private_catalog_ids` resolves through the
+  shared resolver (returns ids + durable credential REVISION string);
+  `_refuse_mixed_generation` replaced by `_refuse_changed_credential` (re-resolves and
+  refuses 409 `credential_generation_changed` unless an `EffectiveCredential` with the
+  identical revision), extending the F4 fence to Connection replacement/delete. Tests:
+  `tests/unit/core/test_model_parameters_effective_credential.py` (6);
+  `tests/unit/core/test_private_parameter_generation_fence.py` unchanged and green.
+- **U5** superseded-rule documentation updated: `core/model_discovery_scope.py`,
+  `core/model_catalog.py`, `core/profile_model_catalog.py` docstrings; docs/tasks
+  mirror (new dated section); `.agent-team-AIGW/live-anthropic-model-discovery/
+  initial_task_description.md` + `implementation_plan.md`. Engine/Python-Client: no
+  gap proven — the Engine only forwards an optional caller `X-Profile` and its
+  declared-world filtering is independent of listing composition; no change.
+
+**Append-only exceptions (superseded contract), all in
+`tests/unit/core/test_models_route_anthropic_scope_boundary.py`:**
+
+1. `test_a_stored_api_key_profile_does_not_make_v1_models_live` →
+   `test_an_authenticated_profile_without_a_stored_key_fails_closed_to_seeds`. The old
+   name/docstring encoded the rejected exclusion rule; the harness (an AUTHENTICATED
+   index row with NO stored key blob) actually proves the fail-closed decrypt path, so
+   the replacement pins that surviving claim; the inversion (owner's response goes
+   live) is pinned in `test_models_route_effective_credential.py`.
+2. Module docstring + `_UPSTREAM_ONLY` comment reworded from "never live on
+   `/v1/models`" to "never deployment-global / never another account".
+
+No other pre-existing test was modified. Prior-suite regression fixed during U2
+REFACTOR: `routes/oauth_connections.py` (pinned pre-existing oversize, 521) and
+`core/profile_model_catalog.py` (450 limit) had grown past their bounds; resolved by
+moving the retirement helper into `routes/profile_credential_lifecycle.py` and the
+target Protocol/adapter into `core/effective_credential.py` (now 520/449 lines).
+Pyright surfaced (and the move fixed) a latent defect: the target Protocol declared
+writable members a frozen dataclass cannot satisfy — now read-only properties.
+
+Checks actually run (all green, 2026-09-02):
+- focused RED/GREEN runs per unit (13 + 9 + 1 migration + 12 + 4 + 6 tests);
+- full unit suite `uv run pytest tests/unit -q -m "not live"`: **4736 passed** (post-U3;
+  final full run via gates below);
+- `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` and
+  `uv run .claude/scripts/run_gates.py aigateway --base origin/main` from the repo
+  root (append-only report: only the recorded boundary-file replacement);
+- direct: `ruff check .`, `ruff format --check .`, `pyright` (0 errors project-wide,
+  tests included), `python scripts/check_no_enterprise.py`, `git diff --check` — all
+  clean. Final `run_gates.py aigateway --skip-append-only`: **ALL GATES GREEN**
+  (ruff check, ruff format, pyright, no-enterprise, full pytest with
+  `--cov-fail-under=80`).
+
+Deviations: U3 route tests split into two files (effective-credential behavior vs
+budget/concurrency/cache-policy) to stay within the 450-line bound; the fence helper
+was renamed (`_refuse_mixed_generation` → `_refuse_changed_credential`) — private,
+no external references. No commit was made (not authorized); the branch's staged
+state is untouched.
+
+## Implicit-default correction pass (2026-09-02)
+
+Independent review rejected the preceding closure as not merge-ready. This bounded
+pass keeps the accepted implicit-credential design and fixes only defects inside that
+contract.
+
+### Intent
+
+- Make local implicit resolution fail closed whenever more than one active Connection
+  exists, including the previously missed `default` + another-label case.
+- Propagate programming errors from private discovery while preserving expected,
+  sanitized discovery fallback.
+- Restrict durable Connection generation changes to API-key publication and
+  replacement. Automatic OAuth refresh publication fencing remains a separate issue.
+- Restore the touched-source 450-line limit through a cohesive API-key route split and
+  remove contradictory current-contract documentation.
+
+### Planned changes
+
+- Add RED resolver/listing/parameters/chat regressions for the `default` + another
+  active Connection ambiguity, including zero discovery egress.
+- Add RED awaited/background regressions for unexpected private-refresh errors.
+- Remove generation increments from generic/OAuth `complete`, `complete_pending`, and
+  `complete_active`; retain API-key create/reactivate revision behavior and migration
+  `0011`.
+- Extract only API-key Connection routing/publication responsibility from
+  `routes/oauth_connections.py`; preserve every public HTTP path and OAuth flow.
+- Correct the planning pack, task mirror, source comments, and this ledger. No Client,
+  Engine, provider parser, OpenRouter, explicit-profile-endpoint, schema, or automatic
+  OAuth refresh changes.
+
+### Test plan and acceptance
+
+- Observe each new regression RED for its intended reason before production edits.
+- Run focused effective-credential, listing, parameters, chat, Connection revision,
+  API-key route, profile-catalog error, background sink, migration, cache-policy,
+  Anthropic, and OpenRouter suites.
+- Run both AIGateway gate modes plus direct Ruff, format, Pyright, no-enterprise,
+  `git diff --check`, and final worktree status.
+- Acceptance: ambiguous implicit state funds no egress; programming defects remain
+  loud; API-key generation remains durable and atomic; OAuth refresh is unchanged;
+  every touched source file is at most 450 lines; documentation states the accepted
+  private-per-owner/global-isolation contract consistently.
+
+### Correction outcome
+
+Status: **DONE**. Commit authorized by the owner on 2026-09-02; push and PR
+updates remain unauthorized.
+
+- `resolve_effective_credential` now handles implicit `default` before label
+  matching: exactly one active Connection resolves regardless of label; more than
+  one returns `AmbiguousCredential`. Explicit non-default labels still resolve.
+- `ProfileModelCatalog._refresh` still sanitizes and damps expected discovery/auth
+  failures, but logs only the type and re-raises unexpected programming errors.
+  Awaited callers observe the original error; unawaited work reaches the bounded
+  sanitized background-error sink.
+- Connection generation now covers only API-key ownership publication: creation
+  starts at one and `reactivate` atomically applies `F() + 1`. Generic `complete`,
+  OAuth callback `complete_pending`, and refresh metadata `complete_active` preserve
+  the generation. The separate automatic OAuth refresh publication race was not
+  changed.
+- API-key create/replace routes moved without behavior changes to
+  `routes/api_key_connections.py`; `routes/oauth_connections.py` includes that
+  subrouter. Final source sizes: `oauth_connections.py` 341,
+  `api_key_connections.py` 216, `effective_credential.py` 232,
+  `profile_model_catalog.py` 447, and `core/oauth/store.py` 413 lines. Every
+  source file touched by the implicit-default implementation is at most 450 lines.
+- Current planning, task, deployment, and operator documentation now permits the
+  authenticated caller's private rows in their own `/v1/models` response while
+  retaining the deployment-global and cross-account exclusion.
+
+RED evidence observed before production fixes:
+
+- five ambiguity/programming-error regressions failed: resolver selected the
+  `default`-labelled Connection, `/v1/models` funded a forbidden dial,
+  `/v1/model-parameters` returned a private contract, and awaited/background
+  `RuntimeError` cases became `internal_error` fallback;
+- three generation-scope regressions failed because `complete`,
+  `complete_pending`, and `complete_active` advanced `0→1`, `0→1`, and `7→8`.
+
+Checks actually run after correction (2026-09-02):
+
+- focused correction: **5 passed**, generation/lifecycle: **49 passed**,
+  route/contract set: **74 passed**, expanded provider/cache/background/migration
+  set: **378 passed**;
+- direct full non-live suite: **4752 passed, 18 skipped, 37 deselected**;
+- direct Ruff check, Ruff format check, Pyright (0 errors), no-enterprise, and
+  `git diff --check`: green;
+- `run_gates.py aigateway --skip-append-only`: **ALL GATES GREEN** including full
+  coverage ≥80;
+- `run_gates.py aigateway --base origin/main`: stopped only at the append-only
+  precheck. Its branch-wide list contains previously recorded multi-cycle changes;
+  this correction adds the necessary `test_chat_request_cache.py` adjustment so
+  its cache characterization uses two explicit labels instead of relying on an
+  implicit request to choose among two active Connections.
+
+Prior-test corrections directly encoding superseded behavior:
+
+- `test_profile_model_catalog.py`: unexpected `ZeroDivisionError` now propagates
+  instead of asserting `internal_error` fallback;
+- `test_chat_request_cache.py`: the two-profile cache test now uses explicit
+  `work` and `personal` labels; its global-cache assertion is unchanged.
+
+No Client/Engine production code, provider parser, OpenRouter behavior, automatic
+OAuth refresh flow, explicit profile endpoint, schema beyond existing migration
+`0011`, unrelated worktree file, push, rebase, merge, PR, or live provider state
+was changed by this correction pass. Staging is limited to the OME-1026 source,
+tests, migration, and four owner-approved tracked documentation paths. Authorized
+commit message: `feat(aigateway): resolve implicit discovery credentials` with
+`Refs: OME-1026`; `.agent-team-AIGW/**` remains local and untracked.

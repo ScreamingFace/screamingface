@@ -12,10 +12,11 @@ deployment flag — decides who may see a snapshot.
 
 INVARIANT (the whole point of this module): a ``PROFILE_CREDENTIAL`` snapshot is
 derived from ONE account's credential, so it describes that account's
-entitlements and nothing else. It may never enter the global ``GET /v1/models``
-response or any cache another account can read. ``ModelCatalog`` — the shared
-catalog — refuses this scope outright rather than trusting every future caller
-to remember the rule.
+entitlements and nothing else. It may appear only in that account's OWN
+responses — the explicit profile listing and, since OME-1026 U3, the caller's
+own ``GET /v1/models`` — and never in a deployment-global cache or any response
+another account can read. ``ModelCatalog`` — the shared catalog — refuses this
+scope outright rather than trusting every future caller to remember the rule.
 
 WHY the scope replaced a boolean: the rejected OME-1026 design had one
 deployment-wide credentialed catalog behind ``AIGW_ANTHROPIC_DISCOVERY_API_KEY``,

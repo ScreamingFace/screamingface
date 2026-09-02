@@ -22,13 +22,18 @@ from ..core.discovery_runtime import (
     auth_scoped,
     static_discovery_outcome,
 )
+from ..core.effective_credential import EffectiveCredential, resolve_effective_credential
 from ..core.model_capabilities import canonical_ids, canonical_model_id
 from ..core.model_discovery_scope import DiscoveryScope, discovery_scope_of
 from ..core.model_parameter_contract import build_model_parameter_document
 from ..core.registry import ProviderRegistry
-from .chat_credentials import _credential_target_for_chat, resolved_auth_mode
+from .chat_credentials import (
+    _credential_target_for_chat,
+    _oauth_connection_store,
+    resolved_auth_mode,
+)
 from .private_cache import private_cache_route
-from .profile_models import auth_provider_for as profile_models_auth_provider
+from .profile_models import deferred_auth_provider
 
 if TYPE_CHECKING:
     from ..core.oauth.models import OAuthConnection
@@ -117,9 +122,10 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     # gateway agreed to serve must not 404 on its own contract endpoint.
     profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
     # OME-1026 F4: set only when this request admitted the id from the caller's PRIVATE
-    # snapshot, and then it is the generation that snapshot was fetched under. ``None``
-    # means no private catalog was consulted, so there is no generation to mix.
-    private_generation: int | None = None
+    # snapshot, and then it is the durable credential REVISION that snapshot was fetched
+    # under — Profile- or Connection-backed alike (U4). ``None`` means no private
+    # catalog was consulted, so there is no credential context to mix.
+    private_revision: str | None = None
     if model not in known and model not in request.app.state.admitted_models:
         # OME-972: an id published from a healthy live snapshot must resolve on
         # its own contract endpoint. Lazy by construction — a known-set hit
@@ -132,7 +138,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         # refuses a private provider outright and costs nothing for it, and a public
         # provider never reaches the private read at all.
         if model not in await _live_catalog_ids(request, plugin):
-            private_ids, private_generation = await _private_catalog_ids(
+            private_ids, private_revision = await _private_catalog_ids(
                 request, plugin, account_id=account_id, profile_name=profile_name
             )
             if model not in private_ids:
@@ -192,53 +198,58 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         # contract_id is not silently handed evidence with a different provenance.
         source_revision=discovered.snapshot.source_revision if discovered.snapshot else None,
     )
-    if private_generation is not None:
-        await _refuse_mixed_generation(
+    if private_revision is not None:
+        await _refuse_changed_credential(
             request,
             plugin,
             account_id=account_id,
             profile_name=profile_name,
-            validated_generation=private_generation,
+            validated_revision=private_revision,
         )
     return document
 
 
-async def _refuse_mixed_generation(
+async def _refuse_changed_credential(
     request: Request,
     plugin: ProviderPluginBase[Any],
     *,
     account_id: str,
     profile_name: str,
-    validated_generation: int,
+    validated_revision: str,
 ) -> None:
-    """Refuse if the durable credential generation moved during THIS request.
+    """Refuse if the durable credential REVISION moved during THIS request.
 
-    INVARIANT (OME-1026 F4): one request answers under ONE credential context. The id
-    was admitted from a snapshot fetched under ``validated_generation``; the document
-    above was built from a SECOND index read. A credential replacement committing
-    between them would otherwise produce a 200 that mixed the two — admitted under the
-    revoked credential, described under its replacement.
+    INVARIANT (OME-1026 F4, extended to Connection identity by U4): one request
+    answers under ONE credential context. The id was admitted from a snapshot fetched
+    under ``validated_revision``; the document above was built from a SECOND
+    resolution. A credential replacement committing between them — a profile key
+    rotation OR a Connection key replacement/delete/recreate — would otherwise
+    produce a 200 that mixed the two: admitted under the revoked credential,
+    described under its replacement.
 
     # WHY a recheck rather than threading one resolved context through: the contract
     # path deliberately reuses the chat credential resolution verbatim, so summary,
-    # detail and dispatch cannot drift. Passing a pre-resolved profile into it would
+    # detail and dispatch cannot drift. Passing a pre-resolved target into it would
     # fork that shared path — the very drift the reuse exists to prevent — while this
-    # adds one index read on the RESCUE path only, for PROFILE_CREDENTIAL providers
+    # adds one resolution on the RESCUE path only, for PROFILE_CREDENTIAL providers
     # only. A seeded or admitted id pays nothing.
     # WHY 409 and not a silent retry here: the retry would need its own bound and could
     # be defeated by a caller rotating in a loop. A refusal names the condition, is
     # safe to repeat, and leaves the choice with the client.
     # INVARIANT (sanitized): a code plus the caller's OWN provider/profile names. Never
-    # key material, a generation number, or upstream text.
+    # key material, a revision token, or upstream text.
     """
-    found = await request.app.state.profile_index.get_with_credential_generation(
-        account_id, plugin.custom_llm_provider, profile_name
+    resolution = await _resolve_effective(
+        request, plugin, account_id=account_id, profile_name=profile_name
     )
-    if found is not None and found[1] == validated_generation:
+    if (
+        isinstance(resolution, EffectiveCredential)
+        and resolution.credential_revision == validated_revision
+    ):
         return
-    # ``found is None`` lands here too: a profile deleted mid-request has no generation
-    # at all, and a document validated against its snapshot is exactly as wrong as one
-    # validated against a replaced credential.
+    # A non-resolving outcome lands here too: a profile or connection deleted
+    # mid-request has no revision at all, and a document validated against its
+    # snapshot is exactly as wrong as one validated against a replaced credential.
     raise HTTPException(
         status_code=409,
         detail={
@@ -268,12 +279,13 @@ async def _private_catalog_ids(
     *,
     account_id: str,
     profile_name: str,
-) -> tuple[frozenset[str], int | None]:
-    """Gateway ids in the CALLER'S OWN private snapshot, and the generation used.
+) -> tuple[frozenset[str], str | None]:
+    """Gateway ids in the CALLER'S OWN private snapshot, and the revision used.
 
-    The second element is the durable credential generation the snapshot was fetched
-    under, or ``None`` when no private catalog was consulted. The caller fences the
-    finished document on it (OME-1026 F4) so one request cannot mix two generations.
+    The second element is the durable credential REVISION the snapshot was fetched
+    under — Profile- or Connection-backed — or ``None`` when no private catalog was
+    consulted. The caller fences the finished document on it (OME-1026 F4) so one
+    request cannot mix two credential contexts.
 
     INVARIANT (the isolation this must not break): every input is the authenticated
     caller's — ``account_id`` comes from ``CurrentAccount`` and ``profile_name`` from
@@ -300,24 +312,47 @@ async def _private_catalog_ids(
     # would cost an index read that decrypts a credential blob for nothing.
     if discovery_scope_of(plugin) is not DiscoveryScope.PROFILE_CREDENTIAL:
         return frozenset(), None
-    found = await request.app.state.profile_index.get_with_credential_generation(
-        account_id, plugin.custom_llm_provider, profile_name
+    # OME-1026 U4: the SHARED resolver — hosted Profile or sole active Connection —
+    # with the caller's requested name, so a local-mode ``parameter_contract_url``
+    # resolves exactly like a hosted one. A non-resolving outcome (no credential,
+    # ambiguous, unknown label) declines to widen: the shared chat resolution below
+    # raises the canonical 404/409 for it, and no discovery is funded by a guess.
+    resolution = await _resolve_effective(
+        request, plugin, account_id=account_id, profile_name=profile_name
     )
-    if found is None:
-        # No such profile for this caller. The shared chat resolution below raises the
-        # canonical 404/409 for that; this helper only declines to widen.
+    if not isinstance(resolution, EffectiveCredential):
         return frozenset(), None
-    profile, credential_generation = found
-    snapshot = await catalog.snapshot_for(
+    snapshot = await catalog.snapshot_for_target(
         plugin,
         account_id=account_id,
-        profile=profile,
+        target=resolution,
         client=runtime.client,
         limits=runtime.limits,
-        auth_provider=profile_models_auth_provider(request.app, plugin, account_id, profile),
-        credential_generation=credential_generation,
+        auth_provider=deferred_auth_provider(
+            request.app,
+            plugin,
+            credential_name=resolution.credential_name,
+            auth_type=resolution.auth_type,
+        ),
     )
-    return canonical_ids(plugin, snapshot.entries), credential_generation
+    return canonical_ids(plugin, snapshot.entries), resolution.credential_revision
+
+
+async def _resolve_effective(
+    request: Request,
+    plugin: ProviderPluginBase[Any],
+    *,
+    account_id: str,
+    profile_name: str,
+):
+    """The shared effective-credential resolution, with this route's inputs."""
+    return await resolve_effective_credential(
+        account_id=account_id,
+        provider=plugin.custom_llm_provider,
+        profile_name=profile_name,
+        profile_index=request.app.state.profile_index,
+        connections=_oauth_connection_store(request),
+    )
 
 
 @router.get("/v1/model-parameters")

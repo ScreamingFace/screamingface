@@ -440,12 +440,11 @@ async def test_a_none_listing_under_a_declared_source_is_a_failed_attempt(catalo
 
 
 @pytest.mark.asyncio
-async def test_an_unexpected_provider_error_is_sanitized_not_propagated(catalog) -> None:
+async def test_an_unexpected_provider_error_propagates_to_an_awaiting_caller(catalog) -> None:
     plugin = _FakePlugin(raises=ZeroDivisionError("upstream parser blew up"))
 
-    snap = await _ask(catalog, plugin, _FakeAuth(), _profile())
-
-    assert (snap.status, snap.reason) == ("fallback", "internal_error")
+    with pytest.raises(ZeroDivisionError, match="upstream parser blew up"):
+        await _ask(catalog, plugin, _FakeAuth(), _profile())
 
 
 @pytest.mark.asyncio

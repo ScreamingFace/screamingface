@@ -1,19 +1,23 @@
-"""OME-1026 rework — the PUBLIC boundary: Anthropic is never live on ``GET /v1/models``.
+"""OME-1026 rework — the SHARED boundary: Anthropic is never live deployment-wide.
 
 FEATURE: two discovery scopes. OpenRouter's catalog needs no credential, so it stays a
-public global listing. Anthropic's answers "what may THIS key call", so it became a
-PRIVATE per-profile listing served only through
-``GET /v1/auth/anthropic/profiles/{name}/models``.
+public global listing. Anthropic's answers "what may THIS key call", so it is a PRIVATE
+per-credential listing — served through the owner's explicit profile endpoint and,
+since OME-1026 U3, composed into the OWNER's own ``GET /v1/models`` response.
 
-STORY: as any account calling ``GET /v1/models`` I see Anthropic's compiled catalog —
-never another account's entitlements, and never a listing derived from someone's key.
+STORY: as an account with no usable Anthropic credential I call ``GET /v1/models`` and
+see Anthropic's compiled catalog — never another account's entitlements, and never a
+listing derived from someone else's key.
 
-INVARIANT (the load-bearing one, asserted from several angles below): no credential-derived
-Anthropic row can reach the shared ``/v1/models`` response, and the route causes ZERO
-Anthropic catalog egress — even when an authenticated api-key profile exists, even with
-``live_models`` on. Three independent mechanisms deny it: the plugin declares
-``PROFILE_CREDENTIAL``, ``ModelCatalog`` refuses that scope before consulting the source,
-and the plugin does not implement the public ``discover_live_models`` hook at all.
+INVARIANT (the load-bearing one, asserted from several angles below): a
+credential-derived Anthropic row may reach ONLY its owner's response. It never enters
+the deployment-global ``ModelCatalog``, and an account without a resolvable, stored
+credential causes ZERO Anthropic catalog egress — even with ``live_models`` on. Three
+independent mechanisms hold the global side: the plugin declares
+``PROFILE_CREDENTIAL``, ``ModelCatalog`` refuses that scope before consulting the
+source, and the plugin does not implement the public ``discover_live_models`` hook at
+all. The owner-scoped live path is pinned in
+``test_models_route_effective_credential.py``.
 
 WHY this file replaced ``test_models_route_live_catalog_anthropic.py``: that file specified
 the REJECTED architecture — one deployment-wide ``AIGW_ANTHROPIC_DISCOVERY_API_KEY`` whose
@@ -46,8 +50,8 @@ from aigateway.plugins.anthropic_provider.live_models import MODELS_LIST_URL
 from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSettings
 
 _FIRST_PAGE = f"{MODELS_LIST_URL}?limit=1000"
-# An id that exists ONLY upstream. If it ever appears in /v1/models, a credentialed
-# listing leaked into the shared catalog.
+# An id that exists ONLY upstream. If it ever appears in a response that does not
+# belong to the credential's owner, a credentialed listing leaked across the boundary.
 _UPSTREAM_ONLY = "claude-opus-6-20270101"
 
 
@@ -179,14 +183,19 @@ def test_v1_models_lists_exactly_the_compiled_seeds_with_zero_egress(
 
 
 @pytest.mark.asyncio
-async def test_a_stored_api_key_profile_does_not_make_v1_models_live(
+async def test_an_authenticated_profile_without_a_stored_key_fails_closed_to_seeds(
     authenticated_client: TestClient, monkeypatch: pytest.MonkeyPatch, credential_blobs: Any
 ) -> None:
-    """The strongest form of the isolation claim.
+    """A resolvable credential whose blob is MISSING funds nothing (OME-1026 U3).
 
-    # WHY this case and not merely the credential-less one: a stored, AUTHENTICATED
-    # api-key profile is exactly the state in which private discovery IS allowed. If the
-    # shared route were going to borrow an account credential, it would happen here.
+    REPLACES ``test_a_stored_api_key_profile_does_not_make_v1_models_live``: the rule
+    that test encoded — the owner's credential never makes ``/v1/models`` live — is the
+    behaviour the owner superseded (the inversion is pinned in
+    ``test_models_route_effective_credential.py``). What this harness actually builds
+    is an AUTHENTICATED index row with NO key blob behind it, so the surviving claim
+    is the fail-closed one: the effective credential resolves, discovery is allowed,
+    and the missing decrypt still produces seeds with zero egress instead of an
+    unauthenticated dial.
     """
     settings = _configure(monkeypatch)
     http = _LoudCatalogClient()
@@ -194,7 +203,7 @@ async def test_a_stored_api_key_profile_does_not_make_v1_models_live(
     await _store_api_key_profile(authenticated_client, credential_blobs)
 
     assert _anthropic_ids(authenticated_client) == _seed_ids(settings)
-    assert http.dialed == [], "an account's credential never funds the shared listing"
+    assert http.dialed == [], "a missing credential blob never becomes a bare dial"
 
 
 def test_live_models_off_changes_nothing_at_the_public_boundary(

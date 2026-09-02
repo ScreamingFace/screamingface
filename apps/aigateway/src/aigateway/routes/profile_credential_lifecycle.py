@@ -32,7 +32,9 @@ from ..core.credential_ownership_fence import (
     ExpectedOwnership,
 )
 from ..core.credential_strategy_cache import credential_strategy_cache
+from ..core.effective_credential import DEFAULT_PROFILE_NAME
 from ..core.errors import AuthError, CredentialNotFoundError
+from ..core.oauth.store import credential_key_for
 from ..core.profile_index import (
     CredentialOwnershipConflict,
     ProfileTransitionConflict,
@@ -81,6 +83,27 @@ def _invalidate_profile_session(
     if catalog is not None and retire_private_catalog:
         catalog.invalidate(
             account_id=account_id, provider=plugin.custom_llm_provider, profile_name=name
+        )
+
+
+def retire_connection_credential(app, *, account_id: str, connection) -> None:
+    """Post-commit teardown when a Connection's credential OWNER changes (replace/delete).
+
+    The Connection twin of ``_invalidate_profile_session``: evict the shared cached
+    strategy so the removed key is never served from memory (SF-282), then retire the
+    account's PRIVATE model listing. Connection-backed snapshots live under the
+    LOGICAL ``default`` identity (one implicit credential per provider — OME-1026 U2),
+    so that is the identity retired. As with profiles, the durable generation inside
+    the cache key is what makes isolation correct; this makes the memory release
+    prompt and supersedes a doomed in-flight dial with the replaced key.
+    """
+    credential_strategy_cache(app).evict(credential_key_for(account_id, connection.id))
+    catalog = getattr(app.state, "profile_model_catalog", None)
+    if catalog is not None:
+        catalog.invalidate(
+            account_id=account_id,
+            provider=connection.provider,
+            profile_name=DEFAULT_PROFILE_NAME,
         )
 
 
