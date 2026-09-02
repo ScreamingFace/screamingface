@@ -357,7 +357,17 @@ class RunQueue:
             # its config (replicas, retention — those are the declaring replica's business).
             info = await js.stream_info(self._stream)
             if info.config.subjects != [self._stream_subject]:
-                await js.update_stream(name=self._stream, subjects=[self._stream_subject])
+                # INVARIANT: the update starts from the LIVE config, not from kwargs.
+                # nats-py's `update_stream` builds a FRESH `StreamConfig()` and evolves
+                # only the given kwargs, so `update_stream(name=..., subjects=...)`
+                # resets everything not named — retention (WorkQueue -> Limits),
+                # `num_replicas`, `max_age`, `duplicate_window` — to defaults. Against a
+                # legacy narrow-subject stream the server then REJECTS the retention
+                # change and `ensure_stream` raises on every publish; if it were
+                # accepted, the dedupe window and replica count would be silently gone.
+                config = info.config
+                config.subjects = [self._stream_subject]
+                await js.update_stream(config)
         self._ensured = True
 
     async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
