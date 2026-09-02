@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowDown,
   ArrowRight,
   Check,
   ChevronDown,
@@ -1735,13 +1734,12 @@ function kindLabel(kind: RecipeKind): string {
   return kind === "solo" ? "Solo" : kind === "fusion" ? "Fusion" : "Pipeline";
 }
 
-function nodeChrome(depth: number, role: NodeRole): string {
-  if (role === "synthesizer") {
-    return "rounded-lg border border-accent/40 bg-accent/5 p-3";
-  }
-  return depth === 0
-    ? "rounded-xl border bg-card p-3.5 shadow-sm"
-    : "rounded-lg border border-border/60 bg-card p-3";
+// Only leaf model units (and the synthesizer) are drawn as blocks; fusions/pipelines are
+// bare structural groupings, so the composition reads like a node diagram.
+function soloChrome(role: NodeRole): string {
+  return role === "synthesizer"
+    ? "rounded-lg border border-accent/50 bg-accent/5 p-2.5 shadow-sm"
+    : "rounded-lg border bg-card p-2.5 shadow-sm";
 }
 
 function roleTagClass(role: NodeRole): string {
@@ -1751,7 +1749,6 @@ function roleTagClass(role: NodeRole): string {
   );
 }
 
-// Compact type selector — replaces the wide 3-segment switch that crowded nested cards.
 function KindDropdown({
   node,
   onChange,
@@ -1799,7 +1796,6 @@ function RemoveButton({ onRemove }: { onRemove: () => void }) {
   );
 }
 
-// Prompt + params (+ change model) for a solo that already has a model.
 function SoloConfig({
   node,
   onChange,
@@ -1852,7 +1848,7 @@ function SoloConfig({
   );
 }
 
-// Fusion: members stacked in parallel on a rail, converging into the synthesizer below.
+// Fusion: parallel member blocks on a rail, converging into the synthesizer block.
 function FusionBody({
   node,
   onChange,
@@ -1868,9 +1864,9 @@ function FusionBody({
 }) {
   const setMembers = (members: RecipeNode[]) => onChange({ ...node, members });
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex flex-col gap-2 border-l-2 border-border/40 pl-3">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
+    <div className="flex flex-row items-start gap-1.5">
+      <div className="flex shrink-0 flex-col gap-2 rounded-lg border border-dashed border-border/60 p-2">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
           Parallel members
         </p>
         {node.members.map((member, index) => (
@@ -1903,23 +1899,27 @@ function FusionBody({
           Add member
         </Button>
       </div>
-      <div className="flex items-center gap-1.5 pl-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
-        <ArrowDown className="size-3.5" />
-        synthesize
+      <div className="mt-3 flex shrink-0 flex-col items-center">
+        <ArrowRight className="size-4 text-muted-foreground/70" />
+        <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/70">
+          synthesize
+        </span>
       </div>
-      <RecipeNodeCard
-        node={node.synthesizer}
-        depth={depth + 1}
-        role="synthesizer"
-        providers={providers}
-        onUseModels={onUseModels}
-        onChange={(next) => onChange({ ...node, synthesizer: next })}
-      />
+      <div className="shrink-0">
+        <RecipeNodeCard
+          node={node.synthesizer}
+          depth={depth + 1}
+          role="synthesizer"
+          providers={providers}
+          onUseModels={onUseModels}
+          onChange={(next) => onChange({ ...node, synthesizer: next })}
+        />
+      </div>
     </div>
   );
 }
 
-// Pipeline: stages on a left-to-right timeline; the row scrolls when it gets long.
+// Pipeline: stage blocks on a left-to-right timeline.
 function PipelineBody({
   node,
   onChange,
@@ -1935,49 +1935,44 @@ function PipelineBody({
 }) {
   const setStages = (stages: RecipeNode[]) => onChange({ ...node, stages });
   return (
-    <div className="flex flex-col gap-1.5">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
-        Sequence
-      </p>
-      <div className="flex flex-row items-start gap-1.5 pb-1">
-        {node.stages.map((stage, index) => (
-          <div key={stage.id} className="flex items-start gap-1.5">
-            {index > 0 && (
-              <ArrowRight className="mt-3 size-4 shrink-0 text-muted-foreground/70" />
-            )}
-            <div className="min-w-[16rem] shrink-0">
-              <RecipeNodeCard
-                node={stage}
-                index={index}
-                depth={depth + 1}
-                role="stage"
-                providers={providers}
-                onUseModels={onUseModels}
-                onChange={(next) =>
-                  setStages(node.stages.map((item, i) => (i === index ? next : item)))
-                }
-                onRemove={
-                  node.stages.length > 1
-                    ? () => setStages(node.stages.filter((_, i) => i !== index))
-                    : undefined
-                }
-              />
-            </div>
+    <div className="flex flex-row items-start gap-1.5 pb-1">
+      {node.stages.map((stage, index) => (
+        <div key={stage.id} className="flex items-start gap-1.5">
+          {index > 0 && (
+            <ArrowRight className="mt-3 size-4 shrink-0 text-muted-foreground/70" />
+          )}
+          <div className="min-w-[16rem] shrink-0">
+            <RecipeNodeCard
+              node={stage}
+              index={index}
+              depth={depth + 1}
+              role="stage"
+              providers={providers}
+              onUseModels={onUseModels}
+              onChange={(next) =>
+                setStages(node.stages.map((item, i) => (i === index ? next : item)))
+              }
+              onRemove={
+                node.stages.length > 1
+                  ? () => setStages(node.stages.filter((_, i) => i !== index))
+                  : undefined
+              }
+            />
           </div>
-        ))}
-        <div className="flex items-center gap-1.5 self-center">
-          <ArrowRight className="size-4 shrink-0 text-muted-foreground/70" />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => setStages([...node.stages, createSolo()])}
-          >
-            <Plus className="size-3.5" />
-            Add stage
-          </Button>
         </div>
+      ))}
+      <div className="flex items-center gap-1.5 self-center">
+        <ArrowRight className="size-4 shrink-0 text-muted-foreground/70" />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => setStages([...node.stages, createSolo()])}
+        >
+          <Plus className="size-3.5" />
+          Add stage
+        </Button>
       </div>
     </div>
   );
@@ -2020,10 +2015,11 @@ function RecipeNodeCard({
     </div>
   );
 
+  // Solo — a drawn block.
   if (node.kind === "solo") {
     const model = node.model;
     return (
-      <article className={cn("min-w-[16rem]", nodeChrome(depth, role))}>
+      <article className={cn("min-w-[16rem]", soloChrome(role))}>
         <div className="flex items-center justify-between gap-2">
           {model ? (
             <button
@@ -2075,8 +2071,9 @@ function RecipeNodeCard({
     );
   }
 
+  // Fusion / Pipeline — a bare structural grouping (no card chrome).
   return (
-    <article className={cn("min-w-[16rem]", nodeChrome(depth, role))}>
+    <div className={cn("flex flex-col gap-2", depth > 0 && "pl-0.5")}>
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -2091,7 +2088,7 @@ function RecipeNodeCard({
             )}
           />
           <span className={roleTagClass(role)}>{roleLabel}</span>
-          <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             {kindLabel(node.kind)}
           </span>
           {collapsed && (
@@ -2103,7 +2100,7 @@ function RecipeNodeCard({
         {controls}
       </div>
       {!collapsed && (
-        <div className="mt-3">
+        <div>
           {node.kind === "fusion" ? (
             <FusionBody
               node={node}
@@ -2123,7 +2120,7 @@ function RecipeNodeCard({
           )}
         </div>
       )}
-    </article>
+    </div>
   );
 }
 
