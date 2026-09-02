@@ -167,6 +167,11 @@ class RunSupervisor:
         self._spawn = spawn
         self._memory_budget_bytes = memory_budget_bytes
         self._io_capacity = io_capacity
+        # Spawns committed-to but not yet registered in `_children` (review follow-up):
+        # the io budget's denominator counts these, so a batch of concurrent spawns
+        # divides capacity by every spawn already committed — not just the ones whose
+        # subprocess finished starting.
+        self._spawning = 0
         self._draining = draining
         self._terminating = terminating
         self._children = children
@@ -255,46 +260,61 @@ class RunSupervisor:
 
     async def _run_child(self, msg: ClaimedMessage, topic: str) -> None:
         """Fork the run as a child, supervise it to its terminal frame, then ack."""
-        env = self._child_env(msg)
+        # Reserve the spawn slot SYNCHRONOUSLY, before the budget read below: every
+        # `await` is a preemption point, and the old order (budget → await spawn →
+        # register) let two batch siblings both read `len(self._children) == 0` and both
+        # take the FULL io capacity — the exact burst the fair share exists to divide.
+        # The reserve→read pair has no await between it, so on the single event loop it
+        # is atomic: a later sibling's budget always counts every spawn already
+        # committed-to, whether or not its process has finished starting.
+        self._spawning += 1
+        promoted = False
         try:
-            proc = await self._spawn_child(env)
-        except OSError as exc:
-            # The run cannot start at all — a named failure beats silence, and the
-            # message is acked so the run is not redelivered to fail the same way.
-            await self._publish_terminal(topic, "failed", SPAWN_FAILED, str(exc))
-            await msg.ack()
-            return
-        self._children.add(proc)
-        self._children_by_topic[topic] = proc
-        if topic in self._cancelled:
-            # A cancel was ACKNOWLEDGED while this child was starting (the control loop
-            # replied from the starting registry): enact it the moment the child exists.
-            proc.terminate()
-        heartbeat = asyncio.create_task(self._heartbeat(msg, topic))
-        output = asyncio.create_task(self._forward_output(proc, topic))
-        try:
-            outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
-            await self._publish_if_needed(topic, self._classify(outcome, proc.returncode, topic))
-            await msg.ack()
+            env = self._child_env(msg)
+            try:
+                proc = await self._spawn_child(env)
+            except OSError as exc:
+                # The run cannot start at all — a named failure beats silence, and the
+                # message is acked so the run is not redelivered to fail the same way.
+                await self._publish_terminal(topic, "failed", SPAWN_FAILED, str(exc))
+                await msg.ack()
+                return
+            self._children.add(proc)
+            self._spawning -= 1  # the registries count this spawn from here — no double count
+            promoted = True
+            self._children_by_topic[topic] = proc
+            if topic in self._cancelled:
+                # A cancel was ACKNOWLEDGED while this child was starting (the control loop
+                # replied from the starting registry): enact it the moment the child exists.
+                proc.terminate()
+            heartbeat = asyncio.create_task(self._heartbeat(msg, topic))
+            output = asyncio.create_task(self._forward_output(proc, topic))
+            try:
+                outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
+                await self._publish_if_needed(topic, self._classify(outcome, proc.returncode, topic))
+                await msg.ack()
+            finally:
+                heartbeat.cancel()
+                output.cancel()
+                # WHY gather and not sequential awaits under one `suppress`: a task that already
+                # FAILED (not cancelled) re-raises its own exception on await, and `cancel()` is a
+                # no-op on it — so `await heartbeat` would blow the finally block open and skip
+                # every line below it (the child stays in `self._children`, a live child is never
+                # killed). `return_exceptions=True` makes the gather itself unraisable; the
+                # cleanup after it is therefore unconditional.
+                for result in await asyncio.gather(heartbeat, output, return_exceptions=True):
+                    if isinstance(result, BaseException) and not isinstance(
+                        result, asyncio.CancelledError
+                    ):
+                        logger.warning("run supervision task failed during cleanup: %r", result)
+                self._release_child(proc, topic)
+                if proc.returncode is None:
+                    # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
+                    # must not orphan its child.
+                    proc.kill()
         finally:
-            heartbeat.cancel()
-            output.cancel()
-            # WHY gather and not sequential awaits under one `suppress`: a task that already
-            # FAILED (not cancelled) re-raises its own exception on await, and `cancel()` is a
-            # no-op on it — so `await heartbeat` would blow the finally block open and skip
-            # every line below it (the child stays in `self._children`, a live child is never
-            # killed). `return_exceptions=True` makes the gather itself unraisable; the
-            # cleanup after it is therefore unconditional.
-            for result in await asyncio.gather(heartbeat, output, return_exceptions=True):
-                if isinstance(result, BaseException) and not isinstance(
-                    result, asyncio.CancelledError
-                ):
-                    logger.warning("run supervision task failed during cleanup: %r", result)
-            self._release_child(proc, topic)
-            if proc.returncode is None:
-                # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
-                # must not orphan its child.
-                proc.kill()
+            if not promoted:
+                self._spawning -= 1  # the spawn never registered — release its reservation
 
     def _release_child(self, proc: _ChildProcess, topic: str) -> None:
         """Drop a finished child from every registry the worker shares.
@@ -424,7 +444,7 @@ class RunSupervisor:
         return env
 
     def _io_budget(self) -> int:
-        """The spawn-time io budget: `io_capacity / active_children` (the new child included),
+        """The spawn-time io budget: `io_capacity / (active children + committed spawns)`,
         floored at 1 — the deployed half of OME-908's fair share.
 
         WHY a division rather than the static `io_capacity`: with `N` children running, each
@@ -432,9 +452,13 @@ class RunSupervisor:
         cannot monopolize it. WHY FIXED at spawn: the budget travels by env and the child is a
         separate process — it does not rebalance when a sibling exits (the dynamic
         `FairShareGate` is local-mode only; a cross-process control socket is the declared
-        follow-up).
+        follow-up). The caller's OWN reservation is included (`_run_child` reserves before
+        reading this — synchronously, no await between — so two siblings spawning in one
+        claim batch cannot both divide by one and take the full capacity each); the first
+        spawn of a batch keeps the whole budget because its budget was fixed before any
+        sibling committed — the same spawn-fixed limitation as sibling exits.
         """
-        return max(1, self._io_capacity // max(1, len(self._children) + 1))
+        return max(1, self._io_capacity // max(1, len(self._children) + self._spawning))
 
     async def _spawn_child(self, env: Mapping[str, str]) -> _ChildProcess:
         """Fork the run entrypoint as a supervised child, under its own ``RLIMIT_AS``.
