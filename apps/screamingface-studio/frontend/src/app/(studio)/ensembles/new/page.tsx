@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Copy,
   Cpu,
   BarChart3,
   Globe,
@@ -2588,19 +2587,6 @@ function EnsembleComposer() {
               <p className="mt-1.5 text-[11px] text-muted-foreground">
                 Structural preview — the engine emits the canonical url4 at run time.
               </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-2 w-full"
-                onClick={copyRecipe}
-              >
-                {copied ? (
-                  <Check className="size-3.5 text-accent" />
-                ) : (
-                  <Copy className="size-3.5" />
-                )}
-                {copied ? "Copied" : "Copy"}
-              </Button>
             </div>
 
             <div>
