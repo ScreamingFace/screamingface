@@ -175,8 +175,12 @@ async def test_cancel_before_claim_writes_a_tombstone_and_the_worker_skips() -> 
     await runner.schedule("t", "'hi'", 60)
     await runner.stop("t")
 
-    # The App's side: the control request went out, got no reply, and the tombstone landed.
-    assert control.requested == [("url4.runctl.t", b"", runner._control_timeout_s)]
+    # The App's side: the control ask went out, got no reply, the tombstone landed, and
+    # the confirmation ask re-checked for a claim racing this stop (no reply again).
+    assert control.requested == [
+        ("url4.runctl.t", b"", runner._control_timeout_s),
+        ("url4.runctl.t", b"", runner._control_timeout_s),
+    ]
     assert len(publisher.published) == 1
     frame = publisher.published[0]
     assert isinstance(frame, TerminatedEvent)
@@ -239,8 +243,60 @@ async def test_no_responders_reads_as_not_running_here_not_an_error() -> None:
 
     await runner.stop("t")  # must not raise
 
-    assert control.requested == [("url4.runctl.t", b"", runner._control_timeout_s)]
+    assert control.requested == [
+        ("url4.runctl.t", b"", runner._control_timeout_s),
+        ("url4.runctl.t", b"", runner._control_timeout_s),
+    ]
     assert len(publisher.published) == 1
     frame = publisher.published[0]
     assert isinstance(frame, TerminatedEvent)
     assert frame.data.status == "stopped"
+
+
+# --- the queued-cancel race (review follow-up) ----------------------------------------------
+
+
+class _ScriptedControl:
+    """A control channel scripted per call: the worker does not own the run when the
+    first ask goes out, but CLAIMS it mid-stop (before the tombstone lands) — so the
+    confirmation ask finds it registered and it answers."""
+
+    def __init__(self, outcomes: list[Any]) -> None:
+        self._outcomes = list(outcomes)
+        self.requested: list[str] = []
+
+    async def request(self, subject: str, payload: bytes, *, timeout: float) -> Any:
+        self.requested.append(subject)
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+
+async def test_a_claim_landing_mid_stop_is_still_cancelled_with_one_frame() -> None:
+    """Nothing orders `stop()` against a worker's claim: the worker can claim the queued
+    message after the first control ask times out and before a tombstone written
+    afterwards would land — its claim-time gate then reads no terminal frame, the run
+    executes to completion, and the late tombstone adds a SECOND terminal frame to a run
+    the caller was told was cancelled. The tombstone is now written BEFORE the
+    confirmation ask: any claim after it sees the frame at its gate; any claim before it
+    answers the confirmation ask and enacts the cancel, its own terminal publish
+    suppressed by the tombstone already on the stream."""
+    publisher = _FakePublisher()
+    control = _ScriptedControl([TimeoutError("nobody yet"), object()])  # ask, then CLAIMED
+    runner = _runner(publisher, control)
+
+    await runner.stop("t-raced")
+
+    # The confirmation pass happened — the worker that claimed mid-stop was reached.
+    assert len(control.requested) == 2, "stop must re-ask after tombstoning"
+
+    # The marker is durable BEFORE the confirmation ask (the ordering that closes the
+    # race), and it is the run's ONE terminal frame.
+    assert isinstance(publisher.published[0], TerminatedEvent)
+    assert len(publisher.published) == 1
+
+    # And the run stays cancelled: a later claim-time gate read sees the tombstone and
+    # the worker skips — the existing before-claim test's mechanism, now also the fate
+    # of any claim that arrives after this stop.
+    assert isinstance(await publisher.last_frame("t-raced"), TerminatedEvent)

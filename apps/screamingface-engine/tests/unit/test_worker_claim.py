@@ -599,13 +599,13 @@ def test_an_unrelated_failure_during_drain_is_not_relabeled_a_drain_stop() -> No
     worker._draining.set()
     classify = worker._supervisor._classify
 
-    oom = classify("finished", 137)
+    oom = classify("finished", 137, "topic-oom")
     assert oom is not None and oom[0] == "failed" and oom[1] == OOM_KILLED
 
-    crash = classify("finished", 1)
+    crash = classify("finished", 1, "topic-crash")
     assert crash is not None and crash[0] == "failed" and crash[1] == CHILD_EXITED
 
-    drain_kill = classify("draining", None)
+    drain_kill = classify("draining", None, "topic-drain")
     assert drain_kill is not None
     assert drain_kill[0] == "stopped" and drain_kill[1] == WORKER_DRAINING
 

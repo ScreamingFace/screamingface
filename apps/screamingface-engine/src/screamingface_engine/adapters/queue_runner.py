@@ -219,21 +219,33 @@ class QueueJobRunner(IdentityAwareJobRunner):
         """Stop the run: reach a running one over the control subject, else tombstone a
         queued one. Idempotent — unknown and already-terminal topics are no-ops.
 
-        The control request goes out FIRST: a reply means a worker owns the run and is
-        SIGTERMing its child, which ends in the worker's own `Terminated(stopped)` — the
-        App must not also write a tombstone, or the run would end in two terminal frames.
-        No reply within `control_timeout_s` means "not running here", and the tombstone
-        covers the queued case. A stream that already ends in a terminal frame, or that
-        does not exist at all (never attached, never scheduled), is left untouched.
+        WHY the tombstone comes BEFORE the final control re-ask, not after the first
+        ask: nothing orders `stop()` against a worker's claim — the worker can claim the
+        queued message in the window between the first ask's timeout and a tombstone
+        written afterwards, and its claim-time gate reads the stream exactly once,
+        before spawning. Writing the marker FIRST closes that window by construction:
+        a claim that lands after it sees the frame at its gate and never executes. The
+        re-ask then reaches a worker that claimed BEFORE the marker (it registers the
+        topic before spawning, so it answers): the cancel is enacted, and the worker's
+        own terminal publish is suppressed by `_publish_if_needed`'s stream re-read —
+        the tombstone stays the run's single terminal frame on every interleave. The
+        residual race needs a worker stalled longer than `control_timeout_s` between
+        fetch and registration — pathological, and its claim-time gate still catches
+        the tombstone once it proceeds. A stream that already ends in a terminal frame,
+        or that does not exist at all (never attached, never scheduled), is untouched.
         """
-        if await self._request_control(topic):
-            return
         frame = await self._publisher.last_frame(topic)
         if isinstance(frame, TerminatedEvent):
+            return
+        if await self._request_control(topic):
             return
         if frame is None and not await self._publisher.stream_exists(topic):
             return
         await self._publish_tombstone(topic)
+        # The confirmation pass: a worker that claimed between the first ask and the
+        # tombstone answers THIS ask (registration precedes spawn), enacts the cancel,
+        # and skips its own terminal frame — the tombstone is the one frame either way.
+        await self._request_control(topic)
 
     async def exists(self, topic: str) -> bool:
         """Whether a run is live: scheduled (queued) or running.
