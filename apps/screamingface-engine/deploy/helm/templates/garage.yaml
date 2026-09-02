@@ -51,7 +51,8 @@ data:
     data_dir = "/var/lib/garage/data"
     db_engine = "sqlite"
     replication_factor = 1
-    # Cluster-internal only: this store is reached by the App and by Runner Job pods, never from
+    # Cluster-internal only: this store is reached by the App and by the runner pool's pods,
+    # never from
     # outside. The read path deliberately goes THROUGH the App (spec D4) rather than handing a
     # client a presigned URL, so nothing off-cluster ever needs to resolve this endpoint.
     rpc_bind_addr = "[::]:3901"

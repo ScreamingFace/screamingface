@@ -47,7 +47,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
-Runner Jobs use the benchmark image, which layers private grading assets onto the matching
+Runner pool pods use the benchmark image, which layers private grading assets onto the matching
 control-plane release. Deriving both repository and tag keeps mirrors and upgrades paired; an
 operator may override either value when their registry uses a different naming convention.
 */}}
@@ -93,8 +93,8 @@ states the Service name once (`nats.fullnameOverride`) and this fails at render 
 {{/*
 Name of the Secret holding the Tavily web-tools key. An `existingSecret` wins (bring-your-own,
 the prod shape); otherwise the chart creates `<fullname>-tavily` from `tavily.apiKey`.
-Only referenced when `tavily.enabled` — the App names this Secret in each Runner Job's env and
-never reads it itself.
+Only referenced when `tavily.enabled` — the pool's pods name this Secret in their env and the
+App never reads it.
 */}}
 {{- define "screamingface-engine.tavilySecretName" -}}
 {{- if .Values.tavily.existingSecret -}}
@@ -110,7 +110,7 @@ The Secret holding the object-storage secret access key (OME-929).
 `artifactStorage.s3.existingSecret` wins when set (the prod shape — created out-of-band or by an
 External Secrets / Sealed Secrets flow); otherwise the chart creates `<fullname>-artifact-storage`.
 
-INVARIANT: attached by `envFrom.secretRef` to BOTH the App Deployment and every Runner Job, which
+INVARIANT: attached by `envFrom.secretRef` to BOTH the App Deployment and the runner pool, which
 injects each key under its OWN name — so the key MUST be `URL4_CLOUD_ARTIFACT_S3_SECRET_KEY`, the
 variable both halves read. Unlike the Tavily Secret, the App reads this one too: it is the read
 side of the hand-off.

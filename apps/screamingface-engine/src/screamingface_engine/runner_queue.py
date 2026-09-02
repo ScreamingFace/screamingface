@@ -159,8 +159,8 @@ def _work_queue_consumer_config(
 
 
 # --- the message codec: ONE encoding, through `job_env` --------------------------------------
-# The message body is exactly the per-run env mapping `K8sJobRunner._env` writes onto a Job.
-# Both sides render through `job_env`'s renderers, so there is no second encoding to drift;
+# The message body is exactly the per-run env mapping the App writes onto a run. Both sides
+# render through `job_env`'s renderers, so there is no second encoding to drift;
 # `test_run_queue_codec.py` pins the two mappings identical.
 
 
@@ -178,9 +178,9 @@ def _env_mapping(
 ) -> dict[str, str]:
     """The per-run env mapping a queue message carries, keyed by env name.
 
-    Mirrors `K8sJobRunner._env` entry for entry: the same constants, the same renderers, the
-    same silence rules (an invalid traceparent is dropped, an unstated cache policy renders
-    nothing, an empty overlay renders an explicit empty `EXTRA_MODELS`).
+    Mirrors the inprocess adapter's `_env` entry for entry: the same constants, the same
+    renderers, the same silence rules (an invalid traceparent is dropped, an unstated cache
+    policy renders nothing, an empty overlay renders an explicit empty `EXTRA_MODELS`).
     """
     env: dict[str, str] = {
         job_env.TOPIC: topic,

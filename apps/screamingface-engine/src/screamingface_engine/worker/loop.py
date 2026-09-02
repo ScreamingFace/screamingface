@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Protocol
 
@@ -29,6 +30,7 @@ if (
     from screamingface_engine.runner_queue import RunQueue
 from screamingface_engine.runner_queue import topic_of_message
 from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX
+from screamingface_engine.worker.metrics import WorkerMetrics, build_worker_metrics
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
     HEARTBEAT_INTERVAL_S,
@@ -108,6 +110,7 @@ class Worker:
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
         deadline_margin_s: float = DEADLINE_MARGIN_S,
         kill_grace_s: float = KILL_GRACE_S,
+        metrics: WorkerMetrics | None = None,
     ) -> None:
         if slots < 1:
             raise ValueError(f"worker slots must be >= 1, got {slots}")
@@ -116,6 +119,11 @@ class Worker:
         self._slots = slots
         self._drain_grace_s = drain_grace_s
         self._pull_timeout_s = pull_timeout_s
+        # The worker's Prometheus metrics (OME-1092). `None` (tests, or a worker built
+        # without the composition root) builds a fresh instance on its own registry, so
+        # nothing here ever touches a shared registry.
+        self._metrics = metrics if metrics is not None else build_worker_metrics()
+        self._metrics.slots_total.set(slots)
         # The run-control channel (OME-1090): a core NATS client subscribed to
         # `url4.runctl.*`. `None` disables the control loop (tests that do not exercise
         # cancellation).
@@ -165,6 +173,7 @@ class Worker:
             heartbeat_interval_s=heartbeat_interval_s,
             deadline_margin_s=deadline_margin_s,
             kill_grace_s=kill_grace_s,
+            metrics=self._metrics,
         )
 
     async def run(self) -> None:
@@ -212,6 +221,7 @@ class Worker:
                     for task in done:
                         self._active.discard(task)
                 continue
+            pull_started = time.monotonic()
             try:
                 msgs = await self._queue.pull(free, timeout_s=self._pull_timeout_s)
             except Exception as exc:
@@ -227,6 +237,7 @@ class Worker:
                 logger.warning("queue pull failed with %r; retrying in %.1fs", exc, _PULL_RETRY_S)
                 await asyncio.sleep(_PULL_RETRY_S)
                 continue
+            self._metrics.claim_latency_s.observe(time.monotonic() - pull_started)
             for msg in msgs:
                 # Register the run as STARTING before the supervisor task exists: a cancel
                 # that arrives while the claim loop is between pulls must find the topic,
@@ -235,8 +246,13 @@ class Worker:
                 self._starting.add(topic_of_message(msg.data))
                 task = tg.create_task(self._supervisor.supervise(msg))
                 self._active.add(task)
-                task.add_done_callback(self._active.discard)
+                task.add_done_callback(self._on_task_done)
         await self._drain()
+
+    def _on_task_done(self, task: asyncio.Task[None]) -> None:
+        """Drop a finished supervisor task and refresh the busy-slot gauge."""
+        self._active.discard(task)
+        self._metrics.slots_busy.set(len(self._active))
 
     async def _control_loop(self, tg: asyncio.TaskGroup) -> None:
         """Serve run-control requests: only the owner of a run replies, and it SIGTERMs
@@ -330,6 +346,7 @@ class Worker:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._drain_grace_s
 
+        self._metrics.drains.inc()
         # Phase 1 — the grace window: let in-flight runs finish naturally. WHY the ACTIVE
         # supervisor tasks and not the CHILDREN (review follow-up P2-6): a task is
         # registered the moment its run is claimed, while its child only registers once
@@ -411,6 +428,15 @@ def run_worker(settings: Settings | None = None) -> None:
     """
     settings = settings if settings is not None else Settings()
     queue, publisher = worker_composition(settings)
+    metrics = build_worker_metrics()
+    metrics.started.inc()
+    if settings.worker_metrics_port > 0:
+        # The worker's own scrape endpoint (OME-1092): the chart exposes this port on the
+        # runner pool Deployment. The stdlib-backed server is the prometheus_client
+        # convention for a process that serves nothing else.
+        from prometheus_client import start_http_server
+
+        start_http_server(settings.worker_metrics_port, registry=metrics.registry)
 
     async def _main() -> None:
         # The control channel is a core NATS client of its own, like the queue's and the
@@ -434,6 +460,7 @@ def run_worker(settings: Settings | None = None) -> None:
                 # running run to a second worker (double execution). `derived_heartbeat_interval_s`
                 # keeps `heartbeat <= ack_wait / 3` for every legal configuration.
                 heartbeat_interval_s=derived_heartbeat_interval_s(settings.run_queue_ack_wait_s),
+                metrics=metrics,
             )
             await worker.run()
         finally:

@@ -84,9 +84,9 @@
         "backend": {
           "enum": [
             "none",
-            "k8s"
+            "queue"
           ],
-          "description": "Mirrors screamingface_engine.config.RunnerBackend. `none` deploys an App that cannot schedule and answers 503 to every run."
+          "description": "Mirrors screamingface_engine.config.RunnerBackend. `queue` deploys the App onto the durable run queue + worker pool; `none` deploys an App that cannot schedule and answers 503 to every run."
         },
         "image": {
           "type": "object",
@@ -101,20 +101,98 @@
             }
           },
           "additionalProperties": false
-        },
-        "resources": {
-          "type": "object"
-        },
-        "jobTtlSeconds": {
-          "type": [
-            "integer",
-            "string"
-          ],
-          "description": "Empty string = derive iatWindowS + a 60s clock-skew margin. A value below iatWindowS is refused by Settings at startup: reclaiming a Job while its token is still within `exp` deletes the name that is the single-use replay guard. It deliberately does NOT include jobDeadlineS — ttlSecondsAfterFinished counts from completion, so the guard must outlive the token, not the run."
         }
       },
       "required": [
         "backend"
+      ],
+      "additionalProperties": false
+    },
+    "runnerPool": {
+      "type": "object",
+      "description": "The fixed worker pool (OME-1092): a Deployment of `replicas` pods, each running `screamingface-engine worker` with `workerSlots` run slots. Declared concurrency is `replicas × workerSlots`.",
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "workerSlots": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Run slots per worker pod. MUST match `run_queue_worker_slots` — the queue's `max_ack_pending` is `QUEUE_REPLICAS × this`."
+        },
+        "drainGraceS": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Seconds a draining worker keeps its in-flight children alive after SIGTERM (`worker_drain_grace_s`)."
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "INVARIANT: must stay strictly above `drainGraceS` — the kubelet SIGKILLs the pod at this deadline, and a drain cut short interrupts every in-flight run."
+        },
+        "perRunCharge": {
+          "type": "object",
+          "description": "The per-slot charge: what one run may consume (the old Runner Job's numbers).",
+          "properties": {
+            "cpuMillicores": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "memoryMi": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "memoryLimitMi": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "cpuMillicores",
+            "memoryMi",
+            "memoryLimitMi"
+          ],
+          "additionalProperties": false
+        },
+        "overhead": {
+          "type": "object",
+          "description": "The worker process's own footprint, added to the per-slot charge.",
+          "properties": {
+            "cpuMillicores": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "memoryMi": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "memoryLimitMi": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "cpuMillicores",
+            "memoryMi",
+            "memoryLimitMi"
+          ],
+          "additionalProperties": false
+        },
+        "metricsPort": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The worker's Prometheus /metrics port (prometheus_client.start_http_server)."
+        }
+      },
+      "required": [
+        "replicas",
+        "workerSlots",
+        "drainGraceS",
+        "terminationGracePeriodSeconds",
+        "perRunCharge",
+        "overhead",
+        "metricsPort"
       ],
       "additionalProperties": false
     },
@@ -412,9 +490,6 @@
       "type": "object"
     },
     "serviceAccount": {
-      "type": "object"
-    },
-    "rbac": {
       "type": "object"
     },
     "service": {

@@ -30,9 +30,9 @@ narrative) and `docs/protocol.md` (the wire contract).
 │   │      └─ exists? (409) else schedule   │                                   │
 │   │            ┌─────────────┴── ADAPTER ──┐                                  │
 │   │            ▼                                                               │
-│   │   adapters/k8s.py (the only adapter)                                           │
-│   │   batch/v1 Job: THE SAME IMAGE, command ["screamingface-engine", "run"]              │
-│   │   + per-run credential Secret                                              │
+│   │   adapters/queue_runner.py (the deployed adapter)                          │
+│   │   durable run queue + fixed worker pool (OME-1092)                         │
+│   │   the worker forks each run as a child of its own image                    │
 │   │            │                                                               │
 │   └─ _run_sync (sync) OR _accepted (202)                                       │
 └──────────────────────────────────────────────────┼────────────────────────────┘
@@ -221,11 +221,11 @@ runner/main.py::main()
 | `ws/endpoint.py` | `GET /ws` — verify ticket, register interest, start bridge |
 | `ws/bridge.py` | `Bridge` — EventStream→WS streaming, single-writer, `Attach`/`Stop`, heartbeats, nacks |
 | `ws/registry.py` | `ConnectionRegistry` — live-WS counts per topic (the real 428 source) |
-| `adapters/k8s.py` | Prod adapter — batch/v1 Job + per-run credential Secret (refs, never literals) |
+| `adapters/queue_runner.py` | Prod adapter — durable run queue + worker pool (OME-1092); the queue message carries the per-run env, never a credential |
 | `testing/memory_stream.py` | `InMemoryEventStream` — the headless suite's stream double (no broker) |
 | `adapters/jetstream.py` | **Shared leaf** — `JetStreamPublisher` (run mode writes) + `JetStreamConsumer` (control plane reads); one binding, no second copy to keep in sync |
 | `job_env.py`, `subjects.py` | The other two **shared leaves** — the Job env-var contract (per-run + per-deploy sections in one module) and the NATS subject/stream naming |
-| `adapters/factory.py` | Composition root — `URL4_CLOUD_RUNNER` → k8s adapter or `None` |
+| `adapters/factory.py` | Composition root — `URL4_CLOUD_RUNNER` → queue adapter or `None` |
 | `auth/*` | `JwtCodec`, RFC 9457 `Problem` handlers, FastAPI `VerifiedClaims` dependency |
 | `schemas/*` | OpenAPI/AsyncAPI/CloudEvents Pydantic models (`type` `oneOf`) |
 | `metrics.py`, `ops.py` | OpenMetrics `/metrics`, `/livez` `/readyz` probes |
@@ -243,7 +243,7 @@ runner/main.py::main()
 
 - The **run mode produces** the CloudEvents lifecycle; the **control plane only bridges/schedules** — it never re-shapes a frame.
 - The two halves talk through **`url4.streaming`** — the wire models, the `EventPublisher`/`EventConsumer`/`Executor`/`JobRunner` abstractions and the run lifecycle — plus three shared leaves of this app's own vocabulary (`job_env`, `subjects`, `adapters.jetstream`). Neither knows how the other is built.
-- **One image, two modes, chosen by argv.** `K8sJobRunner` schedules the App's own image with `command: ["screamingface-engine", "run"]`, so a Job missing its env fails loudly at boot instead of silently starting a web server nothing will dial. `serve` is the default, which is what keeps the image `CMD` and the chart's Deployment command unchanged.
+- **One image, three modes, chosen by argv.** The worker pool's Deployment pins `["screamingface-engine", "worker"]`, and the worker forks each run as a child that execs `screamingface-engine run` — so a pod missing its env fails loudly at boot instead of silently starting a web server nothing will dial. `serve` is the default, which is what keeps the image `CMD` and the chart's Deployment command unchanged.
 - **The import graph is the boundary.** Two distributions used to make a cross-import uninstallable; one venv makes it merely a typo that type-checks. `.claude/scripts/check_layering.py` replaces that structure: `screamingface_engine.runner.*` must not import the control plane and vice versa, `cli.py` excepted. Verified empirically — importing `screamingface_engine.runner.main` loads none of fastapi, uvicorn, starlette, kubernetes, jwt or prometheus_client, which is what holds a Job's cold start to the engine + httpx + nats-py.
 - `lifecycle.run` ↔ `runner/executor.py` talk **only** through the `Executor` port; the lifecycle never imports `url4`, which is why the control plane could run it in-process too.
 - Only `runner/connector.py` + `runner/main.py` construct a `Url4Executor`; everything else treats it as an opaque `Executor`.

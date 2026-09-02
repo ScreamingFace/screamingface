@@ -1,9 +1,9 @@
 """Which artifact store a deployment gets, and the states it refuses to boot in (OME-929).
 
-FEATURE: over-cap results survive the Runner Job on a multi-pod deployment.
+FEATURE: over-cap results survive the worker pool on a multi-pod deployment.
 
-INVARIANT — the whole point of this file: `runner="k8s"` with filesystem artifact storage is
-UNREPRESENTABLE. That pairing is exactly the OME-929 bug (a Job pod writing to its own
+INVARIANT — the whole point of this file: `runner="queue"` with filesystem artifact storage is
+UNREPRESENTABLE. That pairing is exactly the OME-929 bug (a worker's child writing to its own
 `emptyDir` while the App reads its own), and it used to be not just representable but the
 DEFAULT, reachable by setting nothing at all. It is now refused at startup.
 
@@ -54,11 +54,11 @@ def test_a_local_app_still_uses_the_filesystem(tmp_path: Path) -> None:
     assert isinstance(app.state.artifact_store, FilesystemArtifactStore)  # type: ignore[attr-defined]
 
 
-def test_a_k8s_app_configured_for_object_storage_uses_it(tmp_path: Path) -> None:
+def test_a_queue_app_configured_for_object_storage_uses_it(tmp_path: Path) -> None:
     app = _app(
         _settings(
             tmp_path,
-            runner="k8s",
+            runner="queue",
             artifact_store="s3",
             artifact_s3_endpoint_url="http://garage.svc:3900",
             artifact_s3_bucket="artifacts",
@@ -70,15 +70,15 @@ def test_a_k8s_app_configured_for_object_storage_uses_it(tmp_path: Path) -> None
     assert isinstance(app.state.artifact_store, S3ArtifactStore)  # type: ignore[attr-defined]
 
 
-def test_a_k8s_app_left_on_filesystem_storage_refuses_to_boot(tmp_path: Path) -> None:
+def test_a_queue_app_left_on_filesystem_storage_refuses_to_boot(tmp_path: Path) -> None:
     """THE regression guard. This configuration — which was the default — is the bug.
 
-    A Runner Job pod and the App pod do not share a disk, so a filesystem store here means
+    A worker's child and the App pod do not share a disk, so a filesystem store here means
     every over-cap result 404s at redemption. Nothing about the setup says so, which is why
     it shipped; now it cannot start.
     """
     with pytest.raises(ValueError, match="URL4_CLOUD_ARTIFACT_STORE"):
-        _app(_settings(tmp_path, runner="k8s", artifacts_dir=str(tmp_path)))
+        _app(_settings(tmp_path, runner="queue", artifacts_dir=str(tmp_path)))
 
 
 @pytest.mark.parametrize(
@@ -93,7 +93,7 @@ def test_object_storage_with_an_incomplete_configuration_refuses_to_boot(
     failure this ticket exists to remove.
     """
     config: dict[str, object] = {
-        "runner": "k8s",
+        "runner": "queue",
         "artifact_store": "s3",
         "artifact_s3_endpoint_url": "http://garage.svc:3900",
         "artifact_s3_bucket": "artifacts",

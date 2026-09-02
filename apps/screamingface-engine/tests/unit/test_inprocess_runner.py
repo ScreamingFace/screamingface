@@ -1,9 +1,9 @@
 """`InProcessJobRunner` — the local-mode `JobRunner` over asyncio tasks.
 
 Two things are worth pinning here beyond the happy path: the run ENVIRONMENT it synthesises (it
-must be the same `job_env` contract `K8sJobRunner` writes onto a Job spec, or `build_executor`
-would behave differently local vs deployed), and its ADMISSION behaviour (a cluster queues
-surplus work; one event loop cannot, so this adapter has to refuse).
+must be the same `job_env` contract the queue codec writes onto a run's message, or
+`build_executor` would behave differently local vs deployed), and its ADMISSION behaviour (a
+cluster queues surplus work; one event loop cannot, so this adapter has to refuse).
 """
 
 import asyncio

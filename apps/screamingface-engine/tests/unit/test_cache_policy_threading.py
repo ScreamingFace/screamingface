@@ -34,19 +34,18 @@ from typing import Any
 import httpx
 import pytest
 from _fakes import FixedGate, RecordingJobRunner
-from _k8s_fakes import FakeCreatedJob, fake_created_job
 from fastapi import FastAPI
 from httpx import ASGITransport
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
-from screamingface_engine.adapters.k8s import K8sJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
 from screamingface_engine.runner.cache import policy_to_body_field
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.main import build_executor
+from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
 from url4.dag import run as url4_run
@@ -140,47 +139,18 @@ def test_an_unreadable_freshness_bound_is_dropped_rather_than_failing_the_run() 
     assert policy == OPT_IN
 
 
-# --- the two adapters: two renderings of ONE contract ------------------------------------------
+# --- the two renderings: the queue codec and the inprocess adapter --------------------------
 
 
-class _RecordingBatchApi:
-    def __init__(self) -> None:
-        self.created: list[dict[str, Any]] = []
-
-    def create_namespaced_job(
-        self, namespace: str, body: Any, *, _request_timeout: float | None = None
-    ) -> FakeCreatedJob:
-        self.created.append(dict(body))
-        return fake_created_job(f"uid-{body['metadata']['name']}")
-
-    def read_namespaced_job(
-        self, name: str, namespace: str, *, _request_timeout: float | None = None
-    ) -> Any:  # pragma: no cover
-        raise NotImplementedError
-
-    def delete_namespaced_job(
-        self,
-        name: str,
-        namespace: str,
-        *,
-        propagation_policy: str = "",
-        _request_timeout: float | None = None,
-    ) -> object:  # pragma: no cover
-        raise NotImplementedError
+def _codec_env_of(cache: CachePolicy | None) -> dict[str, str]:
+    """The deployed rendering of the policy: the queue message's per-run env mapping."""
+    return decode_message(encode_message("t", "gpt(hi)", 60, cache=cache))
 
 
-def _job_env_of(api: _RecordingBatchApi) -> dict[str, str]:
-    container = api.created[0]["spec"]["template"]["spec"]["containers"][0]
-    return {e["name"]: e["value"] for e in container["env"] if "value" in e}
+def test_the_queue_codec_writes_the_policy_as_plain_env_and_the_run_reads_it_back() -> None:
+    env = _codec_env_of(BOUNDED)
 
-
-@pytest.mark.asyncio
-async def test_the_k8s_adapter_writes_the_policy_as_plain_env_and_the_run_reads_it_back() -> None:
-    api = _RecordingBatchApi()
-
-    await K8sJobRunner(api, image="runner:test").schedule("t", "gpt(hi)", 60, cache=BOUNDED)
-
-    assert job_env.cache_policy_from_env(_job_env_of(api)) == BOUNDED
+    assert job_env.cache_policy_from_env(env) == BOUNDED
 
 
 class _NeverExecutor(Executor):
@@ -201,16 +171,19 @@ def _local_runner(base_env: dict[str, str] | None = None) -> InProcessJobRunner:
     )
 
 
-@pytest.mark.asyncio
-async def test_the_inprocess_adapter_renders_the_same_env_as_the_k8s_one() -> None:
-    """Local mode must not diverge: `build_executor` cannot tell a local run from a Job's."""
-    api = _RecordingBatchApi()
-    await K8sJobRunner(api, image="runner:test").schedule("t", "gpt(hi)", 60, cache=OPT_OUT)
+def test_the_inprocess_adapter_renders_the_same_env_as_the_queue_codec() -> None:
+    """Local mode must not diverge: `build_executor` cannot tell a local run from a worker's.
+
+    The one deliberate difference is `IO_CONCURRENCY` (the deployed worker writes the budget
+    by env; local mode pops it in favour of the fair-share gate), so the comparison adds it
+    back.
+    """
+    codec = _codec_env_of(OPT_OUT)
 
     local = _local_runner()._env("t", "gpt(hi)", 60, None, None, None, OPT_OUT)  # noqa: SLF001
 
     assert job_env.cache_policy_to_env(OPT_OUT).items() <= local.items()
-    assert job_env.cache_policy_from_env(local) == job_env.cache_policy_from_env(_job_env_of(api))
+    assert job_env.cache_policy_from_env(local) == job_env.cache_policy_from_env(codec)
 
 
 def test_this_runs_policy_replaces_any_ambient_one() -> None:

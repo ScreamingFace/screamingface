@@ -16,8 +16,8 @@
 # the editable install's relative paths stay valid at runtime.
 #
 # The runtime shape matches BOTH the helm chart's securityContext (deploy/helm/values.yaml) and
-# what K8sJobRunner._manifest hardens each Job Pod with: non-root uid/gid 1000 owning the venv,
-# `runAsNonRoot: true`-compatible, read-only rootfs, tini as PID 1 so activeDeadlineSeconds or a
+# what the runner pool's Deployment hardens each worker pod with: non-root uid/gid 1000 owning
+# the venv, `runAsNonRoot: true`-compatible, read-only rootfs, tini as PID 1 so a drain or a
 # stop tears a run down promptly with a clean SIGTERM.
 # INVARIANT: the builder and runtime Python minor MUST match. The runtime copies the builder's
 # venv wholesale (see the COPY below), and a venv is version-keyed — site-packages lives under
@@ -68,8 +68,8 @@ USER 1000
 EXPOSE 9108
 ENTRYPOINT ["tini", "--"]
 # Serving is the default mode, which is what keeps the chart's `command: [url4-cloud]` working.
-# A Job overrides it with `["url4-cloud", "run"]` (adapters/k8s.py); compose/k8s likewise override
-# it for the mock publisher.
-# INVARIANT: AIGATEWAY_BASE_URL is NOT baked here — it reaches each Runner Job from the chart's
+# The runner pool overrides it with `["screamingface-engine", "worker"]` (deployment-runner.yaml),
+# and the worker's children exec `screamingface-engine run` (worker/exec_wrapper.py).
+# INVARIANT: AIGATEWAY_BASE_URL is NOT baked here — it reaches each worker pod from the chart's
 # runner-env ConfigMap, so the endpoint follows the deployment, not the artifact (§9).
 CMD ["url4-cloud"]

@@ -33,8 +33,9 @@ spec:
       # `int("tcp://10.96.x.x:9108")`. Nothing here consumes those vars; the App is configured
       # solely by the ConfigMap + Secret below.
       enableServiceLinks: false
-      # The RBAC subject: this ServiceAccount is bound to the namespace Role that permits scheduling
-      # Runner Jobs (spec §9). The stateless App calls create/get/list/watch/delete on batch/jobs.
+      # The ServiceAccount exists for pod identity only (OME-1092): the Job-scheduling Role and
+      # RoleBinding are gone, so the control plane can no longer create Pods. The stateless App
+      # is configured solely by the ConfigMap + Secret below.
       serviceAccountName: {{ include "screamingface-engine.serviceAccountName" . }}
       # WHY: a pod marked Terminating is removed from endpoints and sent SIGTERM at the SAME
       # moment, and endpoint removal takes seconds to reach the ingress. This App holds

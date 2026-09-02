@@ -68,22 +68,21 @@ async def test_no_setting_holds_an_aigateway_credential() -> None:
     # this value come from, and what does it grant?" — which is the whole point of pinning the set.
     #
     #   jwt_secret              the App's own token-signing secret; value, from a Secret via envFrom
-    #   tavily_secret_name      a NAME only — the App forwards it to Jobs and never reads the key
-    #   artifact_s3_secret_name a NAME only, same shape as tavily_secret_name (OME-929)
     #   artifact_s3_access_key  an S3 access key ID — an identifier, not a secret; it is the
     #                           public half of the pair and appears in every signed request
     #   artifact_s3_secret_key  a VALUE, from a Secret via envFrom, exactly like jwt_secret.
     #                           WHY the App must hold it (OME-929): it signs its own GETs to stream
-    #                           spilled results back, so a name alone cannot work the way it does
-    #                           for Tavily, where only Runner Jobs ever use the credential.
+    #                           spilled results back, so a name alone cannot work the way it did
+    #                           for Tavily, where only the worker's children ever use the
+    #                           credential (and the chart attaches that Secret by `envFrom`
+    #                           directly — the name-only settings were retired with the Job
+    #                           adapter, OME-1092).
     #                           Blast radius if leaked: read/write on the artifact bucket by a peer
     #                           already inside the NetworkPolicy. No provider or model credentials.
     assert suspicious == {
         "jwt_secret",
-        "tavily_secret_name",
         "artifact_s3_access_key",
         "artifact_s3_secret_key",
-        "artifact_s3_secret_name",
     }, "a new secret-shaped setting appeared — confirm it is sourced from a Secret reference"
 
 

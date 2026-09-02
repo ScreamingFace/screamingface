@@ -103,6 +103,8 @@ class MaxDeliveriesAdvisor:
         self._clock = clock if clock is not None else (lambda: datetime.now(UTC))
         self._nc: Client | None = None
         self._publisher: JetStreamPublisher | None = None
+        # The max-deliveries advisories handled (OME-1092): the /metrics collector's input.
+        self.advisories_total = 0
 
     async def run(self) -> None:
         """Serve the advisory subscription for the process's lifetime, retrying failures.
@@ -145,6 +147,7 @@ class MaxDeliveriesAdvisor:
         topic = topic_of_advisory(payload)
         if topic is None:
             return
+        self.advisories_total += 1
         await self._publish_failure(publisher, topic)
 
     async def _publish_failure(self, publisher: Any, topic: str) -> None:

@@ -215,26 +215,25 @@ manifest, since a Job object is readable via `get jobs`), the aigateway connecto
 
 ## 7. k8s‑specific hardening points
 
-- **Stateless App + RBAC.** The App Deployment runs under a `ServiceAccount` bound by a
-  namespace‑scoped `Role` granting exactly `create/get/list/watch/delete` on `batch/jobs`
-  (and `get/list` on pods/pods/log). It is the only k8s API caller; the Runner Pod has
-  `automountServiceAccountToken: false`.
-- **Run‑once contract.** `backoffLimit: 0` + `restartPolicy: Never` + `activeDeadlineSeconds`
-  (the hard timeout surfacing as `timed_out`). The deterministic Job **name** is the stateless
-  single‑use replay guard; a `409` on `create` is what rejects a replayed token. The chart derives
-  `job_ttl_s` from the token lifetime so finished Jobs are only reclaimed after any token that
-  could still be presented has expired.
-- **`enableServiceLinks: false`** on both the App Deployment and the Runner Pod — kubelet's
+- **Stateless App, no RBAC (OME-1092).** The App Deployment runs under a `ServiceAccount` that
+  exists for pod identity only — the Job-scheduling `Role`/`RoleBinding` are gone, so the control
+  plane cannot create Pods. The worker pool's pods have `automountServiceAccountToken: false`.
+- **Run‑once contract.** The worker forks each run as a child process (crash domain = one run);
+  the queue's `Nats-Msg-Id` dedupe is the stateless single‑use replay guard, and the worker's hard
+  wall (`deadline_s + stream grace + margin`) is the hard timeout surfacing as `timed_out`.
+- **`enableServiceLinks: false`** on both the App Deployment and the runner pool — kubelet's
   legacy `{SERVICE}_PORT` injection would collide with the `URL4_CLOUD_` settings prefix.
-- **Hardened Runner.** `runAsNonRoot`, `runAsUser: 1000`, `allowPrivilegeEscalation: false`,
+- **Hardened runner pool.** `runAsNonRoot`, `runAsUser: 1000`, `allowPrivilegeEscalation: false`,
   `capabilities.drop: [ALL]`, `readOnlyRootFilesystem: true` + an `emptyDir` `tmp` mount,
   `seccompProfile: RuntimeDefault`.
-- **One image, two modes — the mode comes from argv.** The Job runs the App's own image with
-  `command: ["screamingface-engine", "run"]` (pinned in `adapters/k8s.py`), so the two can never be at
-  different versions and a Job with a broken env fails loudly at boot rather than quietly
-  starting a web server nothing will dial. What the separate slim runner image used to guarantee
-  by construction — that a Job never loads FastAPI, uvicorn or the kubernetes client — is now
-  guaranteed by the import rule in `.claude/scripts/check_layering.py`.
+- **One image, three modes — the mode comes from argv.** The worker pool's Deployment runs the
+  App's own image with `command: ["screamingface-engine", "worker"]` (pinned in
+  `deployment-runner.yaml`), and the worker forks each run as a child that execs
+  `screamingface-engine run` — so the two can never be at different versions and a pod with a
+  broken env fails loudly at boot rather than quietly starting a web server nothing will dial.
+  What the separate slim runner image used to guarantee by construction — that a run never loads
+  FastAPI, uvicorn or the kubernetes client — is now guaranteed by the import rule in
+  `.claude/scripts/check_layering.py`.
 - **Rollout safety.** App pods have a `preStop` sleep + `terminationGracePeriodSeconds` sized to
   cover endpoint propagation plus the worst‑case sync hold, so live WS streams and in‑flight sync
   holds aren't dropped mid‑request.
@@ -262,10 +261,10 @@ swallow — leaving the client staring at heartbeats forever.
 | WS streaming | `ws/bridge.py::{Bridge,run_bridge}` |
 | `GET /?q=` | `rest/routes.py::{start_run,_schedule,_run_sync,_scan_terminal}` |
 | 428 gate | `rest/interest.py::SubscriberGate`, `ws/registry.py` |
-| credential hop | `rest/routes.py::_forwarded_credential`, `adapters/k8s.py::_env`, `screamingface_engine/runner/main.py::build_executor` (names from the single `job_env.py` — a shared leaf, no longer a hand‑synced pair) |
-| Job scheduling | `adapters/k8s.py::K8sJobRunner`, `url4/streaming/interfaces/jobs.py::{job_name,JobAlreadyExists}` |
-| Job runner wiring | `adapters/factory.py::build_job_runner`, `config.py::Settings` |
-| mode dispatch | `screamingface_engine/cli.py::main` — `serve` (default) / `run`, each imported lazily |
+| credential hop | `rest/routes.py::_forwarded_credential`, `runner_queue.py::encode_message`, `screamingface_engine/runner/main.py::build_executor` (names from the single `job_env.py` — a shared leaf, no longer a hand‑synced pair) |
+| Run scheduling | `adapters/queue_runner.py::QueueJobRunner`, `runner_queue.py::{encode_message,RunQueue}` |
+| Run runner wiring | `adapters/factory.py::build_job_runner`, `config.py::Settings` |
+| mode dispatch | `screamingface_engine/cli.py::main` — `serve` (default) / `run` / `worker`, each imported lazily |
 | Runner lifecycle | `screamingface_engine/runner/main.py::main`, `url4/streaming/lifecycle.py::run` |
 | url4 engine bridge | `screamingface_engine/runner/executor.py::{Url4Executor,_Bridge,_RunState}` |
 | aigateway connector | `screamingface_engine/runner/connector.py::{build_aigateway_world,_chat_completion_loop}`, `screamingface_engine/world_config.py::{load_config,routes_for}` |

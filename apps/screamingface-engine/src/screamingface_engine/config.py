@@ -8,20 +8,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
 
-# WHY a margin at all: the App decides a token is expired from its own clock, while the k8s TTL
-# controller deletes the Job from the control plane's. Without slack a skewed pair could reclaim
-# the guard a few seconds before the token is actually refused. 60s is far beyond realistic
-# in-cluster skew and still ~500x cheaper than the old job_deadline_s-based floor.
-_TTL_SKEW_MARGIN_S = 60
-
-RunnerBackend = Literal["none", "k8s", "queue"]
+RunnerBackend = Literal["none", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
 """Which ``JobRunner`` substrate the deployed App schedules runs on (spec §9).
 
-``k8s`` is prod (namespace-scoped batch/v1 Jobs), ``queue`` is the OME-1086 substrate
-(one durable run queue + a fixed worker pool; the adapter exists and is selectable since
-OME-1090, the cutover is OME-1092), and ``none`` a stream-only App that mints tokens and
-bridges NATS but schedules nothing.
+``queue`` is the OME-1086 substrate (one durable run queue + a fixed worker pool; the
+adapter exists and is selectable since OME-1090, the cutover is OME-1092), and ``none`` a
+stream-only App that mints tokens and bridges NATS but schedules nothing. The k8s Job
+backend was retired at the cutover.
 """
 
 # The worker's per-run address-space cap (OME-1089). 2 GiB — see the field's comment for why it
@@ -110,33 +104,19 @@ class Settings(BaseSettings):
     sync_max_wait_s: float = 30.0
     # WHY: idle interval between WS HeartbeatEvents for liveness (spec §6).
     ws_heartbeat_s: float = 15.0
-    # INVARIANT: k8s Job activeDeadlineSeconds ceiling = 16h (spec §3).
+    # INVARIANT: k8s Job activeDeadlineSeconds ceiling = 16h (spec §3). The run deadline is
+    # still a setting: the worker's hard wall derives from it, and the queue drops a run whose
+    # capability expired while it sat queued.
     job_deadline_s: int = 57600
-    # WHY: the run substrate is deployment-shaped, not code-shaped — the helm chart sets `k8s`.
-    # Default `none` keeps a bare `Settings()` from reaching for a cluster.
+    # WHY: the run substrate is deployment-shaped, not code-shaped — the helm chart sets `queue`.
+    # Default `none` keeps a bare `Settings()` from reaching for a broker.
     runner: RunnerBackend = "none"
-    # INVARIANT: the App's RBAC Role is namespace-scoped, so Jobs are only ever created here (§9).
-    namespace: str = "default"
-    # WHY this is still a setting when the Job now runs the App's OWN image: a process cannot
-    # reliably learn the image reference it was started from (the pod spec holds it, reading it
-    # back needs RBAC on pods and the Downward API does not expose it), so the deployment states
-    # it. The chart renders the same `image:` it gives the Deployment, which is what keeps the
-    # two in lockstep. It is a distinct field rather than a hardcoded constant precisely so a
-    # deployment CAN pin the Job to a different tag during a staged rollout.
-    runner_image: str = "screamingface-engine:latest"
     # WHY: the model catalog forwards the CALLER's credential to aigateway directly, and this is
-    # its ONLY consumer (`catalog/__init__.py:build_catalog_service`) — despite sitting among the
-    # runner-config fields around it, it is no longer forwarded into a Runner Job's env (that now
-    # travels via `runner_env_configmap`/`K8sJobRunner._env_from`, below). It used to be: the
-    # Runner's own fallback is loopback (127.0.0.1:9105), which inside a Job Pod resolves to
-    # itself, not the aigateway Service — the trap `runner_env_configmap` now sidesteps by having
-    # Helm value the variable directly instead of copying it through this field. `None` disables
-    # the model-catalog endpoint (503 "not configured").
+    # its ONLY consumer (`catalog/__init__.py:build_catalog_service`). The run's own aigateway
+    # address is deploy-time: the chart values `AIGATEWAY_BASE_URL` in the runner-env ConfigMap
+    # the worker inherits wholesale, so the App never names it. `None` disables the model-catalog
+    # endpoint (503 "not configured").
     aigateway_base_url: str | None = None
-    # WHY: deploy-time Runner env travels as k8s objects the Job references with `envFrom`, so the
-    # App neither names nor reads those variables — Helm owns name AND value. These two settings
-    # are the only thing it needs: what to reference.
-    runner_env_configmap: str | None = None
     # FEATURE (OME-908): the per-run downstream in-flight budget written onto every Runner Job
     # as `URL4_CLOUD_IO_CONCURRENCY` and enforced by URL4's `BoundedIOLayer`.
     #
@@ -151,33 +131,9 @@ class Settings(BaseSettings):
     # the provider ceiling exactly — a run can saturate its provider but never pile a backlog
     # behind it, so a second run's calls interleave as soon as the first run's in-flight calls
     # complete. 32 restores the previous behavior exactly — that is the revert switch.
-    # INVARIANT (pinned by `test_job_env_contract`): the App writes it on EVERY Job, so a stale
-    # copy left in the Helm ConfigMap can never reach a Job through `envFrom`.
+    # INVARIANT (pinned by `test_job_env_contract`): the App writes it on EVERY run, so a stale
+    # copy left in the Helm ConfigMap can never reach a run through `envFrom`.
     runner_io_concurrency: int = Field(default=4, ge=1)
-    # --- Tavily web tools (spec 2026-07-23). The connector declares web_search/web_fetch ONLY
-    # when the Runner sees TAVILY_API_KEY; unset here => deny-by-default (dec:W5).
-    #
-    # WHY a reference (not a value): a ``batch/v1`` Job object is NOT a secret — readable with
-    # ``get jobs`` RBAC (far looser than ``get secrets``) and surfaced in ``kubectl describe``/
-    # ``-o yaml`` and the create-call audit log — so the key travels as a Secret *reference*, via
-    # `envFrom.secretRef`, never a literal copied into the manifest (see
-    # ``K8sJobRunner._env_from``). The name of the Secret the Runner Job's env references:
-    tavily_secret_name: str | None = None
-    # The Secret carrying URL4_CLOUD_ARTIFACT_S3_SECRET_KEY into each Runner Job (OME-929).
-    # A reference for the same reason `tavily_secret_name` is one: a `batch/v1` Job object is not
-    # a secret, so the credential travels via `envFrom.secretRef` and never as a literal in the
-    # manifest. The App reads the same Secret through its own Deployment `envFrom`.
-    artifact_s3_secret_name: str | None = None
-    # WHY: the Runner drives the url4 DAG engine and buffers model responses — it is the
-    # workload that actually consumes CPU/memory here. Without requests it schedules into the
-    # BestEffort QoS class (placed blind, evicted first, free to OOM its node), so the chart
-    # supplies the numbers. Shape is the k8s `resources` block verbatim, e.g.
-    # {"requests": {"cpu": "200m", "memory": "256Mi"}, "limits": {"memory": "1Gi"}}.
-    runner_resources: dict[str, dict[str, str]] | None = None
-    # INVARIANT: Runner Jobs use the same operator-owned placement as the Engine Deployment.
-    # The chart supplies Kubernetes-native structures, so this code stays environment-neutral.
-    runner_node_selector: dict[str, str] = Field(default_factory=dict)
-    runner_tolerations: list[dict[str, object]] = Field(default_factory=list)
     # --- model catalog (OME-625). The catalog endpoint forwards the CALLER's
     # credential, so there is deliberately NO credential setting here:
     # screamingface-engine holds no aigateway secret. `aigateway_base_url` above is
@@ -253,11 +209,6 @@ class Settings(BaseSettings):
     # the gateway it manages credentials through is the one running beside it.
     local_aigateway_base_url: str = LOCAL_AIGATEWAY_BASE_URL
 
-    # INVARIANT: a finished Job's NAME is the stateless single-use replay guard, so reclaiming
-    # it re-opens replay for that topic — but only for as long as the token is still usable.
-    # See `effective_job_ttl_s` and `_reject_replayable_job_ttl`. None => derive the floor.
-    job_ttl_s: int | None = None
-
     # --- durable run queue (OME-1088) -------------------------------------------------------
     # WHY a queue at all: OME-1086 replaces one-Job-per-run scheduling with a fixed worker pool
     # pulling from a durable work queue. THIS unit adds the queue substrate only — no worker,
@@ -296,11 +247,6 @@ class Settings(BaseSettings):
     # worker may hold; with `QUEUE_REPLICAS` replicas of the stream and `worker_slots` runs per
     # worker, that is the most a single worker can legitimately have in flight.
     run_queue_worker_slots: int = runner_queue.DEFAULT_WORKER_SLOTS
-    # WHY fleet-sized: `max_ack_pending` is a WHOLE-CONSUMER bound — the total unacked
-    # messages the queue's durable consumer may hand out across EVERY worker in the fleet,
-    # not a per-worker limit. Size it to the deployment's true fleet concurrency
-    # (worker pods × slots); note the value binds at consumer CREATION, so changing it on a
-    # running queue means deleting and recreating the consumer.
     run_queue_max_ack_pending: int = runner_queue.DEFAULT_MAX_ACK_PENDING
     # WHY a ceiling at all: the serving half must stop accepting when the queue is deeper than
     # the fleet can drain in a reasonable time, rather than piling up unbounded work. THIS unit
@@ -347,28 +293,11 @@ class Settings(BaseSettings):
     # `RLIMIT_AS` bounds VIRTUAL address space (heap + mapped libraries), which is larger than
     # the RSS a cgroup limit measures.
     worker_memory_budget_bytes: int = Field(default=DEFAULT_WORKER_MEMORY_BUDGET_BYTES, ge=1)
-
-    @property
-    def effective_job_ttl_s(self) -> int:
-        """Seconds a finished Runner Job is retained before k8s reclaims it.
-
-        ``ttlSecondsAfterFinished`` counts from the moment the Job FINISHES, and the Job object
-        exists for the whole run already — so the only gap the guard must cover is the interval
-        after completion in which the starting token could still be presented again. A token
-        carries ``exp = iat + iat_window_s`` (:meth:`JwtCodec.mint`), so it is rejected at auth,
-        before ``exists()`` is ever consulted, once that window passes. ``iat_window_s`` is
-        therefore the true floor; the extra :data:`_TTL_SKEW_MARGIN_S` only absorbs clock skew
-        between the App validating ``exp`` and the k8s TTL controller doing the deletion.
-
-        AIDEV-NOTE: this used to derive ``iat_window_s + job_deadline_s``, which conflated two
-        different clocks — ``job_deadline_s`` measures a RUN, not the post-completion replay
-        gap. At the 16 h default that retained ~960x more Job/Pod objects than the guard needs
-        (~14 KB of etcd per request, held for 16 h), which is the scaling ceiling of this design
-        rather than a property of it. Do not reintroduce the ``job_deadline_s`` term.
-        """
-        if self.job_ttl_s is not None:
-            return self.job_ttl_s
-        return self.iat_window_s + _TTL_SKEW_MARGIN_S
+    # The worker's Prometheus /metrics port (OME-1092): `prometheus_client.start_http_server`
+    # serves the pool's own metrics (slots, claim latency, run duration, redeliveries, child
+    # exit codes) on this port. The chart exposes it on the runner pool Deployment. 0 disables
+    # the endpoint.
+    worker_metrics_port: int = Field(default=9109, ge=0)
 
     @field_validator("run_queue_stream")
     @classmethod
@@ -404,24 +333,6 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return job_env.DEFAULT_ARTIFACTS_DIR
         return value
-
-    @model_validator(mode="after")
-    def _reject_replayable_job_ttl(self) -> Self:
-        """INVARIANT: an explicit ``job_ttl_s`` may never drop below the token's own lifetime.
-
-        Reclaiming the Job deletes the name that makes a replayed token fail with 409. Below
-        ``iat_window_s`` that deletion can happen while the token is still within its ``exp``,
-        opening a window for an already-spent token to start a second run. Raising it is
-        legitimate (keeping failures around for post-mortem); dropping below the floor is a
-        security regression, and is refused at startup rather than on the first replay.
-        """
-        if self.job_ttl_s is not None and self.job_ttl_s < self.iat_window_s:
-            raise ValueError(
-                f"job_ttl_s={self.job_ttl_s} is below the replay floor {self.iat_window_s} "
-                f"(iat_window_s, the token's own lifetime) — a Job reclaimed while its token is "
-                f"still valid re-opens replay"
-            )
-        return self
 
     @model_validator(mode="after")
     def _enforce_ack_wait_floor(self) -> Self:
