@@ -1,4 +1,6 @@
 {{- include "aigateway.validateAuth" . -}}
+{{- include "aigateway.validatePodLabels" . -}}
+{{- include "aigateway.validateSnapshot" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -39,3 +41,14 @@ data:
   # though the standalone app default remains false; operators can explicitly render false.
   #
   AIGW_REQUEST_CACHE_ENABLED: {{ .Values.config.requestCache.enabled | quote }}
+  # The weekly cache snapshot (OME-1021). Emitted in every case so the chart's posture is
+  # visible in the manifest: off unless `snapshot.enabled`, with the one schedule form the
+  # app accepts stated rather than assumed. The endpoint is emitted only when enabled —
+  # it names either the bundled Garage Service or the operator's external endpoint.
+  AIGW_CACHE_SNAPSHOT_ENABLED: {{ .Values.snapshot.enabled | quote }}
+  AIGW_CACHE_SNAPSHOT_CRON: {{ .Values.snapshot.schedule | quote }}
+  {{- if .Values.snapshot.enabled }}
+  AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL: {{ include "aigateway.snapshotEndpoint" . | quote }}
+  {{- end }}
+  AIGW_CACHE_SNAPSHOT_S3_BUCKET: {{ .Values.snapshot.storage.bucket | quote }}
+  AIGW_CACHE_SNAPSHOT_S3_REGION: {{ .Values.snapshot.storage.region | quote }}

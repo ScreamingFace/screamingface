@@ -267,8 +267,25 @@ def _server(app: Any, port: int, name: str) -> Server:
     # rejected it against uvicorn.Config's ASGIApplication parameter.
     import uvicorn  # pyright: ignore[reportMissingImports]
 
+    # WHY access_log=False (OME-990): a run starts as `GET /?q=<url4 expression>`, and a url4
+    # expression carries the user's prompt verbatim as its intent text. uvicorn's access line
+    # records the full request line including the query string, and this process's stdout is
+    # the RuntimeLog — so every prompt would be written to `<data_dir>/runtime.log`, which is
+    # world-readable and is tailed back into the notebook by `_runtime_log_tail` when the
+    # stack fails to start. The stdlib control server at `cli._control_server` already takes
+    # this posture by overriding `log_message`.
+    # INVARIANT: EVERY uvicorn Config built in this process must pass it. uvicorn clears the
+    # `uvicorn.access` handlers only for the Config being constructed at that moment, while
+    # each new Config re-runs dictConfig and re-creates them.
     return _embedded_server_type()(
-        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info", lifespan="on"),
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="info",
+            lifespan="on",
+            access_log=False,
+        ),
         name=name,
     )
 

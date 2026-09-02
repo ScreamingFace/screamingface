@@ -209,3 +209,38 @@ async def test_the_catalog_keeps_the_field_names_the_leaderboard_seeds_from() ->
             assert isinstance(entry[name], str) and entry[name]
         for name in optional_display & set(entry):
             assert isinstance(entry[name], str) and entry[name]
+
+
+async def test_the_catalogue_publishes_a_usable_case_count() -> None:
+    """`case_count` is load-bearing across the app boundary, so its NAME is pinned here.
+
+    FEATURE: OME-1056. The Scoreboard's ranking drops a run that covered fewer cases than the
+    benchmark defines, and it learns that number from this catalogue by name. Rename the field
+    here — `cases`, `total_cases` — or drop it from `_metadata()`, and both suites stay green:
+    the two apps have separate virtualenvs, and the Scoreboard's `_CatalogEntry` uses
+    `extra="ignore"` and tolerates a missing count by design. The next seed then writes nothing,
+    every board's `case_count` goes stale or absent, and one-case runs rank as complete again.
+    Silently, with a deploy that exits 0.
+
+    WHY a separate test rather than adding `case_count` to `required` above: that set's loop
+    asserts every member is a non-empty `str`, and this is an `int`. Asserted here instead, so
+    no prior assertion changes (rule 5).
+
+    INVARIANT: `>= 1`, matching `SeedBenchmark`'s constraint on the board side. A published `0`
+    would be tolerated by the board — costing it the filter, not the benchmark's row — but it is
+    not a state any built-in should ever be in, so it fails here, on the producing side, where
+    it is a real defect rather than someone else's bad input.
+    """
+    for benchmark in BUILTIN_BENCHMARKS:
+        entry = await _catalog(benchmark)
+
+        assert "case_count" in entry, (
+            f"{benchmark.id} does not publish case_count; the leaderboard's coverage filter "
+            "reads this field by name and silently ranks partial runs without it"
+        )
+        count = entry["case_count"]
+        assert isinstance(count, int) and not isinstance(count, bool), (
+            f"{benchmark.id} publishes case_count as {type(count).__name__}; the board parses "
+            "an int and normalises anything else to None, which costs it the filter"
+        )
+        assert count >= 1, f"{benchmark.id} publishes case_count={count}"

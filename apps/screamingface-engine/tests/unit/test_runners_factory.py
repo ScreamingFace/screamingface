@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
-from _k8s_fakes import FakeCreatedJob
+from _k8s_fakes import FakeCoreV1, FakeCreatedJob
 
 from screamingface_engine.adapters.factory import build_job_runner
 from screamingface_engine.adapters.k8s import K8sJobRunner
@@ -31,18 +31,6 @@ class _FakeBatchApi:
         raise NotImplementedError
 
 
-class _FakeCoreV1Api:
-    def create_namespaced_secret(
-        self, namespace: str, body: Mapping[str, object], *, _request_timeout: float | None = None
-    ) -> object:  # pragma: no cover
-        raise NotImplementedError
-
-    def delete_namespaced_secret(
-        self, name: str, namespace: str, *, _request_timeout: float | None = None
-    ) -> object:  # pragma: no cover
-        raise NotImplementedError
-
-
 def test_runner_none_builds_no_job_runner() -> None:
     assert build_job_runner(Settings(runner="none")) is None
 
@@ -63,6 +51,7 @@ def test_k8s_runner_is_built_from_settings() -> None:
     runner = build_job_runner(
         settings,
         k8s_client_factory=lambda: (loaded.append(True), _FakeBatchApi())[1],
+        core_client_factory=FakeCoreV1,
     )
 
     assert isinstance(runner, K8sJobRunner)
@@ -92,7 +81,11 @@ def test_k8s_runner_receives_deployment_scheduling() -> None:
         ],
     )
 
-    runner = build_job_runner(settings, k8s_client_factory=_FakeBatchApi)
+    runner = build_job_runner(
+        settings,
+        k8s_client_factory=_FakeBatchApi,
+        core_client_factory=FakeCoreV1,
+    )
 
     assert isinstance(runner, K8sJobRunner)
     assert runner._node_selector == {"openmined.org/pool": "preview"}
@@ -104,3 +97,31 @@ def test_k8s_runner_receives_deployment_scheduling() -> None:
             "effect": "NoSchedule",
         }
     ]
+
+
+def test_k8s_runner_receives_the_settings_io_concurrency() -> None:
+    """OME-908: the per-run downstream budget reaches the runner that writes it onto Jobs."""
+    settings = Settings(runner="k8s", runner_io_concurrency=9)
+
+    runner = build_job_runner(
+        settings,
+        k8s_client_factory=_FakeBatchApi,
+        core_client_factory=FakeCoreV1,
+    )
+
+    assert isinstance(runner, K8sJobRunner)
+    assert runner._io_concurrency == 9
+
+
+def test_k8s_runner_receives_the_core_client() -> None:
+    """OME-1065: the quota/limitrange read surface is wired alongside the batch client."""
+    settings = Settings(runner="k8s", namespace="url4-prod")
+
+    runner = build_job_runner(
+        settings,
+        k8s_client_factory=_FakeBatchApi,
+        core_client_factory=FakeCoreV1,
+    )
+
+    assert isinstance(runner, K8sJobRunner)
+    assert isinstance(runner._core_client, FakeCoreV1)

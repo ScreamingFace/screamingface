@@ -12,3 +12,7 @@ spec:
       targetPort: http
   selector:
     {{- include "aigateway.selectorLabels" . | nindent 4 }}
+    # The gateway ONLY: the bare selectorLabels would also match the bundled Garage Pods once
+    # they exist — saved today by the named targetPort (`http`), which Garage's ports (`s3`,
+    # `rpc`) do not carry, but that is an accident of port naming, not a design.
+    app.kubernetes.io/component: {{ include "aigateway.componentLabel" . }}

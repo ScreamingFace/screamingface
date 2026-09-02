@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from contextlib import closing
 from typing import Any, cast
@@ -499,3 +500,78 @@ async def test_an_out_of_band_notice_does_not_kill_a_paid_async_run() -> None:
 
     assert outcome.result_body == "[test] done"
     assert seen == ["started", "usage", "terminated"]
+
+
+# --- client-originated trace context (OME-967) --------------------------------------------
+
+_TRACEPARENT = re.compile(r"^00-(?!0{32}$)[0-9a-f]{32}-(?!0{16}$)[0-9a-f]{16}-[0-9a-f]{2}$")
+"""The shape url4's own `_TRACEPARENT_RE` accepts, plus its two all-zero rejections.
+
+WHY duplicated rather than imported: `packages/screamingface` does not depend on `url4`
+(httpx, pynacl, pyyaml, websockets), and OME-967 mints locally rather than adding a
+distribution dependency for four lines of string formatting. This regex is the contract
+between the two packages, so it is stated where it is asserted.
+"""
+
+
+def test_the_client_originates_trace_context_on_every_leg_of_a_run() -> None:
+    # INVARIANT (OME-967): the trace id must exist BEFORE the first outbound call, not
+    # before the run starts. Capability mint, run start and WS handshake are the three
+    # failure classes that today carry no id at all and are unjoinable forever.
+    with protocol_server() as engine:
+        _run(engine.url)
+
+    phases = {phase for phase, value in engine.state.traceparents if value}
+    assert phases == {"mint", "start", "websocket"}
+    assert all(_TRACEPARENT.match(value or "") for _, value in engine.state.traceparents)
+
+
+def test_one_run_carries_one_trace_id_across_all_of_its_legs() -> None:
+    # WHY this is separate from the shape check: three well-formed but DIFFERENT ids would
+    # satisfy the assertion above and still be useless — the join key is the trace id being
+    # the same one everywhere.
+    with protocol_server() as engine:
+        _run(engine.url)
+
+    assert len(engine.state.trace_ids()) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_async_client_originates_the_same_trace_context() -> None:
+    with protocol_server() as engine:
+        await _arun(engine.url)
+
+    phases = {phase for phase, value in engine.state.traceparents if value}
+    assert phases == {"mint", "start", "websocket"}
+    assert len(engine.state.trace_ids()) == 1
+
+
+def test_the_trace_id_the_client_sent_is_the_one_it_reports_on_the_outcome() -> None:
+    # The ticket's second Verify item: the id the client holds must equal the id on the wire,
+    # or the user quotes an id that appears in no log.
+    with protocol_server() as engine:
+        outcome = _run(engine.url)
+
+    assert outcome.trace_id in engine.state.trace_ids()
+
+
+def test_a_run_that_never_starts_still_surfaces_a_trace_id_to_the_caller() -> None:
+    # INVARIANT (OME-967): this is consequence #1 of the ticket — a pre-first-frame failure.
+    # It raises EngineUnavailableError, NOT ExecutionError, which is why the id lives on the
+    # base error class rather than on ExecutionError alone.
+    with protocol_server(mode="start_error") as engine:
+        with pytest.raises(sf.ScreamingFaceError) as raised:
+            _run(engine.url)
+
+    assert raised.value.trace_id
+    assert raised.value.trace_id in engine.state.trace_ids()
+
+
+def test_a_surfaced_trace_id_is_rendered_where_the_user_can_read_it() -> None:
+    # An id retained on the exception but never shown is the status quo: the client already
+    # receives `traceparent` on every event and has zero read sites for it.
+    error = sf.ExecutionError("the run failed", trace_id="4bf92f3577b34da6a3ce929d0e0e4736")
+
+    rendered = "\n".join(error._render_traceback_())
+
+    assert "4bf92f3577b34da6a3ce929d0e0e4736" in rendered

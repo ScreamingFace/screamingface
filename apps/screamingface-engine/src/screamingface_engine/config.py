@@ -131,6 +131,23 @@ class Settings(BaseSettings):
     # App neither names nor reads those variables — Helm owns name AND value. These two settings
     # are the only thing it needs: what to reference.
     runner_env_configmap: str | None = None
+    # FEATURE (OME-908): the per-run downstream in-flight budget written onto every Runner Job
+    # as `URL4_CLOUD_IO_CONCURRENCY` and enforced by URL4's `BoundedIOLayer`.
+    #
+    # WHY a STATIC bound in deployed mode: each run is its own Job Pod, so no process sees
+    # enough of the fleet to schedule it dynamically — the fair-share gate exists only in local
+    # mode (`local_io_capacity`). The static value shapes each run's ARRIVALS at the gateway's
+    # per-provider FIFO, which is what keeps one benchmark-sized run from monopolizing it.
+    #
+    # WHY 4 and not the URL4 default of 32: with the gateway admitting 4 per provider
+    # (`AIGW_PROVIDER_MAX_CONCURRENCY`), a 32-wide run keeps the queue continuously full for
+    # hours, so a second run's calls wait behind a wall of the first run's requests. 4 matches
+    # the provider ceiling exactly — a run can saturate its provider but never pile a backlog
+    # behind it, so a second run's calls interleave as soon as the first run's in-flight calls
+    # complete. 32 restores the previous behavior exactly — that is the revert switch.
+    # INVARIANT (pinned by `test_job_env_contract`): the App writes it on EVERY Job, so a stale
+    # copy left in the Helm ConfigMap can never reach a Job through `envFrom`.
+    runner_io_concurrency: int = Field(default=4, ge=1)
     # --- Tavily web tools (spec 2026-07-23). The connector declares web_search/web_fetch ONLY
     # when the Runner sees TAVILY_API_KEY; unset here => deny-by-default (dec:W5).
     #
@@ -203,6 +220,19 @@ class Settings(BaseSettings):
     # WHY bounded run history: `status()` answers from finished tasks, so they are retained past
     # completion — this caps how many, the way `ttlSecondsAfterFinished` caps retained Jobs.
     local_max_run_history: int = 1000
+    # FEATURE (OME-908): the shared downstream capacity every local run fair-shares through
+    # `runner.fair_share.FairShareGate` — the dynamic, work-conserving counterpart of the
+    # deployed mode's static `runner_io_concurrency`.
+    #
+    # WHY dynamic here and static in deployed mode: local mode's runs share one event loop and
+    # one process, so ONE gate can watch every active run — a solo run gets the whole capacity,
+    # two runs split it near-evenly, and a finished run's share reverts instantly. Deployed Jobs
+    # are separate processes and get the static per-run bound instead.
+    #
+    # WHY 32: equal to URL4's `DEFAULT_RUN_CONCURRENCY`, so a solo local run's ceiling — and
+    # therefore its speed — is unchanged from before this feature existed. Lower it to shape
+    # local arrivals the same way `runner_io_concurrency` shapes a Job's.
+    local_io_capacity: int = Field(default=32, ge=1)
     # WHY a SECOND gateway address rather than defaulting `aigateway_base_url` itself: that field
     # is read by the model catalog too, where `None` is a meaningful state (the endpoint answers
     # 503 "not configured"). Defaulting it to loopback would silently switch the local catalog on

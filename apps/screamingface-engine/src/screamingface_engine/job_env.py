@@ -199,6 +199,25 @@ def cache_policy_from_env(env: Mapping[str, str]) -> CachePolicy:
     )
 
 
+def io_concurrency_from_env(env: Mapping[str, str]) -> int | None:
+    """Read a run's downstream in-flight budget back out of its environment. Total — never raises.
+
+    Absent, malformed, or below 1 resolves to ``None``, which the executor renders by OMITTING
+    the ``concurrency`` kwarg entirely — URL4's own default then applies, the exact behavior a
+    pre-OME-908 run had. WHY total rather than raising: `build_executor` runs inside
+    `InProcessJobRunner.schedule`, where an exception takes down the caller's request with
+    nothing on the stream, and the env is App-written anyway (a garbage value is an operator
+    bug, and the safe reading of it is the historic default — same reasoning as an unreadable
+    cache bound above). Local mode never carries the variable at all (`InProcessJobRunner._env`
+    pops it); it exists for one-shot Job Pods.
+    """
+    raw = env.get(IO_CONCURRENCY)
+    if raw is None or not raw.strip().isdigit():
+        return None
+    value = int(raw)
+    return value if value >= 1 else None
+
+
 # --- per-deploy: named by the chart, injected via envFrom ------------------------------------
 NATS_URL = "URL4_CLOUD_NATS_URL"
 AIGATEWAY_BASE_URL = "AIGATEWAY_BASE_URL"
@@ -322,6 +341,21 @@ DEFAULT_NATS_URL = "nats://localhost:4222"
 """Fallback for an unset :data:`NATS_URL`. Lives beside the name it defaults so the two cannot
 drift — every reader of the variable needs the same answer for "and if it is absent?"."""
 
+IO_CONCURRENCY = "URL4_CLOUD_IO_CONCURRENCY"
+"""Per-run downstream in-flight budget (OME-908): how many fetches this run may hold
+against the gateway at once.
+
+Deployed mode: the App writes it onto every Job from `Settings.runner_io_concurrency`
+(a static per-run bound — each Job is its own process, so no shared scheduler exists to
+be dynamic), and `build_executor` passes it to `url4.dag.run(concurrency=…)` where
+URL4's own `BoundedIOLayer` enforces it.
+
+Local mode NEVER writes it: the in-process runner instead fair-shares one gate across
+its concurrent runs (`runner.fair_share`), which replaces — not stacks under — the
+per-run bound. `InProcessJobRunner._env` pops any ambient copy for exactly that reason.
+
+Not a secret: a concurrency hint, readable by design like every other per-run knob."""
+
 # --- the sets the adapters and their tests are keyed off -------------------------------------
 SECRET: frozenset[str] = frozenset()
 """Values that must NEVER appear literally in a Job spec.
@@ -351,6 +385,7 @@ WRITTEN_BY_APP = frozenset(
         CACHE_PARTICIPATE,
         CACHE_MAX_AGE_S,
         EXTRA_MODELS,
+        IO_CONCURRENCY,
         *IDENTITY_HEADER_ENV.values(),
     }
 )
@@ -410,6 +445,7 @@ __all__ = [
     "EXPRESSION",
     "EXTRA_MODELS",
     "IDENTITY_HEADER_ENV",
+    "IO_CONCURRENCY",
     "JOB_DEADLINE_S",
     "NATS_URL",
     "REQUIRED",
@@ -423,6 +459,7 @@ __all__ = [
     "TRACEPARENT",
     "WRITTEN_BY_APP",
     "cache_policy_from_env",
+    "io_concurrency_from_env",
     "cache_policy_to_env",
     "extra_models_to_env",
     "identity_from_env",
