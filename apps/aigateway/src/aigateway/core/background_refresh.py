@@ -34,7 +34,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from .background_error_sink import record_unexpected
+from .background_error_sink import record_unexpected, safe_background_key
 from .parameter_discovery import DiscoveryError
 
 if TYPE_CHECKING:
@@ -125,7 +125,7 @@ class BackgroundRefreshManager[KeyT: Hashable]:
             # longer counted, and the hard cap would bound nothing.
             logger.info(
                 "background discovery refresh refused (at capacity) key=%s inflight=%d",
-                key,
+                safe_background_key(key),
                 live,
             )
             return None

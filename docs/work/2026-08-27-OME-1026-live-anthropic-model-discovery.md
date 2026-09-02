@@ -1711,8 +1711,9 @@ commit/push/PR/live egress without authorization; worktree's unrelated files unt
 
 ### Outcome
 
-Status: DONE (verification: all AIGateway gates green; NOT committed — commit/push/PR
-update not authorized).
+Status: DONE. This initial implementation state was uncommitted when verified and later
+landed, together with its bounded correction pass, in `f0e23f05`. Push and PR updates
+remained unauthorized at that point.
 
 Delivered as planned, U1–U5, TDD (RED observed before every production change):
 
@@ -1912,3 +1913,70 @@ was changed by this correction pass. Staging is limited to the OME-1026 source,
 tests, migration, and four owner-approved tracked documentation paths. Authorized
 commit message: `feat(aigateway): resolve implicit discovery credentials` with
 `Refs: OME-1026`; `.agent-team-AIGW/**` remains local and untracked.
+
+## Final P3 review corrections (2026-09-02)
+
+### Intent
+
+Close the five non-blocking findings in
+`.agent-team-AIGW/live-anthropic-model-discovery/implicit_default_credential_review_report.md`
+without changing effective-credential selection, discovery behavior, cache identity,
+migration SQL, or the settled hosted/local product contract.
+
+### Planned changes
+
+- Make ambiguity and unknown-label response bodies advertise only explicit Connection
+  labels that can actually be selected; the reserved literal `default` continues to
+  invoke implicit sole-Connection resolution.
+- Route unexpected-error and capacity-refusal identity logging through one bounded,
+  control-safe renderer. Credential-selection and error propagation remain unchanged.
+- Correct the model and migration comments to state the API-key-only generation policy.
+- Remove the obsolete 521-line `oauth_connections.py` exemption and make the inventory
+  guard verify that every exemption is still oversized on disk.
+- Correct the historical implicit-default Outcome to distinguish the earlier uncommitted
+  state from its landing in `f0e23f05`.
+
+### Test plan and acceptance
+
+- Observe RED HTTP coverage for `X-Profile: default` with `default + other` active
+  Connections and RED caplog coverage for oversized/control-bearing background keys.
+- Run the new focused tests, all directly affected prior suites, then the AIGateway gate
+  runner with coverage.
+- Acceptance: all five P3 findings are closed; no credential is selected differently; no
+  discovery egress, schema, migration operation, endpoint, or Engine/Client behavior
+  changes; source remains within the 450-line discipline.
+
+### Outcome
+
+Status: **DONE**.
+
+- Ambiguous and unknown-label chat refusals now expose only actionable non-default
+  labels. `default` remains reserved for the unchanged implicit sole-Connection path;
+  no credential-selection branch changed.
+- `safe_background_key` now bounds identity text to the existing 200-character cap and
+  replaces control characters before both operator logging and retention. The unexpected
+  error and capacity-refusal paths share it.
+- The model/migration comments now match the tested API-key-only generation policy; the
+  migration operations and SQL are unchanged.
+- The obsolete `oauth_connections.py` 521-line exemption is gone, and the inventory
+  hygiene test now requires every remaining exemption to still exceed 450 lines on disk.
+- The earlier Outcome records its historical uncommitted state and the later landing in
+  `f0e23f05` without contradiction.
+
+RED evidence: the three new checks failed for the reported reasons — missing actionable
+labels in the 409, a control character retained/logged by the unexpected-error sink, and
+an unbounded control-bearing capacity-refusal log key.
+
+Checks after GREEN:
+
+- new P3 checks plus decomposition hygiene: **4 passed**;
+- affected chat/background/decomposition/generation/migration suites: **359 passed**;
+- `uv run .claude/scripts/run_gates.py aigateway --skip-append-only`: **ALL GATES GREEN**
+  (Ruff check, Ruff format, Pyright, no-enterprise, full pytest with coverage >=80);
+- `git diff --check`: clean; touched source sizes: chat credentials 421, background error
+  sink 257, background refresh 259, OAuth Connection model 59, migration 21 lines.
+
+No external dependency, schema, migration operation, discovery call, credential resolver,
+cache identity, Client/Engine file, unrelated worktree path, push, PR, merge, or live
+provider state changed. Owner authorized a separate P3 follow-up commit; intended message:
+`fix(aigateway): close implicit discovery review findings` with `Refs: OME-1026`.

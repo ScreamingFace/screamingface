@@ -33,9 +33,9 @@ class BaseOAuthConnection(Model):
     error_message: Any = fields.TextField(null=True)
     # INVARIANT (OME-1026 U2): the durable, strictly-advancing, NON-SECRET fence for
     # "which credential owner produced this connection's private discovery snapshots".
-    # Bumped with an atomic F()+1 inside the SAME conditional UPDATE that publishes a
-    # credential (create/complete/reactivate), so replacing the stored key — which
-    # keeps this row's id — retires every cache identity the old credential produced.
+    # API-key creation publishes generation 1; in-place API-key replacement applies an
+    # atomic F()+1 in reactivate's SAME conditional UPDATE. Generic OAuth completion and
+    # refresh preserve the generation because they do not publish API-key ownership.
     # WHY not last_refreshed_at: a wall clock can assign two replacements one tick
     # (the profile-side F3 defect); an integer under the row lock cannot.
     credential_generation = fields.IntField(default=0, db_default="0")

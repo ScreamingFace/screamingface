@@ -272,6 +272,37 @@ async def test_the_inflight_map_is_bounded_and_refuses_rather_than_growing() -> 
 
 
 @pytest.mark.asyncio
+async def test_capacity_refusal_log_bounds_and_sanitizes_the_key(caplog) -> None:
+    """INVARIANT: a refused user-derived identity cannot forge or flood a log line."""
+    mgr = BackgroundRefreshManager(max_inflight=1)
+    release = asyncio.Event()
+
+    async def _refresh() -> str:
+        await release.wait()
+        return "x"
+
+    try:
+        assert mgr.start_or_join("occupied", _refresh) is not None
+        await asyncio.sleep(0)
+        caplog.set_level("INFO", logger="aigateway.core.background_refresh")
+        hostile = "profile\n" + ("x" * 512) + "\rFORGED"
+
+        assert mgr.start_or_join(hostile, _refresh) is None
+
+        rendered = next(
+            record.getMessage()
+            for record in caplog.records
+            if "refused (at capacity)" in record.getMessage()
+        )
+        assert "\n" not in rendered
+        assert "\r" not in rendered
+        assert "FORGED" not in rendered
+    finally:
+        release.set()
+        await mgr.aclose()
+
+
+@pytest.mark.asyncio
 async def test_a_freed_slot_is_reusable(manager) -> None:
     mgr = BackgroundRefreshManager(max_inflight=1)
     try:

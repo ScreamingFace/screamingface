@@ -50,7 +50,6 @@ _PRE_EXISTING_OVERSIZED = {
     "plugins/antigravity_provider/chat_handler.py": 610,
     "plugins/taxonomy/types.py": 533,
     "routes/chat.py": 522,
-    "routes/oauth_connections.py": 521,
 }
 
 
@@ -125,6 +124,10 @@ def test_the_oversized_inventory_names_only_files_that_are_really_oversized() ->
         path = _SRC / relative
         assert path.exists(), f"{relative} is pinned but missing — update the inventory"
         assert pinned > _SIZE_LIMIT, f"{relative} is pinned at {pinned}, which is not oversized"
+        lines = len(path.read_text().splitlines())
+        assert lines > _SIZE_LIMIT, (
+            f"{relative} is now {lines} lines; remove its obsolete oversized exemption"
+        )
 
 
 @pytest.mark.parametrize("name", _AUTH_SURFACE)

@@ -14,6 +14,7 @@ from fastapi import HTTPException, Request
 
 from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.effective_credential import (
+    DEFAULT_PROFILE_NAME,
     AmbiguousCredential,
     UnknownConnectionLabel,
     resolve_effective_credential,
@@ -147,15 +148,19 @@ async def _credential_target_for_chat(
         connections=_oauth_connection_store(request),
     )
     if isinstance(resolution, AmbiguousCredential):
+        selectable_labels = [
+            label for label in resolution.valid_labels if label != DEFAULT_PROFILE_NAME
+        ]
         raise HTTPException(
             status_code=409,
             detail={
                 "code": "connection_ambiguous",
                 "provider": provider,
                 "message": (
-                    "Multiple active connections exist. Select one by setting "
-                    "X-Profile to the connection label."
+                    "Multiple active connections exist. Remove extras until one remains, "
+                    "or select a non-default connection by setting X-Profile to its label."
                 ),
+                "valid_labels": selectable_labels,
             },
         )
     if isinstance(resolution, UnknownConnectionLabel):
@@ -165,7 +170,9 @@ async def _credential_target_for_chat(
                 "code": "connection_not_found",
                 "provider": provider,
                 "requested_label": resolution.requested_label,
-                "valid_labels": list(resolution.valid_labels),
+                "valid_labels": [
+                    label for label in resolution.valid_labels if label != DEFAULT_PROFILE_NAME
+                ],
             },
         )
     if resolution is None:

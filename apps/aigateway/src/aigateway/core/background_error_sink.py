@@ -95,14 +95,17 @@ _MAX_KEY_CHARS = 200
 _OBSERVED_ATTR = "_aigw_discovery_observed"
 
 
-def _safe_key(key: object) -> str:
+def safe_background_key(key: object) -> str:
     """The identity as a bounded string.
 
     # WHY string-ifying rather than keeping the key object: the key is a tuple of
     # ownership metadata today, but retaining an arbitrary object is how a future key
     # type would quietly pull whatever it references into a process-lifetime sink.
+    # INVARIANT: control characters are replaced before logging or retention so a
+    # user-derived profile name cannot forge a second operator log line.
     """
-    return str(key)[:_MAX_KEY_CHARS]
+    rendered = "".join(character if character.isprintable() else "?" for character in str(key))
+    return rendered[:_MAX_KEY_CHARS]
 
 
 def mark_observed(exc: BaseException) -> None:
@@ -231,14 +234,14 @@ def record_unexpected(key: object, exc: BaseException) -> None:
     type_name = type(exc).__name__
     logger.error(
         "background discovery refresh failed unexpectedly key=%s type=%s",
-        key,
+        safe_background_key(key),
         type_name,
     )
     # INVARIANT (last-mile): the marker is read in the SAME lock section that appends,
     # so an observation cannot land between the two — see the protocol note at
     # ``_sink_lock``. The record is built outside the lock on purpose: it is pure
     # sanitization of arguments this call already owns, and the section stays minimal.
-    record = UnexpectedRecord(_safe_key(key), type_name, id(exc))
+    record = UnexpectedRecord(safe_background_key(key), type_name, id(exc))
     with _sink_lock:
         if getattr(exc, _OBSERVED_ATTR, False):
             return

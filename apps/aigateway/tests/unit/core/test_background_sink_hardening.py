@@ -41,6 +41,7 @@ import pytest
 
 from aigateway.core import background_error_sink
 from aigateway.core.background_error_sink import (
+    _MAX_KEY_CHARS,
     _MAX_RETAINED_UNEXPECTED,
     assert_no_unexpected,
     dropped_unexpected,
@@ -113,6 +114,26 @@ async def _fail_once_with_a_secret() -> None:
 
 
 # ── B3: what the sink keeps must be safe to keep ──────────────────────────────
+
+
+def test_unexpected_error_identity_is_bounded_and_control_safe_in_logs_and_retention(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """INVARIANT: user-controlled identity text cannot forge or flood a log line."""
+    hostile = "profile\n" + ("x" * 512) + "\rFORGED"
+    caplog.set_level("ERROR", logger=background_error_sink.__name__)
+
+    record_unexpected(hostile, RuntimeError("message-must-not-be-logged"))
+
+    retained = take_unexpected()
+    assert len(retained) == 1
+    assert len(retained[0].key) <= _MAX_KEY_CHARS
+    assert "\n" not in retained[0].key
+    assert "\r" not in retained[0].key
+    rendered = caplog.records[-1].getMessage()
+    assert "\n" not in rendered
+    assert "\r" not in rendered
+    assert "FORGED" not in rendered
 
 
 @pytest.mark.asyncio

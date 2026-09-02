@@ -254,6 +254,36 @@ def test_chat_wrong_connection_label_returns_valid_labels(authenticated_client) 
     }
 
 
+def test_chat_never_advertises_literal_default_as_an_explicit_connection_label(
+    authenticated_client,
+) -> None:
+    """INVARIANT: ``default`` stays implicit and is never offered as a dead-end fix."""
+    account_id = _account_id(authenticated_client)
+    authenticated_client.portal.call(
+        partial(_create_active_connection, account_id, label="default")
+    )
+    authenticated_client.portal.call(partial(_create_active_connection, account_id, label="other"))
+    body = {
+        "model": "anthropic/claude-haiku-4-5",
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+
+    ambiguous = authenticated_client.post(
+        "/v1/chat/completions", headers={"X-Profile": "default"}, json=body
+    )
+    unknown = authenticated_client.post(
+        "/v1/chat/completions", headers={"X-Profile": "missing"}, json=body
+    )
+
+    assert ambiguous.status_code == 409
+    ambiguous_detail = ambiguous.json()["detail"]
+    assert ambiguous_detail["code"] == "connection_ambiguous"
+    assert ambiguous_detail["valid_labels"] == ["other"]
+    assert "non-default" in ambiguous_detail["message"]
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["valid_labels"] == ["other"]
+
+
 def test_chat_empty_x_profile_header_uses_default_ambiguity(
     credential_blobs, authenticated_client
 ) -> None:
