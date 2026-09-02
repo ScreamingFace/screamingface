@@ -1936,7 +1936,7 @@ function PipelineBody({
           {index > 0 && (
             <ArrowRight className="size-4 shrink-0 text-muted-foreground/70" />
           )}
-          <div className="min-w-[16rem] shrink-0">
+          <div className="min-w-[14rem] shrink-0">
             <RecipeNodeCard
               node={stage}
               index={index}
@@ -2077,7 +2077,7 @@ function RecipeNodeCard({
   if (node.kind === "solo") {
     const model = node.model;
     return (
-      <article className={cn("min-w-[16rem]", soloChrome())}>
+      <article className={cn("min-w-[14rem]", soloChrome())}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {model ? (
@@ -2098,18 +2098,7 @@ function RecipeNodeCard({
               </span>
             )}
             <NodeLabel node={node} roleLabel={roleLabel} onChange={onChange} />
-            {model ? (
-              <button
-                type="button"
-                onClick={() => setCollapsed((value) => !value)}
-                className="flex min-w-0 items-center gap-1.5"
-              >
-                <ProviderDot provider={model.providerId} />
-                <span className="truncate font-mono text-xs text-foreground/90">
-                  {model.name}
-                </span>
-              </button>
-            ) : (
+            {!model && (
               <span className="truncate text-xs text-muted-foreground/70">
                 · pick a model
               </span>
@@ -2117,6 +2106,18 @@ function RecipeNodeCard({
           </div>
           {controls}
         </div>
+        {model && (
+          <button
+            type="button"
+            onClick={() => setCollapsed((value) => !value)}
+            className="mt-1.5 flex w-full min-w-0 items-center gap-1.5 text-left"
+          >
+            <ProviderDot provider={model.providerId} />
+            <span className="truncate font-mono text-xs text-foreground/90">
+              {model.name}
+            </span>
+          </button>
+        )}
         {!model && (
           <div className="mt-2.5">
             <InlineModelPicker
