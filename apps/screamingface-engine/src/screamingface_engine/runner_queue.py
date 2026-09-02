@@ -285,6 +285,13 @@ class RunQueue:
         # The round-robin pull's rotation: which bucket the next pull starts at. Advancing by
         # one per pull means no bucket is permanently first (or last) in the rotation.
         self._rr_index = 0
+        # HELD pull subscriptions, one per distinct subject (review follow-up): binding a
+        # durable consumer costs a `consumer_info` round trip, and the claim loop pulls in
+        # a tight loop whenever slots are free — binding per bucket per cycle multiplied
+        # that cost by the bucket count on EVERY poll, even when the queue was empty. The
+        # set of subjects is the FIXED configured bucket list (or an explicit caller's
+        # list), so the cache is bounded by that, not by callers or messages.
+        self._pull_subs: dict[str, Any] = {}
 
     async def _jetstream(self) -> JetStreamContext:
         js = self._js
@@ -300,6 +307,8 @@ class RunQueue:
             self._js = js
             # The declarations belonged to the connection that just died; the new one has none.
             self._ensured = False
+            # Held subscriptions died with it too — rebind on the next pull.
+            self._pull_subs.clear()
             return js
 
     def _is_closed(self) -> bool:
@@ -414,10 +423,14 @@ class RunQueue:
         EXPLICIT ack policy an unacked message is redelivered after `ack_wait`, up to
         `max_deliver` times.
 
-        WHY a fresh subscription per call: the durable consumers (`url4-runners-<bucket>`) are
-        server-side and persist, so binding and unbinding a client subscription per pull is
-        idempotent and costs one `consumer_info` round trip. A worker that wants to avoid even
-        that can hold the subscription itself.
+        WHY subscriptions are HELD: the durable consumers (`url4-runners-<bucket>`) are
+        server-side and persist, so binding a client subscription is idempotent — and
+        doing it per bucket PER CYCLE cost a `consumer_info` round trip each way on every
+        poll, multiplied by the bucket count, paid even when the queue was empty and the
+        claim loop is polling flat out. Holding one subscription per distinct subject
+        reduces each cycle to the `fetch` alone; the cache is bounded by the configured
+        bucket list (or the caller's explicit list), never by callers or messages, and a
+        reconnect clears it — the subscriptions died with the connection.
         """
         subjects = list(subjects) if subjects is not None else self.bucket_subjects()
         if not subjects or batch <= 0:
@@ -434,16 +447,19 @@ class RunQueue:
             if len(collected) >= batch:
                 break
             subject = subjects[(self._rr_index + slot) % len(subjects)]
-            sub = await js.pull_subscribe(
-                subject,
-                durable=_consumer_for(subject),
-                stream=self._stream,
-                config=_work_queue_consumer_config(
-                    ack_wait_s=self._ack_wait_s,
-                    max_deliver=self._max_deliver,
-                    max_ack_pending=self._max_ack_pending,
-                ),
-            )
+            sub = self._pull_subs.get(subject)
+            if sub is None:
+                sub = await js.pull_subscribe(
+                    subject,
+                    durable=_consumer_for(subject),
+                    stream=self._stream,
+                    config=_work_queue_consumer_config(
+                        ack_wait_s=self._ack_wait_s,
+                        max_deliver=self._max_deliver,
+                        max_ack_pending=self._max_ack_pending,
+                    ),
+                )
+                self._pull_subs[subject] = sub
             try:
                 # INVARIANT: an empty bucket is a RESULT, not an error. nats-py's `fetch`
                 # RAISES `nats.errors.TimeoutError` (or its `FetchTimeoutError` subclass)
@@ -451,12 +467,11 @@ class RunQueue:
                 # list — and both subclass `TimeoutError`. Left uncaught, the first empty
                 # bucket in the rotation unwinds the worker's claim loop and kills the
                 # pool; with 16 buckets most rotations visit empty buckets before the
-                # one that holds a message.
+                # one that holds a message. A timed-out HELD subscription stays usable —
+                # the next fetch on it is an independent request.
                 msgs = await sub.fetch(1, timeout=per_bucket)
             except TimeoutError:
                 continue
-            finally:
-                await sub.unsubscribe()
             if msgs:
                 collected.append(msgs[0])
         self._rr_index = (self._rr_index + 1) % len(subjects)

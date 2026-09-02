@@ -34,11 +34,15 @@ class _FakeSub:
     returns an empty list, it raises `nats.errors.TimeoutError` (a `TimeoutError`
     subclass). A fake returning `[]` masks an uncaught-timeout crash in `pull`."""
 
-    def __init__(self, messages: list[bytes]) -> None:
+    def __init__(self, messages: list[bytes], fetch_log: list[str] | None = None, subject: str = "") -> None:
         self._messages = messages
         self.unsubscribed = False
+        self._fetch_log = fetch_log
+        self._subject = subject
 
     async def fetch(self, batch: int, timeout: float) -> list[Any]:
+        if self._fetch_log is not None:
+            self._fetch_log.append(self._subject)
         out = self._messages[:batch]
         del self._messages[:batch]
         if not out:
@@ -57,6 +61,8 @@ class _FakeJetStream:
         self._messages: dict[str, list[bytes]] = {}
         self.published: list[tuple[str, bytes]] = []
         self.pull_subjects: list[str] = []
+        self.bound_subjects: list[str] = []
+        self.fetches: list[str] = []
         self._prefix = "$JS.API"
 
     async def add_stream(self, **kwargs: Any) -> object:
@@ -80,7 +86,8 @@ class _FakeJetStream:
         config: Any = None,
     ) -> _FakeSub:
         self.pull_subjects.append(subject)
-        return _FakeSub(self._messages.get(subject, []))
+        self.bound_subjects.append(subject)
+        return _FakeSub(self._messages.get(subject, []), fetch_log=self.fetches, subject=subject)
 
 
 def _queue(fake: _FakeJetStream, **kwargs: Any) -> RunQueue:
@@ -137,10 +144,16 @@ async def test_a_pull_that_finds_nothing_returns_within_the_timeout() -> None:
     pulled = await queue.pull(4, timeout_s=0.2)
 
     assert pulled == []
-    # The pull cycled through both buckets (one visit per slot, four slots).
-    assert fake.pull_subjects == [
+    # The pull still cycled both buckets every slot — four FETCHES — but bound each
+    # bucket's durable subscription ONCE: the held-subscription cache (review
+    # follow-up) removes the per-cycle bind/unbind round trip from every poll.
+    assert fake.fetches == [
         queue.bucket_subjects()[0],
         queue.bucket_subjects()[1],
+        queue.bucket_subjects()[0],
+        queue.bucket_subjects()[1],
+    ]
+    assert fake.bound_subjects == [
         queue.bucket_subjects()[0],
         queue.bucket_subjects()[1],
     ]
@@ -250,3 +263,24 @@ async def test_the_spawn_time_io_budget_is_io_capacity_over_active_children() ->
             proc.release()
         await first
         await second
+
+
+# --- held pull subscriptions (review follow-up) ----------------------------------------------
+
+
+async def test_pulls_bind_each_bucket_once_and_reuse_their_subscription() -> None:
+    """The claim loop polls flat out whenever slots are free, and the old pull bound a
+    FRESH subscription per bucket PER CYCLE — a `consumer_info` round trip each way,
+    multiplied by the bucket count, paid on every poll even when the queue was empty.
+    Bind-per-cycle was a multiplicative cost with no correctness benefit: the durable
+    consumers are server-side and persist. Subscriptions are now HELD (bounded by the
+    configured bucket list; cleared on reconnect), so every poll after the first costs
+    the `fetch` alone."""
+    fake = _FakeJetStream()
+    queue = _queue(fake, bucket_count=2)
+
+    for _ in range(3):
+        await queue.pull(1, timeout_s=0.01)
+
+    assert len(fake.bound_subjects) == 2, "one bind per bucket for the queue's lifetime"
+    assert len(fake.fetches) == 6, "each pull still fetches per slot of the rotation"
