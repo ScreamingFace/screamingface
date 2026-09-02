@@ -119,8 +119,14 @@ class _LimitRangeItem(Protocol):
     def type(self) -> str: ...
     @property
     def default(self) -> Mapping[str, str] | None: ...
+    # WHY snake_case (OME-1083): `kubernetes.client.V1LimitRangeItem` exposes its Python
+    # attributes in snake_case — `default_request` — even though the k8s OpenAPI/JSON wire
+    # name is `defaultRequest`. This Protocol describes the REAL client object structurally
+    # (`core_client_factory` hands it in via `cast()`, which pyright never verifies), so a
+    # property spelled after the wire name here type-checks fine and still raises
+    # `AttributeError` at runtime against the real object.
     @property
-    def defaultRequest(self) -> Mapping[str, str] | None: ...
+    def default_request(self) -> Mapping[str, str] | None: ...
 
 
 class _LimitRangeSpec(Protocol):
@@ -212,8 +218,9 @@ def _limitrange_defaults(
     """The namespace's effective LimitRange defaults: max per resource across LimitRanges.
 
     Conservative: if two LimitRanges disagree on a default, the Pod would be rejected as
-    ambiguous anyway, and the larger charge is the honest estimate. `default` fills missing
-    LIMITS, `defaultRequest` fills missing REQUESTS.
+    ambiguous anyway, and the larger charge is the honest estimate. The k8s API's `default`
+    fills missing LIMITS, its `defaultRequest` (`default_request` on the Python client —
+    see `_LimitRangeItem`) fills missing REQUESTS.
     """
 
     default_limits: dict[str, int] = {}
@@ -227,7 +234,7 @@ def _limitrange_defaults(
                 continue
             for key, value in (item.default or {}).items():
                 _max_quantity(default_limits, key, value)
-            for key, value in (item.defaultRequest or {}).items():
+            for key, value in (item.default_request or {}).items():
                 _max_quantity(default_requests, key, value)
     return default_limits, default_requests
 
