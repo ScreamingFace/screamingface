@@ -187,6 +187,7 @@ class RunSupervisor:
         # Runs claimed but not yet spawned (OME-1090): the control loop answers from here
         # during the spawn window. `None` keeps direct construction (older tests) working.
         self._starting = starting if starting is not None else set()
+        self._heartbeat_interval_s = heartbeat_interval_s
         self._deadline_margin_s = deadline_margin_s
         self._kill_grace_s = kill_grace_s
 
