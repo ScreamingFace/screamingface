@@ -14,7 +14,11 @@ JobStatus = Literal[
     "not_found",
 ]
 """The run states (spec §3): ``scheduled → running → {succeeded|failed|stopped|timed_out}``, plus
-``not_found`` for an unknown/absent topic. Each adapter maps the substrate state it can observe."""
+``not_found`` for an unknown/absent topic. Each adapter maps the substrate state it can observe.
+
+``scheduled`` means the run is accepted but not yet started — i.e. queued. Do not add a
+``queued`` member: ``scheduled`` already covers it.
+"""
 
 
 class JobAlreadyExists(Exception):
@@ -28,9 +32,10 @@ class JobRunnerAtCapacity(Exception):
     help. This one is transient and carries no verdict about the request, so callers map it to a
     retry-after response rather than a conflict.
 
-    Only substrates that own a finite local resource raise it — an in-process runner shares one
-    event loop across every run it accepts, so admission is its own job. A cluster-backed runner
-    lets the scheduler absorb the load and never raises.
+    Any substrate with a finite declared ceiling raises it — an in-process runner shares one
+    event loop across every run it accepts, so admission is its own job; a queue-backed runner
+    raises it too when its queue depth hits the ceiling. The caller maps it to a retry-after
+    response rather than a conflict.
     """
 
     def __init__(self, active: int, limit: int) -> None:

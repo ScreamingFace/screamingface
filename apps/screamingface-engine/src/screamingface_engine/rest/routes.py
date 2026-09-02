@@ -197,9 +197,9 @@ async def _schedule(
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
     except JobRunnerAtCapacity as exc:
         # WHY 503 and not 429: nothing about THIS caller or request was rate-limited — the
-        # substrate is saturated, and an identical retry later succeeds. Only a runner that owns a
-        # finite local resource (the in-process one) can raise this; a cluster-backed runner lets
-        # the scheduler queue instead.
+        # substrate is saturated, and an identical retry later succeeds. Any substrate with a
+        # finite declared ceiling raises this — the in-process runner on its admission limit, a
+        # queue-backed runner on queue depth — and the caller maps it to a retry-after response.
         raise ProblemException(
             status=503,
             title="Service Unavailable",
