@@ -46,6 +46,10 @@ class _RunOutcome:
     media_type: str | None
     root_usage: Usage | None
     artifact: _ResultArtifact | None = None
+    # WHY (OME-967): the id the CLIENT minted for this run, not one read back off a frame.
+    # A user quoting it must be quoting the value that actually travelled on the wire —
+    # including for a run whose frames never arrived.
+    trace_id: str | None = None
 
 
 class SyncRunTransport(Protocol):
