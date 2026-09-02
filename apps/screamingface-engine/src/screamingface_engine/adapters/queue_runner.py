@@ -31,6 +31,7 @@ plane and the worker half may import it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import math
 import time
@@ -212,16 +213,30 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # counts runs admitted since the last refresh — it closes the read-modify-write race
         # when two `schedule()` calls land in one refresh window. The lock makes refresh +
         # check + reserve atomic.
+        #
+        # SCOPE (review follow-up): PER-PROCESS, and that is a deploy constraint, not an
+        # accident. The App currently runs `replicaCount: 1` (the WS-subscriber registry is
+        # in-process; see the Helm values' note) — one process, so one counter IS the fleet
+        # counter. Lifting replicas without first moving this state to a shared counter (a
+        # NATS KV bucket keyed by caller is the natural fit alongside the queue) re-opens the
+        # TOCTOU race across replicas: each admits against its own snapshot, the fleet exceeds
+        # the depth ceiling and the per-caller cap by up to one run per replica per window.
+        # Do NOT build that shared counter speculatively — it belongs to the ticket that
+        # lifts the replica gate, which is the same ticket that fixes the WS registry.
         self._depth_snapshot: int | None = None
         self._oldest_age: float | None = None
         self._depth_cache_time: float | None = None
         self._reserved = 0
         self._admission_lock = asyncio.Lock()
-        # The per-caller in-flight tracking: caller → {topic: admitted_at}, plus the reverse
-        # index for the observed-terminal decrement. A run counts until the runner sees its
-        # terminal frame (the reaper's polls, a re-schedule pre-check) or its capability
-        # expires — the runner cannot observe a finish any other way.
-        self._in_flight_by_caller: dict[str, dict[str, datetime]] = {}
+        # The per-caller in-flight tracking: caller → {topic: [admitted_at, ...]} — a LIST,
+        # because one caller CAN legitimately re-schedule a live topic (a client retry outside
+        # the broker's dedupe window) and each admission is its own reservation, released only
+        # by the schedule attempt that minted it (see `_release_reservation`). A run counts
+        # until the runner sees its terminal frame (the reaper's polls, a re-schedule
+        # pre-check) or its capability expires — the runner cannot observe a finish any other
+        # way. Per-process scope: same replica constraint and same future shared-counter
+        # design as `_reserved` above.
+        self._in_flight_by_caller: dict[str, dict[str, list[datetime]]] = {}
         self._caller_of_topic: dict[str, str] = {}
 
     # --- the JobRunner port ----------------------------------------------------------------
@@ -253,7 +268,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
             JobRunnerAtCapacity: the queue is at its depth ceiling, or the caller has too
                 many runs in flight (503 + `Retry-After` at the REST edge).
         """
-        await self._admit_or_raise(identity, topic)
+        reservation = await self._admit_or_raise(identity, topic)
         try:
             message = encode_message(
                 topic,
@@ -276,7 +291,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # cancellation path too; the bare `raise` still propagates the cancellation.
             # (BaseException also covers KeyboardInterrupt/SystemExit reaching this await —
             # releasing there is harmless, and they still propagate.)
-            await self._release_reservation(topic, caller_key(identity))
+            # WHY the reservation TOKEN and not the (caller, topic) pair: a caller can
+            # re-schedule a topic that is STILL LIVE (a client retry outside the broker's
+            # dedupe window) — the retry mints its own reservation — and when THAT retry
+            # fails, releasing "whatever the caller holds for the topic" would erase the
+            # FIRST, still-running admission too, under-counting the caller from then on.
+            # The release removes exactly the reservation this attempt minted.
+            await self._release_reservation(topic, caller_key(identity), reservation)
             raise
         self._scheduled_at[topic] = self._clock()
         return job_name(topic)
@@ -477,9 +498,15 @@ class QueueJobRunner(IdentityAwareJobRunner):
 
     # --- depth-based admission (OME-1091) ---------------------------------------------------
 
-    async def _admit_or_raise(self, identity: Mapping[str, str] | None, topic: str) -> None:
+    async def _admit_or_raise(
+        self, identity: Mapping[str, str] | None, topic: str
+    ) -> datetime:
         """Admission gate: refresh the depth snapshot, refuse if the queue is at the ceiling
         or the caller is at its in-flight cap, else reserve.
+
+        Returns the reservation TOKEN (the admission moment) — `schedule`'s failure path
+        releases by that token, never by position, so a failed retry of a live topic
+        cannot erase the first admission's accounting.
 
         Raises:
             JobRunnerAtCapacity: the queue is at its depth ceiling, or the caller has too
@@ -499,26 +526,33 @@ class QueueJobRunner(IdentityAwareJobRunner):
                     self._depth_ceiling,
                     retry_after_s=self._drain_estimate_s(),
                 )
-            count = len(self._in_flight_by_caller.get(caller, {}))
+            count = sum(
+                len(topics) for topics in self._in_flight_by_caller.get(caller, {}).values()
+            )
             if count >= self._caller_inflight_cap:
                 raise JobRunnerAtCapacity(
                     count, self._caller_inflight_cap, retry_after_s=self._drain_estimate_s()
                 )
+            token = self._clock()
             self._reserved += 1
-            self._in_flight_by_caller.setdefault(caller, {})[topic] = self._clock()
+            self._in_flight_by_caller.setdefault(caller, {}).setdefault(topic, []).append(token)
             self._caller_of_topic[topic] = caller
+            return token
 
-    async def _release_reservation(self, topic: str, caller: str) -> None:
-        """Release THIS caller's reservation for a run that was not durably accepted
-        (a publish failure or a cancellation mid-publish).
+    async def _release_reservation(
+        self, topic: str, caller: str, token: datetime
+    ) -> None:
+        """Release the ONE reservation `token` identifies, for a run that was not durably
+        accepted (a publish failure or a cancellation mid-publish).
 
-        WHY a targeted pop and not `_forget_in_flight`: the shared helper wipes the topic
-        from EVERY caller that holds it — the right tool for "the run is over", the wrong
-        one for "this schedule attempt never landed". A re-scheduled topic can be held by
-        a second identity (admission overwrites `_caller_of_topic` but not the first
-        caller's dict entry); a failed publish under the second identity would then also
-        erase the FIRST caller's still-live admission — an under-count that lets that
-        caller exceed its in-flight cap. Only the pair that was reserved is released.
+        WHY a token and not the (caller, topic) pair (review follow-up): a caller can
+        re-schedule a STILL-LIVE topic — a client retry outside the broker's dedupe window,
+        whose publish then fails — and the pair-held entry at that moment is the FIRST
+        admission's. Releasing "whatever the caller holds for the topic" erased the live
+        admission with the failed retry: the caller's in-flight count dropped by one for
+        the rest of that run's lifetime, letting it exceed `caller_inflight_cap` by exactly
+        that much. The token removes only the reservation this `schedule` attempt minted;
+        the first admission's token survives, in order, in the same list.
         """
         async with self._admission_lock:
             # WHY the floor: `_refresh_if_stale` RESETS the counter on every refresh, and
@@ -529,10 +563,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # already accounted for this reservation; clamp, and the counter stays honest.
             self._reserved = max(0, self._reserved - 1)
             by_caller = self._in_flight_by_caller.get(caller)
-            if by_caller is not None:
-                by_caller.pop(topic, None)
-                if not by_caller:
-                    del self._in_flight_by_caller[caller]
+            if by_caller is not None and topic in by_caller:
+                with contextlib.suppress(ValueError):
+                    by_caller[topic].remove(token)
+                if not by_caller[topic]:
+                    del by_caller[topic]
+            if by_caller is not None and not by_caller:
+                del self._in_flight_by_caller[caller]
             if not any(topic in topics for topics in self._in_flight_by_caller.values()):
                 self._caller_of_topic.pop(topic, None)
 
@@ -579,8 +616,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         ``frame`` guards the observed-terminal path against a stale observation: a topic
         re-scheduled after its first run finished still shows the FIRST run's terminal frame,
         and forgetting on that sighting would release the SECOND run's slot. A frame older
-        than a tracked admission is that stale sighting and is ignored — checked PER CALLER,
-        because more than one caller can hold the topic (below).
+        than a tracked admission is that stale sighting and is ignored — checked PER CALLER
+        and PER RESERVATION (one caller can hold several for a re-scheduled topic).
 
         WHY every caller and not `_caller_of_topic[topic]`: admission OVERWRITES that
         mapping when a re-scheduled topic is admitted under a second identity, so the
@@ -589,12 +626,20 @@ class QueueJobRunner(IdentityAwareJobRunner):
         eventually as spurious 503s for a caller whose runs have all finished.
         """
         for by_caller in self._in_flight_by_caller.values():
-            admitted_at = by_caller.get(topic)
-            if admitted_at is None:
+            tokens = by_caller.get(topic)
+            if not tokens:
                 continue
-            if frame is not None and frame.time is not None and frame.time < admitted_at:
-                continue  # a stale sighting of the FIRST run — this admission is still live
-            by_caller.pop(topic, None)
+            # Keep only reservations minted AFTER the sighting — those are live runs the
+            # frame cannot speak for. No frame (expiry, never-admitted) keeps nothing.
+            kept = [
+                t
+                for t in tokens
+                if frame is not None and frame.time is not None and frame.time < t
+            ]
+            if kept:
+                by_caller[topic] = kept
+            else:
+                del by_caller[topic]
         if not any(topic in topics for topics in self._in_flight_by_caller.values()):
             self._caller_of_topic.pop(topic, None)
         # Drop callers left with no in-flight topics — the cleanup the single-caller path

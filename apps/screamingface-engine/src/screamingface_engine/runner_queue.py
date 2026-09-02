@@ -431,6 +431,22 @@ class RunQueue:
         reduces each cycle to the `fetch` alone; the cache is bounded by the configured
         bucket list (or the caller's explicit list), never by callers or messages, and a
         reconnect clears it — the subscriptions died with the connection.
+
+        THE RPC ACCOUNTING (review follow-up, recorded so the tradeoff is a decision, not
+        an accident): one pull costs one `fetch(1)` per bucket VISITED — up to
+        `max(batch, len(subjects))` per poll, 16 with the default bucket count — against
+        one `fetch(batch)` for a single-subject consumer. That multiplier is the price of
+        per-caller fairness: JetStream dispatches one consumer in stream order, so a
+        single wildcard consumer would collapse the buckets back into FIFO — the exact
+        head-of-line unfairness the bucket rotation exists to break. Two properties keep
+        the cost bounded: each fetch window is `timeout_s / visits` (an empty queue never
+        holds a worker longer than `timeout_s`), and an empty bucket's fetch returns as
+        soon as its own short window expires, so a poll against an empty queue is 16
+        cheap timeouts, not 16 long ones. Revisit only with production RPC-budget numbers
+        from the sized fleet (worker pods x polls/second x buckets vs what the broker
+        absorbs); the levers, in order of preference, are a smaller `bucket_count`, more
+        than one message per bucket visit, or a server-side fair consumer if JetStream
+        ever ships one — never a silent fallback to the wildcard.
         """
         subjects = list(subjects) if subjects is not None else self.bucket_subjects()
         if not subjects or batch <= 0:
