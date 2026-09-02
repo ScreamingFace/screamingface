@@ -49,6 +49,12 @@ QUEUE_EXPIRED = "queue_expired"
 """The run's capability expired while it sat in the queue; it was dropped unexecuted."""
 WORKER_DRAINING = "worker_draining"
 """The worker is draining and stopped the run before it finished."""
+CANCELLED = "cancelled"
+"""The run was cancelled by its owner over the control subject (OME-1090).
+
+The App's queued-cancel tombstone uses the same code (``adapters.queue_runner``), so a
+client sees one reason whether the cancel landed before or after the claim.
+"""
 DEADLINE_EXCEEDED = "deadline_exceeded"
 """The child hung past the hard wall and was SIGTERM'd, then SIGKILL'd."""
 OOM_KILLED = "oom_killed"
@@ -150,6 +156,8 @@ class RunSupervisor:
         draining: asyncio.Event,
         terminating: asyncio.Event,
         children: set[_ChildProcess],
+        children_by_topic: dict[str, _ChildProcess],
+        cancelled: set[str],
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
         deadline_margin_s: float = DEADLINE_MARGIN_S,
         kill_grace_s: float = KILL_GRACE_S,
@@ -168,7 +176,13 @@ class RunSupervisor:
         # the check-and-add below has no await between it, so on the single event loop it is
         # atomic against every other claim.
         self._topics_in_flight: set[str] = set()
-        self._heartbeat_interval_s = heartbeat_interval_s
+        # The topic → child index (OME-1090): the worker's control loop reads it to find
+        # the owner of a run, and the supervisor maintains it alongside `_children`.
+        self._children_by_topic = children_by_topic
+        # Topics a control request has cancelled (OME-1090): the worker adds a topic before
+        # SIGTERMing its child, and `_classify` reads it to name the death a cancel rather
+        # than a kill.
+        self._cancelled = cancelled
         self._deadline_margin_s = deadline_margin_s
         self._kill_grace_s = kill_grace_s
 
@@ -237,11 +251,12 @@ class RunSupervisor:
             await msg.ack()
             return
         self._children.add(proc)
+        self._children_by_topic[topic] = proc
         heartbeat = asyncio.create_task(self._heartbeat(msg, topic))
         output = asyncio.create_task(self._forward_output(proc, topic))
         try:
             outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
-            await self._publish_if_needed(topic, self._classify(outcome, proc.returncode))
+            await self._publish_if_needed(topic, self._classify(outcome, proc.returncode, topic))
             await msg.ack()
         finally:
             heartbeat.cancel()
@@ -250,18 +265,28 @@ class RunSupervisor:
             # FAILED (not cancelled) re-raises its own exception on await, and `cancel()` is a
             # no-op on it — so `await heartbeat` would blow the finally block open and skip
             # every line below it (the child stays in `self._children`, a live child is never
-            # killed). `return_exceptions=True` makes the gather itself unraisable; the two
-            # cleanup lines after it are therefore unconditional.
+            # killed). `return_exceptions=True` makes the gather itself unraisable; the
+            # cleanup after it is therefore unconditional.
             for result in await asyncio.gather(heartbeat, output, return_exceptions=True):
                 if isinstance(result, BaseException) and not isinstance(
                     result, asyncio.CancelledError
                 ):
                     logger.warning("run supervision task failed during cleanup: %r", result)
-            self._children.discard(proc)
+            self._release_child(proc, topic)
             if proc.returncode is None:
                 # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
                 # must not orphan its child.
                 proc.kill()
+
+    def _release_child(self, proc: _ChildProcess, topic: str) -> None:
+        """Drop a finished child from every registry the worker shares.
+
+        The cancel mark is per-run: a stale entry would misclassify a LATER run of the
+        same topic whose child died from a signal that was not a cancel.
+        """
+        self._children.discard(proc)
+        self._children_by_topic.pop(topic, None)
+        self._cancelled.discard(topic)
 
     async def _publish_if_needed(
         self, topic: str, classification: tuple[TerminalStatus, str, str] | None
@@ -478,7 +503,7 @@ class RunSupervisor:
             await proc.wait()
 
     def _classify(
-        self, outcome: str, returncode: int | None
+        self, outcome: str, returncode: int | None, topic: str
     ) -> tuple[TerminalStatus, str, str] | None:
         """The named terminal frame the worker must publish for a child that published none.
 
@@ -505,6 +530,15 @@ class RunSupervisor:
                 "stopped",
                 WORKER_DRAINING,
                 "the worker is draining; the run was stopped",
+            )
+        elif topic in self._cancelled and returncode is not None and returncode < 0:
+            # A control request SIGTERM'd this child (OME-1090): the death is a cancel, not
+            # a kill. A child that exited 0 on its own before the request landed is NOT
+            # classified here — its own terminal frame stands.
+            status, code, message = (
+                "stopped",
+                CANCELLED,
+                "the run was cancelled by its owner",
             )
         elif returncode == 0:
             return None
@@ -605,6 +639,7 @@ class RunSupervisor:
 
 
 __all__ = [
+    "CANCELLED",
     "CHILD_EXITED",
     "DEADLINE_EXCEEDED",
     "DEADLINE_MARGIN_S",

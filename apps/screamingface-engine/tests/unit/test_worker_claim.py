@@ -22,6 +22,7 @@ from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.worker.loop import Worker
 from screamingface_engine.worker.supervisor import (
+    CANCELLED,
     CHILD_EXITED,
     DEADLINE_EXCEEDED,
     KILLED,
@@ -152,6 +153,7 @@ def _worker(
         heartbeat_interval_s=kwargs.pop("heartbeat_interval_s", 20.0),
         deadline_margin_s=kwargs.pop("deadline_margin_s", 30.0),
         kill_grace_s=kwargs.pop("kill_grace_s", 0.05),
+        control=kwargs.pop("control", None),
     )
 
 
@@ -996,3 +998,76 @@ async def test_a_publish_failure_after_exit_does_not_cancel_a_siblings_live_chil
         await claim
     assert fail_msg.acked, "the finished run must ack despite its lost terminal frame"
     assert sib.kill_calls == 0 and sib.terminate_calls == 1
+
+
+# --- 9. the control subject (OME-1090) -----------------------------------------------------
+
+
+class _FakeControlMessage:
+    """A control request: records whether (and how) the worker replied."""
+
+    def __init__(self, subject: str) -> None:
+        self.subject = subject
+        self.data = b""
+        self.replied: list[bytes] = []
+
+    async def respond(self, data: bytes = b"") -> None:
+        self.replied.append(data)
+
+
+class _FakeControl:
+    """A control channel the test feeds requests into, one at a time."""
+
+    def __init__(self) -> None:
+        self._queue: asyncio.Queue[_FakeControlMessage] = asyncio.Queue()
+
+    def feed(self, msg: _FakeControlMessage) -> None:
+        self._queue.put_nowait(msg)
+
+    async def subscribe(self, subject: str) -> Any:
+        async def _messages() -> Any:
+            while True:
+                yield await self._queue.get()
+
+        return SimpleNamespace(messages=_messages())
+
+
+async def test_the_control_request_reaches_only_the_owning_worker() -> None:
+    """A control request for a topic this worker owns is answered and SIGTERMs the child;
+    a request for a topic it does not own is ignored — no reply, so the App's timeout
+    falls back to the tombstone."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t1", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    control = _FakeControl()
+    worker = _worker(queue, publisher, slots=1, spawn=fake_spawn, control=control)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+        ctl = tg.create_task(worker._control_loop(tg))
+
+        await _wait_until(lambda: len(procs) == 1)
+        owned = _FakeControlMessage("url4.runctl.t1")
+        foreign = _FakeControlMessage("url4.runctl.t2")
+        control.feed(owned)
+        control.feed(foreign)
+
+        await _wait_until(lambda: bool(owned.replied))
+        assert not foreign.replied, "a non-owner must not reply"
+        assert procs[0].terminate_calls == 1
+
+        # The child died on SIGTERM; the supervisor classifies the death as a cancel and
+        # publishes the one `Terminated(stopped)` frame.
+        await _wait_until(
+            lambda: bool(publisher.published) and publisher.published[-1].data.status == "stopped"
+        )
+        frame = publisher.published[-1]
+        assert frame.data.error is not None and frame.data.error.code == CANCELLED
+
+        claim.cancel()
+        ctl.cancel()

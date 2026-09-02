@@ -107,8 +107,7 @@ def create_app(
     # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
     # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
     # (OME-929).
-    artifact_store = _build_artifact_reader(settings)
-    app.state.artifact_store = artifact_store
+    app.state.artifact_store = _build_artifact_reader(settings)
     # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
     # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
     # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
@@ -118,7 +117,7 @@ def create_app(
     #
     # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
     # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
-    _install_artifact_sweeper(app, artifact_store, settings)
+    _install_artifact_sweeper(app, app.state.artifact_store, settings)
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
     register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
@@ -128,6 +127,9 @@ def create_app(
     app.state.interest = interest if interest is not None else registry
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     _install_orphan_reaper(app, registry, job_runner, settings)
+    # FEATURE: a run the queue gave up on must end in a named failure, not silence
+    # (OME-1090).
+    _install_max_deliveries_advisor(app, settings)
     if clock is not None:
         app.state.clock = clock
     install_problem_handlers(app)
@@ -170,12 +172,17 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
                 }
             )
         )
-    if settings.runner == "k8s":
+    if settings.runner in ("k8s", "queue"):
+        # WHY both backends: `k8s` schedules each run as a separate Job pod, and `queue`
+        # (OME-1090) runs each run in a worker pod — either way the run executes in a
+        # different pod than this App, whose disk is destroyed with it, so results spilled
+        # to a local directory can never be served back.
         raise ValueError(
-            f"runner='k8s' schedules each run as a separate Job pod, whose disk is destroyed "
-            f"with it, so results spilled to a local directory can never be served back. Set "
-            f"{job_env.ARTIFACT_STORE}=s3 and the {job_env.ARTIFACT_S3_BUCKET} settings, or "
-            f"use runner='none' for a single-process deployment."
+            f"runner='{settings.runner}' runs each run in its own pod, whose disk is "
+            f"destroyed with it, so results spilled to a local directory can never be "
+            f"served back. Set {job_env.ARTIFACT_STORE}=s3 and the "
+            f"{job_env.ARTIFACT_S3_BUCKET} settings, or use runner='none' for a "
+            f"single-process deployment."
         )
     return ArtifactStore(Path(settings.artifacts_dir))
 
@@ -289,6 +296,39 @@ def _install_orphan_reaper(
     app.router.on_shutdown.append(_stop)
 
 
+def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:
+    """Wire the max-deliveries advisory subscriber: a background task that publishes a
+    named terminal failure for each run the queue gave up on (OME-1090).
+
+    Modelled on `_install_orphan_reaper`: the advisor owns no task, the loop is an asyncio
+    task on the App's own event loop, and shutdown cancels it and closes the advisor's
+    connections so nothing outlives the App. Only the queue backend has a queue to give up
+    on, so a k8s or stream-only App installs nothing.
+    """
+    app.state.max_deliveries_advisor = None
+    app.state.max_deliveries_task = None
+    if settings.runner != "queue":
+        return
+    from screamingface_engine.adapters.max_deliveries import MaxDeliveriesAdvisor
+
+    advisor = MaxDeliveriesAdvisor(settings.nats_url)
+    app.state.max_deliveries_advisor = advisor
+
+    async def _start() -> None:
+        app.state.max_deliveries_task = asyncio.get_running_loop().create_task(advisor.run())
+
+    async def _stop() -> None:
+        task = app.state.max_deliveries_task
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        await advisor.aclose()
+
+    app.router.on_startup.append(_start)
+    app.router.on_shutdown.append(_stop)
+
+
 _MIN_JWT_SECRET_BYTES = 32
 
 
@@ -345,6 +385,13 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         benchmarks=BUILTIN_BENCHMARKS,
     )
     app.router.on_shutdown.append(stream.close)
+    if job_runner is not None:
+        # The queue runner owns a control connection of its own (OME-1090); the k8s runner
+        # owns nothing to close. `getattr` rather than an isinstance: the factory returns
+        # the port, and the app must not import a concrete adapter.
+        aclose = getattr(job_runner, "aclose", None)
+        if aclose is not None:
+            app.router.on_shutdown.append(aclose)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)
     if connections is not None:

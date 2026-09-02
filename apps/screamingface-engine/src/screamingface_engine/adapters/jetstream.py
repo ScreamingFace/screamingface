@@ -364,6 +364,17 @@ class _JetStreamConnection:
         except ValidationError:
             return None
 
+    async def stream_exists(self, topic: str) -> bool:
+        """Whether the run's stream is declared on the broker.
+
+        WHY this exists (OME-1090): the queue runner's `stop()` must tell a missing stream
+        (a topic that was never attached, never scheduled — a no-op) apart from an empty
+        one (a queued run whose tombstone must land), and `last_frame` deliberately
+        collapses the two into None.
+        """
+        js = await self._jetstream()
+        return await _stream_exists(js, topic)
+
     async def delete_stream(self, topic: str) -> None:
         """Drop a run's stream entirely, tolerating one that is already gone.
 
