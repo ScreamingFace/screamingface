@@ -28,7 +28,11 @@ CALLER_B: Mapping[str, str] = {"X-User-Email": "alice@example.com"}
 
 class _FakeSub:
     """A pull subscription that serves the SHARED per-subject message list — a message
-    claimed by one subscription is gone for the next, like the broker's consumer state."""
+    claimed by one subscription is gone for the next, like the broker's consumer state.
+
+    An EMPTY window RAISES, exactly like the real broker: nats-py's `fetch` never
+    returns an empty list, it raises `nats.errors.TimeoutError` (a `TimeoutError`
+    subclass). A fake returning `[]` masks an uncaught-timeout crash in `pull`."""
 
     def __init__(self, messages: list[bytes]) -> None:
         self._messages = messages
@@ -37,6 +41,8 @@ class _FakeSub:
     async def fetch(self, batch: int, timeout: float) -> list[Any]:
         out = self._messages[:batch]
         del self._messages[:batch]
+        if not out:
+            raise TimeoutError("nats: timeout")
         return [SimpleNamespace(data=payload) for payload in out]
 
     async def unsubscribe(self) -> None:
