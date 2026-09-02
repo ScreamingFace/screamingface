@@ -183,7 +183,7 @@ class RunSupervisor:
             await msg.ack()
             return
         self._children.add(proc)
-        heartbeat = asyncio.create_task(self._heartbeat(msg))
+        heartbeat = asyncio.create_task(self._heartbeat(msg, topic))
         output = asyncio.create_task(self._forward_output(proc, topic))
         try:
             outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
@@ -192,10 +192,17 @@ class RunSupervisor:
         finally:
             heartbeat.cancel()
             output.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat
-            with contextlib.suppress(asyncio.CancelledError):
-                await output
+            # WHY gather and not sequential awaits under one `suppress`: a task that already
+            # FAILED (not cancelled) re-raises its own exception on await, and `cancel()` is a
+            # no-op on it — so `await heartbeat` would blow the finally block open and skip
+            # every line below it (the child stays in `self._children`, a live child is never
+            # killed). `return_exceptions=True` makes the gather itself unraisable; the two
+            # cleanup lines after it are therefore unconditional.
+            for result in await asyncio.gather(heartbeat, output, return_exceptions=True):
+                if isinstance(result, BaseException) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
+                    logger.warning("run supervision task failed during cleanup: %r", result)
             self._children.discard(proc)
             if proc.returncode is None:
                 # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
@@ -390,7 +397,7 @@ class RunSupervisor:
 
     # --- the child's side channels --------------------------------------------------------
 
-    async def _heartbeat(self, msg: ClaimedMessage) -> None:
+    async def _heartbeat(self, msg: ClaimedMessage, topic: str) -> None:
         """Extend the claimed message's ack_wait while its child runs.
 
         Without this, a run longer than the queue's ``ack_wait`` (60s) would be
@@ -400,7 +407,17 @@ class RunSupervisor:
         """
         while True:
             await asyncio.sleep(self._heartbeat_interval_s)
-            await msg.in_progress()
+            try:
+                await msg.in_progress()
+            except asyncio.CancelledError:
+                raise  # the run is over — the supervisor cancelled this task
+            except Exception:
+                # A transient broker failure (a connection blip, a protocol error) must not
+                # kill the heartbeat: the task dying here means the ack_wait runs out, the
+                # message is redelivered mid-run, and a second worker double-runs it — the
+                # exact outcome the heartbeat exists to prevent. Log and keep the loop; the
+                # broker recovers or the run ends, and either way the next extension retries.
+                logger.exception("heartbeat extension failed for %s; retrying next interval", topic)
 
     async def _forward_output(self, proc: _ChildProcess, topic: str) -> None:
         """Forward the child's stdout/stderr to the worker's log, topic-bound.

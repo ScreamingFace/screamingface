@@ -513,3 +513,63 @@ async def test_a_drain_child_that_ignores_sigterm_is_still_acked_not_cancelled()
         assert procs[0].returncode == -9, "the fresh wait must reap the SIGKILL exit"
 
         await claim
+
+
+# --- heartbeat resilience (review follow-up) ------------------------------------------------
+
+
+class _FlakyMsg(_FakeMsg):
+    """A claimed message whose `in_progress()` fails the first N times — a broker blip."""
+
+    def __init__(self, data: bytes, *, failures: int) -> None:
+        super().__init__(data)
+        self._failures = failures
+        self.attempts = 0
+
+    async def in_progress(self) -> None:
+        self.attempts += 1
+        if self.attempts <= self._failures:
+            raise ConnectionError("broker reset")
+        await super().in_progress()
+
+
+async def test_a_transient_heartbeat_failure_does_not_stop_the_heartbeats() -> None:
+    """`in_progress()` is a broker RPC; one transient failure (a connection blip) must
+    not kill the heartbeat task — a dead heartbeat means the ack_wait runs out and the
+    message is redelivered mid-run to a second worker: the exact double-run the
+    heartbeat exists to prevent. The loop logs and keeps extending."""
+    topic = "t-blip"
+    msg = _FlakyMsg(encode_message(topic, "'hi'", 60), failures=1)
+    proc = _FakeProcess(hang=True)
+    worker = _worker(
+        _FakeQueue(), _FakePublisher(), spawn=_async_proc(proc), heartbeat_interval_s=0.01
+    )
+    supervise = asyncio.create_task(worker._supervisor.supervise(msg))
+
+    await _wait_until(lambda: msg.in_progress_calls >= 3)  # failed once, kept going
+    assert not msg.acked, "a live run must not be acked"
+
+    proc.release(0)
+    await supervise
+    assert msg.acked
+
+
+async def test_a_dead_heartbeat_task_does_not_break_the_runs_cleanup() -> None:
+    """The heartbeat task can FAIL outright (every extension raises). `cancel()` is a
+    no-op on an already-finished task, and the cleanup awaited it FIRST — the task's
+    own exception blew the finally block open, so every line after it was skipped: the
+    child stayed in `_children` forever and a live child was never killed. The reaping
+    must be unraisable; the child is released regardless."""
+    topic = "t-dead-hb"
+    msg = _FlakyMsg(encode_message(topic, "'hi'", 60), failures=10**9)  # always fails
+    proc = _FakeProcess(hang=True)
+    worker = _worker(
+        _FakeQueue(), _FakePublisher(), spawn=_async_proc(proc), heartbeat_interval_s=0.01
+    )
+    supervise = asyncio.create_task(worker._supervisor.supervise(msg))
+
+    await _wait_until(lambda: msg.attempts >= 1)  # the heartbeat has failed and died
+    proc.release(0)
+    await supervise  # must NOT re-raise the heartbeat's ConnectionError
+    assert msg.acked
+    assert proc not in worker._supervisor._children, "a finished run must release its child"
