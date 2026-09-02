@@ -1,12 +1,12 @@
 ---
 id: OME-936
 linear_url: https://linear.app/openmined/issue/OME-936/write-the-observability-and-traceability-review-spec
-status: in_progress
+status: done
 type: task
 priority: 2
 labels: [repo, agentic, autonomous, task]
 created: 2026-08-22
-closed:
+closed: 2026-09-01
 ---
 
 # Write the observability & traceability review spec
