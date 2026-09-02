@@ -222,12 +222,39 @@ class Worker:
         running here" and falls back to the tombstone. A request for an owned topic is
         answered (the App then writes nothing) and the child is SIGTERM'd; the supervisor
         classifies the death as a cancel and publishes ``Terminated(stopped)``.
+
+        INVARIANT: the loop EXITS on the drain signal, raced against the next message.
+        The subscription's iterator only ends when the CONNECTION closes, and
+        `run_worker` closes the control connection only after `Worker.run()` returns —
+        so a loop that merely awaits the next message keeps the TaskGroup (and the
+        rolling deploy behind it) alive until the kubelet SIGKILLs the pod, which is
+        exactly the deploy-interrupts-runs regression the drain exists to prevent. The
+        drain phase SIGTERMs the remaining children itself, so exiting here loses
+        nothing.
         """
         control = self._control
         if control is None:
             return
         sub = await control.subscribe(f"{CONTROL_SUBJECT_PREFIX}.*")
-        async for msg in sub.messages:
+        messages = sub.messages.__aiter__()
+        while not self._draining.is_set():
+            msg_task = asyncio.ensure_future(messages.__anext__())
+            drain_task = asyncio.create_task(self._draining.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {msg_task, drain_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                drain_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await drain_task
+            if msg_task not in done:
+                # The drain signal won: abandon the pending fetch and exit.
+                msg_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await msg_task
+                return
+            msg = msg_task.result()
             topic = msg.subject.removeprefix(f"{CONTROL_SUBJECT_PREFIX}.")
             proc = self._children_by_topic.get(topic)
             if proc is None:

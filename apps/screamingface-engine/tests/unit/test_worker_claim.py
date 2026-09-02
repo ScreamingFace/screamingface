@@ -1071,3 +1071,33 @@ async def test_the_control_request_reaches_only_the_owning_worker() -> None:
 
         claim.cancel()
         ctl.cancel()
+
+
+async def test_run_completes_after_the_drain_signal_with_a_control_channel_attached() -> None:
+    """`Worker.run()` must RETURN once the drain signal fires — even with the control
+    channel attached. The TaskGroup awaits `_control_loop`, whose message iterator only
+    ends when the connection closes, and `run_worker` closes that only AFTER `run()`
+    returns: a control loop that cannot exit turns every rolling deploy into a hang
+    until the kubelet SIGKILLs the pod — the deploy-interrupts-runs regression the
+    drain exists to prevent."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-run", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    control = _FakeControl()
+    worker = _worker(
+        queue, publisher, slots=1, spawn=fake_spawn, control=control, drain_grace_s=0.05
+    )
+    run_task = asyncio.create_task(worker.run())
+
+    await _wait_until(lambda: len(procs) == 1)
+    worker._draining.set()  # exactly what the SIGTERM handler in run() does
+    await asyncio.wait_for(run_task, timeout=5.0)  # must COMPLETE, not hang
+
+    assert procs[0].terminate_calls == 1
+    assert publisher.published[-1].data.status == "stopped"
