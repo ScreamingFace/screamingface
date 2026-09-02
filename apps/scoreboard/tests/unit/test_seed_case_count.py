@@ -63,3 +63,62 @@ async def test_configuration_may_never_declare_a_case_count(tortoise_db: None) -
 
     assert report.refused == ["ifeval"]
     assert await Benchmark.filter(id="ifeval").count() == 0
+
+
+@pytest.mark.parametrize(
+    "published",
+    [0, -1, True, "541", {"total": 541}, [541], 1.5],
+    ids=["zero", "negative", "bool", "string", "object", "list", "float"],
+)
+async def test_an_unusable_catalogue_count_costs_the_filter_not_the_row(
+    published: object,
+) -> None:
+    """A published count the board cannot use must degrade to None, never reject the entry.
+
+    WHY this is the whole point of `extra="ignore"` on `_CatalogEntry`: the catalogue is written
+    by another service. `ge=1` made a published `case_count: 0` — a benchmark whose dataset
+    failed to load — cost the benchmark its ROW: a new board is never created, an existing
+    board's text stops refreshing, and the deploy exits 0. The field's own comment already
+    promised the milder outcome, and `SeedBenchmark` keeps `ge=1` because a HAND-WRITTEN typo
+    should fail the deploy loudly. Require it where it is written; tolerate it where it is read.
+
+    `True` is in the table because `bool` subclasses `int`, so an unguarded check would accept it
+    as a case count of 1 — which re-opens the hole from the other side by making every one-case
+    run "complete".
+    """
+    payload = _catalog({"revision": "rev-ifeval", "case_count": published})
+
+    with _serving(payload) as client:
+        read = fetch_engine_benchmarks(ENGINE_URL, client=client, retry_delay=0)
+
+    assert read.rejected == [], f"{published!r} cost the benchmark its row"
+    assert len(read.rows) == 1
+    assert read.rows[0].case_count is None
+    assert read.rows[0].display_name == "IFEval", "the row's text must still refresh"
+
+
+async def test_the_catalogue_case_count_reaches_the_database(tortoise_db: None) -> None:
+    """Pin the complete HTTP catalogue -> seed adapter -> ORM persistence path."""
+    payload = _catalog({"revision": "rev-ifeval", "case_count": 541})
+
+    with _serving(payload) as client:
+        report = await seed_from_sources(
+            engine_url=ENGINE_URL, configured=[], client=client, retry_delay=0
+        )
+
+    assert [row.id for row in report.seeded] == ["ifeval"]
+    assert (await Benchmark.get(id="ifeval")).case_count == 541
+
+
+async def test_a_catalogue_without_a_case_count_clears_a_stale_count(
+    tortoise_db: None,
+) -> None:
+    """An authoritative missing count clears scope left by an older Engine revision."""
+    await Benchmark.create(id="ifeval", display_name="IFEval", revision="rev-old", case_count=541)
+
+    with _serving(_catalog({"revision": "rev-new"})) as client:
+        await seed_from_sources(engine_url=ENGINE_URL, configured=[], client=client, retry_delay=0)
+
+    benchmark = await Benchmark.get(id="ifeval")
+    assert benchmark.revision == "rev-new"
+    assert benchmark.case_count is None

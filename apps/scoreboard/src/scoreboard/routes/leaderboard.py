@@ -350,5 +350,12 @@ async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
             detail=FRONTIER_NOT_AVAILABLE_DETAIL,
             headers=PRIVATE_CACHE_HEADERS,
         )
-    result = compute_frontier(scores=scores, baselines=baselines)
+    # OME-1056: the same coverage rule the ranking applies. `benchmark` was read at the top of
+    # this handler and its `case_count` is the board's canonical scope; a partial run must not
+    # own the frontier while being hidden from the table on the same page.
+    result = compute_frontier(
+        scores=scores,
+        baselines=baselines,
+        registered_case_count=benchmark.case_count,
+    )
     return FrontierResponse(benchmark_id=benchmark_id, **result.model_dump())

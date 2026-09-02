@@ -174,3 +174,72 @@ def test_openness_override_changes_the_holders_reported_openness() -> None:
     assert result.current.openness == "open"
     assert result.open_count == 1
     assert result.closed_count == 0
+
+
+def _coverage_score(
+    *, spec_id: str, score: float, total_questions: int, minute: int
+) -> ScoreSchema:
+    """A score whose `total_questions` varies — the prior `_score` helper hardcodes it to 10.
+
+    Built here rather than by extending that helper: it is a prior test fixture, and rule 5 makes
+    editing one an owner decision that a new keyword argument does not justify (OME-1056).
+    """
+    return ScoreSchema(
+        id=uuid4(),
+        version=1,
+        benchmark_id="hle",
+        benchmark_revision=None,
+        run_cost_usd=None,
+        spec_id=spec_id,
+        url4_expression=f"url4://benchmark/{spec_id}",
+        submitted_by="tester",
+        submitted_at=datetime(2026, 9, 2, 12, minute, tzinfo=UTC),
+        score=score,
+        total_questions=total_questions,
+        correct_questions=None,
+        ran_with_providers=["huggingface"],
+        ran_at_local=None,
+        client_name=None,
+        client_version=None,
+        client_platform=None,
+        verified_by_screamingface=False,
+        metadata=None,
+        openness_override=None,
+    )
+
+
+def test_a_partial_run_does_not_hold_the_frontier() -> None:
+    """OME-1056: the same coverage rule the ranking applies.
+
+    INVARIANT: this is the WORSE half of the bug the ranking fix addressed. `_compute_trend`
+    advances the holder only on a STRICT improvement, so a one-case 1.0 becomes `current` and no
+    complete run can ever displace it — the table's version is a wrong ordering, this one is
+    permanent. Before this filter the board hid the partial run from the ranking while publishing
+    it as the state of the art on the same page.
+    """
+    result = compute_frontier(
+        scores=[
+            _coverage_score(spec_id="one-case-run", score=1.0, total_questions=1, minute=0),
+            _coverage_score(spec_id="honest-full-run", score=0.85, total_questions=541, minute=1),
+        ],
+        baselines=[],
+        registered_case_count=541,
+    )
+
+    assert result.current is not None
+    assert result.current.label == "honest-full-run"
+    assert [point.label for point in result.trend] == ["honest-full-run"]
+    assert result.open_count + result.closed_count == 1
+
+
+def test_a_board_with_no_registered_count_still_ranks_everything() -> None:
+    # None means the board declares no canonical scope, so nothing is comparable-or-not and the
+    # frontier behaves exactly as it did before this change.
+    result = compute_frontier(
+        scores=[_coverage_score(spec_id="one-case-run", score=1.0, total_questions=1, minute=0)],
+        baselines=[],
+        registered_case_count=None,
+    )
+
+    assert result.current is not None
+    assert result.current.label == "one-case-run"

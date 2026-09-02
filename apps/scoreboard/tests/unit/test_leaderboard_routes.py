@@ -1224,3 +1224,49 @@ async def test_the_private_response_never_contradicts_itself(
     steady = (await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}")).json()
     assert steady["scoped_to_caller"] is True
     assert steady["benchmark"]["visibility"] == "private"
+
+
+# --- OME-1056: the frontier applies the same coverage rule as the ranking ---
+
+
+async def test_the_frontier_route_passes_the_registered_case_count(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The route must hand `benchmark.case_count` to `compute_frontier`.
+
+    WHY pinned at the ROUTE and not only in the pure function: `compute_frontier`'s
+    `registered_case_count` has to default to None — seven prior tests call it and rule 5 makes
+    editing them an owner decision a keyword default does not justify. That default means a route
+    which stops passing the argument silently returns to publishing partial runs as the state of
+    the art, with no type error and no failure in the function's own tests. This is the guard that
+    makes the default safe, so it is the one to keep green.
+
+    The board hid a one-case run from the table while this endpoint made it `current` — and
+    because `_compute_trend` advances the holder only on a STRICT improvement, no complete run
+    could ever displace it.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="ifeval", display_name="IFEval", case_count=541)
+    for spec_id, score, total in (("one-case-run", 1.0, 1), ("honest-full-run", 0.85, 541)):
+        response = await async_client.post(
+            "/v1/scores",
+            json={
+                "version": 1,
+                "benchmark_id": "ifeval",
+                "spec_id": spec_id,
+                "url4_expression": f"url4://{spec_id}",
+                "submitted_by": "tester",
+                "score": score,
+                "total_questions": total,
+                "ran_with_providers": ["openrouter"],
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    body = (await async_client.get("/v1/leaderboard/ifeval/frontier")).json()
+
+    assert body["current"]["label"] == "honest-full-run", (
+        "the frontier published a partial run as the state of the art; the route is not passing "
+        "the registered case count to compute_frontier"
+    )
+    assert [point["label"] for point in body["trend"]] == ["honest-full-run"]

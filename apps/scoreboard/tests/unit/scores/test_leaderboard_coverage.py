@@ -112,3 +112,54 @@ async def test_a_specs_complete_run_survives_its_own_higher_scoring_partial(
     ranked = await store.leaderboard("ifeval", top_n=50)
 
     assert [(e.spec_id, e.score) for e in ranked] == [("same-spec", 0.60)]
+
+
+async def test_over_reporting_the_case_count_still_ranks(tortoise_db: None) -> None:
+    """`>=` is deliberate, so a run claiming MORE cases than registered still ranks.
+
+    WHY pinned: `_build_leaderboard_query` carries a paragraph explaining the choice, and nothing
+    exercised it — tightening the predicate to `==` (or rejecting `!=`) passed the whole suite
+    while dropping every complete run whose board count had gone stale, which is the failure that
+    comment exists to prevent.
+
+    AIDEV-NOTE: this is ALSO the shape of the remaining hole, recorded rather than hidden.
+    `total_questions` is client-declared and validated only `> 0`, so a one-case run POSTing 541
+    passes this predicate and ranks. Closing that needs attestation at WRITE time, which is not
+    this ticket's scope — the read-time filter is a guard against honest partial runs, not a
+    defence against a forged scope (OME-1056).
+    """
+    store = await _board(FULL)
+    await store.submit(_submission("claims-more", 0.5, FULL + 10))
+
+    assert [e.spec_id for e in await store.leaderboard("ifeval", top_n=50)] == ["claims-more"]
+
+
+async def test_a_reseed_without_a_count_keeps_the_stored_one(tortoise_db: None) -> None:
+    """An omitted `case_count` means "leave it alone", never "forget how big this benchmark is".
+
+    Seeding runs on every deploy. Writing None unconditionally NULLed a stored count, which drops
+    the coverage predicate from the ranking query and lets partial runs rank again — with no log
+    line and a green deploy. `visibility` is guarded the same way and for the same reason.
+    """
+    store = await _board(FULL)
+    await store.register_benchmark(benchmark_id="ifeval", display_name="IFEval", revision=REV)
+    await store.submit(_submission("honest-full-run", 0.85, FULL))
+    await store.submit(_submission("one-case-run", 1.00, 1))
+
+    ranked = [entry.spec_id for entry in await store.leaderboard("ifeval", top_n=50)]
+
+    assert ranked == ["honest-full-run"], (
+        "a re-seed that did not mention case_count wiped the stored count, so the coverage "
+        "filter stopped applying"
+    )
+
+
+async def test_an_explicit_count_still_corrects_a_wrong_one(tortoise_db: None) -> None:
+    # The guard must not make the column write-once: a mis-seeded count has to be fixable.
+    store = await _board(1)
+    await store.register_benchmark(
+        benchmark_id="ifeval", display_name="IFEval", revision=REV, case_count=FULL
+    )
+    await store.submit(_submission("one-case-run", 1.00, 1))
+
+    assert await store.leaderboard("ifeval", top_n=50) == []
