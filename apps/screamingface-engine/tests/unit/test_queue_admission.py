@@ -451,3 +451,31 @@ async def test_a_failed_readmission_releases_only_its_own_callers_slot() -> None
     # (`_caller_of_topic` is write-only bookkeeping — the wipe scans every caller — so its
     # stale B entry is harmless; the in-flight maps above are the contract.)
     assert runner._reserved == 1, "exactly one live reservation remains"
+
+
+# --- 8. the Retry-After header is always delta-seconds (review follow-up) --------------------
+
+
+class _FractionalRunner(_AtCapacityRunner):
+    """A runner whose drain estimate is a fractional float — legal at runtime even though
+    the port types it `int | None`; the HTTP boundary must not care."""
+
+    async def schedule(self, *args: Any, **kwargs: Any) -> str:
+        raise JobRunnerAtCapacity(2, 10, retry_after_s=2.5)  # type: ignore[arg-type]
+
+
+async def test_a_fractional_estimate_is_ceiled_into_a_valid_retry_after_header() -> None:
+    """`Retry-After` is delta-seconds per RFC 7231 — a non-negative decimal INTEGER. The
+    header used `str(retry_after)`; today's only producer happens to ceil, but any future
+    adapter returning a float (an averaged latency, say) would emit "2.5" — malformed,
+    which clients reject or ignore. The boundary ceils: 2.5 renders as "3", rounding UP
+    so the caller is never told to retry sooner than the estimate."""
+    app = _make_app(_FractionalRunner())
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get(
+            "/", params={"q": "gpt()"}, headers={"URL4-Capability": _token("topic-frac")}
+        )
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "3"

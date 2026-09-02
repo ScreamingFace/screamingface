@@ -10,6 +10,7 @@ observe the run) lives elsewhere; this module only schedules work onto it via
 
 import asyncio
 import logging
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -224,7 +225,13 @@ async def _schedule(
             status=503,
             title="Service Unavailable",
             detail="the runner is at capacity — retry shortly",
-            headers={"Retry-After": str(retry_after) if retry_after is not None else "1"},
+            # CEIL at the boundary, not trust in the producer: `Retry-After` is
+            # delta-seconds per RFC 7231 — a non-negative decimal INTEGER. The port
+            # types the estimate as `int | None` and today's only producer ceils, but
+            # the header is where the value becomes protocol, so the boundary renders
+            # ANY future adapter's fractional estimate as a valid integer — rounding
+            # UP, so a caller is never told to retry sooner than the estimate.
+            headers={"Retry-After": str(math.ceil(retry_after)) if retry_after is not None else "1"},
         ) from exc
 
 
