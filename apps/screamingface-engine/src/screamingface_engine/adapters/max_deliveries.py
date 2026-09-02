@@ -27,7 +27,7 @@ from typing import Any
 import nats
 from nats.aio.client import Client
 
-from screamingface_engine.adapters.jetstream import JetStreamPublisher
+from screamingface_engine.adapters.jetstream import JetStreamPublisher, QueueReadError
 from screamingface_engine.runner_queue import topic_of_message
 from url4.streaming.protocol import (
     ErrorInfo,
@@ -118,12 +118,32 @@ class MaxDeliveriesAdvisor:
         await self._publish_failure(publisher, topic)
 
     async def _publish_failure(self, publisher: Any, topic: str) -> None:
-        """Publish `Terminated(failed, max_deliveries)` to the run's stream.
+        """Publish `Terminated(failed, max_deliveries)` to the run's stream — only if the
+        stream does not already end in a terminal frame.
 
         The frame is a root frame (``source`` is the run's own), so a client attached to
         the run sees it as the run's outcome, exactly like the worker's own terminal
         frames.
+
+        WHY the terminal check first (review follow-up): the advisory and the run race.
+        A worker on its FINAL redelivery can complete and publish `Terminated(succeeded)`
+        right as the expired `ack_wait` fires this advisory — the run finished, the
+        broker merely did not see the ack in time. Publishing unconditionally appended
+        `failed` AFTER the success, and `status()` — a last-frame read — reported a
+        succeeded run as failed. The check reads the tail like every other terminal
+        writer here (`supervisor._publish_if_needed`, `queue_runner.stop`) so the FIRST
+        real outcome stands. An UNREADABLE tail is not "no frame" — it skips (logged)
+        rather than gambling a failure frame onto a possibly-finished run.
         """
+        try:
+            last = await publisher.last_frame(topic)
+        except QueueReadError:
+            logger.warning(
+                "max-deliveries advisory for %s skipped: stream tail unreadable", topic
+            )
+            return
+        if isinstance(last, TerminatedEvent):
+            return
         await publisher.ensure_stream(topic)
         await publisher.publish(
             topic,

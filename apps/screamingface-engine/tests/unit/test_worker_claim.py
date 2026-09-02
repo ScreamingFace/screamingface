@@ -1103,6 +1103,7 @@ async def test_run_completes_after_the_drain_signal_with_a_control_channel_attac
     assert publisher.published[-1].data.status == "stopped"
 
 
+
 async def test_a_cancel_during_the_spawn_window_is_answered_and_enacted() -> None:
     """A cancel that lands between the supervisor's terminal-frame check and the child's
     registration used to get NO reply — the control loop ignored it, the App's timeout
@@ -1149,3 +1150,79 @@ async def test_a_cancel_during_the_spawn_window_is_answered_and_enacted() -> Non
 
         claim.cancel()
         ctl.cancel()
+
+
+# --- review follow-up: the cancel must be recorded before the ack that promises it ----------
+
+
+class _GatedRespondControlMessage(_FakeControlMessage):
+    """A control request whose `respond` SUSPENDS until released — the network I/O window
+    the old ordering raced in."""
+
+    def __init__(self, subject: str, gate: asyncio.Event) -> None:
+        super().__init__(subject)
+        self._gate = gate
+
+    async def respond(self, data: bytes = b"") -> None:
+        await self._gate.wait()
+        await super().respond(data)
+
+
+async def test_a_cancel_acked_during_a_slow_respond_is_still_enacted() -> None:
+    """`respond` is real network I/O — a suspension point. The old order (ack, THEN
+    record the cancel) let the spawn complete and the supervisor's registration check
+    (`if topic in self._cancelled`) run inside that window: the mark was absent, the
+    child was never terminated, and the App — already holding "ok" — wrote no tombstone:
+    the caller believed the run was stopped while it ran to completion. The mark now
+    precedes the ack, so the registration check sees it on every schedule order."""
+
+    spawn_gate = asyncio.Event()
+    respond_gate = asyncio.Event()
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> Any:
+        await spawn_gate.wait()  # mid-spawn (fork/exec) until the test releases it
+        return proc
+
+    proc = _FakeProcess(hang=True)
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-slowresp", "'hi'", 60))]])
+    control = _FakeControl()
+    worker = _worker(queue, _FakePublisher(), slots=1, spawn=fake_spawn, control=control)
+
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+        ctl = tg.create_task(worker._control_loop(tg))
+
+        # The run is STARTING (spawn suspended); the cancel arrives mid-spawn.
+        await _wait_until(lambda: "t-slowresp" in worker._starting)
+        cancel = _GatedRespondControlMessage("url4.runctl.t-slowresp", respond_gate)
+        control.feed(cancel)
+        # The control loop is now suspended INSIDE respond() — with the mark already
+        # recorded (the fix); in the old order the mark did not exist yet.
+        await _wait_until(lambda: "t-slowresp" in worker._cancelled)
+
+        # The spawn completes while the ack is still in flight: the registration check
+        # runs HERE, on every schedule order — and with the mark already recorded it
+        # terminates the child the moment it exists. (The whole post-spawn chain is one
+        # scheduling step — no await between register and terminate — so the DURABLE
+        # terminal frame is the observable, not the transient registry entry.)
+        spawn_gate.set()
+        await _wait_until(
+            lambda: worker._publisher.published
+            and worker._publisher.published[-1].data.status == "stopped"
+        )
+        frame = worker._publisher.published[-1]
+        assert frame.data.error is not None and frame.data.error.code == CANCELLED
+
+        respond_gate.set()  # the ack finally leaves — AFTER the cancel was already enacted
+        await _wait_until(lambda: cancel.replied == [b"ok"])
+
+        claim.cancel()
+        ctl.cancel()
+
+
+def topic_starting(worker: Worker) -> bool:
+    return "t-slowresp" in worker._starting
+
+
+def topic_cancelled(worker: Worker) -> bool:
+    return "t-slowresp" in worker._cancelled
