@@ -1,13 +1,16 @@
-# The runner pool's disruption budget (OME-1092): a voluntary disruption may never take a slot
-# away from a run that is using it.
+# The runner pool's disruption budget (OME-1092): voluntary disruptions are SERIALIZED, and
+# the drain — not the budget — is what protects in-flight runs.
 #
-# WHY `maxUnavailable: 0`: the pool's slots are the fleet's concurrency, and a run is not
-# resumable — a pod evicted mid-run loses the run's PROGRESS (the queue redelivers the message,
-# but the run restarts from scratch). A node drain or cluster autoscaler that evicts a busy
-# worker therefore interrupts live runs, which is exactly the deploy-interrupts-runs regression
-# this budget exists to prevent. `maxUnavailable: 0` means a drain waits for the worker's slots
-# to free up (bounded by the drain grace), and the Deployment's own rollout is already
-# serialized by the preStop + grace period.
+# WHY `maxUnavailable: 1` and not `0`: a PodDisruptionBudget cannot see slot occupancy — it
+# knows pod COUNT and nothing else — so `maxUnavailable: 0` does not "wait for the worker's
+# slots to free up"; it makes `disruptionsAllowed` permanently 0, the eviction API answers
+# 429 forever, and `kubectl drain`, node upgrades, and the cluster autoscaler block on this
+# pod indefinitely, idle or not, until someone passes `--disable-eviction`. The actual
+# protection for in-flight runs is the preStop drain + `terminationGracePeriodSeconds >
+# drainGraceS`: an evicted worker SIGTERMs, lets its children finish (or publishes their
+# `worker_draining` frames) inside the grace, and only then exits. `maxUnavailable: 1`
+# serializes voluntary disruptions one pod at a time so a multi-pod pool never loses more
+# than one drain-grace worth of work at once.
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -16,7 +19,7 @@ metadata:
     {{- include "screamingface-engine.labels" . | nindent 4 }}
     app.kubernetes.io/component: runner
 spec:
-  maxUnavailable: 0
+  maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: url4-runner
