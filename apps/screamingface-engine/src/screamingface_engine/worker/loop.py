@@ -21,6 +21,7 @@ from typing import Protocol
 import nats
 
 from screamingface_engine.config import Settings
+from screamingface_engine.runner_queue import topic_of_message
 from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
@@ -129,6 +130,13 @@ class Worker:
         # Topics a control request has cancelled (OME-1090): the control loop adds a topic
         # before SIGTERMing its child; the supervisors read it to classify the death.
         self._cancelled: set[str] = set()
+        # Runs this worker has CLAIMED but not yet spawned (OME-1090): the control loop
+        # answers from here while a run is starting, so a cancel that lands in the spawn
+        # window gets a reply (and the App writes no tombstone) instead of being ignored
+        # until the child has run to completion — two terminal frames. The claim loop
+        # registers a topic BEFORE creating the supervisor task (closing the scheduling
+        # gap), and the supervisor clears it once the child registers (or fails to).
+        self._starting: set[str] = set()
         # The in-flight supervisor tasks — the slot accounting. asyncio is single-threaded,
         # so no lock is needed; the fetch batch is computed from the free slots below.
         self._active: set[asyncio.Task[None]] = set()
@@ -142,6 +150,7 @@ class Worker:
             children=self._children,
             children_by_topic=self._children_by_topic,
             cancelled=self._cancelled,
+            starting=self._starting,
             heartbeat_interval_s=heartbeat_interval_s,
             deadline_margin_s=deadline_margin_s,
             kill_grace_s=kill_grace_s,
@@ -208,6 +217,11 @@ class Worker:
                 await asyncio.sleep(_PULL_RETRY_S)
                 continue
             for msg in msgs:
+                # Register the run as STARTING before the supervisor task exists: a cancel
+                # that arrives while the claim loop is between pulls must find the topic,
+                # or the control loop ignores it and the App tombstones a run this worker
+                # is about to own (two terminal frames — the race OME-1090's fix closes).
+                self._starting.add(topic_of_message(msg.data))
                 task = tg.create_task(self._supervisor.supervise(msg))
                 self._active.add(task)
                 task.add_done_callback(self._active.discard)
@@ -258,6 +272,14 @@ class Worker:
             topic = msg.subject.removeprefix(f"{CONTROL_SUBJECT_PREFIX}.")
             proc = self._children_by_topic.get(topic)
             if proc is None:
+                if topic in self._starting:
+                    # A run this worker is STARTING: the child has not registered yet, but
+                    # the App must not tombstone a run this worker is about to own — that
+                    # is how a run ends with two terminal frames. Reply now (the App
+                    # writes nothing) and mark the topic cancelled; the supervisor enacts
+                    # the cancel the moment the child registers.
+                    await msg.respond(b"ok")
+                    self._cancelled.add(topic)
                 continue
             await msg.respond(b"ok")
             self._cancelled.add(topic)
