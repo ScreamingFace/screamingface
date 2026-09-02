@@ -1,0 +1,284 @@
+"""Depth-based admission (OME-1091): the queue runner refuses at the depth ceiling with
+`JobRunnerAtCapacity`, the reservation counter closes the read-modify-write race between
+two admissions in one refresh window, the per-caller in-flight cap bounds one caller's
+footprint, and the REST edge derives `Retry-After` from a drain estimate instead of the
+constant 1.
+
+The counted resource changed from OME-1065 (quota headroom → queue depth); the
+cache-plus-reservation shape did not. Depth and oldest-message age come from the queue's
+cached `stream_info` reading; the runner's own refresh window plus the reservation counter
+close the race when two `schedule()` calls land between refreshes.
+"""
+
+import asyncio
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport
+
+from screamingface_engine.adapters.queue_runner import QueueJobRunner
+from screamingface_engine.app import create_app
+from screamingface_engine.auth import JwtCodec
+from screamingface_engine.config import Settings
+from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.testing import InMemoryEventStream
+from url4.streaming.interfaces import JobRunnerAtCapacity, JobStatus, job_name
+from url4.streaming.protocol import CachePolicy
+
+pytestmark = pytest.mark.asyncio
+
+CAPABILITY_LIFETIME_S = 100.0
+T0 = datetime(2026, 9, 2, 9, 0, 0, tzinfo=UTC)
+SECRET = "admission-secret"
+WINDOW_S = 60
+LIFETIME_S = 58_800
+
+CALLER_A: Mapping[str, str] = {"X-User-Email": "a@example.com"}
+CALLER_B: Mapping[str, str] = {"X-User-Email": "b@example.com"}
+
+
+class _FakeClock:
+    """A wall clock the test advances by hand."""
+
+    def __init__(self) -> None:
+        self.now = T0
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += timedelta(seconds=seconds)
+
+
+class _FakeQueue:
+    """The slice of `RunQueue` the queue runner uses, scripted per test."""
+
+    def __init__(self, *, depth: int = 0, oldest_age: float | None = None) -> None:
+        self._depth = depth
+        self._oldest_age = oldest_age
+        self.published: list[tuple[bytes, Mapping[str, str] | None]] = []
+
+    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+        self.published.append((message, identity))
+
+    async def depth(self) -> int:
+        return self._depth
+
+    async def oldest_age(self) -> float | None:
+        return self._oldest_age
+
+
+class _FakePublisher:
+    """The slice of `JetStreamPublisher` the queue runner reads, scripted per test."""
+
+    def __init__(self, last_frame: Any = None) -> None:
+        self._last_frame = last_frame
+        self.published: list[Any] = []
+        self.ensured: list[str] = []
+
+    async def last_frame(self, topic: str) -> Any:
+        return self._last_frame
+
+    async def stream_exists(self, topic: str) -> bool:
+        return True
+
+    async def ensure_stream(self, topic: str) -> None:
+        self.ensured.append(topic)
+
+    async def publish(self, topic: str, event: Any) -> None:
+        self.published.append(event)
+
+    async def flush(self) -> None:
+        pass
+
+
+class _FakeControl:
+    async def request(self, subject: str, payload: bytes, *, timeout: float) -> Any:
+        raise TimeoutError()
+
+
+def _runner(
+    queue: _FakeQueue,
+    *,
+    depth_ceiling: int = 10,
+    caller_inflight_cap: int = 8,
+    clock: _FakeClock | None = None,
+) -> QueueJobRunner:
+    return QueueJobRunner(
+        queue=queue,
+        publisher=_FakePublisher(),
+        control=_FakeControl(),
+        clock=clock or _FakeClock(),
+        capability_lifetime_s=CAPABILITY_LIFETIME_S,
+        depth_ceiling=depth_ceiling,
+        caller_inflight_cap=caller_inflight_cap,
+    )
+
+
+# --- 1. depth at the ceiling refuses -------------------------------------------------------
+
+
+async def test_depth_at_the_ceiling_raises_job_runner_at_capacity() -> None:
+    """A queue as deep as the ceiling refuses the run with `JobRunnerAtCapacity` — the
+    substrate is saturated, and an identical retry later succeeds."""
+    queue = _FakeQueue(depth=10)
+    runner = _runner(queue, depth_ceiling=10)
+
+    with pytest.raises(JobRunnerAtCapacity) as exc:
+        await runner.schedule("t", "'hi'", 60)
+
+    assert exc.value.limit == 10
+    assert queue.published == []
+
+
+async def test_depth_below_the_ceiling_is_admitted() -> None:
+    """One below the ceiling is admitted — the ceiling is a bound, not a cliff."""
+    queue = _FakeQueue(depth=9)
+    runner = _runner(queue, depth_ceiling=10)
+
+    name = await runner.schedule("t", "'hi'", 60)
+
+    assert name == job_name("t")
+    assert len(queue.published) == 1
+
+
+async def test_the_drain_estimate_derives_retry_after_from_depth_and_throughput() -> None:
+    """`Retry-After` is derived from the pool's observed throughput — the oldest message's
+    wait implies the drain rate (`depth / oldest_age`) — so the client is told when the
+    queue will actually have room, not the constant 1."""
+    runner = _runner(_FakeQueue(depth=100, oldest_age=600.0), depth_ceiling=10)
+
+    with pytest.raises(JobRunnerAtCapacity) as exc:
+        await runner.schedule("t", "'hi'", 60)
+
+    # rate = 100 / 600 = 1/6 per second; (100 - 10) / (1/6) = 540 seconds.
+    assert exc.value.retry_after_s == 540
+
+
+# --- 2. the reservation counter closes the race -------------------------------------------
+
+
+async def test_two_admissions_racing_the_last_slot_cannot_both_pass() -> None:
+    """Two admissions inside one refresh window both read the same cached depth; the
+    reservation counter (OME-1065, carried over) makes the second see the first's
+    reservation and refuse — the read-modify-write race does not survive the change of
+    counted resource."""
+    queue = _FakeQueue(depth=9)
+    runner = _runner(queue, depth_ceiling=10)
+
+    results = await asyncio.gather(
+        runner.schedule("t1", "'hi'", 60),
+        runner.schedule("t2", "'hi'", 60),
+        return_exceptions=True,
+    )
+
+    accepted = [r for r in results if isinstance(r, str)]
+    refused = [r for r in results if isinstance(r, JobRunnerAtCapacity)]
+    assert len(accepted) == 1
+    assert len(refused) == 1
+    assert len(queue.published) == 1
+
+
+# --- 3. the per-caller in-flight cap -------------------------------------------------------
+
+
+async def test_the_per_caller_inflight_cap_refuses_caller_as_n_plus_one() -> None:
+    """A caller at its in-flight cap is refused, while another caller is still admitted —
+    one caller's 9-candidate evaluation cannot occupy every slot."""
+    runner = _runner(_FakeQueue(), caller_inflight_cap=2)
+
+    await runner.schedule("a1", "'hi'", 60, identity=CALLER_A)
+    await runner.schedule("a2", "'hi'", 60, identity=CALLER_A)
+
+    with pytest.raises(JobRunnerAtCapacity) as exc:
+        await runner.schedule("a3", "'hi'", 60, identity=CALLER_A)
+    assert exc.value.limit == 2
+
+    # Caller B is unaffected by caller A's footprint.
+    name = await runner.schedule("b1", "'hi'", 60, identity=CALLER_B)
+    assert name == job_name("b1")
+
+
+async def test_an_anonymous_caller_has_its_own_cap() -> None:
+    """A caller with no identity is its own caller — the anonymous bucket — so it cannot
+    hide behind another caller's footprint."""
+    runner = _runner(_FakeQueue(), caller_inflight_cap=1)
+
+    await runner.schedule("anon1", "'hi'", 60)
+    with pytest.raises(JobRunnerAtCapacity):
+        await runner.schedule("anon2", "'hi'", 60)
+    await runner.schedule("a1", "'hi'", 60, identity=CALLER_A)  # a named caller is separate
+
+
+# --- 4. the REST edge derives Retry-After --------------------------------------------------
+
+
+class _AtCapacityRunner(IdentityAwareJobRunner):
+    """A fake runner that refuses every schedule with a derived drain estimate."""
+
+    async def schedule(
+        self,
+        topic: str,
+        url4: str,
+        deadline_s: int,
+        *,
+        traceparent: str | None = None,
+        credential: str | None = None,
+        profile: str | None = None,
+        identity: Mapping[str, str] | None = None,
+        cache: CachePolicy | None = None,
+    ) -> str:
+        raise JobRunnerAtCapacity(active=100, limit=10, retry_after_s=42)
+
+    async def stop(self, topic: str) -> None:
+        pass
+
+    async def exists(self, topic: str) -> bool:
+        return False
+
+    async def status(self, topic: str) -> JobStatus:
+        return "scheduled"
+
+
+def _token(topic: str) -> str:
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(
+        topic, T0
+    )
+
+
+def _make_app(runner: IdentityAwareJobRunner) -> FastAPI:
+    settings = Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S)
+    return create_app(
+        settings,
+        stream=InMemoryEventStream(),
+        job_runner=runner,
+        clock=lambda: T0,
+        interest=FixedGate(True),
+    )
+
+
+class FixedGate:
+    def __init__(self, present: bool = True) -> None:
+        self._present = present
+
+    async def has_subscriber(self, topic: str) -> bool:
+        return self._present
+
+
+async def test_the_rest_edge_answers_503_with_a_derived_retry_after() -> None:
+    """The 503 + `Retry-After` mapping is unchanged in shape, but the value is the drain
+    estimate the runner attached to the refusal — not the constant 1."""
+    app = _make_app(_AtCapacityRunner())
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get(
+            "/", params={"q": "gpt()"}, headers={"URL4-Capability": _token("topic-cap")}
+        )
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "42"
+    assert resp.headers["Retry-After"] != "1"

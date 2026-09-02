@@ -266,11 +266,14 @@ class _FakeQueue:
     def __init__(self) -> None:
         self.published: list[bytes] = []
 
-    async def publish(self, message: bytes) -> None:
+    async def publish(self, message: bytes, *, identity: Any = None) -> None:
         self.published.append(message)
 
     async def depth(self) -> int:
         return 0
+
+    async def oldest_age(self) -> float | None:
+        return None
 
 
 class _FakePublisher:

@@ -39,3 +39,15 @@ every Runner Job (`URL4_CLOUD_IO_CONCURRENCY`, default 4 — written uncondition
 work-conserving fewest-in-flight gate for local runs (`local_io_capacity`, default 32).
 Layer 2 remains the companion gateway ticket — text drafted in the work ledger, filing
 pending the owner (Linear writes are owner/MCP actions).
+
+## OME-1091 — the deployed half lands (2026-09-02)
+
+OME-1091 delivers the RUN-LEVEL half of this issue for the queue substrate (OME-1086):
+per-caller queue subjects (`url4-runq.<bucket>`, a stable hash of the caller's identity
+value) with round-robin pull, a per-caller in-flight cap at admission, and a spawn-time io
+budget (`worker_io_capacity / active_children` via `URL4_CLOUD_IO_CONCURRENCY`) that
+replaces the static 4 for queue-backed runs. What remains OPEN, explicitly a follow-up and
+NOT delivered here: dynamic rebalancing — the spawn-time budget is FIXED at spawn and does
+not rebalance when a sibling exits; the work-conserving `FairShareGate` is local-mode only,
+and a cross-process control socket from each child to a parent-held gate is the declared
+follow-up. This issue must not read as fully delivered until that half lands.

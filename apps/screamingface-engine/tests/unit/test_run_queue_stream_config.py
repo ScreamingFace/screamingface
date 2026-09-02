@@ -18,7 +18,10 @@ from pydantic import ValidationError
 
 from screamingface_engine.config import Settings
 from screamingface_engine.runner_queue import RunQueue, encode_message
-from screamingface_engine.subjects import RUN_QUEUE_STREAM, RUN_QUEUE_SUBJECT
+from screamingface_engine.subjects import (
+    RUN_QUEUE_STREAM,
+    RUN_QUEUE_SUBJECT_PREFIX,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -91,7 +94,9 @@ async def test_the_queue_stream_is_declared_with_the_spec_properties() -> None:
     added = fake.added[0]
     assert added["name"] == RUN_QUEUE_STREAM
     assert not added["name"].startswith("url4-cloud_")
-    assert added["subjects"] == [RUN_QUEUE_SUBJECT]
+    # The stream is declared with the wildcard over every per-caller bucket subject
+    # (OME-1091), so one stream holds every caller's runs.
+    assert added["subjects"] == [f"{RUN_QUEUE_SUBJECT_PREFIX}.>"]
     assert added["retention"] is RetentionPolicy.WORK_QUEUE
     assert added["storage"] is StorageType.FILE
     assert added["num_replicas"] == 1
@@ -112,7 +117,11 @@ async def test_duplicate_publish_carries_the_same_dedupe_key() -> None:
     await queue.publish(message)
 
     assert [headers["Nats-Msg-Id"] for _, _, headers in fake.published] == ["topic-a", "topic-a"]
-    assert [subject for subject, _, _ in fake.published] == [RUN_QUEUE_SUBJECT] * 2
+    # An identity-less run lands in the anonymous caller's bucket — the same bucket both times,
+    # so the dedupe key still collapses the retry.
+    subjects = [subject for subject, _, _ in fake.published]
+    assert subjects == [subjects[0], subjects[0]]
+    assert subjects[0].startswith(f"{RUN_QUEUE_SUBJECT_PREFIX}.")
 
 
 async def test_publish_awaits_the_broker_acknowledgement() -> None:
