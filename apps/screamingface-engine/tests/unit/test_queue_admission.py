@@ -282,3 +282,84 @@ async def test_the_rest_edge_answers_503_with_a_derived_retry_after() -> None:
     assert resp.status_code == 503
     assert resp.headers["Retry-After"] == "42"
     assert resp.headers["Retry-After"] != "1"
+
+
+# --- 5. the reservation counter's floor (review follow-up) ---------------------------------
+
+
+async def test_a_release_racing_a_refresh_cannot_drive_the_counter_negative() -> None:
+    """`_refresh_if_stale` RESETS `_reserved` on every refresh, and a sibling `schedule()`
+    can land its refresh between this run's RESERVE and its RELEASE (the publish failed).
+    Decrementing from the reset baseline drove the counter to -1 — under-counting depth
+    forever after, so one extra run slips past the ceiling on every later admission. The
+    release clamps at zero: a release below zero is a refresh that already accounted for
+    the reservation."""
+    clock = _FakeClock()
+    queue = _FakeQueue(depth=9)
+    runner = QueueJobRunner(
+        queue=queue,
+        publisher=_FakePublisher(),
+        control=_FakeControl(),
+        clock=clock,
+        capability_lifetime_s=CAPABILITY_LIFETIME_S,
+        depth_ceiling=10,
+        state_cache_ttl_s=0.0,  # every check refreshes — the racing refresh is the point
+    )
+
+    async def refresh_then_fail(message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+        # The racing sibling's refresh, landing between this run's reserve and release:
+        # the depth now accounts for everything older than the window, so the counter
+        # RESETS — and the release that follows must not decrement from that baseline.
+        await runner._refresh_if_stale()
+        raise OSError("broker unavailable")
+
+    queue.publish = refresh_then_fail  # type: ignore[method-assign]
+
+    with pytest.raises(OSError):
+        await runner.schedule("t-race", "'hi'", 60, identity=CALLER_A)
+
+    assert runner._reserved == 0, "a release must never drive the counter negative"
+
+    # The clamp is load-bearing: with the counter at -1 this admission check reads
+    # depth 10 + (-1) < 10 and lets a run PAST the ceiling.
+    queue._depth = 10
+    with pytest.raises(JobRunnerAtCapacity):
+        await runner.schedule("t-next", "'hi'", 60, identity=CALLER_A)
+
+
+async def test_a_readmitted_topic_does_not_orphan_the_first_callers_slot() -> None:
+    """`_caller_of_topic[topic]` is OVERWRITTEN when a re-scheduled topic is admitted
+    under a second identity, and `_forget_in_flight` used to resolve the caller through
+    that mapping — so the FIRST caller's entry was never reached again (`_prune` routes
+    through it too) and that caller permanently lost one of its in-flight slots,
+    surfacing later as spurious 503s for a caller with no live runs. The forget now
+    removes the topic from every caller that holds it."""
+    from url4.streaming.protocol import TerminatedData, TerminatedEvent, source_for
+
+    runner = _runner(_FakeQueue(), caller_inflight_cap=2, clock=_FakeClock())
+    key_a = "a@example.com"
+    key_b = "b@example.com"
+
+    await runner.schedule("t-shared", "'hi'", 60, identity=CALLER_A)
+    await runner.schedule("t-shared", "'hi'", 60, identity=CALLER_B)  # the overwrite
+
+    assert runner._caller_of_topic["t-shared"] == key_b
+    assert "t-shared" in runner._in_flight_by_caller[key_a], "both callers hold the topic"
+
+    # The run ends: a terminal frame NEWER than both admissions reaches the forget.
+    frame = TerminatedEvent(
+        id="t",
+        source=source_for("t-shared"),
+        subject="t-shared",
+        time=T0 + timedelta(seconds=5),
+        data=TerminatedData(status="succeeded"),
+    )
+    runner._forget_in_flight("t-shared", frame)
+
+    assert key_a not in runner._in_flight_by_caller, "A's slot must be released, not orphaned"
+    assert key_b not in runner._in_flight_by_caller
+    assert "t-shared" not in runner._caller_of_topic
+
+    # And A keeps its full cap — the orphaned entry used to eat one slot forever.
+    await runner.schedule("a-1", "'hi'", 60, identity=CALLER_A)
+    await runner.schedule("a-2", "'hi'", 60, identity=CALLER_A)

@@ -505,7 +505,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
     async def _release_reservation(self, topic: str) -> None:
         """Release a reservation whose run was not durably accepted (a publish failure)."""
         async with self._admission_lock:
-            self._reserved -= 1
+            # WHY the floor: `_refresh_if_stale` RESETS the counter on every refresh, and
+            # the refresh can land between this run's reserve and its release (a sibling
+            # `schedule()` raced it). Decrementing from the reset baseline drove the counter
+            # to -1, under-counting depth FOREVER after — one extra run past the ceiling on
+            # every subsequent admission check. A release below zero is the refresh having
+            # already accounted for this reservation; clamp, and the counter stays honest.
+            self._reserved = max(0, self._reserved - 1)
             self._forget_in_flight(topic)
 
     async def _refresh_if_stale(self) -> None:
@@ -550,24 +556,28 @@ class QueueJobRunner(IdentityAwareJobRunner):
 
         ``frame`` guards the observed-terminal path against a stale observation: a topic
         re-scheduled after its first run finished still shows the FIRST run's terminal frame,
-        and forgetting on that sighting would release the SECOND run's slot. A frame older than
-        the tracked admission is that stale sighting and is ignored.
+        and forgetting on that sighting would release the SECOND run's slot. A frame older
+        than a tracked admission is that stale sighting and is ignored — checked PER CALLER,
+        because more than one caller can hold the topic (below).
+
+        WHY every caller and not `_caller_of_topic[topic]`: admission OVERWRITES that
+        mapping when a re-scheduled topic is admitted under a second identity, so the
+        first caller's entry would never be reached again — `_prune` routes through here
+        too — and that caller permanently loses one of its in-flight slots, surfacing
+        eventually as spurious 503s for a caller whose runs have all finished.
         """
-        caller = self._caller_of_topic.get(topic)
-        if caller is None:
-            return
-        admitted_at = self._in_flight_by_caller[caller].get(topic)
-        if (
-            frame is not None
-            and frame.time is not None
-            and admitted_at is not None
-            and frame.time < admitted_at
-        ):
-            return
-        self._caller_of_topic.pop(topic, None)
-        by_caller = self._in_flight_by_caller[caller]
-        by_caller.pop(topic, None)
-        if not by_caller:
+        for by_caller in self._in_flight_by_caller.values():
+            admitted_at = by_caller.get(topic)
+            if admitted_at is None:
+                continue
+            if frame is not None and frame.time is not None and frame.time < admitted_at:
+                continue  # a stale sighting of the FIRST run — this admission is still live
+            by_caller.pop(topic, None)
+        if not any(topic in topics for topics in self._in_flight_by_caller.values()):
+            self._caller_of_topic.pop(topic, None)
+        # Drop callers left with no in-flight topics — the cleanup the single-caller path
+        # always did, so the map stays bounded by callers with live runs.
+        for caller in [c for c, topics in self._in_flight_by_caller.items() if not topics]:
             del self._in_flight_by_caller[caller]
 
     # --- capability validity ---------------------------------------------------------------
