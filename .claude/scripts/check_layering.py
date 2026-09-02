@@ -91,6 +91,14 @@ RULES: list[tuple[str, set[str], str]] = [
         "expression in-process, so it must not reach into the engine-bearing half",
     ),
     (
+        "",  # every control-plane module, listed below
+        WORKER_MODE,
+        "the control plane never spawns runs itself — only the worker does, so it must not "
+        "reach into the worker's subprocess-spawning/RLIMIT_AS-bearing half; the dependency "
+        "arrow is one-way (worker → serving half), and this rule checks the direction the "
+        "other three forgot",
+    ),
+    (
         "worker",
         RUN_MODE,
         "the worker spawns the run as a child process; it never imports it — the run half stays "
