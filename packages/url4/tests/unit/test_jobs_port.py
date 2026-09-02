@@ -32,6 +32,29 @@ def test_capacity_docstring_states_the_general_rule() -> None:
     assert "retry" in doc
 
 
+def test_capacity_docstring_covers_every_substrate_shape() -> None:
+    """The enumeration must be complete enough that no substrate class reads as exempt.
+
+    A substrate SHAPE (shared loop, queue depth, scheduler quota) cannot go stale when an
+    adapter is added, renamed, or retired — an adapter CLASS in this list can (the docstring
+    once looked exhaustive while omitting the one cluster adapter that existed)."""
+    doc = JobRunnerAtCapacity.__doc__ or ""
+    assert "event loop" in doc
+    assert "queue depth" in doc
+    assert "quota" in doc
+    # The contract must not enumerate adapter classes by name — shapes only.
+    assert "K8s" not in doc
+
+
+def test_capacity_docstring_states_the_rule_once() -> None:
+    """The retry-after mapping is stated once, not pasted into every paragraph.
+
+    A duplicated closing clause reads as if a second, different rule followed; it is the
+    same one, and the copy drifts the moment either sentence is edited alone."""
+    doc = JobRunnerAtCapacity.__doc__ or ""
+    assert doc.count("retry-after response rather than a conflict") == 1
+
+
 def test_job_status_docstring_records_scheduled_as_queued() -> None:
     """``scheduled`` already means accepted-not-started; no ``queued`` member is needed."""
     # JobStatus is a Literal alias, so its docstring is a module-level string
@@ -40,3 +63,15 @@ def test_job_status_docstring_records_scheduled_as_queued() -> None:
     assert "scheduled" in source
     assert "not yet started" in source
     assert "queued" in source
+
+
+def test_job_status_docstring_scopes_scheduled_to_observable_substrates() -> None:
+    """``scheduled`` is what a substrate that CAN observe the acceptance gap reports.
+
+    A substrate that starts a run the moment it accepts it (the in-process runner) reports
+    ``running`` from acceptance on — ``scheduled`` is not false there, it is unobservable.
+    The docstring must say so, or a caller waits for a frame such an adapter can never emit."""
+    source = inspect.getsource(jobs_module)
+    assert "adapter-specific" in source
+    assert "reports ``running`` from" in source
+    assert "nor wait for a" in source
