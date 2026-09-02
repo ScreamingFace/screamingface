@@ -188,7 +188,9 @@ class RunSupervisor:
                 # terminal frame and its ack — so the duplicate is acked away immediately:
                 # spawning a second child for one topic would race it to the stream, and
                 # leaving it unacked would redeliver it in a loop until the original ends.
-                logger.warning("duplicate claim of %s acked away; the run is already executing here", topic)
+                logger.warning(
+                    "duplicate claim of %s acked away; the run is already executing here", topic
+                )
                 await msg.ack()
                 return
             self._topics_in_flight.add(topic)
@@ -264,8 +266,31 @@ class RunSupervisor:
     async def _publish_if_needed(
         self, topic: str, classification: tuple[TerminalStatus, str, str] | None
     ) -> None:
-        """Publish the worker's named terminal frame unless the child already did."""
-        if classification is not None and not await self._terminal_frame_exists(topic):
+        """Publish the worker's named terminal frame unless the child already did.
+
+        WHY the read is guarded (review follow-up P2-1): this runs AFTER the child
+        exited, in the supervisor task that still has to ack. An unguarded read that
+        raised ``QueueReadError`` escaped into the shared TaskGroup and cancelled every
+        co-located supervisor — each sibling's cleanup SIGKILLs its live child, so one
+        momentary broker blip at one child's exit killed N healthy runs (the same
+        cascade as the claim-time gate, reached from the exit side). The run genuinely
+        DID end, so on an unreadable tail the classified frame is published anyway —
+        the named frame is the client's only account of a kill/OOM/deadline death, and
+        the read-exists race (a child that published its own frame in the instant before
+        the read failed) only ever risks one extra terminal frame, never a lost run.
+        The ack always runs either way.
+        """
+        if classification is None:
+            return
+        try:
+            already_terminal = await self._terminal_frame_exists(topic)
+        except QueueReadError:
+            logger.warning(
+                "terminal-frame read unreadable for %s; publishing the classified frame",
+                topic,
+            )
+            already_terminal = False
+        if not already_terminal:
             await self._publish_terminal(topic, *classification)
 
     # --- the claim-time checks ------------------------------------------------------------
@@ -400,7 +425,9 @@ class RunSupervisor:
             # operationally the same event). Reading that race as a natural "finished"
             # would hand the classifier a drain kill as the child's own exit, and a child
             # that dies from the SIGTERM (rc -15) would be published as a failure.
-            # The drain handler fired and SIGTERM'd the child, but it is still alive.
+            # The drain phase fired for THIS child — its phase-2 pass SIGTERMs every child
+            # still registered, within one poll of it appearing (review follow-up), and the
+            # child that ignores the SIGTERM gets the kill-grace backstop below.
             try:
                 await asyncio.wait_for(wait_task, timeout=self._kill_grace_s)
             except TimeoutError:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import signal
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Protocol
@@ -21,13 +22,15 @@ from screamingface_engine.config import Settings
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
     HEARTBEAT_INTERVAL_S,
-    derived_heartbeat_interval_s,
     KILL_GRACE_S,
     ClaimedMessage,
     RunSupervisor,
     _ChildProcess,
     _Publisher,
+    derived_heartbeat_interval_s,
 )
+
+logger = logging.getLogger(__name__)
 
 # How long a pull waits for the first message before the loop re-checks the drain signal.
 # Short on purpose: the drain signal is only noticed between pulls, so a long timeout
@@ -35,6 +38,12 @@ from screamingface_engine.worker.supervisor import (
 PULL_TIMEOUT_S = 5.0
 # How often the drain phase re-checks whether the in-flight children have finished.
 _DRAIN_POLL_S = 0.05
+
+
+# How often a pull that failed on a transient broker error is retried. Short: the claim
+# loop is only blocked for the retry, and a broker that is down fails the NEXT connect too —
+# this is a backoff, not the recovery mechanism.
+_PULL_RETRY_S = 1.0
 
 
 class _Queue(Protocol):
@@ -143,7 +152,21 @@ class Worker:
                     for task in done:
                         self._active.discard(task)
                 continue
-            msgs = await self._queue.pull(free, timeout_s=self._pull_timeout_s)
+            try:
+                msgs = await self._queue.pull(free, timeout_s=self._pull_timeout_s)
+            except Exception as exc:
+                # WHY a local catch and not a crash (review follow-up N-3): `pull` wraps
+                # the broker calls — the fetch itself and the `ensure_stream` it guards —
+                # and a transient broker error escaping here would land in the shared
+                # TaskGroup and cancel every co-located supervisor, SIGKILLing N healthy
+                # children: the same cascade as the supervisor's own guarded reads,
+                # reached from the claim side. Log and retry; if the loop is genuinely
+                # wedged, the claim-liveness gauge stops advancing and the operator's
+                # alert fires. `CancelledError` is a `BaseException` and passes through,
+                # so a shutdown still lands.
+                logger.warning("queue pull failed with %r; retrying in %.1fs", exc, _PULL_RETRY_S)
+                await asyncio.sleep(_PULL_RETRY_S)
+                continue
             for msg in msgs:
                 task = tg.create_task(self._supervisor.supervise(msg))
                 self._active.add(task)
@@ -161,11 +184,30 @@ class Worker:
         """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._drain_grace_s
-        while self._children and loop.time() < deadline:
+
+        # Phase 1 — the grace window: let in-flight runs finish naturally. WHY the ACTIVE
+        # supervisor tasks and not the CHILDREN (review follow-up P2-6): a task is
+        # registered the moment its run is claimed, while its child only registers once
+        # the spawn completes — a run whose spawn was still in flight when the signal
+        # landed used to find `_children` EMPTY and consume ZERO grace: `_terminating`
+        # was set immediately and the run was killed `kill_grace` after spawn with no
+        # chance to finish on its own. Waiting on the tasks counts every claimed run.
+        while self._active and loop.time() < deadline:
             await asyncio.sleep(_DRAIN_POLL_S)
+
+        # Phase 2 — the deadline: flip `_terminating` (each remaining supervisor's kill
+        # path engages) and terminate children as they appear. The old one-shot snapshot
+        # pass over `_children` let a child that registered AFTER the pass reach its
+        # supervisor's kill path having NEVER received a SIGTERM — hard-killed
+        # `kill_grace` after spawn with no chance to publish its frames (review
+        # follow-up N-2). Re-polling until the pool is empty closes that: any child is
+        # SIGTERM'd within one poll of registering, and `terminate()` on an
+        # already-terminated child is harmless.
         self._terminating.set()
-        for proc in tuple(self._children):
-            proc.terminate()
+        while self._active:
+            for proc in tuple(self._children):
+                proc.terminate()
+            await asyncio.sleep(_DRAIN_POLL_S)
 
 
 def run_worker(settings: Settings | None = None) -> None:

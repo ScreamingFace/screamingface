@@ -8,13 +8,16 @@ and the child process are fakes, so each decision is observable in isolation.
 
 import asyncio
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
+import nats
 import pytest
 
 from screamingface_engine import job_env
+from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.worker.loop import Worker
 from screamingface_engine.worker.supervisor import (
@@ -512,8 +515,7 @@ async def test_a_drain_child_that_ignores_sigterm_is_still_acked_not_cancelled()
         await _wait_until(lambda: procs[0].terminate_calls == 1)
         await _wait_until(lambda: procs[0].kill_calls == 1, timeout_s=5.0)
         await _wait_until(
-            lambda: bool(publisher.published)
-            and publisher.published[-1].data.status == "stopped"
+            lambda: bool(publisher.published) and publisher.published[-1].data.status == "stopped"
         )
         frame = publisher.published[-1]
         assert frame.data.error is not None and frame.data.error.code == WORKER_DRAINING
@@ -601,7 +603,8 @@ def test_an_unrelated_failure_during_drain_is_not_relabeled_a_drain_stop() -> No
     assert crash is not None and crash[0] == "failed" and crash[1] == CHILD_EXITED
 
     drain_kill = classify("draining", None)
-    assert drain_kill is not None and drain_kill[0] == "stopped" and drain_kill[1] == WORKER_DRAINING
+    assert drain_kill is not None
+    assert drain_kill[0] == "stopped" and drain_kill[1] == WORKER_DRAINING
 
 
 async def test_a_child_exit_racing_the_drain_signal_reads_as_draining() -> None:
@@ -638,8 +641,7 @@ async def test_a_backlogged_run_expires_from_its_enqueue_stamp_not_its_delivery(
     assert msg.acked, "an expired run is acked away, not redelivered"
     assert worker._supervisor._topics_in_flight == set()
     assert all(
-        getattr(e.data, "error", None) is not None
-        and e.data.error.code == "queue_expired"
+        getattr(e.data, "error", None) is not None and e.data.error.code == "queue_expired"
         for e in worker._publisher.published
     ), f"expected a queue_expired frame, got {worker._publisher.published}"
     # And it never forked a child for an expired run.
@@ -735,3 +737,174 @@ def test_settings_refuse_an_ack_wait_the_heartbeat_cannot_survive(monkeypatch: A
     monkeypatch.setenv("URL4_CLOUD_RUN_QUEUE_ACK_WAIT_S", "2")
     with pytest.raises(ValidationError, match="run_queue_ack_wait_s"):
         Settings()
+
+
+# --- 8. the review pass-2 cascade and drain cluster (P2-1, N-3, P2-6, N-2) ---------------
+
+
+async def test_a_supervisors_post_exit_read_failing_does_not_kill_a_siblings_live_child() -> None:
+    """P2-1: `_publish_if_needed`'s terminal-frame read runs AFTER the child exited, in a
+    supervisor that still has to ack. An unguarded `QueueReadError` escaped into the
+    shared TaskGroup and cancelled every co-located supervisor — each sibling's cleanup
+    SIGKILLs its live child, so one momentary broker blip at one run's exit killed every
+    healthy run on the pod. The read is now guarded: the classified frame is published
+    anyway (an unreadable tail is not 'no frame'), the ack still runs, and the sibling
+    is untouched."""
+    raise_msg = _FakeMsg(encode_message("t-raise", "'hi'", 60))
+    sib_msg = _FakeMsg(encode_message("t-sib", "'hi'", 60))
+    sib = _FakeProcess(hang=True)
+
+    class _RaisingOnSecondReadPublisher(_FakePublisher):
+        """`last_frame` returns None on the first read of a topic and raises on the second
+        — the claim-time gate is the first read, the post-exit read is the second, which
+        is exactly the failing point P2-1 guards."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._reads: dict[str, int] = {}
+
+        async def last_frame(self, topic: str) -> TerminatedEvent | None:
+            n = self._reads.get(topic, 0) + 1
+            self._reads[topic] = n
+            if n >= 2:
+                raise QueueReadError("stream tail unreadable")
+            return None
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        env = kwargs["env"]
+        if env[job_env.TOPIC] == "t-raise":
+            return _FakeProcess(exit_code=1)  # exits non-zero; its post-exit read raises
+        return sib
+
+    publisher = _RaisingOnSecondReadPublisher()
+    queue = _FakeQueue([[raise_msg, sib_msg]])
+    worker = _worker(queue, publisher, slots=2, spawn=fake_spawn, drain_grace_s=0.1)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        # The raising run's classified frame is still published (the fix publishes on an
+        # unreadable tail rather than losing the run's only account of its death).
+        await _wait_until(lambda: bool(publisher.published))
+        await asyncio.sleep(0.05)  # a moment for a (wrong) cascade cancellation to land
+        assert sib.kill_calls == 0, "a sibling's live child must not be SIGKILLed"
+        assert sib.terminate_calls == 0, "a sibling's live child must not be touched at all"
+        worker._draining.set()  # noqa: SLF001
+        sib.release(0)
+        await claim
+    assert raise_msg.acked, "the raising run's message must still be acked"
+    assert publisher.published[0].data.status == "failed"
+
+
+async def test_a_broker_error_from_pull_does_not_cancel_in_flight_supervisors() -> None:
+    """N-3: a transient broker error from `pull` (including the `ensure_stream` it wraps)
+    used to escape the claim loop into the shared TaskGroup, cancelling every co-located
+    supervisor and SIGKILLing its live children — the same cascade as P2-1, reached from
+    the claim side. The loop now catches it, logs, backs off, and retries."""
+    sib_msg = _FakeMsg(encode_message("t-sib", "'hi'", 60))
+    sib = _FakeProcess(hang=True)
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        return sib
+
+    class _ErroringQueue(_FakeQueue):
+        """Pulls once with a broker error, then serves the scripted batch."""
+
+        def __init__(self) -> None:
+            super().__init__([[sib_msg]])
+            self.error_pulled = False
+
+        async def pull(self, batch: int, timeout_s: float) -> list[_FakeMsg]:
+            self.pull_calls.append((batch, timeout_s))
+            if not self.error_pulled:
+                self.error_pulled = True
+                raise nats.errors.Error("transient broker blip")
+            if self._batches:
+                return self._batches.pop(0)
+            await asyncio.sleep(timeout_s)
+            return []
+
+    queue = _ErroringQueue()
+    worker = _worker(queue, _FakePublisher(), slots=1, spawn=fake_spawn, drain_grace_s=0.1)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        # The loop must survive the blip and claim the run on its retry.
+        await _wait_until(lambda: len(queue.pull_calls) >= 2)
+        worker._draining.set()  # noqa: SLF001
+        await _wait_until(lambda: sib.terminate_calls == 1 or sib.kill_calls == 1, timeout_s=5.0)
+        assert sib.kill_calls == 0, "the sibling must not be caught in any cascade"
+        assert sib.terminate_calls == 1, "the run must be drained, not killed"
+        await claim
+
+
+async def test_a_run_mid_spawn_when_the_signal_lands_still_gets_the_drain_grace() -> None:
+    """P2-6: a run whose child is still spawning when the drain signal lands used to find
+    `_children` empty, consume ZERO grace — `_terminating` was set immediately and the
+    run was SIGKILL'd `kill_grace` after spawn with no chance to finish naturally. The
+    drain waits on the ACTIVE tasks (registered at claim time), so a mid-spawn run gets
+    the full grace window and then a clean SIGTERM."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-midspawn", "'hi'", 60))]])
+    spawn_started = asyncio.Event()
+    release_spawn = asyncio.Event()
+    procs: list[_FakeProcess] = []
+
+    async def delayed_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawn_started.set()
+        await release_spawn.wait()
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    worker = _worker(
+        queue, _FakePublisher(), slots=1, spawn=delayed_spawn, drain_grace_s=0.2, kill_grace_s=0.05
+    )
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        await _wait_until(spawn_started.is_set)
+        t0 = time.monotonic()
+        worker._draining.set()  # noqa: SLF001 — the signal lands mid-spawn
+        await asyncio.sleep(0.05)
+        release_spawn.set()  # the child registers during the drain
+        await _wait_until(
+            lambda: bool(procs) and (procs[0].terminate_calls == 1 or procs[0].kill_calls == 1),
+            timeout_s=5.0,
+        )
+        assert procs[0].terminate_calls == 1, "a mid-spawn run must get a clean SIGTERM"
+        assert procs[0].kill_calls == 0, "it must never reach the bare-SIGKILL path"
+        assert time.monotonic() - t0 >= 0.15, "the drain must honor the grace window"
+        await claim
+
+
+async def test_a_child_registered_after_the_drain_passes_still_gets_sigterm_before_sigkill() -> (
+    None
+):
+    """N-2: a child that spawns AFTER the drain's grace has expired used to miss the
+    one-shot SIGTERM pass — its supervisor found `_terminating` already set and
+    hard-killed it `kill_grace` after spawn, never SIGTERM'd, with no chance to publish
+    its frames. The drain now terminates children as they appear until the pool empties,
+    so the late child still receives SIGTERM before any SIGKILL."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-late", "'hi'", 60))]])
+    release_spawn = asyncio.Event()
+    procs: list[_FakeProcess] = []
+
+    async def delayed_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        await release_spawn.wait()
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    worker = _worker(
+        queue, _FakePublisher(), slots=1, spawn=delayed_spawn, drain_grace_s=0.05, kill_grace_s=0.2
+    )
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        await asyncio.sleep(0.05)  # let the claim land and the spawn begin blocking
+        worker._draining.set()  # noqa: SLF001
+        # Let the drain pass its grace AND (old code) its one-shot terminate pass.
+        await _wait_until(lambda: worker._terminating.is_set())  # noqa: SLF001
+        release_spawn.set()  # the child registers AFTER the pass
+        await _wait_until(
+            lambda: bool(procs) and (procs[0].terminate_calls == 1 or procs[0].kill_calls == 1),
+            timeout_s=5.0,
+        )
+        assert procs[0].terminate_calls == 1, "a late child must receive SIGTERM"
+        assert procs[0].kill_calls == 0, "it must receive SIGTERM BEFORE any SIGKILL"
+        await claim
