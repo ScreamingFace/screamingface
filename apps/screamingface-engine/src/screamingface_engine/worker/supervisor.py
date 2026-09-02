@@ -158,6 +158,7 @@ class RunSupervisor:
         children: set[_ChildProcess],
         children_by_topic: dict[str, _ChildProcess],
         cancelled: set[str],
+        starting: set[str] | None = None,
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
         deadline_margin_s: float = DEADLINE_MARGIN_S,
         kill_grace_s: float = KILL_GRACE_S,
@@ -183,6 +184,9 @@ class RunSupervisor:
         # SIGTERMing its child, and `_classify` reads it to name the death a cancel rather
         # than a kill.
         self._cancelled = cancelled
+        # Runs claimed but not yet spawned (OME-1090): the control loop answers from here
+        # during the spawn window. `None` keeps direct construction (older tests) working.
+        self._starting = starting if starting is not None else set()
         self._deadline_margin_s = deadline_margin_s
         self._kill_grace_s = kill_grace_s
 
@@ -208,9 +212,18 @@ class RunSupervisor:
                 await msg.ack()
                 return
             self._topics_in_flight.add(topic)
+            # Registered as STARTING from here until the child registers (or fails to):
+            # a cancel that lands in the spawn window is answered from this set, so it is
+            # acknowledged — not ignored while the child runs to a second terminal frame.
+            self._starting.add(topic)
             try:
                 await self._claim(msg, topic)
             finally:
+                self._starting.discard(topic)
+                # The cancel mark is per-run (a stale entry would misclassify a LATER run
+                # of the same topic), and the control loop can now set it for a run with
+                # no child yet — so every exit path clears it, not just `_release_child`.
+                self._cancelled.discard(topic)
                 self._topics_in_flight.discard(topic)
 
     async def _claim(self, msg: ClaimedMessage, topic: str) -> None:
@@ -252,6 +265,10 @@ class RunSupervisor:
             return
         self._children.add(proc)
         self._children_by_topic[topic] = proc
+        if topic in self._cancelled:
+            # A cancel was ACKNOWLEDGED while this child was starting (the control loop
+            # replied from the starting registry): enact it the moment the child exists.
+            proc.terminate()
         heartbeat = asyncio.create_task(self._heartbeat(msg, topic))
         output = asyncio.create_task(self._forward_output(proc, topic))
         try:

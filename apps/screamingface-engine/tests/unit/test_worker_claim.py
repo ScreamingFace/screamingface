@@ -1101,3 +1101,51 @@ async def test_run_completes_after_the_drain_signal_with_a_control_channel_attac
 
     assert procs[0].terminate_calls == 1
     assert publisher.published[-1].data.status == "stopped"
+
+
+async def test_a_cancel_during_the_spawn_window_is_answered_and_enacted() -> None:
+    """A cancel that lands between the supervisor's terminal-frame check and the child's
+    registration used to get NO reply — the control loop ignored it, the App's timeout
+    expired and it tombstoned the queued run, and the child ran to completion and
+    published its own terminal frame: TWO terminal frames for one run. The control loop
+    now answers from the starting registry (so the App writes nothing) and the supervisor
+    enacts the cancel the moment the child exists."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-race", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+    spawn_entered = asyncio.Event()
+    release_spawn = asyncio.Event()
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawn_entered.set()
+        await release_spawn.wait()  # the cancel lands HERE, mid-spawn
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    control = _FakeControl()
+    worker = _worker(queue, publisher, slots=1, spawn=fake_spawn, control=control)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+        ctl = tg.create_task(worker._control_loop(tg))
+
+        await _wait_until(lambda: spawn_entered.is_set())
+        assert worker._starting == {"t-race"}, "the claim loop registers the run before spawn"
+
+        cancel = _FakeControlMessage("url4.runctl.t-race")
+        control.feed(cancel)
+        await _wait_until(lambda: bool(cancel.replied))
+        assert "t-race" in worker._cancelled, "the cancel is acknowledged, not ignored"
+
+        release_spawn.set()
+        await _wait_until(lambda: procs and procs[0].terminate_calls == 1)
+        await _wait_until(
+            lambda: bool(publisher.published)
+            and publisher.published[-1].data.status == "stopped"
+        )
+        assert len(publisher.published) == 1, "exactly one terminal frame"
+        frame = publisher.published[0]
+        assert frame.data.error is not None and frame.data.error.code == CANCELLED
+
+        claim.cancel()
+        ctl.cancel()
