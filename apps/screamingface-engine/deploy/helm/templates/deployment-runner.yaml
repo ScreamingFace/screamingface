@@ -15,8 +15,12 @@
 # `worker_draining` frame. The preStop starts that drain by SIGTERMing the worker immediately,
 # so the drain runs inside the termination grace period; `terminationGracePeriodSeconds` must
 # stay above `drainGraceS` or the kubelet SIGKILLs mid-drain. The PodDisruptionBudget
-# (`maxUnavailable: 0`) is the other half: a node drain or voluntary disruption can never take
-# a slot away from a run that is using it.
+# (`maxUnavailable: 1`) does NOT block voluntary disruptions — deliberately: `0` at a small
+# replica count is either a placebo (1 replica: an eviction still takes the whole pool) or a
+# deadlock (a drain that can never evict). `1` SERIALIZES voluntary disruptions — never two
+# pods down at once — and the preStop drain, not the PDB, is what protects in-flight runs.
+# An on-call engineer watching a node drain SHOULD expect one runner pod to be evicted and
+# its runs to close out as `worker_draining`, not as an outage.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -104,6 +108,28 @@ spec:
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT
               value: {{ .Values.runnerPool.metricsPort | quote }}
+            # `max_ack_pending` is a WHOLE-CONSUMER bound — the fleet's total unacked runs —
+            # so the chart derives it from the fleet's own sizing: pods x slots. The code
+            # default is a generic fleet-sized constant; the chart's value is the truth for
+            # THIS deployment. (The value binds at consumer creation — resizing means a new
+            # consumer, which a cutover or bucket-count change already implies.)
+            - name: URL4_CLOUD_RUN_QUEUE_MAX_ACK_PENDING
+              value: {{ mul .Values.runnerPool.replicas .Values.runnerPool.workerSlots | quote }}
+          # Liveness on the metrics endpoint: the scrape server runs in its own thread, so
+          # this catches process/pod-level death (the old Job-per-run design carried its own
+          # per-run hard backstop; the pool needs a pod-level one). A wedged CLAIM loop with a
+          # live scrape thread passes this probe — the loop-level signal is the
+          # `worker_last_claim_attempt` gauge: alert when it stops advancing while
+          # `worker_slots_busy` is below `worker_slots` and the queue has depth. No readiness
+          # probe: a pull worker receives no routed traffic, so readiness would only delay
+          # rollouts without ever gating anything.
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           envFrom:
             # The deploy-time runner env, unchanged from the Job path: Helm owns these names
             # (AIGATEWAY_BASE_URL, URL4_CLOUD_NATS_URL, the artifact-store settings), and the

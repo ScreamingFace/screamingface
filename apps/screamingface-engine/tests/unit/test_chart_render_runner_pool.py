@@ -140,6 +140,7 @@ def test_the_pool_renders_its_own_settings_into_the_worker_env() -> None:
     slots (the queue's `max_ack_pending` derives from the same setting)."""
     docs = _render_with_overrides(
         **{
+            "runnerPool.replicas": "2",
             "runnerPool.workerSlots": "8",
             "runnerPool.drainGraceS": "17",
             "runnerPool.metricsPort": "9199",
@@ -152,9 +153,18 @@ def test_the_pool_renders_its_own_settings_into_the_worker_env() -> None:
     assert env["URL4_CLOUD_RUN_QUEUE_WORKER_SLOTS"] == "8"
     assert env["URL4_CLOUD_WORKER_DRAIN_GRACE_S"] == "17"
     assert env["URL4_CLOUD_WORKER_METRICS_PORT"] == "9199"
+    # The fleet's `max_ack_pending` is rendered from the pool's OWN sizing (replicas ×
+    # slots) — the whole-consumer bound the queue's durable consumer hands out across the
+    # fleet, which the code default can only approximate.
+    assert env["URL4_CLOUD_RUN_QUEUE_MAX_ACK_PENDING"] == "16"  # 2 replicas × 8 slots
     # The metrics port and the containerPort are the same knob — they must agree.
     port = next(p for p in container["ports"] if p["name"] == "metrics")
     assert port["containerPort"] == 9199
+    # Liveness on the metrics endpoint: the pool has no per-run hard backstop anymore, so
+    # a dead/wedged pod must be restarted by the kubelet, not left to pile up queue depth.
+    probe = container["livenessProbe"]
+    assert probe["httpGet"]["path"] == "/metrics"
+    assert probe["httpGet"]["port"] == "metrics"
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")

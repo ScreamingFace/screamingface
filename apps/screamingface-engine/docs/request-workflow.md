@@ -1,13 +1,15 @@
 # url4‑cloud request workflow (k8s scenario)
 
 This document traces a single user request through the whole url4‑cloud stack — from the
-browser/CLI, through the stateless **App** (FastAPI), over **NATS JetStream**, into the
-run‑once **Runner Job** Pod, through the **aigateway connector**, and finally into the
+browser/CLI, through the stateless **App** (FastAPI), over **NATS JetStream** (the durable run
+queue plus each run's event stream), into the **runner pool** (long‑lived worker pods that fork
+one child process per run), through the **aigateway connector**, and finally into the
 **aigateway** service — and back to the client as a CloudEvents stream.
 
 **Both ends of that trip are the same image.** `apps/screamingface-engine` ships one distribution
-(`screamingface_engine`) and one image (`ghcr.io/screamingface/screamingface-engine`) with two modes
-selected by argv: `screamingface-engine serve` is the App, `screamingface-engine run` is the Job. The halves are kept
+(`screamingface_engine`) and one image (`ghcr.io/screamingface/screamingface-engine`) with three
+modes selected by argv: `screamingface-engine serve` is the App, `screamingface-engine worker` is
+the runner pool, and `screamingface-engine run` is one run's child process. The halves are kept
 apart by an import rule, not by packaging — see `.claude/scripts/check_layering.py`.
 
 It is grounded in the actual source:
@@ -24,16 +26,17 @@ adapters/{factory,k8s,jetstream},job_env,subjects}.py`,
 |---|---|---|
 | Client | (browser/CLI, off‑cluster) | Holds the topic capability JWT; opens the WS; issues `GET /?q=`. |
 | Ingress | `Ingress` (Traefik in the kind chart) | TLS termination. |
-| url4‑cloud App | `Deployment` + `Service` + `ServiceAccount`/`Role`/`RoleBinding` (namespace‑scoped `batch/jobs`) | Stateless FastAPI control plane: mints tokens, hosts REST + WS, schedules Runner Jobs, bridges NATS→WS. Configured by `ConfigMap` + `Secret` (`URL4_CLOUD_*`). |
-| NATS JetStream | `nats-io` subchart (or external via `config.natsUrl`) | Per‑topic append log; server‑assigned monotonic `sequence` = CloudEvents `sequence`. |
-| K8s API server | (cluster) | `batch/v1` Job create/read/delete — the only k8s API the App calls. |
-| Runner Job | `Job` (run‑once: `backoffLimit:0`, `restartPolicy:Never`, `activeDeadlineSeconds`) | **The App's own image**, `command: ["screamingface-engine", "run"]`. Evaluates the url4 expression, publishes the lifecycle, exits. |
+| url4‑cloud App | `Deployment` + `Service` + `ServiceAccount` (no RBAC) | Stateless FastAPI control plane: mints tokens, hosts REST + WS, admits runs onto the durable queue, bridges NATS→WS. Configured by `ConfigMap` + `Secret` (`URL4_CLOUD_*`). |
+| NATS JetStream | `nats-io` subchart (or external via `config.natsUrl`) | Per‑topic append log (each run's event stream) + the durable run queue (`url4-runq`, the admission point). Server‑assigned monotonic `sequence` = CloudEvents `sequence`. |
+| Runner pool | `Deployment` (the runner pool, `replicas × workerSlots` slots) | **The App's own image**, `command: ["screamingface-engine", "worker"]`. Claims runs from the queue, forks each as a child (`screamingface-engine run`), supervises it to its terminal frame, acks. |
 | aigateway | separate `Service`/`Deployment` | LiteLLM gateway; `POST /v1/chat/completions` + `GET /v1/models`. |
 | Tavily | (external SaaS) | `web_search`/`web_fetch` tool backend, optional. |
 
 The App holds **no run state**: a run's identity and its single‑use `409` guard are recomputed
 from the token's topic every call via `job_name(topic) = "url4-" + sha256(topic)[:16]`
-(`url4/streaming/interfaces/jobs.py`).
+(`url4/streaming/interfaces/jobs.py`). The App calls **no k8s API** — the Job-scheduling
+`Role`/`RoleBinding` were retired with the cutover (OME-1092); the only k8s objects the App
+interacts with are its own Deployment/Service.
 
 ## 2. End‑to‑end sequence diagram
 
@@ -44,9 +47,9 @@ sequenceDiagram
     participant Edge as Ingress / CF Access
     participant App as screamingface-engine App<br/>(screamingface-engine serve)
     participant Reg as ConnectionRegistry<br/>(SubscriberGate)
-    participant Bus as JetStream adapter<br/>(Publisher / Consumer)
-    participant K8s as K8s API server<br/>(batch/v1)
-    participant Runner as Runner Job Pod<br/>(same image, screamingface-engine run)
+    participant Bus as JetStream<br/>(run queue + per-run event streams)
+    participant Worker as Runner pool pod<br/>(screamingface-engine worker)
+    participant Child as Run child process<br/>(same image, screamingface-engine run)
     participant Conn as aigateway connector<br/>(Url4Node world)
     participant AGW as aigateway Service<br/>(LiteLLM)
     participant Tav as Tavily (web tools)
@@ -65,7 +68,7 @@ sequenceDiagram
     Note right of App: Bridge: subscription task → outbound queue → writer (sole ws.send)
     App-->>Client: 101 Switching Protocols + heartbeats
 
-    Note over Client,K8s: Phase 2 — start the run (REST control plane)
+    Note over Client,Bus: Phase 2 — start the run (REST control plane)
     Client->>+Edge: GET /?q=<url4 expr><br/>URL4-Capability: <jwt><br/>X-Profile: <opt><br/>traceparent: <W3C opt><br/>Prefer: respond-async|wait=<s>
     Note right of Edge: Envoy verifies Cloudflare Access,<br/>strips any client copy and re-injects X-User-Email
     Edge->>+App: GET /?q=...<br/>X-User-Email: <verified>
@@ -74,9 +77,9 @@ sequenceDiagram
     App->>Reg: interest.has_subscriber(topic)
     Note right of Reg: no WS attached ⇒ 428 Precondition Required
     App->>App: job_env.identity_from_headers(request.headers); profile
-    App->>App: _schedule: job_runner.exists(topic)? ⇒ 409 single-use guard
-    App->>+K8s: create_namespaced_job(<manifest>)<br/>image = URL4_CLOUD_RUNNER_IMAGE (the App's own),<br/>command = ["screamingface-engine", "run"]<br/>env: URL4_CLOUD_TOPIC/EXPRESSION/<br/>JOB_DEADLINE_S, NATS_URL, AIGATEWAY_BASE_URL,<br/>TRACEPARENT, AIGATEWAY_PROFILE,<br/>URL4_CLOUD_IDENTITY_USER_EMAIL,<br/>TAVILY_API_KEY (secretKeyRef)<br/>backoffLimit:0, restartPolicy:Never,<br/>activeDeadlineSeconds=deadline_s, ttl
-    K8s-->>App: 201 (job url4-<hash> created) OR 409 ⇒ JobAlreadyExists
+    App->>App: _schedule: admission gate — queue depth ceiling +<br/>per-caller in-flight cap ⇒ 503 + Retry-After
+    App->>+Bus: RunQueue.publish(encode_message(...))<br/>Nats-Msg-Id = topic (broker dedupe ⇒ 409 on retry),<br/>Url4-Enqueued-At = acceptance wall-clock
+    Bus-->>App: ack (durably accepted)
     alt async (Prefer: respond-async) OR sync bound elapsed
         App--xClient: 202 Accepted + Location/Link/Preference-Applied
     else sync (default)
@@ -85,24 +88,27 @@ sequenceDiagram
         App-->>Client: 200 Result body | 502/504/409 problem+json
     end
 
-    Note over Runner,Tav: Phase 3 — Runner Job executes the url4 expression
-    K8s->>Runner: Pod scheduled (env injected by kubelet)
-    Runner->>Runner: cli.main(["run"]) → lazily imports screamingface_engine.runner.main
-    Runner->>Runner: params_from_env → RunnerParams(topic,url4,nats_url)
-    Runner->>Runner: build_executor(env); load_config → /etc/url4/url4.toml
+    Note over Worker,Tav: Phase 3 — the runner pool executes the run
+    Worker->>+Bus: pull (round-robin across url4-runq.<bucket>)<br/>claim gates: terminal frame? ⇒ ack+skip;<br/>capability expired? ⇒ queue_expired frame
+    Bus-->>Worker: message (topic, url4, deadline, per-run env)
+    Worker->>Worker: fork child: screamingface-engine run<br/>(crash domain = one run)
+    Worker->>Bus: in_progress heartbeats (extend ack_wait)
+    Child->>Child: cli.main(["run"]) → lazily imports screamingface_engine.runner.main
+    Child->>Child: params_from_env → RunnerParams(topic,url4,nats_url)
+    Child->>Child: build_executor(env); load_config → /etc/url4/url4.toml
     alt [aigateway] declared (token required)
-        Runner->>+Conn: build_aigateway_world(cfg, token, profile, tavily_api_key)
+        Child->>+Conn: build_aigateway_world(cfg, token, profile, tavily_api_key)
         Conn->>Conn: routes_for(declared models) → one Url4Node route per model
-        Conn-->>Runner: AigatewayWorld(node, world_aclose)
+        Conn-->>Child: AigatewayWorld(node, world_aclose)
     else no [aigateway] table
-        Runner->>Runner: deny_by_default_world() (StaticIOLayer)
+        Child->>Child: deny_by_default_world() (StaticIOLayer)
     end
-    Runner->>+Bus: JetStreamPublisher.connect; ensure_stream(topic)
-    Runner->>Bus: publish StartedEvent (seq 1, traceparent=root_tp)
+    Child->>+Bus: JetStreamPublisher.connect; ensure_stream(topic)
+    Child->>Bus: publish StartedEvent (seq 1, traceparent=root_tp)
     loop url4 DAG evaluation (Url4Executor.execute)
-        Runner->>Runner: url4.dag.run(url4, io=node, observer=_Bridge)
-        Note right of Runner: sync Observer → async generator bridge
-        Runner->>+Conn: node dispatches processor route /<provider>/<model>
+        Child->>Child: url4.dag.run(url4, io=node, observer=_Bridge)
+        Note right of Child: sync Observer → async generator bridge
+        Child->>+Conn: node dispatches processor route /<provider>/<model>
         Conn->>+AGW: POST /v1/chat/completions<br/>{model, messages[, tools]}<br/>X-User-Email, X-Profile
         opt web tools enabled (Tavily key present)
             AGW-->>Conn: choices[0].message.tool_calls
@@ -117,15 +123,16 @@ sequenceDiagram
         end
         AGW-->>Conn: completion text + usage
         Conn->>Conn: _report_usage → current_usage_sink (span)
-        Conn-->>Runner: completion string (+ ResolutionError on HTTP err)
-        Runner->>Runner: _RunState maps ObservationEvent → Traced(SpanData/CostUsageData/LogData)
-        Runner->>Bus: publish each frame (per-span traceparent/tracestate)
+        Conn-->>Child: completion string (+ ResolutionError on HTTP err)
+        Child->>Child: _RunState maps ObservationEvent → Traced(SpanData/CostUsageData/LogData)
+        Child->>Bus: publish each frame (per-span traceparent/tracestate)
     end
-    Runner->>Bus: publish CostUsage(scope=subtree)
-    Runner->>Bus: publish ResultEvent(body, media_type)
-    Runner->>Bus: publish TerminatedEvent(status=succeeded)
-    Note right of Runner: any exception ⇒ Terminated{failed} + ErrorInfo(code,permanent)
-    Runner->>Conn: world.aclose() (close httpx clients)
+    Child->>Bus: publish CostUsage(scope=subtree)
+    Child->>Bus: publish ResultEvent(body, media_type)
+    Child->>Bus: publish TerminatedEvent(status=succeeded)
+    Note right of Child: any exception ⇒ Terminated{failed} + ErrorInfo(code,permanent)
+    Child->>Conn: world.aclose() (close httpx clients)
+    Worker->>Bus: ack (the run's terminal frame is on the stream)
 
     Note over Bus,Client: Phase 4 — JetStream delivers the stream back over the WS
     Bus-->>App: frames (JetStream push, sequence per frame)
@@ -136,8 +143,7 @@ sequenceDiagram
     Note over Client,App: Phase 5 — teardown
     Client->>App: WS close
     App->>Reg: registry.remove(topic)
-    App->>K8s: (optional) DELETE / → job_runner.stop(topic) + bus.purge(topic) → 204
-    K8s->>Runner: Job deleted (idempotent); ttlSecondsAfterFinished reclaims later
+    App->>Bus: (optional) DELETE / → control subject url4.runctl.<topic><br/>a running child is SIGTERM'd (Terminated{stopped});<br/>a queued run is tombstoned → 204
 ```
 
 ## 3. The two return paths (sync vs async)
@@ -183,10 +189,11 @@ the Runner and on to aigateway (`job_env.IDENTITY_HEADER_ENV`):
 1. `X-User-Email` is the only source. Cloudflare Access authenticates at the edge, Envoy
    re-verifies that assertion against Cloudflare's JWKS, strips any client-supplied copy and
    re-injects the header from the verified claims — so a client cannot forge it.
-2. It is NOT plain header pass-through: the App and the Runner are different Pods and the outgoing
-   request does not exist yet. The App serializes it into the Job spec as
-   `URL4_CLOUD_IDENTITY_USER_EMAIL` (plain env, not a Secret — identity authorizes nothing on its
-   own), and the Runner re-renders it. `AIGATEWAY_PROFILE` comes from `X-Profile` the same way.
+2. It is NOT plain header pass-through: the App and the run's child process are different
+   processes and the outgoing request does not exist yet. The App serializes it into the
+   queue message's per-run env as `URL4_CLOUD_IDENTITY_USER_EMAIL` (plain env, not a Secret —
+   identity authorizes nothing on its own), and the child re-renders it. `AIGATEWAY_PROFILE`
+   comes from `X-Profile` the same way.
 3. The run mode's `build_executor` (`runner/main.py`) branches on the declared world in
    `url4.toml`:
    - an `[aigateway]` table → `build_aigateway_world` builds a `Url4Node` whose declared routes
@@ -201,8 +208,9 @@ the Runner and on to aigateway (`job_env.IDENTITY_HEADER_ENV`):
 
 ## 6. Web tools (optional Tavily agentic loop)
 
-When `TAVILY_API_KEY` reaches the Runner (a `secretKeyRef` on k8s — never a literal in the Job
-manifest, since a Job object is readable via `get jobs`), the aigateway connector
+When `TAVILY_API_KEY` reaches the run's child process (a `secretKeyRef` on the runner pool's
+Deployment — never a literal in the queue message, since a queue message is readable by any
+worker), the aigateway connector
 (`runner/connector.py`):
 
 - declares `web_search` / `web_fetch` (OpenAI function‑calling shape) to the model,
@@ -248,8 +256,8 @@ connections per topic (`ws/registry.py`). The WS endpoint (`ws/endpoint.py`) reg
 on accept and deregisters on close. Empty count ⇒ `428 Precondition Required` before scheduling.
 
 This ordering is also why `JetStreamConsumer.subscribe` does `ensure_stream` **before** bind: a subscriber
-legitimately arrives before the stream exists (the stream is only created when the Runner first
-publishes), and a bind‑first would raise `NotFoundError` that the silent `_pump` task would
+legitimately arrives before the stream exists (the stream is only created when the run's child
+first publishes), and a bind‑first would raise `NotFoundError` that the silent `_pump` task would
 swallow — leaving the client staring at heartbeats forever.
 
 ## 9. Quick reference — files behind each arrow
