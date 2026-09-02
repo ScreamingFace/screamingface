@@ -19,6 +19,18 @@ from screamingface_engine.subjects import RUN_QUEUE_STREAM, RUN_QUEUE_SUBJECT
 pytestmark = pytest.mark.asyncio
 
 
+class _RaisingFetchSub:
+    """A pull subscription whose `fetch` behaves like the real broker's: it RAISES on an
+    empty window instead of returning an empty list (nats-py's `_fetch_one`/
+    `FetchTimeoutError`). A fake that returns `[]` masks an uncaught-timeout crash."""
+
+    async def fetch(self, batch: int, timeout: float | None = None) -> list[Any]:
+        raise TimeoutError("nats: timeout")
+
+    async def unsubscribe(self) -> None:
+        pass
+
+
 class _FakeJetStream:
     """The slice of `JetStreamContext` the queue uses, recording every call."""
 
@@ -28,6 +40,10 @@ class _FakeJetStream:
         self.api_calls = 0
         self._state: dict[str, Any] = {"messages": 0, "first_ts": None}
         self._prefix = "$JS.API"
+        self.pull_sub: Any = _RaisingFetchSub()
+
+    async def pull_subscribe(self, *args: Any, **kwargs: Any) -> Any:
+        return self.pull_sub
 
     async def add_stream(self, **kwargs: Any) -> object:
         self.added.append(kwargs)
@@ -126,3 +142,29 @@ async def test_the_cache_expires_after_the_ttl() -> None:
     fake._state["messages"] = 5  # the broker changed underneath
     assert await queue.depth() == 5
     assert fake.api_calls == 2
+
+
+async def test_an_idle_poll_returns_no_messages_rather_than_raising() -> None:
+    """The real broker RAISES from `fetch` when nothing arrives — nats-py never returns an
+    empty list. A `pull` that propagates that kills the worker's claim loop on its first
+    poll of an idle queue, so the timeout must read as "nothing to claim"."""
+    fake = _FakeJetStream()
+    assert fake.pull_sub.__class__ is _RaisingFetchSub  # the honest fake, not a [] one
+
+    assert await _queue(fake).pull(batch=1, timeout_s=0.01) == []
+
+
+async def test_an_empty_queue_reports_no_age_even_though_the_server_sends_a_zero_time() -> None:
+    """The server answers an empty stream with the Go zero time, not a null —
+    `"0001-01-01T00:00:00Z"` is the real wire shape and must read as "no queued run";
+    taking it literally reports a ~6.4e10-second age and the idle-queue alert fires
+    forever."""
+    fake = _FakeJetStream()
+    fake._state = {"messages": 0, "first_ts": "0001-01-01T00:00:00Z"}
+    assert await _queue(fake).oldest_age() is None
+
+    # Belt-and-braces: a response that disagrees with itself (messages > 0, zero time)
+    # must also read as "no age", never as a negative-or-ancient timestamp.
+    disagreeing = _FakeJetStream()
+    disagreeing._state = {"messages": 2, "first_ts": "0001-01-01T00:00:00Z"}
+    assert await _queue(disagreeing, state_cache_ttl_s=0.0).oldest_age() is None

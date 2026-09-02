@@ -290,6 +290,13 @@ class RunQueue:
         )
         try:
             return await sub.fetch(batch, timeout=timeout_s)
+        except TimeoutError:
+            # INVARIANT: an idle poll is a RESULT, not an error. nats-py's `fetch` RAISES
+            # `nats.errors.TimeoutError` (or its `FetchTimeoutError` subclass) when no
+            # message arrives within the window — it never returns an empty list — and
+            # both subclass `TimeoutError`. Left uncaught, the first empty poll unwinds
+            # the worker's claim loop and kills the pool on an idle queue.
+            return []
         finally:
             await sub.unsubscribe()
 
@@ -319,10 +326,19 @@ class RunQueue:
 
     async def oldest_age(self) -> float | None:
         """Seconds since the oldest queued run was published; `None` when the queue is empty."""
-        _, first_ts = await self._state()
-        if first_ts is None:
+        messages, first_ts = await self._state()
+        # WHY the message COUNT is the emptiness signal: the server always sends a
+        # `first_ts`, answering an EMPTY stream with the Go zero time
+        # ("0001-01-01T00:00:00Z"), which `fromisoformat` parses happily. A `None`-only
+        # check reads that as a ~6.4e10-second age and the idle-queue alert fires
+        # permanently on every drained queue.
+        if not messages or first_ts is None:
             return None
         ts = datetime.fromisoformat(first_ts)
+        # Belt-and-braces for a response that disagrees with itself (messages > 0 with
+        # a zero time): no real run was published in year 1.
+        if ts.year <= 1:
+            return None
         return (datetime.now(UTC) - ts).total_seconds()
 
     async def close(self) -> None:
