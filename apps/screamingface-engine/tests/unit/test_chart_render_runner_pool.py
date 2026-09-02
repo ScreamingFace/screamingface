@@ -118,6 +118,45 @@ def test_the_pool_runs_the_worker_mode_and_inherits_the_runner_env_configmap() -
     assert {"configMapRef": {"name": f"{_RELEASE}-{_RELEASE}-runner-env"}} in container["envFrom"]
 
 
+def _render_with_overrides(**overrides: str) -> list[dict]:
+    """Render the chart with `--set` overrides, so a test can prove a chart VALUE
+    actually reaches the rendered manifest. (`--set`, not `--set-string`: the schema
+    types workerSlots/drainGraceS/metricsPort as numbers, and helm refuses a string.)"""
+    args = ["helm", "template", _RELEASE, str(_CHART), "--set-string",
+            "config.natsUrl=nats://nats.example:4222"]
+    for key, value in overrides.items():
+        args += ["--set", f"{key}={value}"]
+    result = subprocess.run(args, capture_output=True, text=True, check=True)
+    return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_pool_renders_its_own_settings_into_the_worker_env() -> None:
+    """`runnerPool.workerSlots` / `drainGraceS` / `metricsPort` must reach the worker pod's
+    env — the worker builds `Settings()` from its environment, so unrendered values read
+    the code defaults instead. The drift is invisible while the defaults coincide
+    (4 / 30 / 9109), so this test renders NON-default values: an operator who sets
+    `workerSlots: 8` gets 8× the resource requests, and the worker must actually run 8
+    slots (the queue's `max_ack_pending` derives from the same setting)."""
+    docs = _render_with_overrides(
+        **{
+            "runnerPool.workerSlots": "8",
+            "runnerPool.drainGraceS": "17",
+            "runnerPool.metricsPort": "9199",
+        }
+    )
+    pool = _find(docs, "Deployment", f"{_RELEASE}-{_RELEASE}-runner")
+    container = pool["spec"]["template"]["spec"]["containers"][0]
+    env = {entry["name"]: entry["value"] for entry in container["env"]}
+
+    assert env["URL4_CLOUD_RUN_QUEUE_WORKER_SLOTS"] == "8"
+    assert env["URL4_CLOUD_WORKER_DRAIN_GRACE_S"] == "17"
+    assert env["URL4_CLOUD_WORKER_METRICS_PORT"] == "9199"
+    # The metrics port and the containerPort are the same knob — they must agree.
+    port = next(p for p in container["ports"] if p["name"] == "metrics")
+    assert port["containerPort"] == 9199
+
+
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 def test_a_configmap_change_alone_rolls_the_pool() -> None:
     """Both checksum annotations are present, matching the App Deployment's invariant: a
@@ -133,9 +172,12 @@ def test_a_configmap_change_alone_rolls_the_pool() -> None:
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 def test_the_drain_configuration_keeps_a_deploy_from_interrupting_runs() -> None:
-    """`terminationGracePeriodSeconds > drain_grace_s`, a `preStop` that starts the drain, and
-    a `maxUnavailable: 0` PodDisruptionBudget — the named mitigations for the
-    deploy-interrupts-runs regression."""
+    """`terminationGracePeriodSeconds > drain_grace_s`, a `preStop` that starts the drain,
+    and a `maxUnavailable: 1` PodDisruptionBudget — voluntary disruptions are SERIALIZED,
+    one pod at a time. A PDB cannot see slot occupancy, so `0` would not "wait for the
+    slots"; it makes `disruptionsAllowed` permanently 0 and every drain/autoscaler
+    eviction blocks on this pod forever. The drain itself is what protects in-flight
+    runs."""
     docs = _render()
     values = _values()
     pool = _find(docs, "Deployment", f"{_RELEASE}-{_RELEASE}-runner")
@@ -146,7 +188,7 @@ def test_the_drain_configuration_keeps_a_deploy_from_interrupting_runs() -> None
     assert pre_stop, "the pool needs a preStop that starts the drain"
 
     pdb = _find(docs, "PodDisruptionBudget", f"{_RELEASE}-{_RELEASE}-runner")
-    assert pdb["spec"]["maxUnavailable"] == 0
+    assert pdb["spec"]["maxUnavailable"] == 1
     assert pdb["spec"]["selector"]["matchLabels"]["app.kubernetes.io/name"] == _RUNNER_NAME_LABEL
 
 

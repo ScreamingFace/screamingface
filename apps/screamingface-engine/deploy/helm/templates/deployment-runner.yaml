@@ -88,6 +88,22 @@ spec:
             # The worker's Prometheus /metrics endpoint (prometheus_client.start_http_server).
             - name: metrics
               containerPort: {{ .Values.runnerPool.metricsPort }}
+          env:
+            # The worker's OWN settings, from `runnerPool` — the same values the
+            # containerPort and the resource arithmetic above already consume. The
+            # worker builds `Settings()` from its environment, and without these entries
+            # it reads the code defaults instead of the chart's: an operator who raises
+            # `workerSlots` to 8 gets 8× the resource requests and an 8-slot claim, while
+            # the worker still runs 4 slots and the queue's `max_ack_pending` (derived
+            # from `run_queue_worker_slots`) stays at the default — a drift nothing
+            # reports because today's values coincide with the defaults (4 / 30 / 9109).
+            # The names are `Settings`' own: the `URL4_CLOUD_` prefix plus the field.
+            - name: URL4_CLOUD_RUN_QUEUE_WORKER_SLOTS
+              value: {{ .Values.runnerPool.workerSlots | quote }}
+            - name: URL4_CLOUD_WORKER_DRAIN_GRACE_S
+              value: {{ .Values.runnerPool.drainGraceS | quote }}
+            - name: URL4_CLOUD_WORKER_METRICS_PORT
+              value: {{ .Values.runnerPool.metricsPort | quote }}
           envFrom:
             # The deploy-time runner env, unchanged from the Job path: Helm owns these names
             # (AIGATEWAY_BASE_URL, URL4_CLOUD_NATS_URL, the artifact-store settings), and the
