@@ -92,3 +92,44 @@ recorded in the new seed test's module docstring so the next reader finds it.
 a full run of the same recipe are two rows on both paths. The partial one exists and does not rank;
 the full one ranks. Neither displaces the other, and no participant loses a submission by having
 tested first — which is the whole reason partial runs stay accepted.
+
+## Approval follow-ups — 2026-09-02
+
+PR #785 was approved with six non-blocking findings. Five are implemented on the follow-up
+branch rather than added to the already-approved PR:
+
+1. **Frontier parity:** `/frontier` now applies the registered `case_count` before computing
+   the current holder, trend, and openness counts. A route-level regression proves the public
+   endpoint cannot drift from the ranked table.
+2. **Local seed parity:** `scoreboard_seed_json()` carries the Engine registry's `case_count`,
+   so `screamingface up` enables the same coverage filter as a deployed Scoreboard.
+3. **Producer contract:** the Engine catalogue suite pins `case_count` by exact field name,
+   integer type, and positive range for every built-in benchmark.
+4. **Seed persistence:** a real in-memory Tortoise test covers HTTP catalogue parsing through
+   `seed_from_sources()` into `Benchmark.case_count` in the database.
+5. **Predicate boundary:** a run reporting more than the registered count remains comparable;
+   a regression test prevents accidentally tightening `>=` to `==`.
+
+The seed/store boundary also now distinguishes **omitted** from **explicitly absent** scope.
+A direct `register_benchmark()` caller that omits `case_count` preserves the stored value. An
+authoritative Engine row with no usable count passes explicit `None` and clears it, preventing a
+new benchmark revision from inheriting a stale scope.
+
+The sixth finding is intentionally not folded into this implementation. `total_questions` is a
+client claim and the submission wire does not attest that every selected case completed grading.
+That product/trust decision is already tracked by OME-867, whose acceptance explicitly requires a
+typed Client↔Scoreboard evaluation-scope contract, distinct incomplete-grading behavior, and
+cross-stack `limit=1` coverage. No duplicate ticket was created.
+
+### Follow-up verification
+
+- **Scoreboard:** official `run_gates.py scoreboard` — all gates green, including append-only,
+  Ruff, formatting, Pyright, coverage, and portal logic.
+- **ScreamingFace SDK:** official `run_gates.py screamingface` — all gates green, including 95%
+  coverage, notebook validation, wheel build, and distribution inspection.
+- **Engine:** append-only, Ruff, formatting, Pyright, layering, and the changed 18-test catalogue
+  contract suite are green. The full pytest gate completed 2,283 passed / 5 skipped / 1 unrelated
+  local failure: Helm 4's default Kubernetes capability is 1.20 while the untouched chart requires
+  1.25+. Rendering the same untouched chart with `--kube-version 1.25.0` succeeds.
+- **ORM:** installed and current Tortoise ORM versions both 1.1.8; persistence tests use the
+  repository's `tortoise_test_context` fixture.
