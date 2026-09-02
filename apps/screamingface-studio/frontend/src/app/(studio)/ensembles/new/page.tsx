@@ -1736,17 +1736,12 @@ function kindLabel(kind: RecipeKind): string {
 
 // Only leaf model units (and the synthesizer) are drawn as blocks; fusions/pipelines are
 // bare structural groupings, so the composition reads like a node diagram.
-function soloChrome(role: NodeRole): string {
-  return role === "synthesizer"
-    ? "rounded-lg border border-accent/50 bg-accent/5 p-2.5 shadow-sm"
-    : "rounded-lg border bg-card p-2.5 shadow-sm";
+function soloChrome(): string {
+  return "rounded-lg border bg-card p-2.5 shadow-sm";
 }
 
-function roleTagClass(role: NodeRole): string {
-  return cn(
-    "shrink-0 font-mono text-[10px] uppercase tracking-wider",
-    role === "synthesizer" ? "text-accent" : "text-muted-foreground",
-  );
+function roleTagClass(): string {
+  return "shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground";
 }
 
 function KindDropdown({
@@ -1864,7 +1859,7 @@ function FusionBody({
 }) {
   const setMembers = (members: RecipeNode[]) => onChange({ ...node, members });
   return (
-    <div className="flex flex-row items-start gap-1.5">
+    <div className="flex flex-row items-center gap-1.5">
       <div className="flex shrink-0 flex-col gap-2 rounded-lg border border-dashed border-border/60 p-2">
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
           Parallel members
@@ -1899,7 +1894,7 @@ function FusionBody({
           Add member
         </Button>
       </div>
-      <div className="mt-3 flex shrink-0 flex-col items-center">
+      <div className="flex shrink-0 flex-col items-center">
         <ArrowRight className="size-4 text-muted-foreground/70" />
         <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/70">
           synthesize
@@ -1935,11 +1930,11 @@ function PipelineBody({
 }) {
   const setStages = (stages: RecipeNode[]) => onChange({ ...node, stages });
   return (
-    <div className="flex flex-row items-start gap-1.5 pb-1">
+    <div className="flex flex-row items-center gap-1.5 pb-1">
       {node.stages.map((stage, index) => (
         <div key={stage.id} className="flex items-start gap-1.5">
           {index > 0 && (
-            <ArrowRight className="mt-3 size-4 shrink-0 text-muted-foreground/70" />
+            <ArrowRight className="size-4 shrink-0 text-muted-foreground/70" />
           )}
           <div className="min-w-[16rem] shrink-0">
             <RecipeNodeCard
@@ -2019,7 +2014,7 @@ function RecipeNodeCard({
   if (node.kind === "solo") {
     const model = node.model;
     return (
-      <article className={cn("min-w-[16rem]", soloChrome(role))}>
+      <article className={cn("min-w-[16rem]", soloChrome())}>
         <div className="flex items-center justify-between gap-2">
           {model ? (
             <button
@@ -2034,7 +2029,7 @@ function RecipeNodeCard({
                   !collapsed && "rotate-90",
                 )}
               />
-              <span className={roleTagClass(role)}>{roleLabel}</span>
+              <span className={roleTagClass()}>{roleLabel}</span>
               <ProviderDot provider={model.providerId} />
               <span className="truncate font-mono text-xs text-foreground/90">
                 {model.name}
@@ -2042,7 +2037,7 @@ function RecipeNodeCard({
             </button>
           ) : (
             <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <span className={roleTagClass(role)}>{roleLabel}</span>
+              <span className={roleTagClass()}>{roleLabel}</span>
               <span className="truncate text-xs text-muted-foreground/70">
                 · pick a model
               </span>
@@ -2087,7 +2082,7 @@ function RecipeNodeCard({
               !collapsed && "rotate-90",
             )}
           />
-          <span className={roleTagClass(role)}>{roleLabel}</span>
+          <span className={roleTagClass()}>{roleLabel}</span>
           <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             {kindLabel(node.kind)}
           </span>
