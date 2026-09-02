@@ -3,7 +3,7 @@ ticket: OME-1013
 stack: screamingface
 status: done
 started: 2026-09-01
-finished: 2026-09-01
+finished: 2026-09-02
 ---
 
 # OME-1013 — Harden diagnostic evidence and notebook presentation
@@ -51,14 +51,15 @@ evidence, and use the SFDS danger role for failures.
   updated the diagnostic receipt/evaluation/notebook modules and their focused behavior suites; and
   clarified that the two earlier `done` ledgers describe completed iterations, not ticket closure.
 - **Commits:** this iteration's `fix(screamingface): harden client diagnostics` commit.
-- **Gates:** `run_gates.py screamingface --skip-append-only` ALL GATES GREEN — Ruff lint and
-  formatting, Pyright (0 errors), the complete pytest suite with ≥95% coverage, deterministic
-  notebook validation, wheel/sdist build, and distribution validation. Focused diagnostic,
-  capture and fail-open suites: 62 passed.
-- **Deviations:** append-only comparison skipped only for the owner-approved contract corrections
-  listed below. The pre-existing modified quickstart notebook and untracked exported diagnostic
-  were temporarily stashed for gates because that notebook currently has an unrelated undefined
-  `leaderboard` reference; both user-owned files were restored unchanged immediately afterward.
+- **Gates:** after rebasing onto `origin/main`, plain `run_gates.py screamingface` ALL GATES GREEN —
+  append-only check, Ruff lint and formatting, Pyright (0 errors), the complete pytest suite with
+  ≥95% coverage, deterministic notebook validation, wheel/sdist build, and distribution
+  validation. Focused diagnostic, capture and fail-open suites: 62 passed.
+- **Deviations:** the pre-commit gate used `--skip-append-only` only for the owner-approved contract
+  corrections listed below; the post-rebase ordinary gate passed the append-only check. The
+  pre-existing modified quickstart notebook and untracked exported diagnostic were temporarily
+  stashed for gates because that notebook currently has an unrelated undefined `leaderboard`
+  reference; both user-owned files were restored unchanged immediately afterward.
 
 ## Owner-approved prior-test amendments
 
