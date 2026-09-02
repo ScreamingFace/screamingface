@@ -346,23 +346,33 @@ class _QueueAware(Protocol):
 
 
 async def _notify_queue_position(deps: _Deps, topic: str, clock: Callable[[], datetime]) -> None:
-    """Tell the attached client where its run sits in the queue, if the runner is
+    """Tell the attached client how many runs the queue holds, if the runner is
     queue-backed (OME-1090).
 
     The client is already attached while its run is queued, so the wait should be visible
     instead of silent. The notice travels the WS bridge's existing `add_notifier` path —
     no protocol change, no stream write — and is superseded once `StartedEvent` arrives.
+
+    INVARIANT: purely advisory — a failure here must never fail the request. This runs
+    AFTER the run is durably queued, so an exception would turn an accepted run into a
+    500 while the run proceeds anyway. The value is also a cached fleet-wide depth that
+    may lag this publish by `state_cache_ttl_s`, so the notice reports a DEPTH, not a
+    promise about this run's exact position.
     """
     if not isinstance(deps.job_runner, _QueueAware):
         return
-    position = await deps.job_runner.queue_depth()
+    try:
+        depth = await deps.job_runner.queue_depth()
+    except Exception:  # noqa: BLE001 - advisory only; the broker blip is not the client's error
+        _logger.debug("queue depth notice skipped: the broker read failed", exc_info=True)
+        return
     deps.sessions.notify(
         topic,
         notices.info(
             topic,
             clock,
-            f"the run is queued at position {position}",
-            {"queue.position": position},
+            f"the run is queued; the queue holds {depth} run(s)",
+            {"queue.depth": depth},
         ),
     )
 

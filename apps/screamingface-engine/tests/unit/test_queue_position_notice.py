@@ -71,6 +71,8 @@ class _QueueAwareRunner(IdentityAwareJobRunner):
         return "scheduled"
 
     async def queue_depth(self) -> int:
+        if isinstance(self._depth, Exception):
+            raise self._depth
         return self._depth
 
 
@@ -107,10 +109,12 @@ def test_the_queue_position_notice_reaches_the_attached_socket_and_is_superseded
             assert started.status_code == 202
             assert runner.scheduled and runner.scheduled[0][0] == topic
 
-            # The notice arrives first: a log frame naming the queue position.
+            # The notice arrives first: a log frame naming the queue DEPTH — advisory,
+            # phrased as a depth because the value is a cached snapshot that may lag
+            # this publish, never a promise about this run's exact position.
             notice = OutboundFrameAdapter.validate_python(ws.receive_json())
             assert notice.type == "ai.url4.log"
-            assert "position 3" in notice.data.body
+            assert "the queue holds 3 run(s)" in notice.data.body
 
             # Superseded: the run starts, and the client sees the StartedEvent.
             portal = client.portal
@@ -128,3 +132,23 @@ def test_the_queue_position_notice_reaches_the_attached_socket_and_is_superseded
             )
             started_frame = OutboundFrameAdapter.validate_python(ws.receive_json())
             assert started_frame.type == "ai.url4.started"
+
+
+def test_a_failed_depth_read_never_fails_the_accepted_run() -> None:
+    """The notice is advisory: it runs AFTER the run is durably queued, so a broker blip
+    on the depth read must not turn an accepted run into a 500 — the client would see a
+    failure while the run proceeds anyway."""
+    stream = InMemoryEventStream()
+    runner = _QueueAwareRunner(stream, depth=RuntimeError("stream_info failed"))  # type: ignore[arg-type]
+    app = _make_app(stream, runner)
+    topic = "topic-notice-blip"
+    with TestClient(app) as client:
+        token = _token(topic)
+        cap = {"URL4-Capability": token}
+        with client.websocket_connect(f"/ws?ticket={token}", subprotocols=[SUBPROTOCOL]) as ws:
+            ws.send_json(_attach())
+            started = client.get(
+                "/", params={"q": "'hi'"}, headers={**cap, "Prefer": "respond-async"}
+            )
+            assert started.status_code == 202, "the run was accepted; the notice is not its business"
+            assert runner.scheduled and runner.scheduled[0][0] == topic
