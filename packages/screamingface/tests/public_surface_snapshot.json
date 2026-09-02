@@ -98,7 +98,7 @@
         ],
         "kind": "class",
         "members": {
-          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None) -> 'None'",
+          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, trace_id: 'str | None' = None) -> 'None'",
           "retryable": "property",
           "user_message": "property"
         }
@@ -256,7 +256,7 @@
         ],
         "kind": "class",
         "members": {
-          "__init__": "method (self, message: 'str', *, engine_url: 'str') -> 'None'",
+          "__init__": "method (self, message: 'str', *, engine_url: 'str', trace_id: 'str | None' = None) -> 'None'",
           "retryable": "property",
           "user_message": "property"
         }
@@ -315,7 +315,7 @@
         ],
         "kind": "class",
         "members": {
-          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None) -> 'None'",
+          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, trace_id: 'str | None' = None) -> 'None'",
           "retryable": "property",
           "user_message": "property"
         }
@@ -591,7 +591,7 @@
         ],
         "kind": "class",
         "members": {
-          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None) -> 'None'",
+          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, trace_id: 'str | None' = None) -> 'None'",
           "retryable": "property",
           "user_message": "property"
         }
@@ -638,7 +638,7 @@
         ],
         "kind": "class",
         "members": {
-          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None) -> 'None'",
+          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, trace_id: 'str | None' = None) -> 'None'",
           "retryable": "property",
           "user_message": "property"
         }

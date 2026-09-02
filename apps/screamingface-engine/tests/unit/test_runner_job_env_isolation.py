@@ -68,10 +68,15 @@ async def test_runner_job_env_is_exactly_what_the_app_set() -> None:
     # an explicit env entry beats `envFrom`, which is exactly what keeps a stale
     # URL4_CLOUD_EXTRA_MODELS left in the Helm ConfigMap from leaking onto a Job. Same
     # invariant, one more per-run key.
+    # IO_CONCURRENCY joined on 2026-08-26 (OME-908): the per-run downstream budget is
+    # deployment-wide but PER-RUN-rendered, and written unconditionally for the same
+    # envFrom-staleness reason as EXTRA_MODELS. Local mode never writes it (its bound is
+    # the shared fair-share gate, and `InProcessJobRunner._env` pops ambient copies).
     assert names == {
         job_env.TOPIC,
         job_env.EXPRESSION,
         job_env.JOB_DEADLINE_S,
         job_env.STREAM_GRACE_S,
         job_env.EXTRA_MODELS,
+        job_env.IO_CONCURRENCY,
     }

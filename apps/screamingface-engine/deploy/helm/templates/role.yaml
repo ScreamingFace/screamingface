@@ -36,4 +36,23 @@ rules:
       - pods/log
     verbs:
       - get
+  # FEATURE (OME-1065): quota-aware admission. The App reads the namespace ResourceQuota
+  # (status.used vs status.hard) and the LimitRanges (for the Pod's defaulted charge) before
+  # scheduling a Job, so a saturated namespace refuses a run with 503 + Retry-After instead of
+  # creating a Job whose Pod is silently refused.
+  - apiGroups:
+      - ""
+    resources:
+      - resourcequotas
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - limitranges
+    verbs:
+      - get
+      - list
 {{- end }}

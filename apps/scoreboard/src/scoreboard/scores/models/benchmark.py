@@ -26,6 +26,16 @@ class BaseBenchmark(BaseScoreboardModel):
     # WHY nullable: the retained legacy demo entries (hle/livetruth/livetruth-latest) have no
     # Engine revision, so this column is added without a backfill.
     revision = fields.CharField(max_length=64, null=True)
+    # INVARIANT (OME-1056): how many cases the Engine benchmark defines. A submission reporting
+    # FEWER than this measured a subset, so it is not comparable with a complete run — and it is
+    # ADVANTAGED, not merely different, because fewer cases makes a perfect score easier. A
+    # one-case IFEval run scoring 1.0 held rank 1 over a 541-case run scoring 0.85.
+    # WHY nullable, and why that is not a hole: a benchmark with no registered count filters
+    # nothing, exactly as one with no registered revision filters nothing. Legacy and non-Engine
+    # boards keep ranking as they did. The value is Engine-owned — it arrives in the catalogue
+    # the seed job already fetches and is deliberately NOT accepted from deployment
+    # configuration, so a hand-written entry cannot declare a smaller canonical scope.
+    case_count = fields.IntField(null=True)
     # INVARIANT (OME-894): privacy is a property of the BENCHMARK, enforced in the API on every
     # read path — not a portal concern. The portal is static JS against a public API, so hiding
     # rows in the page would leave `curl /v1/leaderboard/{id}` serving the whole board.

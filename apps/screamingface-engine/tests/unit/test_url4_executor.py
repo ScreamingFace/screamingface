@@ -648,6 +648,9 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
     {
         Path("screamingface_engine/runner/executor.py"),
         Path("screamingface_engine/runner/connector.py"),
+        # OME-908: the fair-share io wrapper binds a run into the shared gate — an io-port
+        # adapter in exactly connector's sense, so it shares the engine-import allowance.
+        Path("screamingface_engine/runner/fair_share.py"),
     }
 )
 

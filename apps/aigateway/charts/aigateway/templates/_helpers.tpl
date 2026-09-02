@@ -64,6 +64,40 @@ app.kubernetes.io/name: {{ include "aigateway.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
+{{/*
+The gateway Pod's `app.kubernetes.io/component` value — the ONE place this chart decides it.
+
+INVARIANT: the Pod template AND every selector that must name the gateway (the Service, the
+NetworkPolicy, Garage's :3900 ingress) derive from this helper, so they cannot drift apart.
+
+WHY configurable: `selectorLabels` (name+instance) match EVERY workload this chart renders — the
+migrate Job and the bundled Garage included — so a selector that must name the gateway needs a
+component label. But a platform that owns the network boundary may already have its own name for
+this Pod (`component: server` across sf-aigw / sf-report-intake / sf-scoreboard). Hardcoding
+`gateway` forced such a platform to restate it through `podLabels`, which rendered AFTER the Pod
+template's own labels: the duplicate key won on the Pod, the Service selector kept demanding
+`gateway`, and the Service matched ZERO Pods — Pod Running, Argo Synced, no Endpoints, nothing in
+any log. Set `componentLabel` to adopt an existing convention and every selector moves with it.
+*/}}
+{{- define "aigateway.componentLabel" -}}
+{{- .Values.componentLabel | default "gateway" -}}
+{{- end -}}
+
+{{/*
+Refuse the `podLabels` spelling that silently empties this chart's Service.
+
+`podLabels` cannot express a label this chart's selectors depend on: YAML duplicate-key
+precedence decides the winner with no Helm error and no API-server rejection, so the override
+detaches every caller from the gateway while everything still reports healthy. `componentLabel`
+is the supported spelling because it moves the Pod label and the selectors together.
+*/}}
+{{- define "aigateway.validatePodLabels" -}}
+{{- $reserved := "app.kubernetes.io/component" -}}
+{{- if hasKey (.Values.podLabels | default dict) $reserved -}}
+{{- fail (printf "podLabels sets %s=%q, which this chart's Service and NetworkPolicy select on. podLabels renders after the Pod template's own labels, so the override wins on the Pod and leaves the Service matching zero Pods (Pod Running, Argo Synced, no Endpoints). Set componentLabel=%q instead — it moves the Pod label and every selector together." $reserved (get .Values.podLabels $reserved) (get .Values.podLabels $reserved)) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "aigateway.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
 {{- default (include "aigateway.fullname" .) .Values.serviceAccount.name -}}
@@ -78,4 +112,36 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{- define "aigateway.authSecretName" -}}
 {{- required "auth.existingSecret is required" .Values.auth.existingSecret -}}
+{{- end -}}
+
+{{- define "aigateway.snapshotSecretName" -}}
+{{- printf "%s-snapshot-storage" (include "aigateway.fullname" .) -}}
+{{- end -}}
+
+{{/*
+Refuse the one replica shape the snapshot design does not support.
+
+INVARIANT (spec, accepted limitations): the weekly export assumes a SINGLE gateway replica.
+Object keys share the second-resolution `cache-snapshots/<stamp>` prefix, and every replica
+runs its own scheduler aimed at the same Friday 05:00 UTC — two replicas therefore fire with
+the SAME stamp and can interleave their PUTs, pairing one replica's archive bytes with the
+other's manifest. The v1 contract logs this as a single-replica assumption rather than
+serializing (cross-replica locking is named future work), so the chart enforces what the
+spec assumed: snapshots on means one writer, or the render fails here — not silently, a
+week later, as a corrupted backup pair.
+*/}}
+{{- define "aigateway.validateSnapshot" -}}
+{{- if and .Values.snapshot.enabled (gt (int .Values.replicaCount) 1) -}}
+{{- fail (printf "snapshot.enabled=true requires replicaCount=1 (got %d): every replica runs its own export scheduler against the same second-resolution cache-snapshots/<stamp> keys, so two replicas firing at Friday 05:00 UTC can overwrite each other's archive/manifest pair. This is the spec's logged single-replica invariant (OME-1021); cross-replica serialization (Postgres advisory lock / CronJob) is future work. Set replicaCount=1 or snapshot.enabled=false." (int .Values.replicaCount)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "aigateway.snapshotEndpoint" -}}
+{{- /* The S3 endpoint the gateway signs against: the bundled Garage Service when enabled,
+     else the operator-declared external endpoint (the app fails fast if it is missing). */ -}}
+{{- if .Values.snapshot.garage.enabled -}}
+{{- printf "http://%s-garage:3900" (include "aigateway.fullname" .) -}}
+{{- else -}}
+{{- .Values.snapshot.storage.endpointUrl -}}
+{{- end -}}
 {{- end -}}

@@ -277,9 +277,14 @@ async def get_leaderboard(
         # The same read that decided `pinned` above also builds the query's revision filter, so
         # the gate and the filter can never disagree within one request.
         registered_revision=benchmark.revision,
+        registered_case_count=benchmark.case_count,
     )
     frontier_inputs = (
-        await store.leaderboard_pareto_inputs(benchmark_id, registered_revision=benchmark.revision)
+        await store.leaderboard_pareto_inputs(
+            benchmark_id,
+            registered_revision=benchmark.revision,
+            registered_case_count=benchmark.case_count,
+        )
         if pinned
         else []
     )
@@ -414,5 +419,12 @@ async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
             detail=FRONTIER_NOT_AVAILABLE_DETAIL,
             headers=PRIVATE_CACHE_HEADERS,
         )
-    result = compute_frontier(scores=scores, baselines=baselines)
+    # OME-1056: the same coverage rule the ranking applies. `benchmark` was read at the top of
+    # this handler and its `case_count` is the board's canonical scope; a partial run must not
+    # own the frontier while being hidden from the table on the same page.
+    result = compute_frontier(
+        scores=scores,
+        baselines=baselines,
+        registered_case_count=benchmark.case_count,
+    )
     return FrontierResponse(benchmark_id=benchmark_id, **result.model_dump())

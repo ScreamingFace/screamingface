@@ -1254,6 +1254,52 @@ async def test_the_private_response_never_contradicts_itself(
     assert steady["benchmark"]["visibility"] == "private"
 
 
+# --- OME-1056: the frontier applies the same coverage rule as the ranking ---
+
+
+async def test_the_frontier_route_passes_the_registered_case_count(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """The route must hand `benchmark.case_count` to `compute_frontier`.
+
+    WHY pinned at the ROUTE and not only in the pure function: `compute_frontier`'s
+    `registered_case_count` has to default to None — seven prior tests call it and rule 5 makes
+    editing them an owner decision a keyword default does not justify. That default means a route
+    which stops passing the argument silently returns to publishing partial runs as the state of
+    the art, with no type error and no failure in the function's own tests. This is the guard that
+    makes the default safe, so it is the one to keep green.
+
+    The board hid a one-case run from the table while this endpoint made it `current` — and
+    because `_compute_trend` advances the holder only on a STRICT improvement, no complete run
+    could ever displace it.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="ifeval", display_name="IFEval", case_count=541)
+    for spec_id, score, total in (("one-case-run", 1.0, 1), ("honest-full-run", 0.85, 541)):
+        response = await async_client.post(
+            "/v1/scores",
+            json={
+                "version": 1,
+                "benchmark_id": "ifeval",
+                "spec_id": spec_id,
+                "url4_expression": f"url4://{spec_id}",
+                "submitted_by": "tester",
+                "score": score,
+                "total_questions": total,
+                "ran_with_providers": ["openrouter"],
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    body = (await async_client.get("/v1/leaderboard/ifeval/frontier")).json()
+
+    assert body["current"]["label"] == "honest-full-run", (
+        "the frontier published a partial run as the state of the art; the route is not passing "
+        "the registered case count to compute_frontier"
+    )
+    assert [point["label"] for point in body["trend"]] == ["honest-full-run"]
+
+
 # ---- OME-923 part B: Pareto frontier marks -----------------------------------
 
 
@@ -1360,6 +1406,33 @@ async def test_get_leaderboard_marks_nothing_when_no_row_reports_a_cost(
     entries = response.json()["entries"]
     assert len(entries) == 2
     assert all(entry["on_pareto_frontier"] is False for entry in entries)
+
+
+async def test_a_partial_run_neither_ranks_nor_shapes_the_pareto_frontier(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """OME-1056 and OME-923 must use the same comparable-row population."""
+    store = ScoreStore()
+    await store.register_benchmark(
+        benchmark_id="hle",
+        display_name="Humanity's Last Exam",
+        revision=_PINNED,
+        case_count=1000,
+    )
+    await _row(store, spec_id="complete", score=0.80, cost="5.00")
+    partial, _ = await store.submit(_submission(spec_id="partial", score=0.99))
+    await Score.filter(id=partial.id).update(
+        benchmark_revision=_PINNED,
+        total_questions=1,
+        run_cost_usd=Decimal("0.01"),
+    )
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert [entry["spec_id"] for entry in entries] == ["complete"]
+    assert entries[0]["on_pareto_frontier"] is True
 
 
 async def test_a_private_board_emits_no_frontier_information(
@@ -1645,7 +1718,12 @@ async def test_the_board_query_trusts_the_revision_it_is_given(tortoise_db: None
 
     Benchmark.get_or_none = _counting  # type: ignore[method-assign]
     try:
-        rows = await store.leaderboard(benchmark_id="hle", top_n=None, registered_revision=_PINNED)
+        rows = await store.leaderboard(
+            benchmark_id="hle",
+            top_n=None,
+            registered_revision=_PINNED,
+            registered_case_count=None,
+        )
     finally:
         Benchmark.get_or_none = real  # type: ignore[method-assign]
 
