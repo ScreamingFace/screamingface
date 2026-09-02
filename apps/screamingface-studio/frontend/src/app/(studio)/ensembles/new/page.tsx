@@ -20,8 +20,6 @@ import {
   Scale,
   Share2,
   Upload,
-  Columns3,
-  Rows3,
   X,
   ZoomIn,
   ZoomOut,
@@ -1731,35 +1729,30 @@ function buildDraft(
   };
 }
 
-type Orientation = "vertical" | "horizontal";
-
 type NodeRole = "root" | "member" | "stage" | "synthesizer";
 
-const RECIPE_KINDS: { kind: RecipeKind; label: string }[] = [
-  { kind: "solo", label: "Solo" },
-  { kind: "fusion", label: "Fusion" },
-  { kind: "pipeline", label: "Pipeline" },
-];
+function kindLabel(kind: RecipeKind): string {
+  return kind === "solo" ? "Solo" : kind === "fusion" ? "Fusion" : "Pipeline";
+}
 
 function nodeChrome(depth: number, role: NodeRole): string {
   if (role === "synthesizer") {
-    return depth === 0
-      ? "rounded-xl border border-accent/40 bg-accent/5 p-3.5"
-      : "rounded-lg bg-accent/5 ring-1 ring-inset ring-accent/15 p-2.5";
+    return "rounded-lg border border-accent/40 bg-accent/5 p-3";
   }
   return depth === 0
     ? "rounded-xl border bg-card p-3.5 shadow-sm"
-    : "rounded-lg bg-muted/30 ring-1 ring-inset ring-border/40 p-2.5";
+    : "rounded-lg border border-border/60 bg-card p-3";
 }
 
 function roleTagClass(role: NodeRole): string {
   return cn(
-    "shrink-0 font-mono text-[11px] uppercase tracking-wide",
+    "shrink-0 font-mono text-[10px] uppercase tracking-wider",
     role === "synthesizer" ? "text-accent" : "text-muted-foreground",
   );
 }
 
-function KindSwitch({
+// Compact type selector — replaces the wide 3-segment switch that crowded nested cards.
+function KindDropdown({
   node,
   onChange,
 }: {
@@ -1767,28 +1760,46 @@ function KindSwitch({
   onChange: (next: RecipeNode) => void;
 }) {
   return (
-    <div className="inline-flex overflow-hidden rounded-lg border">
-      {RECIPE_KINDS.map(({ kind, label }) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
         <button
-          key={kind}
           type="button"
-          aria-pressed={node.kind === kind}
-          onClick={() => onChange(convertKind(node, kind))}
-          className={cn(
-            "px-2 py-0.5 text-[11px] font-medium transition-colors",
-            node.kind === kind
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-muted/40",
-          )}
+          className="inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md border px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/40"
         >
-          {label}
+          {kindLabel(node.kind)}
+          <ChevronDown className="size-3" />
         </button>
-      ))}
-    </div>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[8rem]">
+        <DropdownMenuRadioGroup
+          value={node.kind}
+          onValueChange={(value) => onChange(convertKind(node, value as RecipeKind))}
+        >
+          <DropdownMenuRadioItem value="solo">Solo model</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="fusion">Fusion</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="pipeline">Pipeline</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
-// Prompt + parameters — only shown for a solo that already has a model, and collapsible.
+function RemoveButton({ onRemove }: { onRemove: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-6 shrink-0 text-muted-foreground"
+      aria-label="Remove element"
+      onClick={onRemove}
+    >
+      <X className="size-3.5" />
+    </Button>
+  );
+}
+
+// Prompt + params (+ change model) for a solo that already has a model.
 function SoloConfig({
   node,
   onChange,
@@ -1807,7 +1818,7 @@ function SoloConfig({
         className="resize-none text-xs"
         onChange={(event) => onChange({ ...node, prompt: event.target.value })}
       />
-      <div>
+      <div className="flex items-center justify-between gap-2">
         <Button
           type="button"
           variant="ghost"
@@ -1821,190 +1832,125 @@ function SoloConfig({
           />
           Parameters{paramCount > 0 ? ` (${paramCount})` : ""}
         </Button>
-        {showParams && (
-          <ParamEditor
-            params={node.params ?? []}
-            onChange={(next) => onChange({ ...node, params: next })}
-          />
-        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground"
+          onClick={() => onChange({ ...node, model: null })}
+        >
+          Change model
+        </Button>
       </div>
-    </div>
-  );
-}
-
-function GroupBox({
-  label,
-  tone = "muted",
-  orientation,
-  children,
-}: {
-  label: string;
-  tone?: "muted" | "accent";
-  orientation: Orientation;
-  children: React.ReactNode;
-}) {
-  if (orientation === "vertical") {
-    return (
-      <div
-        className={cn(
-          "flex flex-col gap-2.5 border-l-2 pl-3",
-          tone === "accent" ? "border-accent/30" : "border-border/40",
-        )}
-      >
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          {label}
-        </p>
-        {children}
-      </div>
-    );
-  }
-  return (
-    <div
-      className={cn(
-        "rounded-lg border border-dashed p-2.5",
-        tone === "accent" ? "border-accent/40" : "border-border/50",
+      {showParams && (
+        <ParamEditor
+          params={node.params ?? []}
+          onChange={(next) => onChange({ ...node, params: next })}
+        />
       )}
-    >
-      <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      {children}
     </div>
   );
 }
 
+// Fusion: members stacked in parallel on a rail, converging into the synthesizer below.
 function FusionBody({
   node,
   onChange,
   providers,
   onUseModels,
   depth,
-  orientation,
 }: {
   node: FusionNode;
   onChange: (next: RecipeNode) => void;
   providers: ModelProvider[];
   onUseModels: (models: Model[]) => void;
   depth: number;
-  orientation: Orientation;
 }) {
-  const horizontal = orientation === "horizontal";
   const setMembers = (members: RecipeNode[]) => onChange({ ...node, members });
   return (
     <div className="flex flex-col gap-2.5">
-      <GroupBox label="Members · parallel" orientation={orientation}>
-        <div
-          className={cn(
-            horizontal
-              ? "flex flex-row flex-wrap items-start gap-2.5"
-              : "flex flex-col gap-2.5",
-          )}
+      <div className="flex flex-col gap-2 border-l-2 border-border/40 pl-3">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
+          Parallel members
+        </p>
+        {node.members.map((member, index) => (
+          <RecipeNodeCard
+            key={member.id}
+            node={member}
+            index={index}
+            depth={depth + 1}
+            role="member"
+            providers={providers}
+            onUseModels={onUseModels}
+            onChange={(next) =>
+              setMembers(node.members.map((item, i) => (i === index ? next : item)))
+            }
+            onRemove={
+              node.members.length > 1
+                ? () => setMembers(node.members.filter((_, i) => i !== index))
+                : undefined
+            }
+          />
+        ))}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 self-start text-xs"
+          onClick={() => setMembers([...node.members, createSolo()])}
         >
-          {node.members.map((member, index) => (
-            <div
-              key={member.id}
-              className={horizontal ? "grow basis-[16rem] min-w-[16rem]" : undefined}
-            >
-              <RecipeNodeCard
-                node={member}
-                index={index}
-                depth={depth + 1}
-                role="member"
-                orientation={orientation}
-                providers={providers}
-                onUseModels={onUseModels}
-                onChange={(next) =>
-                  setMembers(node.members.map((item, i) => (i === index ? next : item)))
-                }
-                onRemove={
-                  node.members.length > 1
-                    ? () => setMembers(node.members.filter((_, i) => i !== index))
-                    : undefined
-                }
-              />
-            </div>
-          ))}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={cn("h-7 text-xs", horizontal ? "self-center" : "self-start")}
-            onClick={() => setMembers([...node.members, createSolo()])}
-          >
-            <Plus className="size-3.5" />
-            Add member
-          </Button>
-        </div>
-      </GroupBox>
-      <div className="flex items-center gap-1.5 pl-1 text-[11px] text-muted-foreground">
+          <Plus className="size-3.5" />
+          Add member
+        </Button>
+      </div>
+      <div className="flex items-center gap-1.5 pl-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
         <ArrowDown className="size-3.5" />
         synthesize
       </div>
-      <GroupBox label="Synthesizer" tone="accent" orientation={orientation}>
-        <RecipeNodeCard
-          node={node.synthesizer}
-          depth={depth + 1}
-          role="synthesizer"
-          orientation={orientation}
-          providers={providers}
-          onUseModels={onUseModels}
-          onChange={(next) => onChange({ ...node, synthesizer: next })}
-        />
-      </GroupBox>
+      <RecipeNodeCard
+        node={node.synthesizer}
+        depth={depth + 1}
+        role="synthesizer"
+        providers={providers}
+        onUseModels={onUseModels}
+        onChange={(next) => onChange({ ...node, synthesizer: next })}
+      />
     </div>
   );
 }
 
+// Pipeline: stages on a left-to-right timeline; the row scrolls when it gets long.
 function PipelineBody({
   node,
   onChange,
   providers,
   onUseModels,
   depth,
-  orientation,
 }: {
   node: PipelineNode;
   onChange: (next: RecipeNode) => void;
   providers: ModelProvider[];
   onUseModels: (models: Model[]) => void;
   depth: number;
-  orientation: Orientation;
 }) {
-  const horizontal = orientation === "horizontal";
   const setStages = (stages: RecipeNode[]) => onChange({ ...node, stages });
   return (
-    <GroupBox label="Stages · sequence" orientation={orientation}>
-      <div
-        className={cn(
-          horizontal
-            ? "flex flex-row flex-wrap items-stretch gap-2"
-            : "flex flex-col gap-2.5",
-        )}
-      >
+    <div className="flex flex-col gap-1.5">
+      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
+        Sequence
+      </p>
+      <div className="flex flex-row items-start gap-1.5 pb-1">
         {node.stages.map((stage, index) => (
-          <div
-            key={stage.id}
-            className={cn("flex gap-2", horizontal ? "items-stretch" : "flex-col")}
-          >
+          <div key={stage.id} className="flex items-start gap-1.5">
             {index > 0 && (
-              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                {horizontal ? (
-                  <ArrowRight className="size-4" />
-                ) : (
-                  <>
-                    <ArrowDown className="size-3.5" />
-                    then
-                  </>
-                )}
-              </div>
+              <ArrowRight className="mt-3 size-4 shrink-0 text-muted-foreground/70" />
             )}
-            <div className={horizontal ? "min-w-[16rem]" : undefined}>
+            <div className="min-w-[16rem] shrink-0">
               <RecipeNodeCard
                 node={stage}
                 index={index}
                 depth={depth + 1}
                 role="stage"
-                orientation={orientation}
                 providers={providers}
                 onUseModels={onUseModels}
                 onChange={(next) =>
@@ -2019,33 +1965,21 @@ function PipelineBody({
             </div>
           </div>
         ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={cn("h-7 text-xs", horizontal ? "self-center" : "self-start")}
-          onClick={() => setStages([...node.stages, createSolo()])}
-        >
-          <Plus className="size-3.5" />
-          Add stage
-        </Button>
+        <div className="flex items-center gap-1.5 self-center">
+          <ArrowRight className="size-4 shrink-0 text-muted-foreground/70" />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setStages([...node.stages, createSolo()])}
+          >
+            <Plus className="size-3.5" />
+            Add stage
+          </Button>
+        </div>
       </div>
-    </GroupBox>
-  );
-}
-
-function RemoveButton({ onRemove }: { onRemove: () => void }) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      className="size-6 text-muted-foreground"
-      aria-label="Remove element"
-      onClick={onRemove}
-    >
-      <X className="size-3.5" />
-    </Button>
+    </div>
   );
 }
 
@@ -2058,7 +1992,6 @@ function RecipeNodeCard({
   role = "root",
   index,
   depth = 0,
-  orientation = "vertical",
 }: {
   node: RecipeNode;
   onChange: (next: RecipeNode) => void;
@@ -2068,7 +2001,6 @@ function RecipeNodeCard({
   role?: NodeRole;
   index?: number;
   depth?: number;
-  orientation?: Orientation;
 }) {
   const [collapsed, setCollapsed] = useState(
     () => node.kind === "solo" && Boolean((node as SoloNode).model),
@@ -2081,11 +2013,17 @@ function RecipeNodeCard({
         : role === "synthesizer"
           ? "Synthesizer"
           : "Recipe";
+  const controls = (
+    <div className="flex shrink-0 items-center gap-1">
+      <KindDropdown node={node} onChange={onChange} />
+      {onRemove && <RemoveButton onRemove={onRemove} />}
+    </div>
+  );
 
   if (node.kind === "solo") {
     const model = node.model;
     return (
-      <article className={cn("h-full", nodeChrome(depth, role))}>
+      <article className={cn("min-w-[16rem]", nodeChrome(depth, role))}>
         <div className="flex items-center justify-between gap-2">
           {model ? (
             <button
@@ -2108,28 +2046,13 @@ function RecipeNodeCard({
             </button>
           ) : (
             <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <span
-                aria-hidden="true"
-                className="ml-1 size-1.5 shrink-0 rounded-full bg-muted-foreground/40"
-              />
               <span className={roleTagClass(role)}>{roleLabel}</span>
+              <span className="truncate text-xs text-muted-foreground/70">
+                · pick a model
+              </span>
             </span>
           )}
-          <div className="flex shrink-0 items-center gap-1">
-            {model && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-[11px] text-muted-foreground"
-                onClick={() => onChange({ ...node, model: null })}
-              >
-                Change
-              </Button>
-            )}
-            <KindSwitch node={node} onChange={onChange} />
-            {onRemove && <RemoveButton onRemove={onRemove} />}
-          </div>
+          {controls}
         </div>
         {!model && (
           <div className="mt-2.5">
@@ -2153,7 +2076,7 @@ function RecipeNodeCard({
   }
 
   return (
-    <article className={cn("h-full", nodeChrome(depth, role))}>
+    <article className={cn("min-w-[16rem]", nodeChrome(depth, role))}>
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -2168,16 +2091,16 @@ function RecipeNodeCard({
             )}
           />
           <span className={roleTagClass(role)}>{roleLabel}</span>
+          <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {kindLabel(node.kind)}
+          </span>
           {collapsed && (
-            <span className="min-w-0 truncate rounded-md bg-background/70 px-1.5 py-0.5 font-mono text-[11px] text-foreground/80">
+            <span className="min-w-0 truncate font-mono text-[11px] text-foreground/70">
               {describeRecipe(node)}
             </span>
           )}
         </button>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <KindSwitch node={node} onChange={onChange} />
-          {onRemove && <RemoveButton onRemove={onRemove} />}
-        </div>
+        {controls}
       </div>
       {!collapsed && (
         <div className="mt-3">
@@ -2188,7 +2111,6 @@ function RecipeNodeCard({
               providers={providers}
               onUseModels={onUseModels}
               depth={depth}
-              orientation={orientation}
             />
           ) : (
             <PipelineBody
@@ -2197,7 +2119,6 @@ function RecipeNodeCard({
               providers={providers}
               onUseModels={onUseModels}
               depth={depth}
-              orientation={orientation}
             />
           )}
         </div>
@@ -2231,7 +2152,7 @@ function EnsembleComposer() {
   const [tab, setTab] = useState<"compose" | "runs">("compose");
   const [copied, setCopied] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [orientation, setOrientation] = useState<"vertical" | "horizontal">("horizontal");
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [autoSave, setAutoSave] = useState(true);
   const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState("");
@@ -2484,96 +2405,86 @@ function EnsembleComposer() {
         value="compose"
         className="m-0 flex min-h-0 flex-1 overflow-hidden"
       >
-          <main className="min-w-0 flex-1 overflow-auto px-6 py-6 lg:px-10">
-            <div
-              className={cn(
-                "mx-auto flex flex-col gap-3",
-                orientation === "horizontal" ? "max-w-none" : "max-w-2xl",
-              )}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground">
-                  A unit can be a solo model, a fusion (parallel members + a required
-                  synthesizer), or a pipeline (serial stages) — nest to any depth.
-                </p>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <div className="inline-flex overflow-hidden rounded-lg border">
-                    <button
-                      type="button"
-                      aria-label="Horizontal layout"
-                      aria-pressed={orientation === "horizontal"}
-                      onClick={() => setOrientation("horizontal")}
-                      className={cn(
-                        "grid size-7 place-items-center transition-colors",
-                        orientation === "horizontal"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-muted/40",
-                      )}
-                    >
-                      <Columns3 className="size-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Vertical layout"
-                      aria-pressed={orientation === "vertical"}
-                      onClick={() => setOrientation("vertical")}
-                      className={cn(
-                        "grid size-7 place-items-center transition-colors",
-                        orientation === "vertical"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-muted/40",
-                      )}
-                    >
-                      <Rows3 className="size-3.5" />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="size-7"
-                      aria-label="Zoom out"
-                      disabled={zoom <= 0.5}
-                      onClick={() =>
-                        setZoom((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10))
-                      }
-                    >
-                      <ZoomOut className="size-3.5" />
-                    </Button>
-                    <button
-                      type="button"
-                      className="w-11 text-center font-mono text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
-                      title="Reset zoom"
-                      onClick={() => setZoom(1)}
-                    >
-                      {Math.round(zoom * 100)}%
-                    </button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="size-7"
-                      aria-label="Zoom in"
-                      disabled={zoom >= 1.3}
-                      onClick={() =>
-                        setZoom((value) => Math.min(1.3, Math.round((value + 0.1) * 10) / 10))
-                      }
-                    >
-                      <ZoomIn className="size-3.5" />
-                    </Button>
-                  </div>
+          <main className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 py-6 lg:px-10">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                A unit is a solo model, a fusion (parallel members → a synthesizer), or a
+                pipeline (sequential stages). Nest to any depth.
+              </p>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    aria-label="Scroll left"
+                    onClick={() =>
+                      canvasRef.current?.scrollBy({ left: -360, behavior: "smooth" })
+                    }
+                  >
+                    <ChevronLeft className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    aria-label="Scroll right"
+                    onClick={() =>
+                      canvasRef.current?.scrollBy({ left: 360, behavior: "smooth" })
+                    }
+                  >
+                    <ChevronRight className="size-3.5" />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    aria-label="Zoom out"
+                    disabled={zoom <= 0.5}
+                    onClick={() =>
+                      setZoom((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10))
+                    }
+                  >
+                    <ZoomOut className="size-3.5" />
+                  </Button>
+                  <button
+                    type="button"
+                    className="w-11 text-center font-mono text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+                    title="Reset zoom"
+                    onClick={() => setZoom(1)}
+                  >
+                    {Math.round(zoom * 100)}%
+                  </button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    aria-label="Zoom in"
+                    disabled={zoom >= 1.3}
+                    onClick={() =>
+                      setZoom((value) => Math.min(1.3, Math.round((value + 0.1) * 10) / 10))
+                    }
+                  >
+                    <ZoomIn className="size-3.5" />
+                  </Button>
                 </div>
               </div>
+            </div>
+            <div ref={canvasRef} className="min-h-0 flex-1 overflow-auto">
               <div
-                className="transition-transform"
-                style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }}
+                className="w-max min-w-full pb-6 pr-6 transition-transform"
+                style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
               >
                 <RecipeNodeCard
                   node={root}
                   role="root"
                   depth={0}
-                  orientation={orientation}
                   providers={providers}
                   onUseModels={(models) => addLibraryModels(models)}
                   onChange={setRoot}
