@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 import nats
 from nats.aio.client import Client
+from nats.errors import Error as NatsError
 from nats.js import JetStreamContext, api
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, DiscardPolicy, StreamInfo
 from nats.js.errors import APIError, BadRequestError, NotFoundError
@@ -45,6 +46,18 @@ class DeferredPublishError(RuntimeError):
     error. Wrapped rather than re-raised bare so the message says WHERE it surfaced: the
     frame that caused it is long gone by then, and a naked APIError at a later sequence
     number reads as a failure of the wrong frame.
+    """
+
+
+class QueueReadError(RuntimeError):
+    """The stream tail could not be read — a TRANSIENT broker failure, not an answer.
+
+    Distinct from "no frame" (which `last_frame` returns as `None`): this says the read
+    itself failed — a `nats.errors.Error` that is not a JetStream `APIError` (a request
+    timeout, a closed connection, a reconnect in flight). Callers that must not mistake
+    "unreadable" for "empty" — the worker's claim-time dedupe gate — catch this and skip
+    the claim, leaving the message for redelivery, instead of either acting on a phantom
+    `None` or letting the error escape into a shared task group.
     """
 
 
@@ -326,7 +339,15 @@ class _JetStreamConnection:
         try:
             raw = await js.get_last_msg(stream_for(topic), subject_for(topic))
         except APIError:
+            # A missing stream or an empty one: a REAL answer — there is no last frame.
             return None
+        except NatsError as exc:
+            # Transport-level (not a JetStream API verdict): a request timeout, a closed
+            # connection, a reconnect in flight. That is NOT "no frame" — translating it to
+            # None would let the claim gate mistake an unreadable tail for "no terminal
+            # frame" and execute a finished run a second time. Raise the typed error; the
+            # callers that can safely wait catch it.
+            raise QueueReadError(f"stream tail unreadable for {topic}: {exc!r}") from exc
         try:
             return decode(raw.data or b"")
         except ValidationError:
@@ -509,4 +530,4 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
             ) from exc
 
 
-__all__ = ["DeferredPublishError", "JetStreamConsumer", "JetStreamPublisher"]
+__all__ = ["DeferredPublishError", "JetStreamConsumer", "JetStreamPublisher", "QueueReadError"]
