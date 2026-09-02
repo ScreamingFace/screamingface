@@ -477,3 +477,39 @@ async def test_drain_stops_pulling_and_terminates_children_with_a_worker_drainin
 
         await claim
         assert len(queue.pull_calls) == 1
+
+
+async def test_a_drain_child_that_ignores_sigterm_is_still_acked_not_cancelled() -> None:
+    """The drain kill's backstop must reap on a FRESH wait. `wait_for` CANCELS the
+    original wait task when it times out, and awaiting the cancelled task re-raises
+    `CancelledError` — which would abort `supervise` before the terminal frame and the
+    ack, so the run would redeliver and execute twice instead of ending in
+    `Terminated(stopped, worker_draining)`."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-stubborn", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(hang=True, ignores_sigterm=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    worker = _worker(
+        queue, publisher, slots=1, spawn=fake_spawn, drain_grace_s=0.1, kill_grace_s=0.05
+    )
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+
+        await _wait_until(lambda: len(procs) == 1)
+        worker._draining.set()
+        await _wait_until(lambda: procs[0].terminate_calls == 1)
+        await _wait_until(lambda: procs[0].kill_calls == 1, timeout_s=5.0)
+        await _wait_until(
+            lambda: bool(publisher.published)
+            and publisher.published[-1].data.status == "stopped"
+        )
+        frame = publisher.published[-1]
+        assert frame.data.error is not None and frame.data.error.code == WORKER_DRAINING
+        assert procs[0].returncode == -9, "the fresh wait must reap the SIGKILL exit"
+
+        await claim

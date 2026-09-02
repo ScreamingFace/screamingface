@@ -320,8 +320,14 @@ class RunSupervisor:
             try:
                 await asyncio.wait_for(wait_task, timeout=self._kill_grace_s)
             except TimeoutError:
+                # WHY a FRESH `proc.wait()` and not `await wait_task`: `wait_for`
+                # CANCELLED `wait_task` when it timed out, and awaiting a cancelled
+                # task re-raises `CancelledError` — which would abort `supervise`
+                # before the `Terminated(stopped, worker_draining)` frame and the ack,
+                # and the run would redeliver and execute twice. Reap on a new wait,
+                # the same shape `_kill_with_grace` uses.
                 proc.kill()
-                await wait_task
+            await proc.wait()
             return "draining"
         # The hard wall expired: SIGTERM, then SIGKILL.
         wait_task.cancel()
