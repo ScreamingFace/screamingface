@@ -529,3 +529,42 @@ finding was about defence in depth, not a reachable bug.
 **Out of scope here, and left unfiled:** a `CHECK (run_cost_usd >= 0)` constraint would close it
 at the storage layer, but that is a migration on a shared table under stack rule S1, for a state
 no code path can produce. It belongs with `OME-822`'s contract work, not with marking rows.
+
+
+## Verified against the PUBLISHED client (2026-09-02)
+
+`OME-1029`'s ledger recorded a deviation: the cross-package round-trip could not run inside the
+suite, because the SDK and Scoreboard are separate deployables with separate venvs. That gap is
+now closed with the real artifact rather than a substitute.
+
+**The released client already sends the cost.** `screamingface 0.1.1.post7` (PyPI, 2026-09-01
+17:43) contains `_cost_text` and `"run_cost_usd": _cost_text(candidate_result.usage.cost_usd)` —
+read out of the downloaded wheel, not inferred. Note no git tag contains `ea4c866`: post-releases
+are cut from `main` outside the tagged flow, so the GitHub release list still shows only v0.1.0
+while the artifact shipped.
+
+**End to end**, published wheel installed in its own venv, driving this branch's Scoreboard:
+
+```
+0.1.1.post7 builds   "run_cost_usd": "12.40"
+POST /v1/scores  ->  HTTP 201, stored "12.400000"   (quantised to DECIMAL(12, 6))
+
+ *  rank 1  released-client-check    0.842  12.400000
+    rank 2  released-client-dearer   0.842  48.100000
+```
+
+Two submissions at an identical score; only the cheaper is marked. That is D7's dominance rule
+deciding a public claim from a cost the **released** client produced — the first time this
+feature has been exercised without a hand-written payload anywhere in the chain.
+
+Incidental: `create_app` refused to start with `FORWARDED_ALLOW_IPS` overlapping
+`SCOREBOARD_ALLOWED_NETWORKS`, explaining that uvicorn would rewrite `request.client.host` from a
+client-supplied header before `peer_in_networks()` runs. That is `OME-894`'s fail-fast guard
+working on a live boot, not just in tests.
+
+### What this means for the gate
+
+Part B's stated gate is "`OME-1029` merged, a client release carrying it, then a submission
+reporting a cost". The first two are **done**. Only a real submission from someone running
+`post6`/`post7` remains — no longer a release cycle, just one run. Whether any live row already
+carries a cost is a production read and has not been checked from here.
