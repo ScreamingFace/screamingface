@@ -86,6 +86,10 @@ class FakeGateway:
     def __init__(self, tape: Tape) -> None:
         self._by_model = _index_by_model(tape)
         self._refusals: list[RefusedRequest] = []
+        # OME-1105: every inbound request's headers, in arrival order. The engine is the
+        # only caller, so this is the wire between engine and gateway — the one place a
+        # test can see whether trace context actually crossed it.
+        self._inbound_headers: list[dict[str, str]] = []
         self._lock = threading.Lock()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -138,12 +142,40 @@ class FakeGateway:
         with self._lock:
             self._by_model = by_model
             self._refusals.clear()
+            self._inbound_headers.clear()
 
     @property
     def refusals(self) -> tuple[RefusedRequest, ...]:
         """Every off-script request served the loud error, in arrival order."""
         with self._lock:
             return tuple(self._refusals)
+
+    @property
+    def inbound_headers(self) -> tuple[dict[str, str], ...]:
+        """Headers of every request the engine made to this gateway, in arrival order.
+
+        INVARIANT (OME-1105): this lives on the CONCRETE backend, never on
+        ``ports.ReplayBackend``. That protocol is exactly ``start()``/``stop()`` and its
+        docstring forbids growing it with introspection — a header hook there would couple
+        the engine boot to one backend's internals.
+        """
+        with self._lock:
+            return tuple(dict(h) for h in self._inbound_headers)
+
+    def trace_ids_seen(self) -> set[str]:
+        """Distinct W3C trace ids observed on inbound ``traceparent`` headers."""
+        found = set()
+        for headers in self.inbound_headers:
+            value = headers.get("traceparent")
+            if value:
+                parts = value.split("-")
+                if len(parts) == 4 and len(parts[1]) == 32:
+                    found.add(parts[1])
+        return found
+
+    def _record_headers(self, headers: dict[str, str]) -> None:
+        with self._lock:
+            self._inbound_headers.append(headers)
 
     # -- handler callbacks (each request runs on its own server thread) ---------------
     def _lookup_model(self, model: str | None) -> RecordedExchange | None:
@@ -206,6 +238,7 @@ class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler naming
+        self.gateway._record_headers(dict(self.headers))
         if self.path == _HEALTH_PATH:
             self._reply(200, b'{"status":"ok"}', "application/json")
             return
@@ -215,6 +248,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._refuse_unroutable()
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler naming
+        self.gateway._record_headers(dict(self.headers))
         if self.path != _COMPLETIONS_PATH:
             self._refuse_unroutable()
             return
