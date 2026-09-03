@@ -88,6 +88,13 @@ PULL_BUCKET_BATCH = 2
 # that are IMMEDIATELY available are collected before the poll spends its budget waiting
 # on empty buckets. Bounded by `timeout_s` so a short poll never over-waits.
 PULL_FAST_PASS_S = 1.0
+# V-5: how long a held pull subscription is trusted before it is re-bound. The durable
+# consumer can be deleted/recreated server-side (the note above says that is required to
+# change `max_ack_pending`), and a stale sub can fail SILENTLY — nats-py's `_fetch_n`
+# returns [] on a deleted consumer rather than raising — which no error path can catch.
+# The TTL bounds the silent wedge to one refresh interval; the cost is one bind per
+# bucket per interval, against the per-poll bind the cache exists to avoid.
+PULL_SUB_TTL_S = 300.0
 # The per-caller in-flight cap (OME-1091): how many of one caller's runs may be admitted at
 # once. 8 matches the Client's fan-out (`_MAX_CANDIDATES_IN_FLIGHT`), so one ordinary
 # Evaluation fits while a second concurrent one is refused until the first's runs finish.
@@ -258,10 +265,8 @@ class RunQueue:
         nats_url: str,
         *,
         stream: str = subjects.RUN_QUEUE_STREAM,
-        # The legacy single subject, kept for backward compatibility: the stream is declared
-        # with the wildcard `url4-runq.>` (so every bucket subject lands in it), and the
-        # per-caller buckets derive from `subject_prefix`.
-        subject: str = subjects.RUN_QUEUE_SUBJECT,
+        # The stream is declared with the wildcard `<prefix>.>` (so every bucket subject
+        # lands in it); the per-caller buckets derive from `subject_prefix`.
         subject_prefix: str = subjects.RUN_QUEUE_SUBJECT_PREFIX,
         bucket_count: int = DEFAULT_BUCKET_COUNT,
         duplicate_window_s: float = DEFAULT_DUPLICATE_WINDOW_S,
@@ -279,7 +284,6 @@ class RunQueue:
     ) -> None:
         self._url = nats_url
         self._stream = stream
-        self._subject = subject
         self._subject_prefix = subject_prefix
         self._bucket_count = bucket_count
         self._duplicate_window_s = duplicate_window_s
@@ -305,6 +309,7 @@ class RunQueue:
         # set of subjects is the FIXED configured bucket list (or an explicit caller's
         # list), so the cache is bounded by that, not by callers or messages.
         self._pull_subs: dict[str, Any] = {}
+        self._pull_subs_bound: dict[str, float] = {}
 
     async def _jetstream(self) -> JetStreamContext:
         js = self._js
@@ -322,6 +327,7 @@ class RunQueue:
             self._ensured = False
             # Held subscriptions died with it too — rebind on the next pull.
             self._pull_subs.clear()
+            self._pull_subs_bound.clear()
             return js
 
     def _is_closed(self) -> bool:
@@ -495,22 +501,48 @@ class RunQueue:
             window = fast_window if slot < rotation else remaining / rotation
             subject = subjects[(self._rr_index + slot) % rotation]
             sub = await self._bound_subscription(js, subject)
-            try:
-                # INVARIANT: an empty bucket is a RESULT, not an error. nats-py's `fetch`
-                # RAISES `nats.errors.TimeoutError` (or its `FetchTimeoutError` subclass)
-                # when no message arrives within the window — it never returns an empty
-                # list — and both subclass `TimeoutError`. Left uncaught, the first empty
-                # bucket in the rotation unwinds the worker's claim loop and kills the
-                # pool; with 16 buckets most rotations visit empty buckets before the
-                # one that holds a message. A timed-out HELD subscription stays usable —
-                # the next fetch on it is an independent request.
-                want = min(batch - len(collected), per_visit)
-                msgs = await sub.fetch(want, timeout=window)
-            except TimeoutError:
-                continue
-            collected.extend(msgs)
+            want = min(batch - len(collected), per_visit)
+            collected.extend(await self._fetch_from(sub, subject, want, window))
         self._rr_index = (self._rr_index + 1) % rotation
         return collected
+
+    async def _fetch_from(self, sub: Any, subject: str, want: int, window: float) -> list[Any]:
+        """One bucket visit: fetch up to `want` messages, clamped to `want`.
+
+        INVARIANT: an empty bucket is a RESULT, not an error. nats-py's `fetch` RAISES
+        `nats.errors.TimeoutError` (or its `FetchTimeoutError` subclass) when no message
+        arrives within the window — it never returns an empty list — and both subclass
+        `TimeoutError`. Left uncaught, the first empty bucket in the rotation unwinds the
+        worker's claim loop and kills the pool; with 16 buckets most rotations visit
+        empty buckets before the one that holds a message. A timed-out HELD subscription
+        stays usable — the next fetch on it is an independent request.
+
+        V-4: nats-py's `_fetch_n` (want >= 2) drains the subscription's PENDING queue
+        with no `needed` guard, so a held sub carrying late deliveries from a previous
+        poll can return MORE than `want` — and the claim loop spawns one supervisor per
+        returned message, so an unclamped extend over-subscribed the pod past
+        `worker_slots`, breaking the loop's stated invariant. The surplus is NAK'd —
+        returned to the queue for the next pull — not dropped and not acked away.
+
+        V-5: a held subscription can be broken server-side — the durable consumer deleted
+        or recreated (the note above says that is required to change `max_ack_pending`)
+        — and a broken sub never self-heals: `_fetch_one` raises, `_fetch_n` returns []
+        silently. A non-timeout error drops the cache entry so the next pull re-binds;
+        the claim loop's guard logs and retries, and the wedge is bounded to one poll.
+        """
+        try:
+            msgs = await sub.fetch(want, timeout=window)
+        except TimeoutError:
+            return []
+        except nats.errors.Error:
+            self._pull_subs.pop(subject, None)
+            self._pull_subs_bound.pop(subject, None)
+            raise
+        if len(msgs) > want:
+            surplus, msgs = msgs[want:], msgs[:want]
+            for extra in surplus:
+                await extra.nak()
+        return msgs
 
     async def _bound_subscription(self, js: Any, subject: str) -> Any:
         """The HELD pull subscription for one bucket subject, bound on first use.
@@ -521,6 +553,14 @@ class RunQueue:
         by the configured bucket list and cleared on reconnect (the subscriptions died
         with the connection)."""
         sub = self._pull_subs.get(subject)
+        if (
+            sub is not None
+            and time.monotonic() - self._pull_subs_bound.get(subject, 0.0) > PULL_SUB_TTL_S
+        ):
+            # V-5: the TTL refresh — a stale sub can fail silently (see the constant), so
+            # it is re-bound on a schedule rather than only on a visible error.
+            self._pull_subs.pop(subject, None)
+            sub = None
         if sub is None:
             sub = await js.pull_subscribe(
                 subject,
@@ -533,6 +573,7 @@ class RunQueue:
                 ),
             )
             self._pull_subs[subject] = sub
+            self._pull_subs_bound[subject] = time.monotonic()
         return sub
 
     async def _state(self) -> tuple[int, str | None]:
