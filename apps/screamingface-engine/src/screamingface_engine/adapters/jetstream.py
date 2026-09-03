@@ -335,7 +335,18 @@ class _JetStreamConnection:
         the stream's tail without subscribing. A missing stream, an empty stream, or an
         unreadable frame all read as None — the conservative direction for both checks.
         """
-        js = await self._jetstream()
+        try:
+            js = await self._jetstream()
+        except NatsError as exc:
+            # The connect/declare path sits OUTSIDE the fetch's try below, so a dropped
+            # broker — a failed reconnect raising a bare transport error — used to escape
+            # `last_frame` unwrapped, bypassing every `except QueueReadError` guard the
+            # callers rely on (review follow-up V-7 / pass-1 #11): unreadable is unreadable
+            # however it was reached, so it gets the same typed translation. A JetStream
+            # API verdict from the connect-time declare is translated the same way — it is
+            # a config failure, and the retry-and-log shape it produces is both visible
+            # and non-cascading.
+            raise QueueReadError(f"queue backend unreachable for {topic}: {exc!r}") from exc
         try:
             raw = await js.get_last_msg(stream_for(topic), subject_for(topic))
         except APIError:

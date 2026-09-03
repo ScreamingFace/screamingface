@@ -291,7 +291,25 @@ class RunSupervisor:
             )
             already_terminal = False
         if not already_terminal:
-            await self._publish_terminal(topic, *classification)
+            try:
+                await self._publish_terminal(topic, *classification)
+            except Exception as exc:
+                # WHY swallowed and not raised (review follow-up V-7): the run HAS ended —
+                # this publish is the ACCOUNT of that ending, not the ending itself, and it
+                # is a broker call made during the very blip that may have caused it. Left
+                # unguarded its failure escaped into the shared TaskGroup, cancelling every
+                # co-located supervisor (each sibling's cleanup SIGKILLs a live child — the
+                # P2-1 cascade, reached from the publish side) and skipping the ack, so the
+                # FINISHED run redelivered and was executed a second time. Losing the frame
+                # is the bounded cost: the child's own frames are already on the stream, the
+                # client's hold times out, and the operator sees this line. `CancelledError`
+                # is a `BaseException` and still propagates.
+                logger.error(
+                    "terminal publish failed for %s; the run has ended and is acked "
+                    "without its worker frame: %r",
+                    topic,
+                    exc,
+                )
 
     # --- the claim-time checks ------------------------------------------------------------
 
