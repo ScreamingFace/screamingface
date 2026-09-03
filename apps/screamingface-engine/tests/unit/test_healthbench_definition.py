@@ -114,6 +114,14 @@ def test_the_worst30_revision_is_frozen_against_refactors() -> None:
     assert WORST30_EXAM.revision == "39cfd96b068f7230"
 
 
+def test_both_healthbench_boards_link_the_openai_healthbench_dataset() -> None:
+    # WHY the literal, on both boards: the leaderboard renders this as a clickable target for
+    # the public. The shared suite can only check that boards sharing a bundle agree — and
+    # both boards read one constant, so they would agree on a wrong value too (OME-1095).
+    assert HEALTHBENCH_WORST30.dataset_url == "https://huggingface.co/datasets/openai/healthbench"
+    assert HEALTHBENCH_PROFESSIONAL.dataset_url == HEALTHBENCH_WORST30.dataset_url
+
+
 def test_a_limit_slices_the_worst30_run() -> None:
     limited = HEALTHBENCH_WORST30.resource(3)
     assert limited["case_count"] == 157

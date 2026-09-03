@@ -6,9 +6,11 @@ import asyncio
 import hashlib
 import json
 
+import httpx
 import pytest
 
-from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.app import create_app
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_DEPLOYMENT
 from screamingface_engine.benchmarks.case_execution import (
     CASE_EXECUTION_SCHEMA,
     install_case_execution,
@@ -22,24 +24,46 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
+from screamingface_engine.config import Settings
+from screamingface_engine.testing import InMemoryEventStream
 from url4 import RelExpr, Text, expr, render, src, struct
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def test_public_catalogue_contains_exactly_the_six_product_benchmarks() -> None:
-    # OME-903 added the professional board beside the worst-30% challenge; the 3-pass DRACO
-    # board joined the canonical one; all are complete, independently meaningful benchmark
-    # identities over one baked answer key.
-    assert tuple(benchmark.id for benchmark in BUILTIN_BENCHMARKS) == (
-        "draco",
-        "draco-3pass",
-        # OME-971 added the GDPval text subset — the prose-only slice of the open gold set.
-        "gdpval-text",
-        "healthbench-professional",
-        "healthbench-worst30",
-        "ifeval",
+@pytest.mark.asyncio
+async def test_the_public_catalogue_publishes_exactly_the_registered_boards() -> None:
+    """Every board this deployment registers is discoverable on the wire, and nothing else is.
+
+    WHY derived rather than a hand-typed tuple of ids (OME-1095): the deployment is the ONE
+    place a board is declared, and a second list here had to be edited by hand for every new
+    board — the exact cost this epic removes. What is load bearing is the relationship: what
+    an operator registered is what a client can discover, under the ids it was registered
+    with.
+
+    WHAT THIS DOES NOT COVER: membership. Both sides derive from the same registrations, so
+    deleting a board from `builtins.py` makes it vanish from both and passes here. That a
+    given board is public is pinned in the board's own definition test — see
+    `test_both_draco_boards_are_registered_under_their_own_ids` and its siblings.
+    """
+
+    registered = sorted(
+        registration.benchmark.id for registration in BUILTIN_DEPLOYMENT.registrations
     )
+    app = create_app(
+        Settings(jwt_secret="s"),
+        stream=InMemoryEventStream(),
+        benchmarks=BUILTIN_BENCHMARKS,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://engine.test",
+    ) as client:
+        entries = (await client.get("/v1/benchmarks")).json()["data"]
+
+    published = [entry["id"] for entry in entries]
+
+    assert sorted(published) == registered
 
 
 def test_canonical_draco_limit_changes_cases_only_not_grading_strength() -> None:
