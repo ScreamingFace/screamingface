@@ -74,6 +74,7 @@ class OAuthConnectionStore:
             provider=provider,
             label=label,
             status="pending",
+            auth_type="oauth",
             credential_locator=credential_locator_for(
                 credential_provider or provider,
                 account_id,
@@ -99,7 +100,7 @@ class OAuthConnectionStore:
         "oauth"). The credential_locator points at the same blob slot the chat
         path reads via credential_key_for(account_id, connection_id)."""
         await _ensure_anonymous_account(account_id)
-        return await OAuthConnection.create(
+        connection = await OAuthConnection.create(
             id=connection_id,
             account_id=account_id,
             provider=provider,
@@ -115,6 +116,10 @@ class OAuthConnectionStore:
                 connection_id,
             ),
         )
+        repaired = await self.set_auth_type(connection, "api_key")
+        if repaired is None:  # pragma: no cover - the row was just inserted in this transaction.
+            raise RuntimeError("api-key connection disappeared during creation")
+        return repaired
 
     async def find_by_identity(
         self,
@@ -334,6 +339,21 @@ class OAuthConnectionStore:
         connection.error_message = None
         connection.last_refreshed_at = refreshed_at
         await connection.refresh_from_db(fields=["credential_generation"])
+        return connection
+
+    async def set_auth_type(
+        self,
+        connection: OAuthConnection,
+        auth_type: AuthType,
+    ) -> OAuthConnection | None:
+        """Republish the persisted auth discriminator for an existing connection."""
+        updated = await OAuthConnection.filter(
+            id=connection.id,
+            account_id=connection.account_id,
+        ).update(auth_type=auth_type)
+        if updated != 1:
+            return None
+        connection.auth_type = auth_type
         return connection
 
     async def mark_revoked(

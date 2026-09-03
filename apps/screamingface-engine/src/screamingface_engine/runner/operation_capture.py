@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import cast
 
 from screamingface_engine.grading_accounting import capture_grading_requests
 from screamingface_engine.operation_calls import (
     RequestAccountingRecorder,
     capture_request_accounting,
 )
+from screamingface_engine.runner.summary import RunSummary
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 
 
@@ -44,6 +46,19 @@ class OperationCapturingExecutor(Executor):
                 with capture_request_accounting(requests):
                     with capture_grading_requests(registry):
                         await close()
+
+    def last_summary(self) -> RunSummary | None:
+        """Delegate the inner executor's process-level run summary (OME-1069).
+
+        The inner `Url4Executor` records the summary in its own `execute`; the composition
+        root holds THIS wrapper, so the accessor must travel through it. An inner executor
+        that does not record a summary (a test double, say) answers None.
+        """
+
+        accessor = getattr(self._inner, "last_summary", None)
+        if not callable(accessor):
+            return None
+        return cast(RunSummary | None, accessor())
 
 
 __all__ = ["OperationCapturingExecutor"]

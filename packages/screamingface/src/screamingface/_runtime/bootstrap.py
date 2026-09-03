@@ -61,6 +61,17 @@ def scoreboard_seed_json(benchmarks: Iterable[BenchmarkDefinition]) -> str:
                 "display_name": benchmark.title,
                 "description": benchmark.description,
                 "revision": benchmark.revision,
+                # OME-1056: the board's ranking filter needs this, and without it every LOCAL
+                # seed leaves `case_count` NULL — so the filter is off in the one environment
+                # where `limit=1` smoke runs are routine, and a one-case 1.0 still takes rank 1.
+                # Conditional like the two below: keep the JSON projection sparse. The board's
+                # SeedBenchmark parser turns absence into None, correctly clearing any stale
+                # scope because these rows are passed as authoritative `engine_rows`.
+                **(
+                    {"case_count": case_count}
+                    if (case_count := getattr(benchmark, "case_count", None))
+                    else {}
+                ),
                 # Optional in the Engine, so absent stays absent rather than becoming null.
                 **({"focus": focus} if (focus := getattr(benchmark, "focus", None)) else {}),
                 **(

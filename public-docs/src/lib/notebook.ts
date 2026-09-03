@@ -66,7 +66,7 @@ export function notebookLanguage(nb: Notebook): string {
 // rather than a dead `*.ipynb` href. Extend as more notebooks get wired in.
 export const NOTEBOOK_ROUTES: Record<string, string> = {
   '00_overview': '/sf-client',
-  '00_quickstart': '/sf-client/quickstartPage',
+  '00_quickstart': '/sf-client/reproduce-draco',
 }
 
 // Remove a single leading `# Heading` line from a markdown source. Used to drop

@@ -94,7 +94,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -330,6 +330,7 @@ def author_golden(
     rendered_url4: str,
     final_score: float | None,
     case_statuses: dict[str, str],
+    case_failures: Mapping[str, Sequence[Mapping[str, str]]],
 ) -> dict[str, Any]:
     """The golden document for one verified replay, validated before it can land.
 
@@ -339,6 +340,8 @@ def author_golden(
     ``kind: "model"`` goldens keep the pre-OME-978 document shape byte-for-byte (no
     ``kind``/``recipe``/``synthesizer`` keys), so a re-bless never churns old files;
     ``kind: "fusion"`` records the full replay lineup (ordered members + synthesizer).
+    ``case_failures`` (OME-1094) is the per-case ``[{stage, code}]`` map for every
+    case that carries a failure — ``failure_document`` builds it from the replay.
     """
     from harness.goldens import GOLDEN_SCHEMA, GoldenReport, canonical_score, expression_sha
 
@@ -353,6 +356,10 @@ def author_golden(
         "case_count": len(case_statuses),
         "gradeable_count": sum(1 for status in case_statuses.values() if status == "scored"),
         "case_statuses": dict(sorted(case_statuses.items())),
+        "case_failures": {
+            case: [dict(entry) for entry in entries]
+            for case, entries in sorted(case_failures.items())
+        },
     }
     if kind != "model":
         golden["kind"] = kind
@@ -360,6 +367,18 @@ def author_golden(
         golden["synthesizer"] = synthesizer
     GoldenReport.model_validate(golden)  # refuse to write a golden the lane would refuse
     return golden
+
+
+def failure_document(cases: Iterable[Any]) -> dict[str, list[dict[str, str]]]:
+    """The replay's per-case failures as the plain ``{case: [{stage, code}]}`` map
+    ``author_golden`` writes — read through the harness's own ``failure_map`` so the
+    golden author and the compare ladder share one reader (OME-1094)."""
+    from harness.goldens import failure_map
+
+    return {
+        case: [entry.model_dump() for entry in entries]
+        for case, entries in failure_map(cases).items()
+    }
 
 
 # -- helper modes (executed under the aigateway venv — single-authority rule) --------
@@ -735,6 +754,13 @@ def _parse_args() -> argparse.Namespace:
         help="scratch dir for service logs and oversized output",
     )
     parser.add_argument(
+        "--refresh-golden",
+        action="store_true",
+        help="OME-1094: re-author --board's golden from its COMMITTED snapshot (no "
+        "recording needed), adding the per-case failure codes; refuses if the "
+        "replayed expression / statuses / counters / score differ from the committed file",
+    )
+    parser.add_argument(
         "--dump-judge-bodies",
         type=Path,
         help="PHASE A of a judge re-key: after the verified replay, write every "
@@ -769,6 +795,7 @@ class _ReplayEvidence:
     rendered_url4: str
     final_score: float | None
     case_statuses: dict[str, str]
+    case_failures: dict[str, list[dict[str, str]]]
     slice_rows: list[str]
 
 
@@ -991,6 +1018,7 @@ def _replay_and_slice(
         rendered_url4=str(candidate.url4),
         final_score=candidate.score,
         case_statuses=statuses,
+        case_failures=failure_document(candidate.cases),
         slice_rows=[line for line in slice_output.split("\n") if line and not line.isspace()],
     )
 
@@ -1084,6 +1112,7 @@ def _bless(args: argparse.Namespace) -> None:
         rendered_url4=evidence.rendered_url4,
         final_score=evidence.final_score,
         case_statuses=evidence.case_statuses,
+        case_failures=evidence.case_failures,
     )
     header = _snapshot_header(
         args.board,
@@ -1337,6 +1366,7 @@ def _report_replay_and_slice(
         rendered_url4=str(candidate.url4),
         final_score=candidate.score,
         case_statuses=statuses,
+        case_failures=failure_document(candidate.cases),
         slice_rows=[line for line in slice_output.split("\n") if line and not line.isspace()],
     )
 
@@ -1369,8 +1399,128 @@ def _bless_from_report(args: argparse.Namespace) -> None:
         rendered_url4=evidence.rendered_url4,
         final_score=evidence.final_score,
         case_statuses=evidence.case_statuses,
+        case_failures=evidence.case_failures,
     )
     _write_fixtures(args, evidence, _report_header(args.board, report_sha), golden)
+
+
+# -- the fixtures-sourced refresh (OME-1094) -----------------------------------------
+
+#: Every outcome fact the committed golden already pins. A refresh may ADD the
+#: failure map; none of these may move, or it is a re-bless smuggling in a drift.
+_REFRESH_PINNED_KEYS = (
+    "revision",
+    "expression_sha",
+    "case_statuses",
+    "case_count",
+    "gradeable_count",
+    "final_score",
+)
+
+
+def _differing(committed: Any, replayed: Any) -> str:
+    """Compact drift for the refusal message — only the keys that moved, for maps."""
+    if isinstance(committed, dict) and isinstance(replayed, dict):
+        drifted = {
+            key: (committed.get(key), replayed.get(key))
+            for key in committed.keys() | replayed.keys()
+            if committed.get(key) != replayed.get(key)
+        }
+        return f"(committed, replay) per case: {drifted}"
+    return f"committed {committed!r}, replay {replayed!r}"
+
+
+def _refresh_golden(args: argparse.Namespace) -> None:
+    """Re-author one board's golden from its COMMITTED snapshot — no recording needed.
+
+    Mental model: re-mark the exam from the recording already in the repo and copy
+    each failed student's REASON onto the answer sheet — but refuse if any mark
+    itself moved. Stages, in execution order:
+
+    1. **Read the committed golden RAW.** A golden blessed before the codes rung
+       refuses at ``load_golden`` (failed cases with no code), so only its replay
+       INPUTS (kind, models, recipe, synthesizer, limit) are trusted at this point;
+       the outcome fields are compared after the replay.
+    2. **Replay** the board from the committed snapshot exactly like ``test_boards``
+       does — real gateway, real engine, zero provider keys.
+    3. **Author** the new golden from that replay (statuses, counters, score AND the
+       failure map).
+    4. **Refuse** unless every fact the committed golden pinned is identical
+       (``_REFRESH_PINNED_KEYS``): a refresh may add failure codes, never change a
+       score. Investigating the drift is the owner's job, not this tool's.
+    5. **Write** in place.
+    """
+    sys.path.insert(0, str(_E2E_DIR))
+    from harness._gating import GOLDENS_DIR, SNAPSHOTS_DIR
+    from harness.cache_seeded import CacheSeededGateway
+    from harness.goldens import GoldenReport, build_candidate
+    from harness.stack import replay_stack
+
+    golden_path = GOLDENS_DIR / f"{args.board}.golden.json"
+    snapshot = SNAPSHOTS_DIR / f"{args.board}.snapshot.gz"
+    manifest = SNAPSHOTS_DIR / f"{args.board}.manifest.json"
+    if not golden_path.exists() or not snapshot.exists():
+        raise SystemExit(
+            f"board {args.board!r} has no committed golden + snapshot to refresh from "
+            f"({golden_path}, {snapshot})"
+        )
+    committed = json.loads(golden_path.read_text(encoding="utf-8"))
+    # Stage 1 — WHY the blanked outcome: only the replay inputs are needed here, and a
+    # pre-OME-1094 golden would refuse validation on its status-only failed cases.
+    inputs = GoldenReport.model_validate(
+        {
+            **committed,
+            "case_statuses": {},
+            "case_failures": {},
+            "case_count": 0,
+            "gradeable_count": 0,
+        }
+    )
+    assets_root = _require_assets(args.board)
+    args.work_dir.mkdir(parents=True, exist_ok=True)
+
+    # Stage 2 — the same boot the e2e lane uses.
+    backend = CacheSeededGateway(
+        snapshot=snapshot,
+        manifest=manifest if manifest.exists() else None,
+        work_dir=args.work_dir,
+    )
+    print(f"[refresh] replaying {args.board} from {snapshot.name} keylessly…", flush=True)
+    with replay_stack(backend, work_dir=args.work_dir, assets_dir=assets_root) as stack:
+        report = _evaluate(stack.engine_url, build_candidate(inputs), args.board, inputs.limit)
+    candidate = report.candidates.only
+
+    # Stage 3 — author from the replay.
+    golden = author_golden(
+        board=args.board,
+        revision=report.benchmark.revision,
+        model=inputs.models[0] if inputs.kind == "model" else None,
+        kind=inputs.kind,
+        recipe=inputs.recipe,
+        members=list(inputs.models),
+        synthesizer=inputs.synthesizer,
+        limit=inputs.limit,
+        rendered_url4=str(candidate.url4),
+        final_score=candidate.score,
+        case_statuses={str(case.case_id): str(case.status) for case in candidate.cases},
+        case_failures=failure_document(candidate.cases),
+    )
+    # Stage 4 — INVARIANT: only the failure map may be new.
+    for key in _REFRESH_PINNED_KEYS:
+        if golden[key] != committed.get(key):
+            raise SystemExit(
+                f"REFRESH REFUSED — replayed {key} differs from the committed golden: "
+                f"{_differing(committed.get(key), golden[key])}. A refresh may only add "
+                f"failure codes; investigate the drift, then re-bless from the recordings."
+            )
+    # Stage 5 — write.
+    golden_path.write_text(json.dumps(golden, indent=2) + "\n")
+    pinned = sum(len(entries) for entries in golden["case_failures"].values())
+    print(
+        f"[refresh] {args.board}: {len(golden['case_failures'])} cases pinned with "
+        f"{pinned} failure codes, score={golden['final_score']} unchanged → {golden_path}",
+        flush=True,
+    )
 
 
 def main() -> None:
@@ -1378,21 +1528,48 @@ def main() -> None:
     if args.helper is not None:
         {"keys": _helper_keys, "revisions": _helper_revisions}[args.helper]()
         return
+    if args.refresh_golden:
+        _run_exclusive_mode(
+            args,
+            flag="--refresh-golden",
+            recording="the committed snapshot",
+            excluded=("model", "dump", "answers", "report", "judge_bodies", "dump_judge_bodies"),
+            run=_refresh_golden,
+        )
+        return
     if args.report is not None:
-        if args.board is None:
-            raise SystemExit("--board is required with --report")
-        for excluded in ("model", "dump", "answers", "judge_bodies", "dump_judge_bodies"):
-            if getattr(args, excluded) is not None:
-                raise SystemExit(
-                    f"--{excluded.replace('_', '-')} cannot be combined with --report — "
-                    f"the report is the only recording in this mode"
-                )
-        _bless_from_report(args)
+        _run_exclusive_mode(
+            args,
+            flag="--report",
+            recording="the report",
+            excluded=("model", "dump", "answers", "judge_bodies", "dump_judge_bodies"),
+            run=_bless_from_report,
+        )
         return
     for required in ("board", "model", "dump", "answers"):
         if getattr(args, required) is None:
             raise SystemExit(f"--{required} is required (unless running a --helper mode)")
     _bless(args)
+
+
+def _run_exclusive_mode(
+    args: argparse.Namespace,
+    *,
+    flag: str,
+    recording: str,
+    excluded: tuple[str, ...],
+    run: Any,
+) -> None:
+    """A mode with ONE recording source: needs ``--board``, refuses every other source."""
+    if args.board is None:
+        raise SystemExit(f"--board is required with {flag}")
+    for name in excluded:
+        if getattr(args, name) is not None:
+            raise SystemExit(
+                f"--{name.replace('_', '-')} cannot be combined with {flag} — "
+                f"{recording} is the only recording in this mode"
+            )
+    run(args)
 
 
 if __name__ == "__main__":

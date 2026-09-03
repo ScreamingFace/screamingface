@@ -51,8 +51,11 @@ Right now this is single-turn evaluation. No multi-turn or tool-using agent loop
 ## Quickstart
 
 ```bash
-pip install "screamingface[notebook]"   # once it is on PyPI; until then, install from source (see the docs)
+pip install "screamingface[notebook]"
 ```
+
+> To run your own engine locally, add the `[runtime]` extra:
+> `pip install "screamingface[runtime]"`
 
 ```python
 import screamingface as sf

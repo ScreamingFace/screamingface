@@ -39,6 +39,10 @@
     // 958px), which put "Run Locally" — the url4 copy, the board's primary
     // action — behind a horizontal scroll. `total_questions` is still shown on
     // each spec's detail page, so no data is lost from the portal.
+    // OME-770 pass 2, delivered with OME-923 part B. `sort: "cost"` is NOT the generic
+    // "number": the value arrives as a fixed-6dp STRING and an absent cost must sort last
+    // rather than as zero. See compare() and leaderboard-logic.js.
+    { key: "run_cost_usd", label: "Cost", sort: "cost", dir: "asc", cls: "num" },
     { key: "submitted_at", label: "Submitted", sort: "date", dir: "desc" },
     { key: "__run", label: "Run Locally", sort: null, cls: "col-run" },
   ];
@@ -46,6 +50,12 @@
   var state = { entries: [], benchmarkId: null, sortKey: "score", sortDir: "desc" };
 
   function compare(a, b, key, type, dir) {
+    // INVARIANT: cost never reaches the generic numeric branch below. That branch is
+    // `(av || 0) - (bv || 0)`, which coerces a null cost to 0 and would sort an unpriced row
+    // as the cheapest on the board — the "a null cost never reads as zero" rule the whole
+    // frontier rests on. compareCost also converts the fixed-6dp string before comparing, and
+    // applies `dir` itself, so this returns straight out.
+    if (type === "cost") return L.compareCost(a, b, dir);
     var av = a[key], bv = b[key], res = 0;
     if (type === "string") {
       res = String(av).localeCompare(String(bv));
@@ -132,8 +142,22 @@
   // (?pool=verified), which makes the verified run a real row that can be badged
   // truthfully; the medal lands there. OME-770's frontier mark also belongs in
   // this cell. Until one of them ships, this column is intentionally blank.
-  function renderMarkSlot() {
-    return P.el("td", "col-mark");
+  // FEATURE: OME-923 part B. The slot OME-769 reserved and left empty; the server decides
+  // membership (scores/pareto.py) and this only renders the answer.
+  //
+  // INVARIANT: colour is never the only carrier. The diamond shows the mark and the
+  // sr-only text names it. The gold row background stays the SEPARATE highest-score
+  // signal, so a row can carry one, both or neither.
+  function renderMarkSlot(entry) {
+    var td = P.el("td", "col-mark");
+    if (!L.isParetoMarked(entry)) return td;
+    var mark = P.el("span", "pareto-mark");
+    mark.setAttribute("aria-hidden", "true");
+    td.appendChild(mark);
+    td.appendChild(
+      P.el("span", "sr-only", "on the Pareto frontier: no submission has an equal-or-higher score at an equal-or-lower cost, with one strict improvement")
+    );
+    return td;
   }
 
   // The vendored .score-cell recipe: the number plus a proportional track. Its
@@ -176,7 +200,7 @@
       if (isLeader) tr.className = "sota";
 
       tr.appendChild(P.el("td", "num", entry.rank));
-      tr.appendChild(renderMarkSlot());
+      tr.appendChild(renderMarkSlot(entry));
 
       var specTd = P.el("td", "cell-wrap");
       specTd.appendChild(P.link("mono", "spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id), entry.spec_id));
@@ -190,6 +214,13 @@
       // formatSubmitter already renders an em-dash for a null/blank submitter.
       tr.appendChild(P.el("td", null, P.formatSubmitter(entry.submitted_by)));
       tr.appendChild(renderScoreCell(entry.score, barMin, barMax));
+      // WHY the title: the cell rounds to cents, but the frontier compares the full stored
+      // Decimal — so two rows inside one cent render identically while only one is marked. The
+      // exact figure has to be recoverable, or the board contradicts itself with nothing on the
+      // page to explain it (found in review, 2026-08-31).
+      var costTd = P.el("td", "num", L.formatCost(entry));
+      if (L.costNumber(entry) !== null) costTd.title = "$" + entry.run_cost_usd;
+      tr.appendChild(costTd);
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
 
       var runTd = document.createElement("td");
@@ -320,6 +351,8 @@
   function init() {
     var statusNode = document.getElementById("leaderboard-status");
     var wrap = document.getElementById("leaderboard-wrap");
+    var legend = document.getElementById("leaderboard-legend");
+    var legendPareto = document.getElementById("legend-pareto");
     var nameNode = document.getElementById("benchmark-name");
     var descNode = document.getElementById("benchmark-desc");
 
@@ -336,6 +369,7 @@
 
     P.showLoading(statusNode, "Loading leaderboard…");
     wrap.hidden = true;
+    legend.hidden = true;
 
     P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "?top=50").then(
       function (data) {
@@ -359,6 +393,8 @@
           P.clear(document.getElementById("leaderboard-body"));
           P.showEmpty(statusNode, "No submissions yet. Be the first.");
           wrap.hidden = false;
+          // No rows at all: the key would point at nothing.
+          legend.hidden = true;
           return;
         }
         renderSummary(state.entries);
@@ -367,6 +403,12 @@
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);
         wrap.hidden = false;
+        // INVARIANT: the frontier key appears only when a row actually carries the mark.
+        // On a board the D12 gate closed, or one where every cost is null, nothing is
+        // marked — and a key for a symbol that appears nowhere reads as 'no submission
+        // here is good value', which is the opposite of what the gate is saying.
+        legendPareto.hidden = !state.entries.some(L.isParetoMarked);
+        legend.hidden = false;
       },
       function (err) {
         if (err && err.status === 404) {

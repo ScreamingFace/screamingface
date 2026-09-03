@@ -34,6 +34,7 @@ from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.upload_job import CacheUploadRunner
 from .core.secrets.factory import build_secret_store, set_active_secret_store
+from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
 from .discovery_lifecycle import (
@@ -221,15 +222,21 @@ async def _lifespan(app):
             build_accounting_handler
         )
 
-        # OME-1026: warm the PUBLIC catalogs in the background.
-        # INVARIANT (non-blocking): startup must not wait on an upstream catalog — a
-        # slow or unreachable provider would delay readiness and could fail the boot of
-        # a gateway that serves fine from seeds. Every task started here is tracked by
-        # the manager, so shutdown cancels and awaits it.
+        # OME-1026: app-owned, non-blocking public prewarm; shutdown awaits it.
         start_public_prewarm(app)
+        if app.state.settings.cache_snapshot_enabled:
+            app.state.cache_snapshot_scheduler = build_snapshot_scheduler(app.state.settings)
+            app.state.cache_snapshot_scheduler.start()
+            logger.info(
+                "cache snapshot scheduler armed (weekly Friday 05:00 UTC, bucket=%s)",
+                app.state.settings.cache_snapshot_s3_bucket,
+            )
 
         yield
     finally:
+        scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+        if scheduler is not None:
+            await scheduler.stop()
         # §9.12: closed explicitly here rather than left to __del__, which is not
         # guaranteed to run and cannot await. An unclosed handler leaks its connection
         # pool across TestClient lifecycles and across a reload in dev.
@@ -397,9 +404,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _configure_fake_codex_oauth(app)
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
-    # OME-972/OME-1026: every live-discovery object this process holds, built from one
-    # kill switch. Requires app.state.providers, set above — the public refresh
-    # manager's capacity is the provider count.
+    # OME-972/1026: build all app-owned discovery state from one kill switch.
     install_discovery(app, settings=settings)
     # OME-952: the admin cache-snapshot upload runner. app-state-only by the same reasoning
     # as `admitted_models` above: job REPORTS are deployment-lifetime, the loaded data and

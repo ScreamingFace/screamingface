@@ -35,9 +35,12 @@ docstring of [`fixtures/slice_snapshot.py`](fixtures/slice_snapshot.py).
 |---|---|---|---|
 | expression | "goldens stale" | the rendered protocol moved | intended? → re-bless (step ④) |
 | case statuses / coverage | "case statuses drifted" | some cases now fail/score differently | investigate, then re-bless if intended |
+| failure codes | "failure codes drifted" | the same cases fail, but for a different REASON (`incomplete_verdicts` → `case_error`) — a reclassification | investigate, then re-bless if intended |
 | score | "final score drifted" | grading/aggregation changed the number | investigate, then re-bless if intended |
 
-Re-blessing needs the owner-held recordings again. If the change re-keyed the
+Re-blessing needs the owner-held recordings again — EXCEPT when only the golden's
+per-case failure codes must be (re)written: `just e2e-refresh-golden <board>` replays
+the committed snapshot and refuses to write if anything but the failure map moved. If the change re-keyed the
 **judge** requests (judge params/prompts are hashed into every judge cache key), the
 old dump can no longer serve them — either a new paid run (③), or the disclosed
 interim path: `--dump-judge-bodies` on the old checkout, then `--judge-bodies` +
@@ -50,6 +53,6 @@ tool's docstring).
 |---|---|---|
 | `fixtures/snapshots/<board>.snapshot.gz` | ✅ | minimal cache slice: exactly the rows one replay touches |
 | `fixtures/snapshots/<board>.manifest.json` | ✅ | sha256 + row count + cache revisions (refuse-early guard) |
-| `fixtures/goldens/<board>.golden.json` | ✅ | frozen answer key: expression sha, case statuses, score |
+| `fixtures/goldens/<board>.golden.json` | ✅ | frozen answer key: expression sha, case statuses, per-case failure codes, score |
 | `fixtures/snapshots/synthetic.*` | manifest ❌ (generated) | plumbing-only fixture; regenerate via `generate_synthetic.py` in the aigateway venv |
 | dump / report / answers | ❌ never | owner-held recordings, referenced only by content sha |

@@ -19,6 +19,7 @@ class ScreamingFaceError(Exception):
         permanent: bool | None = None,
         details: object = None,
         hint: str | None = None,
+        trace_id: str | None = None,
     ) -> None:
         self.message: str = message
         self.code: str = code or self._default_code
@@ -26,6 +27,12 @@ class ScreamingFaceError(Exception):
         self.permanent: bool | None = permanent
         self.details: object = details
         self.hint: str | None = hint if hint is not None else _default_hint(self.code)
+        # WHY on the BASE class and not on ExecutionError alone (OME-967): the failures this
+        # id exists to make joinable are the ones BEFORE the first frame — capability mint,
+        # run start, WS handshake — and those raise EngineUnavailableError and
+        # AuthenticationError, never ExecutionError. Narrowing the field to ExecutionError
+        # would leave exactly the class the ticket was filed for without an id.
+        self.trace_id: str | None = trace_id
         super().__init__(message)
 
     @property
@@ -49,6 +56,11 @@ class ScreamingFaceError(Exception):
         if self.hint is not None:
             rendered.append(f"Hint: {self.hint}")
         rendered.append(f"Code: {self.code}")
+        # WHY rendered and not merely retained (OME-967): the Client already receives a
+        # traceparent on every event and has zero read sites for it. An id the user cannot
+        # read is an id they cannot quote in a report, which is the whole point of holding it.
+        if self.trace_id is not None:
+            rendered.append(f"Trace: {self.trace_id}")
         return ["\n".join(rendered)]
 
 
@@ -133,13 +145,18 @@ class LeaderboardError(_DiagnosticError):
 class EngineUnavailableError(_DiagnosticError):
     """The configured SF Engine could not be reached."""
 
-    def __init__(self, message: str, *, engine_url: str) -> None:
+    def __init__(self, message: str, *, engine_url: str, trace_id: str | None = None) -> None:
         self.engine_url: str = engine_url
+        # WHY this subclass forwards the id and its two siblings do not (OME-967): this is
+        # the error of the pre-first-frame failures — capability mint, run start, WS
+        # handshake. `ProviderConnectionError` and `LeaderboardError` are raised on paths
+        # that originate no client trace today; they gain the parameter when they do.
         super().__init__(
             message,
             code="engine_unreachable",
             permanent=False,
             hint=_engine_hint(engine_url),
+            trace_id=trace_id,
         )
 
 

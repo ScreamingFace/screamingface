@@ -105,6 +105,8 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
           The fastest start. Name the hosted engine once, log in through your browser, and you are
           running on compute we provide. There is no local setup, and no provider key of your own:
           the hosted engine does not take one (bring-your-own-key is the local path).
+          Hosted access is currently by invitation — if you haven't been approved yet, use the
+          local engine tab below while you wait.
         </p>
 
         <div class="not-prose">
@@ -122,7 +124,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
         <p>
           That is the whole hosted path. The
-          <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> takes it from here, and
+          <RouterLink to="/sf-client/first-fusion">Quickstart</RouterLink> takes it from here, and
           the <RouterLink to="/sf-client/guides/connections">Connections</RouterLink> guide covers
           provider access.
         </p>

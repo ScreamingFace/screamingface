@@ -134,6 +134,21 @@ def test_the_hero_mark_is_vendored_not_hotlinked(tmp_path: Path) -> None:
         assert asset.headers["content-type"] == "image/png"
 
 
+def test_pareto_copy_describes_standard_dominance() -> None:
+    """Equal-score/cheaper and higher-score/equal-cost rows also dominate."""
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    html = (portal / "benchmark.html").read_text(encoding="utf-8")
+    script = (portal / "benchmark.js").read_text(encoding="utf-8")
+    explanation = (
+        "no submission has an equal-or-higher score at an equal-or-lower cost, "
+        "with one strict improvement"
+    )
+
+    assert explanation in html
+    assert explanation in script
+    assert "no submission is both better and cheaper" not in html + script
+
+
 def test_served_markdown_carries_no_internal_references(tmp_path: Path) -> None:
     """The portal tree is mounted whole, so every file in it is public.
 

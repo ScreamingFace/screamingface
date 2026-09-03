@@ -14,7 +14,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from screamingface_engine.logs import APP_LOGGER, LEVEL_ENV, configure
+from screamingface_engine.logs import APP_LOGGER, LEVEL_ENV, configure, run_scope
 
 
 @pytest.fixture(autouse=True)
@@ -93,3 +93,47 @@ def test_a_foreign_handler_does_not_suppress_our_own() -> None:
     logging.getLogger("screamingface_engine.ws.bridge").info("still recorded")
 
     assert "still recorded" in stream.getvalue()
+
+
+def test_a_record_inside_a_run_scope_carries_topic_and_trace_id() -> None:
+    # FEATURE (OME-1069): a Job's process logs are the operator's only view of a run that is
+    # not the CloudEvents stream, and every line inside a run must be attributable to it.
+    stream = io.StringIO()
+    configure(stream)
+
+    with run_scope("cap-topic", "ab" * 16):
+        logging.getLogger("screamingface_engine.ws.bridge").info("run started")
+
+    rendered = stream.getvalue()
+    assert "topic=cap-topic trace_id=" in rendered
+    assert "run started" in rendered
+
+
+def test_a_record_outside_a_run_scope_renders_unchanged() -> None:
+    # The control plane never binds a run scope, so its lines must be byte-identical to
+    # before the feature existed — an empty run-context field, not a placeholder.
+    stream = io.StringIO()
+    configure(stream)
+
+    logging.getLogger("screamingface_engine.ws.bridge").info("ws stream ended")
+
+    rendered = stream.getvalue()
+    assert "ws stream ended" in rendered
+    assert "topic=" not in rendered
+
+
+def test_run_scope_restores_the_previous_context_on_exit() -> None:
+    # Nested scopes (a run wrapping a benchmark's own scope) must restore the outer run's
+    # identity rather than leaving the inner one bound for the rest of the process.
+    stream = io.StringIO()
+    configure(stream)
+    logger = logging.getLogger("screamingface_engine.ws.bridge")
+
+    with run_scope("outer-topic"):
+        with run_scope("inner-topic"):
+            logger.info("inner")
+        logger.info("outer")
+
+    rendered = stream.getvalue()
+    assert "topic=inner-topic" in rendered
+    assert "topic=outer-topic" in rendered

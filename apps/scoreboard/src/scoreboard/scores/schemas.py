@@ -373,6 +373,10 @@ class BenchmarkSchema(BaseModel):
     # WHY exposed: a client comparing its run against the board needs to know which revision
     # the board is registered at, so it can tell a real score gap from an incomparable one.
     revision: str | None
+    # WHY exposed (OME-1056): a client that ran a subset needs to see the canonical size to
+    # understand why its score is absent from the ranking. None means the board declares no
+    # canonical scope and therefore ranks everything.
+    case_count: int | None
     visibility: Visibility
     created_at: datetime
 
@@ -431,6 +435,12 @@ class LeaderboardEntry(BaseModel):
     # paid, not what the submitter paid. Exposed so the board can show it, but it
     # must be presented with its provenance and never as a verified figure.
     run_cost_usd: RunCostUsd
+
+
+class LeaderboardStoreEntry(LeaderboardEntry):
+    """Store-only leaderboard row carrying identity across independent projections."""
+
+    source_id: str = Field(exclude=True)
 
 
 class BaselineSchema(BaseModel):

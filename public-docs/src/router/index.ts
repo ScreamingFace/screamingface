@@ -24,8 +24,8 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/FirstFusionPage.vue'),
     },
     {
-      path: '/sf-client/quickstartPage',
-      name: 'sf-client-quickstart',
+      path: '/sf-client/reproduce-draco',
+      name: 'sf-client-reproduce-draco',
       component: () => import('@/pages/sf-client/QuickstartPage.vue'),
     },
     {
@@ -182,6 +182,11 @@ const router = createRouter({
       path: '/learn/leaderboard',
       name: 'learn-leaderboard',
       component: () => import('@/pages/learn/LeaderboardPage.vue'),
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/pages/NotFoundPage.vue'),
     },
   ],
   scrollBehavior() {

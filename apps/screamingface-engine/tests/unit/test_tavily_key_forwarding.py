@@ -11,7 +11,7 @@ literal in the Job spec. A Job object is readable with `get jobs` RBAC alone.
 from typing import Any
 
 import pytest
-from _k8s_fakes import FakeCreatedJob, fake_created_job
+from _k8s_fakes import FakeCoreV1, FakeCreatedJob, fake_created_job
 
 from screamingface_engine import job_env as runner_job_env
 from screamingface_engine.adapters.factory import build_job_runner
@@ -129,6 +129,7 @@ def test_settings_build_a_runner_carrying_the_secret_name() -> None:
     runner = build_job_runner(
         settings,
         k8s_client_factory=_RecordingBatchApi,
+        core_client_factory=FakeCoreV1,
     )
 
     assert isinstance(runner, K8sJobRunner)
@@ -139,6 +140,7 @@ def test_settings_without_a_secret_name_attach_no_secret() -> None:
     runner = build_job_runner(
         Settings(runner="k8s"),
         k8s_client_factory=_RecordingBatchApi,
+        core_client_factory=FakeCoreV1,
     )
 
     assert isinstance(runner, K8sJobRunner)

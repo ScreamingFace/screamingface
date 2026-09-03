@@ -7,12 +7,23 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
+    # INVARIANT: this selector stays name+instance ONLY. `spec.selector` is immutable once the
+    # Deployment exists, so adding `component: gateway` here would make `helm upgrade` of any
+    # already-installed release fail with `field is immutable` — invisible to fresh installs
+    # and to render-only CI. The component label lives on the Pod template below, which is
+    # mutable and is what the Service and the NetworkPolicies actually select on.
     matchLabels:
       {{- include "aigateway.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
         {{- include "aigateway.selectorLabels" . | nindent 8 }}
+        # Distinct component, same pattern as the migrate Job (`component: migrate`) and the
+        # bundled Garage (`component: garage`): selectorLabels alone match EVERY workload this
+        # chart renders, so any selector that must name the gateway — the Service, the
+        # NetworkPolicy — needs this label to stay scoped now that Garage Pods carry the same
+        # name/instance pair. Template labels only: see the selector note above.
+        app.kubernetes.io/component: {{ include "aigateway.componentLabel" . }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -49,6 +60,12 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "aigateway.fullname" . }}
+            {{- if .Values.snapshot.enabled }}
+            # The snapshot key pair: either the chart-owned Secret or the operator's
+            # existingSecret (the key names are the env vars the app reads).
+            - secretRef:
+                name: {{ if .Values.snapshot.storage.existingSecret }}{{ .Values.snapshot.storage.existingSecret }}{{ else }}{{ include "aigateway.snapshotSecretName" . }}{{ end }}
+            {{- end }}
           env:
             - name: AIGATEWAY_DATABASE_URL
               valueFrom:

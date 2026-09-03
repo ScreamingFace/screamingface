@@ -36,6 +36,11 @@ class ProtocolState:
     http_auth_schemes: list[str | None] = field(default_factory=list)
     websocket_auth_scheme: str | None = None
     start_attempts: int = 0
+    # OME-967: the `traceparent` observed on each inbound leg, as (phase, value) with phase
+    # one of "mint" | "start" | "websocket". Observable protocol behavior like the auth
+    # schemes above — the client is meant to originate trace context, and only the wire can
+    # say whether it did.
+    traceparents: list[tuple[str, str | None]] = field(default_factory=list)
     mode: Literal[
         "success",
         "advisory_error",
@@ -77,6 +82,15 @@ class ProtocolState:
             self.stop_events[token] = threading.Event()
             return token
 
+    def record_traceparent(self, phase: str, value: str | None) -> None:
+        with self.lock:
+            self.traceparents.append((phase, value))
+
+    def trace_ids(self) -> set[str]:
+        """The distinct trace ids seen on the wire — the middle field of a `traceparent`."""
+        with self.lock:
+            return {value.split("-")[1] for _, value in self.traceparents if value}
+
     def mark_started(self, token: str) -> None:
         with self.lock:
             self.started_tokens.append(token)
@@ -116,6 +130,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 — stdlib handler API
         self.server.state.http_auth_schemes.append(_authorization_scheme(self.headers))
+        self.server.state.record_traceparent("mint", self.headers.get("traceparent"))
         if self.path != "/token":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -209,6 +224,7 @@ class _Handler(BaseHTTPRequestHandler):
                 media_type="application/problem+json",
             )
             return
+        self.server.state.record_traceparent("start", self.headers.get("traceparent"))
         if self._reject_start():
             return
         self.send_response(HTTPStatus.ACCEPTED)
@@ -301,6 +317,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _accept_websocket(self) -> bool:
         self.server.state.websocket_auth_scheme = _authorization_scheme(self.headers)
+        self.server.state.record_traceparent("websocket", self.headers.get("traceparent"))
         key = self.headers.get("Sec-WebSocket-Key")
         if key is None:
             self.send_error(HTTPStatus.BAD_REQUEST)

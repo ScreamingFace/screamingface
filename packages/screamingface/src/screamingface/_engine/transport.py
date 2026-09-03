@@ -30,6 +30,7 @@ from screamingface._access.contract import _challenge_audience
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.run_lifecycle import _Lifecycle
+from screamingface._engine.trace import TraceContext, new_trace_context
 from screamingface._evaluation.model import Candidate
 from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
 from screamingface.events import Event
@@ -124,13 +125,22 @@ class Url4CloudTransport:
         candidate: Candidate,
         on_event: SyncEventCallback | None,
     ) -> _RunOutcome:
-        minted = [_mint_sync(self._http)]
+        # INVARIANT (OME-967): the trace exists BEFORE the first outbound call. Minting the
+        # capability is that first call, so a mint failure is already joinable.
+        trace = new_trace_context()
+        minted = [_mint_sync(self._http, trace=trace)]
         with self._active_lock:
             self._active_tokens.add(minted[0])
         lifecycle = _Lifecycle(candidate)
         started = time.monotonic()
         try:
-            return self._run_reconnecting(lifecycle, minted, candidate, on_event, started)
+            # WHY stamped here and not in `contract.py`: that layer decodes what the
+            # Engine sent, while this id is what the CLIENT minted (OME-967). Only the
+            # transport holds it, and the outcome is where a caller reads it back.
+            return _dataclass_replace(
+                self._run_reconnecting(lifecycle, minted, candidate, on_event, started, trace),
+                trace_id=trace.trace_id,
+            )
         except _ObserverRaised as exc:
             _copy_notes(exc, exc.original)
             raise exc.original
@@ -147,6 +157,7 @@ class Url4CloudTransport:
         candidate: Candidate,
         on_event: SyncEventCallback | None,
         started: float,
+        trace: TraceContext,
     ) -> _RunOutcome:
         """Drive the Run across connection losses: BACKOFF and re-attach, bounded (spec §6 S3).
 
@@ -166,7 +177,10 @@ class Url4CloudTransport:
                 with sync_ws.connect(
                     _websocket_url(self._engine_url, minted[-1]),
                     subprotocols=[_SUBPROTOCOL],
-                    additional_headers=self._caller_auth.websocket_headers(),
+                    additional_headers={
+                        **self._caller_auth.websocket_headers(),
+                        **_trace_headers(trace),
+                    },
                     open_timeout=30,
                     close_timeout=10,
                     max_size=_MAX_FRAME_BYTES,
@@ -175,7 +189,7 @@ class Url4CloudTransport:
                     _require_subprotocol(websocket.subprotocol)
                     if not run_started:
                         websocket.send(lifecycle.initial_attach())
-                        _start_sync(self._http, minted[-1], candidate.url4)
+                        _start_sync(self._http, minted[-1], candidate.url4, trace=trace)
                         run_started = True
                     else:
                         websocket.send(lifecycle.resume_attach())
@@ -186,7 +200,7 @@ class Url4CloudTransport:
                 # stop-on-interrupt arm into writing to a dead connection.
                 return _materialize_sync(self._http, outcome)
             except InvalidStatus as exc:
-                self._on_handshake_rejection(exc, minted, run_started)
+                self._on_handshake_rejection(exc, minted, run_started, trace)
                 attempts += 1
                 continue
             except (WebSocketException, OSError, TimeoutError) as exc:
@@ -194,7 +208,7 @@ class Url4CloudTransport:
                 continue
 
     def _on_handshake_rejection(
-        self, exc: InvalidStatus, minted: list[str], run_started: bool
+        self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
     ) -> None:
         """Classify a refused handshake: Access challenge remints; anything else is FATAL.
 
@@ -203,7 +217,7 @@ class Url4CloudTransport:
         rather than orphan it (G3).
         """
         if _is_access_websocket_rejection(exc):
-            self._remint_after_challenge(minted)
+            self._remint_after_challenge(minted, trace)
             return
         if run_started:
             self._sweep_after_disconnect()
@@ -248,14 +262,14 @@ class Url4CloudTransport:
         except Exception as stop_error:  # noqa: BLE001 - see the WHY above
             _logger.warning("Stopping active SF Engine runs also failed: %s", stop_error)
 
-    def _remint_after_challenge(self, minted: list[str]) -> None:
+    def _remint_after_challenge(self, minted: list[str], trace: TraceContext) -> None:
         """Refresh Access auth and mint a fresh capability after a WS challenge.
 
         WHY a NEW capability rather than the one in hand: its iat window is 60s and the
         re-login can take minutes — see the async twin's inline comment.
         """
         self._caller_auth.reauthenticate()
-        minted.append(_mint_sync(self._http))
+        minted.append(_mint_sync(self._http, trace=trace))
         with self._active_lock:
             self._active_tokens.add(minted[-1])
 
@@ -375,13 +389,20 @@ class AsyncUrl4CloudTransport:
         candidate: Candidate,
         on_event: AsyncEventCallback | None,
     ) -> _RunOutcome:
-        minted = [await _mint_async(self._http)]
+        # INVARIANT (OME-967): see the sync twin — the trace precedes the first call.
+        trace = new_trace_context()
+        minted = [await _mint_async(self._http, trace=trace)]
         self._active_tokens.add(minted[0])
         cancelled = False
         started = time.monotonic()
         lifecycle = _Lifecycle(candidate)
         try:
-            return await self._run_reconnecting(lifecycle, minted, candidate, on_event, started)
+            return _dataclass_replace(
+                await self._run_reconnecting(
+                    lifecycle, minted, candidate, on_event, started, trace
+                ),
+                trace_id=trace.trace_id,
+            )
         # WHY: a cancelled Run keeps its capability registered so the Evaluation's sweep can
         # still stop it. asyncio.gather cancels its children and only re-raises once they have
         # all unwound, so by the time the sweep runs every Run here has already finished its
@@ -408,6 +429,7 @@ class AsyncUrl4CloudTransport:
         candidate: Candidate,
         on_event: AsyncEventCallback | None,
         started: float,
+        trace: TraceContext,
     ) -> _RunOutcome:
         """Async twin of the sync reconnecting loop — see its docstring (spec §6 S3)."""
         budget_deadline = time.monotonic() + self._reconnect_budget_s
@@ -418,7 +440,10 @@ class AsyncUrl4CloudTransport:
                 async with async_ws.connect(
                     _websocket_url(self._engine_url, minted[-1]),
                     subprotocols=[_SUBPROTOCOL],
-                    additional_headers=await self._caller_auth.websocket_headers_async(),
+                    additional_headers={
+                        **(await self._caller_auth.websocket_headers_async()),
+                        **_trace_headers(trace),
+                    },
                     open_timeout=30,
                     close_timeout=10,
                     max_size=_MAX_FRAME_BYTES,
@@ -427,7 +452,7 @@ class AsyncUrl4CloudTransport:
                     _require_subprotocol(websocket.subprotocol)
                     if not run_started:
                         await websocket.send(lifecycle.initial_attach())
-                        await _start_async(self._http, minted[-1], candidate.url4)
+                        await _start_async(self._http, minted[-1], candidate.url4, trace=trace)
                         run_started = True
                     else:
                         await websocket.send(lifecycle.resume_attach())
@@ -435,7 +460,7 @@ class AsyncUrl4CloudTransport:
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
-                await self._on_handshake_rejection(exc, minted, run_started)
+                await self._on_handshake_rejection(exc, minted, run_started, trace)
                 attempts += 1
                 continue
             except (WebSocketException, OSError, TimeoutError) as exc:
@@ -443,7 +468,7 @@ class AsyncUrl4CloudTransport:
                 continue
 
     async def _on_handshake_rejection(
-        self, exc: InvalidStatus, minted: list[str], run_started: bool
+        self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
     ) -> None:
         """Async twin of the sync handshake classification — see its docstring (D5, G3)."""
         if _is_access_websocket_rejection(exc):
@@ -452,7 +477,7 @@ class AsyncUrl4CloudTransport:
             # re-authentication can take minutes, and the challenge may predate the
             # last mint. Minting is unauthenticated and per-Run, so replacing the
             # token is cheaper than widening any window.
-            minted.append(await _mint_async(self._http))
+            minted.append(await _mint_async(self._http, trace=trace))
             self._active_tokens.add(minted[-1])
             return
         if run_started:
@@ -555,24 +580,34 @@ def _event_stream_timeout() -> ExecutionError:
     )
 
 
-def _mint_sync(http: httpx.Client) -> str:
+def _mint_sync(http: httpx.Client, *, trace: TraceContext | None = None) -> str:
+    # AIDEV-NOTE (OME-967): `trace` is keyword-with-default so the capability mint stays
+    # callable without one (artifact redemption, and a prior contract test). The RUN path
+    # always passes it — minting is the first outbound call, and a mint failure is one of
+    # the three pre-first-frame classes this ticket exists to make joinable.
     try:
-        response = http.post("/token", extensions={_REPLAY_SAFE: True})
+        response = http.post(
+            "/token", headers=_trace_headers(trace), extensions={_REPLAY_SAFE: True}
+        )
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
             "Could not reach the SF Engine capability endpoint",
             engine_url=_http_origin(http),
+            trace_id=trace.trace_id if trace else None,
         ) from exc
     return _token(response)
 
 
-async def _mint_async(http: httpx.AsyncClient) -> str:
+async def _mint_async(http: httpx.AsyncClient, *, trace: TraceContext | None = None) -> str:
     try:
-        response = await http.post("/token", extensions={_REPLAY_SAFE: True})
+        response = await http.post(
+            "/token", headers=_trace_headers(trace), extensions={_REPLAY_SAFE: True}
+        )
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
             "Could not reach the SF Engine capability endpoint",
             engine_url=_http_origin(http),
+            trace_id=trace.trace_id if trace else None,
         ) from exc
     return _token(response)
 
@@ -593,7 +628,9 @@ def _token(response: httpx.Response) -> str:
     return payload["token"].strip()
 
 
-def _start_sync(http: httpx.Client, token: str, url4: str) -> None:
+def _start_sync(
+    http: httpx.Client, token: str, url4: str, *, trace: TraceContext | None = None
+) -> None:
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
             time.sleep(delay)
@@ -601,16 +638,21 @@ def _start_sync(http: httpx.Client, token: str, url4: str) -> None:
             response = http.get(
                 "/",
                 params={"q": url4},
-                headers={"URL4-Capability": token, "Prefer": "respond-async"},
+                headers={
+                    "URL4-Capability": token,
+                    "Prefer": "respond-async",
+                    **_trace_headers(trace),
+                },
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
                 "Could not start the SF Engine Run",
                 engine_url=_http_origin(http),
+                trace_id=trace.trace_id if trace else None,
             ) from exc
         if not _attachment_is_still_registering(response):
             break
-    _accepted(response)
+    _accepted(response, trace_id=trace.trace_id if trace else None)
 
 
 def _stop_sync(http: httpx.Client, token: str) -> None:
@@ -658,7 +700,9 @@ def _require_stopped(response: httpx.Response) -> None:
     _require_success(response, "stop the Run")
 
 
-async def _start_async(http: httpx.AsyncClient, token: str, url4: str) -> None:
+async def _start_async(
+    http: httpx.AsyncClient, token: str, url4: str, *, trace: TraceContext | None = None
+) -> None:
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
             await asyncio.sleep(delay)
@@ -666,16 +710,21 @@ async def _start_async(http: httpx.AsyncClient, token: str, url4: str) -> None:
             response = await http.get(
                 "/",
                 params={"q": url4},
-                headers={"URL4-Capability": token, "Prefer": "respond-async"},
+                headers={
+                    "URL4-Capability": token,
+                    "Prefer": "respond-async",
+                    **_trace_headers(trace),
+                },
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
                 "Could not start the SF Engine Run",
                 engine_url=_http_origin(http),
+                trace_id=trace.trace_id if trace else None,
             ) from exc
         if not _attachment_is_still_registering(response):
             break
-    _accepted(response)
+    _accepted(response, trace_id=trace.trace_id if trace else None)
 
 
 def _attachment_is_still_registering(response: httpx.Response) -> bool:
@@ -690,13 +739,17 @@ def _attachment_is_still_registering(response: httpx.Response) -> bool:
     return isinstance(detail, str) and "attach a websocket" in detail.casefold()
 
 
-def _accepted(response: httpx.Response) -> None:
+def _accepted(response: httpx.Response, *, trace_id: str | None = None) -> None:
     if response.status_code != 202:
-        _raise_response(response, "start the Run")
+        _raise_response(response, "start the Run", trace_id=trace_id)
     if response.headers.get("Preference-Applied") != "respond-async":
-        raise ExecutionError("SF Engine did not acknowledge asynchronous execution")
+        raise ExecutionError(
+            "SF Engine did not acknowledge asynchronous execution", trace_id=trace_id
+        )
     if not response.headers.get("Location"):
-        raise ExecutionError("SF Engine asynchronous response is missing Location")
+        raise ExecutionError(
+            "SF Engine asynchronous response is missing Location", trace_id=trace_id
+        )
 
 
 _FETCH_ARTIFACT = "fetch the Run's result artifact"
@@ -836,12 +889,20 @@ async def _materialize_async(http: httpx.AsyncClient, outcome: _RunOutcome) -> _
     ) from last_error
 
 
-def _require_success(response: httpx.Response, operation: str) -> None:
+def _require_success(
+    response: httpx.Response, operation: str, *, trace_id: str | None = None
+) -> None:
     if not response.is_success:
-        _raise_response(response, operation)
+        _raise_response(response, operation, trace_id=trace_id)
 
 
-def _raise_response(response: httpx.Response, operation: str) -> None:
+def _raise_response(
+    response: httpx.Response, operation: str, *, trace_id: str | None = None
+) -> None:
+    # WHY the id reaches THIS function (OME-967): every response-derived failure funnels
+    # here — mint, start, stop, artifact. A pre-first-frame failure is far more often an
+    # Engine problem+json than an httpx transport error, so attaching the id only on the
+    # transport branch would miss the common case.
     code: str | None = None
     problem: object = None
     detail = response.text.strip() or f"HTTP {response.status_code}"
@@ -864,6 +925,7 @@ def _raise_response(response: httpx.Response, operation: str) -> None:
             status=response.status_code,
             permanent=True,
             details=problem if media_type == "application/problem+json" else None,
+            trace_id=trace_id,
         )
     raise ExecutionError(
         f"Could not {operation}: {detail}",
@@ -871,6 +933,7 @@ def _raise_response(response: httpx.Response, operation: str) -> None:
         status=response.status_code,
         permanent=response.status_code < 500,
         details=problem if media_type == "application/problem+json" else None,
+        trace_id=trace_id,
     )
 
 
@@ -908,6 +971,11 @@ def _websocket_url(engine_url: str, token: str) -> str:
     parts = urlsplit(engine_url)
     scheme = "wss" if parts.scheme == "https" else "ws"
     return urlunsplit((scheme, parts.netloc, "/ws", urlencode({"ticket": token}), ""))
+
+
+def _trace_headers(trace: TraceContext | None) -> dict[str, str]:
+    """The run's trace context as headers, or nothing when there is no trace to send."""
+    return trace.headers() if trace is not None else {}
 
 
 def _http_origin(http: httpx.Client | httpx.AsyncClient) -> str:

@@ -1980,3 +1980,68 @@ No external dependency, schema, migration operation, discovery call, credential 
 cache identity, Client/Engine file, unrelated worktree path, push, PR, merge, or live
 provider state changed. Owner authorized a separate P3 follow-up commit; intended message:
 `fix(aigateway): close implicit discovery review findings` with `Refs: OME-1026`.
+
+## Integration with current main before push (2026-09-03)
+
+### Intent
+
+Merge current `origin/main` before publishing OME-1026 so the branch no longer
+appears to delete tests and features that landed after its old merge base. Preserve
+both the accepted implicit-discovery contract and all newer main behavior.
+
+### Planned changes
+
+- Resolve the two content conflicts by retaining both independent lifespan services in
+  `main.py`, and by combining the shared OME-1026 resolver with main's API-key-only
+  Connection auth-type repair in `chat_credentials.py`.
+- Trim only redundant conflict-adjacent comments/formatting required to return both
+  merged source files to the repository's 450-line limit; do not change branches,
+  calls, schemas, endpoints, or credential behavior.
+- Preserve the owner-approved append-only exception for exactly these four artifacts:
+  `tests/conftest.py`, `tests/unit/core/test_models_route_live_catalog.py`,
+  `tests/unit/test_chat_request_cache.py`, and `tests/unit/test_profile_index.py`.
+  The normal gate was run first and named only those four files after the merge.
+
+### Test plan and acceptance
+
+- Run focused lifecycle, cache-snapshot, chat, BYOK auth-type-repair, discovery, and
+  decomposition suites against the resolved tree.
+- Run the full AIGateway gate with the documented `--skip-append-only` exception after
+  recording the normal gate's exact four-file failure.
+- Acceptance: no merge conflicts, both source files at most 450 lines, current-main and
+  OME-1026 focused tests green, full AIGateway gate green, unrelated worktree files
+  untouched, and no push before the merge commit is verified.
+
+### Outcome
+
+Status: **DONE**.
+
+- Fetched `origin/main` at `3451d1d8` and merged it without touching unrelated
+  worktree files. The apparent deletion of seven cache-snapshot tests disappeared;
+  those files had been added to main after this branch's old merge base.
+- Resolved the only two content conflicts. `main.py` retains both non-blocking public
+  discovery prewarm and the OME-1021 weekly snapshot scheduler, including orderly
+  shutdown of both. `chat_credentials.py` retains the shared OME-1026 resolver and
+  applies main's API-key-only Connection auth-type repair to its resolved Connection.
+- Removed only redundant conflict-adjacent prose to satisfy the global source bound:
+  `main.py` is 450 lines and `routes/chat_credentials.py` is 447 lines.
+- The normal gate now reports exactly the four owner-approved prior-test changes named
+  above; no deletion remains. `CONTRIBUTING.md` documents `--skip-append-only` as the
+  explicit-review path for a genuine contract change and requires PR disclosure.
+
+Checks actually run on the resolved merge tree:
+
+- lifecycle/snapshot/chat/API-key/decomposition focused set: **334 passed, 2 failed**
+  before source trimming, with both failures only the 450-line guard;
+- the same focused set after trimming: **336 passed**;
+- decomposition suite after the final trim: **261 passed**;
+- `uv run .claude/scripts/run_gates.py aigateway --base origin/main` stopped at the
+  append-only check and named only the four approved artifacts;
+- `uv run .claude/scripts/run_gates.py aigateway --base origin/main
+  --skip-append-only`: **ALL GATES GREEN** (Ruff check, Ruff format, Pyright,
+  no-enterprise, full pytest with coverage >=80).
+
+No feature logic, schema, migration operation, cache identity, unrelated worktree file,
+live provider state, remote branch, or PR was changed by the integration. Merge commit
+authorized as part of the requested push preparation; push still remains subject to the
+local pre-push hook's run-wide append-only behavior.

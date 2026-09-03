@@ -187,6 +187,7 @@ def test_author_golden_conforms_and_derives_counters() -> None:
         rendered_url4="url4://example/expression",
         final_score=0.5,
         case_statuses={"1": "scored", "2": "refused"},
+        case_failures={},
     )
     # ``load_golden`` must accept every blessed file — validate through the SAME
     # model the test lane loads with, counters derived, score canonicalized.
@@ -208,6 +209,8 @@ def test_author_golden_keeps_a_scoreless_run_null() -> None:
         rendered_url4="expr",
         final_score=None,
         case_statuses={"1": "failed"},
+        # OME-1094: a failed case must name its reason or the author refuses.
+        case_failures={"1": [{"stage": "grading", "code": "case_error"}]},
     )
     assert golden["final_score"] is None
     assert GoldenReport.model_validate(golden).gradeable_count == 0
@@ -251,3 +254,37 @@ def test_collect_payloads_for_keys_refuses_a_key_the_dump_cannot_serve() -> None
     # never recorded — splicing the rest would bless a fixture with a hole in it.
     with pytest.raises(ValueError, match="k9"):
         collect_payloads_for_keys(iter([]), model="judge/model", wanted_keys={"k9"})
+
+
+def test_author_golden_pins_failure_codes_per_failed_case() -> None:
+    golden = author_golden(
+        board="healthbench-worst30",
+        revision="39cfd96b068f7230",
+        model="m",
+        limit=None,
+        rendered_url4="expr",
+        final_score=-0.091,
+        case_statuses={"2": "failed", "1": "scored"},
+        case_failures={"2": [{"stage": "grading", "code": "incomplete_verdicts"}]},
+    )
+    # Sorted like case_statuses, so a re-bless never churns the file's ordering.
+    assert list(golden["case_failures"]) == ["2"]
+    assert golden["case_failures"]["2"] == [{"stage": "grading", "code": "incomplete_verdicts"}]
+    report = GoldenReport.model_validate(golden)
+    assert report.case_failures["2"][0].code == "incomplete_verdicts"
+
+
+def test_author_golden_refuses_a_failed_case_without_a_code() -> None:
+    # The bless tool must never write a golden the lane would refuse — and the lane
+    # refuses a failed case pinned by status alone (OME-1094).
+    with pytest.raises(Exception, match="1"):
+        author_golden(
+            board="draco-3pass",
+            revision="b8c8afd8f9dddca0",
+            model="m",
+            limit=1,
+            rendered_url4="expr",
+            final_score=None,
+            case_statuses={"1": "failed"},
+            case_failures={},
+        )

@@ -7,6 +7,8 @@ FEATURE: OME-923 — mark the submissions with the best score for the money.
 
 from __future__ import annotations
 
+import random
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from decimal import Decimal as D
@@ -206,3 +208,97 @@ def test_a_null_revision_is_its_own_cohort_not_a_wildcard() -> None:
         _entry(spec_id="modern", benchmark_revision="rev-1", score=0.95, run_cost_usd=D("0.10")),
     ]
     assert compute_pareto_frontier(entries) == {("legacy", None), ("modern", "rev-1")}
+
+
+# ---- the sweep must be the pairwise definition, only faster (review, 2026-08-31) ----
+
+
+def _oracle(entries: list[LeaderboardEntry]) -> frozenset[tuple[str, str | None]]:
+    """The ticket's definition, written the obvious slow way.
+
+    Deliberately pairwise and deliberately unoptimised: this is the specification the sweep in
+    `pareto.py` has to agree with, so it must not share any of its cleverness.
+    """
+    priced = [
+        (e.spec_id, e.benchmark_revision, e.score, e.run_cost_usd)
+        for e in entries
+        if e.run_cost_usd is not None
+    ]
+    return frozenset(
+        (spec, rev)
+        for spec, rev, score, cost in priced
+        if not any(
+            other_rev == rev
+            and other_score >= score
+            and other_cost <= cost
+            and (other_score > score or other_cost < cost)
+            for _, other_rev, other_score, other_cost in priced
+        )
+    )
+
+
+def test_the_sweep_agrees_with_the_pairwise_definition() -> None:
+    """Randomised equivalence check over a deliberately tiny value space.
+
+    Scores and costs are drawn from a handful of values so exact ties on one axis, on both
+    axes, and across revisions all occur constantly — ties are where a sweep is most likely to
+    disagree with the pairwise rule, and where this ticket's "ties both qualify" lives.
+    """
+    rng = random.Random(20260831)
+    scores = [0.10, 0.50, 0.50, 0.90]
+    costs = ["0", "0.50", "1.00", "1.00", "9.00"]
+    revisions: list[str | None] = ["rev-1", "rev-2", None]
+
+    for trial in range(300):
+        entries = [
+            _entry(
+                spec_id=f"spec-{index}",
+                score=rng.choice(scores),
+                # a third of rows unpriced, so exclusion is exercised on both sides
+                run_cost_usd=None if rng.random() < 0.33 else D(rng.choice(costs)),
+                benchmark_revision=rng.choice(revisions),
+            )
+            for index in range(rng.randint(0, 12))
+        ]
+        assert compute_pareto_frontier(entries) == _oracle(entries), (
+            f"disagreement on trial {trial}"
+        )
+
+
+def test_a_large_board_does_not_take_quadratic_time() -> None:
+    """INVARIANT: the frontier is O(n log n) in the cohort size.
+
+    The route reads the board UNBOUNDED so the frontier cannot depend on `top`, and `spec_id` is
+    client-supplied — so an attacker chooses n (found in review, 2026-08-31).
+
+    WHY a perfect trade-off curve and not random data: a pairwise scan uses `any()`, which
+    short-circuits the moment a dominator is found. Over random points nearly every row is
+    dominated immediately and the scan behaves close to linearly — an earlier version of this
+    test used random costs, and a reintroduced pairwise scan PASSED it in 0.4s. The quadratic
+    case is a board where nothing dominates anything, so every row is compared against every
+    other and nothing can short-circuit. Each row here costs strictly more and scores strictly
+    higher than the last, so all of them qualify.
+
+    WHY 12,000 and not a rounder number: measured on this machine, a pairwise scan over a
+    trade-off curve takes 0.41s at n=3,000 and 2.82s at n=8,000 — both under a bound loose
+    enough not to flake. At 12,000 it takes 6.4s while the sweep takes 0.008s and building the
+    rows takes 0.03s, so the 2s bound has roughly fifty times headroom on the passing side and
+    still fails a reintroduced pairwise scan by a factor of three.
+    """
+    size = 12_000
+    entries = [
+        _entry(
+            spec_id=f"spec-{index}",
+            score=index / size,
+            run_cost_usd=D(str(index)),
+        )
+        for index in range(size)
+    ]
+
+    started = time.perf_counter()
+    frontier = compute_pareto_frontier(entries)
+    elapsed = time.perf_counter() - started
+
+    # Every row is a genuine trade-off, so every row qualifies.
+    assert len(frontier) == size
+    assert elapsed < 2.0, f"took {elapsed:.2f}s — has the frontier gone quadratic again?"

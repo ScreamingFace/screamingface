@@ -9,14 +9,23 @@ would cost a per-run Secret plus the RBAC to write one.
 """
 
 import asyncio
+import threading
+import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 from kubernetes.client import ApiException
+from kubernetes.utils.quantity import parse_quantity
 
 from screamingface_engine import job_env
 from screamingface_engine.ports import IdentityAwareJobRunner
-from url4.streaming.interfaces import JobAlreadyExists, JobStatus, job_name
+from url4.streaming.interfaces import (
+    JobAlreadyExists,
+    JobRunnerAtCapacity,
+    JobStatus,
+    job_name,
+)
 from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import valid_traceparent
 
@@ -24,6 +33,10 @@ _CONFLICT = 409
 _NOT_FOUND = 404
 # Slack on top of the run deadline and the drain grace, covering the delete round trip itself.
 _TEARDOWN_MARGIN_S = 30
+# How long a failed quota read disables admission before the next retry. A permanently denied
+# read (RBAC) must not hammer the API server every refresh; a transient error recovers on the
+# next retry. During the backoff, schedules proceed exactly as before this feature.
+_QUOTA_FAILURE_BACKOFF_S = 30
 
 RUNNER_LABELS = {
     "app.kubernetes.io/name": "url4-runner",
@@ -80,6 +93,66 @@ class BatchV1JobsClient(Protocol):
     ) -> object: ...
 
 
+# The quota/limitrange read surface, in the same narrow structural style as `BatchV1JobsClient`:
+# only the fields this adapter reads, so tests can supply fakes without importing the generated
+# client models. `_request_timeout` is spelled out for the same reason as on the jobs client —
+# these are blocking round trips running on `to_thread` workers.
+class _QuotaStatus(Protocol):
+    @property
+    def used(self) -> Mapping[str, str] | None: ...
+    @property
+    def hard(self) -> Mapping[str, str] | None: ...
+
+
+class _QuotaView(Protocol):
+    @property
+    def status(self) -> _QuotaStatus | None: ...
+
+
+class _QuotaList(Protocol):
+    @property
+    def items(self) -> Sequence[_QuotaView]: ...
+
+
+class _LimitRangeItem(Protocol):
+    @property
+    def type(self) -> str: ...
+    @property
+    def default(self) -> Mapping[str, str] | None: ...
+    # WHY snake_case (OME-1083): `kubernetes.client.V1LimitRangeItem` exposes its Python
+    # attributes in snake_case — `default_request` — even though the k8s OpenAPI/JSON wire
+    # name is `defaultRequest`. This Protocol describes the REAL client object structurally
+    # (`core_client_factory` hands it in via `cast()`, which pyright never verifies), so a
+    # property spelled after the wire name here type-checks fine and still raises
+    # `AttributeError` at runtime against the real object.
+    @property
+    def default_request(self) -> Mapping[str, str] | None: ...
+
+
+class _LimitRangeSpec(Protocol):
+    @property
+    def limits(self) -> Sequence[_LimitRangeItem] | None: ...
+
+
+class _LimitRangeView(Protocol):
+    @property
+    def spec(self) -> _LimitRangeSpec | None: ...
+
+
+class _LimitRangeList(Protocol):
+    @property
+    def items(self) -> Sequence[_LimitRangeView]: ...
+
+
+class CoreV1QuotaClient(Protocol):
+    def list_namespaced_resource_quota(
+        self, namespace: str, *, _request_timeout: float | None = None
+    ) -> _QuotaList: ...
+    def list_namespaced_limit_range(
+        self, namespace: str, *, _request_timeout: float | None = None
+    ) -> _LimitRangeList: ...
+
+
 def _terminal_status(conditions: Sequence[_JobCondition] | None) -> JobStatus | None:
     """Reads the Job's `Complete`/`Failed` condition, if either has fired; `None` while running."""
     for cond in conditions or ():
@@ -104,6 +177,138 @@ def _map_status(job: _JobView | None) -> JobStatus:
     return "running" if (view and view.active) else "scheduled"
 
 
+@dataclass(frozen=True, slots=True)
+class _QuotaSnapshot:
+    """One cached reading of the namespace's capacity, in exact integer units.
+
+    cpu is in millicores ("200m" → 200, "2" → 2000), memory in bytes, pods as a count.
+    Integer arithmetic keeps the ceiling comparison exact: a float comparison at the ceiling
+    (0.4 + 8*0.2 > 2.0) would refuse the run that exactly fills the quota.
+    """
+
+    used: dict[str, int]
+    hard: dict[str, int]
+    # The quota charge of ONE Runner Pod: its own `resources` spec plus LimitRange defaults.
+    charge: dict[str, int]
+
+
+def _quantity(dimension: str, value: str) -> int:
+    """Parse a k8s resource quantity into an exact integer in the dimension's natural unit.
+
+    cpu → millicores, everything else → its natural unit (bytes for memory, count for pods).
+    `parse_quantity` returns a float (0.2 for "200m"); scaling to the natural unit and
+    truncating keeps the admission arithmetic exact.
+    """
+
+    parsed = parse_quantity(value)
+    if "cpu" in dimension:
+        return int(parsed * 1000)
+    return int(parsed)
+
+
+def _max_quantity(target: dict[str, int], key: str, value: str) -> None:
+    parsed = _quantity(key, value)
+    if key not in target or parsed > target[key]:
+        target[key] = parsed
+
+
+def _limitrange_defaults(
+    limitranges: Sequence[_LimitRangeView],
+) -> tuple[dict[str, int], dict[str, int]]:
+    """The namespace's effective LimitRange defaults: max per resource across LimitRanges.
+
+    Conservative: if two LimitRanges disagree on a default, the Pod would be rejected as
+    ambiguous anyway, and the larger charge is the honest estimate. The k8s API's `default`
+    fills missing LIMITS, its `defaultRequest` (`default_request` on the Python client —
+    see `_LimitRangeItem`) fills missing REQUESTS.
+    """
+
+    default_limits: dict[str, int] = {}
+    default_requests: dict[str, int] = {}
+    for limitrange in limitranges:
+        spec = limitrange.spec
+        if spec is None:
+            continue
+        for item in spec.limits or ():
+            if item.type != "Container":
+                continue
+            for key, value in (item.default or {}).items():
+                _max_quantity(default_limits, key, value)
+            for key, value in (item.default_request or {}).items():
+                _max_quantity(default_requests, key, value)
+    return default_limits, default_requests
+
+
+def _pod_charge(
+    resources: Mapping[str, Mapping[str, str]] | None,
+    limitranges: Sequence[_LimitRangeView],
+) -> dict[str, int]:
+    """The quota charge of one Runner Pod: its own spec plus LimitRange defaults.
+
+    The runner sets no `limits.cpu`, so the namespace LimitRange supplies it — the arithmetic
+    is wrong by 500m per Pod if that default is not accounted for (OME-1064).
+    """
+
+    requests = (resources or {}).get("requests", {})
+    limits = (resources or {}).get("limits", {})
+    default_limits, default_requests = _limitrange_defaults(limitranges)
+
+    def spec_or_default(
+        spec: Mapping[str, str], defaults: Mapping[str, int], key: str, dimension: str
+    ) -> int:
+        value = spec.get(key)
+        if value is not None:
+            return _quantity(dimension, value)
+        return defaults.get(key, 0)
+
+    return {
+        "pods": 1,
+        "requests.cpu": spec_or_default(requests, default_requests, "cpu", "requests.cpu"),
+        "requests.memory": spec_or_default(requests, default_requests, "memory", "requests.memory"),
+        "limits.cpu": spec_or_default(limits, default_limits, "cpu", "limits.cpu"),
+        "limits.memory": spec_or_default(limits, default_limits, "memory", "limits.memory"),
+    }
+
+
+def _merge_quota(
+    target_used: dict[str, int], target_hard: dict[str, int], quota: _QuotaView
+) -> None:
+    """Fold one quota into the running used/hard: max used, min hard per dimension."""
+    status = quota.status
+    if status is None:
+        return
+    for key, value in (status.used or {}).items():
+        parsed = _quantity(key, value)
+        if key not in target_used or parsed > target_used[key]:
+            target_used[key] = parsed
+    for key, value in (status.hard or {}).items():
+        parsed = _quantity(key, value)
+        if key not in target_hard or parsed < target_hard[key]:
+            target_hard[key] = parsed
+
+
+def _build_snapshot(
+    quotas: Sequence[_QuotaView],
+    limitranges: Sequence[_LimitRangeView],
+    resources: Mapping[str, Mapping[str, str]] | None,
+) -> _QuotaSnapshot | None:
+    """Merge the namespace's quotas into one snapshot; `None` when nothing constrains it.
+
+    Multiple quotas all apply, so the effective hard is the MIN per dimension and the effective
+    used the MAX (the used values should agree, modulo update timing).
+    """
+
+    if not quotas:
+        return None
+    used: dict[str, int] = {}
+    hard: dict[str, int] = {}
+    for quota in quotas:
+        _merge_quota(used, hard, quota)
+    if not hard:
+        return None
+    return _QuotaSnapshot(used=used, hard=hard, charge=_pod_charge(resources, limitranges))
+
+
 class K8sJobRunner(IdentityAwareJobRunner):
     """Implements `JobRunner` by scheduling one Kubernetes Batch v1 Job per run. The Job's name
     is derived deterministically from the topic (`job_name`), so `schedule`/`stop`/`status` all
@@ -113,6 +318,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
         self,
         client: BatchV1JobsClient,
         *,
+        core_client: CoreV1QuotaClient | None = None,
         image: str,
         namespace: str = "default",
         # WHY this default: the Job runs the App's OWN image in its run mode
@@ -134,8 +340,16 @@ class K8sJobRunner(IdentityAwareJobRunner):
         # Default matches the setting's default so a directly-constructed runner (tests) is
         # honest about what a scheduled run actually gets.
         io_concurrency: int = 4,
+        # FEATURE (OME-1065): how long a quota reading stays fresh before the next refresh.
+        # A `get` per schedule would add an API round-trip to the hot path; the reservation
+        # counter covers the window between refreshes.
+        quota_cache_ttl_s: float = 2.0,
     ) -> None:
         self._client = client
+        # WHY optional: admission is an optimisation over detection (OME-1059), never a
+        # replacement for it. `None` disables admission — the factory always wires the real
+        # client; direct constructions (tests) opt out by default.
+        self._core_client = core_client
         self._request_timeout_s = request_timeout_s
         self._image = image
         self._namespace = namespace
@@ -152,6 +366,17 @@ class K8sJobRunner(IdentityAwareJobRunner):
         # the app runs, and a model admitted a second ago must reach the very next Job.
         self._extra_models = extra_models
         self._io_concurrency = io_concurrency
+        # FEATURE (OME-1065): quota admission state. `_quota_snapshot` is the last successful
+        # reading; `_quota_cache_time` is when it was taken (or, on a failed read, when the
+        # backoff ends). `_reserved` counts runs admitted since the last refresh — it closes
+        # the read-modify-write race when several `schedule()` calls run between two refreshes.
+        # The lock makes refresh + check + reserve atomic; `_schedule_blocking` runs on
+        # `to_thread` workers, so it is a threading lock, not an asyncio one.
+        self._quota_cache_ttl_s = quota_cache_ttl_s
+        self._quota_snapshot: _QuotaSnapshot | None = None
+        self._quota_cache_time: float | None = None
+        self._reserved = 0
+        self._admission_lock = threading.Lock()
 
     async def schedule(
         self,
@@ -173,6 +398,8 @@ class K8sJobRunner(IdentityAwareJobRunner):
 
         Raises:
             JobAlreadyExists: a Job for this topic already exists (409 from the API server).
+            JobRunnerAtCapacity: the namespace ResourceQuota has no headroom for one more
+                Runner Pod (503 + `Retry-After` at the REST edge).
         """
         return await asyncio.to_thread(
             self._schedule_blocking,
@@ -197,6 +424,7 @@ class K8sJobRunner(IdentityAwareJobRunner):
         cache: CachePolicy | None = None,
     ) -> str:
         name = job_name(topic)
+        self._reserve_or_raise()
         try:
             self._client.create_namespaced_job(
                 self._namespace,
@@ -206,10 +434,93 @@ class K8sJobRunner(IdentityAwareJobRunner):
                 _request_timeout=self._request_timeout_s,
             )
         except ApiException as exc:
+            # The reservation was for a Job that does not exist — release it so the next
+            # schedule in this window is not refused for a run that never started.
+            self._release_reservation()
             if exc.status == _CONFLICT:
                 raise JobAlreadyExists(name) from exc
             raise
         return name
+
+    # --- quota admission (OME-1065) ---------------------------------------------------------
+
+    def _reserve_or_raise(self) -> None:
+        """Admission gate: refresh the quota, refuse if one more Pod does not fit, else reserve.
+
+        Raises:
+            JobRunnerAtCapacity: the namespace quota has no headroom for one more Runner Pod.
+        """
+        if self._core_client is None:
+            return
+        with self._admission_lock:
+            self._refresh_quota_if_stale()
+            if self._quota_snapshot is not None and not self._fits(
+                self._quota_snapshot, self._reserved
+            ):
+                raise JobRunnerAtCapacity(
+                    self._reserved, self._max_runs_that_fit(self._quota_snapshot)
+                )
+            self._reserved += 1
+
+    def _release_reservation(self) -> None:
+        if self._core_client is None:
+            return
+        with self._admission_lock:
+            self._reserved -= 1
+
+    def _refresh_quota_if_stale(self) -> None:
+        """Re-read the quota and LimitRanges when the cache is stale; degrade on failure.
+
+        A failed read (absent, RBAC denied, API error) falls back to today's behaviour: create
+        the Job and let OME-1059's detection catch an un-startable run. The backoff is longer
+        than the TTL so a permanently denied read does not hammer the API server.
+        """
+        now = time.monotonic()
+        if (
+            self._quota_cache_time is not None
+            and now - self._quota_cache_time < self._quota_cache_ttl_s
+        ):
+            return
+        core = self._core_client
+        if core is None:
+            return
+        try:
+            quotas = core.list_namespaced_resource_quota(
+                self._namespace, _request_timeout=self._request_timeout_s
+            )
+            limitranges = core.list_namespaced_limit_range(
+                self._namespace, _request_timeout=self._request_timeout_s
+            )
+        except ApiException:
+            self._quota_snapshot = None
+            self._quota_cache_time = now + _QUOTA_FAILURE_BACKOFF_S
+            return
+        self._quota_snapshot = _build_snapshot(quotas.items, limitranges.items, self._resources)
+        self._quota_cache_time = now
+        # The quota's `used` now reflects everything older than the window, so the window's
+        # reservations are reset — the counter only covers the gap between refreshes.
+        self._reserved = 0
+
+    def _fits(self, snapshot: _QuotaSnapshot, reserved: int) -> bool:
+        """Whether one more Pod fits on every charged dimension the quota constrains."""
+        for dimension, charge in snapshot.charge.items():
+            if charge <= 0 or dimension not in snapshot.hard:
+                continue
+            used = snapshot.used.get(dimension, 0)
+            if used + (reserved + 1) * charge > snapshot.hard[dimension]:
+                return False
+        return True
+
+    def _max_runs_that_fit(self, snapshot: _QuotaSnapshot) -> int:
+        """The number of additional Pods that fit, bounded by the tightest dimension."""
+        limit: int | None = None
+        for dimension, charge in snapshot.charge.items():
+            if charge <= 0 or dimension not in snapshot.hard:
+                continue
+            headroom = snapshot.hard[dimension] - snapshot.used.get(dimension, 0)
+            fits = headroom // charge
+            limit = fits if limit is None else min(limit, fits)
+        return limit if limit is not None else 0
 
     async def stop(self, topic: str) -> None:
         await asyncio.to_thread(self._stop_blocking, topic)
