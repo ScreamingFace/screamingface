@@ -274,6 +274,16 @@ class Settings(BaseSettings):
     # run nobody ever pulled (a worker outage). It must be GENEROUS — an accepted run may not
     # be lost, and the queue is the only record of it.
     run_queue_max_age_s: float = runner_queue.DEFAULT_QUEUE_MAX_AGE_S
+    # WHY a setting and not the constant alone: the replica count is a property of the BROKER's
+    # topology, which this code cannot see. A single-node broker refuses `replicas > 1` outright
+    # with `ServerError 10074` — and that is not a `BadRequestError`, so `ensure_stream` does not
+    # tolerate it: it escapes into the worker's claim loop, which logs and retries forever while
+    # every run is refused. The seam existed from the start; without this field nothing could
+    # reach it, so the constraint was expressible only in tests.
+    #
+    # INVARIANT: the default IS `QUEUE_REPLICAS`, so a deployment that states nothing gets
+    # exactly what `RunQueue` would have used on its own — the two cannot drift.
+    run_queue_replicas: int = Field(default=runner_queue.QUEUE_REPLICAS, ge=1)
     run_queue_ack_wait_s: float = runner_queue.DEFAULT_ACK_WAIT_S
     run_queue_max_deliver: int = runner_queue.DEFAULT_MAX_DELIVER
     # WHY replicas × worker_slots: `max_ack_pending` bounds how many unacked messages one

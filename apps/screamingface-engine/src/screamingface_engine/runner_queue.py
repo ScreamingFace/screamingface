@@ -1,7 +1,8 @@
 """The durable run queue (OME-1088): the substrate OME-1086's fixed worker pool pulls from.
 
-One JetStream stream (`url4-runq`, `retention=WorkQueue`, file storage, 3 replicas) holds every
-accepted-but-not-yet-started run. Publishing sets `Nats-Msg-Id` to the run's topic, so the
+One JetStream stream (`url4-runq`, `retention=WorkQueue`, file storage) holds every
+accepted-but-not-yet-started run; its replica count is configuration, not a constant — see
+`QUEUE_REPLICAS`. Publishing sets `Nats-Msg-Id` to the run's topic, so the
 broker deduplicates a retried submission within `duplicate_window` — the queue's
 `JobAlreadyExists` equivalent, with no lookup table. A durable PULL consumer (`url4-runners`)
 with EXPLICIT acks hands messages to workers; an unacked message is redelivered after
@@ -37,7 +38,20 @@ logger = logging.getLogger(__name__)
 
 # The queue is a SINGLETON — one stream for every run, unlike the per-run event streams — so
 # its properties are constants here rather than per-topic derivations.
-QUEUE_REPLICAS = 3
+#
+# WHY 1 and not the spec's 3 (owner decision, 2026-09-03): a single-node broker refuses
+# `replicas > 1` outright with `ServerError 10074`, and single-node is what the chart's own
+# bundled NATS subchart ships, what local dev runs, and what the CI conformance job runs. That
+# error is not a `BadRequestError`, so `ensure_stream` does not tolerate it — it escapes into
+# the worker's claim loop, which logs and retries forever while every run is refused. A default
+# that cannot declare its own stream on the broker the chart bundles is the wrong default.
+#
+# The durability this gives up is smaller than it looks: the per-run event streams are already
+# declared at JetStream's default of one replica (`adapters/jetstream.py`), so a 3-replica queue
+# on an otherwise 1-replica bus hardened only the queued-not-started window. Clustering — and
+# with it a defensible multi-replica posture for BOTH stream families — is OME-1093's scope;
+# raising this is a `run_queue_replicas` setting away, no code change.
+QUEUE_REPLICAS = 1
 QUEUE_CONSUMER = "url4-runners"
 DEFAULT_DUPLICATE_WINDOW_S = 120.0
 DEFAULT_QUEUE_MAX_AGE_S = 86_400.0
@@ -201,9 +215,11 @@ class RunQueue:
         max_deliver: int = DEFAULT_MAX_DELIVER,
         max_ack_pending: int = DEFAULT_MAX_ACK_PENDING,
         state_cache_ttl_s: float = DEFAULT_STATE_CACHE_TTL_S,
-        # WHY a parameter at all: a single-node broker (local dev, the CI conformance job)
-        # refuses `replicas > 1` outright, so the real-broker tests must be able to declare the
-        # stream with one replica. Production keeps the spec's 3; the unit suite pins that.
+        # WHY a parameter at all: the replica count is a property of the BROKER's topology, not
+        # of this code — a single-node broker refuses `replicas > 1` outright. Every composition
+        # root feeds this from `Settings.run_queue_replicas`, which the chart renders, so a
+        # clustered deployment raises it without touching Python. The default is single-node
+        # safe; see `QUEUE_REPLICAS`.
         replicas: int = QUEUE_REPLICAS,
     ) -> None:
         self._url = nats_url
