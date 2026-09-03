@@ -352,7 +352,7 @@ td.col-open { white-space: nowrap; }
 
 [data-theme="dark"] .pareto-chart__frontier-line { stroke: var(--info-solid); }
 [data-theme="dark"] .pareto-chart__frontier-point,
-[data-theme="dark"] .pareto-chart-key__frontier { fill: var(--info-solid); background: var(--info-solid); }
+[data-theme="dark"] .pareto-chart-key__frontier { background: var(--info-solid); }
 
 @media (forced-colors: active) {
   .pareto-chart__frontier-line,
@@ -361,6 +361,21 @@ td.col-open { white-space: nowrap; }
   .pareto-chart__unpriced-point,
   .pareto-chart__leader-ring { forced-color-adjust: auto; stroke: CanvasText; }
   .pareto-chart__frontier-point { fill: CanvasText; }
+  /* The key's swatches are spans coloured by `background`, which forced-colors strips — the
+     block above rescues the chart's own marks but not the legend that explains them, leaving
+     four labels with nothing to map them to. Same omission the table mark had. */
+  .pareto-chart-key__dominated,
+  .pareto-chart-key__frontier,
+  .pareto-chart-key__leader,
+  .pareto-chart-key__unpriced {
+    forced-color-adjust: none;
+    background: CanvasText;
+    border-color: CanvasText;
+  }
+  .pareto-chart-key__leader,
+  .pareto-chart-key__unpriced {
+    background: Canvas;
+  }
 }
 
 @media (max-width: 620px) {

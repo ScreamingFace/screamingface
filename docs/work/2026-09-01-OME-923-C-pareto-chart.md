@@ -72,3 +72,28 @@ membership, exclude unknown cost from the numeric axis, and preserve OME-324/325
   insertions and 6 deletions, with no Part B files leaking back into the PR diff.
 - `uv run python .claude/scripts/run_gates.py scoreboard` — all gates green, including both portal
   Node suites.
+
+## Review pass (2026-09-03)
+
+Reviewed before requesting a human read. The chart holds up: it reuses `L.costNumber` and
+`L.isParetoMarked` rather than reparsing costs or recomputing the frontier, `logarithmic` is
+guarded by `costMin > 0` so a genuinely free run never reaches `Math.log(0)`, unpriced rows are
+plotted by score with no cost position instead of being dropped or placed at zero, the SVG is
+deliberately `aria-hidden` with the table as the accessible source, and both the card and the CI
+workflow name `pareto-chart.test.js` explicitly — the `OME-798` glob trap was handled.
+
+Checked empirically across five cost shapes (zero present, wide range, narrow range, all
+identical, sub-cent against hundreds): every coordinate finite, log chosen only where safe.
+
+Two things fixed:
+
+- **The key's swatches were missing from the `forced-colors` block.** The block rescued the
+  chart's own SVG marks (`.pareto-chart__*`) but not the legend that explains them
+  (`.pareto-chart-key__*`), which are spans coloured by `background` — stripped in Windows High
+  Contrast, leaving four labels with nothing to map them to while the chart still drew shapes.
+  The same omission the table's `.pareto-mark` had. Hollow swatches (leader, unpriced) keep a
+  `Canvas` fill so they stay distinguishable from the solid ones.
+- **A dead property:** `[data-theme="dark"] .pareto-chart-key__frontier` set both `fill` and
+  `background`. The element is a `<span>`; `fill` is an SVG property and does nothing there.
+
+Gates green, append-only check included with no skip.
