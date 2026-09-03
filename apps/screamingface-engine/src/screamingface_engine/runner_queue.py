@@ -26,6 +26,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 import nats
+
+# WHY imported explicitly rather than reached through `nats`: `nats.errors` is a SUBMODULE, so
+# `import nats` does not bind it. `except nats.errors.Error` in `_fetch` resolves today only
+# because `nats.aio.client` below happens to import it as a side effect. That is an accident of
+# the dependency's internals, and if it ever changes the `except` clause raises AttributeError
+# WHILE HANDLING A BROKER ERROR — turning the guard that keeps one pull blip local into the
+# failure itself.
+import nats.errors
 from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.js import JetStreamContext
