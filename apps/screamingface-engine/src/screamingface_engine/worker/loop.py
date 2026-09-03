@@ -201,12 +201,23 @@ class Worker:
         # supervisor's kill path having NEVER received a SIGTERM — hard-killed
         # `kill_grace` after spawn with no chance to publish its frames (review
         # follow-up N-2). Re-polling until the pool is empty closes that: any child is
-        # SIGTERM'd within one poll of registering, and `terminate()` on an
-        # already-terminated child is harmless.
+        # SIGTERM'd within one poll of registering.
         self._terminating.set()
         while self._active:
             for proc in tuple(self._children):
-                proc.terminate()
+                # WHY the guard (review follow-up V-1): `_release_child` removes a finished
+                # child only AFTER its publish and ack round trips, so an EXITED child is
+                # routinely still here when this pass lands — and `terminate()` on one is
+                # NOT harmless. A real transport raises `ProcessLookupError` (an `OSError`)
+                # from `_check_proc` once the process is reaped; unsuppressed it escaped
+                # into the shared TaskGroup and SIGKILLed every remaining draining child —
+                # the P2-1 cascade, reintroduced by the drain, on every drain. A child
+                # whose exit was observed is skipped outright; one reaped in the window
+                # before the watcher fires (returncode still None) is suppressed.
+                if proc.returncode is not None:
+                    continue
+                with contextlib.suppress(ProcessLookupError):
+                    proc.terminate()
             await asyncio.sleep(_DRAIN_POLL_S)
 
 

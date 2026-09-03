@@ -806,16 +806,19 @@ async def test_a_broker_error_from_pull_does_not_cancel_in_flight_supervisors() 
         return sib
 
     class _ErroringQueue(_FakeQueue):
-        """Pulls once with a broker error, then serves the scripted batch."""
+        """Serves the scripted batch FIRST, then raises on the next pull — the blip
+        lands with the sibling's supervisor LIVE and its child running (V-9: erroring
+        on the first pull, before any supervisor existed, left the blast-radius
+        assertion nothing to blast)."""
 
         def __init__(self) -> None:
             super().__init__([[sib_msg]])
-            self.error_pulled = False
+            self.pull_count = 0
 
         async def pull(self, batch: int, timeout_s: float) -> list[_FakeMsg]:
             self.pull_calls.append((batch, timeout_s))
-            if not self.error_pulled:
-                self.error_pulled = True
+            self.pull_count += 1
+            if self.pull_count == 2:
                 raise nats.errors.Error("transient broker blip")
             if self._batches:
                 return self._batches.pop(0)
@@ -823,11 +826,14 @@ async def test_a_broker_error_from_pull_does_not_cancel_in_flight_supervisors() 
             return []
 
     queue = _ErroringQueue()
-    worker = _worker(queue, _FakePublisher(), slots=1, spawn=fake_spawn, drain_grace_s=0.1)
+    worker = _worker(queue, _FakePublisher(), slots=2, spawn=fake_spawn, drain_grace_s=0.1)
     async with asyncio.TaskGroup() as tg:
         claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
-        # The loop must survive the blip and claim the run on its retry.
-        await _wait_until(lambda: len(queue.pull_calls) >= 2)
+        # Pull 2 is the blip; pull 3 existing at all is the proof the loop SURVIVED it
+        # with the sibling still in flight — on unfixed code the exception kills the
+        # loop task here and no third pull ever happens.
+        await _wait_until(lambda: queue.pull_count >= 3, timeout_s=5.0)
+        assert sib.kill_calls == 0, "a live sibling must survive the claim-side blip"
         worker._draining.set()  # noqa: SLF001
         await _wait_until(lambda: sib.terminate_calls == 1 or sib.kill_calls == 1, timeout_s=5.0)
         assert sib.kill_calls == 0, "the sibling must not be caught in any cascade"
@@ -908,3 +914,81 @@ async def test_a_child_registered_after_the_drain_passes_still_gets_sigterm_befo
         assert procs[0].terminate_calls == 1, "a late child must receive SIGTERM"
         assert procs[0].kill_calls == 0, "it must receive SIGTERM BEFORE any SIGKILL"
         await claim
+
+
+async def test_a_child_vanished_under_the_drains_terminate_does_not_kill_the_worker() -> None:
+    """V-1: `_release_child` removes a finished child only AFTER its publish and ack
+    round trips, so an exited child is routinely still in `_children` when the drain's
+    re-polling terminate pass lands — and `terminate()` on one is NOT harmless. A real
+    transport raises `ProcessLookupError` (an `OSError`) from `_check_proc` once the
+    process is reaped; unsuppressed, that escaped `_drain()` into the shared TaskGroup
+    and SIGKILLed every remaining draining child before they could publish or ack — the
+    P2-1 cascade, reintroduced by the drain itself, exercised on every drain."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-gone", "'hi'", 60))]])
+
+    class _VanishedProcess(_FakeProcess):
+        """A child reaped under the worker: `terminate()` finds no process, exactly
+        like asyncio's `BaseSubprocessTransport._check_proc` window."""
+
+        def terminate(self) -> None:  # type: ignore[override]
+            raise ProcessLookupError("process attached to the transport no longer exists")
+
+    proc = _VanishedProcess(hang=True)
+
+    async def spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        return proc
+
+    worker = _worker(
+        queue, _FakePublisher(), slots=1, spawn=spawn, drain_grace_s=0.05, kill_grace_s=0.2
+    )
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        await asyncio.sleep(0.05)  # the claim lands; the child hangs in `wait()`
+        worker._draining.set()  # noqa: SLF001
+        await claim
+    # The worker survived the vanished child; the kill path eventually reaped it.
+    assert proc.kill_calls == 1, "a vanished child is eventually killed, never resurrected"
+
+
+async def test_a_publish_failure_after_exit_does_not_cancel_a_siblings_live_child() -> None:
+    """V-7(a): the P2-1 handler publishes the classified terminal frame "anyway" on an
+    unreadable tail — but the publish is a broker call made DURING the same blip, and it
+    was unguarded. Its failure escaped into the shared TaskGroup, cancelling every
+    co-located supervisor — each sibling's cleanup SIGKILLs its live child — and the
+    failed run's message never acked, so the FINISHED run redelivered and was executed a
+    second time. The run HAS ended: a publish failure is logged, the ack still runs, and
+    no sibling dies."""
+    fail_msg = _FakeMsg(encode_message("t-fail", "'hi'", 60))
+    sib_msg = _FakeMsg(encode_message("t-sib", "'hi'", 60))
+    sib = _FakeProcess(hang=True)
+
+    class _BlipPublisher(_FakePublisher):
+        """The terminal publish for ONE topic fails; everything else is healthy."""
+
+        async def publish(self, topic: str, event: Any) -> None:
+            if topic == "t-fail" and isinstance(event, TerminatedEvent):
+                raise nats.errors.Error("publish failed during the same blip")
+            self.published.append(event)
+
+    procs: list[_FakeProcess] = [_FakeProcess(exit_code=0), sib]
+
+    async def spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        return procs.pop(0)
+
+    worker = _worker(
+        _FakeQueue([[fail_msg], [sib_msg]]),
+        _BlipPublisher(),
+        slots=2,
+        spawn=spawn,
+        drain_grace_s=0.05,
+    )
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        # The failed publish must not cancel anything: the sibling gets claimed, its
+        # child runs, and the finished run still acks (no redelivery, no re-execution).
+        await _wait_until(lambda: fail_msg.acked and sib in worker._children, timeout_s=5.0)
+        assert sib.kill_calls == 0, "a live sibling must survive the publish-side blip"
+        worker._draining.set()  # noqa: SLF001
+        await claim
+    assert fail_msg.acked, "the finished run must ack despite its lost terminal frame"
+    assert sib.kill_calls == 0 and sib.terminate_calls == 1
