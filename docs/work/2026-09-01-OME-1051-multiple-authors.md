@@ -137,12 +137,46 @@ owner-approval note dated 2026-09-02. Everything else in both files is an insert
 Gates green otherwise. The Node gate runs only `leaderboard-logic.test.js` here, correctly —
 `pareto-chart.test.js` belongs to part C, which is not merged.
 
-### Found while verifying, NOT fixed here
+### Correction — the orphan head is untidy, not broken (2026-09-03)
 
-`0004_add_run_cost_usd` is an **orphan head** on main: `0005_auto_20260817_1520` merges
-`0004_auto_20260806_0000` and `0004_auto_20260816_0630` but not it, and nothing else references
-it. So the migration graph has two heads even before this branch. The column plainly exists in
-production, so the deploy-time `job-migrate` evidently applies unapplied migrations regardless of
-head structure — but a fresh database built strictly by following the chain would skip
-`run_cost_usd`, which is the column this whole cost feature rests on. Pre-existing, unrelated to
-multiple authors, and left alone deliberately rather than widened into this PR.
+An earlier version of this section claimed `0004_add_run_cost_usd` is an orphan head, and that
+"a fresh database built strictly by following the chain would skip `run_cost_usd`". **The first
+half is true; the second was wrong**, and it went out in the PR body before being checked.
+
+`0005_auto_20260817_1520` does merge only `0004_auto_20260806_0000` and `0004_auto_20260816_0630`,
+so `0004_add_run_cost_usd` really is a head nothing depends on — and it is the ONLY migration that
+adds `run_cost_usd`. But Tortoise applies every UNAPPLIED migration; it does not walk a single
+head. Verified against a fresh SQLite database with the exact command the deploy job runs
+(`python -m tortoise -c scoreboard.db.TORTOISE_CONFIG migrate`):
+
+```
+Applying models.0004_add_run_cost_usd... OK      <- the "orphan", applied
+...
+Applying models.0011_benchmark_case_count... OK
+Applying models.0012_score_authors... OK         <- this branch, last
+
+scores.run_cost_usd  VARCHAR(40)
+scores.authors       JSON
+14 migrations recorded
+```
+
+So the graph is untidy but harmless, and repairing it would be cosmetic. Left alone, now for a
+stated reason rather than an assumed risk.
+
+This also confirms the renumber: `0012_score_authors` applies cleanly at the end of a fresh run
+and creates the `authors` column.
+
+### Self-review of the rebase (2026-09-03)
+
+- **Privacy.** `authors` is on `LeaderboardEntry` as well as `RankedLeaderboardEntry`, so it
+  reaches `my_submissions` on a private board — the caller's OWN rows, which is correct, and
+  `entries` stays empty so no one else's authors are emitted (`OME-894` D5 holds).
+- **`OME-834` still holds for the new field.** `authors` serialises through `_publish_authors`,
+  which delegates the same trimming `submitted_by` uses. Checked on a real DTO:
+  `['irina@openmined.org', 'keelan@example.com']` publishes as `['irina', 'keelan']`, no full
+  address. Getting this wrong would have published every co-author's email on a public board.
+- **No interaction with the frontier.** The Pareto computation reads `spec_id`, revision, score
+  and cost only; `authors` cannot affect a mark.
+
+**Not checked:** the `OME-1054` update-on-dedup path end to end. The store carries the machinery
+and the spec says the two must ship together, but I verified the field, not the update.
