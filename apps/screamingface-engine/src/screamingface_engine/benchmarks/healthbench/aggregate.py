@@ -465,9 +465,9 @@ def _verdicts(row: Mapping[str, Any]) -> tuple[dict[int, bool], int]:
     return verdicts, invalid
 
 
-# WHY bound at module bottom: the grading ladder lives in the spine (OME-1039); the
+# WHY bound at module bottom: the grading steps live in the spine (OME-1039); the
 # hooks and the failure-message wording stay board-owned so per-case failure output
-# is byte-identical to the pre-extraction copies (the goldens' codes rung pins it).
+# is byte-identical to the pre-extraction copies (the goldens pin every failure code).
 _GRADER = CaseGrader(
     failure_messages=_FAILURE_MESSAGES,
     case_score=case_score,

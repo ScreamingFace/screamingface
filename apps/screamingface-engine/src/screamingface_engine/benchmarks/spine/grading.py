@@ -1,4 +1,4 @@
-"""The shared five-rung failure ladder every rubric board grades one Case through.
+"""The five ordered failure checks every rubric board grades one Case through.
 
 Think of a Case as one exam paper landing on the marker's desk: before any mark is
 written, the marker checks — is the answer key present, did the paper arrive at all, is
@@ -7,10 +7,10 @@ is the key itself usable? Only a paper that survives every check gets a score; e
 other paper is retained with a named reason, never quietly dropped.
 
 FEATURE: one grading spine per benchmark (OME-1024); this module is the first extraction
-(OME-1039) — the ladder gdpval and healthbench previously duplicated verbatim.
+(OME-1039) — the checks gdpval and healthbench previously duplicated verbatim.
 
-A decision ladder, most-broken first — each rung becomes a Failure whose ``code`` makes
-a ``None`` exam score traceable per Case:
+The checks run most-broken first; the first one that trips becomes a Failure whose
+``code`` makes a ``None`` exam score traceable per Case:
 
     no rubric asset      → "missing_rubric_asset"
     no row for this Case → "missing_case_row" (orphan collected errors attached)
@@ -24,8 +24,8 @@ INVARIANT: every unusable state becomes a VISIBLE failed result — a judge outa
 broken asset and a genuinely bad answer must stay distinguishable in the report.
 INVARIANT: failure codes and message texts stay byte-identical per board — the message
 table is board-supplied (gdpval says "criterion" where healthbench says "rubric item"),
-so this extraction moves logic, never wording. The e2e goldens' failure-code rung pins
-this.
+so this extraction moves logic, never wording. The e2e goldens pin every failed case's
+code, so a reclassification cannot slip through.
 """
 
 from __future__ import annotations
@@ -49,17 +49,18 @@ type CaseOutcome = tuple[CaseResult, float | None, int, int, int]
 
 @dataclass(frozen=True, slots=True)
 class CaseGrader:
-    """One board's case grader — the shared ladder bound to its own reading and scoring hooks.
+    """One board's case grader — the shared grading steps bound to the board's own hooks.
 
     Each board constructs one module-level instance. The hooks are the pieces a rubric
-    board still owns after this extraction (their folds are later spine tickets):
+    board still owns after this extraction (later spine tickets move them in too):
 
-    ``failure_messages`` — code → public message for every ladder rung; board wording is
-    part of its published failure output, so the ladder never invents text.
-    ``case_score`` — the board's official per-Case formula; returns ``None`` for a
-    complete-but-unscorable Case (the ``no_positive_points`` rung).
+    ``failure_messages`` — failure code → the public message shown for it. The wording
+    is part of the board's published failure output, so the grader never invents text.
+    ``case_score`` — the board's official per-Case scoring formula; returns ``None``
+    for a Case that was fully judged but has nothing worth points (reported as the
+    ``no_positive_points`` failure).
     ``verdicts`` — reads ``(verdicts_by_position, invalid_reply_count)`` off one row.
-    ``checks`` — projects one row's judge evidence into the SDK's check rows.
+    ``checks`` — turns one row's judge evidence into the SDK's check rows.
     ``candidate_fields`` — pulls status/output/refusal/finish_reason/metadata/execution
     off the hoisted Case record.
     """

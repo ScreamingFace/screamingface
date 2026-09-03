@@ -1,14 +1,14 @@
-"""OME-1039: the shared five-rung failure ladder every rubric board grades through.
+"""OME-1039: the five ordered failure checks every rubric board grades through.
 
 INVARIANT: every unusable state becomes a VISIBLE failed Case with a named failure code —
-never a silently missing one. The rungs, most-broken first:
+never a silently missing one. The checks, most-broken first:
 
     missing_rubric_asset → missing_case_row → case_error → incomplete_verdicts
     → no_positive_points
 
 Message texts come from the BOARD's injected mapping so extraction keeps each board's
 failure output byte-identical (gdpval says "criterion" where healthbench says "rubric
-item"). The ladder itself owns no message text.
+item"). The grader itself owns no message text.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def _sole_failure(result: Any) -> Any:
     return result.failures[0]
 
 
-def test_missing_rubric_asset_is_the_first_rung() -> None:
+def test_missing_rubric_asset_is_the_first_check() -> None:
     result, score, judged, met, invalid = GRADER.case_result(CASE, {"verdicts": {}}, None)
     failure = _sole_failure(result)
     assert (failure.stage, failure.code) == ("grading", "missing_rubric_asset")
