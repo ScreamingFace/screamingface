@@ -41,7 +41,12 @@ is an integer, so it must cover the whole fractional requirement. */ -}}
 {{- $minimum := ceil (addf (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS) -}}
 {{- if lt (float64 .Values.runnerPool.terminationGracePeriodSeconds) $minimum -}}
 {{- fail (printf "runnerPool.terminationGracePeriodSeconds (%v) must be >= runnerPool.drainGraceS (%v) + kill grace (%v) + terminal-publish budget (%v) = %v: the kubelet SIGKILLs the pod at the termination deadline, and a drain cut short interrupts every in-flight run" (float64 .Values.runnerPool.terminationGracePeriodSeconds) (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS $minimum) -}}
-{{- end -}}
+{{- /* INVARIANT: `{{- end }}`, NOT `{{- end -}}`. The trailing `-}}` trims the newline after
+`end`, which glues `apiVersion` onto the end of the preceding YAML COMMENT line — the field
+then vanishes into the comment, `helm lint`/`helm template` still succeed, and the release is
+refused at install with "apiVersion not set". Pinned by
+`tests/unit/test_chart_render_document_identity.py`. */ -}}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -125,6 +130,11 @@ spec:
             # The names are `Settings`' own: the `URL4_CLOUD_` prefix plus the field.
             - name: URL4_CLOUD_RUN_QUEUE_WORKER_SLOTS
               value: {{ .Values.runnerPool.workerSlots | quote }}
+            # INVARIANT: the SAME `config.runQueueReplicas` the App's ConfigMap renders. The
+            # two halves declare one singleton stream, and `ensure_stream` refuses a divergent
+            # declaration — a value reaching only one half fails whichever declares second.
+            - name: URL4_CLOUD_RUN_QUEUE_REPLICAS
+              value: {{ .Values.config.runQueueReplicas | quote }}
             - name: URL4_CLOUD_WORKER_DRAIN_GRACE_S
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT
