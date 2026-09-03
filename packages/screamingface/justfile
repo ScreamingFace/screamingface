@@ -26,3 +26,13 @@ e2e-bless board model dump answers *flags:
 e2e-bless-report board report *flags:
     uv run python tests/e2e/fixtures/slice_snapshot.py --board {{board}} \
         --report {{report}} {{flags}}
+
+# Re-author one board's golden from its COMMITTED snapshot (OME-1094) — no
+# recording needed: replays the board keylessly and writes the per-case failure
+# codes into the golden. Refuses if the replayed expression / statuses / counters /
+# score differ from the committed file (a refresh may only ADD failure codes).
+# Needs docker and prepared benchmark assets. Example:
+#   just e2e-refresh-golden healthbench-worst30
+e2e-refresh-golden board *flags:
+    uv run python tests/e2e/fixtures/slice_snapshot.py --board {{board}} \
+        --refresh-golden {{flags}}
