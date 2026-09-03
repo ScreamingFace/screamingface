@@ -104,6 +104,18 @@ config:
   # behavior exactly. Local mode does not use this value (its runs share the process's
   # fair-share gate instead; see the README's "Fair scheduling" section).
   runnerIoConcurrency: 4
+  # The queue stream's replica count (OME-1088), rendered to BOTH the App and the worker pool —
+  # they declare the same singleton stream, and `ensure_stream` refuses a declaration whose
+  # properties diverge from an existing one, so a one-sided value is a startup failure for
+  # whichever half declares second.
+  #
+  # WHY 1: this chart BUNDLES a single-node NATS subchart, and a single-node broker refuses
+  # `replicas > 1` outright (ServerError 10074 "replicas > 1 not supported in non-clustered
+  # mode"). A default the chart's own broker cannot accept is the wrong default — it makes
+  # every run fail while the worker's claim loop retries forever. Raise it to match a real
+  # NATS cluster; the per-run event streams are 1-replica regardless, so clustering both
+  # stream families is OME-1093's scope.
+  runQueueReplicas: 1
   # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
   # image's own default. Must be one of the models that url4.toml declares.
   aigatewayModel: ""
