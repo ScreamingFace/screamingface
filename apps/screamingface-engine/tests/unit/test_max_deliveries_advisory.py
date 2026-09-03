@@ -12,7 +12,7 @@ import asyncio
 import base64
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -101,7 +101,9 @@ async def test_the_advisor_publishes_a_named_terminal_failure() -> None:
     assert frame.source.endswith("t-gave-up")
 
 
-def _terminated(topic: str, status: str) -> TerminatedEvent:
+def _terminated(
+    topic: str, status: Literal["succeeded", "failed", "stopped", "timed_out"]
+) -> TerminatedEvent:
     return TerminatedEvent(
         id="x",
         source=source_for(topic),

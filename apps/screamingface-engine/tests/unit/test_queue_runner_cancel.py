@@ -22,6 +22,7 @@ import pytest
 from nats.errors import NoRespondersError
 
 from screamingface_engine.adapters.queue_runner import QueueJobRunner
+from screamingface_engine.adapters.queue_runner import _ControlClient as ControlClientProtocol
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.worker.supervisor import RunSupervisor
 from url4.streaming.protocol import (
@@ -102,7 +103,10 @@ class _FakeControl:
         raise TimeoutError()
 
 
-def _runner(publisher: _FakePublisher, control: _FakeControl) -> QueueJobRunner:
+def _runner(publisher: _FakePublisher, control: ControlClientProtocol) -> QueueJobRunner:
+    # WHY the Protocol, not `_FakeControl`: `_ScriptedControl` (below) is also passed
+    # here, and both fakes already satisfy the production `_ControlClient` Protocol that
+    # `QueueJobRunner.__init__` itself is typed to.
     return QueueJobRunner(
         queue=_FakeQueue(),
         publisher=publisher,

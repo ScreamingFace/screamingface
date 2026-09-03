@@ -1,13 +1,15 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from _k8s_fakes import FakeCoreV1, FakeCreatedJob
 
 from screamingface_engine.adapters.factory import build_job_runner
+from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.adapters.k8s import K8sJobRunner
 from screamingface_engine.adapters.queue_runner import QueueJobRunner
 from screamingface_engine.config import Settings
+from screamingface_engine.runner_queue import RunQueue
 
 
 class _FakeBatchApi:
@@ -161,8 +163,16 @@ def test_the_queue_runner_wires_the_configured_stream_and_prefix_everywhere() ->
 
     runner = build_job_runner(settings)
 
-    assert runner._queue._stream == "prod-runq"
-    assert runner._publisher._run_queue_stream == "prod-runq"
+    # `build_job_runner` returns `JobRunner | None`; narrow to the concrete queue-backed
+    # runner before reaching for its private collaborators. `_queue`/`_publisher` are
+    # themselves typed to the narrow `_Queue`/`_Publisher` Protocols the runner depends
+    # on, which rightly do not declare `RunQueue`/`JetStreamPublisher`'s own private
+    # attributes — the factory always builds those concrete types for `runner="queue"`.
+    assert isinstance(runner, QueueJobRunner)
+    queue = cast(RunQueue, runner._queue)
+    publisher = cast(JetStreamPublisher, runner._publisher)
+    assert queue._stream == "prod-runq"
+    assert publisher._run_queue_stream == "prod-runq"
 
 
 def test_every_composition_root_wires_the_same_stream_name() -> None:
@@ -186,8 +196,11 @@ def test_every_composition_root_wires_the_same_stream_name() -> None:
 
     # The App's runner: the queue and its publisher agree with Settings.
     runner = build_job_runner(settings)
-    assert runner._queue._stream == "prod-runq"  # noqa: SLF001
-    assert runner._publisher._run_queue_stream == "prod-runq"  # noqa: SLF001
+    assert isinstance(runner, QueueJobRunner)
+    root_queue = cast(RunQueue, runner._queue)  # see the cast note above
+    root_publisher = cast(JetStreamPublisher, runner._publisher)
+    assert root_queue._stream == "prod-runq"  # noqa: SLF001
+    assert root_publisher._run_queue_stream == "prod-runq"  # noqa: SLF001
 
     # The App's event-stream consumer: the sweep's exclusion follows this name (V-6).
     consumer = build_stream_consumer(settings)
