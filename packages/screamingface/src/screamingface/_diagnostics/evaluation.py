@@ -17,6 +17,7 @@ from screamingface._diagnostics.capture import (
 )
 from screamingface._diagnostics.model import _new_receipt, _ReceiptEvidence
 from screamingface._diagnostics.store import _STORE
+from screamingface._environment import running_in_notebook
 from screamingface._evaluation.model import Candidate, _Evaluation
 from screamingface.diagnostic import DiagnosticReceipt
 from screamingface.events import Event, Span, Terminated
@@ -145,6 +146,8 @@ class _EvaluationDiagnostic:
         receipt = self.receipt(error)
         if not _STORE.add(receipt):
             return None
+        if running_in_notebook():
+            return receipt
         try:
             BaseException.add_note(error, _export_guidance(receipt))
         except Exception:

@@ -94,6 +94,10 @@ def test_evaluation_attaches_one_renderer_to_the_original_raw_exception(
         lambda: True,
     )
     monkeypatch.setattr(
+        "screamingface._diagnostics.evaluation.running_in_notebook",
+        lambda: True,
+    )
+    monkeypatch.setattr(
         "screamingface._ui.diagnostic_view._display_notebook_diagnostic",
         published.append,
     )
@@ -113,6 +117,7 @@ def test_evaluation_attaches_one_renderer_to_the_original_raw_exception(
         )
 
     assert caught.value is error
+    assert not getattr(error, "__notes__", ())
     renderer = getattr(error, "_render_traceback_")
     first = renderer()
     second = renderer()
@@ -290,10 +295,11 @@ def test_panel_starts_concise_accessible_and_without_receipt_json() -> None:
     html = _html_values(view.widget)
     assert "Evaluation failed" not in html
     assert "benchmark is required" not in html
+    assert "Diagnostic" in html
     assert "diag_example" in html
-    assert "local only" in html
-    assert "aria-label='Local only; cleared when this kernel restarts'" in html
-    assert "%tb" in html
+    assert "local only" not in html
+    assert "%tb" not in html
+    assert "Stored in this runtime" not in html
     assert "sf-diagnostic__eyebrow" not in html
     assert "Nothing has been sent" not in html
     assert "Run <code>%tb</code>" not in html
@@ -303,8 +309,14 @@ def test_panel_starts_concise_accessible_and_without_receipt_json() -> None:
     assert set(view.widget._dom_classes) >= {"sf-ui", "sf-diagnostic-widget"}
     # INVARIANT: container tooltips crash JupyterLab's VBoxView because VBox has no description.
     assert view.widget.tooltip is None
-    assert _button(view.widget, "Export").tooltip
-    assert _button(view.widget, "Preview").tooltip
+    assert _button(view.widget, "Save JSON").tooltip
+    assert _button(view.widget, "View details").tooltip
+    assert tuple(button.description for button in view._controls.children) == (
+        "View details",
+        "Save JSON",
+    )
+    assert view._status.layout.display == "none"
+    assert view._preview.layout.display == "none"
     assert any(
         "sf-diagnostic__toolbar" in getattr(item, "_dom_classes", ()) for item in _walk(view.widget)
     )
@@ -344,23 +356,28 @@ def test_toolbar_shortens_only_the_visible_diagnostic_id() -> None:
     assert f"aria-label='Diagnostic ID {diagnostic_id}'" in html
 
 
-def test_preview_reveals_the_exact_receipt_only_after_a_click() -> None:
+def test_view_details_reveals_the_exact_receipt_and_recovery_guidance() -> None:
     receipt = _receipt()
     view = _NotebookDiagnosticView(receipt)
 
-    preview = _button(view.widget, "Preview")
+    details = _button(view.widget, "View details")
     assert receipt.to_json() not in unescape(_html_values(view.widget))
 
-    preview.click()
+    details.click()
 
-    assert receipt.to_json() in unescape(_html_values(view.widget))
-    assert preview.description == "Hide"
-    preview.click()
+    html = unescape(_html_values(view.widget))
+    assert receipt.to_json() in html
+    assert "Stored in this runtime until restart" in html
+    assert "Run <code>%tb</code>" in html
+    assert details.description == "Hide details"
+    assert view._preview.layout.display == "block"
+    details.click()
     assert receipt.to_json() not in unescape(_html_values(view.widget))
-    assert preview.description == "Preview"
+    assert details.description == "View details"
+    assert view._preview.layout.display == "none"
 
 
-def test_export_writes_only_after_an_explicit_click(
+def test_save_json_writes_only_after_an_explicit_click(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -370,13 +387,15 @@ def test_export_writes_only_after_an_explicit_click(
     selected = tmp_path / "screamingface-diagnostic.json"
 
     assert not selected.exists()
-    _button(view.widget, "Export").click()
+    assert view._status.layout.display == "none"
+    _button(view.widget, "Save JSON").click()
 
     assert selected.read_text(encoding="utf-8") == receipt.to_json()
-    assert "Exported screamingface-diagnostic.json" in _html_values(view.widget)
+    assert "Saved to screamingface-diagnostic.json" in _html_values(view.widget)
+    assert view._status.layout.display == "block"
 
 
-def test_export_failure_is_reported_inside_the_panel(
+def test_save_json_failure_is_reported_inside_the_panel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def unavailable_export(self: DiagnosticReceipt, path: object) -> Any:
@@ -386,11 +405,12 @@ def test_export_failure_is_reported_inside_the_panel(
     monkeypatch.setattr(DiagnosticReceipt, "export", unavailable_export)
     view = _NotebookDiagnosticView(_receipt())
 
-    _button(view.widget, "Export").click()
+    _button(view.widget, "Save JSON").click()
 
     html = _html_values(view.widget)
-    assert "Could not export the diagnostic" in html
+    assert "Could not save the diagnostic" in html
     assert "read-only filesystem" not in html
+    assert view._status.layout.display == "block"
 
 
 def test_panel_uses_sfds_app_tokens_and_colab_theme_contract() -> None:
@@ -411,8 +431,10 @@ def test_panel_uses_sfds_app_tokens_and_colab_theme_contract() -> None:
 
 
 def test_receipt_toolbar_is_unboxed_supporting_evidence() -> None:
+    root_rule = _STYLE.split(".sf-diagnostic-widget", 1)[1].split("}", 1)[0]
     toolbar_rule = _STYLE.split(".sf-diagnostic__toolbar.widget-hbox", 1)[1].split("}", 1)[0]
 
+    assert "background:transparent!important" in root_rule
     assert "border:0!important" in toolbar_rule
     assert "background:transparent!important" in toolbar_rule
     assert "padding:0!important" in toolbar_rule
@@ -426,3 +448,13 @@ def test_diagnostic_style_uses_sfds_font_and_spacing_tokens() -> None:
     assert "gap:6px" not in diagnostic_rules
     assert "padding:0 3px" not in diagnostic_rules
     assert "padding:10px" not in diagnostic_rules
+
+
+def test_colab_root_does_not_shrink_wrap_the_content_hugging_toolbar() -> None:
+    root_rule = _STYLE.split(".sf-diagnostic-widget", 1)[1].split("}", 1)[0]
+    toolbar_rule = _STYLE.split(".sf-diagnostic__toolbar.widget-hbox", 1)[1].split("}", 1)[0]
+
+    # INVARIANT: Colab collapses nested fit-content flex containers even though their children
+    # render independently. Only the visible toolbar should hug its content.
+    assert "width:fit-content" not in root_rule
+    assert "width:fit-content" in toolbar_rule

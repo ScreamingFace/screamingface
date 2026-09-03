@@ -72,10 +72,12 @@ Keep the public surface shallow and the implementation deep:
 - RED first: retained typed and raw Evaluation failures attach one renderer to the original
   exception; unrelated exceptions and declined receipts remain untouched.
 - RED first: Jupyter/Colab leaves the native exception summary as the only failure presentation and
-  adds one accessible neutral SFDS receipt toolbar with explicit Preview/Export actions and `%tb`
-  guidance.
-- RED first: JSON is absent before Preview; no file exists before Export; export success/failure is
-  reported locally; missing or broken notebook dependencies fall back to the prior renderer.
+  adds one accessible, transparent SFDS receipt footer with explicit View details/Save JSON actions.
+- RED first: JSON, runtime-lifetime disclosure and `%tb` guidance are absent before View details;
+  no file exists before Save JSON; save success/failure is reported locally; missing or broken
+  notebook dependencies fall back to the prior renderer.
+- RED first: the nested root does not use Colab-collapsing shrink-wrap, hidden rows reserve no
+  vertical space, and a successful rich render does not repeat terminal-only export guidance.
 - GREEN: a private `_ui` adapter lazily imports notebook dependencies and composes the existing
   exception renderer rather than installing `set_custom_exc`.
 - Keep HTTP submission and browser fact collection in `OME-1014`.

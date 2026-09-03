@@ -1,7 +1,8 @@
 # OME-1013 — Local Client diagnostic receipts (spec)
 
 Status: approved by the owner on 2026-08-26 after the Client diagnostics design session; notebook
-presentation amendment approved on 2026-08-26.
+presentation amendment approved on 2026-08-26 and recovery-footer refinement approved on
+2026-09-03.
 
 Related: `OME-1003` (Client-side reporting epic), `OME-967` (Client trace creation and retention),
 `OME-1002` (report-intake service), `OME-1004` (settled intake wire contract), and `OME-1014`
@@ -69,10 +70,12 @@ receipt.export("screamingface-diagnostic.json")
 - `to_json()` is deterministic UTF-8 JSON with the same compact encoding as `Report.to_json()`.
 - `.export()` follows `Report.export()`: `.json` only, creates parent directories, replaces the
   selected file, and returns its `Path`.
-- Preview bytes and exported bytes are identical.
+- View-details JSON and exported bytes are identical.
 - Export is the immediate recovery action, not a secondary convenience. Because the ring dies with
   the process, terminal guidance names the exact export command on every retained receipt and the
-  notebook panel makes Export its primary local action.
+  notebook footer offers Save JSON. The UI wording is intentionally different from the stable
+  `.export()` API: a generic hosted notebook can promise a file in its runtime, not a browser
+  download to the user's computer.
 - No public count or byte-limit tuning is introduced in v1. The store's limits are private and
   test-pinned so capacity can be tuned without a compatibility promise.
 
@@ -205,18 +208,20 @@ exception. IPython terminals retain concise text. In an ipykernel, the renderer 
 private notebook adapter that:
 
 - leaves IPython's native exception summary as the sole local error evidence and adds only the
-  diagnostic id and accepted in-memory lifetime as a neutral receipt toolbar;
-- exposes Preview and Export as explicit actions;
-- keeps receipt JSON hidden until Preview is selected;
-- writes only after Export is selected;
-- tells the user `%tb` remains available for the original traceback;
+  diagnostic id and local recovery actions as a neutral, transparent receipt footer;
+- exposes View details and Save JSON as explicit actions;
+- keeps receipt JSON, accepted in-memory lifetime and `%tb` guidance hidden until View details is
+  selected;
+- writes only after Save JSON is selected;
+- omits the terminal-only textual export note when the rich footer is available;
 - renders with SFDS v2's app register in both light and dark hosts; and
 - returns to the pre-existing traceback renderer if imports, widget construction or display fail.
 
 The renderer is attached only after the store accepts the receipt. An oversized or otherwise
 declined receipt cannot advertise actions against an id that lookup will not resolve.
 
-In a terminal, the failure guidance may name the diagnostic reference and the exact export call:
+Outside notebooks, the failure guidance may name the diagnostic reference and the exact export
+call:
 
 ```python
 sf.diagnostics.get("diag_...").export("screamingface-diagnostic.json")
