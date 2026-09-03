@@ -11,7 +11,12 @@ import pytest
 from fastapi import FastAPI
 
 from screamingface_engine.app import create_app
-from screamingface_engine.benchmarks import Benchmark, BenchmarkRegistry, candidate
+from screamingface_engine.benchmarks import (
+    Benchmark,
+    BenchmarkDeclaration,
+    BenchmarkRegistry,
+    candidate,
+)
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_DEPLOYMENT
 from screamingface_engine.config import Settings
 from screamingface_engine.testing import InMemoryEventStream
@@ -38,6 +43,10 @@ def _benchmark(
         ),
         focus=focus,
         dataset_url=dataset_url,
+        declaration=BenchmarkDeclaration(
+            failure_policy="coverage-declare",
+            interaction="single_shot",
+        ),
     )
 
 

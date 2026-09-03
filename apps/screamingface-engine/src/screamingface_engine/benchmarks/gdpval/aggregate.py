@@ -19,12 +19,8 @@ from typing import Any
 from screamingface_engine.benchmarks.aggregation import (
     CandidateScore,
     SelectedCase,
-    failed_case_result,
     finalize_candidate_result,
     grading_failure_case_result,
-    public_error,
-    refused_case_result,
-    scored_case_result,
 )
 from screamingface_engine.benchmarks.case_execution import (
     CaseExecutionOutcome,
@@ -38,6 +34,7 @@ from screamingface_engine.benchmarks.gdpval.scoring import (
     sample_stdev,
     verdict_coverage,
 )
+from screamingface_engine.benchmarks.spine.case_ladder import CaseLadder
 
 _FAILURE_MESSAGES = {
     "missing_rubric_asset": "the baked rubric asset for this Case is missing or invalid",
@@ -143,7 +140,7 @@ def aggregate(
             )
         else:
             points = load_rubric_points(root, case_id)
-            result, _, _, _, _ = _case_result(
+            result, _, _, _, _ = _LADDER.case_result(
                 selected, by_case.get(case_id), points, errors_by_case.get(case_id)
             )
         case_results.append(result)
@@ -186,122 +183,6 @@ def _gdpval_scorer(
     return score
 
 
-def _case_result(
-    selected_case: SelectedCase,
-    row: Mapping[str, Any] | None,
-    points: list[int] | None,
-    orphan_errors: list[dict[str, Any]] | None = None,
-) -> tuple[CaseResult, float | None, int, int, int]:
-    """Score one selected Case; every unusable state becomes a VISIBLE failed result.
-
-    A decision ladder, most-broken first — each rung becomes a Failure whose ``code`` makes a
-    ``None`` exam score traceable per Case:
-
-        no rubric asset      -> "missing_rubric_asset"
-        no row for this Case -> "missing_case_row"
-        row is an error row  -> "case_error"
-        verdicts incomplete  -> "incomplete_verdicts"
-        complete, no + item  -> "no_positive_points" (a baked-asset defect: `prepare` guarantees
-                                at least one positive criterion survives the container filter)
-    """
-
-    terminal = _terminal_failure_outcome(selected_case, row, points, orphan_errors)
-    if terminal is not None:
-        return terminal
-    assert row is not None and points is not None
-    verdicts, invalid = _verdicts(row)
-    checks = _checks(row, points)
-    complete = len(verdicts) == len(points) and not invalid
-    score = case_score(points, verdicts) if complete else None
-    if score is None:
-        failure = _failure(
-            int(selected_case.case_id),
-            "grading",
-            "no_positive_points" if complete else "incomplete_verdicts",
-            judged=len(verdicts),
-            expected=len(points),
-        )
-        return (
-            _failed_result(selected_case, row, checks, failure),
-            None,
-            len(verdicts),
-            sum(verdicts.values()),
-            invalid,
-        )
-    return _scored_outcome(selected_case, row, points, verdicts, checks, score, invalid)
-
-
-def _terminal_failure_outcome(
-    selected_case: SelectedCase,
-    row: Mapping[str, Any] | None,
-    points: list[int] | None,
-    orphan_errors: list[dict[str, Any]] | None,
-) -> tuple[CaseResult, float | None, int, int, int] | None:
-    case_id = int(selected_case.case_id)
-    outcome: tuple[CaseResult, float | None, int, int, int] | None
-    if points is None:
-        failure = _failure(case_id, "grading", "missing_rubric_asset")
-        outcome = _failed_result(selected_case, row, [], failure), None, 0, 0, 0
-    elif row is None:
-        # WHY attach collected errors: an on_error=collect row loses its Case identity, so a
-        # mid-chain error surfaces here as a missing row. Without the orphan payloads the report
-        # would name the symptom and hide the cause.
-        outcome = _missing_row_outcome(selected_case, orphan_errors)
-    elif "error" in row:
-        failure = _failure(case_id, "candidate", "case_error", error=row["error"])
-        outcome = _failed_result(selected_case, row, [], failure), None, 0, 0, 0
-    else:
-        outcome = None
-    return outcome
-
-
-def _scored_outcome(
-    selected_case: SelectedCase,
-    row: Mapping[str, Any],
-    points: list[int],
-    verdicts: Mapping[int, bool],
-    checks: list[dict[str, Any]],
-    score: float,
-    invalid: int,
-) -> tuple[CaseResult, float, int, int, int]:
-    fields = _candidate_fields(row)
-    grade = {
-        "method": "rubric",
-        "score": round(score, 4),
-        "metrics": {
-            "judged": len(verdicts),
-            "expected": len(points),
-            "invalid_replies": invalid,
-        },
-        "checks": checks,
-    }
-    common = {
-        "selected_case": selected_case,
-        "finish_reason": fields["finish_reason"],
-        "grade": grade,
-        "metadata": fields["metadata"],
-        "execution": fields["execution"],
-        "operations": fields.get("operations"),
-    }
-    if fields["status"] == "refused":
-        scored = refused_case_result(refusal=fields["refusal"], **common)
-    else:
-        scored = scored_case_result(output=fields["output"], **common)
-    return scored, score, len(verdicts), sum(verdicts.values()), invalid
-
-
-def _missing_row_outcome(
-    selected_case: SelectedCase, orphan_errors: list[dict[str, Any]] | None
-) -> tuple[CaseResult, None, int, int, int]:
-    failure = _failure(
-        int(selected_case.case_id),
-        "candidate",
-        "missing_case_row",
-        **({"collected_errors": orphan_errors[:3]} if orphan_errors else {}),
-    )
-    return _failed_result(selected_case, None, [], failure), None, 0, 0, 0
-
-
 def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
     """Pull output/finish_reason/metadata off the hoisted Case record."""
 
@@ -329,30 +210,6 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
         "operations": case.get("operations"),
         "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
     }
-
-
-def _failed_result(
-    selected_case: SelectedCase,
-    row: Mapping[str, Any] | None,
-    checks: list[dict[str, Any]],
-    failure: dict[str, Any],
-) -> CaseResult:
-    fields = _candidate_fields(row)
-    # WHY a grade with score None rather than no grade: the judge evidence for a partially
-    # judged Case is audit material, and the grade's checks list is the contract's slot for it.
-    grade = {"method": "rubric", "score": None, "metrics": {}, "checks": checks}
-    common = {
-        "selected_case": selected_case,
-        "finish_reason": fields["finish_reason"],
-        "grade": grade,
-        "failures": [failure],
-        "metadata": fields["metadata"],
-        "execution": fields["execution"],
-        "operations": fields.get("operations"),
-    }
-    if fields["status"] == "refused":
-        return refused_case_result(refusal=fields["refusal"], **common)
-    return failed_case_result(output=fields["output"], **common)
 
 
 def _checks(row: Mapping[str, Any], points: list[int]) -> list[dict[str, Any]]:
@@ -417,56 +274,6 @@ def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
     else:
         value["metadata"] = {"rejection_reason": str(record.get("reason", "invalid"))}
     return value
-
-
-def _failure(case_id: int, stage: str, code: str, **metadata: Any) -> dict[str, Any]:
-    public_metadata = _failure_metadata(metadata)
-    message = _FAILURE_MESSAGES[code]
-    retryable: bool | None = None
-    if source_error := _source_error(metadata):
-        diagnostic = public_error(source_error, default_code=code, default_message=message)
-        message = diagnostic.message
-        retryable = diagnostic.retryable
-        public_metadata["source_error"] = {
-            "kind": diagnostic.kind,
-            "code": diagnostic.code,
-            "message": diagnostic.message,
-            "retryable": diagnostic.retryable,
-        }
-    return {
-        "stage": stage,
-        "code": code,
-        "message": message,
-        "retryable": retryable,
-        "case_id": case_id,
-        "metadata": public_metadata,
-    }
-
-
-def _failure_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in metadata.items()
-        if key in {"judged", "expected", "row_index"}
-        and isinstance(value, int)
-        and not isinstance(value, bool)
-    }
-
-
-def _source_error(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    error = metadata.get("error")
-    if isinstance(error, Mapping):
-        return error
-    collected = metadata.get("collected_errors")
-    rows = collected[:3] if isinstance(collected, list) else []
-    return next(
-        (
-            source
-            for row in rows
-            if isinstance(row, Mapping) and isinstance((source := row.get("error")), Mapping)
-        ),
-        None,
-    )
 
 
 def _decode_rows(raw: str) -> list[Any]:
@@ -587,5 +394,16 @@ def _verdicts(row: Mapping[str, Any]) -> tuple[dict[int, bool], int]:
             invalid += 1
     return verdicts, invalid
 
+
+# WHY bound at module bottom: the ladder logic lives in the spine (OME-1039); the
+# hooks and the failure-message wording stay board-owned so per-case failure output
+# is byte-identical to the pre-extraction copies (the goldens' codes rung pins it).
+_LADDER = CaseLadder(
+    failure_messages=_FAILURE_MESSAGES,
+    case_score=case_score,
+    verdicts=_verdicts,
+    checks=_checks,
+    candidate_fields=_candidate_fields,
+)
 
 __all__ = ["AggregateError", "CaseResult", "aggregate", "load_rubric_points"]

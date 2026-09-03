@@ -27,7 +27,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from screamingface_engine.benchmarks.definition import Benchmark, CheckSurface, candidate
+from screamingface_engine.benchmarks.definition import (
+    Benchmark,
+    BenchmarkDeclaration,
+    CheckSurface,
+    candidate,
+)
 from screamingface_engine.benchmarks.gdpval import verdict
 from screamingface_engine.benchmarks.gdpval.pins import (
     DATASET,
@@ -273,6 +278,14 @@ def gdpval_benchmark(
         description=description,
         revision=revision,
         case_count=len(case_ids),
+        # INVARIANT: the declared policy matches the code — every board reduces through
+        # the shared finalize_candidate_result, which scores exactly the gradeable subset
+        # and publishes coverage (coverage-declare). Declare `withhold` only if the
+        # aggregate actually withholds (OME-1039).
+        declaration=BenchmarkDeclaration(
+            failure_policy="coverage-declare",
+            interaction="single_shot",
+        ),
         build=build,
         install=install,
         focus=focus,
