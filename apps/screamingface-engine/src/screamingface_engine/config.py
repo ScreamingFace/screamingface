@@ -260,7 +260,10 @@ class Settings(BaseSettings):
     # INVARIANT: the stream name must NOT begin with `url4-cloud_` — `_sweep_orphans` deletes
     # any stream `owns_stream()` accepts, and the queue is the one stream an accepted run may
     # not be lost from. `subjects.owns_stream` excludes it explicitly; the default here is the
-    # same constant, so the two cannot drift.
+    # same constant, so the two cannot drift. The invariant is ENFORCED below by
+    # `_reject_sweepable_run_queue_stream` (review follow-up V-8): a comment could not stop an
+    # operator or a composition root from naming the queue into the sweepable prefix, and the
+    # exclusion in `owns_stream` only holds where the CONFIGURED name actually reaches it.
     run_queue_stream: str = subjects.RUN_QUEUE_STREAM
     run_queue_subject_prefix: str = subjects.RUN_QUEUE_SUBJECT_PREFIX
     # WHY a window at all: a retried submission (a client retrying a timed-out request) must
@@ -309,6 +312,26 @@ class Settings(BaseSettings):
         if self.job_ttl_s is not None:
             return self.job_ttl_s
         return self.iat_window_s + _TTL_SKEW_MARGIN_S
+
+    @field_validator("run_queue_stream")
+    @classmethod
+    def _reject_sweepable_run_queue_stream(cls, value: str) -> str:
+        """Refuse a queue stream named under the per-run `url4-cloud_` prefix.
+
+        The reclamation sweep deletes every stream `owns_stream()` accepts; a queue so
+        named is one rejected publish away from being deleted with an accepted run on it.
+        The exact-name exclusion in `owns_stream` guards the sites that RECEIVE the
+        configured name; this validator makes the hazard impossible at its source, so a
+        wiring gap (a site built from the default constant) can only ever produce a
+        split — loud — never a swept queue.
+        """
+        if value.startswith(f"{subjects.PREFIX}_"):
+            raise ValueError(
+                "run_queue_stream must not live under the per-run prefix 'url4-cloud_': "
+                "the orphan sweep deletes any stream it owns, and the queue is the one "
+                "stream an accepted run may not be lost from"
+            )
+        return value
 
     @field_validator("artifacts_dir", mode="before")
     @classmethod
