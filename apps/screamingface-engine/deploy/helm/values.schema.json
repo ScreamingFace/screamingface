@@ -67,6 +67,11 @@
           "minimum": 1,
           "description": "Per-run downstream in-flight budget written onto every Runner Job as URL4_CLOUD_IO_CONCURRENCY (OME-908). 4 matches the gateway's per-provider admission ceiling so a run saturates its provider without piling a backlog behind it; 32 restores the pre-OME-908 width. Local mode ignores this value (its runs share the process fair-share gate)."
         },
+        "runQueueReplicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The queue stream's replica count (OME-1088), rendered to both the App and the worker pool — they declare the same singleton stream and ensure_stream refuses a divergent declaration, so a one-sided value is a startup failure for whichever half declares second. Defaults to 1 because this chart bundles a SINGLE-NODE NATS subchart, and a single-node broker refuses replicas > 1 outright (ServerError 10074). Raise it only against a real NATS cluster."
+        },
         "aigatewayBaseUrl": {
           "type": "string"
         },

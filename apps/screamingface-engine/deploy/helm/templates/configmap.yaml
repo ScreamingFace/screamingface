@@ -24,6 +24,13 @@ data:
   # The run substrate the App schedules on (spec §9). `queue` is what makes this chart functional —
   # without it the App bridges NATS but answers every `GET /?q=` with 503.
   URL4_CLOUD_RUNNER: {{ .Values.runner.backend | quote }}
+  # The queue stream's replica count (OME-1088).
+  #
+  # INVARIANT: rendered here AND in the runner pool's env from the SAME value. Both halves
+  # declare the one singleton stream, and `ensure_stream` refuses a declaration whose
+  # properties diverge from an existing one — so a value reaching only one half is a startup
+  # failure for whichever half declares second, visible only on a clustered broker.
+  URL4_CLOUD_RUN_QUEUE_REPLICAS: {{ .Values.config.runQueueReplicas | quote }}
   {{- with .Values.config.aigatewayBaseUrl }}
   # Enables the App's own `GET /v1/models` catalog endpoint (OME-625), which reads aigateway
   # using the CALLER's forwarded credential — it needs no credential of its own. Unset =>
