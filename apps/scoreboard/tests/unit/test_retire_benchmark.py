@@ -11,6 +11,8 @@ it rather than hand an operator an IntegrityError traceback.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from scoreboard.retire_benchmark import (
@@ -43,6 +45,7 @@ def _submission(benchmark_id: str = BENCHMARK) -> ScoreSubmission:
         total_questions=100,
         correct_questions=50,
         ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
     )
 
 

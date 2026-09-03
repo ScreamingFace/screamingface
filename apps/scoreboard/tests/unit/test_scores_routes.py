@@ -30,6 +30,7 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
         "total_questions": 4,
         "correct_questions": 3,
         "ran_with_providers": ["openai"],
+        "run_cost_usd": "1.250000",
         "ran_at_local": "2026-05-21T12:00:00+00:00",
         "client": {"name": "scoreboard-test", "version": "0.1.0", "platform": "test"},
         "metadata": {"source": "unit"},
@@ -220,6 +221,21 @@ async def test_post_score_future_version_returns_422(score_client: AsyncClient) 
 
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["body", "version"]
+
+
+@pytest.mark.parametrize("run_cost_usd", [None, pytest.param("omitted", id="omitted")])
+async def test_post_score_requires_a_non_null_run_cost(
+    score_client: AsyncClient,
+    run_cost_usd: str | None,
+) -> None:
+    payload = _valid_payload(run_cost_usd=run_cost_usd)
+    if run_cost_usd == "omitted":
+        payload.pop("run_cost_usd")
+
+    response = await score_client.post("/v1/scores", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "run_cost_usd"]
 
 
 async def test_post_score_url4_expression_too_long_returns_422(
@@ -417,6 +433,7 @@ async def test_openapi_schema_includes_new_endpoints(score_client: AsyncClient) 
     assert post_score["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/ScoreSubmission",
     )
+    assert "run_cost_usd" in response.json()["components"]["schemas"]["ScoreSubmission"]["required"]
     assert post_score["responses"]["201"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/ScoreSchema",
     )

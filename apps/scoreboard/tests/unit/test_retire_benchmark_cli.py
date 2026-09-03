@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,7 @@ def seeded_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
                 total_questions=100,
                 correct_questions=50,
                 ran_with_providers=["openai"],
+                run_cost_usd=Decimal("1.000000"),
             )
         )
         await close_db()

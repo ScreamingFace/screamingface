@@ -210,9 +210,11 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
 
     <p>
       The Client posts <code>score</code>, <code>total_questions</code>, the compiled
-      <code>url4_expression</code>, provider names, and client metadata. The
-      <code>Idempotency-Key</code> header is the candidate's <code>run_id</code>, so a retry of
-      the same run replays the original score instead of inserting a duplicate.
+      <code>url4_expression</code>, provider names, <code>run_cost_usd</code>, and client metadata.
+      Direct submissions require a non-null run cost; a genuine fully cached run sends zero, while
+      imported and historical rows may still display an unknown cost. The
+      <code>Idempotency-Key</code> header is the candidate's <code>run_id</code>, so a retry of the
+      same run replays the original score instead of inserting a duplicate.
     </p>
 
     <p>
