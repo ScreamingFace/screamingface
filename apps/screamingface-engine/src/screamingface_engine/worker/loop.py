@@ -239,6 +239,12 @@ def run_worker(settings: Settings | None = None) -> None:
         max_ack_pending=settings.run_queue_max_ack_pending,
         duplicate_window_s=settings.run_queue_duplicate_window_s,
         max_age_s=settings.run_queue_max_age_s,
+        # INVARIANT: the App and the worker declare the SAME singleton stream, and
+        # `ensure_stream` refuses a declaration whose properties diverge from an existing
+        # one — so both halves must read this from the same setting. Omitting it here left
+        # the worker on the code default regardless of configuration, which on a clustered
+        # broker is a startup failure for whichever half declares second.
+        replicas=settings.run_queue_replicas,
     )
     # The publisher's sweep must exclude the CONFIGURED queue stream, not a stale constant.
     publisher = JetStreamPublisher(settings.nats_url, run_queue_stream=settings.run_queue_stream)
