@@ -334,7 +334,10 @@ async def test_a_pull_failure_increments_the_failure_counter() -> None:
     pulls keep failing still looks alive — the failure counter is the operator's signal
     that the worker's broker path needs attention. A caught pull error must increment it
     and the loop must keep going."""
-    import nats
+    # `nats.errors` is a SUBMODULE — `import nats` alone does not bind it, and the name
+    # resolves here only because some other import happens to pull it in. Bind it explicitly
+    # so this injection raises the broker error it means to, not an AttributeError.
+    import nats.errors
 
     metrics = build_worker_metrics()
 
