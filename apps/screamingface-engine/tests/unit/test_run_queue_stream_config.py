@@ -1,7 +1,8 @@
 """The run queue's stream declaration and publish path (OME-1088).
 
-The queue is a SINGLETON stream (`url4-runq`) with `retention=WorkQueue`, file storage and 3
-replicas — the durable substrate OME-1086's worker pool pulls from. Publishing sets
+The queue is a SINGLETON stream (`url4-runq`) with `retention=WorkQueue`, file storage and a
+single-node-safe default replica count — the durable substrate OME-1086's worker pool pulls
+from. Publishing sets
 `Nats-Msg-Id` to the run's topic so the broker deduplicates a retried submission within
 `duplicate_window`: the queue's `JobAlreadyExists` equivalent, with no lookup table.
 """
@@ -74,8 +75,16 @@ def _queue(fake: _FakeJetStream, **kwargs: Any) -> RunQueue:
 
 
 async def test_the_queue_stream_is_declared_with_the_spec_properties() -> None:
-    """The spec table, pinned: WorkQueue retention, file storage, 3 replicas, and a name OUTSIDE
-    the per-run `url4-cloud_` prefix (Trap 1 — the sweep deletes anything `owns_stream` accepts)."""
+    """The spec table, pinned: WorkQueue retention, file storage, the default replica count, and
+    a name OUTSIDE the per-run `url4-cloud_` prefix (Trap 1 — the sweep deletes anything
+    `owns_stream` accepts).
+
+    AIDEV-NOTE: the replica assertion was 3 until 2026-09-03. It is 1 now (owner-approved edit
+    to a prior test — see `docs/work/2026-09-03-OME-1088-run-queue-replicas-knob.md`): a
+    single-node broker refuses `replicas > 1`, and single-node is what the chart's bundled NATS
+    subchart ships. The count is configuration now (`Settings.run_queue_replicas`), pinned end
+    to end by `test_run_queue_replicas_setting.py`.
+    """
     fake = _FakeJetStream()
     await _queue(fake).ensure_stream()
 
@@ -85,7 +94,7 @@ async def test_the_queue_stream_is_declared_with_the_spec_properties() -> None:
     assert added["subjects"] == [RUN_QUEUE_SUBJECT]
     assert added["retention"] is RetentionPolicy.WORK_QUEUE
     assert added["storage"] is StorageType.FILE
-    assert added["num_replicas"] == 3
+    assert added["num_replicas"] == 1
     # The dedupe window is what makes a retried submission a no-op rather than a second run.
     assert added["duplicate_window"] == 120.0
     # max_age is a storage backstop only — never a correctness mechanism.
