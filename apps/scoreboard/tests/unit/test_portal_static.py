@@ -198,3 +198,16 @@ def test_pareto_chart_shell_is_bounded_provenanced_and_loaded_before_its_caller(
     caller_at = html.index('<script src="benchmark.js"')
     assert logic_at < chart_at < caller_at
     assert "SFParetoChart.render" in script
+
+
+def test_pareto_chart_dark_theme_uses_the_right_paint_property_for_each_element() -> None:
+    """SVG diamonds need fill while the HTML key swatch needs background."""
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    css = (portal / "portal.css").read_text(encoding="utf-8")
+    point = re.search(r'\[data-theme="dark"\]\s+\.pareto-chart__frontier-point\s*\{([^}]*)\}', css)
+    key = re.search(r'\[data-theme="dark"\]\s+\.pareto-chart-key__frontier\s*\{([^}]*)\}', css)
+
+    assert point is not None
+    assert "fill: var(--info-solid)" in point.group(1)
+    assert key is not None
+    assert "background: var(--info-solid)" in key.group(1)

@@ -125,6 +125,47 @@
     return domain[0] === domain[1] ? [0.5] : [0, 0.25, 0.5, 0.75, 1];
   }
 
+  function allUnique(values) {
+    return values.every(function (value, index) { return values.indexOf(value) === index; });
+  }
+
+  function fixedCost(value, places) {
+    var parts = value.toFixed(places).split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return "$" + parts.join(".");
+  }
+
+  // WHY the table formatter is only the first choice: it deliberately rounds ordinary costs to
+  // cents. That is right for a compact cell, but on a narrow chart domain ($1.001–$1.004) it
+  // labels every tick "$1.00" while spreading the points across the full axis. Increase precision
+  // only when needed, capped at the wire contract's six decimal places. If four interpolated
+  // intervals cannot all be named distinctly at that precision, retain the exact endpoints rather
+  // than publish duplicate labels.
+  function buildCostTicks(domain, scale, formatCost) {
+    var positions = tickPositions(domain);
+    var values = positions.map(function (t) { return atScale(t, domain, scale); });
+    var labels = values.map(function (value) {
+      return formatCost({ run_cost_usd: String(value) });
+    });
+    var places;
+
+    if (!allUnique(labels)) {
+      for (places = 2; places <= 6; places += 1) {
+        labels = values.map(function (value) { return fixedCost(value, places); });
+        if (allUnique(labels)) break;
+      }
+      if (!allUnique(labels)) {
+        positions = [0, 1];
+        values = positions.map(function (t) { return atScale(t, domain, scale); });
+        labels = values.map(function (value) { return fixedCost(value, 6); });
+      }
+    }
+
+    return positions.map(function (t, index) {
+      return { position: t, value: values[index], label: labels[index] };
+    });
+  }
+
   function describePoint(point, formatCost, formatScore) {
     var cost = point.cost === null
       ? "cost not reported"
@@ -173,9 +214,8 @@
         "text-anchor": "end",
       }, formatScore(value)));
     });
-    tickPositions(model.costDomain).forEach(function (t) {
-      var x = box.left + t * box.width;
-      var value = atScale(t, model.costDomain, model.costScale);
+    buildCostTicks(model.costDomain, model.costScale, formatCost).forEach(function (tick) {
+      var x = box.left + tick.position * box.width;
       svg.appendChild(svgElement("line", "pareto-chart__tick-mark", {
         x1: x,
         y1: box.bottom,
@@ -186,7 +226,7 @@
         x: x,
         y: box.bottom + 24,
         "text-anchor": "middle",
-      }, formatCost({ run_cost_usd: String(value) })));
+      }, tick.label));
     });
     svg.appendChild(svgElement("line", "pareto-chart__axis", {
       x1: box.left,
@@ -301,6 +341,7 @@
 
   return {
     buildChartModel: buildChartModel,
+    buildCostTicks: buildCostTicks,
     describePoint: describePoint,
     render: render,
   };

@@ -20,17 +20,19 @@ can hold a defensible "best score for the money" claim on one board.
 | Part | What | State |
 |---|---|---|
 | A | Compute the frontier — a pure function, unit-testable without a DB | **Done**, PR #778 |
-| B | Mark qualifying rows, distinct from the gold highest-score mark | **In review**, PR #786; merge-gated |
-| C | Accuracy-vs-cost chart with the frontier drawn | **Implemented**; merge-gated |
+| B | Mark qualifying rows, distinct from the gold highest-score mark | **Done**, PR #786; gate waived by owner |
+| C | Accuracy-vs-cost chart with the frontier drawn | **In review**, PR #791; merge-gated |
 
 A → B → C. A gates the other two. B carries most of the value at a fraction of C's cost.
 
 ## The gate on B and C
 
-`run_cost_usd` is null on every row today. B and C must not merge until real cost data flows:
-OME-1029 (PR #770) merged, a client release carrying it, then a submission reporting a cost. An
-empty frontier rendering cleanly is acceptable; a cost claim computed over nulls is not. Part A
-merges alone safely because nothing imports it.
+At implementation time, `run_cost_usd` was null on every row. The original gate required real cost
+data before B or C merged: OME-1029 (PR #770) merged, a client release carrying it, then a
+submission reporting a cost. An empty frontier rendering cleanly is acceptable; a cost claim
+computed over nulls is not. Part A merged alone safely because nothing imported it. The owner
+explicitly waived this precaution for Part B on 2026-09-02, and PR #786 then merged; it remains
+recorded as a gate for Part C until the owner makes the same decision there.
 
 ## Decisions
 

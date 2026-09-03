@@ -351,7 +351,7 @@ td.col-open { white-space: nowrap; }
 .pareto-chart-key__unpriced { border-radius: 50%; border: var(--border-strong) solid var(--ink-3); }
 
 [data-theme="dark"] .pareto-chart__frontier-line { stroke: var(--info-solid); }
-[data-theme="dark"] .pareto-chart__frontier-point,
+[data-theme="dark"] .pareto-chart__frontier-point { fill: var(--info-solid); }
 [data-theme="dark"] .pareto-chart-key__frontier { background: var(--info-solid); }
 
 @media (forced-colors: active) {

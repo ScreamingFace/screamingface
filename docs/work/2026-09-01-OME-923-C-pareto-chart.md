@@ -97,3 +97,13 @@ Two things fixed:
   `background`. The element is a `<span>`; `fill` is an SVG property and does nothing there.
 
 Gates green, append-only check included with no skip.
+
+## Review fixes (2026-09-03)
+
+- Cost-axis ticks now retain the compact shared formatter when its labels are distinct, add only
+  the decimal precision needed for a narrow domain, and fall back to exact endpoints when four
+  interpolated intervals cannot be named distinctly within the six-decimal wire contract.
+- Dark-mode frontier diamonds and their HTML key swatch now use separate rules: SVG `fill` for the
+  polygon, CSS `background` for the span. A static regression test pins both paint properties.
+- The task mirror now records Part B as merged and Part C as the PR currently in review, while
+  preserving the original rollout gate and the owner's Part B waiver as separate facts.

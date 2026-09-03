@@ -88,7 +88,7 @@ uv run pytest tests/unit/ -v
 
 # The portal's pure logic runs under Node's built-in test runner. No package.json
 # or lockfile — Node is the whole harness. Requires a local Node (CI pins 24).
-node --test tests/portal/leaderboard-logic.test.js tests/portal/pareto-chart.test.js
+node --test tests/portal/leaderboard-logic.test.js tests/portal/pareto-chart.test.js tests/portal/pareto-chart-review.test.js
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
