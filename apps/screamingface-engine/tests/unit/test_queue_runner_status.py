@@ -204,12 +204,12 @@ async def test_exists_is_true_only_for_scheduled_or_running() -> None:
     assert await terminal.exists("t") is False
 
 
-async def test_an_unreadable_tail_reads_as_running_not_a_state() -> None:
-    """P2-10: `status()`'s tail read was unguarded — a `QueueReadError` 500'd the status
-    endpoint. An unreadable tail is UNKNOWN and must never read as terminal-ish: the
-    reaper's `exists()` is this very status, and a `not_found` answer would make it stop
-    an unknown run. It reads "running" — assumed alive — so the reaper leaves it and the
-    client retries."""
+async def test_an_unreadable_tail_is_an_error_not_a_state() -> None:
+    """P2-10 then V-2/V-3: `status()`'s tail read was unguarded (a 500), and the first fix
+    answered "running" — assumed alive. But `exists()` is this same status, and `POST /`
+    used it to 409 a BRAND-NEW topic on a transient blip: a definitive false claim
+    clients do not retry. Unknown is not a state for ANY consumer — the typed raise lets
+    each caller answer honestly (the REST edge 503s; the reaper re-arms)."""
     from screamingface_engine.adapters.jetstream import QueueReadError
 
     class _UnreadablePublisher(_FakePublisher):
@@ -218,4 +218,7 @@ async def test_an_unreadable_tail_reads_as_running_not_a_state() -> None:
 
     runner = _runner(_FakeClock(), _UnreadablePublisher())
 
-    assert await runner.status("t-unreadable") == "running"
+    with pytest.raises(QueueReadError):
+        await runner.status("t-unreadable")
+    with pytest.raises(QueueReadError):
+        await runner.exists("t-unreadable")

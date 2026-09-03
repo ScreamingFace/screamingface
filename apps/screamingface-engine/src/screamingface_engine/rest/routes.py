@@ -19,6 +19,7 @@ from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import FileResponse
 
 from screamingface_engine import job_env, notices
+from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.artifacts import ArtifactStore
 from screamingface_engine.auth import (
     PROBLEM_MEDIA_TYPE,
@@ -172,7 +173,19 @@ async def _schedule(
     the REST edge, re-rendered onto the aigateway call by the Runner. It is deliberately NOT world
     config; a per-run value parked on the shared aigateway configuration would leak across runs.
     """
-    if await deps.job_runner.exists(topic):
+    try:
+        already_exists = await deps.job_runner.exists(topic)
+    except QueueReadError:
+        # V-3: an unreadable queue tail is UNKNOWN, and a 409 would assert — definitively,
+        # in a form clients do not retry — that a run exists for a topic that may be brand
+        # new. 503 says "this server could not read the queue; retry": honest, retryable,
+        # and no state change either way.
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the run queue could not be read; retry",
+        ) from None
+    if already_exists:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
     try:
         await deps.job_runner.schedule(
@@ -567,7 +580,18 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             detail="the capability token is not authorized for that topic",
         )
     _logger.info("run stop requested topic=%s", sub)
-    await deps.job_runner.stop(sub)
+    try:
+        await deps.job_runner.stop(sub)
+    except QueueReadError:
+        # V-2: an unreadable tail used to make `stop()` a SILENT no-op, and this handler
+        # fell through to deleting the stream of a possibly-live run while answering 204.
+        # The raise keeps the state unchanged and the answer honest: 503, retryable, and
+        # the stream deletion below does not run.
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the run queue could not be read; retry",
+        ) from None
     # WHY delete and not purge: this is the run's terminal teardown, and purging a broker-backed
     # stream empties it but leaves the stream object, its consumer state and its filestore
     # directory behind — one permanent stream per run, forever. `delete_stream` defaults to

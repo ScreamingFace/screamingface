@@ -163,3 +163,44 @@ def test_the_queue_runner_wires_the_configured_stream_and_prefix_everywhere() ->
 
     assert runner._queue._stream == "prod-runq"
     assert runner._publisher._run_queue_stream == "prod-runq"
+
+
+def test_every_composition_root_wires_the_same_stream_name() -> None:
+    """V-9/V-6: the stream-wiring test asserted only `build_job_runner`'s output — it
+    could not see the App's consumer (whose sweep deletes what it accepts), the advisor
+    (whose advisory subject carries the stream name), or the worker's root, and a fourth
+    unwired consumer site (app.py) survived exactly that blindness. All four roots are
+    now held to ONE Settings: a mismatch anywhere is a split that fails loudly or a
+    sweep that deletes the queue."""
+    from fastapi import FastAPI
+
+    from screamingface_engine.app import _install_max_deliveries_advisor as _register_queue_advisor
+    from screamingface_engine.app import build_stream_consumer
+    from screamingface_engine.worker.loop import worker_composition
+
+    settings = Settings(
+        runner="queue",
+        nats_url="nats://localhost:4222",
+        run_queue_stream="prod-runq",
+    )
+
+    # The App's runner: the queue and its publisher agree with Settings.
+    runner = build_job_runner(settings)
+    assert runner._queue._stream == "prod-runq"  # noqa: SLF001
+    assert runner._publisher._run_queue_stream == "prod-runq"  # noqa: SLF001
+
+    # The App's event-stream consumer: the sweep's exclusion follows this name (V-6).
+    consumer = build_stream_consumer(settings)
+    assert consumer._run_queue_stream == "prod-runq"  # noqa: SLF001
+
+    # The advisor: its advisory subject must carry the configured stream name.
+    app = FastAPI()
+    _register_queue_advisor(app, settings)
+    advisor = app.state.max_deliveries_advisor
+    assert advisor._run_queue_stream == "prod-runq"  # noqa: SLF001
+    assert "prod-runq" in advisor._subject  # noqa: SLF001
+
+    # The worker: it must pull the same stream the App publishes to.
+    queue, publisher = worker_composition(settings)
+    assert queue._stream == "prod-runq"  # noqa: SLF001
+    assert publisher._run_queue_stream == "prod-runq"  # noqa: SLF001

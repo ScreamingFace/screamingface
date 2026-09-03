@@ -12,6 +12,7 @@ import contextlib
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +32,10 @@ from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.catalog.cache import CatalogService
 from screamingface_engine.catalog.port import ModelParameterSource
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
+
+if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotation needs the name
+    from screamingface_engine.adapters.jetstream import JetStreamConsumer
+
 from screamingface_engine.connections import build_connections
 from screamingface_engine.connections.port import Connections
 from screamingface_engine.metrics import (
@@ -349,6 +354,20 @@ def _require_prod_secret(settings: Settings) -> None:
         )
 
 
+def build_stream_consumer(settings: Settings) -> JetStreamConsumer:
+    """The App's event-stream consumer, carrying the CONFIGURED queue stream name.
+
+    V-6: the consumer inherits `_sweep_orphans`, whose exclusion follows the
+    `run_queue_stream` ctor param — a consumer built from the default constant re-arms
+    the sweep against a renamed queue stream, and the sweep deletes what it accepts.
+    Extracted from `create_app_from_env` so the stream-wiring test can hold this root to
+    the same Settings as the worker's and the App's runner.
+    """
+    from screamingface_engine.adapters.jetstream import JetStreamConsumer
+
+    return JetStreamConsumer(settings.nats_url, run_queue_stream=settings.run_queue_stream)
+
+
 def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
     """Production entrypoint (used by `cli.py` via uvicorn's factory mode).
 
@@ -356,11 +375,9 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     backend, and the catalog service — then wires them into `create_app` and registers their
     shutdown hooks on the App's router.
     """
-    from screamingface_engine.adapters.jetstream import JetStreamConsumer
-
     settings = Settings()
     _require_prod_secret(settings)
-    stream = JetStreamConsumer(settings.nats_url)
+    stream = build_stream_consumer(settings)
     # Catalog first (OME-880): the job runner needs the admitted-model overlay so a
     # dynamically admitted model is routable by the very next scheduled run.
     catalog = build_executable_catalog_service(settings, os.environ)

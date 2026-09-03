@@ -1103,8 +1103,7 @@ async def test_run_completes_after_the_drain_signal_with_a_control_channel_attac
     assert publisher.published[-1].data.status == "stopped"
 
 
-
-async def test_a_cancel_during_the_spawn_window_is_answered_and_enacted() -> None:
+async def test_a_cancel_during_the_spawn_window_is_answered_and_enacted() -> None:  # noqa: PLR0915
     """A cancel that lands between the supervisor's terminal-frame check and the child's
     registration used to get NO reply — the control loop ignored it, the App's timeout
     expired and it tombstoned the queued run, and the child ran to completion and
