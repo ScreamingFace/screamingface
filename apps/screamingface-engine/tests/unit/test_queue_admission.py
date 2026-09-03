@@ -538,3 +538,40 @@ async def test_a_cap_refusals_retry_after_reflects_the_callers_oldest_run() -> N
         await runner.schedule("a3", "'hi'", 60, identity=CALLER_A)
 
     assert exc.value.retry_after_s == 90, "the oldest run's age, not the queue's '1'"
+
+
+def test_a_depth_refusal_retry_after_counts_the_reservations() -> None:
+    """V-10: the ceiling check admits on `depth + reservations`, but `_drain_estimate_s`
+    used the RAW depth — reservations that pushed the queue past the ceiling are not yet
+    visible in the snapshot, so the formula underflowed to its floor and the refusal
+    answered `Retry-After: 1` on a genuinely full queue. The estimate must use the same
+    effective depth the admission decision used. (White-box: the refusal fires at
+    `effective == ceiling` in every reachable schedule order, so the formula itself is
+    the only place the reservation term is observable.)"""
+    runner = _runner(_FakeQueue(depth=9, oldest_age=90.0), depth_ceiling=10)
+    runner._depth_snapshot = 9  # noqa: SLF001
+    runner._reserved = 2  # noqa: SLF001
+    runner._oldest_age = 90.0  # noqa: SLF001
+
+    # effective depth 11, rate 11/90 → (11 - 10) / (11/90) = 8.18 → 9s. The raw-depth
+    # formula answered 1 here.
+    assert runner._drain_estimate_s() == 9  # noqa: SLF001
+
+
+def test_a_cap_refusals_retry_after_is_clamped_above() -> None:
+    """V-10: the caller estimate is the age of the caller's OLDEST in-flight run, which
+    can reach the 16h run ceiling — but the slot frees when ANY of the caller's runs
+    ends, and a `Retry-After` of hours tells a well-behaved client to give up or poll at
+    a useless cadence. The estimate is clamped to `CALLER_RETRY_MAX_S`. (White-box: the
+    harness's 100s capability lifetime prunes any token old enough to exceed the clamp,
+    so the formula is pinned directly.)"""
+    from datetime import timedelta
+
+    from screamingface_engine.adapters.queue_runner import CALLER_RETRY_MAX_S, caller_key
+
+    clock = _FakeClock()
+    runner = _runner(_FakeQueue(), caller_inflight_cap=2, clock=clock)
+    old = clock.now - timedelta(hours=15)
+    runner._in_flight_by_caller[caller_key(CALLER_A)] = {"a1": [old], "a2": [old]}  # noqa: SLF001
+
+    assert runner._caller_retry_after_s(caller_key(CALLER_A)) == CALLER_RETRY_MAX_S  # noqa: SLF001

@@ -332,4 +332,3 @@ async def test_widening_a_legacy_stream_preserves_its_own_config() -> None:
     assert config.num_replicas == 3
     assert config.duplicate_window == 120.0
     assert config.max_age == 86_400.0
-

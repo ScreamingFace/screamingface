@@ -80,6 +80,11 @@ CONTROL_TIMEOUT_S = 1.0
 # seconds, so a well-behaved client honouring the header cannot be turned into a hot
 # loop against the API for up to the 16h run ceiling.
 CALLER_RETRY_FLOOR_S = 30
+# V-10: the caller retry estimate's upper clamp. The estimate is the age of the caller's
+# OLDEST in-flight run, which can reach the 16h run ceiling — but the slot frees when ANY
+# of the caller's runs ends, and a `Retry-After` of hours tells a well-behaved client to
+# give up or poll at a useless cadence. The cap is a poll cadence, not a deadline.
+CALLER_RETRY_MAX_S = 300
 
 # The sentinel `_read_tail` returns for an UNREADABLE stream tail — distinct from "no
 # frame" and from "a terminal frame", because an unreadable broker answers neither
@@ -616,7 +621,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         if not tokens:
             return None
         age_s = (self._clock() - min(tokens)).total_seconds()
-        return max(CALLER_RETRY_FLOOR_S, math.ceil(age_s))
+        # V-10: clamped above as well as floored — see `CALLER_RETRY_MAX_S`.
+        return min(CALLER_RETRY_MAX_S, max(CALLER_RETRY_FLOOR_S, math.ceil(age_s)))
 
     def _drain_estimate_s(self) -> int | None:
         """Seconds until the queue drains below the ceiling, from the pool's observed
@@ -631,6 +637,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
         age = self._oldest_age
         if depth is None or age is None or depth <= 0 or age <= 0:
             return None
+        # V-10: the admission check admits on `depth + reservations` — reservations that
+        # pushed the queue past the ceiling are not yet visible in `_depth_snapshot`, so
+        # the raw depth underflowed the formula and the refusal answered `Retry-After: 1`
+        # on a genuinely full queue. The estimate uses the same effective depth the
+        # admission decision used. (Called under `_admission_lock`, so `_reserved` is
+        # stable for the read.)
+        depth = depth + self._reserved
         rate = depth / age
         retry = (depth - self._depth_ceiling) / rate
         return max(1, math.ceil(retry))

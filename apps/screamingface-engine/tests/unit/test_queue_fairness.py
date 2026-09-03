@@ -41,15 +41,21 @@ class _FakeSub:
         self.unsubscribed = False
         self._fetch_log = fetch_log
         self._subject = subject
+        self.nakked: list[Any] = []
+        self.timeouts: list[float] = []
 
     async def fetch(self, batch: int, timeout: float) -> list[Any]:
         if self._fetch_log is not None:
             self._fetch_log.append(self._subject)
+        self.timeouts.append(timeout)
         out = self._messages[:batch]
         del self._messages[:batch]
         if not out:
             raise TimeoutError("nats: timeout")
-        return [SimpleNamespace(data=payload) for payload in out]
+        return [SimpleNamespace(data=payload, nak=self._record_nak) for payload in out]
+
+    async def _record_nak(self) -> None:
+        self.nakked.append(1)
 
     async def unsubscribe(self) -> None:
         self.unsubscribed = True
@@ -65,6 +71,7 @@ class _FakeJetStream:
         self.pull_subjects: list[str] = []
         self.bound_subjects: list[str] = []
         self.fetches: list[str] = []
+        self.subs: list[_FakeSub] = []
         self._prefix = "$JS.API"
 
     async def add_stream(self, **kwargs: Any) -> object:
@@ -89,7 +96,9 @@ class _FakeJetStream:
     ) -> _FakeSub:
         self.pull_subjects.append(subject)
         self.bound_subjects.append(subject)
-        return _FakeSub(self._messages.get(subject, []), fetch_log=self.fetches, subject=subject)
+        sub = _FakeSub(self._messages.get(subject, []), fetch_log=self.fetches, subject=subject)
+        self.subs.append(sub)
+        return sub
 
 
 def _queue(fake: _FakeJetStream, **kwargs: Any) -> RunQueue:
@@ -312,3 +321,60 @@ async def test_one_callers_burst_fills_the_batch_from_one_bucket() -> None:
     pulled = await queue.pull(4, timeout_s=0.5)
 
     assert len(pulled) == 4, "a single caller's burst must fill the batch, not trickle 1 per poll"
+
+
+async def test_a_pull_that_over_returns_clamps_and_naks_the_surplus() -> None:
+    """V-4: nats-py's `_fetch_n` (want >= 2) drains the subscription's PENDING queue with
+    no `needed` guard, so a held sub carrying late deliveries from a previous poll can
+    return MORE than asked — and the claim loop spawns one supervisor per returned
+    message, so an unclamped extend over-subscribed the pod past `worker_slots`. The
+    pull must clamp to the per-visit cap and NAK the surplus back to the queue — not
+    drop it, and not ack it away."""
+    fake = _FakeJetStream()
+
+    class _OverReturningSub(_FakeSub):
+        """Serves one more than asked — the `_fetch_n` pending-queue drain shape."""
+
+        async def fetch(self, batch: int, timeout: float) -> list[Any]:
+            return await super().fetch(batch + 1, timeout)
+
+    sub = _OverReturningSub([b"m1", b"m2", b"m3"], subject="url4-runq.0")
+    fake.pull_subscribe = _pull_subscribe_returning(sub)  # type: ignore[method-assign]
+
+    queue = _queue(fake, bucket_count=1)
+    msgs = await queue.pull(2, timeout_s=1.0)
+
+    assert len(msgs) == 2, "the pull must clamp to the batch, never over-return"
+    assert len(sub.nakked) == 1, "the surplus must be NAK'd back to the queue"
+
+
+def _pull_subscribe_returning(sub: _FakeSub) -> Any:
+    async def _pull_subscribe(
+        subject: str, durable: str | None = None, stream: str | None = None, config: Any = None
+    ) -> _FakeSub:
+        return sub
+
+    return _pull_subscribe
+
+
+async def test_the_fast_pass_uses_short_windows_and_the_slow_pass_the_remainder() -> None:
+    """V-9: `_FakeSub.fetch` ignored `timeout`, so the P2-7 fast/slow split was
+    unexercised — the test could not tell a two-phase pull from a uniform one. The fake
+    now records every window: the first rotation's windows must total
+    `PULL_FAST_PASS_S` (short, burst-collecting), and the slow pass must spend the
+    REMAINING budget on a second rotation."""
+    from screamingface_engine.runner_queue import PULL_FAST_PASS_S
+
+    fake = _FakeJetStream()
+    queue = _queue(fake, bucket_count=4)
+    await queue.publish(encode_message("a1", "'hi'", 60), identity=CALLER_A)
+
+    await queue.pull(4, timeout_s=5.0)
+
+    assert len(fake.subs) == 4
+    # The first rotation (fast pass) is one short window per bucket.
+    fast_windows = [s.timeouts[0] for s in fake.subs]
+    assert all(w == pytest.approx(min(PULL_FAST_PASS_S, 5.0) / 4) for w in fast_windows)
+    # The slow pass re-visits with the remaining budget split across the rotation.
+    slow_windows = [s.timeouts[1] for s in fake.subs]
+    assert all(w > fast_windows[0] for w in slow_windows), "the slow pass must spend the remainder"
