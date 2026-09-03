@@ -112,3 +112,37 @@ duplicate row on its next submission.
 **Closes `OME-1054` as well as `OME-1051`.** Spec §7 requires they ship together: dedup discards a
 corrected author list, so shipping D1 ("the submitter is responsible for their own omission")
 without the correction path would make it a trap rather than a rule.
+
+## Rebase onto main + migration renumber (2026-09-03)
+
+The branch was 15 commits behind main, which had since taken `OME-923` parts A and B — those
+rewrote `store.py` and `routes/leaderboard.py`, the same files this branch edits. Rebased: clean,
+no conflicts.
+
+**The collision git could not see.** Main landed `0011_benchmark_case_count` while this branch was
+out, and this branch carried `0011_score_authors`. Both claimed 0011 **and both depended on
+`0010_idempotency_key_scheme`** — two heads at one level. A textual merge is clean, because they
+are differently-named files, so nothing would have flagged it before the migrate job ran.
+
+Renumbered to `0012_score_authors`, repointed at `0011_benchmark_case_count`. Verified by walking
+the dependency graph: single chain from 0009 upward, no dangling parents.
+
+**Deviation — `--skip-append-only`, inherited not introduced.** The gate flags two prior test
+files. Verified before skipping: exactly ONE deleted line across both, and it is the
+`test_owned_entries_project_every_declared_field_from_the_row` assertion, replaced by a `derived`
+table so `authors` is compared against its derived value rather than a verbatim row copy. The loop
+still asserts EVERY declared field; nothing is weakened. The change carries its own
+owner-approval note dated 2026-09-02. Everything else in both files is an insertion.
+
+Gates green otherwise. The Node gate runs only `leaderboard-logic.test.js` here, correctly —
+`pareto-chart.test.js` belongs to part C, which is not merged.
+
+### Found while verifying, NOT fixed here
+
+`0004_add_run_cost_usd` is an **orphan head** on main: `0005_auto_20260817_1520` merges
+`0004_auto_20260806_0000` and `0004_auto_20260816_0630` but not it, and nothing else references
+it. So the migration graph has two heads even before this branch. The column plainly exists in
+production, so the deploy-time `job-migrate` evidently applies unapplied migrations regardless of
+head structure — but a fresh database built strictly by following the chain would skip
+`run_cost_usd`, which is the column this whole cost feature rests on. Pre-existing, unrelated to
+multiple authors, and left alone deliberately rather than widened into this PR.
