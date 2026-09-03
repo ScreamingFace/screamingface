@@ -25,23 +25,17 @@ class _RecordingQueue:
         type(self).last_kwargs = dict(kwargs)
 
 
-class _NoopWorker:
-    """Stands in for `Worker`. `run` is a real coroutine, so `run_worker`'s own
-    `asyncio.run(...)` runs untouched — patching `asyncio.run` would reach far beyond this
-    test."""
-
-    def __init__(self, **kwargs: Any) -> None:
-        pass
-
-    async def run(self) -> None:
-        return None
-
-
 def _composed_queue_kwargs(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> dict[str, Any]:
-    """Run `run_worker` with its collaborators stubbed, and return the queue's kwargs.
+    """Build the worker's queue from Settings and return the kwargs it was given.
 
-    `RunQueue` and `JetStreamPublisher` are imported INSIDE `run_worker`, so patching the
-    attribute on their defining module is what the call-time import picks up.
+    AIDEV-NOTE: this drove `run_worker` when it was written (OME-1089). OME-1090 gave
+    `run_worker` a real `nats.connect` for the run-control channel, so calling it from a unit
+    test now blocks on a live broker — the tests hung rather than failed. That same change
+    extracted `worker_composition` for exactly this purpose, so the test targets the seam the
+    branch created. Every assertion below is unchanged; only the entry point moved.
+
+    `RunQueue` and `JetStreamPublisher` are imported INSIDE `worker_composition`, so patching
+    the attribute on their defining module is what the call-time import picks up.
     """
     import screamingface_engine.adapters.jetstream as jetstream_mod
     import screamingface_engine.runner_queue as runner_queue_mod
@@ -50,9 +44,8 @@ def _composed_queue_kwargs(monkeypatch: pytest.MonkeyPatch, settings: Settings) 
     _RecordingQueue.last_kwargs = {}
     monkeypatch.setattr(runner_queue_mod, "RunQueue", _RecordingQueue)
     monkeypatch.setattr(jetstream_mod, "JetStreamPublisher", lambda *a, **k: object())
-    monkeypatch.setattr(loop, "Worker", _NoopWorker)
 
-    loop.run_worker(settings)
+    loop.worker_composition(settings)
     return _RecordingQueue.last_kwargs
 
 

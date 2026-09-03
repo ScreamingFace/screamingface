@@ -124,6 +124,13 @@ def build_job_runner(
                 max_ack_pending=settings.run_queue_max_ack_pending,
                 duplicate_window_s=settings.run_queue_duplicate_window_s,
                 max_age_s=settings.run_queue_max_age_s,
+                # INVARIANT: the same rule as `stream` above, for a property the broker
+                # itself enforces. `ensure_stream` refuses a declaration whose properties
+                # diverge from an existing stream, and the App usually declares FIRST —
+                # it accepts a run before any worker pulls it. An App left on the code
+                # default while the worker reads configuration is therefore a startup
+                # failure for the worker, not a cosmetic mismatch.
+                replicas=settings.run_queue_replicas,
             ),
             # The publisher's sweep must exclude the CONFIGURED queue stream (review
             # follow-up P2-3) — the same rule `run_worker` already applied.
