@@ -201,8 +201,77 @@ Written RED first, then made green:
 
 ### Follow-ups left open
 
+Ticket states re-checked 2026-09-03, on the way to closing this ledger out.
+
 - `OME-885` — ~42 internal references still public in `benchmark.js` / `main.js` /
-  `leaderboard-logic.js` / `portal.css`.
-- `OME-871` (Khoa's hero reword) is superseded by this unit and should be closed by its owner.
-- Unfiled: unauthenticated `POST /v1/scores` in the shipped prod config; and the OpenMined link
-  sweep, now that the org transfer has landed.
+  `leaderboard-logic.js` / `portal.css`. **Still open**, moved to `Pick Immediately` on 2026-08-31.
+- `OME-871` (Khoa's hero reword) is superseded by this unit. **Canceled by its owner 2026-08-24.**
+- The OpenMined link sweep after the org transfer — **filed since**, as `OME-914` (docs, portal,
+  public-docs) and `OME-945` (PyPI issue URLs, README), both In Progress. 115
+  `github.com/OpenMined` references remain in the tree.
+- Unauthenticated `POST /v1/scores` in the shipped production config — **still unfiled, and
+  re-confirmed live on `main` at this date.** `charts/scoreboard/values.yaml` sets
+  `authMode: disabled`, and `values-prod.yaml` enables an Ingress on `scoreboard.screamingface.ai`
+  without overriding it — so the public host trusts client-supplied `submitted_by` free text.
+  `OME-895` is adjacent but not this: it widens *who* may submit once identity is enforced, and
+  does not turn identity on. Worth contrasting with the aigateway chart, which fails the Helm
+  render outright on `cloudflare_headers` + `ingress.enabled` (`aigateway/templates/_helpers.tpl`);
+  the scoreboard chart has no equivalent guard.
+
+## Review finding (Dmitry, 2026-08-19): two mockup sentences describe machinery we do not have
+
+Both points were correct and both are fixed with the smallest possible edit to the brand copy.
+
+**Verified against the query, not the wording.** `_build_leaderboard_query` selects
+`verified_by_screamingface` but never filters on it, and orders by `score DESC` — so an unverified
+`0.99` genuinely outranks a verified `0.40`.
+
+The mockup's note is three sentences. Two of them describe *mechanisms*, and no rewording makes a
+missing mechanism present:
+
+| | Mockup sentence | Outcome |
+|---|---|---|
+| S1 | *"By default, the leaderboard only shows results we've reproduced ourselves."* | **Deleted** — describes a default filter that does not exist |
+| S2 | *"The top of each leaderboard is the best **verified** result: the current SOTA."* | **One word**: `verified` → `submitted`. Now true, and the SOTA payoff survives |
+| S3 | *"Toggle on self-reported runs…"* | **Deleted** — names a control that exists nowhere; `OME-771` is Blocked |
+
+Net deviation from the brand copy: **one word changed, two sentences removed, nothing invented.**
+
+`benchmark.html` carries the **same two sentences as the landing page**. Two facts settled this:
+the mockup has no note box on its benchmark page at all — it conveys the same meaning through a row
+legend, a per-row Status column, a "SOTA (reproducible)" stat and the pool toggle, every one of
+which needs the filter we lack — and Irina's instruction was scoped to *"the copy from the landing
+page"* (2026-08-14, repeated 2026-08-18). So there is no brand copy for that page to deviate from;
+its note was ours before this PR and stays ours.
+
+Matching the landing wording also fixes a gap the single-sentence version left: `benchmark.html`
+has **no glossary** (0 `kv defs` vs 1 on index), and deep links — the `Open →` column, spec pages,
+anything shared — land there directly. Without the second sentence that page offered a reader no
+context at all for what the numbers mean.
+
+### What was tried and rejected first
+
+An earlier pass rewrote both notes into honest-but-defensive prose ("we do not re-run submissions
+yet", "nothing has been independently reproduced", "verified ranking arrives with re-run
+verification"). Owner rejected it: it buried the ambition under a disclaimer and used the
+"not yet / until that lands" construction throughout. The lesson recorded for next time — when copy
+asserts something untrue, cut the assertion, do not add a confession.
+
+**The aspiration never left the page.** The glossary is untouched and still carries Irina's
+vocabulary verbatim: *"Reproducible — Ran on shared compute and stored on the global cache. Anyone
+can re-run it and get the same score"* and *"Unverified — Self-reported… Not yet reproduced on the
+global cache."* The note does not need to restate it.
+
+### Owner action
+
+S1 and S3 were verbatim mockup copy @Irina locked on 2026-08-18. Removing them is a deviation from
+that instruction, made because review showed they describe behaviour the board does not have — her
+call was a wording decision on what turned out to be an implementability question. The copy and the
+pool filter (`OME-771` → `OME-821` → `OME-414`) are one change, not two. She should confirm before
+merge.
+
+**Status as of 2026-09-03.** #631 merged on 2026-08-19 without that confirmation, so
+"she should confirm before merge" above records the intent at the time, not what happened.
+The item is still open: `OME-874` carries two comments, both mine, and Irina has not replied
+in the fifteen days since. S1 and S3 remain absent from the live landing page. Tracked in
+Owner-verify above; the full mockup wording returns with `OME-771`.
