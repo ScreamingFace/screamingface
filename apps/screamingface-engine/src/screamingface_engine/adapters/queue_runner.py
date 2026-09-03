@@ -37,7 +37,7 @@ import math
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 import nats
@@ -51,6 +51,7 @@ from screamingface_engine.runner_queue import (
     DEFAULT_CALLER_INFLIGHT_CAP,
     DEFAULT_DEPTH_CEILING,
     DEFAULT_IO_CONCURRENCY,
+    DEFAULT_RESERVATION_LEASE_S,
     DEFAULT_STATE_CACHE_TTL_S,
     caller_key,
     encode_message,
@@ -198,6 +199,12 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # queue itself caches its `stream_info` reading; this is the runner's own window, which
         # is what the reservation counter covers.
         state_cache_ttl_s: float = DEFAULT_STATE_CACHE_TTL_S,
+        # FEATURE (OME-1108): the backstop on a reservation's lifetime. The primary release is
+        # observation — see `_release_finished_for` — and this bounds the case observation
+        # cannot cover, a broker whose tails stay unreadable. It replaces reliance on
+        # `capability_lifetime_s` (16.3h), which let a finished run hold a slot for most of a
+        # day. Generous against the longest legitimate run, so it never fires in normal use.
+        reservation_lease_s: float = DEFAULT_RESERVATION_LEASE_S,
     ) -> None:
         self._queue = queue
         self._publisher = publisher
@@ -210,6 +217,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # while the app runs, and a model admitted a second ago must reach the very next
         # run — the same rule as the inprocess adapter's `_extra_models`.
         self._extra_models = extra_models
+        self._reservation_lease_s = reservation_lease_s
         self._depth_ceiling = depth_ceiling
         self._caller_inflight_cap = caller_inflight_cap
         self._state_cache_ttl_s = state_cache_ttl_s
@@ -543,9 +551,16 @@ class QueueJobRunner(IdentityAwareJobRunner):
                     self._depth_ceiling,
                     retry_after_s=self._drain_estimate_s(),
                 )
-            count = sum(
-                len(topics) for topics in self._in_flight_by_caller.get(caller, {}).values()
-            )
+            count = self._in_flight_count(caller)
+            if count >= self._caller_inflight_cap:
+                # FEATURE (OME-1108): a caller at its cap may be held there by runs that have
+                # already finished. Nothing else releases them — `status()` is the only
+                # observer and it is reached only from the 409 pre-check and the orphan
+                # reaper, never from the WebSocket path the SDK actually uses — so before
+                # refusing, find out whether these runs are still running. Live deployment
+                # refused 7 of 8 candidates against an EMPTY queue and an idle pool this way.
+                await self._release_finished_for(caller)
+                count = self._in_flight_count(caller)
             if count >= self._caller_inflight_cap:
                 # WHY not the drain estimate (review follow-up P2-11): the cap branch is
                 # reached precisely when the queue is NOT at its ceiling, so the drain
@@ -562,6 +577,56 @@ class QueueJobRunner(IdentityAwareJobRunner):
             self._in_flight_by_caller.setdefault(caller, {}).setdefault(topic, []).append(token)
             self._caller_of_topic[topic] = caller
             return token
+
+    def _in_flight_count(self, caller: str) -> int:
+        """How many reservations `caller` currently holds, across all of its topics."""
+        return sum(len(topics) for topics in self._in_flight_by_caller.get(caller, {}).values())
+
+    async def _release_finished_for(self, caller: str) -> None:
+        """Release the reservations of `caller`'s runs that have already finished.
+
+        The runner's own observation of a finish. It reuses the exact pair `status()` uses —
+        `_read_tail` for the evidence and `_forget_in_flight` for the accounting — so the
+        stale-frame guard (a re-scheduled topic still shows its FIRST run's terminal frame)
+        and the per-caller cleanup apply here unchanged.
+
+        INVARIANT: only a TERMINAL frame releases. `_UNREADABLE_TAIL` is unknown, not
+        finished, and handing out a slot on a broker blip would let a caller exceed its cap
+        while its runs are still billing — the same rule every other consumer of `_read_tail`
+        follows.
+
+        SCOPED to one caller deliberately: this runs on the admission path, so it must cost
+        no more than the decision it informs. A caller below its cap does no reads at all,
+        and a caller at its cap reads only its own topics — bounded by the cap itself.
+        """
+        for topic in sorted(self._in_flight_by_caller.get(caller, {})):
+            frame = await self._read_tail(topic)
+            if isinstance(frame, TerminatedEvent):
+                self._forget_in_flight(topic, frame)
+
+    def _expire_leases(self) -> None:
+        """Drop reservations older than `reservation_lease_s` — the backstop for what
+        observation cannot reach.
+
+        WHY a second mechanism at all: `_release_finished_for` needs a readable stream tail.
+        A broker that stays unreadable would otherwise leave the slot held until the
+        capability expires, which is 16.3 hours — long enough to lock a caller out for a
+        working day over a transient fault. The lease bounds that without weakening the cap
+        for any run shorter than it.
+        """
+        cutoff = self._clock() - timedelta(seconds=self._reservation_lease_s)
+        for by_caller in self._in_flight_by_caller.values():
+            for topic in list(by_caller):
+                kept = [token for token in by_caller[topic] if token > cutoff]
+                if kept:
+                    by_caller[topic] = kept
+                else:
+                    del by_caller[topic]
+        held = {topic for topics in self._in_flight_by_caller.values() for topic in topics}
+        for topic in [t for t in list(self._caller_of_topic) if t not in held]:
+            self._caller_of_topic.pop(topic, None)
+        for caller in [c for c, topics in self._in_flight_by_caller.items() if not topics]:
+            del self._in_flight_by_caller[caller]
 
     async def _release_reservation(self, topic: str, caller: str, token: datetime) -> None:
         """Release the ONE reservation `token` identifies, for a run that was not durably
@@ -721,6 +786,9 @@ class QueueJobRunner(IdentityAwareJobRunner):
         for topic in expired:
             del self._scheduled_at[topic]
             self._forget_in_flight(topic)
+        # OME-1108: the lease is the shorter of the two bounds and is checked on the same
+        # path, so a reservation cannot outlive its run by a capability lifetime.
+        self._expire_leases()
 
 
 __all__ = [

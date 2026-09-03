@@ -107,6 +107,14 @@ PULL_SUB_TTL_S = 300.0
 # once. 8 matches the Client's fan-out (`_MAX_CANDIDATES_IN_FLIGHT`), so one ordinary
 # Evaluation fits while a second concurrent one is refused until the first's runs finish.
 DEFAULT_CALLER_INFLIGHT_CAP = 8
+# The BACKSTOP on how long one admission may hold a slot (OME-1108). The primary release is
+# observation — the runner re-reads a caller's terminal frames before refusing it — and this
+# covers only what observation cannot: a broker whose tails stay unreadable. Before it existed
+# the sole expiry was `capability_lifetime_s` (16.3h), so a run that finished in four minutes
+# could hold its slot for most of a day; a caller was then refused by its own history while the
+# queue sat empty and the pool idle. One hour is far above the longest legitimate run observed
+# (~6 min) and far below that lifetime, so it never fires in normal use.
+DEFAULT_RESERVATION_LEASE_S = 3600.0
 # The anonymous caller's key: a run with no verified identity is its own caller, so it cannot
 # hide behind another caller's footprint.
 _ANONYMOUS_CALLER = "anonymous"
