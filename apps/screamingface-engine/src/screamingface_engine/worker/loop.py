@@ -16,8 +16,9 @@ import contextlib
 import logging
 import signal
 import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import nats
 
@@ -29,12 +30,13 @@ if (
     from screamingface_engine.adapters.jetstream import JetStreamPublisher
     from screamingface_engine.runner_queue import RunQueue
 from screamingface_engine.runner_queue import topic_of_message
-from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX
+from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX, OWNERSHIP_SUBJECT_PREFIX
 from screamingface_engine.worker.metrics import WorkerMetrics, build_worker_metrics
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
     HEARTBEAT_INTERVAL_S,
     KILL_GRACE_S,
+    OWNERSHIP_PROBE_TIMEOUT_S,
     ClaimedMessage,
     RunSupervisor,
     _ChildProcess,
@@ -81,9 +83,19 @@ class _ControlSubscription(Protocol):
 
 
 class _Control(Protocol):
-    """The slice of a core NATS client the control loop uses."""
+    """The slice of a core NATS client the worker's control channels use.
+
+    ``request`` is the CLIENT side of the cross-pod ownership probe (OME-1089): the
+    supervisor asks `url4.runown.<topic>` whether another pod is executing a redelivered
+    run. Declared here rather than on a second injected client because the worker already
+    holds exactly one core-NATS connection for `url4.runctl.*` and both channels are the
+    same connection's business — see `adapters.queue_runner._ControlClient` for the App's
+    identical slice of the same client.
+    """
 
     async def subscribe(self, subject: str) -> _ControlSubscription: ...
+
+    async def request(self, subject: str, payload: bytes, *, timeout: float) -> Any: ...
 
 
 class Worker:
@@ -110,6 +122,7 @@ class Worker:
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
         deadline_margin_s: float = DEADLINE_MARGIN_S,
         kill_grace_s: float = KILL_GRACE_S,
+        ownership_probe_timeout_s: float = OWNERSHIP_PROBE_TIMEOUT_S,
         metrics: WorkerMetrics | None = None,
     ) -> None:
         if slots < 1:
@@ -125,9 +138,18 @@ class Worker:
         self._metrics = metrics if metrics is not None else build_worker_metrics()
         self._metrics.slots_total.set(slots)
         # The run-control channel (OME-1090): a core NATS client subscribed to
-        # `url4.runctl.*`. `None` disables the control loop (tests that do not exercise
-        # cancellation).
+        # `url4.runctl.*` — and, since OME-1089, to `url4.runown.*` as well. `None` disables
+        # both loops AND the ownership probe (tests that do not exercise cancellation).
         self._control = control
+        # This worker POD's identity (OME-1089), minted per process and sent as the payload
+        # of every ownership probe.
+        #
+        # WHY it exists: this worker is itself subscribed to `url4.runown.*`, and a claim
+        # registers its topic in `_starting` BEFORE the probe goes out — so without an id on
+        # the wire a pod would answer its OWN probe, veto its own claim, and the run would
+        # never execute anywhere (a redelivery-after-crash deadlock). `_handle_ownership`
+        # drops any probe carrying this id.
+        self._worker_id = uuid.uuid4().hex
         # The drain signal: set by SIGTERM/SIGINT (or by a test). The claim loop stops
         # pulling once it is set; the supervisors read it to classify a drain termination.
         self._draining = asyncio.Event()
@@ -170,9 +192,12 @@ class Worker:
             children_by_topic=self._children_by_topic,
             cancelled=self._cancelled,
             starting=self._starting,
+            control=control,
+            worker_id=self._worker_id,
             heartbeat_interval_s=heartbeat_interval_s,
             deadline_margin_s=deadline_margin_s,
             kill_grace_s=kill_grace_s,
+            ownership_probe_timeout_s=ownership_probe_timeout_s,
             metrics=self._metrics,
         )
 
@@ -191,6 +216,7 @@ class Worker:
                 tg.create_task(self._claim_loop(tg))
                 if self._control is not None:
                     tg.create_task(self._control_loop(tg))
+                    tg.create_task(self._ownership_loop())
         finally:
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.remove_signal_handler(sig)
@@ -303,10 +329,37 @@ class Worker:
         done and the pool is empty) keeps cancels answerable through the window, and the
         abandon-on-timeout shape below still ends the TaskGroup.
         """
+        await self._serve_subject(f"{CONTROL_SUBJECT_PREFIX}.*", self._handle_control)
+
+    async def _ownership_loop(self) -> None:
+        """Answer cross-pod ownership probes: only a worker executing the run replies
+        (OME-1089).
+
+        A SECOND subscription rather than a payload on `url4.runctl.*` — see
+        `subjects.OWNERSHIP_SUBJECT_PREFIX` for the version-skew hazard that forces it: the
+        control handler SIGTERMs the child that owns the topic, so an old worker mid rolling
+        deploy would read a probe as a cancel and kill a healthy run. On a new subject an old
+        worker simply never subscribes, never replies, and the prober fails open.
+
+        It shares `_serve_subject`'s `_drained`-based exit with the control loop, so this
+        subscription cannot keep the `TaskGroup` — and the rolling deploy behind it — alive
+        past the drain (review follow-up P2-12).
+        """
+        await self._serve_subject(f"{OWNERSHIP_SUBJECT_PREFIX}.*", self._handle_ownership)
+
+    async def _serve_subject(
+        self, subject: str, handle: Callable[[_ControlMessage], Awaitable[None]]
+    ) -> None:
+        """Serve one core-NATS subscription until the drain phase has COMPLETED.
+
+        The `_drained` exit condition (not the drain SIGNAL) is the P2-12 invariant, and it
+        belongs to every subscription the worker serves — see `_control_loop`'s docstring for
+        why both halves of it are load-bearing.
+        """
         control = self._control
         if control is None:
             return
-        sub = await control.subscribe(f"{CONTROL_SUBJECT_PREFIX}.*")
+        sub = await control.subscribe(subject)
         messages = sub.messages.__aiter__()
         while True:
             msg_task = asyncio.ensure_future(messages.__anext__())
@@ -325,7 +378,36 @@ class Worker:
                 with contextlib.suppress(asyncio.CancelledError):
                     await msg_task
                 return
-            await self._handle_control(msg_task.result())
+            await handle(msg_task.result())
+
+    async def _handle_ownership(self, msg: _ControlMessage) -> None:
+        """Answer one ownership probe: reply IFF this worker is executing the run, and NEVER
+        to our own probe (OME-1089).
+
+        INVARIANT — NO SIDE EFFECTS. This handler must never touch a child. It is the whole
+        reason the probe is a separate subject from `url4.runctl.*`, whose handler kills.
+
+        INVARIANT — silence is the negative answer. A worker that does not own the topic
+        sends NO reply, so the prober's request times out rather than receiving a "no". That
+        makes an old worker (which does not subscribe at all) and a new non-owner
+        indistinguishable, which is what lets the prober fail open in both cases.
+
+        The reply payload is this worker's own id, so the prober's warning names the pod that
+        actually owns the run.
+
+        WHY `_starting` counts as ownership, not just `_children_by_topic`: a run is claimed
+        and registered as starting BEFORE its child exists, and a probe landing in that spawn
+        window must still answer "mine" — answering from the child index alone would declare
+        the run unowned for the length of a fork/exec and reopen the very race this closes.
+        And WHY the self-id check rather than narrowing to `_children_by_topic`: the probing
+        pod is subscribed here too, and its own claim is in `_starting` when it probes, so
+        without the id it would veto its own claim and the run would execute NOWHERE.
+        """
+        if msg.data == self._worker_id.encode():
+            return
+        topic = msg.subject.removeprefix(f"{OWNERSHIP_SUBJECT_PREFIX}.")
+        if topic in self._children_by_topic or topic in self._starting:
+            await msg.respond(self._worker_id.encode())
 
     async def _handle_control(self, msg: _ControlMessage) -> None:
         """Answer one control request: SIGTERM the child that owns the topic, or reply to a

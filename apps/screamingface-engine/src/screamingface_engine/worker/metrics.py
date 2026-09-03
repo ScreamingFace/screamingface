@@ -39,6 +39,7 @@ class WorkerMetrics:
     claim_latency_s: Histogram
     run_duration_s: Histogram
     redeliveries: Counter
+    cross_pod_duplicate_claims: Counter
     child_exit_codes: Counter
     started: Counter
     drains: Counter
@@ -95,6 +96,16 @@ def build_worker_metrics() -> WorkerMetrics:
         redeliveries=Counter(
             "screamingface_engine_worker_redeliveries_total",
             "Claimed messages that had been redelivered at least once.",
+            registry=registry,
+        ),
+        cross_pod_duplicate_claims=Counter(
+            "screamingface_engine_worker_cross_pod_duplicate_claims_total",
+            "Redelivered claims this worker acked away because the ownership probe "
+            "(url4.runown.*) found the run still executing on ANOTHER pod (OME-1089). "
+            "The in-process duplicate guard cannot see across pods, so at replicas > 1 "
+            "this counter is the operator's only signal that the fleet is hitting the "
+            "double-execution path — a rising count means the workers' broker path is "
+            "dropping in_progress heartbeats for longer than ack_wait.",
             registry=registry,
         ),
         child_exit_codes=Counter(

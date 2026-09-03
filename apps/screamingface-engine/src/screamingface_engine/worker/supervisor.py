@@ -25,11 +25,13 @@ from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
+from nats.errors import NoRespondersError
+
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.logs import run_scope
 from screamingface_engine.runner_queue import decode_message, topic_of_message
-from screamingface_engine.subjects import ENQUEUED_AT_HEADER
+from screamingface_engine.subjects import ENQUEUED_AT_HEADER, ownership_subject_for
 from screamingface_engine.worker.metrics import WorkerMetrics
 from url4.streaming.protocol import (
     ErrorInfo,
@@ -80,6 +82,13 @@ DEADLINE_MARGIN_S = 30.0
 # How often the worker extends a claimed message's ack_wait while its child runs. Far
 # below the queue's default ack_wait (60s), so a 16-hour run is never redelivered.
 HEARTBEAT_INTERVAL_S = 20.0
+# How long the cross-pod ownership probe waits for an owner to answer before the claim
+# proceeds anyway (OME-1089). Short on purpose: a local NATS round trip is ~1ms, and a
+# NON-owner never replies at all — so the prober pays the FULL timeout in the common case
+# (a redelivery of a run nobody is executing, the crash-recovery path), and that wait is
+# pure added latency on the run. `adapters.queue_runner.CONTROL_TIMEOUT_S` is the same
+# convention on the App side, at the second the App's DELETE can afford.
+OWNERSHIP_PROBE_TIMEOUT_S = 0.25
 
 
 def derived_heartbeat_interval_s(ack_wait_s: float) -> float:
@@ -128,6 +137,17 @@ class _ChildProcess(Protocol):
     def kill(self) -> None: ...
 
 
+class _OwnershipProber(Protocol):
+    """The slice of a core NATS client the ownership probe uses (OME-1089).
+
+    Request/reply only — the supervisor never subscribes; the worker's control loop owns the
+    serving side. The same shape as ``adapters.queue_runner._ControlClient``, deliberately:
+    both are one core-NATS request against a per-run subject with a short timeout.
+    """
+
+    async def request(self, subject: str, payload: bytes, *, timeout: float) -> Any: ...
+
+
 class _Publisher(Protocol):
     """The slice of ``JetStreamPublisher`` the supervisor uses."""
 
@@ -161,9 +181,12 @@ class RunSupervisor:
         children_by_topic: dict[str, _ChildProcess],
         cancelled: set[str],
         starting: set[str] | None = None,
+        control: _OwnershipProber | None = None,
+        worker_id: str | None = None,
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
         deadline_margin_s: float = DEADLINE_MARGIN_S,
         kill_grace_s: float = KILL_GRACE_S,
+        ownership_probe_timeout_s: float = OWNERSHIP_PROBE_TIMEOUT_S,
         metrics: WorkerMetrics | None = None,
     ) -> None:
         self._publisher = publisher
@@ -184,6 +207,12 @@ class RunSupervisor:
         # child for one topic and race its sibling to the terminal frame. Sync-guarded —
         # the check-and-add below has no await between it, so on the single event loop it is
         # atomic against every other claim.
+        #
+        # SCOPE (OME-1089): this set is IN-PROCESS. At `runnerPool.replicas: 1` it was the
+        # whole world and the guard was complete; at N pods there are N of these sets and a
+        # mid-run redelivery landing on a DIFFERENT pod passed every claim gate and forked a
+        # second child for one run. `_owner_elsewhere` is the cross-pod half of the same
+        # question.
         self._topics_in_flight: set[str] = set()
         # The topic → child index (OME-1090): the worker's control loop reads it to find
         # the owner of a run, and the supervisor maintains it alongside `_children`.
@@ -195,11 +224,27 @@ class RunSupervisor:
         # Runs claimed but not yet spawned (OME-1090): the control loop answers from here
         # during the spawn window. `None` keeps direct construction (older tests) working.
         self._starting = starting if starting is not None else set()
+        # The cross-pod ownership channel (OME-1089): a core NATS client for the
+        # `url4.runown.<topic>` probe. `None` (every test that does not exercise the probe,
+        # and any worker built without a control connection) disables the probe entirely and
+        # the claim path is byte-for-byte what it was before — see `_owner_elsewhere`.
+        self._control = control
+        # This worker instance's identity, sent as the probe payload.
+        #
+        # WHY it exists: the probing worker is ITSELF subscribed to `url4.runown.*`, and
+        # `_supervise` registers the topic in `_starting` BEFORE calling `_claim` — so
+        # without an identity on the wire a pod answers its OWN probe, declines its own
+        # claim, and the run is never executed by anybody. The handler drops any probe
+        # carrying its own id (`worker.loop._handle_ownership`). Fixing it by narrowing the
+        # handler to `_children_by_topic` instead would reopen the spawn-window race the
+        # `_starting` registry exists to close.
+        self._worker_id = worker_id if worker_id is not None else uuid.uuid4().hex
         self._heartbeat_interval_s, self._deadline_margin_s, self._kill_grace_s = (
             heartbeat_interval_s,
             deadline_margin_s,
             kill_grace_s,
         )
+        self._ownership_probe_timeout_s = ownership_probe_timeout_s
         # The worker's Prometheus metrics (OME-1092), shared with the claim loop.
         self._metrics = metrics
 
@@ -251,7 +296,13 @@ class RunSupervisor:
                 self._topics_in_flight.discard(topic)
 
     async def _claim(self, msg: ClaimedMessage, topic: str) -> None:
-        """The claim gates and the run, after the duplicate guard has admitted the topic."""
+        """The claim gates and the run, after the duplicate guard has admitted the topic.
+
+        The gates are ORDERED, cheapest and most conclusive first, and exactly one of them
+        disposes of the message: a run that already ended is acked away by the local stream
+        read without a broker round trip, and only then does the cross-pod probe ask whether
+        somebody else is executing it (OME-1089).
+        """
         # One check for three cases: redelivery of a run that already finished, a
         # cancel that landed before the claim, and a stale message whose run is over.
         try:
@@ -267,7 +318,37 @@ class RunSupervisor:
             return
         if already_terminal:
             await msg.ack()
-            return
+        elif not await self._refuse_cross_pod_duplicate(msg, topic):
+            await self._execute(msg, topic)
+
+    async def _refuse_cross_pod_duplicate(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Ack a redelivered claim away when ANOTHER pod is executing the run (OME-1089).
+
+        The cross-pod twin of the in-process duplicate branch in `_supervise`: the other pod
+        owns the outcome — its terminal frame and its ack — so a second child here would race
+        it to the stream and bill every model call twice. Acked away rather than left
+        unacked, for the same reason the in-process branch acks: an unacked duplicate
+        redelivers in a loop until it hits `max_deliver`, and the advisory subscriber
+        (`adapters.max_deliveries`) then ends the LIVE run as
+        `Terminated(failed, max_deliveries)`.
+
+        Returns whether the message was disposed of here.
+        """
+        owner = await self._owner_elsewhere(msg, topic)
+        if owner is None:
+            return False
+        logger.warning(
+            "duplicate claim of %s acked away; the run is already executing on worker %s",
+            topic,
+            owner,
+        )
+        if self._metrics is not None:
+            self._metrics.cross_pod_duplicate_claims.inc()
+        await msg.ack()
+        return True
+
+    async def _execute(self, msg: ClaimedMessage, topic: str) -> None:
+        """Run the claim this worker owns: the queue-time expiry drop, or the child."""
         if self._capability_expired(msg):
             await self._publish_terminal(
                 topic, "failed", QUEUE_EXPIRED, "the run's capability expired while queued"
@@ -433,6 +514,63 @@ class RunSupervisor:
         """
         frame = await self._publisher.last_frame(topic)
         return isinstance(frame, TerminatedEvent)
+
+    async def _owner_elsewhere(self, msg: ClaimedMessage, topic: str) -> str | None:
+        """The id of ANOTHER worker executing this run right now, or ``None`` (OME-1089).
+
+        The cross-pod half of the duplicate guard. `_topics_in_flight` answers only for THIS
+        process; the other two claim gates both pass for a still-RUNNING run
+        (`_terminal_frame_exists` matches only a `TerminatedEvent`, and a live run's stream
+        tail is a Span or a Log; `_capability_expired` is False inside the deadline). So at
+        `replicas > 1` nothing in the claim path answered "is another pod running this?" and
+        a mid-run redelivery landing on a second pod forked a SECOND child for one run: two
+        children publishing to one event stream, both racing to the terminal frame, and every
+        model call paid for twice.
+
+        WHY ONLY ON REDELIVERY: the queue is `WorkQueue` retention and each bucket subject
+        maps to exactly ONE durable consumer, so a message is outstanding on at most one
+        worker at a time — a FIRST delivery cannot be a duplicate of anything. Two pods can
+        only ever hold the same message via redelivery. Gating on `_redelivered` therefore
+        puts the guard exactly on the path where duplication is possible and leaves the
+        normal claim path at ZERO added cost (no broker round trip, no added latency).
+
+        WHY IT FAILS OPEN — a timeout, a `NoRespondersError`, a connection error, or no
+        control client at all all return `None` and the run PROCEEDS: the only other option
+        is declining the claim, and declining is how runs get LOST. `max_deliver=2` gives a
+        run exactly one redelivery; a decline leaves the message unacked, it redelivers once,
+        and a second decline hits `max_deliver` and the advisory subscriber ends the run as
+        `Terminated(failed, max_deliveries)` — a run that today would re-run and succeed. A
+        partitioned owner that cannot answer this probe also cannot publish frames and will
+        die on its own deadline, so failing open costs at most the duplicate we already have
+        today, while failing closed can destroy a run. Losing runs is worse than
+        double-running them.
+        """
+        control = self._control
+        if control is None or not self._redelivered(msg):
+            return None
+        reply: Any = None
+        try:
+            reply = await control.request(
+                ownership_subject_for(topic),
+                self._worker_id.encode(),
+                timeout=self._ownership_probe_timeout_s,
+            )
+        except (TimeoutError, NoRespondersError):
+            # "Nobody owns this run" — a timeout because a non-owner deliberately stays
+            # silent, and `NoRespondersError` (not a `TimeoutError` subclass) as the same
+            # answer delivered faster: the broker reports nothing subscribed to
+            # `url4.runown.*` at all, which is a fleet of workers running the OLD code.
+            pass
+        except Exception as exc:
+            # A broker error is not an answer. Failing open is the same decision as above,
+            # and the log line is what tells an operator the guard was unavailable.
+            # `CancelledError` is a `BaseException` and still propagates.
+            logger.warning("ownership probe for %s failed with %r; claiming anyway", topic, exc)
+        if reply is None:
+            return None
+        # The owner names itself in the reply, so the refusal's warning can point at the pod
+        # that actually holds the run; a reply with no payload still means "owned".
+        return getattr(reply, "data", b"").decode(errors="replace") or "unknown"
 
     def _capability_expired(self, msg: ClaimedMessage) -> bool:
         """Whether the run's capability has expired while it sat in the queue.
@@ -671,9 +809,17 @@ class RunSupervisor:
         """Extend the claimed message's ack_wait while its child runs.
 
         Without this, a run longer than the queue's ``ack_wait`` (60s) would be
-        redelivered mid-run — a second worker would claim it, see the run's own frames on
-        the stream, and ack it away, while the first worker's eventual ack would be a
-        no-op. The heartbeat is cancelled the moment the child exits.
+        redelivered mid-run and a second worker would fork a SECOND child for it. The
+        heartbeat is cancelled the moment the child exits.
+
+        CORRECTION (OME-1089): this docstring used to claim the redelivery was harmless
+        because "a second worker would claim it, see the run's own frames on the stream, and
+        ack it away". The code has never done that — `_terminal_frame_exists` matches only a
+        `TerminatedEvent`, and a RUNNING run's stream tail is a Span or a Log, so the gate
+        admits it. The heartbeat is therefore the FIRST line of defence, not a nicety, and
+        `_owner_elsewhere` is the second: the cross-pod probe that actually answers "is this
+        run executing somewhere else?" when a sustained broker outage has starved this loop
+        for longer than `ack_wait`.
         """
         while True:
             await asyncio.sleep(self._heartbeat_interval_s)
@@ -750,6 +896,7 @@ __all__ = [
     "KILL_GRACE_S",
     "KILLED",
     "OOM_KILLED",
+    "OWNERSHIP_PROBE_TIMEOUT_S",
     "QUEUE_EXPIRED",
     "RunSupervisor",
     "SPAWN_FAILED",
