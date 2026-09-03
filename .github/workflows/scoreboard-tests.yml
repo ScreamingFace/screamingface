@@ -92,7 +92,7 @@ jobs:
       # results.xml/coverage.xml unwritten, so the two `if: always()` reporter steps
       # failed on missing paths and buried the real cause under three red steps.
       - name: Run portal JS tests
-        run: node --test tests/portal/leaderboard-logic.test.js
+        run: node --test tests/portal/leaderboard-logic.test.js tests/portal/pareto-chart.test.js tests/portal/pareto-chart-review.test.js
 
       - name: Test report
         uses: dorny/test-reporter@v3
