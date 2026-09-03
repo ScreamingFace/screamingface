@@ -460,7 +460,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
         return "scheduled" if self._capability_valid(topic) else "not_found"
 
     async def queue_depth(self) -> int:
-        """How many runs are queued — the position notice's input (OME-1090)."""
+        """How many runs are queued: an uncached, on-demand read of the queue's depth.
+
+        Distinct from `queue_snapshot`, which returns the cached pair `/metrics` scrapes.
+        No caller in the App reads this today — the queue-position notice that motivated it
+        was removed — but it stays as the adapter's honest answer to the question, and as
+        the uncached counterpart the admission path's cached snapshot is measured against.
+        """
         return await self._queue.depth()
 
     def queue_snapshot(self) -> tuple[int | None, float | None]:
