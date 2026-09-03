@@ -12,6 +12,8 @@ submission path works is a supported workflow, and the client already warns them
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from scoreboard.scores.schemas import ScoreSubmission
@@ -33,6 +35,7 @@ def _submission(spec_id: str, score: float, total_questions: int) -> ScoreSubmis
         score=score,
         total_questions=total_questions,
         ran_with_providers=["openrouter"],
+        run_cost_usd=Decimal("1.000000"),
     )
 
 

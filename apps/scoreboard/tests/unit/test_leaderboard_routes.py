@@ -45,6 +45,7 @@ def _submission(
         total_questions=total_questions,
         correct_questions=correct_questions,
         ran_with_providers=providers or ["openai"],
+        run_cost_usd=Decimal("1.000000"),
         ran_at_local=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
         client=ClientInfo(name="scoreboard-test", version="0.1.0", platform="test"),
         metadata={"source": "unit"},
@@ -477,12 +478,12 @@ async def test_get_spec_history_includes_the_run_cost(
     assert Decimal(returned) == Decimal("7.25")
 
 
-async def test_get_spec_history_reports_an_absent_cost_as_null(
+async def test_get_spec_history_reports_a_legacy_absent_cost_as_null(
     async_client: httpx.AsyncClient,
 ) -> None:
     store = ScoreStore()
     await _register_benchmark(store)
-    await store.submit(_submission(spec_id="uncosted-history"))
+    await store.submit(_legacy_uncosted("uncosted-history"))
 
     response = await async_client.get("/v1/leaderboard/hle/uncosted-history/history")
 
@@ -538,6 +539,11 @@ def _costed(spec_id: str, cost: str) -> ScoreSubmission:
     return _submission(spec_id=spec_id).model_copy(update={"run_cost_usd": Decimal(cost)})
 
 
+def _legacy_uncosted(spec_id: str) -> ScoreSubmission:
+    """Model a row written before OME-822, bypassing the new request contract."""
+    return _submission(spec_id=spec_id).model_copy(update={"run_cost_usd": None})
+
+
 @pytest.mark.parametrize(
     ("submitted", "expected"),
     [
@@ -577,14 +583,14 @@ async def test_spec_history_serializes_the_cost_at_a_fixed_scale(
     assert response.json()["submissions"][0]["run_cost_usd"] == "1000.000000"
 
 
-async def test_an_absent_cost_serializes_as_null_not_a_string(
+async def test_a_legacy_absent_cost_serializes_as_null_not_a_string(
     async_client: httpx.AsyncClient,
 ) -> None:
     # INVARIANT (D5): absent must stay absent on the wire — not "0.000000", and
     # not the string "None".
     store = ScoreStore()
     await _register_benchmark(store)
-    await store.submit(_submission(spec_id="null-scale"))
+    await store.submit(_legacy_uncosted("null-scale"))
 
     response = await async_client.get("/v1/leaderboard/hle")
 
@@ -602,7 +608,7 @@ async def test_get_leaderboard_includes_the_run_cost(
     store = ScoreStore()
     await _register_benchmark(store)
     await store.submit(_costed("costed-board", "7.25"))
-    await store.submit(_submission(spec_id="uncosted-board"))
+    await store.submit(_legacy_uncosted("uncosted-board"))
 
     response = await async_client.get("/v1/leaderboard/hle")
 
@@ -836,6 +842,7 @@ def _private_submission(
         total_questions=100,
         correct_questions=int(score * 100),
         ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
         benchmark_revision=revision,
     )
 
@@ -1303,6 +1310,7 @@ async def test_the_frontier_route_passes_the_registered_case_count(
                 "score": score,
                 "total_questions": total,
                 "ran_with_providers": ["openrouter"],
+                "run_cost_usd": "1.000000",
             },
         )
         assert response.status_code == 201, response.text
@@ -1368,9 +1376,10 @@ async def _row(
     `submitted_at`.
     """
     created, _ = await store.submit(_submission(spec_id=spec_id, score=score))
-    updates: dict[str, object] = {"benchmark_revision": revision}
-    if cost is not None:
-        updates["run_cost_usd"] = Decimal(cost)
+    updates: dict[str, object] = {
+        "benchmark_revision": revision,
+        "run_cost_usd": Decimal(cost) if cost is not None else None,
+    }
     await Score.filter(id=created.id).update(**updates)
 
 
@@ -1405,8 +1414,7 @@ async def test_get_leaderboard_marks_the_pareto_frontier(
 async def test_get_leaderboard_marks_nothing_when_no_row_reports_a_cost(
     async_client: httpx.AsyncClient,
 ) -> None:
-    """Today's real board: OME-770 shipped the column, nothing has ever filled it. It must
-    render as an ordinary board, not error and not mark anything."""
+    """A legacy/imported board with no cost data renders without marks or errors."""
     store = ScoreStore()
     # WHY pinned: with an unregistered revision the D12 gate returns an empty frontier before
     # compute_pareto_frontier is ever called, so this test passed no matter how a null cost was

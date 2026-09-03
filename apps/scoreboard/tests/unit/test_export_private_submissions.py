@@ -9,6 +9,7 @@ expose. That also means this path must work when the API cannot help — it does
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -33,6 +34,7 @@ def _submission(*, submitted_by: str, spec_id: str, score: float) -> ScoreSubmis
         total_questions=100,
         correct_questions=int(score * 100),
         ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
     )
 
 
@@ -96,6 +98,7 @@ async def test_a_public_benchmark_can_also_be_exported(tortoise_db: None) -> Non
             total_questions=100,
             correct_questions=50,
             ran_with_providers=["openai"],
+            run_cost_usd=Decimal("1.000000"),
         )
     )
 

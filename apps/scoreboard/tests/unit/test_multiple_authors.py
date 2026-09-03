@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,7 @@ def _submission(
         total_questions=100,
         correct_questions=75,
         ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
         metadata=metadata,
     )
 
