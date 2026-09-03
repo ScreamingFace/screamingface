@@ -1,9 +1,9 @@
 ---
 ticket: OME-874
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-08-18
-finished:
+finished: 2026-08-19
 ---
 
 # OME-874 — Replicate the leaderboard-mvp landing copy and UI on the portal
@@ -131,7 +131,7 @@ leaves `OME-768`'s open question ("what should the catalogue subtitle be?") stil
 **D8 — Focus ships with authored placeholder copy (owner, option C1).** draco → *"Research reports
 with citations"*; ifeval → *"Instruction following"*; healthbench-worst30 → *"Clinical safety,
 hardest cases"*. Not brand-approved — editable in `values.yaml` without a code change, subject to the
-deployed-values caveat above.
+deployed-values caveat in Owner-verify below.
 
 ## Test plan
 
@@ -159,12 +159,64 @@ Written RED first, then made green:
 - `index.html` and `benchmark.html` no longer contradict each other. ✓
 - Full gates green. ✓
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Merged:** `bf0d95f8` — squash of 8 commits, PR #631, approved by @HupBaHa 2026-08-19 15:56.
+  Merged under the new org: the repo transferred from `OpenMined/` to `ScreamingFace/` mid-flight
+  and the PR, its number and its history carried across intact.
+- **Actual files:** as planned, plus four not in the plan — `portal/benchmark.html` (the
+  cross-page contradiction, D6), `models/score.py` (the copy invariant), `tests/smoke/` (the drift
+  lane), and `routes/leaderboard.py` (the duplicate projection).
+- **Gates:** ruff ✓ · ruff format ✓ · pyright ✓ · pytest --cov **324 passed, 2 skipped** ✓ ·
+  portal JS **25 passed** ✓. Run with `--skip-append-only`, owner-approved under rule 5: exactly one
+  prior assertion changed (the hero-copy string this unit replaces), rewritten structurally so the
+  next copy edit will not break it again.
+- **Rebased twice** — once onto the engine rename (`url4-cloud` → `screamingface-engine`), which
+  merged cleanly but would otherwise have reintroduced stale paths into comments main had just
+  fixed; once before merge. Verified at merge time that main's 10 newer commits touched no
+  scoreboard file, so the `OME-852` semantic-conflict shape did not apply.
+
+### Deviations
+
+1. **The forward-looking copy was reverted in review.** D1–D3 are superseded: review (Dmitry,
+   2026-08-19) showed the board never filters on the verified flag, so S1 and S3 described a default
+   filter and a toggle that do not exist. Both deleted; S2 keeps the SOTA payoff with one word
+   changed, `verified` → `submitted`. Net brand-copy deviation: one word, two deletions.
+2. **A DRY fix outside the plan.** `routes/leaderboard.py` carried a second hand-written
+   `BenchmarkSchema` projection; adding `focus` broke that copy and not the store's. One mapper now.
+3. **D5 was under-enforced and review caught it** — `PROVENANCE.md` shipped publicly with a ticket
+   id and a `.claude/` path. Fixed, and a guard test now fetches every `*.md` under `portal/` and
+   fails on internal references.
+4. **`tests/smoke/` and the `smoke` marker are new to this app.** Opt-in, excluded from CI, so an
+   editor at another company cannot turn our build red.
+
+### Owner-verify
+
+- **`index.html` S1 and S3 were copy @Irina approved verbatim on 2026-08-18** and were removed
+  because review showed they describe a filter and a toggle the board does not have. Flagged in the
+  PR body; **still unconfirmed by her.**
+- `Focus` values are placeholder copy, not brand-approved, and `values.yaml` does not propagate —
+  deployed environments keep their own file, so the platform team must sync it.
+- Visual check on the deployed board: light and dark, and the `.kv` glossary at the 620px breakpoint.
+
+### Follow-ups left open
+
+Ticket states re-checked 2026-09-03, on the way to closing this ledger out.
+
+- `OME-885` — ~42 internal references still public in `benchmark.js` / `main.js` /
+  `leaderboard-logic.js` / `portal.css`. **Still open**, moved to `Pick Immediately` on 2026-08-31.
+- `OME-871` (Khoa's hero reword) is superseded by this unit. **Canceled by its owner 2026-08-24.**
+- The OpenMined link sweep after the org transfer — **filed since**, as `OME-914` (docs, portal,
+  public-docs) and `OME-945` (PyPI issue URLs, README), both In Progress. 115
+  `github.com/OpenMined` references remain in the tree.
+- Unauthenticated `POST /v1/scores` in the shipped production config — **still unfiled, and
+  re-confirmed live on `main` at this date.** `charts/scoreboard/values.yaml` sets
+  `authMode: disabled`, and `values-prod.yaml` enables an Ingress on `scoreboard.screamingface.ai`
+  without overriding it — so the public host trusts client-supplied `submitted_by` free text.
+  `OME-895` is adjacent but not this: it widens *who* may submit once identity is enforced, and
+  does not turn identity on. Worth contrasting with the aigateway chart, which fails the Helm
+  render outright on `cloudflare_headers` + `ingress.enabled` (`aigateway/templates/_helpers.tpl`);
+  the scoreboard chart has no equivalent guard.
 
 ## Review finding (Dmitry, 2026-08-19): two mockup sentences describe machinery we do not have
 
@@ -217,3 +269,9 @@ that instruction, made because review showed they describe behaviour the board d
 call was a wording decision on what turned out to be an implementability question. The copy and the
 pool filter (`OME-771` → `OME-821` → `OME-414`) are one change, not two. She should confirm before
 merge.
+
+**Status as of 2026-09-03.** #631 merged on 2026-08-19 without that confirmation, so
+"she should confirm before merge" above records the intent at the time, not what happened.
+The item is still open: `OME-874` carries two comments, both mine, and Irina has not replied
+in the fifteen days since. S1 and S3 remain absent from the live landing page. Tracked in
+Owner-verify above; the full mockup wording returns with `OME-771`.
