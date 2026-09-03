@@ -180,3 +180,122 @@ def test_store_rejects_duplicate_diagnostic_identity() -> None:
 
     with pytest.raises(ValueError, match="already exists"):
         store.add(_receipt("diag_same", error_message="another failure"))
+
+
+def _evidence_with(
+    *,
+    client: dict[str, object] | None = None,
+    context: dict[str, object] | None = None,
+    executions: tuple[dict[str, object], ...] = (),
+    breadcrumbs: tuple[dict[str, object], ...] = (),
+) -> _ReceiptEvidence:
+    return _ReceiptEvidence(
+        diagnostic_id="diag_validation",
+        session_id="session_test",
+        occurred_at=datetime(2026, 9, 3, tzinfo=UTC),
+        elapsed_seconds=0.5,
+        operation="evaluate",
+        outcome="failed",
+        client=client or {"name": "screamingface-python"},
+        error={"type": "ExecutionError"},
+        context=context or {},
+        executions=executions,
+        breadcrumbs=breadcrumbs,
+    )
+
+
+@pytest.mark.parametrize(
+    ("section", "evidence"),
+    [
+        (
+            "client",
+            _evidence_with(client={"name": "screamingface-python", "access_token": "private"}),
+        ),
+        (
+            "client runtime",
+            _evidence_with(
+                client={
+                    "name": "screamingface-python",
+                    "runtime": {"name": "cpython", "token": "private"},
+                }
+            ),
+        ),
+        ("context", _evidence_with(context={"prompt": "private"})),
+        (
+            "candidate",
+            _evidence_with(
+                context={"candidates": [{"name": "one", "kind": "model", "prompt": "private"}]}
+            ),
+        ),
+        (
+            "operation",
+            _evidence_with(
+                context={
+                    "candidates": [
+                        {
+                            "name": "one",
+                            "kind": "model",
+                            "operations": [
+                                {
+                                    "id": "op_1",
+                                    "kind": "model",
+                                    "depends_on": [],
+                                    "url4": "private",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+        ),
+        (
+            "parameter",
+            _evidence_with(
+                context={
+                    "candidates": [
+                        {
+                            "name": "one",
+                            "kind": "model",
+                            "parameters": [
+                                {
+                                    "operation_id": "op_1",
+                                    "model": "provider/model",
+                                    "values": {"max_tokens": 64},
+                                    "input": "private",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+        ),
+        (
+            "execution",
+            _evidence_with(executions=({"candidate": "one", "payload": "private"},)),
+        ),
+        (
+            "breadcrumb",
+            _evidence_with(breadcrumbs=({"event": "started", "body": "private"},)),
+        ),
+    ],
+)
+def test_receipt_construction_rejects_unexpected_evidence_fields(
+    section: str,
+    evidence: _ReceiptEvidence,
+) -> None:
+    with pytest.raises(ValueError, match=rf"unsafe {section} fields"):
+        _new_receipt(evidence)
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        _evidence_with(executions=({"candidate": "one", "run_id": "internal-topic"},)),
+        _evidence_with(breadcrumbs=({"event": "started", "run_id": "internal-topic"},)),
+    ],
+)
+def test_receipt_construction_structurally_rejects_internal_run_id(
+    evidence: _ReceiptEvidence,
+) -> None:
+    with pytest.raises(ValueError, match="forbidden field: run_id"):
+        _new_receipt(evidence)

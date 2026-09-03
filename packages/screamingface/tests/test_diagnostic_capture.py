@@ -182,3 +182,35 @@ def test_client_capture_is_an_allowlist_not_an_environment_dump(monkeypatch) -> 
         "dependencies",
     }
     assert "must-never-leak" not in encoded
+
+
+def _raise_deep_failure(depth: int) -> None:
+    if depth == 0:
+        raise RuntimeError("private deep failure")
+    _raise_deep_failure(depth - 1)
+
+
+def test_traceback_bound_retains_the_innermost_failure_frame() -> None:
+    try:
+        _raise_deep_failure(40)
+    except RuntimeError as error:
+        traceback = error.__traceback__
+        assert traceback is not None
+        outermost_line = traceback.tb_lineno
+        while traceback.tb_next is not None:
+            traceback = traceback.tb_next
+        innermost = {
+            "module": traceback.tb_frame.f_globals["__name__"],
+            "function": traceback.tb_frame.f_code.co_name,
+            "line": traceback.tb_lineno,
+        }
+        chain = cast(list[dict[str, object]], _error_document(error)["chain"])
+    else:
+        raise AssertionError("deep failure must raise")
+
+    frames = cast(list[dict[str, object]], chain[0]["frames"])
+    assert len(frames) == 32
+    assert frames[-1]["module"] == innermost["module"]
+    assert frames[-1]["function"] == innermost["function"]
+    assert frames[-1]["line"] == innermost["line"]
+    assert frames[0]["line"] != outermost_line

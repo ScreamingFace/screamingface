@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import platform
 import sys
+from collections import deque
 from importlib.metadata import PackageNotFoundError, version
 from types import TracebackType
 from urllib.parse import urlsplit
@@ -112,9 +113,10 @@ def _websocket_close(error: BaseException) -> dict[str, object]:
 
 
 def _frames(traceback: TracebackType | None) -> list[dict[str, object]]:
-    values: list[dict[str, object]] = []
+    # INVARIANT: when bounded, retain the failure site rather than only its outer callers.
+    values: deque[dict[str, object]] = deque(maxlen=_MAX_FRAMES)
     current = traceback
-    while current is not None and len(values) < _MAX_FRAMES:
+    while current is not None:
         module = current.tb_frame.f_globals.get("__name__")
         selected_module = module if isinstance(module, str) and module else "unknown"
         values.append(
@@ -126,7 +128,7 @@ def _frames(traceback: TracebackType | None) -> list[dict[str, object]]:
             }
         )
         current = current.tb_next
-    return values
+    return list(values)
 
 
 def _safe_details(value: object, *, code: str) -> dict[str, object]:
