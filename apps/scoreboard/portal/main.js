@@ -184,6 +184,10 @@ window.ScorePortal = (function () {
     if (value === null || value === undefined || value === "") return EM_DASH;
     return String(value);
   }
+  function formatAuthors(values) {
+    if (!Array.isArray(values) || values.length === 0) return EM_DASH;
+    return values.map(String).join(", ");
+  }
   function formatCount(value, singular, plural) {
     var count = typeof value === "number" && !isNaN(value) ? value : 0;
     return count.toLocaleString(PORTAL_LOCALE) + " " + (count === 1 ? singular : plural);
@@ -371,6 +375,7 @@ window.ScorePortal = (function () {
     formatDate: formatDate,
     formatProviders: formatProviders,
     formatSubmitter: formatSubmitter,
+    formatAuthors: formatAuthors,
     formatCount: formatCount,
     createVerifiedBadge: createVerifiedBadge,
     createCopyButton: createCopyButton,

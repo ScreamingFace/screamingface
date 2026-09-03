@@ -16,6 +16,10 @@ class BaseScore(BaseScoreboardModel):
     spec_id = fields.CharField(max_length=255, db_index=True)
     url4_expression = fields.TextField()
     submitted_by = fields.CharField(max_length=255, null=True)
+    # FEATURE: OME-1051 — credit is separate from ownership. NULL means the client did not
+    # specify authors, so read DTOs derive [submitted_by] for backwards compatibility; an
+    # explicit JSON list is the exact credit line and is never auto-expanded.
+    authors = fields.JSONField(null=True)
     submitted_at = fields.DatetimeField(auto_now_add=True)
     score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()

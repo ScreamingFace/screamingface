@@ -16,6 +16,7 @@ from scoreboard.scores.store import (
     BenchmarkVisibilityChanged,
     PrivateBoardRequiresIdentity,
     ScoreStore,
+    _resolved_authors,
     _scoped_idempotency_key,
     _to_python_rows,
 )
@@ -1937,8 +1938,14 @@ async def test_owned_entries_project_every_declared_field_from_the_row(tortoise_
     entries = await store.list_owned_entries(benchmark_id="hle", owner=ALICE)
 
     assert len(entries) == 1
+    # OME-1051: `authors` is DERIVED, not copied — NULL means "the client did not specify a credit
+    # line" and reads as [submitted_by] on every read path, so a verbatim row comparison is the
+    # wrong expectation for it alone. A TABLE rather than a branch, so the next derived field is a
+    # one-line addition instead of a second special case.
+    # Owner-approved contract change (2026-09-02).
+    derived = {"authors": _resolved_authors(row.authors, row.submitted_by)}
     for name in LeaderboardEntry.model_fields:
-        assert getattr(entries[0], name) == getattr(row, name), (
+        assert getattr(entries[0], name) == derived.get(name, getattr(row, name)), (
             f"{name!r} is declared on LeaderboardEntry but list_owned_entries does not carry it "
             "from the Score row"
         )
