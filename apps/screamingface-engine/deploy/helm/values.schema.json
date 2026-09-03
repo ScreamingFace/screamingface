@@ -129,7 +129,7 @@
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 1,
-          "description": "INVARIANT: must stay strictly above `drainGraceS` — the kubelet SIGKILLs the pod at this deadline, and a drain cut short interrupts every in-flight run."
+          "description": "INVARIANT: must stay at or above `drainGraceS` + 10s (kill grace) + 15s (terminal-publish budget) — the kubelet SIGKILLs the pod at this deadline, and a drain cut short interrupts every in-flight run. The chart enforces this with a `fail` at render time; a JSON Schema description alone enforces nothing."
         },
         "perRunCharge": {
           "type": "object",

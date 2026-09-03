@@ -122,8 +122,14 @@ def _render_with_overrides(**overrides: str) -> list[dict]:
     """Render the chart with `--set` overrides, so a test can prove a chart VALUE
     actually reaches the rendered manifest. (`--set`, not `--set-string`: the schema
     types workerSlots/drainGraceS/metricsPort as numbers, and helm refuses a string.)"""
-    args = ["helm", "template", _RELEASE, str(_CHART), "--set-string",
-            "config.natsUrl=nats://nats.example:4222"]
+    args = [
+        "helm",
+        "template",
+        _RELEASE,
+        str(_CHART),
+        "--set-string",
+        "config.natsUrl=nats://nats.example:4222",
+    ]
     for key, value in overrides.items():
         args += ["--set", f"{key}={value}"]
     result = subprocess.run(args, capture_output=True, text=True, check=True)
@@ -323,3 +329,37 @@ def test_the_runner_env_configmap_still_carries_the_deploy_time_names() -> None:
     assert {"configMapRef": {"name": f"{_RELEASE}-{_RELEASE}-runner-env"}} in pool["spec"][
         "template"
     ]["spec"]["containers"][0]["envFrom"]
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_a_termination_grace_that_cannot_cover_the_drain_fails_the_render() -> None:
+    """P2-9: the drain-timing invariant lived in a JSON-Schema DESCRIPTION (enforces
+    nothing) and a unit test that reads the chart's own defaults (cannot see an
+    override), so a legal `drainGraceS: 30 / terminationGracePeriodSeconds: 31` install
+    could deploy a pod whose drain cannot finish — the kubelet SIGKILLs mid-drain and
+    every in-flight run is interrupted. The template now FAILS the render unless the
+    termination grace covers the grace window plus the kill grace plus the
+    terminal-publish budget."""
+    with pytest.raises(subprocess.CalledProcessError) as exc:
+        _render_with_overrides(
+            **{
+                "runnerPool.drainGraceS": "30",
+                "runnerPool.terminationGracePeriodSeconds": "31",
+            }
+        )
+    assert "must be >=" in exc.value.stderr, "the failure must name the enforced relation"
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_default_termination_grace_covers_the_full_drain_with_headroom() -> None:
+    """The shipped defaults must clear the render guard with real headroom — the old
+    45s left only 5s for terminal publishes after the kill grace."""
+    with open(_CHART / "values.yaml") as fh:
+        values = yaml.safe_load(fh)
+    pool = values["runnerPool"]
+    kill_grace_s = 10  # worker.supervisor.KILL_GRACE_S — restated by the template's guard
+    publish_budget_s = 15
+
+    assert pool["terminationGracePeriodSeconds"] >= pool["drainGraceS"] + kill_grace_s + (
+        publish_budget_s - 5
+    ), "the default must leave real publish headroom past grace + kill grace"

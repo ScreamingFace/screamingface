@@ -364,9 +364,14 @@ runnerPool:
   # terminating them (`worker_drain_grace_s`). The preStop starts the drain by SIGTERMing the
   # worker, so the grace period below must exceed this or the kubelet SIGKILLs mid-drain.
   drainGraceS: 30
-  # INVARIANT: must stay strictly above `drainGraceS` — the kubelet SIGKILLs the pod at this
-  # deadline, and a drain cut short interrupts every in-flight run.
-  terminationGracePeriodSeconds: 45
+  # INVARIANT: must stay at or above `drainGraceS` + kill grace (10s) + terminal-publish
+  # budget (15s) — the kubelet SIGKILLs the pod at this deadline, and a drain cut short
+  # interrupts every in-flight run. The chart ENFORCES the relation (a `fail` in
+  # `deployment-runner.yaml`), so an override that violates it fails `helm template`
+  # instead of deploying a pod whose drain cannot finish. The default leaves real
+  # headroom past the 30s grace (the old 45s left only 5s for publishes after the kill
+  # grace).
+  terminationGracePeriodSeconds: 60
   # The pool's resources are `workerSlots × per-run charge` + the worker's own overhead, so the
   # declared concurrency can actually run rather than scheduling BestEffort. Memory limit only
   # (no CPU limit): a run may burst into idle CPU instead of being CFS-throttled mid-inference.

@@ -208,18 +208,7 @@ class Worker:
             free = self._slots - len(self._active)
             if free <= 0:
                 if self._active:
-                    # Wait for a slot — or the drain signal, so a full pool cannot
-                    # deadlock the drain (the supervisors would never finish on their
-                    # own, and the drain handler runs only after this loop exits).
-                    drain_task = asyncio.create_task(self._draining.wait())
-                    done, _ = await asyncio.wait(
-                        {*self._active, drain_task}, return_when=asyncio.FIRST_COMPLETED
-                    )
-                    drain_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await drain_task
-                    for task in done:
-                        self._active.discard(task)
+                    await self._await_free_slot()
                 continue
             pull_started = time.monotonic()
             # The loop-liveness signal: stamped on every pull ATTEMPT, before the await —
@@ -264,6 +253,26 @@ class Worker:
             # capacity dashboards LOW at the moments of highest throughput.
             self._metrics.slots_busy.set(len(self._active))
         await self._drain()
+
+    async def _await_free_slot(self) -> None:
+        """Block until a supervisor finishes or the drain signal fires.
+
+        The drain signal is in the race so a FULL pool cannot deadlock the drain: the
+        supervisors would never finish on their own, and the drain handler runs only
+        after this loop exits. Any tasks that completed alongside the winner are
+        reaped here — `_on_task_done` will also fire for them, and `discard` is
+        idempotent."""
+        drain_task = asyncio.create_task(self._draining.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {*self._active, drain_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            drain_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await drain_task
+        for task in done:
+            self._active.discard(task)
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
         """Drop a finished supervisor task and refresh the busy-slot gauge."""

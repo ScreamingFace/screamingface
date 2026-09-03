@@ -13,14 +13,31 @@
 # DRAIN (the deploy-interrupts-runs regression): on SIGTERM the worker stops pulling and keeps
 # its in-flight children alive for `drainGraceS`, then terminates the rest with a named
 # `worker_draining` frame. The preStop starts that drain by SIGTERMing the worker immediately,
-# so the drain runs inside the termination grace period; `terminationGracePeriodSeconds` must
-# stay above `drainGraceS` or the kubelet SIGKILLs mid-drain. The PodDisruptionBudget
+# so the drain runs inside the termination grace period; the template FAILS the render
+# unless `terminationGracePeriodSeconds` covers the full drain (see the guard at the top).
+# The PodDisruptionBudget
 # (`maxUnavailable: 1`) does NOT block voluntary disruptions — deliberately: `0` at a small
 # replica count is either a placebo (1 replica: an eviction still takes the whole pool) or a
 # deadlock (a drain that can never evict). `1` SERIALIZES voluntary disruptions — never two
 # pods down at once — and the preStop drain, not the PDB, is what protects in-flight runs.
 # An on-call engineer watching a node drain SHOULD expect one runner pod to be evicted and
 # its runs to close out as `worker_draining`, not as an outage.
+{{- /* The drain-timing guard (review follow-up P2-9): the kubelet SIGKILLs the pod at
+`terminationGracePeriodSeconds`, and the drain needs `drainGraceS` (children finish
+naturally) + KILL_GRACE_S (a straggler's SIGTERM-to-SIGKILL window) + a terminal-publish
+budget (N supervisors each publishing a frame and flushing) to complete inside it. A
+JSON-Schema description could not enforce the cross-field relation and the unit test
+only reads the chart's own defaults, so a legal override (`drainGraceS: 30`,
+`terminationGracePeriodSeconds: 31`) could deploy a pod whose drain cannot finish. The
+relation is enforced HERE, where neither defaults nor overrides can bypass it.
+KILL_GRACE_S restates `worker.supervisor.KILL_GRACE_S` (10s) — the chart cannot import
+Python; keep the two in step. */ -}}
+{{- $killGraceS := 10 -}}
+{{- $publishBudgetS := 15 -}}
+{{- $minimum := add (int .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS -}}
+{{- if lt (int .Values.runnerPool.terminationGracePeriodSeconds) $minimum -}}
+{{- fail (printf "runnerPool.terminationGracePeriodSeconds (%d) must be >= runnerPool.drainGraceS (%d) + kill grace (%d) + terminal-publish budget (%d) = %d: the kubelet SIGKILLs the pod at the termination deadline, and a drain cut short interrupts every in-flight run" (int .Values.runnerPool.terminationGracePeriodSeconds) (int .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS $minimum) -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
