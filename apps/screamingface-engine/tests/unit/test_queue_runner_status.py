@@ -202,3 +202,20 @@ async def test_exists_is_true_only_for_scheduled_or_running() -> None:
 
     terminal = _runner(clock, _FakePublisher(last_frame=_terminated("t", "succeeded")))
     assert await terminal.exists("t") is False
+
+
+async def test_an_unreadable_tail_reads_as_running_not_a_state() -> None:
+    """P2-10: `status()`'s tail read was unguarded — a `QueueReadError` 500'd the status
+    endpoint. An unreadable tail is UNKNOWN and must never read as terminal-ish: the
+    reaper's `exists()` is this very status, and a `not_found` answer would make it stop
+    an unknown run. It reads "running" — assumed alive — so the reaper leaves it and the
+    client retries."""
+    from screamingface_engine.adapters.jetstream import QueueReadError
+
+    class _UnreadablePublisher(_FakePublisher):
+        async def last_frame(self, topic: str) -> Any:
+            raise QueueReadError("stream tail unreadable")
+
+    runner = _runner(_FakeClock(), _UnreadablePublisher())
+
+    assert await runner.status("t-unreadable") == "running"

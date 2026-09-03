@@ -150,5 +150,7 @@ def test_a_failed_depth_read_never_fails_the_accepted_run() -> None:
             started = client.get(
                 "/", params={"q": "'hi'"}, headers={**cap, "Prefer": "respond-async"}
             )
-            assert started.status_code == 202, "the run was accepted; the notice is not its business"
+            assert started.status_code == 202, (
+                "the run was accepted; the notice is not its business"
+            )
             assert runner.scheduled and runner.scheduled[0][0] == topic

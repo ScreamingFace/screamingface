@@ -144,3 +144,22 @@ def test_k8s_runner_receives_the_core_client() -> None:
 
     assert isinstance(runner, K8sJobRunner)
     assert isinstance(runner._core_client, FakeCoreV1)
+
+
+def test_the_queue_runner_wires_the_configured_stream_and_prefix_everywhere() -> None:
+    """P2-2/3: `run_queue_stream` and `run_queue_subject_prefix` were honoured by the
+    worker's composition root but ignored at the App's — the App published to the
+    DEFAULT stream while the worker pulled the configured one (a split that fails loudly
+    on every admission), and the App-side publisher's sweep used a stale constant. All
+    composition roots must agree for any Settings. (`run_queue_subject_prefix` lands
+    with the per-caller buckets at OME-1091, where `RunQueue` gains the parameter.)"""
+    settings = Settings(
+        runner="queue",
+        nats_url="nats://localhost:4222",
+        run_queue_stream="prod-runq",
+    )
+
+    runner = build_job_runner(settings)
+
+    assert runner._queue._stream == "prod-runq"
+    assert runner._publisher._run_queue_stream == "prod-runq"

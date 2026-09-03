@@ -75,9 +75,8 @@ def topic_of(stream_name: str) -> str:
 
 
 __all__ = [
-    "ENQUEUED_AT_HEADER",
-
     "CONTROL_SUBJECT_PREFIX",
+    "ENQUEUED_AT_HEADER",
     "RUN_QUEUE_STREAM",
     "RUN_QUEUE_SUBJECT",
     "RUN_QUEUE_SUBJECT_PREFIX",

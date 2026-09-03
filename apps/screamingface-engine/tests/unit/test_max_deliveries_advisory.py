@@ -8,6 +8,7 @@ subscribes, decodes the run's topic from the advisory's embedded message, and pu
 terminal outcome.
 """
 
+import asyncio
 import base64
 import json
 from datetime import UTC, datetime
@@ -48,8 +49,11 @@ def _advisory(topic: str) -> bytes:
 
 
 def test_the_advisory_subject_names_the_queue_stream_and_consumer() -> None:
+    # The consumer token is wildcarded: consumers are `url4-runners-<bucket>` — ONE token
+    # (dashes are not NATS separators) — so `.*` matches it, while `.url4-runners.*`
+    # would demand a second token and match nothing.
     assert MAX_DELIVERIES_ADVISORY_SUBJECT == (
-        "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.url4-runq.url4-runners"
+        "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.url4-runq.*"
     )
 
 
@@ -123,3 +127,76 @@ async def test_the_advisor_never_overwrites_a_run_that_actually_finished() -> No
 
     assert publisher.published == [], "the run's own outcome stands"
     assert publisher.ensured == [], "nothing was declared on its account either"
+
+
+def test_the_advisory_subject_follows_the_configured_stream_name() -> None:
+    """P2-4: the subject was a hardcoded `url4-runq` literal — a renamed queue publishes
+    advisories on a different subject, and a subscription on the default would silently
+    stop hearing every max-deliveries event (each run the queue gave up on ending
+    without a terminal frame). The subject now comes from the constructor."""
+    advisor = MaxDeliveriesAdvisor("nats://x", run_queue_stream="prod-runq")
+    assert advisor._subject == "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.prod-runq.*"
+    assert MaxDeliveriesAdvisor("nats://x")._subject == MAX_DELIVERIES_ADVISORY_SUBJECT
+
+
+class _connecting_nc:
+    """A connect() replacement whose subscription ends immediately, counting connects
+    and closes. WHY the `sleep(0)` in connect: without it, the UNFIXED run loop (which
+    reconnects without sleeping on a normal `_serve` return) spins through these
+    instantly-completing awaits without ever yielding — starving the event loop so the
+    test HANGS instead of failing. One yield per connect keeps the hot spin observable
+    AND cancellable."""
+
+    connects = 0
+    closes = 0
+
+    class _EndingSub:
+        @property
+        def messages(self) -> Any:
+            async def _end() -> Any:
+                return
+                yield  # pragma: no cover — an immediately-ending async generator
+
+            return _end()
+
+    class _NC:
+        async def subscribe(self, subject: str) -> "_connecting_nc._EndingSub":
+            return _connecting_nc._EndingSub()
+
+        async def close(self) -> None:
+            _connecting_nc.closes += 1
+
+    @classmethod
+    async def connect(cls, _url: str) -> "_connecting_nc._NC":
+        await asyncio.sleep(0)
+        cls.connects += 1
+        return cls._NC()
+
+
+@pytest.mark.asyncio
+async def test_a_normal_serve_return_is_treated_as_a_disconnect(monkeypatch: Any) -> None:
+    """P2-5: a dropped subscription ends `_serve`'s `async for` NORMALLY — `_serve`
+    returns without raising — so `run()` used to reconnect without closing the previous
+    nc/publisher pair (leaking the publisher's own lazy connection every round) and,
+    when the fresh subscription died immediately, spun in a tight loop. Every iteration
+    now closes and backs off."""
+    import contextlib
+
+    import screamingface_engine.adapters.max_deliveries as mod
+
+    real_delay = mod.RETRY_DELAY_S
+    monkeypatch.setattr(mod, "RETRY_DELAY_S", 0.01)
+    monkeypatch.setattr(mod.nats, "connect", _connecting_nc.connect)
+    try:
+        advisor = mod.MaxDeliveriesAdvisor("nats://x")
+        task = asyncio.create_task(advisor.run())
+        try:
+            while _connecting_nc.connects < 2:
+                await asyncio.sleep(0.01)
+            assert _connecting_nc.closes >= 1, "aclose must run between reconnects, never leaked"
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+    finally:
+        monkeypatch.setattr(mod, "RETRY_DELAY_S", real_delay)

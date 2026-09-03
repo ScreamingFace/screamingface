@@ -1110,7 +1110,11 @@ async def test_a_cancel_during_the_spawn_window_is_answered_and_enacted() -> Non
     expired and it tombstoned the queued run, and the child ran to completion and
     published its own terminal frame: TWO terminal frames for one run. The control loop
     now answers from the starting registry (so the App writes nothing) and the supervisor
-    enacts the cancel the moment the child exists."""
+    enacts the cancel the moment the child exists.
+
+    WHY the complexity is accepted rather than split: this is one linear scenario — a
+    cancel fed mid-spawn, answered, then enacted at registration. Carving the assertions
+    into helpers would obscure exactly the ordering under test; the story is the test."""
     queue = _FakeQueue([[_FakeMsg(encode_message("t-race", "'hi'", 60))]])
     procs: list[_FakeProcess] = []
     spawn_entered = asyncio.Event()
@@ -1141,8 +1145,7 @@ async def test_a_cancel_during_the_spawn_window_is_answered_and_enacted() -> Non
         release_spawn.set()
         await _wait_until(lambda: procs and procs[0].terminate_calls == 1)
         await _wait_until(
-            lambda: bool(publisher.published)
-            and publisher.published[-1].data.status == "stopped"
+            lambda: bool(publisher.published) and publisher.published[-1].data.status == "stopped"
         )
         assert len(publisher.published) == 1, "exactly one terminal frame"
         frame = publisher.published[0]
@@ -1207,8 +1210,10 @@ async def test_a_cancel_acked_during_a_slow_respond_is_still_enacted() -> None:
         # terminal frame is the observable, not the transient registry entry.)
         spawn_gate.set()
         await _wait_until(
-            lambda: worker._publisher.published
-            and worker._publisher.published[-1].data.status == "stopped"
+            lambda: (
+                worker._publisher.published
+                and worker._publisher.published[-1].data.status == "stopped"
+            )
         )
         frame = worker._publisher.published[-1]
         assert frame.data.error is not None and frame.data.error.code == CANCELLED
@@ -1226,3 +1231,42 @@ def topic_starting(worker: Worker) -> bool:
 
 def topic_cancelled(worker: Worker) -> bool:
     return "t-slowresp" in worker._cancelled
+
+
+async def test_cancels_stay_answered_through_the_drain_window() -> None:
+    """P2-12: the control loop used to exit the instant the drain signal fired, while
+    `_children_by_topic` stayed populated for the whole `drain_grace_s` window — every
+    `url4.runctl.*` request in that window timed out, the App tombstoned a run that was
+    still executing and still billing, and the caller was told the run stopped when it
+    had not. The loop now serves until the drain phase completes, so a cancel issued
+    mid-drain is answered and enacted."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-drainctl", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    control = _FakeControl()
+    worker = _worker(
+        queue, publisher, slots=1, spawn=fake_spawn, control=control, drain_grace_s=0.3
+    )
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        ctl = tg.create_task(worker._control_loop(tg))  # noqa: SLF001
+
+        await _wait_until(lambda: len(procs) == 1)
+        worker._draining.set()  # noqa: SLF001 — the drain signal fires; the run is draining
+        # Let the signal resolve the control loop's pending wait BY ITSELF first: feeding
+        # in the same tick lets a drain-exiting loop observe both waiters done and handle
+        # the request anyway — the exact schedule-order dependence the fix removes.
+        await asyncio.sleep(0.05)
+        msg = _FakeControlMessage("url4.runctl.t-drainctl")
+        control.feed(msg)
+        await _wait_until(lambda: bool(msg.replied))
+        assert procs[0].terminate_calls == 1, "the mid-drain request must SIGTERM the child"
+        assert msg.replied == [b"ok"]
+        await claim
+        await ctl

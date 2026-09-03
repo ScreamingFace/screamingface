@@ -121,6 +121,11 @@ class Worker:
         # the remaining children. A supervisor waiting on a child that ignores SIGTERM
         # wakes on this and SIGKILLs instead of waiting out the hard wall.
         self._terminating = asyncio.Event()
+        # Set when the drain phase has COMPLETED (the grace window elapsed, the remaining
+        # children were SIGTERM'd, and the pool is empty). The control loop exits on THIS
+        # rather than on `_draining` (review follow-up P2-12): with the signal only, every
+        # `url4.runctl.*` request in the drain window went unanswered — see `_control_loop`.
+        self._drained = asyncio.Event()
         # The live children, shared with the supervisors: the drain phase reads it to know
         # when the pool has drained, and SIGTERMs whatever is left.
         self._children: set[_ChildProcess] = set()
@@ -237,62 +242,74 @@ class Worker:
         answered (the App then writes nothing) and the child is SIGTERM'd; the supervisor
         classifies the death as a cancel and publishes ``Terminated(stopped)``.
 
-        INVARIANT: the loop EXITS on the drain signal, raced against the next message.
-        The subscription's iterator only ends when the CONNECTION closes, and
-        `run_worker` closes the control connection only after `Worker.run()` returns —
-        so a loop that merely awaits the next message keeps the TaskGroup (and the
-        rolling deploy behind it) alive until the kubelet SIGKILLs the pod, which is
-        exactly the deploy-interrupts-runs regression the drain exists to prevent. The
-        drain phase SIGTERMs the remaining children itself, so exiting here loses
-        nothing.
+        INVARIANT: the loop EXITS when the drain phase has COMPLETED — not the moment the
+        drain signal arrives (review follow-up P2-12). The subscription's iterator only
+        ends when the CONNECTION closes, and `run_worker` closes the control connection
+        only after `Worker.run()` returns — so a loop that merely awaits the next message
+        keeps the TaskGroup (and the rolling deploy behind it) alive past the drain, which
+        is the deploy-interrupts-runs regression the drain exists to prevent. But exiting
+        on the SIGNAL used to leave every cancel in the drain window unanswered:
+        `_children_by_topic` stays populated while the drained runs drain, so up to
+        `drain_grace_s` of `url4.runctl.*` requests timed out, the App tombstoned runs
+        that were still executing and still billing, and the caller was told the run
+        stopped when it had not. Serving until `_drained` (set when the drain phase is
+        done and the pool is empty) keeps cancels answerable through the window, and the
+        abandon-on-timeout shape below still ends the TaskGroup.
         """
         control = self._control
         if control is None:
             return
         sub = await control.subscribe(f"{CONTROL_SUBJECT_PREFIX}.*")
         messages = sub.messages.__aiter__()
-        while not self._draining.is_set():
+        while True:
             msg_task = asyncio.ensure_future(messages.__anext__())
-            drain_task = asyncio.create_task(self._draining.wait())
+            drained_task = asyncio.create_task(self._drained.wait())
             try:
                 done, _ = await asyncio.wait(
-                    {msg_task, drain_task}, return_when=asyncio.FIRST_COMPLETED
+                    {msg_task, drained_task}, return_when=asyncio.FIRST_COMPLETED
                 )
             finally:
-                drain_task.cancel()
+                drained_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await drain_task
+                    await drained_task
             if msg_task not in done:
-                # The drain signal won: abandon the pending fetch and exit.
+                # The drain phase finished: abandon the pending fetch and exit.
                 msg_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await msg_task
                 return
-            msg = msg_task.result()
-            topic = msg.subject.removeprefix(f"{CONTROL_SUBJECT_PREFIX}.")
-            proc = self._children_by_topic.get(topic)
-            if proc is None:
-                if topic in self._starting:
-                    # A run this worker is STARTING: the child has not registered yet, but
-                    # the App must not tombstone a run this worker is about to own — that
-                    # is how a run ends with two terminal frames. Mark the topic cancelled
-                    # and reply; the supervisor enacts the cancel the moment the child
-                    # registers.
-                    #
-                    # WHY the mark BEFORE the reply: `respond` is real network I/O — a
-                    # suspension point. In the other order, the spawn could complete and
-                    # the supervisor's registration check (`if topic in self._cancelled`)
-                    # could run while `respond` was in flight, find the mark absent, and
-                    # let the child run to completion — while the App, already holding
-                    # "ok", wrote no tombstone: the caller believes the run was stopped
-                    # and it never was. By the time the ack is SENT, the cancellation is
-                    # recorded, so the registration check sees it on every schedule order.
-                    self._cancelled.add(topic)
-                    await msg.respond(b"ok")
-                continue
-            self._cancelled.add(topic)
-            proc.terminate()
-            await msg.respond(b"ok")
+            await self._handle_control(msg_task.result())
+
+    async def _handle_control(self, msg: _ControlMessage) -> None:
+        """Answer one control request: SIGTERM the child that owns the topic, or reply to a
+        starting run's cancellation. A request for a topic this worker does not own gets no
+        reply — the App's short timeout reads "not running here" and falls back to the
+        tombstone.
+        """
+        topic = msg.subject.removeprefix(f"{CONTROL_SUBJECT_PREFIX}.")
+        proc = self._children_by_topic.get(topic)
+        if proc is None:
+            if topic in self._starting:
+                # A run this worker is STARTING: the child has not registered yet, but
+                # the App must not tombstone a run this worker is about to own — that
+                # is how a run ends with two terminal frames. Mark the topic cancelled
+                # and reply; the supervisor enacts the cancel the moment the child
+                # registers.
+                #
+                # WHY the mark BEFORE the reply: `respond` is real network I/O — a
+                # suspension point. In the other order, the spawn could complete and
+                # the supervisor's registration check (`if topic in self._cancelled`)
+                # could run while `respond` was in flight, find the mark absent, and
+                # let the child run to completion — while the App, already holding
+                # "ok", wrote no tombstone: the caller believes the run was stopped
+                # and it never was. By the time the ack is SENT, the cancellation is
+                # recorded, so the registration check sees it on every schedule order.
+                self._cancelled.add(topic)
+                await msg.respond(b"ok")
+            return
+        self._cancelled.add(topic)
+        proc.terminate()
+        await msg.respond(b"ok")
 
     async def _drain(self) -> None:
         """The drain phase: let children finish naturally up to ``drain_grace_s``, then
@@ -301,7 +318,8 @@ class Worker:
         The supervisors keep heartbeating throughout, so a draining worker never looks
         abandoned to the queue. After the grace, ``_terminating`` is set and the remaining
         children are SIGTERM'd; each supervisor classifies the death as a drain and
-        publishes its named frame before acking.
+        publishes its named frame before acking. `_drained` is set when the phase is done
+        — the control loop's exit condition (see `_control_loop`).
         """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._drain_grace_s
@@ -340,6 +358,9 @@ class Worker:
                 with contextlib.suppress(ProcessLookupError):
                     proc.terminate()
             await asyncio.sleep(_DRAIN_POLL_S)
+        # The drain phase is complete (the pool is empty) — the control loop's exit
+        # signal (see `_control_loop` and P2-12).
+        self._drained.set()
 
 
 def run_worker(settings: Settings | None = None) -> None:
