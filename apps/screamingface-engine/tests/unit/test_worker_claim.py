@@ -11,9 +11,10 @@ import json
 import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import nats
+import nats.errors
 import pytest
 
 from screamingface_engine import job_env
@@ -634,7 +635,8 @@ async def test_a_backlogged_run_expires_from_its_enqueue_stamp_not_its_delivery(
         published_at=datetime.now(UTC),
         headers={ENQUEUED_AT_HEADER: (datetime.now(UTC) - timedelta(seconds=120)).isoformat()},
     )
-    worker = _worker(_FakeQueue(), _FakePublisher(), spawn=_async_proc(_FakeProcess()))
+    publisher = _FakePublisher()
+    worker = _worker(_FakeQueue(), publisher, spawn=_async_proc(_FakeProcess()))
 
     await worker._supervisor.supervise(msg)
 
@@ -642,8 +644,8 @@ async def test_a_backlogged_run_expires_from_its_enqueue_stamp_not_its_delivery(
     assert worker._supervisor._topics_in_flight == set()
     assert all(
         getattr(e.data, "error", None) is not None and e.data.error.code == "queue_expired"
-        for e in worker._publisher.published
-    ), f"expected a queue_expired frame, got {worker._publisher.published}"
+        for e in publisher.published
+    ), f"expected a queue_expired frame, got {publisher.published}"
     # And it never forked a child for an expired run.
     assert not worker._supervisor._children
 
@@ -679,7 +681,9 @@ async def test_one_unreadable_dedupe_read_kills_no_runs_and_leaves_the_claim() -
         await _wait_until(lambda: publisher.blips >= 1)
         await _wait_until(lambda: worker._supervisor._children)
         for proc in tuple(worker._supervisor._children):
-            proc.release(0)
+            # `_children` is typed to the `_ChildProcess` Protocol; `release` belongs to the
+            # fake this test injected, so the cast is what tells pyright which one it is.
+            cast(_FakeProcess, proc).release(0)
 
     assert not blip_msg.acked, "an unreadable tail is not 'no terminal frame' — redeliver it"
     assert healthy_msg.acked
