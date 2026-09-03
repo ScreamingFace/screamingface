@@ -34,7 +34,9 @@ class _FakeSub:
     returns an empty list, it raises `nats.errors.TimeoutError` (a `TimeoutError`
     subclass). A fake returning `[]` masks an uncaught-timeout crash in `pull`."""
 
-    def __init__(self, messages: list[bytes], fetch_log: list[str] | None = None, subject: str = "") -> None:
+    def __init__(
+        self, messages: list[bytes], fetch_log: list[str] | None = None, subject: str = ""
+    ) -> None:
         self._messages = messages
         self.unsubscribed = False
         self._fetch_log = fetch_log
@@ -104,8 +106,11 @@ def _queue(fake: _FakeJetStream, **kwargs: Any) -> RunQueue:
 
 
 async def test_round_robin_pull_interleaves_two_callers_runs() -> None:
-    """Round-robin pull serves one message per bucket per cycle, so two callers' runs
-    interleave instead of one caller draining first."""
+    """Round-robin pull serves at most `PULL_BUCKET_BATCH` (or the batch's fair share)
+    per bucket per visit, so two callers SHARE a pull instead of one draining first —
+    the per-visit cap, not strict one-per-bucket alternation, is the fairness property
+    (review follow-up P2-7: the cap lets a single caller's burst drain several messages
+    per poll instead of ~1 per poll)."""
     fake = _FakeJetStream()
     queue = _queue(fake, bucket_count=2)
     await queue.publish(encode_message("a1", "'hi'", 60), identity=CALLER_A)
@@ -119,8 +124,11 @@ async def test_round_robin_pull_interleaves_two_callers_runs() -> None:
     pulled = await queue.pull(4, timeout_s=1.0)
     topics = [topic_of_message(msg.data) for msg in pulled]
 
+    # Each visit takes at most ceil(4/2) = 2 from one bucket, so the pull is two
+    # consecutive visits — each caller's pair — and NEITHER caller can take more than
+    # its pair before the other is served.
     caller_of = {"a1": "A", "a2": "A", "b1": "B", "b2": "B"}
-    assert [caller_of[t] for t in topics] in (["A", "B", "A", "B"], ["B", "A", "B", "A"])
+    assert [caller_of[t] for t in topics] in (["A", "A", "B", "B"], ["B", "B", "A", "A"])
 
 
 async def test_the_bucket_key_is_a_stable_hash_of_the_identity_value() -> None:
@@ -283,4 +291,24 @@ async def test_pulls_bind_each_bucket_once_and_reuse_their_subscription() -> Non
         await queue.pull(1, timeout_s=0.01)
 
     assert len(fake.bound_subjects) == 2, "one bind per bucket for the queue's lifetime"
-    assert len(fake.fetches) == 6, "each pull still fetches per slot of the rotation"
+    # Each pull fetches per bucket VISIT: the fast pass always visits every bucket once,
+    # and (against these instant fakes, where budget remains) the slow pass visits them
+    # again — 2 buckets x 2 phases x 3 pulls. The BIND count above is the cost fix this
+    # test pins; the fetch count only documents the visit structure.
+    assert len(fake.fetches) == 12, "each pull fetches per bucket visit of both phases"
+
+
+async def test_one_callers_burst_fills_the_batch_from_one_bucket() -> None:
+    """P2-7: one message per bucket per visit let a single caller's burst drain at ~1
+    run per poll — the rest of the rotation burned the budget on empty buckets while the
+    burst sat in its bucket, capping the caller at ~1 run per `timeout_s` per worker
+    regardless of free slots. The per-visit fetch cap lets a burst fill the batch from
+    one bucket while the rotation (and the cap) still bounds its share of a shared pull."""
+    fake = _FakeJetStream()
+    queue = _queue(fake, bucket_count=16)
+    for i in range(8):
+        await queue.publish(encode_message(f"burst-{i}", "'hi'", 60), identity=CALLER_A)
+
+    pulled = await queue.pull(4, timeout_s=0.5)
+
+    assert len(pulled) == 4, "a single caller's burst must fill the batch, not trickle 1 per poll"

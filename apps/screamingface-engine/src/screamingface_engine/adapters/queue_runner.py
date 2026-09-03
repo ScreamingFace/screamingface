@@ -76,6 +76,10 @@ CANCELLED = "cancelled"
 # running here". The worker's reply is a local NATS round trip; a second is far beyond it
 # and far below the client's patience for a DELETE.
 CONTROL_TIMEOUT_S = 1.0
+# The floor for a caller-cap `Retry-After` estimate (review follow-up P2-11): tens of
+# seconds, so a well-behaved client honouring the header cannot be turned into a hot
+# loop against the API for up to the 16h run ceiling.
+CALLER_RETRY_FLOOR_S = 30
 
 # The sentinel `_read_tail` returns for an UNREADABLE stream tail — distinct from "no
 # frame" and from "a terminal frame", because an unreadable broker answers neither
@@ -498,9 +502,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
 
     # --- depth-based admission (OME-1091) ---------------------------------------------------
 
-    async def _admit_or_raise(
-        self, identity: Mapping[str, str] | None, topic: str
-    ) -> datetime:
+    async def _admit_or_raise(self, identity: Mapping[str, str] | None, topic: str) -> datetime:
         """Admission gate: refresh the depth snapshot, refuse if the queue is at the ceiling
         or the caller is at its in-flight cap, else reserve.
 
@@ -530,8 +532,15 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 len(topics) for topics in self._in_flight_by_caller.get(caller, {}).values()
             )
             if count >= self._caller_inflight_cap:
+                # WHY not the drain estimate (review follow-up P2-11): the cap branch is
+                # reached precisely when the queue is NOT at its ceiling, so the drain
+                # formula underflows to its floor — a caller behind a long evaluation was
+                # told to retry every second. This caller's own runs are what hold the
+                # slot; the estimate comes from them.
                 raise JobRunnerAtCapacity(
-                    count, self._caller_inflight_cap, retry_after_s=self._drain_estimate_s()
+                    count,
+                    self._caller_inflight_cap,
+                    retry_after_s=self._caller_retry_after_s(caller),
                 )
             token = self._clock()
             self._reserved += 1
@@ -539,9 +548,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
             self._caller_of_topic[topic] = caller
             return token
 
-    async def _release_reservation(
-        self, topic: str, caller: str, token: datetime
-    ) -> None:
+    async def _release_reservation(self, topic: str, caller: str, token: datetime) -> None:
         """Release the ONE reservation `token` identifies, for a run that was not durably
         accepted (a publish failure or a cancellation mid-publish).
 
@@ -592,6 +599,25 @@ class QueueJobRunner(IdentityAwareJobRunner):
         self._depth_cache_time = now
         self._reserved = 0
 
+    def _caller_retry_after_s(self, caller: str) -> int | None:
+        """`Retry-After` for a caller refused at its in-flight cap: the age of its OLDEST
+        in-flight run, floored at `CALLER_RETRY_FLOOR_S`.
+
+        The reservation tokens ARE admission timestamps, so the oldest token is the
+        caller's longest-running run — the closest to done under roughly-equal durations,
+        and the only basis available without per-run duration data. `None` when the
+        caller holds no reservations (the REST edge falls back to its constant).
+        """
+        tokens = [
+            token
+            for topics in self._in_flight_by_caller.get(caller, {}).values()
+            for token in topics
+        ]
+        if not tokens:
+            return None
+        age_s = (self._clock() - min(tokens)).total_seconds()
+        return max(CALLER_RETRY_FLOOR_S, math.ceil(age_s))
+
     def _drain_estimate_s(self) -> int | None:
         """Seconds until the queue drains below the ceiling, from the pool's observed
         throughput — the `Retry-After` the REST edge forwards.
@@ -632,9 +658,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # Keep only reservations minted AFTER the sighting — those are live runs the
             # frame cannot speak for. No frame (expiry, never-admitted) keeps nothing.
             kept = [
-                t
-                for t in tokens
-                if frame is not None and frame.time is not None and frame.time < t
+                t for t in tokens if frame is not None and frame.time is not None and frame.time < t
             ]
             if kept:
                 by_caller[topic] = kept
