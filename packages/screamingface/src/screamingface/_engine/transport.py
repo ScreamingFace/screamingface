@@ -28,6 +28,7 @@ from screamingface._access.auth import _default_caller_auth
 from screamingface._access.base import _TransportAuth
 from screamingface._access.contract import _challenge_audience
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
+from screamingface._core.retry import RetryingAsyncTransport, RetryingTransport
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.run_lifecycle import _Lifecycle
 from screamingface._engine.trace import TraceContext, new_trace_context
@@ -107,7 +108,15 @@ class Url4CloudTransport:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
-        self._http = httpx.Client(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
+        # WHY a retrying transport (OME-1107): a transient edge failure between the caller and
+        # a healthy origin used to end the whole evaluation. Only requests the call site marked
+        # `_REPLAY_SAFE` are re-sent, so `GET /?q=` — which starts billable work — never is.
+        self._http = httpx.Client(
+            base_url=engine_url,
+            timeout=30.0,
+            auth=self._caller_auth,
+            transport=RetryingTransport(httpx.HTTPTransport()),
+        )
         # INVARIANT: built from the same source as the client above, so the two halves of
         # this transport can never verify against different roots.
         self._ssl = _websocket_ssl_context(engine_url)
@@ -349,7 +358,13 @@ class AsyncUrl4CloudTransport:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
-        self._http = httpx.AsyncClient(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
+        # See the synchronous twin: retry is gated on `_REPLAY_SAFE`, never on the method.
+        self._http = httpx.AsyncClient(
+            base_url=engine_url,
+            timeout=30.0,
+            auth=self._caller_auth,
+            transport=RetryingAsyncTransport(httpx.AsyncHTTPTransport()),
+        )
         # INVARIANT: see the synchronous twin — one trust store for HTTP and WebSocket.
         self._ssl = _websocket_ssl_context(engine_url)
         # Test-only seams; production callers leave the defaults (spec §6 S3).
@@ -896,6 +911,34 @@ def _require_success(
         _raise_response(response, operation, trace_id=trace_id)
 
 
+# How much of an unstructured body may reach an exception message. Long enough to carry a
+# short plain-text reason, far short of a rendered error page.
+_BODY_SNIPPET_LIMIT = 200
+
+
+def _body_summary(response: httpx.Response) -> str:
+    """A bounded, single-line stand-in for a non-`problem+json` body (OME-1107).
+
+    WHY: this used to be `response.text.strip()` verbatim. An edge proxy answers with a full
+    HTML error page, so a transient Cloudflare 520 reached the user as ~7KB of markup with the
+    one useful token — the status code — buried inside it. Anything the Engine itself says
+    arrives as `problem+json` and is read by the caller; everything else is an intermediary
+    speaking a format we do not parse, and its bulk is noise.
+    """
+    status = f"HTTP {response.status_code}"
+    try:
+        body = response.text
+    except (UnicodeDecodeError, httpx.ResponseNotRead):
+        body = ""
+    collapsed = " ".join(body.split())
+    # An HTML page carries no reason a human wants in a traceback — name the status and stop.
+    if not collapsed or collapsed.lower().startswith(("<!doctype", "<html")):
+        return status
+    if len(collapsed) > _BODY_SNIPPET_LIMIT:
+        collapsed = collapsed[:_BODY_SNIPPET_LIMIT].rstrip() + "…"
+    return f"{status}: {collapsed}"
+
+
 def _raise_response(
     response: httpx.Response, operation: str, *, trace_id: str | None = None
 ) -> None:
@@ -905,7 +948,7 @@ def _raise_response(
     # transport branch would miss the common case.
     code: str | None = None
     problem: object = None
-    detail = response.text.strip() or f"HTTP {response.status_code}"
+    detail = _body_summary(response)
     media_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
     if media_type == "application/problem+json":
         try:
