@@ -1188,7 +1188,10 @@ async def test_a_cancel_acked_during_a_slow_respond_is_still_enacted() -> None:
     proc = _FakeProcess(hang=True)
     queue = _FakeQueue([[_FakeMsg(encode_message("t-slowresp", "'hi'", 60))]])
     control = _FakeControl()
-    worker = _worker(queue, _FakePublisher(), slots=1, spawn=fake_spawn, control=control)
+    # Bound to a local instead of read back via `worker._publisher` (typed to the
+    # `_Publisher` Protocol, which rightly does not declare `published`).
+    publisher = _FakePublisher()
+    worker = _worker(queue, publisher, slots=1, spawn=fake_spawn, control=control)
 
     async with asyncio.TaskGroup() as tg:
         claim = tg.create_task(worker._claim_loop(tg))
@@ -1209,12 +1212,9 @@ async def test_a_cancel_acked_during_a_slow_respond_is_still_enacted() -> None:
         # terminal frame is the observable, not the transient registry entry.)
         spawn_gate.set()
         await _wait_until(
-            lambda: (
-                worker._publisher.published
-                and worker._publisher.published[-1].data.status == "stopped"
-            )
+            lambda: publisher.published and publisher.published[-1].data.status == "stopped"
         )
-        frame = worker._publisher.published[-1]
+        frame = publisher.published[-1]
         assert frame.data.error is not None and frame.data.error.code == CANCELLED
 
         respond_gate.set()  # the ack finally leaves — AFTER the cancel was already enacted
