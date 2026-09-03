@@ -1,0 +1,186 @@
+{{/*
+The bundled S3-compatible object store for spilled results (OME-929, spec D2).
+
+WHY bundled rather than a managed bucket: this removes object storage's two real costs — a cloud
+account's credentials and coupling to one provider — while keeping a wire protocol a managed S3
+could answer later unchanged. The port in `screamingface_engine.artifacts` is the actual two-way
+door; this is just the cheapest thing behind it.
+
+WHY a StatefulSet and not a Deployment: Garage keeps a node identity and a metadata database on
+disk. A Deployment with a PVC can start a second pod against the same volume during a rolling
+update, and two Garage processes on one metadata store is corruption, not contention.
+
+WHY single-node, RWO, no replication: the objects are single-consumer hand-offs that live under
+48h and are re-derivable by re-running the evaluation. This is a hand-off buffer, not a durability
+tier — replication would add a failure domain and buy nothing at ~3 MiB per run.
+
+SELF-CONFIGURING — no bootstrap step, no Helm hook, no operator commands. Garage v2.3.0 added
+three `server` flags that replace the whole manual sequence:
+
+  --single-node          creates the cluster layout itself, so nothing has to run
+                         `layout assign` / `layout apply`
+  --default-access-key   adopts GARAGE_DEFAULT_ACCESS_KEY / GARAGE_DEFAULT_SECRET_KEY
+  --default-bucket       creates GARAGE_DEFAULT_BUCKET
+
+WHY that matters beyond convenience: it inverts the data flow. The alternative — a post-install
+Job running `garage key create` — makes Garage MINT the credential, which the chart would then
+have to discover and write back into a Secret, needing `create secrets` RBAC and turning a
+declarative chart into a two-phase one. Here the CHART states the key and Garage adopts it, so
+credentials flow one way and `helm template` fully describes the result.
+
+WHY no scripted layout: Garage's own docs warn that repeating `layout apply --version N` can leave
+the cluster INCONSISTENT, and that a version number must be exactly one past the current one. A
+hook re-running on every `helm upgrade` is precisely the shape that gets that wrong.
+`--single-node` removes the operation instead of automating it.
+
+INVARIANT: the key pair comes from the SAME Secret the App and the Runner read (see
+`secret-artifact-storage.yaml`). One source, three consumers — so the store cannot end up holding
+a key the engine does not present.
+*/}}
+{{- if .Values.garage.enabled }}
+{{- $name := printf "%s-garage" (include "screamingface-engine.fullname" .) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "sqlite"
+    replication_factor = 1
+    # Cluster-internal only: this store is reached by the App and by Runner Job pods, never from
+    # outside. The read path deliberately goes THROUGH the App (spec D4) rather than handing a
+    # client a presigned URL, so nothing off-cluster ever needs to resolve this endpoint.
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+    rpc_secret = {{ derivePassword 1 "long" (printf "%s-garage-rpc" .Release.Name) "garage" "screamingface" | sha256sum | quote }}
+
+    [s3_api]
+    s3_region = {{ .Values.artifactStorage.s3.region | quote }}
+    api_bind_addr = "[::]:3900"
+    root_domain = ".s3.garage"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: s3
+      port: 3900
+      targetPort: s3
+      protocol: TCP
+  selector:
+    {{- include "screamingface-engine.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: garage
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+spec:
+  # INVARIANT: 1. See the WHY above — two Garage processes on one metadata store is corruption.
+  replicas: {{ .Values.garage.replicaCount }}
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- include "screamingface-engine.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: garage
+  template:
+    metadata:
+      labels:
+        {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: garage
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: garage
+          image: {{ .Values.garage.image | quote }}
+          # The three self-configuration flags (see the header). `command` is NOT optional
+          # decoration: dxflrs/garage:v2.3.0 ships NO Entrypoint — only
+          # `Cmd: ["/garage", "server"]` — so bare `args` would REPLACE that Cmd wholesale and
+          # the kubelet would try to exec the literal string "server"
+          # (`exec: "server": executable file not found in $PATH`, CrashLoopBackOff).
+          command: ["/garage"]
+          args:
+            - server
+            - --single-node
+            - --default-access-key
+            - --default-bucket
+          env:
+            # Garage ADOPTS this pair on first boot rather than minting its own, which is what
+            # keeps the chart declarative. Read from the same Secret the engine reads, so the
+            # store and its clients cannot drift onto different credentials.
+            - name: GARAGE_DEFAULT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.artifactSecretName" . }}
+                  key: URL4_CLOUD_ARTIFACT_S3_ACCESS_KEY
+            - name: GARAGE_DEFAULT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.artifactSecretName" . }}
+                  key: URL4_CLOUD_ARTIFACT_S3_SECRET_KEY
+            - name: GARAGE_DEFAULT_BUCKET
+              value: {{ .Values.artifactStorage.s3.bucket | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # NOT readOnlyRootFilesystem: Garage writes its metadata and data trees at runtime.
+            # They live on the mounted volume, which is why this is a narrower exception than it
+            # looks — but the root filesystem still has to be writable for its lock files.
+            runAsNonRoot: true
+            runAsUser: 1000
+          ports:
+            - name: s3
+              containerPort: 3900
+              protocol: TCP
+            - name: rpc
+              containerPort: 3901
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/garage
+          resources:
+            {{- toYaml .Values.garage.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        {{- if not .Values.garage.persistence.enabled }}
+        # AIDEV-NOTE: emptyDir means every artifact is lost on a Garage restart. Acceptable only
+        # for a throwaway test cluster — a client redeeming across that restart gets the same 404
+        # this ticket exists to remove.
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.garage.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.garage.persistence.accessModes | nindent 10 }}
+        {{- with .Values.garage.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.garage.persistence.size | quote }}
+  {{- end }}
+{{- end }}

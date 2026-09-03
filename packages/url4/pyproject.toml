@@ -1,6 +1,6 @@
 [project]
 name = "url4"
-version = "1.4.1"
+version = "1.5.1"
 description = "Standalone core library for the url4 expression protocol — grammar, parser, AST, interpreter, and scope"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,8 +23,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://screamingface.ai"
-Repository = "https://github.com/OpenMined/screamingface"
-Issues = "https://github.com/OpenMined/screamingface/issues"
+Repository = "https://github.com/ScreamingFace/screamingface"
+Issues = "https://github.com/ScreamingFace/screamingface/issues"
 
 [project.optional-dependencies]
 # Url4Node.serve() and `url4 serve` — the ASGI app itself is framework-free; only

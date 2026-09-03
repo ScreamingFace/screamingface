@@ -217,9 +217,15 @@ def _is_a_whole_answer(result: dict[str, Any]) -> bool:
     judging answers, which this stage has no business doing:
 
     * no ``choices``, or an empty list — nothing was produced at all;
-    * a first choice carrying no ``message`` — a delta or a shell, not an answer;
-    * a first choice whose ``finish_reason`` is null OR absent — the provider never
-      declared the answer ended, which is what a stream cut mid-flight leaves.
+    * ANY choice carrying no ``message`` — a delta or a shell, not an answer;
+    * ANY choice whose ``finish_reason`` is null OR absent — the provider never
+      declared that answer ended, which is what a stream cut mid-flight leaves.
+
+    WHY EVERY choice and not just ``choices[0]``: ``n`` is KEYED for every cacheable
+    provider, so an ``n=2`` body has its own key and is replayed only to another
+    ``n=2`` request — which is precisely what makes a half-finished pair permanent
+    rather than harmless. Judging the first choice alone stored it. Position must not
+    change the verdict: the same shape is refused wherever it appears.
 
     Absence and explicit ``null`` are treated identically on purpose: both mean the
     same thing, and distinguishing them would only reward a provider for spelling
@@ -241,10 +247,12 @@ def _is_a_whole_answer(result: dict[str, Any]) -> bool:
     choices = result.get("choices")
     if not isinstance(choices, list) or not choices:
         return False
-    first = choices[0]
-    if not isinstance(first, dict) or not isinstance(first.get("message"), dict):
-        return False
-    return first.get("finish_reason") is not None
+    return all(
+        isinstance(choice, dict)
+        and isinstance(choice.get("message"), dict)
+        and choice.get("finish_reason") is not None
+        for choice in choices
+    )
 
 
 async def store_global_response(

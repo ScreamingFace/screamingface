@@ -149,7 +149,7 @@ jobs:
           push: false
           load: true
           tags: screamingface-engine:ci
-      - name: Build the DRACO benchmark image
+      - name: Build the benchmark image
         uses: docker/build-push-action@v7
         with:
           context: .

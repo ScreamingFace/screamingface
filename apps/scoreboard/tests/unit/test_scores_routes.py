@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from tortoise.exceptions import OperationalError
+from tortoise.exceptions import IntegrityError, OperationalError
 
-from scoreboard.config import Settings
+from scoreboard.config import AuthMode, Settings
 from scoreboard.main import create_app
-from scoreboard.routes.scores import MISSING_IDENTITY_DETAIL
+from scoreboard.routes.scores import MISSING_IDENTITY_DETAIL, identity_is_verified
 from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
 from scoreboard.scores.store import ScoreStore
 
@@ -447,3 +447,355 @@ async def test_openapi_schema_includes_new_endpoints(score_client: AsyncClient) 
     assert get_score["responses"]["503"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/MessageErrorResponse",
     )
+
+
+# --- OME-894: a private benchmark's scores are not readable by UUID --------------------------
+# The four leaderboard read paths were secured first; this one was missed. A score UUID is handed
+# out by the submission response and by per-spec history, so `GET /v1/scores/{id}` was a fifth
+# score-bearing path that returned a private submission's url4_expression and metadata to anyone
+# holding the id. Found in review of PR #719.
+
+PRIVATE_BENCHMARK = "healthbench-worst30"
+
+
+async def _private_score(client: AsyncClient, submitter: str) -> str:
+    await Benchmark.create(
+        id=PRIVATE_BENCHMARK,
+        display_name="HealthBench Worst-30% Challenge",
+        visibility="private",
+    )
+    payload = _valid_payload()
+    payload["benchmark_id"] = PRIVATE_BENCHMARK
+    created = await client.post("/v1/scores", json=payload, headers={"X-User-Email": submitter})
+    assert created.status_code == 201, created.text
+    return str(created.json()["id"])
+
+
+async def test_get_score_on_a_private_benchmark_is_404_for_an_anonymous_caller(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    score_id = await _private_score(cloudflare_score_client, "alice@example.test")
+
+    response = await cloudflare_score_client.get(f"/v1/scores/{score_id}")
+
+    # INVARIANT: the SAME 404 an unknown id gets. Holding a real id must not be confirmable.
+    assert response.status_code == 404
+    assert response.json() == {"detail": "score not found"}
+
+
+async def test_get_score_on_a_private_benchmark_is_404_for_another_participant(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    score_id = await _private_score(cloudflare_score_client, "alice@example.test")
+
+    response = await cloudflare_score_client.get(
+        f"/v1/scores/{score_id}", headers={"X-User-Email": "bob@example.test"}
+    )
+
+    assert response.status_code == 404
+
+
+async def test_get_score_on_a_private_benchmark_is_served_to_its_own_submitter(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    score_id = await _private_score(cloudflare_score_client, "alice@example.test")
+
+    response = await cloudflare_score_client.get(
+        f"/v1/scores/{score_id}", headers={"X-User-Email": "alice@example.test"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == score_id
+
+
+async def test_get_score_on_a_public_benchmark_stays_anonymous(
+    score_client: AsyncClient,
+) -> None:
+    # The regression guard: securing the private path must not close the public one.
+    created = await score_client.post("/v1/scores", json=_valid_payload())
+
+    response = await score_client.get(f"/v1/scores/{created.json()['id']}")
+
+    assert response.status_code == 200
+
+
+# --- review round 3: a private board cannot accept writes without verified identity -----------
+# In auth_mode=disabled `_resolve_submitter` trusts the body's `submitted_by`. Combined with
+# per-submitter dedup that becomes a READ primitive: forge a participant's address, submit a
+# matching recipe, and the dedup path returns their stored row — url4, metadata and id included.
+# Reproduced before fixing. Reads already fail closed under `disabled` (OME-894 D2); writes now
+# match, so a private board is inert in both directions until identity is real.
+
+
+async def test_a_private_benchmark_refuses_submissions_when_auth_is_disabled(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.create(id="private-x", display_name="Private", visibility="private")
+    payload = _valid_payload()
+    payload["benchmark_id"] = "private-x"
+
+    response = await score_client.post("/v1/scores", json=payload)
+
+    assert response.status_code == 403
+
+
+async def test_the_refusal_happens_before_any_dedup_lookup(
+    score_client: AsyncClient,
+) -> None:
+    # INVARIANT: the refusal must precede the store, or the forged request still learns whether a
+    # matching row exists from the response it gets back.
+    await Benchmark.create(id="private-x", display_name="Private", visibility="private")
+    victim = _valid_payload()
+    victim["benchmark_id"] = "private-x"
+    victim["submitted_by"] = "alice@example.test"
+    victim["metadata"] = {"notes": "alice internal"}
+    await Score.create(
+        benchmark_id="private-x",
+        spec_id=victim["spec_id"],
+        url4_expression=victim["url4_expression"],
+        submitted_by="alice@example.test",
+        score=victim["score"],
+        total_questions=victim["total_questions"],
+        ran_with_providers=victim["ran_with_providers"],
+        metadata={"notes": "alice internal"},
+    )
+
+    forged = await score_client.post("/v1/scores", json=victim)
+
+    assert forged.status_code == 403
+    assert "alice internal" not in forged.text
+
+
+async def test_a_public_benchmark_still_accepts_submissions_when_auth_is_disabled(
+    score_client: AsyncClient,
+) -> None:
+    # The regression guard: closing the private write path must not close the public one, which
+    # is how every existing deployment submits today.
+    response = await score_client.post("/v1/scores", json=_valid_payload())
+
+    assert response.status_code == 201
+
+
+async def test_a_private_benchmark_accepts_submissions_with_verified_identity(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    await Benchmark.create(id="private-x", display_name="Private", visibility="private")
+    payload = _valid_payload()
+    payload["benchmark_id"] = "private-x"
+
+    response = await cloudflare_score_client.post(
+        "/v1/scores", json=payload, headers={"X-User-Email": "alice@example.test"}
+    )
+
+    assert response.status_code == 201
+
+
+async def test_a_database_failure_on_the_visibility_lookup_is_a_503(
+    score_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: this endpoint documents 503 for database failures. The OME-894 visibility lookup
+    # is a SECOND read after the score fetch, so a transient disconnect between the two escaped
+    # the existing handler as an unhandled 500 (found in review of PR #719). Both reads belong
+    # inside one error boundary.
+    created = await score_client.post("/v1/scores", json=_valid_payload())
+
+    async def _disconnected(*args: object, **kwargs: object) -> None:
+        raise OperationalError("connection lost")
+
+    monkeypatch.setattr("scoreboard.routes.scores.Benchmark.get_or_none", _disconnected)
+
+    response = await score_client.get(f"/v1/scores/{created.json()['id']}")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "score store unavailable"}
+
+
+# --- review round 6: the two 404s must be indistinguishable ---------------------------------
+# `get_score` raises the same status and detail for an unknown id and for a private score the
+# caller may not read, and the invariant comment says so. The private refusal carried
+# `PRIVATE_CACHE_HEADERS` and the unknown-id 404 did not, so the response headers alone
+# confirmed that a real private score id existed. Found in review of PR #719.
+
+
+async def test_the_unknown_id_404_is_indistinguishable_from_the_private_refusal(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    score_id = await _private_score(cloudflare_score_client, "alice@example.test")
+
+    refused = await cloudflare_score_client.get(
+        f"/v1/scores/{score_id}", headers={"X-User-Email": "bob@example.test"}
+    )
+    unknown = await cloudflare_score_client.get(
+        f"/v1/scores/{uuid4()}", headers={"X-User-Email": "bob@example.test"}
+    )
+
+    assert refused.status_code == unknown.status_code == 404
+    assert refused.json() == unknown.json()
+    # INVARIANT: the discriminator must not survive in the headers either.
+    assert refused.headers.get("cache-control") == unknown.headers.get("cache-control")
+    assert refused.headers.get("vary") == unknown.headers.get("vary")
+
+
+async def test_an_unknown_score_id_is_not_shared_cacheable(
+    cloudflare_score_client: AsyncClient,
+) -> None:
+    # Asserted on its own so the pair above cannot pass by BOTH responses losing the policy.
+    response = await cloudflare_score_client.get(f"/v1/scores/{uuid4()}")
+
+    assert response.status_code == 404
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+# --- review round 17: one authority for visibility, read where it governs persistence --------
+# The route read visibility to decide whether to refuse an unverified write, and the store read it
+# AGAIN to decide per-submitter semantics. The write is governed by the SECOND read, so flipping a
+# board public -> private between them — which the seed job does on every deploy — let the guard
+# pass on stale data and persisted an unverified claim on a private board. Found in review of #719.
+
+
+async def test_a_visibility_flip_between_the_reads_cannot_persist_an_unverified_write(
+    score_client: AsyncClient,
+) -> None:
+    # INVARIANT: there is no window. A third read earlier in the route would not close this; the
+    # refusal has to be taken at the read that decides persistence.
+    await Benchmark.create(id="race-x", display_name="Race", visibility="public")
+    real_submit = ScoreStore.submit
+
+    async def _flip_then_submit(self, submission, idempotency_key=None, **kwargs):  # type: ignore[no-untyped-def]
+        # Stands in for the seed job landing mid-request.
+        await Benchmark.filter(id="race-x").update(visibility="private")
+        return await real_submit(self, submission, idempotency_key=idempotency_key, **kwargs)
+
+    payload = _valid_payload()
+    payload["benchmark_id"] = "race-x"
+    payload["submitted_by"] = "victim@example.test"
+    payload["metadata"] = {"attacker": "controlled"}
+
+    ScoreStore.submit = _flip_then_submit  # type: ignore[method-assign]
+    try:
+        response = await score_client.post("/v1/scores", json=payload)
+    finally:
+        ScoreStore.submit = real_submit  # type: ignore[method-assign]
+
+    assert response.status_code == 403, response.text
+    assert await Score.get_or_none(spec_id=payload["spec_id"]) is None, (
+        "an unverified claim was persisted on a board that is private by the time it was written"
+    )
+
+
+def test_an_unrecognised_auth_mode_does_not_count_as_verified() -> None:
+    # INVARIANT: the route derives `identity_verified` from an ALLOWLIST of modes that actually
+    # verify, not from "anything but disabled". A third mode added later would otherwise be treated
+    # as verifying by default — the fail-open direction, on the decision that governs private
+    # writes. Passing a mode outside the Literal is the point: it stands in for that future value.
+    assert identity_is_verified("cloudflare_headers") is True
+    assert identity_is_verified("disabled") is False
+    assert identity_is_verified(cast(AuthMode, "some-future-sso-mode")) is False
+
+
+async def test_a_visibility_flip_mid_flight_is_a_409_not_a_500(
+    score_client: AsyncClient,
+) -> None:
+    # INVARIANT: refusing a request whose rules changed underneath it is a CONFLICT, not a server
+    # error. Nothing is wrong with the request; a retry gets one consistent view. Surfacing it as a
+    # 500 would read as a bug in the board and hide a correct refusal.
+    await Benchmark.create(id="flip-x", display_name="Flip", visibility="public")
+    real = ScoreStore._resolve_existing
+
+    async def _flip(self, idempotency_key, content_hash):  # type: ignore[no-untyped-def]
+        await Benchmark.filter(id="flip-x").update(visibility="private")
+        return await real(self, idempotency_key, content_hash)
+
+    payload = _valid_payload()
+    payload["benchmark_id"] = "flip-x"
+
+    ScoreStore._resolve_existing = _flip  # type: ignore[method-assign]
+    try:
+        response = await score_client.post("/v1/scores", json=payload)
+    finally:
+        ScoreStore._resolve_existing = real  # type: ignore[method-assign]
+
+    assert response.status_code == 409, response.text
+    assert await Score.get_or_none(spec_id=payload["spec_id"]) is None
+
+
+async def test_a_flip_after_the_visibility_read_withholds_the_score(
+    score_client: AsyncClient,
+) -> None:
+    # The window on this route is read -> serialise rather than read -> query: nothing else is
+    # fetched after the benchmark read. Narrower than the leaderboard's, closed the same way, so
+    # every score-bearing read answers from one view of `visibility` (review of PR #719).
+    await Benchmark.create(id="late-x", display_name="Late", visibility="public")
+    payload = _valid_payload()
+    payload["benchmark_id"] = "late-x"
+    created = await score_client.post("/v1/scores", json=payload)
+    assert created.status_code == 201
+    score_id = created.json()["id"]
+
+    real = Benchmark.get_or_none
+
+    async def _flip_after_read(*args, **kwargs):  # type: ignore[no-untyped-def]
+        result = await real(*args, **kwargs)
+        await Benchmark.filter(id="late-x").update(visibility="private")
+        return result
+
+    Benchmark.get_or_none = _flip_after_read  # type: ignore[method-assign]
+    try:
+        response = await score_client.get(f"/v1/scores/{score_id}")
+    finally:
+        Benchmark.get_or_none = real  # type: ignore[method-assign]
+
+    assert response.status_code == 404, response.text
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+def _lose_the_race_and_flip(benchmark_id: str) -> tuple[object, object, dict[str, int]]:
+    """Blind the precheck, flip the board on the retry lookup, and fail the first insert."""
+    real_resolve = ScoreStore._resolve_existing
+    real_create = Score.create
+    seen = {"resolves": 0, "raises": 0}
+
+    async def _resolve(self, idempotency_key, content_hash):  # type: ignore[no-untyped-def]
+        seen["resolves"] += 1
+        if seen["resolves"] == 1:
+            return None
+        await Benchmark.filter(id=benchmark_id).update(visibility="private")
+        return await real_resolve(self, idempotency_key, content_hash)
+
+    async def _create(**kwargs):  # type: ignore[no-untyped-def]
+        if not seen["raises"]:
+            seen["raises"] += 1
+            raise IntegrityError("simulated concurrent insert")
+        return await real_create(**kwargs)
+
+    return _resolve, _create, seen
+
+
+async def test_a_lost_race_after_a_flip_is_a_conflict_not_a_store_outage(
+    score_client: AsyncClient,
+) -> None:
+    # INVARIANT: a concurrency conflict on a board that changed underneath the request is a 409.
+    #
+    # `IntegrityError` SUBCLASSES `OperationalError`, so re-raising it was caught by the route's
+    # store-unavailable handler and answered `503 score store unavailable` — telling the client the
+    # database is down when the board had merely changed, and masking a conflict as an outage. The
+    # privacy gate is what made this reachable: after a flip the winner's row is no longer readable,
+    # so nothing resolves and the bare `raise` runs (review of PR #719).
+    await Benchmark.create(id="lost-x", display_name="Lost", visibility="public")
+    payload = _valid_payload()
+    payload["benchmark_id"] = "lost-x"
+    assert (await score_client.post("/v1/scores", json=payload)).status_code == 201
+
+    real_resolve, real_create = ScoreStore._resolve_existing, Score.create
+    resolve, create, seen = _lose_the_race_and_flip("lost-x")
+    ScoreStore._resolve_existing, Score.create = resolve, create  # type: ignore[method-assign]
+    try:
+        response = await score_client.post(
+            "/v1/scores", json=dict(payload, spec_id="loser", submitted_by="bob@example.test")
+        )
+    finally:
+        ScoreStore._resolve_existing = real_resolve  # type: ignore[method-assign]
+        Score.create = real_create  # type: ignore[method-assign]
+
+    assert seen["raises"], "the IntegrityError branch was never reached"
+    assert response.status_code == 409, response.text

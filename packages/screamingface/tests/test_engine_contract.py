@@ -767,3 +767,70 @@ def test_state_rejects_a_result_with_neither_body_nor_artifact() -> None:
     state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
     with pytest.raises(ExecutionError):
         state.accept(frame("ai.url4.result", {"body": None, "media_type": None}, sequence=2))
+
+
+def test_state_decodes_span_cache_provenance() -> None:
+    accepted = _RunState(URL4).accept(
+        frame(
+            "ai.url4.span",
+            {
+                "name": "model",
+                "kind": "client",
+                "gen_ai.operation.name": "chat",
+                "gen_ai.request.model": "openrouter/example/model",
+                "start": "2026-07-25T16:00:00Z",
+                "end": "2026-07-25T16:00:01Z",
+                "status": "ok",
+                "cache_status": "hit",
+                "cache_reason": "exact_match",
+            },
+            sequence=1,
+        )
+    )
+
+    assert isinstance(accepted.event, sf.events.Span)
+    assert accepted.event.cache_status == "hit"
+    assert accepted.event.cache_reason == "exact_match"
+
+
+def test_state_rejects_unknown_span_cache_status() -> None:
+    with pytest.raises(ExecutionError, match="cache_status"):
+        _RunState(URL4).accept(
+            frame(
+                "ai.url4.span",
+                {
+                    "name": "model",
+                    "kind": "client",
+                    "gen_ai.operation.name": "chat",
+                    "gen_ai.request.model": "openrouter/example/model",
+                    "start": "2026-07-25T16:00:00Z",
+                    "end": "2026-07-25T16:00:01Z",
+                    "status": "ok",
+                    "cache_status": "stale",
+                },
+                sequence=1,
+            )
+        )
+
+
+@pytest.mark.parametrize("cache_status", [[], {}])
+def test_state_rejects_non_scalar_span_cache_status(cache_status: object) -> None:
+    """INVARIANT: malformed JSON stays inside the Client's ExecutionError boundary."""
+
+    with pytest.raises(ExecutionError, match="cache_status"):
+        _RunState(URL4).accept(
+            frame(
+                "ai.url4.span",
+                {
+                    "name": "model",
+                    "kind": "client",
+                    "gen_ai.operation.name": "chat",
+                    "gen_ai.request.model": "openrouter/example/model",
+                    "start": "2026-07-25T16:00:00Z",
+                    "end": "2026-07-25T16:00:01Z",
+                    "status": "ok",
+                    "cache_status": cache_status,
+                },
+                sequence=1,
+            )
+        )

@@ -275,8 +275,27 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         """
         return CacheBypass(reason=PROJECTION_BYPASS_REASON)
 
-    def participates_in_global_cache(self) -> bool:
+    def participates_in_global_cache(self, model: object = None) -> bool:
         """Whether this provider may take part in the shared cache at all.
+
+        ``model`` is the RAW requested model, exactly as the caller sent it — not a
+        resolved, stripped or validated form, and possibly not even a string, because
+        this gate is consulted before the request's shape is adjudicated. It is the ONE
+        request fact this port carries (OME-884), and it exists for a hazard that is
+        per-model rather than per-deployment: an ambient ``litellm.model_alias_map``
+        entry REDIRECTS one model id to another, so a row stored for the requested id
+        would be replayed while a miss dispatched something else. A model-free gate
+        could only answer that by disabling the whole provider, which would abandon
+        every unrelated model's cache over one poisoned alias.
+
+        INVARIANT: nothing ELSE crosses this port. No body, no account, no profile, no
+        auth mode, no credential, no settings instance — this hook may read
+        deployment-local state, but the request itself reaches it only as this one id.
+
+        AIDEV-NOTE: the parameter is DEFAULTED so the hook stays callable in isolation
+        (``plugin.participates_in_global_cache()`` in a test, a direct base-class call).
+        ``build_global_cache_plan`` always passes it; ``None`` therefore means "no model
+        was available", never "the caller sent none".
 
         WHY this is separate from ``global_cache_projection`` rather than a branch
         inside it: the two answer different questions, and only one of them may see
@@ -303,8 +322,10 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         switched-off provider), not a hypothetical.
 
         Default: True — a provider that has implemented a projection participates.
-        Overriding is only for a provider that can be switched off.
+        Overriding is only for a provider that can be switched off, or that has a
+        per-model reason to stand down.
         """
+        del model
         return True
 
     def should_apply_profile_default(self, field: str) -> bool:

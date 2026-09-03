@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -16,6 +18,7 @@ from screamingface._access import auth as auth_module
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import _compiled_operation
+from screamingface._scoreboard.leaderboards import _submission
 
 SCOREBOARD_URL = "https://scoreboard.example"
 CREATED_AT = "2026-08-01T10:00:00Z"
@@ -1227,3 +1230,152 @@ def test_submitted_score_renders_as_an_sfds_card() -> None:
     assert f"href='{SCOREBOARD_URL}/spec.html?benchmark=draco&amp;spec=fusion%2Falpha'" in html, (
         "links to the portal spec page on the originating Scoreboard"
     )
+
+
+# --- OME-1029: the run cost reaches the submission payload -----------------------------------
+# Scoreboard accepts `run_cost_usd`, the Engine produces a run total and the SDK holds it on
+# CandidateResult.usage.cost_usd — the payload just omitted it, so the column was null on every
+# row of every board. OME-822 (cost required) and OME-923's Pareto marks both wait on this.
+
+
+def _result_costing(cost: str | None) -> sf.CandidateResult:
+    # Rebuilt rather than `replace`d: CandidateResult takes `metrics=` but stores `_metric_items`,
+    # so dataclasses.replace feeds back a keyword __init__ does not accept. Constructing from the
+    # fixture's own attributes leaves the shared fixture untouched.
+    base = _candidate_result()
+    return sf.CandidateResult(
+        benchmark=base.benchmark,
+        run_id=base.run_id,
+        started_at=base.started_at,
+        completed_at=base.completed_at,
+        name=base.name,
+        kind=base.kind,
+        url4=base.url4,
+        models=base.models,
+        operations=base.operations,
+        score=base.score,
+        coverage=base.coverage,
+        metrics=dict(base.metrics),
+        cases=base.cases,
+        members=base.members,
+        failures=base.failures,
+        usage=sf.Usage(cost_usd=None if cost is None else Decimal(cost)),
+    )
+
+
+def test_a_priced_run_submits_its_cost_as_a_decimal_string() -> None:
+    # INVARIANT: a STRING on the wire, never a float and never a raw Decimal. The payload is handed
+    # to `json=`, which raises TypeError on a Decimal; a float would silently lose precision on a
+    # DECIMAL(12, 6) money column. Both failures are invisible to a test that only checks presence.
+    payload = _submission(_result_costing("1.234567"))
+
+    assert payload["run_cost_usd"] == "1.234567"
+    assert isinstance(payload["run_cost_usd"], str)
+
+
+def test_an_unpriced_run_submits_null_and_never_zero() -> None:
+    # INVARIANT: absent means "no cost was reported". Coercing it to 0 would put an unpriced run at
+    # the cheapest end of the Pareto frontier OME-923 is about to build — a claim about money
+    # nobody measured.
+    payload = _submission(_result_costing(None))
+
+    assert payload["run_cost_usd"] is None
+
+
+def test_a_run_that_genuinely_cost_nothing_submits_zero() -> None:
+    # A fully cache-served run legitimately costs zero, and that is a different fact from "not
+    # reported". OME-770 D10 and OME-923's exclusion rule both depend on the distinction.
+    payload = _submission(_result_costing("0"))
+
+    assert payload["run_cost_usd"] == "0"
+    assert payload["run_cost_usd"] is not None
+
+
+def test_zero_and_absent_are_distinguishable_in_the_payload() -> None:
+    priced_zero = _submission(_result_costing("0"))["run_cost_usd"]
+    unpriced = _submission(_result_costing(None))["run_cost_usd"]
+
+    assert priced_zero != unpriced
+
+
+def test_the_submission_payload_gains_only_the_cost_key() -> None:
+    # A characterisation guard: this is the submission path every user depends on, so an accidental
+    # change to a neighbouring field should fail loudly rather than ship.
+    payload = _submission(_result_costing("0.5"))
+
+    assert set(payload) == {
+        "version",
+        "benchmark_id",
+        "spec_id",
+        "url4_expression",
+        "score",
+        "total_questions",
+        "ran_with_providers",
+        "ran_at_local",
+        "run_cost_usd",
+        "client",
+        "metadata",
+    }
+
+
+def test_the_cost_survives_json_serialisation() -> None:
+    # INVARIANT: the payload is handed to `json=`, so it must survive json.dumps. A raw Decimal
+    # raises TypeError there — a failure no assertion on the dict alone would catch.
+    import json
+
+    encoded = json.loads(json.dumps(_submission(_result_costing("1.234567"))))
+
+    assert encoded["run_cost_usd"] == "1.234567"
+    assert json.loads(json.dumps(_submission(_result_costing(None))))["run_cost_usd"] is None
+
+
+def test_the_cost_reaches_the_wire_on_a_real_submit() -> None:
+    # End to end through the client, not just the payload builder: the value has to survive
+    # httpx's own JSON encoding, which is where a raw Decimal would raise.
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_score_response())
+
+    with _sync_client(handler) as client:
+        client.leaderboards.submit(_result_costing("2.5"))
+
+    assert json.loads(seen[-1].content)["run_cost_usd"] == "2.5"
+
+
+@pytest.mark.asyncio
+async def test_the_async_submit_sends_the_cost_too() -> None:
+    # Sync and async share _submission(), and this keeps that true: a divergence would be silent
+    # and only one set of users would carry costs.
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=_score_response())
+
+    async with _async_client(handler) as client:
+        await client.leaderboards.submit(_result_costing("2.5"))
+
+    assert json.loads(seen[-1].content)["run_cost_usd"] == "2.5"
+
+
+@pytest.mark.parametrize(
+    "cost",
+    ["0", "0.000001", "1.234567", "999999.999999"],
+)
+def test_the_wire_string_parses_back_to_the_same_decimal(cost: str) -> None:
+    # The SDK and Scoreboard are separate deployables with no shared type — Scoreboard's
+    # `run_cost_usd` is `Decimal | None` and Pydantic parses the string we send. Importing that
+    # schema here is not possible (its dependencies are not in this venv, correctly), so the
+    # contract is pinned as the property that field relies on: what we emit must parse back to
+    # exactly the Decimal we started with, across the column's DECIMAL(12, 6) range.
+    emitted = _submission(_result_costing(cost))["run_cost_usd"]
+
+    assert isinstance(emitted, str)
+    assert Decimal(emitted) == Decimal(cost)
+
+
+def test_no_cost_is_absent_rather_than_an_empty_string() -> None:
+    # An empty string would parse as neither a Decimal nor null and would 422 the submission.
+    assert _submission(_result_costing(None))["run_cost_usd"] is None

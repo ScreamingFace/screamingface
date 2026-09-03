@@ -27,7 +27,7 @@ config:
   # values.
   openrouter:
     enabled: true
-  # Re-state the chart's default-on global response cache explicitly for production. Read the five
+  # Re-state the chart's default-on global response cache explicitly for production. Read the six
   # consequences documented on `config.requestCache` in `values.yaml`; the load-bearing ones are
   # that any two callers sending the identical request get the identical stored response, and that
   # rows never expire.
@@ -37,8 +37,18 @@ config:
   # `credential_blobs`; `auth.secretKeyKey` still governs those credentials, not response-cache rows.
   #
   # THE BLAST RADIUS: every hosted user's responses share one indefinitely retained corpus.
+  #
+  # HUGGING FACE: provider-pinned ids (`…:novita`) cache and replay across accounts; routing
+  # policies (`:fastest` / `:cheapest` / `:preferred`) and unsuffixed ids do not. Gated-repository
+  # responses can therefore reach an account that never accepted the licence — consequence 6 in
+  # `values.yaml`.
   requestCache:
     enabled: true
+
+extraEnv:
+  # OME-921: finite headroom above Engine's ~32-call fan-out; never set this to 0 in prod.
+  - name: AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES
+    value: '{"openrouter": 50}'
 
 # Internal-only. There is no public route to the gateway, and that is load-bearing rather than
 # incidental — it is what makes the injected identity headers unforgeable.

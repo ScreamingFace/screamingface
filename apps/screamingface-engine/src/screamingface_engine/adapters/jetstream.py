@@ -10,17 +10,42 @@ from datetime import UTC, datetime
 
 import nats
 from nats.aio.client import Client
-from nats.js import JetStreamContext
+from nats.js import JetStreamContext, api
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, DiscardPolicy, StreamInfo
 from nats.js.errors import APIError, BadRequestError, NotFoundError
 from pydantic import ValidationError
 
 from screamingface_engine.subjects import owns_stream, stream_for, subject_for, topic_of
 from url4.streaming.codec import decode, encode
-from url4.streaming.interfaces import EventConsumer, EventPublisher, validate_from_sequence
+from url4.streaming.interfaces import (
+    EventConsumer,
+    EventPublisher,
+    StreamNotFoundError,
+    validate_from_sequence,
+)
 from url4.streaming.protocol import OutboundFrame, TerminatedEvent
 
 logger = logging.getLogger(__name__)
+
+MAX_IN_FLIGHT_PUBLISHES = 1024
+"""How many acknowledgements may be outstanding before `publish` parks on the semaphore.
+
+Stated here rather than left to nats-py's default of 4000 because it is the memory bound this
+module PROMISES, not an incidental library setting. It is also the whole stall defence: an
+unreachable broker fills this window, `publish` then blocks, the Runner's drain stops, and its
+event bridge fails at its own hard cap — bounded, and loudly.
+"""
+
+
+class DeferredPublishError(RuntimeError):
+    """A publish this class already returned from was later rejected by the broker.
+
+    Raised at the next `publish` or at `flush`, chained (`__cause__`) to the broker's own
+    error. Wrapped rather than re-raised bare so the message says WHERE it surfaced: the
+    frame that caused it is long gone by then, and a naked APIError at a later sequence
+    number reads as a failure of the wrong frame.
+    """
+
 
 # INVARIANT: `max_age` bounds the BYTES a run's frames occupy. It does NOT reclaim the stream
 # object — JetStream expires messages and leaves the stream, its consumer state and its
@@ -112,7 +137,9 @@ class _JetStreamConnection:
                 return js
             nc = await nats.connect(self._url)
             self._nc = nc
-            js = nc.jetstream()
+            # The bound is inert for the consumer, which never publishes; declaring it once
+            # here keeps the two bindings on one connection story.
+            js = nc.jetstream(publish_async_max_pending=MAX_IN_FLIGHT_PUBLISHES)
             self._js = js
             # The declarations belonged to the connection that just died; the new one has none.
             self._ensured.clear()
@@ -294,6 +321,18 @@ class _JetStreamConnection:
             await self._nc.close()
 
 
+async def _stream_exists(js: JetStreamContext, topic: str) -> bool:
+    """Whether the Run's stream is still declared on the broker.
+
+    `stream_info` on a missing stream raises NotFoundError; any other failure propagates.
+    """
+    try:
+        await js.stream_info(stream_for(topic))
+    except NotFoundError:
+        return False
+    return True
+
+
 class JetStreamConsumer(_JetStreamConnection, EventConsumer):
     """The App-side consumer: subscribes to a run's JetStream subject and decodes frames back
     into `OutboundFrame`s, optionally resuming from a given sequence."""
@@ -303,6 +342,12 @@ class JetStreamConsumer(_JetStreamConnection, EventConsumer):
     ) -> AsyncIterator[OutboundFrame]:
         validate_from_sequence(from_sequence)
         js = await self._jetstream()
+        if from_sequence is not None and not await _stream_exists(js, topic):
+            # A resume cursor with no stream to resume from: the Run finished and the
+            # Runner reclaimed the stream (spec §6 S2, OME-1019). The bridge turns this
+            # into a typed `stream_reclaimed` error frame. A FRESH attach (cursor None)
+            # still creates the stream — it legitimately precedes the Run's first publish.
+            raise StreamNotFoundError(topic)
         await self.ensure_stream(topic)
         sub = await js.subscribe(
             subject_for(topic),
@@ -332,11 +377,104 @@ class JetStreamConsumer(_JetStreamConnection, EventConsumer):
 
 class JetStreamPublisher(_JetStreamConnection, EventPublisher):
     """The App-side publisher. Only the mock runner writes to a topic in a real deployment —
-    the real Runner has its own copy, because the two deployables may not import each other."""
+    the real Runner has its own copy, because the two deployables may not import each other.
+
+    Publishes are PIPELINED: `publish` returns once the frame is written to the connection,
+    and `flush` waits for the acknowledgements.
+
+    WHY (OME-906): awaiting one acknowledgement per frame capped the drain at one broker round
+    trip per frame, while the engine produced observation events at CPU speed. A cached DRACO
+    burst therefore overflowed the Runner's event bridge — which cannot push back, because the
+    engine's observer callback is synchronous — and a correct Evaluation failed.
+
+    INVARIANT: exactly ONE task calls `publish`. `publish_async` writes to the connection
+    inside the call, so a single caller hands the broker the frames in call order, and the
+    broker assigns its stream sequence from that order. Two tasks void it, and the SDK finds
+    gaps by exactly that sequence. This is also why the pipeline lives HERE and not in the
+    lifecycle: a task per frame would bound the window just as well and lose the ordering.
+    """
+
+    def __init__(
+        self,
+        nats_url: str,
+        *,
+        stream_max_age_s: float = DEFAULT_STREAM_MAX_AGE_S,
+        stream_max_bytes: int = DEFAULT_STREAM_MAX_BYTES,
+        orphan_grace_s: float = DEFAULT_ORPHAN_GRACE_S,
+        never_started_s: float = DEFAULT_NEVER_STARTED_S,
+    ) -> None:
+        # Forwarded explicitly rather than through `**kwargs`: the base takes one `int` among
+        # its floats, so a single widened annotation cannot type-check, and the alternative
+        # was a `type: ignore` over the whole call.
+        super().__init__(
+            nats_url,
+            stream_max_age_s=stream_max_age_s,
+            stream_max_bytes=stream_max_bytes,
+            orphan_grace_s=orphan_grace_s,
+            never_started_s=never_started_s,
+        )
+        # A dict used as an ORDERED set. Insertion order is publish order, and `_reap` keeps
+        # the first failure — meaning the one on the earliest-published frame. A plain `set`
+        # iterates by hash, which made "first" whichever future it happened to yield and only
+        # showed up as a test that passed alone and failed in suite order.
+        self._acks: dict[asyncio.Future[api.PubAck], None] = {}
+        self._deferred_failure: BaseException | None = None
 
     async def publish(self, topic: str, event: OutboundFrame) -> None:
         js = await self._jetstream()
-        await js.publish(subject_for(topic), encode(event))
+        # Fail fast: a broker that started rejecting stops the run now, rather than after the
+        # whole in-flight window drains.
+        self._reap()
+        self._raise_deferred()
+        ack = await js.publish_async(subject_for(topic), encode(event))
+        self._acks[ack] = None
+
+    async def flush(self) -> None:
+        if self._acks:
+            await asyncio.wait(tuple(self._acks))
+        self._reap()
+        self._raise_deferred()
+
+    def _reap(self) -> None:
+        """Harvest every settled acknowledgement: drop it and keep the first rejection.
+
+        WHY reaping rather than an `add_done_callback`: a callback runs through
+        `loop.call_soon`, so a failure recorded there is not yet visible to a `flush` that
+        happens not to await — correctness would depend on callback scheduling order. Reading
+        the futures directly makes both paths deterministic.
+
+        INVARIANT: `_acks` stays bounded. Every `publish` reaps before it adds, and `flush`
+        reaps all, so it never outgrows the in-flight window
+        (`MAX_IN_FLIGHT_PUBLISHES`) that nats-py's own semaphore enforces.
+
+        Reading `exception()` here is also what stops asyncio's "exception was never
+        retrieved" warning on a future nothing awaits.
+        """
+        for ack in tuple(self._acks):
+            if not ack.done():
+                continue
+            del self._acks[ack]
+            if ack.cancelled():
+                # No broker verdict. Treating teardown as a rejection would fail a run on
+                # the shutdown path.
+                continue
+            exc = ack.exception()
+            if exc is not None and self._deferred_failure is None:
+                self._deferred_failure = exc
+
+    def _raise_deferred(self) -> None:
+        """Report a recorded failure once, then forget it.
+
+        INVARIANT: clearing is required, not tidiness. `run` reaches its `failed` arm through
+        this raise, and that arm publishes AND flushes the terminal frame — if the failure
+        persisted, that flush would raise too and the subscriber would wait forever for the
+        one frame it is guaranteed.
+        """
+        exc, self._deferred_failure = self._deferred_failure, None
+        if exc is not None:
+            raise DeferredPublishError(
+                "a JetStream publish was rejected after it returned"
+            ) from exc
 
 
-__all__ = ["JetStreamConsumer", "JetStreamPublisher"]
+__all__ = ["DeferredPublishError", "JetStreamConsumer", "JetStreamPublisher"]

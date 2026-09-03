@@ -41,6 +41,7 @@ from url4.streaming.interfaces.stream import (
     EventConsumer,
     EventPublisher,
     EventStream,
+    StreamNotFoundError,
     validate_from_sequence,
 )
 
@@ -56,6 +57,7 @@ __all__ = [
     "JobRunnerAtCapacity",
     "JobStatus",
     "SpanRef",
+    "StreamNotFoundError",
     "Telemetry",
     "TraceContext",
     "Traced",

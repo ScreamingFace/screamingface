@@ -224,6 +224,43 @@ SubmittedBy = Annotated[
 ]
 
 
+def _publish_authors(value: list[str] | None) -> list[str] | None:
+    """Apply the submitter privacy boundary to every credited author.
+
+    INVARIANT: one trimming rule, delegated. `submitted_by` and `authors` must degrade
+    identically, or the same address is redacted on one field and published on the other.
+
+    AIDEV-NOTE: `or author` below is a TYPE narrowing, not a fallback — read as a fallback it looks
+    like it publishes a raw address whenever the trimmer balks, which is the opposite of what this
+    function is for. It cannot: `_publish_submitter` returns None only for a None input, and these
+    elements are typed `str`. For anything that is not a dotted-domain address the trimmer already
+    returns the full value on purpose (see its docstring), so there is nothing here to rescue.
+    """
+    if value is None:
+        return None
+    return [_publish_submitter(author) or author for author in value]
+
+
+# INVARIANT: author addresses are full in Python mode (staff export) and local-part-only in
+# public JSON. Keeping the serializer on one shared type prevents the three read DTOs from
+# drifting and exposing domains on only one endpoint.
+Authors = Annotated[
+    list[str] | None,
+    PlainSerializer(_publish_authors, return_type=list[str] | None, when_used="json"),
+]
+
+# Deliberately syntax-only. This does not resolve a domain, check deliverability, require an
+# allowlisted co-author, or normalize the address. The dotted domain also guarantees the public
+# serializer above can apply the same local-part publication rule as submitted_by.
+AuthorEmail = Annotated[
+    str,
+    Field(
+        max_length=255,
+        pattern=r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$",
+    ),
+]
+
+
 class ClientInfo(BaseModel):
     """Optional client metadata for a score submission."""
 
@@ -273,6 +310,9 @@ class ScoreSubmission(BaseModel):
     spec_id: str
     url4_expression: Annotated[str, Field(max_length=32_000)]
     submitted_by: str | None = None
+    # None means the client did not specify a credit line; reads then derive [submitted_by].
+    # An explicit list is exact — the submitter is not auto-added (OME-1051 D1).
+    authors: Annotated[list[AuthorEmail], Field(min_length=1, max_length=10)] | None = None
     # the exact primary score the Engine Benchmark produced — any
     # finite number, higher is better
     score: Annotated[float, Field(strict=True, allow_inf_nan=False)]
@@ -352,6 +392,12 @@ class ScoreSubmission(BaseModel):
         return self
 
 
+# INVARIANT (OME-894): the only two visibilities there are. A private benchmark stays LISTED in
+# the public catalogue and marked (owner decision, 2026-08-24) — participants must be able to find
+# it to enter, and the catalogue carries no scores, so listing it leaks nothing.
+Visibility = Literal["public", "private"]
+
+
 class BenchmarkSchema(BaseModel):
     """Read DTO for benchmarks."""
 
@@ -367,6 +413,11 @@ class BenchmarkSchema(BaseModel):
     # WHY exposed: a client comparing its run against the board needs to know which revision
     # the board is registered at, so it can tell a real score gap from an incomparable one.
     revision: str | None
+    # WHY exposed (OME-1056): a client that ran a subset needs to see the canonical size to
+    # understand why its score is absent from the ranking. None means the board declares no
+    # canonical scope and therefore ranks everything.
+    case_count: int | None
+    visibility: Visibility
     created_at: datetime
 
 
@@ -384,6 +435,7 @@ class ScoreSchema(BaseModel):
     spec_id: str
     url4_expression: str
     submitted_by: SubmittedBy
+    authors: Authors = None
     submitted_at: datetime
     score: float
     total_questions: int
@@ -418,12 +470,19 @@ class LeaderboardEntry(BaseModel):
     ran_with_providers: list[str]
     submitted_at: datetime
     submitted_by: SubmittedBy
+    authors: Authors = None
     verified_by_screamingface: bool
     url4_expression: str
     # Self-reported and unverifiable: re-running a submission tells us what *we*
     # paid, not what the submitter paid. Exposed so the board can show it, but it
     # must be presented with its provenance and never as a verified figure.
     run_cost_usd: RunCostUsd
+
+
+class LeaderboardStoreEntry(LeaderboardEntry):
+    """Store-only leaderboard row carrying identity across independent projections."""
+
+    source_id: str = Field(exclude=True)
 
 
 class BaselineSchema(BaseModel):

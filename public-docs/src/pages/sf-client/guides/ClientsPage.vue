@@ -92,7 +92,7 @@ client = sf.Client(
       Most of the time you'll reach for the <strong>module-level shortcuts</strong>:
       <code>sf.evaluate(...)</code>, <code>sf.connect(...)</code>, and the rest. They're the
       shortest to write, which is why the
-      <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> and every notebook use
+      <RouterLink to="/sf-client/first-fusion">Quickstart</RouterLink> and every notebook use
       them.
     </p>
 
@@ -336,7 +336,7 @@ client = sf.Client(
       </li>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/01_client_tour.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/01_client_tour.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>01_client_tour.ipynb</code></a

@@ -74,6 +74,13 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "screamingface-engine.fullname" . }}
+            {{- if eq .Values.artifactStorage.backend "s3" }}
+            # The object-storage secret access key (OME-929). The App needs it to READ spilled
+            # results back — it is the serve side of `GET /artifacts/{id}`, so unlike the Tavily
+            # credential it is not merely forwarded to Jobs.
+            - secretRef:
+                name: {{ include "screamingface-engine.artifactSecretName" . }}
+            {{- end }}
           env:
             # HS256 topic-capability signing secret (spec §4). Never logged.
             - name: URL4_CLOUD_JWT_SECRET

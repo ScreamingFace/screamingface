@@ -204,3 +204,118 @@ test("bestEntryScore: a malformed entry is skipped, not propagated", () => {
 
   assert.equal(L.bestEntryScore(board), 0.5);
 });
+
+
+/* ---- OME-923 part B: the Pareto frontier mark ------------------------------ */
+
+test("isParetoMarked marks a row the server flagged", () => {
+  assert.equal(L.isParetoMarked({ on_pareto_frontier: true }), true);
+});
+
+test("isParetoMarked does not mark an unflagged row", () => {
+  assert.equal(L.isParetoMarked({ on_pareto_frontier: false }), false);
+});
+
+test("isParetoMarked does not mark when the field is absent", () => {
+  // INVARIANT: an older server, or any response without the field, must render as
+  // "not marked" rather than throwing or guessing. The board makes no cost claim it
+  // was not handed.
+  assert.equal(L.isParetoMarked({ score: 0.9 }), false);
+  assert.equal(L.isParetoMarked({}), false);
+});
+
+test("isParetoMarked is strict, so a truthy non-true value never marks", () => {
+  // WHY strict === true, mirroring isReproducible: the mark asserts a public claim
+  // about money. A truthy check would mark on "false", 1, or any junk the field
+  // ever carried across a version skew.
+  assert.equal(L.isParetoMarked({ on_pareto_frontier: "false" }), false);
+  assert.equal(L.isParetoMarked({ on_pareto_frontier: 1 }), false);
+});
+
+test("isParetoMarked tolerates a missing entry", () => {
+  assert.equal(L.isParetoMarked(null), false);
+  assert.equal(L.isParetoMarked(undefined), false);
+});
+
+
+/* ---- OME-923 / OME-770 pass 2: the Cost column ----------------------------- */
+
+test("costNumber parses the fixed-6dp wire string", () => {
+  assert.equal(L.costNumber({ run_cost_usd: "12.400000" }), 12.4);
+  assert.equal(L.costNumber({ run_cost_usd: "0.000000" }), 0);
+  assert.equal(L.costNumber({ run_cost_usd: "1000.000000" }), 1000);
+});
+
+test("costNumber treats an absent cost as unknown, never zero", () => {
+  // INVARIANT (OME-770 D8): null means "not reported". Returning 0 here would make an
+  // unpriced row the cheapest on the board.
+  assert.equal(L.costNumber({ run_cost_usd: null }), null);
+  assert.equal(L.costNumber({}), null);
+  assert.equal(L.costNumber({ run_cost_usd: "" }), null);
+  assert.equal(L.costNumber(null), null);
+});
+
+test("costNumber rejects a non-numeric value rather than coercing it", () => {
+  assert.equal(L.costNumber({ run_cost_usd: "free" }), null);
+  assert.equal(L.costNumber({ run_cost_usd: "NaN" }), null);
+});
+
+test("compareCost orders by real magnitude, not lexicographically", () => {
+  // WHY this test exists: the wire form is a STRING at fixed 6dp, and "1000.000000" <
+  // "3.500000" is true in JavaScript. OME-770 section 2.4 requires converting before
+  // comparing, and says the frontier logic must be tested on values of differing integer
+  // width precisely to catch this.
+  const dear = { run_cost_usd: "1000.000000" };
+  const cheap = { run_cost_usd: "3.500000" };
+  assert.ok(L.compareCost(cheap, dear, "asc") < 0);
+  assert.ok(L.compareCost(dear, cheap, "asc") > 0);
+});
+
+test("compareCost sorts an unpriced row last in BOTH directions", () => {
+  // INVARIANT: unknown is not cheap and not dear. benchmark.js's generic numeric compare is
+  // `(av || 0) - (bv || 0)`, which would rank a null row as the cheapest on the board — the
+  // exact "a null cost never reads as zero" rule the frontier depends on.
+  const priced = { run_cost_usd: "5.000000" };
+  const unpriced = { run_cost_usd: null };
+  assert.ok(L.compareCost(priced, unpriced, "asc") < 0);
+  assert.ok(L.compareCost(priced, unpriced, "desc") < 0);
+  assert.ok(L.compareCost(unpriced, priced, "asc") > 0);
+  assert.ok(L.compareCost(unpriced, priced, "desc") > 0);
+});
+
+test("compareCost keeps a genuine zero as the cheapest priced row", () => {
+  const free = { run_cost_usd: "0.000000" };
+  const paid = { run_cost_usd: "0.010000" };
+  assert.ok(L.compareCost(free, paid, "asc") < 0);
+  assert.equal(L.compareCost(free, { run_cost_usd: "0.000000" }, "asc"), 0);
+});
+
+test("formatCost renders an absent cost as an em dash, never as money", () => {
+  assert.equal(L.formatCost({ run_cost_usd: null }), "\u2014");
+  assert.equal(L.formatCost({}), "\u2014");
+});
+
+test("formatCost rounds for display so six decimals cannot overflow the column", () => {
+  // OME-770 D2: full precision is stored, the UI rounds.
+  assert.equal(L.formatCost({ run_cost_usd: "12.400000" }), "$12.40");
+  assert.equal(L.formatCost({ run_cost_usd: "1000.000000" }), "$1,000.00");
+  assert.equal(L.formatCost({ run_cost_usd: "0.000000" }), "$0.00");
+});
+
+test("formatCost keeps a sub-cent cost visible instead of rounding it to zero", () => {
+  // A cache-heavy run can cost fractions of a cent. Showing $0.00 would misreport it as free,
+  // which is the one distinction this column exists to preserve.
+  assert.equal(L.formatCost({ run_cost_usd: "0.000900" }), "$0.0009");
+  assert.equal(L.formatCost({ run_cost_usd: "0.000001" }), "<$0.0001");
+});
+
+test("formatCost does not render one cent in two different formats", () => {
+  // Found in review: the sub-cent branch was chosen on the UNROUNDED value but rendered with
+  // toFixed(4), so 0.009999 printed "$0.0100" while 0.010000 printed "$0.01". The same money in
+  // two formats, and in the ascending Cost column the four-decimal string sits above the
+  // two-decimal one and reads as the larger number.
+  assert.equal(L.formatCost({ run_cost_usd: "0.009999" }), "$0.01");
+  assert.equal(L.formatCost({ run_cost_usd: "0.010000" }), "$0.01");
+  // Genuinely sub-cent values still keep their four places.
+  assert.equal(L.formatCost({ run_cost_usd: "0.009000" }), "$0.0090");
+});

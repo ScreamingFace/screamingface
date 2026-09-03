@@ -1,0 +1,64 @@
+{
+  "schema": "screamingface.replay-tape.v1",
+  "provenance": {
+    "board": "synthetic",
+    "revision": "synthetic-2026-08-24",
+    "expression_sha": "afb97579fda9892a0b31d64c6104b2278aa4c454c8705957b215426b2d2601bf",
+    "engine_sha": "authored \u2014 no engine rendered this tape",
+    "recorded_at": "2026-08-24T00:00:00Z",
+    "run_ref": "packages/screamingface/tests/e2e/fixtures/generate_synthetic.py",
+    "authored": true
+  },
+  "exchanges": [
+    {
+      "normalized": {
+        "provider": "openrouter",
+        "model": "openrouter/openai/gpt-5.5",
+        "fingerprint": "f81c998ff6865b8380641273044345769a4f130be7d1eb72830ddab91014c7ab"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "body": {
+          "model": "openrouter/openai/gpt-5.5",
+          "messages": [
+            {
+              "role": "user",
+              "content": "SYNTHETIC candidate call for the OME-961 replay plumbing check. Reply with the single word: replayed."
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "media_type": "application/json",
+        "body_b64": "eyJpZCI6ImNoYXRjbXBsLXN5bnRoZXRpYy1jYW5kaWRhdGUtMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3ODcxODQwMDAsIm1vZGVsIjoib3BlbmFpL2dwdC01LjUiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwibWVzc2FnZSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6InJlcGxheWVkIn0sImZpbmlzaF9yZWFzb24iOiJzdG9wIn1dLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjowLCJjb21wbGV0aW9uX3Rva2VucyI6MCwidG90YWxfdG9rZW5zIjowfX0="
+      }
+    },
+    {
+      "normalized": {
+        "provider": "openrouter",
+        "model": "openrouter/google/gemini-3.1-pro-preview",
+        "fingerprint": "ab89d26f586e28b7872ce58db169e79870c37e99fa9033b34ea2d30ce4f4348e"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "body": {
+          "model": "openrouter/google/gemini-3.1-pro-preview",
+          "messages": [
+            {
+              "role": "user",
+              "content": "SYNTHETIC judge call for the OME-961 replay plumbing check \u2014 the judge replays through the same seam as the candidate. Reply with the single word: graded."
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "media_type": "application/json",
+        "body_b64": "eyJpZCI6ImNoYXRjbXBsLXN5bnRoZXRpYy1qdWRnZS0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY3JlYXRlZCI6MTc4NzE4NDAwMCwibW9kZWwiOiJnb29nbGUvZ2VtaW5pLTMuMS1wcm8tcHJldmlldyIsImNob2ljZXMiOlt7ImluZGV4IjowLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiZ3JhZGVkIn0sImZpbmlzaF9yZWFzb24iOiJzdG9wIn1dLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjowLCJjb21wbGV0aW9uX3Rva2VucyI6MCwidG90YWxfdG9rZW5zIjowfX0="
+      }
+    }
+  ]
+}

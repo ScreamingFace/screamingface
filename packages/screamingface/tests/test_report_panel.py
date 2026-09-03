@@ -267,6 +267,13 @@ def test_report_repr_html_is_wired_to_the_panel() -> None:
     assert "sf-report__title" in body(value._repr_html_())
 
 
+def test_report_repr_carries_explicit_colab_theme_overrides() -> None:
+    html = report(candidate("m", 0.5))._repr_html_()
+
+    assert ':where(html[theme="light"]) .sf-ui' in html
+    assert ':where(html[theme="dark"]) .sf-ui' in html
+
+
 def test_report_formatters_keep_artifact_figures_readable() -> None:
     assert _bytes(10) == "10 B"
     assert _bytes(2_048) == "2 KB"
@@ -378,6 +385,17 @@ def failed_case(case_id: int | str = 153) -> CaseResult:
         ],
         metadata={},
     )
+
+
+def test_existing_report_warnings_use_the_current_sfds_warning_palette() -> None:
+    html = report_html(multi_case_report(case(score=None), score=None, coverage=0.0))
+
+    assert "--sf-warning:#66270c" in html
+    assert "--sf-warning-solid:#f1622d" in html
+    assert "--sf-warning-bg:#fdf4f1" in html
+    assert "--sf-warning:#ffddd0" in html
+    assert "--sf-warning-solid:#e36f48" in html
+    assert "--sf-warning-bg:#130e0c" in html
 
 
 def refused_case(case_id: int = 154) -> CaseResult:
@@ -577,6 +595,30 @@ def test_empty_cases_and_untrusted_failures_have_safe_markup() -> None:
     assert "1 failure" in html
     assert "aggregation · unsafe_text — &lt;script&gt;failed&lt;/script&gt;" in html
     assert "<script>" not in html
+
+
+def test_a_long_task_scrolls_like_the_answer_instead_of_truncating_early() -> None:
+    """INVARIANT: the task pane gets the same reading affordance as the answer pane —
+    the shared clip limit plus a scrollbox — because a GDPval work request routinely
+    runs thousands of characters and a 600-char hard cut hid the actual task."""
+
+    marker = "THE-TAIL-OF-THE-TASK"
+    long_task = ("lorem ipsum " * 60) + marker  # ~740 chars: past 600, under _TEXT_CLIP
+    long_case = CaseResult(
+        case_id=1,
+        input=long_task,
+        output="the answer",
+        finish_reason="stop",
+        grade=CaseGrade(method="rubric", score=0.0, metrics={}, checks=[]),
+        failures=[],
+        metadata={},
+    )
+    html = report_html(report(candidate("solo", 0.0, cases=(long_case,))))
+    assert marker in html
+    # the question container scrolls rather than growing unbounded
+    q_style = html.split(".sf-pane__q{")[1].split("}")[0]
+    assert "overflow:auto" in q_style
+    assert "max-height" in q_style
 
 
 def test_an_envelope_input_renders_as_a_transcript_not_wire_json() -> None:

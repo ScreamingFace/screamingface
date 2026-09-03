@@ -103,3 +103,37 @@ never reads it itself.
 {{- printf "%s-tavily" (include "screamingface-engine.fullname" .) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The Secret holding the object-storage secret access key (OME-929).
+
+`artifactStorage.s3.existingSecret` wins when set (the prod shape — created out-of-band or by an
+External Secrets / Sealed Secrets flow); otherwise the chart creates `<fullname>-artifact-storage`.
+
+INVARIANT: attached by `envFrom.secretRef` to BOTH the App Deployment and every Runner Job, which
+injects each key under its OWN name — so the key MUST be `URL4_CLOUD_ARTIFACT_S3_SECRET_KEY`, the
+variable both halves read. Unlike the Tavily Secret, the App reads this one too: it is the read
+side of the hand-off.
+*/}}
+{{- define "screamingface-engine.artifactSecretName" -}}
+{{- if .Values.artifactStorage.s3.existingSecret -}}
+{{- .Values.artifactStorage.s3.existingSecret -}}
+{{- else -}}
+{{- printf "%s-artifact-storage" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Where the object store lives. Explicit `artifactStorage.s3.endpointUrl` wins; otherwise, with the
+bundled instance enabled, its in-cluster Service. Failing render is deliberate: an empty endpoint
+would leave the App to refuse startup with a less specific message than this one.
+*/}}
+{{- define "screamingface-engine.artifactEndpointUrl" -}}
+{{- if .Values.artifactStorage.s3.endpointUrl -}}
+{{- .Values.artifactStorage.s3.endpointUrl -}}
+{{- else if .Values.garage.enabled -}}
+{{- printf "http://%s-garage:3900" (include "screamingface-engine.fullname" .) -}}
+{{- else -}}
+{{- fail "artifactStorage.backend=s3 needs either artifactStorage.s3.endpointUrl or garage.enabled=true" -}}
+{{- end -}}
+{{- end -}}

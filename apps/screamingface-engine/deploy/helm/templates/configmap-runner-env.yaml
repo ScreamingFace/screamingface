@@ -33,3 +33,31 @@ data:
   # set it; now it does.
   AIGATEWAY_MODEL: {{ . | quote }}
   {{- end }}
+  # Where this Job parks a result too large to ride the stream inline (OME-929).
+  #
+  # INVARIANT: these must name the SAME store as the App's own copy in `configmap.yaml`. Both are
+  # rendered from one `artifactStorage` values stanza precisely so a one-sided edit is impossible —
+  # the previous shape had the two halves reading one variable that NOTHING set, so each fell back
+  # to its own pod-local /tmp and every over-cap result 404'd at redemption.
+  URL4_CLOUD_ARTIFACT_STORE: {{ .Values.artifactStorage.backend | quote }}
+  {{- if and (eq .Values.artifactStorage.backend "filesystem") .Values.artifactStorage.filesystemDir }}
+  # Only meaningful in filesystem mode, which is single-process only. Rendered under the same
+  # condition it is read, so it is Helm-owned exactly when it is the operative setting — rather
+  # than declared Helm-owned and set by nobody, which is how OME-929 happened.
+  #
+  # WHY also gated on a non-empty value: rendering "" would OVERRIDE the code's default with an
+  # empty path, and `Path("")` is the working directory — a silently wrong location rather than
+  # an absent setting. Omitting the key lets the documented default apply.
+  URL4_CLOUD_ARTIFACTS_DIR: {{ .Values.artifactStorage.filesystemDir | quote }}
+  {{- end }}
+  {{- if eq .Values.artifactStorage.backend "s3" }}
+  URL4_CLOUD_ARTIFACT_S3_ENDPOINT_URL: {{ include "screamingface-engine.artifactEndpointUrl" . | quote }}
+  URL4_CLOUD_ARTIFACT_S3_BUCKET: {{ .Values.artifactStorage.s3.bucket | quote }}
+  URL4_CLOUD_ARTIFACT_S3_REGION: {{ .Values.artifactStorage.s3.region | quote }}
+  # NOTE: the ACCESS KEY is not here either. It is auto-generated when unset, so it must be
+  # stable across upgrades — which means living in the Secret the chart can `lookup`. Both
+  # halves of the pair therefore arrive by `envFrom.secretRef`, from one source.
+  {{- end }}
+  # NOTE: URL4_CLOUD_ARTIFACT_S3_SECRET_KEY is deliberately ABSENT here. It travels by Secret
+  # (`secret-artifact-storage.yaml`), attached to each Job with `envFrom.secretRef` — a ConfigMap
+  # is readable by anything with `get` on it and is printed in plain text by `helm get manifest`.

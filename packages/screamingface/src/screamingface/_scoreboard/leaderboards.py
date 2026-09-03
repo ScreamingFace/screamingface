@@ -6,6 +6,7 @@ import math
 import platform
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
+from decimal import Decimal
 from importlib.metadata import PackageNotFoundError, version
 from typing import NoReturn
 from urllib.parse import quote
@@ -13,6 +14,10 @@ from uuid import UUID
 
 import httpx
 
+from screamingface._scoreboard.submission_notice import (
+    display_submission_notice,
+    prepare_submission_notice,
+)
 from screamingface._ui.leaderboard_view import LeaderboardCatalog
 from screamingface.errors import LeaderboardError
 from screamingface.leaderboard import (
@@ -65,7 +70,8 @@ class Leaderboards:
 
     def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
-        return _decode_score(
+        notebook_notice = prepare_submission_notice(candidate_result)
+        score = _decode_score(
             scoreboard_url=self._scoreboard_url,
             payload=_sync_json(
                 self._request,
@@ -78,6 +84,8 @@ class Leaderboards:
                 operation="submit a score to",
             ),
         )
+        display_submission_notice(notebook_notice)
+        return score
 
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
@@ -133,7 +141,8 @@ class AsyncLeaderboards:
 
     async def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
         payload = _submission(candidate_result)
-        return _decode_score(
+        notebook_notice = prepare_submission_notice(candidate_result)
+        score = _decode_score(
             scoreboard_url=self._scoreboard_url,
             payload=await _async_json(
                 self._request,
@@ -146,6 +155,8 @@ class AsyncLeaderboards:
                 operation="submit a score to",
             ),
         )
+        display_submission_notice(notebook_notice)
+        return score
 
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
@@ -350,6 +361,26 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
         _invalid(str(exc), exc)
 
 
+def _cost_text(cost: Decimal | None) -> str | None:
+    """The run's cost as it crosses the wire: a decimal string, or None (OME-1029).
+
+    INVARIANT: a STRING, never a float and never a raw Decimal. The payload is handed to `json=`,
+    whose `json.dumps` raises TypeError on a Decimal; a float would silently lose precision on what
+    Scoreboard stores as DECIMAL(12, 6). `str()` is already this SDK's idiom for the same value —
+    see `_report_primitives.Usage.as_dict`.
+
+    INVARIANT: None stays None and is never coerced to 0. Absent means "no cost was reported";
+    0 means "this run genuinely cost nothing", which a fully cache-served run legitimately does.
+    OME-770's D10 and OME-923's frontier rule both depend on telling those apart — a null read as
+    zero would place an unpriced run at the cheapest end of the Pareto frontier, asserting
+    something about money nobody measured.
+
+    Scoreboard owns normalisation (quantization, sub-quantum rounding, sign-zero); nothing is
+    re-implemented here, or the two would drift.
+    """
+    return None if cost is None else str(cost)
+
+
 def _submission(candidate_result: CandidateResult) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
@@ -362,6 +393,7 @@ def _submission(candidate_result: CandidateResult) -> dict[str, object]:
         "total_questions": len(candidate_result.cases),
         "ran_with_providers": list(_providers(candidate_result.models)),
         "ran_at_local": _timestamp_text(candidate_result.completed_at),
+        "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
         "client": {
             "name": "screamingface",
             "version": _package_version(),

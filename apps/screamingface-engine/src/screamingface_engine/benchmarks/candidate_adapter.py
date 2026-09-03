@@ -41,6 +41,7 @@ class _CandidateInvocation:
                     self._node,
                     request.intent,
                     request.context or "",
+                    isolate_operation_calls=True,
                 )
         except RetrievalPolicyError as exc:
             raise ResolutionError(

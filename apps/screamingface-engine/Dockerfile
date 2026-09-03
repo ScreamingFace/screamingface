@@ -47,7 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Must track the builder's Python minor exactly — see the INVARIANT above.
 FROM python:3.13-slim-bookworm AS runtime
 LABEL org.opencontainers.image.title="screamingface-engine" \
-      org.opencontainers.image.source="https://github.com/openmined/screamingface" \
+      org.opencontainers.image.source="https://github.com/ScreamingFace/screamingface" \
       org.opencontainers.image.description="screamingface-engine — REST + WebSocket control plane and url4 run mode"
 RUN apt-get update && apt-get install -y --no-install-recommends tini \
  && rm -rf /var/lib/apt/lists/* \

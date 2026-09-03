@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 from uuid import UUID
 
 from tortoise.exceptions import DoesNotExist
 
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from aigateway.core.auth.models import Account
+from aigateway.core.profile_models import AuthType
 
 from .identity import AccountIdentity
 from .models import OAuthConnection
-from .schemas import OAuthConnectionResponse
+from .schemas import OAuthConnectionResponse, OAuthConnectionStatus
 
 DEFAULT_CREDENTIAL_ACCOUNT = "default"
 
@@ -71,6 +73,7 @@ class OAuthConnectionStore:
             provider=provider,
             label=label,
             status="pending",
+            auth_type="oauth",
             credential_locator=credential_locator_for(
                 credential_provider or provider,
                 account_id,
@@ -96,7 +99,7 @@ class OAuthConnectionStore:
         "oauth"). The credential_locator points at the same blob slot the chat
         path reads via credential_key_for(account_id, connection_id)."""
         await _ensure_anonymous_account(account_id)
-        return await OAuthConnection.create(
+        connection = await OAuthConnection.create(
             id=connection_id,
             account_id=account_id,
             provider=provider,
@@ -109,6 +112,10 @@ class OAuthConnectionStore:
                 connection_id,
             ),
         )
+        repaired = await self.set_auth_type(connection, "api_key")
+        if repaired is None:  # pragma: no cover - the row was just inserted in this transaction.
+            raise RuntimeError("api-key connection disappeared during creation")
+        return repaired
 
     async def find_by_identity(
         self,
@@ -325,6 +332,21 @@ class OAuthConnectionStore:
         connection.last_refreshed_at = refreshed_at
         return connection
 
+    async def set_auth_type(
+        self,
+        connection: OAuthConnection,
+        auth_type: AuthType,
+    ) -> OAuthConnection | None:
+        """Republish the persisted auth discriminator for an existing connection."""
+        updated = await OAuthConnection.filter(
+            id=connection.id,
+            account_id=connection.account_id,
+        ).update(auth_type=auth_type)
+        if updated != 1:
+            return None
+        connection.auth_type = auth_type
+        return connection
+
     async def mark_revoked(
         self,
         connection: OAuthConnection,
@@ -373,8 +395,11 @@ def response_from_connection(
         account_id=connection.account_id,
         provider=connection.provider,
         label=connection.label,
-        status=connection.status,
-        auth_type=connection.auth_type,
+        # WHY: tortoise-orm >=1.1.8 types CharField as `str`, which no longer satisfies
+        # these Literal aliases. The columns are bare CharFields, so the narrowing is ours
+        # to assert; the Pydantic response model still rejects a junk value on construction.
+        status=cast(OAuthConnectionStatus, connection.status),
+        auth_type=cast(AuthType, connection.auth_type),
         account=account,
         credential_locator=connection.credential_locator,
         created_at=connection.created_at,

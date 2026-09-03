@@ -36,6 +36,7 @@ from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelAdmission,
+    ModelDiscoverySource,
     ModelEntry,
     ProviderPluginBase,
 )
@@ -76,6 +77,12 @@ from .global_cache import project_global_cache_request
 from .litellm_controls import (
     _has_unsafe_litellm_global_state,
     _strip_openrouter_litellm_controls,
+)
+from .live_models import (
+    LIVE_MODELS_DISCOVERY_SOURCE,
+    fetch_live_model_ids,
+    live_listing_entries,
+    publishable_upstream_ids,
 )
 from .observations import ROUTING_POLICY_OBSERVATIONS
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
@@ -188,6 +195,31 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             ModelEntry(model_name=slug, litellm_params={"model": slug})
             for slug in self.settings.default_models
         ]
+
+    def model_discovery_source(self) -> ModelDiscoverySource | None:
+        # INVARIANT (OME-972): gated on BOTH flags — a disabled provider or
+        # live_models=false declares no source, so the catalog never opens a
+        # cache slot or dials for it (zero egress when off).
+        if not (self.settings.enabled and self.settings.live_models):
+            return None
+        return LIVE_MODELS_DISCOVERY_SOURCE
+
+    async def discover_live_models(
+        self,
+        *,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> tuple[ModelEntry, ...] | None:
+        """The finished live listing: operator-explicit entries, then discovered.
+
+        Three-outcome contract (see the base hook): entries = reached; raises
+        sanitized ``DiscoveryError`` = attempted and failed; None = gated off,
+        not attempted, no connection.
+        """
+        if not (self.settings.enabled and self.settings.live_models):
+            return None
+        raw_ids = await fetch_live_model_ids(client=client, limits=limits)
+        return live_listing_entries(self.settings, publishable_upstream_ids(raw_ids))
 
     async def admit_model(
         self,
@@ -424,7 +456,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # separate decisions, and only the latter belongs to a pure projection.
         return project_global_cache_request(body)
 
-    def participates_in_global_cache(self) -> bool:
+    def participates_in_global_cache(self, model: object = None) -> bool:
         # D2, extended to the cache path. `register_models` and `api_key_strategy_for`
         # already fail closed when disabled, but the global cache is a SECOND way to
         # serve this provider's responses — a stored row needs no model entry and no
@@ -432,6 +464,12 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # neither the 404 nor the 400 ever gets a chance to refuse the request.
         # Without this gate a disabled OpenRouter keeps answering from rows an enabled
         # deployment filled, indefinitely (current rows never expire).
+        #
+        # OME-884: the port now carries the raw requested model. This provider has no
+        # per-model reason to stand down — its `:online` refusal is KEY MATERIAL and is
+        # already handled by the projection's bypass — so the argument is ignored and
+        # the operator gate is the whole answer, exactly as before.
+        del model
         return self.settings.enabled
 
     def usage_accounting_strategy(self) -> UsageAccountingStrategy:

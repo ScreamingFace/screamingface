@@ -53,12 +53,13 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.healthbench.definition import PROFESSIONAL_CASE_COUNT
 from screamingface_engine.benchmarks.healthbench.pins import DATASET, DATASET_REVISION
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS, WORST30_HF_IDS
 
 
-class PrepareError(RuntimeError):
+class PrepareError(BenchmarkAssetPreparationError):
     """The dataset could not be turned into declared HealthBench assets."""
 
 
@@ -226,18 +227,46 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
     return len(cases), len(WORST30_CASE_IDS)
 
 
+def _prepare(out: Path) -> dict[str, Any]:
+    emit(load_rows(), out)
+    # INVARIANT: count what LANDED, not what was declared. `emit` already refuses any row
+    # count but PROFESSIONAL_CASE_COUNT, so echoing its inputs would restate a constant the
+    # build enforced rather than report this bake — a record that can never differ is not
+    # evidence. Reading the written bundle back is the only observation available here.
+    # WHY not also count `rubrics/`: `emit` writes one rubric per Case and never clears the
+    # directory, so that count equals this one on a fresh bake and is inflated by leftovers on a
+    # re-prepare — redundant when accurate, misleading when not. `cases.json` is rewritten whole,
+    # so reading it back is both a count of THIS bake and proof the file landed intact.
+    cases = json.loads((out / "cases.json").read_text(encoding="utf-8"))
+    return {
+        "professional_cases": len(cases),
+        # The worst-30% board is a serve-time SELECTION over frozen ids (see the module
+        # docstring), never its own bake. Named `declared_` so an operator reading the build
+        # log cannot mistake a compile-time constant for something this run produced.
+        "declared_worst30_cases": len(WORST30_CASE_IDS),
+        "out": str(out),
+    }
+
+
+def prepare(out: Path) -> dict[str, Any]:
+    """Prepare the complete HealthBench assets shared by both registered boards."""
+
+    return _prepare(out)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        total, subset = emit(load_rows(), args.out)
+        summary = _prepare(args.out)
     except PrepareError as exc:
         print(f"healthbench prepare failed: {exc}", file=sys.stderr)
         return 1
     print(
-        f"healthbench: baked {total} cases into {args.out} "
-        f"— the professional board serves all {total}, worst30 serves {subset}"
+        f"healthbench: baked {summary['professional_cases']} cases into {args.out} "
+        f"— the professional board serves all {summary['professional_cases']}, "
+        f"worst30 serves {summary['declared_worst30_cases']}"
     )
     return 0
 
@@ -246,4 +275,12 @@ if __name__ == "__main__":  # pragma: no cover - CLI entry
     raise SystemExit(main())
 
 
-__all__ = ["PrepareError", "case_messages", "emit", "envelope", "load_rows", "rubric_items"]
+__all__ = [
+    "PrepareError",
+    "case_messages",
+    "emit",
+    "envelope",
+    "load_rows",
+    "prepare",
+    "rubric_items",
+]

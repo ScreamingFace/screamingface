@@ -277,7 +277,8 @@ def test_an_unreported_token_class_stays_none() -> None:
     assert call.cache_creation_tokens == 4000
 
 
-def test_identity_comes_from_the_terminal_attempt() -> None:
+def test_live_usage_identity_comes_from_the_terminal_attempt() -> None:
+    """INVARIANT: OME-1030 does not change the pre-existing live/root Usage identity contract."""
     attempts = [
         _attempt(provider="openrouter", response_model=None, outcome="transport_error"),
         _attempt(provider="openrouter", response_model="served/by-this", outcome="succeeded"),
@@ -286,6 +287,7 @@ def test_identity_comes_from_the_terminal_attempt() -> None:
     call = read_aigw(_aigw(attempts=attempts))
 
     assert call is not None
+    assert call.provider == "openrouter"
     assert call.response_model == "served/by-this"
 
 

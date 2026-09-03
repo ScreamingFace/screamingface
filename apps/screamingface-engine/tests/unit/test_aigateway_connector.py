@@ -397,6 +397,86 @@ async def test_aigateway_http_errors_map_to_resolution_error(
     assert exc_info.value.permanent is expected_permanent
 
 
+async def test_aigateway_transport_errors_map_to_retryable_resolution_error() -> None:
+    """A transport failure (connection reset / read error) is retryable and named.
+
+    WHY (OME-1016): a raw ``httpx.ReadError`` bypasses the benchmark's declared ``retry=``
+    policy (url4 retries only ``Url4Error``) and carries no error ``code``, so the report
+    would fall back to the opaque benchmark default (``draco_grading_failed``) with a
+    useless ``ReadError('')`` message. The connector must translate it into a retryable
+    ``ResolutionError`` with a non-empty message.
+    """
+
+    def _drop_connection(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadError("")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(_drop_connection),
+        base_url="http://aigateway.test",
+    ) as client:
+        cfg = AigatewayConfig(
+            models=(ModelSpec(id="anthropic/claude-haiku-4-5"),),
+            default_model="anthropic/claude-haiku-4-5",
+        )
+        world = await build_aigateway_world(cfg, client=client)
+
+        with (
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+        ):
+            with pytest.raises(ResolutionError) as exc_info:
+                await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node)
+
+    assert exc_info.value.code == "aigateway_transport_error"
+    assert exc_info.value.permanent is False
+    assert "ReadError" in str(exc_info.value)
+    assert str(exc_info.value).strip()
+
+
+async def test_aigateway_transport_error_is_retried_then_succeeds() -> None:
+    """A transient transport failure is retried once (backoff) and the call succeeds.
+
+    WHY (OME-1016): the connector retries ``httpx.TransportError`` with backoff before
+    surfacing a retryable error, so a stale keep-alive connection or a brief aigateway
+    blip costs one extra attempt instead of a failed Case.
+    """
+    posts = 0
+
+    def _flaky(request: httpx.Request) -> httpx.Response:
+        nonlocal posts
+        posts += 1
+        if posts == 1:
+            raise httpx.ReadError("")
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "hello there"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(_flaky),
+        base_url="http://aigateway.test",
+    ) as client:
+        cfg = AigatewayConfig(
+            models=(ModelSpec(id="anthropic/claude-haiku-4-5"),),
+            default_model="anthropic/claude-haiku-4-5",
+        )
+        world = await build_aigateway_world(cfg, client=client)
+
+        with (
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
+            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+        ):
+            result = await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node)
+
+    assert result == "hello there"
+    assert posts == 2
+
+
 async def test_default_model_must_be_one_of_the_declared_models() -> None:
     gw = _MockAigateway(("openrouter/gpt-4o",))
     cfg = AigatewayConfig(

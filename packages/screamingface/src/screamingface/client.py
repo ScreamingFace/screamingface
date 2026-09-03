@@ -153,6 +153,13 @@ class Client:
         self._require_open()
         return self._auth_listeners.subscribe(callback)
 
+    def _subscribe_authorization(self, presenter: Callable[[str], None]) -> Callable[[], None]:
+        # WHY: a notebook UI renders the Access authorization URL as a link; the built-in
+        # presenter only writes it to stdout, which a widget callback on a worker thread
+        # cannot surface (OME-930).
+        self._require_open()
+        return self._engine_auth.subscribe_authorization(presenter)
+
     def _access_required(self) -> bool:
         self._require_open()
         return self._engine_auth.access_required()
@@ -469,6 +476,13 @@ class AsyncClient:
     def _subscribe_auth(self, callback: Callable[[], None]) -> Callable[[], None]:
         self._require_open()
         return self._auth_listeners.subscribe(callback)
+
+    def _subscribe_authorization(self, presenter: Callable[[str], None]) -> Callable[[], None]:
+        # WHY: a notebook UI renders the Access authorization URL as a link; the built-in
+        # presenter only writes it to stdout, which a widget callback on a worker thread
+        # cannot surface (OME-930).
+        self._require_open()
+        return self._engine_auth.subscribe_authorization(presenter)
 
     async def _access_required(self) -> bool:
         self._require_open()

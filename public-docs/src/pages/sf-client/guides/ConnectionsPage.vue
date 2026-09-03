@@ -191,7 +191,7 @@ const panelProviders: Provider[] = [
       Called with no arguments, <code>sf.connect()</code> returns a <code>ConnectionPanel</code>: a
       live widget listing every provider the engine advertises, with a field for each one's
       supported auth method. The
-      <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> steps through the whole
+      <RouterLink to="/sf-client/reproduce-draco">Reproduce DRACO</RouterLink> steps through the whole
       flow state by state.
     </p>
 
@@ -285,7 +285,7 @@ const panelProviders: Provider[] = [
     <ul>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>00_quickstart.ipynb</code></a

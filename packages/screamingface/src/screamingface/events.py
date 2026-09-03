@@ -13,6 +13,7 @@ from screamingface.report import Usage as AccountingUsage
 type Severity = Literal["DEBUG", "INFO", "WARN", "ERROR"]
 type SpanKind = Literal["client", "internal", "server"]
 type SpanStatus = Literal["ok", "error"]
+type CacheStatus = Literal["hit", "miss", "bypass"]
 type UsageScope = Literal["self", "subtree"]
 type TerminationStatus = Literal["succeeded", "failed", "stopped", "timed_out"]
 
@@ -127,6 +128,8 @@ class Span(Event):
     output_tokens: int | None = None
     finish_reasons: tuple[str, ...] = ()
     refusal: str | None = None
+    cache_status: CacheStatus | None = None
+    cache_reason: str | None = None
     kind: ClassVar[str] = "span"
 
     def __post_init__(self) -> None:
@@ -143,6 +146,14 @@ class Span(Event):
                     name,
                     _nonblank(value, f"Span {name}"),
                 )
+        if self.cache_status not in {None, "hit", "miss", "bypass"}:
+            raise ValueError("Span cache_status must be 'hit', 'miss', 'bypass', or None")
+        if self.cache_reason is not None:
+            object.__setattr__(
+                self,
+                "cache_reason",
+                _nonblank(self.cache_reason, "Span cache_reason"),
+            )
         for name in ("input_tokens", "output_tokens"):
             _optional_count(getattr(self, name), f"Span {name}")
         if not isinstance(self.finish_reasons, tuple):

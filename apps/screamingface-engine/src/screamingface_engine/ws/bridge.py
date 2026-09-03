@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from screamingface_engine import notices
 from url4.streaming.codec import encode
-from url4.streaming.interfaces import EventConsumer, JobRunner
+from url4.streaming.interfaces import EventConsumer, JobRunner, StreamNotFoundError
 from url4.streaming.protocol import (
     AttachEvent,
     CachePolicy,
@@ -307,6 +307,22 @@ class Bridge:
             return
         exc = task.exception()
         if exc is None:
+            return
+        if isinstance(exc, StreamNotFoundError):
+            # OME-1019: a resume cursor with no stream is FINAL — the Run finished and the
+            # Runner reclaimed the stream (grace elapsed). Typed, so a reconnecting client
+            # stops instead of treating it as a transient `stream_failed`.
+            self._offer(
+                _error(
+                    self._topic,
+                    self._clock,
+                    "stream_reclaimed",
+                    "this run's stream was reclaimed: the run finished and the reclaim "
+                    "grace elapsed before this client re-attached; no further frames will "
+                    "arrive",
+                    None,
+                )
+            )
             return
         self._offer(
             _error(

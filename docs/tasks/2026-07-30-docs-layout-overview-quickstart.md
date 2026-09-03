@@ -33,7 +33,7 @@ cited.
 Branch `callis/ome-667-update-layout-on-the-website-overview-quickstart` is cut from the epic branch
 `callis/ome-666-documentation-for-screamingface-client-v1`; its PR targets that branch, not `main`.
 
-Closed by [#459](https://github.com/OpenMined/screamingface/pull/459), merged into the epic branch
+Closed by [#459](https://github.com/ScreamingFace/screamingface/pull/459), merged into the epic branch
 on 2026-08-05.
 
 Milestone: Week 3.

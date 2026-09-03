@@ -29,6 +29,7 @@ from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
 from .core.discovery_runtime import DiscoveryRuntime
 from .core.loader import load_plugins
+from .core.model_catalog import build_model_catalog
 from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
 from .core.parameter_discovery_cache import (
     CacheLimits,
@@ -39,13 +40,16 @@ from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
+from .core.request_cache.upload_job import CacheUploadRunner
 from .core.secrets.factory import build_secret_store, set_active_secret_store
+from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
 from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .routes import (
     accounts,
     admin,
+    admin_cache,
     api_key_validation,
     auth,
     auth_session,
@@ -216,8 +220,25 @@ async def _lifespan(app):
             build_accounting_handler
         )
 
+        # Weekly cache-snapshot to Garage (OME-1021): armed only when enabled, owned by
+        # this lifespan — started here, cancelled and awaited in the finally below.
+        if app.state.settings.cache_snapshot_enabled:
+            # The builder (exporter + store + publish protocol) lives in
+            # core/snapshot_publish.py; the lifespan keeps only WHEN — armed here, stopped
+            # in the finally below.
+            app.state.cache_snapshot_scheduler = build_snapshot_scheduler(app.state.settings)
+            app.state.cache_snapshot_scheduler.start()
+            logger.info(
+                "cache snapshot scheduler armed (weekly Friday 05:00 UTC, bucket=%s)",
+                app.state.settings.cache_snapshot_s3_bucket,
+            )
+
         yield
     finally:
+        # The scheduler's owned task must never outlive the app: cancel and await it.
+        scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+        if scheduler is not None:
+            await scheduler.stop()
         # §9.12: closed explicitly here rather than left to __del__, which is not
         # guaranteed to run and cannot await. An unclosed handler leaks its connection
         # pool across TestClient lifecycles and across a reload in dev.
@@ -377,6 +398,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
     app.state.discovery_runtime = _build_discovery_runtime(settings)
+    # OME-972: the app-lifetime, process-local live model-listing catalog. Same kill switch
+    # as the runtime above — AIGW_DISCOVERY_ENABLED=false audits to zero
+    # discovery egress of ANY kind. The catalog owns no transport; the models
+    # route passes the runtime's client/limits per call.
+    app.state.model_catalog = build_model_catalog(enabled=settings.discovery_enabled)
+    # OME-952: the admin cache-snapshot upload runner. app-state-only by the same reasoning
+    # as `admitted_models` above: job REPORTS are deployment-lifetime, the loaded data and
+    # the audit log are the durable truth.
+    app.state.cache_upload_runner = CacheUploadRunner(
+        max_upload_bytes=settings.cache_upload_max_bytes
+    )
     # OME-879: dynamic-admission state. Deliberately app-state-only (deployment
     # lifetime): a restart forgets every admission and nothing is persisted.
     app.state.admitted_models = {}
@@ -391,6 +423,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(accounts.router)
     app.include_router(admin.router)
     _describe_admin_security(app)
+    app.include_router(admin_cache.router)
     app.include_router(api_key_validation.router)
     app.include_router(auth.router)
     app.include_router(oauth_connections.router)

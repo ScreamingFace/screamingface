@@ -13,17 +13,19 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from screamingface_engine import job_env
-from screamingface_engine.artifacts import ArtifactStore
+from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
+from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
@@ -51,12 +53,35 @@ from url4.streaming.protocol.taxonomy import CostBreakdown
 
 _logger = logging.getLogger(__name__)
 
+BRIDGE_HIGH_WATER = "bridge.high_water"
+BRIDGE_SOFT_CAP = "bridge.soft_cap"
+"""Attribute keys for the bridge's closing diagnostic.
+
+Named as one `bridge.*` family, exactly as `RunCacheCounters` names its `cache.*` keys, so a
+reader finds the pair by prefix. The soft cap travels WITH the mark because the mark alone is
+uninterpretable — 3000 is alarming against a cap of 1024 and impossible against 8192.
+"""
+
+EVENT_SIZE_ESTIMATE_BYTES = 512
+"""The per-event cost the bridge's memory budget is divided by to get its hard cap.
+
+Deliberately about DOUBLE the largest measured event (278 B, OME-906), so the real ceiling
+stays under the budget rather than over it. `sys.getsizeof` per event on the hot path would
+cost more than the bound is worth; the estimate only has to be the right order of magnitude.
+"""
+
 
 class BridgeOverflowError(RuntimeError):
-    """Raised by `_Bridge.on_event` when the backlog still exceeds the hard cap after the
-    eviction policy has run — eviction only removes a `Log` when one happens to be buffered,
-    so a backlog made up of non-Log events can grow unchecked past the soft cap all the way
-    to the hard cap, where the streaming consumer is deemed not keeping up with the engine."""
+    """Raised by `_Bridge.on_event` when the backlog still exceeds the cap derived from the
+    bridge's memory budget after the eviction policy has run — eviction only removes a `Log`
+    when one happens to be buffered, so a backlog of non-Log events grows unchecked to the
+    budget cap.
+
+    The message separates the two shapes a full buffer can take: a drain count above zero
+    means ONE DAG burst outran the budget (the engine gathers over `deps` unbounded and emits
+    each node's events before it awaits anything, so a wide fan-in lands in a single
+    event-loop slice); a drain count of zero means the consumer never ran at all.
+    """
 
 
 class _Bridge:
@@ -67,22 +92,66 @@ class _Bridge:
     an incoming non-Log event instead evicts the oldest buffered `Log` to make room (or, if no
     `Log` is buffered, evicts nothing and the buffer grows toward the hard cap) — since a `Log`
     is the only event kind safe to lose without corrupting the run's span/cost accounting.
-    Only past `_HARD_CAP_MULTIPLIER * maxsize` does it give up and raise `BridgeOverflowError`.
+    Only past the hard cap does it give up and raise `BridgeOverflowError`.
+
+    The HARD cap is not a count of events: it is `memory_budget // EVENT_SIZE_ESTIMATE_BYTES`,
+    so an operator bounds what the backlog may COST in bytes, not how wide a DAG may be —
+    the count-derived cap was a ceiling on DAG width (OME-906).
     """
 
-    _HARD_CAP_MULTIPLIER = 8
-
-    def __init__(self, maxsize: int) -> None:
+    def __init__(
+        self,
+        maxsize: int,
+        *,
+        memory_budget: int = job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES,
+    ) -> None:
         self._buf: deque[ObservationEvent] = deque()
         self._max = maxsize
-        self._hard_cap = maxsize * self._HARD_CAP_MULTIPLIER
+        self._budget_bytes = memory_budget
+        self._hard_cap = max(1, memory_budget // EVENT_SIZE_ESTIMATE_BYTES)
         self._dropped = 0
+        self._high_water = 0
+        self._drained = 0
         self._closed = False
         self._wake = asyncio.Event()
 
     @property
     def dropped(self) -> int:
         return self._dropped
+
+    @property
+    def soft_cap(self) -> int:
+        return self._max
+
+    @property
+    def high_water(self) -> int:
+        """The deepest this backlog ever got.
+
+        INVARIANT: a MARK, never a gauge — draining does not lower it. A figure that fell
+        back with the queue would read as healthy on every run that recovered, which is
+        every run an operator would still want to know about.
+        """
+        return self._high_water
+
+    @property
+    def drained(self) -> int:
+        """How many events the consumer has taken off the buffer.
+
+        INVARIANT: the honest signal for "is the consumer running at all?" — the overflow
+        message keys on it to tell a wide-DAG burst (drained above zero) from a consumer
+        that never ran (drained zero). A count that merely lagged would say "behind";
+        only zero says "stuck".
+        """
+        return self._drained
+
+    @property
+    def backlogged(self) -> bool:
+        """Whether the backlog ever passed the SOFT cap.
+
+        The threshold worth reporting: below it the eviction policy never engaged, so there
+        is nothing to say — and `_closing_logs` must stay silent when that is true.
+        """
+        return self._high_water > self._max
 
     def on_event(self, event: ObservationEvent) -> None:
         """Called synchronously by the engine for every observation event.
@@ -93,21 +162,40 @@ class _Bridge:
         accounting. Only once the backlog still exceeds the hard cap after that eviction does
         this raise `BridgeOverflowError`.
         """
-        # INVARIANT: _hard_cap > _max (_HARD_CAP_MULTIPLIER > 1) gives the buffer headroom to
-        # grow past the soft cap before it hits the hard cap — NOT a guarantee that a Log is
-        # available to evict. A backlog with no buffered Log at all is exactly the state that
-        # runs out that headroom and raises BridgeOverflowError.
+        # INVARIANT: with the default budget the hard cap sits far above `_max`, giving the
+        # buffer headroom past the soft cap before the budget binds — NOT a guarantee that a
+        # Log is available to evict. A backlog with no buffered Log at all is exactly the
+        # state that runs out that headroom and raises BridgeOverflowError. A budget below
+        # `_max` events' worth makes the hard cap bind first; the policy stays correct, the
+        # soft cap simply never gets to help.
         if len(self._buf) >= self._max:
             if isinstance(event, Log):
                 self._dropped += 1
                 return
             self._evict_oldest_log()
         if len(self._buf) >= self._hard_cap:
+            # WHY keyed on `drained`: a consumer that HAS taken events is running, so a
+            # full buffer is one producer burst wider than the budget — the DAG is the
+            # driver. Zero drained events is the only shape where the consumer itself is
+            # the suspect, and the message must say which of the two fired (OME-906).
+            if self._drained:
+                raise BridgeOverflowError(
+                    f"event backlog exceeded the memory budget "
+                    f"({self._budget_bytes:,} bytes ≈ {self._hard_cap:,} events; "
+                    f"peak {self._high_water}, {self._dropped} Log(s) dropped, "
+                    f"{self._drained:,} event(s) already drained) — one DAG burst wider "
+                    f"than the budget: increase {job_env.BRIDGE_MEMORY_BUDGET_BYTES} "
+                    "or narrow the DAG"
+                )
             raise BridgeOverflowError(
-                f"event backlog exceeded the hard cap ({self._hard_cap} events, "
-                f"{self._dropped} Log(s) already dropped) — the consumer is not keeping up"
+                f"event backlog exceeded the memory budget "
+                f"({self._budget_bytes:,} bytes ≈ {self._hard_cap:,} events; "
+                f"peak {self._high_water}, {self._dropped} Log(s) dropped) and the "
+                "consumer never drained one event — the consumer is stuck, not merely behind"
             )
         self._buf.append(event)
+        if len(self._buf) > self._high_water:
+            self._high_water = len(self._buf)
         self._wake.set()
 
     def _evict_oldest_log(self) -> None:
@@ -124,6 +212,7 @@ class _Bridge:
     async def drain(self) -> AsyncIterator[ObservationEvent]:
         while True:
             if self._buf:
+                self._drained += 1
                 yield self._buf.popleft()
                 continue
             if self._closed:
@@ -453,7 +542,7 @@ class _RunState:
         *,
         inline_cap: int,
         hard_cap: int,
-        store: ArtifactStore | None,
+        store: ArtifactWriter | None,
     ) -> ResultData:
         """Build the final `ResultData`: inline, spilled whole, or refused — never cut.
 
@@ -520,28 +609,54 @@ class _RunState:
         return "mixed", "mixed"
 
 
-def _closing_logs(dropped: int, counters: RunCacheCounters) -> list[Traced]:
+def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
     """The log frames a run emits about ITSELF, after its last span and before `Completed`.
 
-    Both are statements about the whole run rather than about any node, so both carry
-    ``span=None`` and neither can be made until every event has been folded. Extracted from
+    All are statements about the whole run rather than about any node, so all carry
+    ``span=None`` and none can be made until every event has been folded. Extracted from
     `Url4Executor.execute` so the generator stays a straight line — the run loop's shape is what
     a reader checks for correctness, and a growing tail of end-of-run bookkeeping obscures it.
 
     Args:
-        dropped: Log events the bridge discarded under backpressure.
+        bridge: The run's event bridge, for its dropped count and its high-water mark.
         counters: The run's cache tallies.
 
     Returns:
-        Only the frames that have something to say. A run that dropped nothing and touched no
-        cache — the overwhelming majority, since most expressions call no gateway at all —
-        produces neither, rather than two lines reporting that nothing happened.
+        Only the frames that have something to say. A run that dropped nothing, never
+        backlogged, and touched no cache — the overwhelming majority, since most expressions
+        call no gateway at all — produces none, rather than three lines reporting that
+        nothing happened.
     """
     frames: list[Traced] = []
-    if dropped:
+    if bridge.dropped:
         frames.append(
             Traced(
-                payload=LogData.at("WARN", f"dropped {dropped} log event(s) (telemetry overflow)"),
+                payload=LogData.at(
+                    "WARN", f"dropped {bridge.dropped} log event(s) (telemetry overflow)"
+                ),
+                span=None,
+            )
+        )
+    # FEATURE: bridge high-water reporting (OME-906). Emitted only PAST the soft cap: a run
+    # that never queued has nothing to report, and an always-on line would bury the signal in
+    # the runs that are fine. The pair answers "how close did this run come?" — which the
+    # overflow error can only answer for runs that already failed.
+    #
+    # WHY not Prometheus: same two reasons as `RunCacheCounters` — the run mode is a one-shot
+    # Job with no scrape endpoint, and `check_layering.py` forbids `runner.*` to import
+    # `screamingface_engine.metrics`. The run's own telemetry stream is the only channel.
+    if bridge.backlogged:
+        frames.append(
+            Traced(
+                payload=LogData.at(
+                    "WARN",
+                    f"event backlog peaked at {bridge.high_water} events "
+                    f"(soft cap {bridge.soft_cap})",
+                    {
+                        BRIDGE_HIGH_WATER: bridge.high_water,
+                        BRIDGE_SOFT_CAP: bridge.soft_cap,
+                    },
+                ),
                 span=None,
             )
         )
@@ -589,9 +704,12 @@ class Url4Executor(Executor):
         queue_cap: int = 1024,
         result_cap: int = job_env.DEFAULT_RESULT_INLINE_CAP_BYTES,
         hard_cap: int = job_env.DEFAULT_RESULT_HARD_CAP_BYTES,
-        artifact_store: ArtifactStore | None = None,
+        memory_budget: int = job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES,
+        artifact_store: ArtifactWriter | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None = None,
         world_factory: WorldFactory | None = None,
+        io_wrap: Callable[[IOLayer], IOLayer] | None = None,
+        io_concurrency: int | None = None,
     ) -> None:
         self._io = io
         self._queue_cap = queue_cap
@@ -601,22 +719,48 @@ class Url4Executor(Executor):
         # copy ≈ 2-3× its size), so operators size hard_cap to pod RAM, not disk.
         self._result_cap = result_cap
         self._hard_cap = hard_cap
+        # WHY bytes, not a count: the bridge's hard cap is this budget divided by
+        # `EVENT_SIZE_ESTIMATE_BYTES`, so an operator bounds what the backlog may COST —
+        # a count cap was a ceiling on DAG width (OME-906).
+        self._memory_budget = memory_budget
         self._artifact_store = artifact_store
         self._world_aclose = world_aclose
         self._world_factory = world_factory
+        # FEATURE (OME-908): the run's downstream admission policy, injected as data.
+        # `io_wrap` is the LOCAL shape — one wrapper binding this run into the process's
+        # shared `FairShareGate` — and when set it REPLACES URL4's per-run bound, so the
+        # `url4_run` call below passes `concurrency=None` explicitly (an opt-out; leaving
+        # the kwarg off would stack `BoundedIOLayer(32)` under the gate and re-create the
+        # static cap the gate exists to replace). `io_concurrency` is the DEPLOYED shape —
+        # a static per-run budget a one-shot Job enforces through that same layer. Neither
+        # set ⇒ the kwarg is omitted entirely and URL4's own default applies, which keeps
+        # an unconfigured run byte-identical to a pre-OME-908 one.
+        self._io_wrap = io_wrap
+        self._io_concurrency = io_concurrency
+        self._io_wrapped = False
+        # FEATURE (OME-1069): the most recent run's process-level summary, recorded in
+        # `execute` and read back by the composition root for its terminal/summary log lines.
+        # `None` until a run has executed (or when the caller closed the generator early).
+        self._last_summary: RunSummary | None = None
+        # Derived ONCE, at construction, from the injected policy: which `concurrency` (if
+        # any) the `url4_run` call states. See the policy comment above for why gate-mode
+        # must say `None` explicitly while an unconfigured run says nothing at all.
+        self._run_kwargs: dict[str, Any] = (
+            {"concurrency": None}
+            if io_wrap is not None
+            else ({} if io_concurrency is None else {"concurrency": io_concurrency})
+        )
 
     async def execute(
         self, url4: str, *, trace: TraceContext | None = None
     ) -> AsyncIterator[ExecStep]:
         """Run `url4` to completion, yielding `ExecStep` frames as observation events arrive.
 
-        Runs the engine in a separate task (`_drive`) while draining its events through the
-        `_Bridge` on this task, so a slow consumer never blocks the engine's synchronous
-        observer callback. On exit — including early return by the caller not exhausting the
-        iterator — any still-running driving task is cancelled and awaited, and an already
-        finished task's exception (if not itself a cancellation) is retrieved so it isn't
-        reported as "never retrieved". The world is always closed via `_aclose_world`, even
-        when the run failed or was cancelled.
+        The engine runs in a separate task while this generator drains its events through the
+        `_Bridge`, so a slow consumer never blocks the engine's synchronous observer callback
+        (see `_run_steps`). On exit — including early return by the caller not exhausting the
+        iterator — the world is always closed via `_aclose_world`, even when the run failed
+        or was cancelled.
         """
         # INVARIANT: the world is resolved HERE, not in the composition root. Anything raised
         # before `lifecycle.run` publishes its first frame is invisible — no NATS connection,
@@ -624,8 +768,45 @@ class Url4Executor(Executor):
         # Terminated. Resolving inside `execute` puts config and connect failures inside
         # `run`'s try, where they become Terminated(status="failed") with a real error code.
         await self._resolve_world()
-        bridge = _Bridge(self._queue_cap)
+        bridge = _Bridge(self._queue_cap, memory_budget=self._memory_budget)
         state = _RunState()
+        started = time.monotonic()
+        try:
+            async for step in self._run_steps(url4, trace, bridge, state, started):
+                yield step
+        except asyncio.CancelledError:
+            # The run was stopped (deadline, an external stop, the caller's cancellation).
+            # `lifecycle.run` publishes Terminated(stopped) and re-raises; the summary
+            # records the outcome so the composition root can log it.
+            self._record_summary("stopped", trace, started, bridge, state)
+            raise
+        except Exception as exc:
+            # A failed run states no cost and no cache counts: neither is exact, and a
+            # partial figure would read as a complete one. The error code/type follow the
+            # stream's own `_error_info` vocabulary (code, or None when the exception
+            # carries none).
+            self._record_summary("failed", trace, started, bridge, state, error=exc)
+            raise
+        finally:
+            await self._aclose_world()
+
+    async def _run_steps(
+        self,
+        url4: str,
+        trace: TraceContext | None,
+        bridge: _Bridge,
+        state: _RunState,
+        started: float,
+    ) -> AsyncIterator[ExecStep]:
+        """Drive the engine task and yield its wire frames, ending with `Completed`.
+
+        The engine runs in a separate task (`_drive`) while this generator drains its events
+        through the `_Bridge`, so a slow consumer never blocks the engine's synchronous
+        observer callback. On exit — including early return by the caller not exhausting the
+        iterator — any still-running driving task is cancelled and awaited, and an already
+        finished task's exception (if not itself a cancellation) is retrieved so it isn't
+        reported as "never retrieved".
+        """
 
         async def _drive() -> str:
             try:
@@ -636,8 +817,9 @@ class Url4Executor(Executor):
                         observer=bridge,
                         trace_id=trace.trace_id,
                         root_span_id=trace.root_span_id,
+                        **self._run_kwargs,
                     )
-                return await url4_run(url4, self._io, observer=bridge)
+                return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
             finally:
                 bridge.close()
 
@@ -647,7 +829,7 @@ class Url4Executor(Executor):
                 for frame in state.map(ev):
                     yield frame
             result_str = await task
-            for frame in _closing_logs(bridge.dropped, state.cache_counters):
+            for frame in _closing_logs(bridge, state.cache_counters):
                 yield frame
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
             # bytes — synchronous disk work that would otherwise stall the very loop that
@@ -659,7 +841,14 @@ class Url4Executor(Executor):
                 hard_cap=self._hard_cap,
                 store=self._artifact_store,
             )
-            yield Completed(result=result, subtree_cost=state.build_subtree())
+            subtree = state.build_subtree()
+            # FEATURE (OME-1069): recorded BEFORE the Completed yield, because
+            # `lifecycle.run` breaks out of its `async for` on Completed and never resumes
+            # this generator — code after the yield would never run. The summary is the
+            # operator's one-stop answer in a Job's logs; exact-only, like the stream's
+            # own cost frames.
+            self._record_summary("succeeded", trace, started, bridge, state, subtree=subtree)
+            yield Completed(result=result, subtree_cost=subtree)
         finally:
             if not task.done():
                 task.cancel()
@@ -667,7 +856,50 @@ class Url4Executor(Executor):
                     await task
             elif not task.cancelled():
                 task.exception()
-            await self._aclose_world()
+
+    def _record_summary(
+        self,
+        outcome: RunOutcome,
+        trace: TraceContext | None,
+        started: float,
+        bridge: _Bridge,
+        state: _RunState,
+        *,
+        subtree: CostUsageData | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        """Record the run's process-level summary (OME-1069).
+
+        Exact-only, like the rest of the run's accounting: cost and cache counters are
+        stated only for a completed run — a failed run's figures are partial and must not
+        read as exact. The error code/type follow the stream's own `_error_info`
+        vocabulary.
+        """
+
+        code = getattr(error, "code", None) if error is not None else None
+        self._last_summary = RunSummary(
+            outcome=outcome,
+            trace_id=trace.trace_id if trace is not None else None,
+            error_code=code if isinstance(code, str) else None,
+            error_type=type(error).__name__ if error is not None else None,
+            duration_s=time.monotonic() - started,
+            cost_usd=subtree.cost.total_usd if subtree is not None else None,
+            pricing_version=subtree.pricing_version if subtree is not None else None,
+            cache_attributes=state.cache_counters.attributes() if subtree is not None else None,
+            dropped_logs=bridge.dropped,
+            high_water=bridge.high_water,
+        )
+
+    def last_summary(self) -> RunSummary | None:
+        """The most recent run's process-level summary, or None if no run executed.
+
+        FEATURE (OME-1069): read by the composition root after `lifecycle.run` returns to
+        log the run's terminal outcome and summary. `None` covers both "never executed"
+        and "the caller closed the generator before it completed" — the two shapes a
+        caller cannot tell apart, and neither has a summary to state.
+        """
+
+        return self._last_summary
 
     async def _resolve_world(self) -> None:
         """Build the world on first execute. Idempotent; a failure leaves nothing to close.
@@ -675,9 +907,14 @@ class Url4Executor(Executor):
         The factory owns cleanup of anything it allocated before failing, so there is no
         half-built world to tear down here.
         """
-        if self._world_factory is None or self._io is not None:
-            return
-        self._io, self._world_aclose = await self._world_factory()
+        if self._io is None and self._world_factory is not None:
+            self._io, self._world_aclose = await self._world_factory()
+        # FEATURE (OME-908): the admission wrapper binds ONCE, to whatever io this run
+        # uses — the resolved world or a directly injected test io — and a second
+        # `execute` on the same executor must not wrap the wrapper.
+        if self._io_wrap is not None and self._io is not None and not self._io_wrapped:
+            self._io = self._io_wrap(self._io)
+            self._io_wrapped = True
 
     async def _aclose_world(self) -> None:
         if self._world_aclose is None:

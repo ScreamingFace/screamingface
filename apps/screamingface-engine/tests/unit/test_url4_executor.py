@@ -9,17 +9,22 @@ from typing import cast
 import pytest
 
 from screamingface_engine.artifacts import ArtifactStore
+from screamingface_engine.runner.cache_counters import RunCacheCounters
 from screamingface_engine.runner.executor import (
+    BRIDGE_HIGH_WATER,
+    BRIDGE_SOFT_CAP,
     BridgeOverflowError,
     Url4Executor,
     _Bridge,
+    _closing_logs,
     _RunState,
     deny_by_default_world,
 )
 from screamingface_engine.testing import InMemoryEventStream
 from url4.core.errors import ParseError, ResolutionError
+from url4.dag.nodes import TextNode
 from url4.io.static import StaticIOLayer
-from url4.observe import Log, NodeFinished, NodeStarted, RunStarted, Usage
+from url4.observe import Log, NodeFinished, NodeStarted, ObservationEvent, RunStarted, Usage
 from url4.streaming.interfaces import Completed, ExecStep, Traced
 from url4.streaming.lifecycle import run as publish_run
 from url4.streaming.protocol import (
@@ -321,12 +326,95 @@ def test_bridge_on_event_drop_policy_never_drops_span_usage_lifecycle() -> None:
 
 
 def test_bridge_raises_on_a_span_only_burst_past_the_hard_cap() -> None:
-    bridge = _Bridge(maxsize=2)
+    # WHY the tiny budget: the hard cap is `budget // EVENT_SIZE_ESTIMATE_BYTES`, so a
+    # small budget keeps this unit's burst short instead of buffering the 131 072-event
+    # default cap (OME-906).
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
     bridge.on_event(RunStarted("t" * 32, "s" * 16, "hash"))
     bridge.on_event(NodeStarted("span-1", None, "WebFetchNode", ""))
     with pytest.raises(BridgeOverflowError):
         for i in range(bridge._hard_cap):
             bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+
+# FEATURE: bound the event bridge by memory, not by event count (OME-906).
+#
+# The old count cap (`8 x soft cap` = 8 192) was a ceiling on DAG width: the engine fans
+# out over `deps` with an unbounded gather and emits each node's `NodeStarted` before it
+# awaits anything, so a wide fan-in lands its whole event burst in one event-loop slice,
+# before the drain can run at all. These tests pin the budget-bound behaviors the spec
+# requires: a wide DAG completes, the bound follows a byte budget, and the error names
+# which of the two failure shapes fired.
+
+
+def test_the_hard_cap_is_derived_from_the_memory_budget() -> None:
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
+    assert bridge._hard_cap == 10_240 // 512  # 20 events at 512 B per event
+
+
+def test_a_producer_that_never_stops_fails_at_the_budget() -> None:
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
+    bridge.on_event(RunStarted("t" * 32, "s" * 16, "hash"))
+    with pytest.raises(BridgeOverflowError):
+        for i in range(25):
+            bridge.on_event(NodeStarted(f"span-{i}", None, "TextNode", ""))
+
+
+@pytest.mark.asyncio
+async def test_overflow_with_drain_progress_names_the_budget_not_the_consumer() -> None:
+    # A drain count above zero is PROOF the consumer runs: the backlog is one burst that
+    # outran the budget, so the message must name the budget and the DAG shape, and must
+    # not accuse the consumer (the old message's claim, disproven by measurement).
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
+    bridge.on_event(RunStarted("t" * 32, "s" * 16, "hash"))
+    events = cast("AsyncGenerator[ObservationEvent, None]", bridge.drain())
+    await events.__anext__()  # one event drained: the consumer IS running
+    with pytest.raises(BridgeOverflowError) as excinfo:
+        for i in range(25):
+            bridge.on_event(NodeStarted(f"span-{i}", None, "TextNode", ""))
+    await events.aclose()
+    message = str(excinfo.value)
+    assert "URL4_CLOUD_BRIDGE_MEMORY_BUDGET_BYTES" in message
+    assert "DAG" in message
+    assert "consumer" not in message
+
+
+def test_overflow_with_zero_drained_says_the_consumer_never_ran() -> None:
+    # Zero drained events is the ONE case where the old accusation was right: the
+    # consumer never ran at all, which is a stuck consumer, not a wide DAG.
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
+    with pytest.raises(BridgeOverflowError) as excinfo:
+        for i in range(25):
+            bridge.on_event(NodeStarted(f"span-{i}", None, "TextNode", ""))
+    message = str(excinfo.value)
+    assert "never drained" in message
+    assert "stuck" in message
+
+
+class _WideFanIn:
+    """A node with `width` dependencies: the engine gathers over them unbounded, so the
+    whole width's events land in one event-loop slice before the drain can run."""
+
+    def __init__(self, width: int) -> None:
+        self.deps: dict[str, TextNode] = {f"dep{i}": TextNode("x") for i in range(width)}
+
+    async def resolve(self, inputs, ctx) -> str:
+        return "done"
+
+
+@pytest.mark.asyncio
+async def test_a_wide_dag_burst_completes_instead_of_overflowing() -> None:
+    # RED against the count cap: 9 000 deps put ~18 000 events (NodeStarted plus
+    # NodeFinished per node) in one slice, past the old hard cap of 8 192, and the run
+    # died with BridgeOverflowError. The default budget (64 MiB / 512 B = 131 072
+    # events) holds the same burst — a legitimately wide DAG must complete.
+    executor = Url4Executor(StaticIOLayer())
+
+    frames = await _drain(executor, _WideFanIn(9_000))
+
+    completed = frames[-1]
+    assert isinstance(completed, Completed)
+    assert completed.result.body == "done"
 
 
 class _LoggyNode:
@@ -560,6 +648,9 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
     {
         Path("screamingface_engine/runner/executor.py"),
         Path("screamingface_engine/runner/connector.py"),
+        # OME-908: the fair-share io wrapper binds a run into the shared gate — an io-port
+        # adapter in exactly connector's sense, so it shares the engine-import allowance.
+        Path("screamingface_engine/runner/fair_share.py"),
     }
 )
 
@@ -669,3 +760,113 @@ async def test_hard_cap_governs_even_when_knobs_are_inverted(tmp_path: Path) -> 
 
     assert excinfo.value.code == "result_too_large"
     assert "30" in str(excinfo.value)
+
+
+def test_the_bridge_records_its_high_water_mark() -> None:
+    # FEATURE: bridge high-water reporting (OME-906). A run that overflowed told an operator
+    # only THAT it overflowed; a run that came close told them nothing at all. The mark is
+    # the difference between "this is fine" and "this is one cached Fusion from failing".
+    bridge = _Bridge(maxsize=4)
+    for i in range(3):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+    assert bridge.high_water == 3
+
+
+@pytest.mark.asyncio
+async def test_the_high_water_mark_is_a_mark_not_a_gauge() -> None:
+    # INVARIANT: draining does NOT lower it. The peak is the diagnostic; a mark that fell
+    # back with the queue would read as healthy on every run that recovered.
+    bridge = _Bridge(maxsize=4)
+    for i in range(3):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+    bridge.close()
+
+    drained = [event async for event in bridge.drain()]
+
+    assert len(drained) == 3
+    assert bridge.high_water == 3
+
+
+def test_a_backlog_within_the_soft_cap_is_not_reported_as_backlogged() -> None:
+    bridge = _Bridge(maxsize=4)
+    for i in range(4):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+    assert bridge.high_water == 4
+    assert not bridge.backlogged
+
+
+def test_a_backlog_past_the_soft_cap_is_reported_as_backlogged() -> None:
+    bridge = _Bridge(maxsize=4)
+    for i in range(6):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+    assert bridge.high_water == 6
+    assert bridge.backlogged
+
+
+def test_the_overflow_error_names_the_high_water_mark() -> None:
+    # WHY the tiny budget: the hard cap is `budget // EVENT_SIZE_ESTIMATE_BYTES` (OME-906),
+    # so a small budget keeps this unit's burst short instead of buffering the 131 072-event
+    # default cap.
+    bridge = _Bridge(maxsize=2, memory_budget=10_240)
+    with pytest.raises(BridgeOverflowError) as excinfo:
+        for i in range(bridge._hard_cap + 1):
+            bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+
+    # Asserts the PHRASE, not just the number: the hard cap is already in this message, and
+    # at the moment of the raise the peak equals it — so a bare digit check passes on a
+    # message that never learned to report the mark.
+    assert f"peak {bridge.high_water}" in str(excinfo.value)
+
+
+def _backlogged_bridge(*, events: int, maxsize: int = 4) -> _Bridge:
+    """A bridge whose backlog is made of NON-Log events, which is the shape that matters.
+
+    A Log-only burst pins the buffer AT the soft cap — `on_event` drops an incoming Log
+    outright rather than appending it — so it never raises the mark and is already reported by
+    the dropped-count line. Only lossless events climb toward the hard cap, which is the
+    condition OME-906 exists to make visible.
+    """
+    bridge = _Bridge(maxsize=maxsize)
+    for i in range(events):
+        bridge.on_event(NodeStarted(f"span-{i}", None, "WebFetchNode", ""))
+    return bridge
+
+
+def test_a_backlogged_run_reports_its_high_water_mark_in_a_closing_log() -> None:
+    bridge = _backlogged_bridge(events=9, maxsize=4)
+
+    frames = _closing_logs(bridge, RunCacheCounters())
+
+    marks = [
+        f.payload
+        for f in frames
+        if isinstance(f.payload, LogData) and BRIDGE_HIGH_WATER in (f.payload.attributes or {})
+    ]
+    assert len(marks) == 1
+    attributes = marks[0].attributes or {}
+    assert attributes[BRIDGE_HIGH_WATER] == 9
+    assert attributes[BRIDGE_SOFT_CAP] == 4
+    # INVARIANT: a run-level statement, so it belongs to no span.
+    assert all(f.span is None for f in frames)
+
+
+def test_a_run_that_never_backlogged_reports_no_high_water_log() -> None:
+    # WHY: `_closing_logs` stays silent when there is nothing to say — most expressions call
+    # no gateway and never queue. An always-on line would make the signal worthless.
+    bridge = _backlogged_bridge(events=3, maxsize=4)
+
+    frames = _closing_logs(bridge, RunCacheCounters())
+
+    assert frames == []
+
+
+def test_a_backlog_exactly_at_the_soft_cap_is_not_yet_worth_reporting() -> None:
+    # Boundary: `backlogged` is strictly GREATER than the soft cap. Reaching the cap is the
+    # eviction policy working as designed, not a diagnosis.
+    bridge = _backlogged_bridge(events=4, maxsize=4)
+
+    assert bridge.high_water == 4
+    assert _closing_logs(bridge, RunCacheCounters()) == []

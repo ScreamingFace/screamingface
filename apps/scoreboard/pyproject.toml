@@ -5,10 +5,13 @@ description = "ScreamingFace benchmark scoreboard service"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.141.1",
+    # WHY a runtime dependency, not a dev one: the seed job reads the Engine benchmark catalogue
+    # over HTTP inside the production image, which is built with `uv sync --frozen --no-dev`.
+    "httpx>=0.28.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
-    "tortoise-orm[asyncpg]==1.1.7",
-    "uvicorn[standard]>=0.52.0",
+    "tortoise-orm[asyncpg]==1.1.8",
+    "uvicorn[standard]>=0.52.1",
 ]
 
 [project.scripts]
@@ -58,7 +61,6 @@ filterwarnings = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pyright>=1.1.411",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0,<2",

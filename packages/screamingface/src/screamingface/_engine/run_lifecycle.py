@@ -30,6 +30,16 @@ class _Lifecycle:
     def initial_attach() -> str:
         return _attach(None)
 
+    def resume_attach(self) -> str:
+        """The attach frame for a NEW socket resuming a started Run.
+
+        Replays from the first frame this Run has not yet accepted (`last_sequence + 1`,
+        the same inclusive-from convention the in-connection gap replay uses). A Run with
+        no accepted frames resumes from the start.
+        """
+        last = self._state.last_sequence
+        return _attach(None if last < 1 else last + 1)
+
     @staticmethod
     def stop() -> str:
         return _stop("client stopped consuming events")

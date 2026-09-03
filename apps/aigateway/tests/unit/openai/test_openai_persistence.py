@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from unittest.mock import patch
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import (
@@ -198,10 +199,7 @@ def test_account_scoped_credential_names_do_not_collide() -> None:
     assert second.startswith("aigateway:openai:")
 
 
-def test_chat_selects_openai_api_key_connection_by_label(
-    authenticated_client,
-    monkeypatch,
-) -> None:
+def test_chat_selects_openai_api_key_connection_by_label(authenticated_client) -> None:
     authenticated_client.app.state.api_key_validation_service = _StubValidationService(
         _valid_result()
     )
@@ -234,17 +232,28 @@ def test_chat_selects_openai_api_key_connection_by_label(
             ],
         }
 
-    monkeypatch.setattr(plugin, "chat_completion", capture)
+    # OME-884 (authorized test-isolation fix): a SCOPED ``patch.object``, never
+    # ``monkeypatch.setattr``, on ``plugin`` — which IS the module-level ``PLUGIN``
+    # singleton. monkeypatch reads the old value with ``getattr`` (resolving through the
+    # CLASS) and restores it with ``setattr``, which permanently installs the original
+    # BOUND METHOD as an INSTANCE attribute. That shadows every later class-level patch
+    # of ``chat_completion``, so unrelated suites in this directory began passing or
+    # failing by test ORDER. ``patch.object`` inspects ``__dict__`` and removes exactly
+    # what it added.
+    with patch.object(plugin, "chat_completion", new=capture):
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            headers={"X-Profile": "selected"},
+            json={
+                "model": "openai/gpt-5.6-sol",
+                "messages": [{"role": "user", "content": "ping"}],
+            },
+        )
 
-    response = authenticated_client.post(
-        "/v1/chat/completions",
-        headers={"X-Profile": "selected"},
-        json={
-            "model": "openai/gpt-5.6-sol",
-            "messages": [{"role": "user", "content": "ping"}],
-        },
-    )
-
+    # INVARIANT: the shared singleton is left exactly as it was found. Without this
+    # assertion the leak above is invisible from inside this file — it only ever showed
+    # up as a failure somewhere else.
+    assert "chat_completion" not in vars(plugin)
     assert response.status_code == 200, response.text
     assert captured["api_key"] == _OLD_KEY
     assert captured["api_base"] == "https://api.openai.com/v1"
@@ -280,7 +289,7 @@ def test_openai_profiles_are_account_isolated(
     assert authenticated_client.get("/v1/auth/openai/profiles/private").status_code == 404
 
 
-def test_chat_selects_named_openai_profile(authenticated_client, monkeypatch) -> None:
+def test_chat_selects_named_openai_profile(authenticated_client) -> None:
     authenticated_client.app.state.api_key_validation_service = _StubValidationService(
         _valid_result()
     )
@@ -309,16 +318,18 @@ def test_chat_selects_named_openai_profile(authenticated_client, monkeypatch) ->
             ],
         }
 
-    monkeypatch.setattr(plugin, "chat_completion", capture)
+    # OME-884 (authorized test-isolation fix): scoped, for the reason spelled out in
+    # ``test_chat_selects_openai_api_key_connection_by_label`` above.
+    with patch.object(plugin, "chat_completion", new=capture):
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            headers={"X-Profile": "second"},
+            json={
+                "model": "openai/gpt-5.6-sol",
+                "messages": [{"role": "user", "content": "ping"}],
+            },
+        )
 
-    response = authenticated_client.post(
-        "/v1/chat/completions",
-        headers={"X-Profile": "second"},
-        json={
-            "model": "openai/gpt-5.6-sol",
-            "messages": [{"role": "user", "content": "ping"}],
-        },
-    )
-
+    assert "chat_completion" not in vars(plugin)
     assert response.status_code == 200, response.text
     assert captured["api_key"] == _NEW_KEY

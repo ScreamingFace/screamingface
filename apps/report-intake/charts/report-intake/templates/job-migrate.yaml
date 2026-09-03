@@ -1,0 +1,82 @@
+{{- include "report-intake.validate" . -}}
+{{- if .Values.migration.enabled -}}
+{{/*
+The schema, applied BEFORE any Pod is scheduled.
+
+WHY a hook Job rather than an init container or a startup call: this service never migrates
+itself. Auto-migrating means every replica racing the same DDL on a fresh database, and this
+chart runs more than one replica on purpose (the retry sweep is safe above one because the
+database arbitrates the lease). A pre-install/pre-upgrade hook runs the DDL exactly once.
+
+WHY `-c` rather than bare `tortoise migrate`: the CLI otherwise resolves its configuration from
+`[tool.tortoise]` in the pyproject.toml in its cwd, which makes the working directory
+load-bearing. Naming the dotted path here means the Job cannot break by being scheduled with a
+different cwd, and it is the same path `[tool.tortoise]` points at — the CLI and the service can
+never disagree about which models they are looking at.
+
+If this Job fails, no Pod ever becomes ready: `/readyz` queries the `reports` TABLE rather than
+the connection, precisely so "migration not applied" is not mistaken for a healthy pod.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "report-intake.fullname" . }}-migrate
+  labels:
+    {{- include "report-intake.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    {{- with .Values.migration.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.migration.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "report-intake.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      # kubelet's legacy Docker-link vars are named from every Service in the namespace, and
+      # in a namespace holding this release they carry this app's env prefix. `create_app`
+      # rejects any such name that matches no Settings field, so this Pod would CrashLoop on
+      # names Kubernetes invented. See deployment.yaml for the full note.
+      enableServiceLinks: false
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.migration.serviceAccountName | quote }}
+      {{- /*
+      The same block the Deployment renders, and it belongs here MORE than there: the image is
+      ghcr.io/screamingface/screamingface-report-intake and GHCR org packages are private by
+      default, and this Job is a pre-install hook at weight -5. Without a pull secret a
+      private-registry install stops at ImagePullBackOff before any Pod is scheduled — the whole
+      release blocked on a Job whose only symptom is a pull error, while the Deployment that
+      would have worked never renders. apps/scoreboard's job-migrate.yaml carries it in exactly
+      this position.
+      */}}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: tortoise-migrate
+          image: {{ include "report-intake.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command:
+            - tortoise
+            - -c
+            - report_intake.db.TORTOISE_CONFIG
+            - migrate
+          # The database URL and NOTHING else. The migration runs no application code, so the
+          # ConfigMap's auth posture, rate limits and sink are all irrelevant to it — and a Job
+          # that read them would be a second place an environment mismatch could hide.
+          env:
+            {{- include "report-intake.databaseEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}

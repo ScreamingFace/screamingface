@@ -101,55 +101,40 @@ seedBenchmarks:
   backoffLimit: 3
   ttlSecondsAfterFinished: 600
   annotations: {}
-  # The `revision` of each entry MUST match the Engine benchmark's computed REVISION exactly
-  # (apps/screamingface-engine/src/screamingface_engine/benchmarks/<name>/definition.py). A submission carries the
-  # Engine's value, and the board ranks per revision — a mismatch makes every real submission
-  # look incomparable to the registered board. Re-copy these whenever a benchmark's dataset or
-  # protocol revision changes; seeding is idempotent, so redeploying just moves the value.
-  benchmarks:
-    # --- Engine benchmarks (OME-775) --------------------------------------------------
-    - id: draco
-      display_name: DRACO
-      description: >-
-        A 100-task DRACO reproduction with official score arithmetic. It uses the successor
-        Judge model, provider-default reasoning, mixed native/Tavily retrieval, and a
-        host-only approximation of the reference blocklist, so its scores are not
-        paper-identical.
-      dataset_url: https://huggingface.co/datasets/perplexity-ai/draco
-      revision: 1c58b3085912e304
-      focus: Research reports with citations
-    - id: ifeval
-      display_name: IFEval
-      description: >-
-        The canonical 541-prompt instruction-following benchmark, graded by deterministic
-        strict and loose verification. Each Case invokes the Candidate exactly once.
-      # WHY no dataset_url: the IFEval dataset is vendored inside the Engine
-      # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
-      revision: 0b88a52b5f10a6d9
-      focus: Instruction following
-    - id: healthbench-worst30
-      display_name: HealthBench Worst-30% Challenge
-      description: >-
-        The 157 hardest conversations from HealthBench Professional — the 30% that top
-        models score worst on. An AI judge grades each answer against a physician-written
-        rubric; safety mistakes subtract points, so per-case scores can be negative.
-      dataset_url: https://huggingface.co/datasets/openai/healthbench
-      revision: 6cd57aee171fbdc4
-      focus: Clinical safety, hardest cases
-    # --- Legacy demo entries, deliberately retained (OME-775 D2) -----------------------
-    # No Engine revision exists for these; they predate the Engine benchmark catalogue.
-    - id: livetruth-latest
-      display_name: News Livetruth Latest
-      description: OpenMined Livetruth latest demo dataset
-      dataset_url: https://scoreboard.screamingface.ai/livetruth-latest.jsonl
-    - id: hle
-      display_name: News Hallucinations
-      description: OpenMined HLE benchmark
-      dataset_url: https://github.com/openmined/HLE.jsonl
-    - id: livetruth
-      display_name: News Livetruth
-      description: OpenMined Livetruth benchmark
-      dataset_url: https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
+  # FEATURE: benchmark descriptions on the leaderboard (OME-904).
+  #
+  # A benchmark's text — display name, description, focus line, dataset link — is written ONCE,
+  # in the Engine benchmark definition it describes
+  # (apps/screamingface-engine/src/screamingface_engine/benchmarks/<name>/definition.py). The
+  # seed job reads it from that Engine's public catalog at deploy, so `revision` cannot drift
+  # from the Engine's computed value and no deploy-time override can blank the prose.
+  #
+  # AIDEV-NOTE: do NOT reintroduce descriptions for an Engine-published benchmark below. Helm
+  # replaces lists wholesale rather than merging them, which is exactly how the hand-copied
+  # copy that used to live here was silently lost. An entry whose id the Engine publishes is
+  # ignored by the seed job and named in its output.
+  #
+  # Deployment-owned: the Engine this board ranks submissions against.
+  #
+  # AIDEV-NOTE: this MUST be the Engine's in-cluster address (its Service DNS name), never the
+  # public hostname. The public host sits behind Cloudflare Access, which answers 200 with an
+  # HTML sign-in page rather than a 401 — verified 2026-08-20. The seed job then fails to parse
+  # it, falls back, refuses the stale configured entries, and exits zero, so the deploy looks
+  # clean while benchmark text silently stops being refreshed. The job logs a WARNING naming
+  # the content type when this happens.
+  #
+  # Left empty, the job seeds only the entries listed below.
+  engineUrl: ""
+  # OME-986: the legacy news demo entries (hle, livetruth, livetruth-latest) were removed here.
+  # They were leftovers from the previous SF project, carried no Engine revision, and were still
+  # advertised on the public catalogue.
+  #
+  # AIDEV-NOTE: emptying this list only stops them being RE-CREATED. Seeding registers and
+  # updates; it never deletes, so any row already in a database stays and is still served by
+  # GET /v1/benchmarks. Removing an existing benchmark is a separate, deliberate step:
+  #   python -m scoreboard.retire_benchmark --benchmark <id> --yes
+  # which refuses while any score or baseline references it.
+  benchmarks: []
 networkPolicy:
   enabled: false
   ingressCIDRs: []

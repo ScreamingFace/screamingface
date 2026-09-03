@@ -13,9 +13,17 @@ from aigateway.core.api_key_validation_http import (
     ValidationHttpSession,
 )
 
-from .settings import OpenAIPluginSettings
+from .settings import (
+    OFFICIAL_API_BASE,
+    OpenAIPluginSettings,
+    is_route_valid_model_id,
+    upstream_model_id,
+)
 
-_API_BASE = "https://api.openai.com/v1"
+# OME-884 cycle 2: ONE origin for this provider, not two. ``OFFICIAL_API_BASE`` is now
+# global-cache KEY MATERIAL — ``gateway_dispatch_controls`` reports it as ``api_base`` —
+# so a private duplicate here would be a second copy of a load-bearing constant that
+# nothing keeps in step with the first.
 # WHY: OpenAI rejects 1 with HTTP 400 for gpt-5-nano; 16 is the live-verified bounded budget that
 # returns a structurally valid length-limited Chat Completions response.
 _READINESS_MAX_COMPLETION_TOKENS = 16
@@ -139,13 +147,22 @@ def _classify(
 
 
 def _effective_model(settings: OpenAIPluginSettings) -> tuple[str, str] | None:
+    """The (gateway id, upstream id) to probe with, or ``None`` for a misconfiguration.
+
+    # OME-884: SYNTAX only. Membership in ``default_models`` used to be required here
+    # too, which made the published ``/v1/models`` catalog govern an operational
+    # readiness probe — so unpublishing a model silently reported every API key as
+    # locally misconfigured. Route-valid syntax is still mandatory, because a model id
+    # the grammar rejects could never reach OpenAI at all, and probing with it would
+    # trade a clear operator error for an opaque upstream one.
+    # INVARIANT: the SAME predicate settings validation, preparation and the
+    # global-cache projection use. ``model_construct`` bypasses field validation, so
+    # this check is load-bearing rather than redundant.
+    """
     selected = settings.validation_model
-    if selected not in settings.default_models or not selected.startswith("openai/"):
+    if not is_route_valid_model_id(selected):
         return None
-    upstream = selected.removeprefix("openai/")
-    if not upstream or "/" in upstream:
-        return None
-    return selected, upstream
+    return selected, upstream_model_id(selected)
 
 
 class OpenAIApiKeyValidator:
@@ -169,7 +186,7 @@ class OpenAIApiKeyValidator:
             try:
                 auth_response = await session.request_json(
                     "GET",
-                    f"{_API_BASE}/models",
+                    f"{OFFICIAL_API_BASE}/models",
                     headers=headers,
                 )
             except ApiKeyValidationTransportError:
@@ -189,7 +206,7 @@ class OpenAIApiKeyValidator:
             try:
                 readiness_response = await session.request_json(
                     "POST",
-                    f"{_API_BASE}/chat/completions",
+                    f"{OFFICIAL_API_BASE}/chat/completions",
                     headers=headers,
                     json_body={
                         "model": upstream_model,

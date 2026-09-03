@@ -235,11 +235,49 @@ async def test_malformed_http_200_readiness_never_authorizes_persistence(payload
 
 
 @pytest.mark.asyncio
-async def test_unregistered_validation_model_is_misconfigured_without_network() -> None:
+async def test_a_validation_model_outside_the_bootstrap_catalog_is_probed_normally() -> None:
+    """OME-884 (authorized contract change): publication does not govern readiness.
+
+    OME-864 required the readiness model to appear in ``default_models`` and reported
+    ``MISCONFIGURED`` otherwise — which meant an operator who unpublished a model from
+    the ``/v1/models`` catalog silently broke API-key validation for every profile,
+    without having touched anything about validation. ``default_models`` is the
+    bootstrap catalog; which models are PUBLISHED is not a fact about which model may
+    be PROBED. Route-valid syntax is still required — see the malformed case below.
+    """
+    settings = OpenAIPluginSettings(
+        default_models=["openai/gpt-5.6-sol"],
+        validation_model="openai/gpt-5-nano",
+    )
+    assert settings.validation_model not in settings.default_models
+    validator, requests = _validator(
+        [
+            httpx.Response(200, json={"object": "list", "data": []}),
+            httpx.Response(
+                200,
+                json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+            ),
+        ],
+        settings=settings,
+    )
+
+    result = await validator.validate(_KEY)
+
+    assert result.state is ApiKeyValidationState.VALID
+    assert result.stage is ApiKeyValidationStage.READINESS
+    assert result.probe_model == "openai/gpt-5-nano"
+    assert json.loads(requests[1].content)["model"] == "gpt-5-nano"
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_validation_model_is_misconfigured_without_network() -> None:
+    # Still a LOCAL misconfiguration, and still refused before a socket is opened: a
+    # model id the grammar rejects could never reach OpenAI, so probing with it would
+    # only trade a clear operator error for an opaque upstream one.
     settings = OpenAIPluginSettings.model_construct(
         enabled=True,
         default_models=["openai/gpt-5.6-sol"],
-        validation_model="openai/unregistered",
+        validation_model="openai/gpt 5",
     )
     validator, requests = _validator([], settings=settings)
 

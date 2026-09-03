@@ -1254,3 +1254,106 @@ def test_a_replay_safe_request_still_retries_after_a_login() -> None:
     assert response.status_code == 200
     assert len(seen) == 2
     assert len(fixture.browser_urls) == 1
+
+
+def test_a_subscribed_presenter_takes_over_from_the_built_in_one() -> None:
+    """A subscriber replaces the stdout presenter rather than adding to it.
+
+    WHY this changed from additive: the connection panel renders the authorization URL as a
+    link, so also printing it — plus "Waiting for..." and "complete." — is duplication the
+    user reads past. Where nothing subscribes, the built-in presenter still runs, because in
+    a terminal stdout IS the presentation and it is what opens the browser.
+    """
+
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    subscriber_urls: list[str] = []
+
+    unsubscribe = auth.subscribe_authorization(subscriber_urls.append)
+    auth.login()
+
+    assert subscriber_urls != []
+    assert fixture.browser_urls == []
+
+    unsubscribe()
+    auth.logout()
+    subscriber_urls.clear()
+    auth.login()
+
+    assert subscriber_urls == []
+    assert fixture.browser_urls != []
+
+
+def test_a_raising_authorization_subscriber_does_not_fail_the_login() -> None:
+    # INVARIANT: presentation never fails the login it is announcing.
+    def explode(url: str) -> None:
+        del url
+        raise RuntimeError("presenter exploded")
+
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    auth.subscribe_authorization(explode)
+
+    auth.login()
+
+    assert auth.authenticated
+
+
+def test_access_never_imports_the_notebook_ui() -> None:
+    # INVARIANT: hexagonal boundary — `_access` defines how an authorization URL is
+    # presented and takes an implementation in; it must never reach for the UI itself.
+    import pathlib
+
+    access = pathlib.Path(access_auth_module.__file__).parent
+    offenders = [
+        path.name
+        for path in sorted(access.glob("*.py"))
+        if "screamingface._ui" in path.read_text()
+        or "from screamingface import _ui" in path.read_text()
+    ]
+
+    assert offenders == []
+
+
+def test_a_registered_presenter_silences_the_stdout_narration(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # WHY: when a UI is presenting the authorization URL itself, printing it again is
+    # duplication the user has to read past — and in a notebook the whole narration
+    # ("Waiting for...", "complete.") is noise beside a panel that shows the same state.
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    auth.subscribe_authorization(lambda url: None)
+
+    auth.login()
+
+    printed = capsys.readouterr().out
+    assert printed == ""
+
+
+def test_without_a_presenter_the_narration_is_unchanged(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # INVARIANT: a terminal has no UI to render the link, so stdout IS the presentation.
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+
+    auth.login()
+
+    printed = capsys.readouterr().out
+    assert "Waiting for Cloudflare Access login to complete" in printed
+    assert "Cloudflare Access login complete." in printed
+
+
+def test_a_raising_presenter_falls_back_to_the_built_in_one() -> None:
+    # INVARIANT: suppression of the stdout narration keys off a presenter having actually
+    # succeeded. A subscriber that raises must not swallow the URL — no link AND no print
+    # would be worse than the duplication the suppression exists to remove.
+    fixture = _AccessFixture()
+    auth = fixture.auth()
+    auth.subscribe_authorization(lambda url: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    auth.login()
+
+    assert auth.authenticated
+    assert fixture.browser_urls != []

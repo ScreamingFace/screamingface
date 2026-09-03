@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* **screamingface-engine:** preserve upstream grading errors instead of masking them (OME-924) ([3e12e21](https://github.com/ScreamingFace/screamingface/commit/3e12e2186aedfe9f2784d1a5acf74c4c9b6e5791))
+* **screamingface-engine:** reconcile OME-993 with OME-924's fail-fast grading ([6786aef](https://github.com/ScreamingFace/screamingface/commit/6786aefdff4c0161d7604e2d59b71fedd7c069fa))
+* **screamingface-engine:** surface the real judge failure instead of an envelope error ([b53ccfe](https://github.com/ScreamingFace/screamingface/commit/b53ccfedff1465dd8c8e7abbd9febd345eee7ea1))
+* **url4:** preserve code and retryable in collected error payloads ([e102c9a](https://github.com/ScreamingFace/screamingface/commit/e102c9a0ff12430383b1cd15840178aec99829d1))
+* **url4:** preserve remote span authority ([8c7c8bf](https://github.com/ScreamingFace/screamingface/commit/8c7c8bf9e4aeb1b99fbf90235762c8042348cf34))
+* **url4:** report relative routes in span names ([3e3da86](https://github.com/ScreamingFace/screamingface/commit/3e3da86ee6605cbd0da93736f14bbe9c3e7b1377))
+* **url4:** report relative routes in span names ([34cea42](https://github.com/ScreamingFace/screamingface/commit/34cea424b4fc1f5bd7735a30f8311c6b8abc9ecc))
+
+
+### Refactors
+
+* **url4:** keep route span detail minimal ([e0c7ac5](https://github.com/ScreamingFace/screamingface/commit/e0c7ac504d7a25f2dce75ac8bcc431e3ce806f83))
+
+## [1.5.0](https://github.com/OpenMined/screamingface/compare/url4-v1.4.1...url4-v1.5.0) (2026-08-19)
+
+
+### Features
+
+* deliver large Evaluation results in full instead of cutting them off at 1 MiB ([0712043](https://github.com/OpenMined/screamingface/commit/07120439865973cff99c5c280fc990bf9b5cb0d0))
+* report real run cost from provider-authored OpenRouter evidence ([05d85f1](https://github.com/OpenMined/screamingface/commit/05d85f1fb136b24c8d8b43f4bf656e6c93a93f20))
+* **screamingface-engine:** rename apps/url4-cloud to apps/screamingface-engine ([3246d96](https://github.com/OpenMined/screamingface/commit/3246d96d05673e0707cf938cae65de2e696154c8))
+* **url4:** allow a total-only cost and widen the usage seam ([f51d3d3](https://github.com/OpenMined/screamingface/commit/f51d3d37d6d82717687d2be5829fcb0c4739d35c))
+* **url4:** result frames carry an inline body or an artifact claim ticket ([63cbf96](https://github.com/OpenMined/screamingface/commit/63cbf96f7a65872aa38fe73aed8fa51c1874cc74))
+
+
+### Documentation
+
+* **screamingface-engine:** update agent config, diagrams and stale paths ([1d2c047](https://github.com/OpenMined/screamingface/commit/1d2c047b2c522dee3df2dc9ea920d36f05584eea))
+
 ## [1.4.1](https://github.com/OpenMined/screamingface/compare/url4-v1.4.0...url4-v1.4.1) (2026-08-12)
 
 

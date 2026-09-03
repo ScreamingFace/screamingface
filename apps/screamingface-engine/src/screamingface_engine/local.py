@@ -43,6 +43,8 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
+from screamingface_engine.metrics import register_fair_share_metrics
+from screamingface_engine.runner.fair_share import FairShareGate
 
 _logger = logging.getLogger(__name__)
 
@@ -160,15 +162,23 @@ def create_local_app(
     # Catalog before the runner (OME-880): the runner takes the admitted-model overlay so a
     # dynamically admitted model is routable by the very next local run.
     catalog = build_executable_catalog_service(settings, run_env)
+    # FEATURE (OME-908): ONE gate, shared by every local run — the composition point that
+    # makes local fair-share dynamic where a deployed Job gets a static budget instead.
+    # Built beside the runner (its runs' executors bind into it through `build_executor`'s
+    # `io_gate`) and closed AFTER the runner on shutdown, so cancelled runs release their
+    # permits into a gate that still accepts the releases.
+    io_gate = FairShareGate(settings.local_io_capacity)
     job_runner = InProcessJobRunner(
         stream,
-        partial(build_executor, benchmarks=benchmarks),
+        partial(build_executor, benchmarks=benchmarks, io_gate=io_gate),
         base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
         extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
     )
-    connections = build_connections(settings)
+    # INVARIANT: local mode keeps the caller-managed rows that back its BYOK controls; profile
+    # availability is the deployed Engine policy and must not replace this mutable state.
+    connections = build_connections(settings, listing_source="connections")
     app = create_app(
         settings,
         stream=stream,
@@ -178,7 +188,15 @@ def create_local_app(
         connections=connections,
         benchmarks=benchmarks,
     )
+    register_fair_share_metrics(app.state.metrics, lambda: io_gate)
+    # On app.state for operators and tests: the one gate every local run shares. Read-only
+    # by convention — nothing outside `runner.fair_share` mutates it.
+    app.state.fair_share_gate = io_gate
     app.router.on_shutdown.append(job_runner.aclose)
+    # WHY after `job_runner.aclose`: shutdown cancels every in-flight run first, and each
+    # cancelled fetch releases its permit in a `finally` — closing the gate before those
+    # releases land would drop them on a dead object instead of the books.
+    app.router.on_shutdown.append(io_gate.aclose)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)
     if connections is not None:

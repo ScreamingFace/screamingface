@@ -170,3 +170,52 @@ def test_log_body_preserves_the_protocols_valid_empty_string() -> None:
 def test_event_values_reject_invalid_state(factory: Any, message: str) -> None:
     with pytest.raises((TypeError, ValueError), match=message):
         factory()
+
+
+@pytest.mark.parametrize("cache_status", ["hit", "miss", "bypass"])
+def test_span_preserves_authoritative_cache_provenance(cache_status: str) -> None:
+    span = sf.events.Span(
+        **event_envelope(),
+        name="model call",
+        operation="chat",
+        start=NOW,
+        request_model="openrouter/example/model",
+        cache_status=cast(Any, cache_status),
+        cache_reason="not_requested",
+    )
+
+    assert span.cache_status == cache_status
+    assert span.cache_reason == "not_requested"
+
+
+@pytest.mark.parametrize(
+    ("factory", "message"),
+    [
+        (
+            lambda: sf.events.Span(
+                **event_envelope(),
+                name="model call",
+                operation="chat",
+                start=NOW,
+                cache_status=cast(Any, "stale"),
+            ),
+            "cache_status",
+        ),
+        (
+            lambda: sf.events.Span(
+                **event_envelope(),
+                name="model call",
+                operation="chat",
+                start=NOW,
+                cache_reason=" ",
+            ),
+            "cache_reason",
+        ),
+    ],
+)
+def test_span_rejects_invalid_cache_provenance(
+    factory: Any,
+    message: str,
+) -> None:
+    with pytest.raises((TypeError, ValueError), match=message):
+        factory()

@@ -126,15 +126,24 @@ def _embedded_error_exception(status: int | None) -> HTTPException:
     """
     resolved = status if status is not None else 502
     code = "provider_error"
+    message = "OpenRouter reported a provider error"
     if resolved == 401:
         code = "auth_required"
     elif resolved == 400:
         code = "bad_request"
+    elif resolved == 402:
+        # OME-927: OpenRouter reports out-of-credits as a top-level
+        # `payment_required`/402 error embedded in the response body (see
+        # response_errors.py), not a raw HTTP 402 — that shape never reaches
+        # chat_dispatch.py's own status→code mapping, so it needs the same
+        # dedicated code+message here.
+        code = "insufficient_credits"
+        message = "The upstream provider reported insufficient credits."
     elif resolved == 429:
         code = "rate_limited"
     elif resolved >= 500 and status is not None:
         code = "provider_unavailable"
     return _EmbeddedProviderBodyError(
         status_code=resolved,
-        detail={"code": code, "message": "OpenRouter reported a provider error"},
+        detail={"code": code, "message": message},
     )

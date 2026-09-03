@@ -57,7 +57,10 @@ def test_models_and_detail_publish_the_same_minimal_contract(authenticated_clien
     assert detail.status_code == 200, detail.text
     parameters = detail.json()["parameters"]
     assert parameters["max_tokens"]["gateway"]["status"] == "enabled"
-    assert parameters["max_tokens"]["gateway"]["cache_behavior"] == "bypass"
+    # OME-884 (authorized contract change): the PUBLISHED disposition follows the rule.
+    # A caller reading this contract can now rely on two identical effective requests
+    # sharing one stored response, and on two different ceilings never doing so.
+    assert parameters["max_tokens"]["gateway"]["cache_behavior"] == "keyed"
     assert parameters["max_tokens"]["provider"]["source"] == "openai:locked-runtime"
     assert all(
         entry["gateway"]["status"] != "enabled"
@@ -69,8 +72,15 @@ def test_models_and_detail_publish_the_same_minimal_contract(authenticated_clien
 @pytest.mark.parametrize(
     ("body", "expected_code"),
     [
+        # OME-884 (authorized contract change): ``openai/unregistered`` is ROUTE VALID
+        # and is now forwarded to OpenAI, which is the authority on whether it exists.
+        # That is proven in ``test_openai_route_global_cache.py`` by
+        # ``test_a_route_valid_unsupported_model_misses_is_refused_by_openai_and_stores_nothing``
+        # (cycle 2: the name here was stale and pointed at no existing test). What is
+        # still refused locally, before any credential is read, is a model ID the
+        # grammar rejects; that refusal is what keeps a malformed id out of the cache.
         (
-            {"model": "openai/unregistered", "messages": []},
+            {"model": "openai/gpt 5", "messages": []},
             "invalid_model",
         ),
         (

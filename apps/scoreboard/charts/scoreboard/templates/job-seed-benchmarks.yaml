@@ -43,6 +43,13 @@ spec:
                   key: {{ .Values.database.existingSecretKey }}
             - name: SCOREBOARD_SEED_BENCHMARKS_JSON
               value: {{ .Values.seedBenchmarks.benchmarks | toJson | quote }}
+            {{- with .Values.seedBenchmarks.engineUrl }}
+            # The Engine whose benchmark catalog supplies every published benchmark's text
+            # (OME-904). One string, so an override can change WHICH Engine is read but cannot
+            # carry or omit the text itself.
+            - name: SCOREBOARD_SEED_ENGINE_URL
+              value: {{ . | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
 {{- end }}

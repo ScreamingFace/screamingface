@@ -20,7 +20,13 @@ The app chart is database-agnostic. It consumes `SCOREBOARD_DATABASE_URL` from `
 
 ## Benchmarks
 
-The post-install/post-upgrade seed Job runs `python -m scoreboard.seed` and passes `.Values.seedBenchmarks.benchmarks` as JSON. Re-running the Job is safe because benchmark registration is idempotent.
+The post-install/post-upgrade seed Job runs `python -m scoreboard.seed`. Re-running the Job is safe because benchmark registration is idempotent.
+
+Each benchmark's text — display name, description, focus line, dataset link — is read at deploy from the Engine named by `.Values.seedBenchmarks.engineUrl`, over its public `GET /v1/benchmarks` catalog. That Engine definition is the only place the text is written, so `revision` cannot drift from the Engine's computed value and a values override cannot blank the prose (OME-904). Set `engineUrl` per deployment; leaving it empty seeds only the configured entries.
+
+`.Values.seedBenchmarks.benchmarks` is passed as JSON alongside it and is **empty by default** — the legacy demo entries it used to carry were retired in OME-986. Use it only for a benchmark the Engine does not publish, such as a local smoke target. An entry whose id the Engine also publishes is ignored, and the Job names it in its output.
+
+Seeding never deletes: removing an entry stops it being recreated but leaves any existing row in place. Remove one with `python -m scoreboard.retire_benchmark --benchmark <id> --yes`.
 
 Disable seeding with:
 

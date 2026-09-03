@@ -1,0 +1,84 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "benchmark",
+      "id": "draco",
+      "title": "DRACO",
+      "description": "A 100-task DRACO reproduction with official score arithmetic. It uses the successor Judge model, provider-default reasoning, mixed native/Tavily retrieval, and a host-only approximation of the reference blocklist, so its scores are not paper-identical. Every answer is judged five times — the paper's stability protocol.",
+      "revision": "62718f04ea1a980f",
+      "case_count": 100,
+      "focus": "Research reports with citations",
+      "dataset_url": "https://huggingface.co/datasets/perplexity-ai/draco",
+      "check_surface": {
+        "check_route": "/benchmarks/draco/62718f04ea1a980f/check-surface/draco-pass.v1",
+        "feedback_intent": "feedback",
+        "expected_check_cost": "paid"
+      },
+      "href": "/v1/benchmarks/draco"
+    },
+    {
+      "object": "benchmark",
+      "id": "draco-3pass",
+      "title": "DRACO 3-Pass",
+      "description": "The DRACO 100-case reproduction judged three times per answer instead of five. Identical dataset, criteria, Judge, and retrieval policy to the canonical board — only the judge-pass count differs. The draco-cache-seed archive covers exactly these three passes, so re-running its candidates is served fully from the shared response cache; scores carry their own benchmark revision and are not compared against five-pass results.",
+      "revision": "b8c8afd8f9dddca0",
+      "case_count": 100,
+      "focus": "Research reports, three judge passes",
+      "dataset_url": "https://huggingface.co/datasets/perplexity-ai/draco",
+      "check_surface": {
+        "check_route": "/benchmarks/draco-3pass/b8c8afd8f9dddca0/check-surface/draco-pass.v1",
+        "feedback_intent": "feedback",
+        "expected_check_cost": "paid"
+      },
+      "href": "/v1/benchmarks/draco-3pass"
+    },
+    {
+      "object": "benchmark",
+      "id": "healthbench-professional",
+      "title": "HealthBench Professional",
+      "description": "The complete 525-conversation HealthBench Professional exam. An AI judge grades each answer against a physician-written rubric; safety mistakes subtract points, so an individual case can score below zero. Benchmark score = the official HealthBench metric — the average of the 525 case scores, floored at 0 — so it lines up with published HealthBench numbers.",
+      "revision": "d8fb037307f35415",
+      "case_count": 525,
+      "focus": "Clinical safety, full official exam",
+      "dataset_url": "https://huggingface.co/datasets/openai/healthbench",
+      "check_surface": {
+        "check_route": "/benchmarks/healthbench-professional/d8fb037307f35415/check-surface/healthbench-pass.v1",
+        "feedback_intent": "feedback",
+        "expected_check_cost": "paid"
+      },
+      "href": "/v1/benchmarks/healthbench-professional"
+    },
+    {
+      "object": "benchmark",
+      "id": "healthbench-worst30",
+      "title": "HealthBench Worst-30% Challenge",
+      "description": "The 157 hardest conversations from HealthBench Professional — the 30% that top models score worst on. An AI judge grades each answer against a physician-written rubric; safety mistakes subtract points, so per-case scores can be negative. Challenge score = plain average of the 157 case scores, negatives kept (the official HealthBench score floors negative averages at 0, which would flatten this hard subset to all-zeros).",
+      "revision": "39cfd96b068f7230",
+      "case_count": 157,
+      "focus": "Clinical safety, hardest cases",
+      "dataset_url": "https://huggingface.co/datasets/openai/healthbench",
+      "check_surface": {
+        "check_route": "/benchmarks/healthbench-worst30/39cfd96b068f7230/check-surface/healthbench-pass.v1",
+        "feedback_intent": "feedback",
+        "expected_check_cost": "paid"
+      },
+      "href": "/v1/benchmarks/healthbench-worst30"
+    },
+    {
+      "object": "benchmark",
+      "id": "ifeval",
+      "title": "IFEval",
+      "description": "The canonical 541-prompt instruction-following benchmark (https://arxiv.org/abs/2311.07911), graded by deterministic strict and loose verification. Each Case invokes the Candidate exactly once. Case ids are the official IFEval keys; one pinned-dataset row (key 2785) is patched to the official harness prompt, whose text matches its graded constraints.",
+      "revision": "1cba769ece27f7ef",
+      "case_count": 541,
+      "focus": "Instruction following",
+      "check_surface": {
+        "check_route": "/benchmarks/ifeval/1cba769ece27f7ef/check-surface",
+        "feedback_intent": "feedback",
+        "expected_check_cost": "free"
+      },
+      "href": "/v1/benchmarks/ifeval"
+    }
+  ]
+}

@@ -19,8 +19,28 @@ screamingface up
 ```
 
 `screamingface up` starts AI Gateway, Scoreboard, and the Engine in the background. Use
-`screamingface status`, `screamingface logs`, and `screamingface down` to manage them. Runtime
-state is stored under `~/.screamingface` by default; set `SCREAMINGFACE_DATA_DIR` to override it.
+`screamingface status`, `screamingface doctor`, `screamingface logs`, `screamingface restart`, and
+`screamingface down` to manage them. Runtime state is stored under `~/.screamingface` by default;
+set `SCREAMINGFACE_DATA_DIR` or pass `--data-dir` to override it.
+
+The default service ports are Gateway `9105`, Scoreboard `9106`, and Engine `9108`. Override them
+with `--gateway-port`, `--scoreboard-port`, and `--engine-port`, or the corresponding
+`SCREAMINGFACE_GATEWAY_PORT`, `SCREAMINGFACE_SCOREBOARD_PORT`, and `SCREAMINGFACE_ENGINE_PORT`
+environment variables. `screamingface up` prints the resolved SDK environment variables; the SDK
+does not switch away from its hosted defaults automatically.
+
+For scripts and troubleshooting:
+
+```bash
+screamingface status --json
+screamingface doctor
+screamingface logs --service engine --tail 100 --no-follow
+screamingface prepare --list
+```
+
+Logs are timestamped, tagged by service, rotated at 10 MiB, and retain five backups. Benchmark
+preparation records a versioned manifest, skips current assets, and supports `--force` when a
+fresh download is required.
 
 ## Target v1 workflow
 
@@ -64,11 +84,12 @@ editable_python = score.url4.to_python()
 replayed_report = sf.evaluate(score.url4)
 ```
 
-`Url4.to_python()` is local and no-spend: it produces an editable `sf.Model`, `sf.Fusion`,
-`sf.Pipeline`, `sf.CorrectiveLoop`, or `sf.SelfCorrective` plus the recovered Benchmark call. Raw
-URL4 evaluation does not accept `benchmark=` or `limit=` because either would imply recompiling an
-already-complete expression. Replay starts a new, potentially paid Run; identical URL4 does not
-guarantee identical model output.
+`Url4.to_python()` is local and no-spend: it returns a `str` of Python source, not live objects —
+the `sf.Model`, `sf.Fusion`, `sf.Pipeline`, `sf.CorrectiveLoop`, or `sf.SelfCorrective` written
+back out as editable code, plus the recovered Benchmark call. Raw URL4 evaluation does not accept
+`benchmark=` or `limit=` because either would imply recompiling an already-complete expression.
+Replay starts a new, potentially paid Run; identical URL4 does not guarantee identical model
+output.
 
 Every Client-compiled Candidate URL4 contains exactly one inert `_sf_recipe` source with the
 versioned `screamingface.recipe.v1` descriptor. It preserves the public Recipe structure and names
@@ -190,7 +211,19 @@ stateful protocols without a Client-interpreted workflow language.
 pip install screamingface
 ```
 
-Python 3.12 or newer is required.
+Python 3.12 or newer is required. This command installs the hosted client. The local stack
+(`screamingface up`) also needs the runtime services and notebook tools:
+
+```bash
+pip install "screamingface[runtime,notebook]"
+```
+
+### Troubleshooting
+
+`SCREAMINGFACE_RUNTIME_ERROR No module named 'X'` from `screamingface up` — common on
+Colab, which preinstalls some of the runtime dependencies: the `[runtime]` extra is not
+installed. Run `pip install "screamingface[runtime,notebook]"` and start again with
+`screamingface up`. `screamingface doctor` names the missing modules.
 
 ## Client configuration
 
@@ -439,7 +472,12 @@ or negative included — without asking the caller to repeat its Benchmark, URL4
 models, or run identity; `get_score(id)` retrieves the resulting immutable
 `LeaderboardScore`. Its `.url4` property is a string-compatible `Url4` value:
 `.to_python()` produces an editable fork, while passing the value to `sf.evaluate(...)` replays it
-through the configured Engine. A Scoreboard deployment may
+through the configured Engine. Submitting a limited or incompletely graded Candidate surfaces a
+`Partial submission` advisory because its score is not directly comparable with a full run. In a
+notebook the Client displays a branded notice even when the score is assigned to a variable;
+headless callers receive `sf.EvaluationWarning` attributed to their submission line. If that
+warning category is configured as an error, submission stops before the Scoreboard is changed.
+A Scoreboard deployment may
 keep writes closed, in which case `submit()` raises a typed `LeaderboardError`. Explicit Clients
 expose the same interface at `client.leaderboards`; asynchronous Clients use `await`. The
 Scoreboard is the deployed data system, while a Leaderboard is the ranked domain resource returned

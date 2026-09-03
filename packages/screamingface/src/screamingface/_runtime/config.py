@@ -4,6 +4,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+# INVARIANT: the one name for the supervisor's state record — `screamingface up` writes
+# it, `screamingface status` and default-client discovery (detect.py) read it.
+STATE_FILENAME = "runtime.json"
+
 
 def default_data_dir() -> Path:
     configured = os.getenv("SCREAMINGFACE_DATA_DIR")
@@ -16,11 +20,27 @@ def default_data_dir() -> Path:
 class RuntimeConfig:
     data_dir: Path
     runner_config: Path | None = None
+    gateway_port: int = 9105
+    scoreboard_port: int = 9106
+    engine_port: int = 9108
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_dir", self.data_dir.expanduser().resolve())
         selected = self.runner_config or bundled_runner_config()
         object.__setattr__(self, "runner_config", selected.expanduser().resolve())
+        ports = (self.gateway_port, self.scoreboard_port, self.engine_port)
+        if any(isinstance(port, bool) or not 1 <= port <= 65535 for port in ports):
+            raise ValueError("runtime ports must be integers from 1 to 65535")
+        if len(set(ports)) != len(ports):
+            raise ValueError("gateway, scoreboard, and engine ports must be unique")
+
+    @property
+    def services(self) -> dict[str, str]:
+        return {
+            "gateway": f"http://127.0.0.1:{self.gateway_port}",
+            "scoreboard": f"http://127.0.0.1:{self.scoreboard_port}",
+            "engine": f"http://127.0.0.1:{self.engine_port}",
+        }
 
     @property
     def gateway_database_url(self) -> str:
@@ -36,7 +56,7 @@ class RuntimeConfig:
 
     @property
     def state_path(self) -> Path:
-        return self.data_dir / "runtime.json"
+        return self.data_dir / STATE_FILENAME
 
     @property
     def log_path(self) -> Path:

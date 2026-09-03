@@ -13,7 +13,7 @@ finished:
 The `packages/screamingface` PyPI release lane is red and cannot self-heal. Both `0.1.0` and
 `0.1.1` were uploaded to PyPI manually (17:37:34Z and 17:48:52Z) before PR #553 merged at
 17:55:23Z and pushed tag `screamingface-v0.1.0`. The resulting
-[run 31728158888](https://github.com/OpenMined/screamingface/actions/runs/31728158888) passed
+[run 31728158888](https://github.com/ScreamingFace/screamingface/actions/runs/31728158888) passed
 `verify` and `build`, then failed `publish-pypi` with PyPI's immutability rejection:
 
 ```

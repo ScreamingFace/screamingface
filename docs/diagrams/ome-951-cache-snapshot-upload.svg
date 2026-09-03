@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="600" viewBox="0 0 1000 600" font-family="IBM Plex Mono, Menlo, monospace">
+  <rect width="1000" height="600" fill="#ffffff"/>
+  <text x="30" y="34" font-size="15" font-weight="bold">OME-950 — admin cache-snapshot upload</text>
+  <text x="30" y="52" font-size="11" fill="#555">gzip pg_dump of request_cache_entries → merge / guarded replace, with revision guard</text>
+
+  <defs>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#222"/>
+    </marker>
+  </defs>
+
+  <!-- top row -->
+  <g stroke="#222" fill="#fafafa" stroke-width="1.2">
+    <rect x="30" y="80" width="130" height="46"/>
+    <rect x="250" y="80" width="190" height="46"/>
+    <rect x="540" y="80" width="240" height="46"/>
+  </g>
+  <text x="95" y="107" font-size="12" text-anchor="middle">admin</text>
+  <text x="345" y="99" font-size="12" text-anchor="middle">admin console</text>
+  <text x="345" y="115" font-size="10" text-anchor="middle" fill="#555">server action · multipart</text>
+  <text x="660" y="99" font-size="12" text-anchor="middle">aigateway admin API</text>
+  <text x="660" y="115" font-size="10" text-anchor="middle" fill="#555">POST /v1/admin/cache/snapshots</text>
+
+  <line x1="160" y1="103" x2="246" y2="103" stroke="#222" stroke-width="1.2" marker-end="url(#a)"/>
+  <line x1="440" y1="103" x2="536" y2="103" stroke="#222" stroke-width="1.2" marker-end="url(#a)"/>
+  <text x="488" y="94" font-size="10" text-anchor="middle" fill="#555">.sql.gz (+manifest)</text>
+
+  <!-- poll arrow -->
+  <path d="M 536 132 C 470 170 470 150 445 126" fill="none" stroke="#222" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a)"/>
+  <text x="470" y="162" font-size="10" fill="#555">GET jobs/{id} — poll</text>
+
+  <!-- job container -->
+  <rect x="540" y="180" width="430" height="250" fill="none" stroke="#999" stroke-dasharray="5 4"/>
+  <text x="552" y="198" font-size="11" fill="#555">load job — async, one per deployment (second upload → 409)</text>
+
+  <g stroke="#222" fill="#fafafa" stroke-width="1.2">
+    <rect x="560" y="212" width="180" height="40"/>
+    <rect x="560" y="272" width="180" height="40"/>
+    <rect x="560" y="332" width="180" height="40"/>
+    <rect x="560" y="392" width="180" height="28"/>
+  </g>
+  <text x="650" y="228" font-size="11" text-anchor="middle">1 · spool to temp file</text>
+  <text x="650" y="243" font-size="9" text-anchor="middle" fill="#555">size cap (default 256 MiB)</text>
+  <text x="650" y="288" font-size="11" text-anchor="middle">2 · gunzip + slice</text>
+  <text x="650" y="303" font-size="9" text-anchor="middle" fill="#555">COPY block only — no SQL is run</text>
+  <text x="650" y="348" font-size="11" text-anchor="middle">3 · stage via COPY</text>
+  <text x="650" y="363" font-size="9" text-anchor="middle" fill="#555">request_cache_entries_staging</text>
+  <text x="650" y="410" font-size="11" text-anchor="middle">4 · merge / replace</text>
+
+  <line x1="650" y1="252" x2="650" y2="268" stroke="#222" stroke-width="1.2" marker-end="url(#a)"/>
+  <line x1="650" y1="312" x2="650" y2="328" stroke="#222" stroke-width="1.2" marker-end="url(#a)"/>
+  <line x1="650" y1="372" x2="650" y2="388" stroke="#222" stroke-width="1.2" marker-end="url(#a)"/>
+
+  <!-- revision guard -->
+  <g stroke="#1a56a0" fill="#eef3fa" stroke-width="1.4">
+    <rect x="790" y="272" width="160" height="60"/>
+  </g>
+  <text x="870" y="291" font-size="11" text-anchor="middle" fill="#1a56a0">revision guard</text>
+  <text x="870" y="306" font-size="9" text-anchor="middle" fill="#1a56a0">manifest vs live constants</text>
+  <text x="870" y="320" font-size="9" text-anchor="middle" fill="#1a56a0">mismatch → refused (force recorded)</text>
+  <line x1="790" y1="292" x2="744" y2="292" stroke="#1a56a0" stroke-width="1.2" marker-end="url(#a)"/>
+
+  <!-- manifest sidecar -->
+  <g stroke="#1a56a0" fill="#ffffff" stroke-width="1" stroke-dasharray="4 3">
+    <rect x="250" y="272" width="190" height="60"/>
+  </g>
+  <text x="345" y="291" font-size="11" text-anchor="middle" fill="#1a56a0">&lt;name&gt;.manifest.json</text>
+  <text x="345" y="306" font-size="9" text-anchor="middle" fill="#555">row_count · sha256 · revisions</text>
+  <text x="345" y="320" font-size="9" text-anchor="middle" fill="#555">emitted by snapshot-cache (OME-953)</text>
+  <path d="M 440 302 C 700 340 740 310 786 302" fill="none" stroke="#1a56a0" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#a)"/>
+
+  <!-- live table -->
+  <g stroke="#222" fill="#fff" stroke-width="1.4">
+    <rect x="560" y="470" width="280" height="44"/>
+  </g>
+  <text x="700" y="490" font-size="12" text-anchor="middle">request_cache_entries</text>
+  <text x="700" y="505" font-size="9" text-anchor="middle" fill="#555">live table — serving continues (MVCC)</text>
+  <line x1="650" y1="420" x2="650" y2="466" stroke="#222" stroke-width="1.2" marker-end="url(#a)"/>
+  <text x="30" y="445" font-size="9" fill="#555">merge: ON CONFLICT (key_hash) DO UPDATE — local id/created_at/hit_count/last_hit_at survive</text>
+  <text x="30" y="457" font-size="9" fill="#555">replace: refuse if live &gt; staged rows, unless acknowledge_loss</text>
+
+  <!-- audit -->
+  <text x="30" y="560" font-size="10" fill="#555">all routes behind CurrentAdmin · AdminAuditRoute logs every attempt · job states: validating loading merging complete failed refused</text>
+</svg>

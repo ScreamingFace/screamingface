@@ -1,36 +1,36 @@
 """OME-305 U3 — OpenRouter's own projection for the global exact-request cache.
 
-FEATURE: a globally shared exact-request cache that OpenRouter requests can
-actually enter. Under v1 they could not: ``prepare_chat_body`` pins an API base
-and rebuilds the ``provider`` object, and a key builder that INSPECTS the prepared
-body cannot tell a reviewed rewrite from an unreviewed one, so every OpenRouter
-call bypassed. The provider now PROJECTS its preparation instead — a pure function
-of the request body — and the fingerprint is computed from what will be sent.
+FEATURE: a globally shared exact-request cache that OpenRouter requests can actually
+enter. Under v1 they could not: ``prepare_chat_body`` pins an API base and rebuilds the
+``provider`` object, and a key builder that INSPECTS the prepared body cannot tell a
+reviewed rewrite from an unreviewed one, so every OpenRouter call bypassed. The provider
+now PROJECTS its preparation instead — a pure function of the request body — and the
+fingerprint is computed from what will be sent.
 
-STORY: as a benchmark operator I run the same OpenRouter suite from a second
-account and the identical calls are answered from the first run's stored
-responses, without a second dispatch and without touching the second account's
-key.
+STORY: as a benchmark operator I run the same OpenRouter suite from a second account and
+the identical calls are answered from the first run's stored responses, without a second
+dispatch and without touching the second account's key.
 
 INVARIANT under test: the projection is PURE and TOTAL. No I/O, no credential, no
-identity, no clock; it never mutates the caller's body; and a request this plugin
-would refuse to dispatch yields a bounded ``CacheBypass`` rather than the
-exception ``prepare_chat_body`` raises — the cache may never fail a request.
+identity, no clock; it never mutates the caller's body; and a request this plugin would
+refuse to dispatch yields a bounded ``CacheBypass`` rather than the exception
+``prepare_chat_body`` raises — the cache may never fail a request.
 
-INVARIANT under test (the reason the projection calls the real reconstruction):
-one upstream routing policy is ONE cache entry. Three spellings of a price
-ceiling, and a ``zdr`` flag whose ``false`` is sent as nothing at all, canonicalize
-to the same policy — so they must canonicalize to the same projection. Splitting
-them would silently cost the hit rate this ticket exists to create, while the
-inverse — two genuinely different policies sharing an entry — would serve a
-response produced under a ceiling or data policy the caller did not ask for.
+INVARIANT under test (the reason the projection calls the real reconstruction): one
+upstream routing policy is ONE cache entry. Three spellings of a price ceiling, and a
+``zdr`` flag whose ``false`` is sent as nothing at all, canonicalize to the same policy —
+so they must canonicalize to the same projection. Splitting them would silently cost the
+hit rate this ticket exists to create, while the inverse — two genuinely different
+policies sharing an entry — would serve a response produced under a ceiling or data
+policy the caller did not ask for.
 
-AIDEV-NOTE: two layers of pin live here, deliberately. The PROJECTION-level ones
-hold whatever ``cache_behavior`` the five OME-704 rules declare, so they survived
-the promotion of those rules to ``keyed`` unchanged. The KEY-level section at the
-end is what the promotion itself owes (plan §10: a provider parameter may not
-become keyed without a key-difference test) — it proves the equivalences reach the
-HASH, which is the only place they protect a caller.
+Scope of THIS file: the projected SHAPE, and the leaves the projection refuses to
+describe. Siblings:
+  ``test_openrouter_global_cache_keys.py``          — the same equivalences at the HASH,
+    which is the only place they protect a caller (plan §10: a provider parameter may not
+    become keyed without a key-difference test).
+  ``test_openrouter_global_cache_participation.py`` — the operator gate, which decides
+    participation and never key material.
 """
 
 from __future__ import annotations
@@ -43,61 +43,29 @@ from fastapi import HTTPException
 
 from aigateway.core.cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from aigateway.core.parameter_projection import (
-    WRAPPER_KEY,
     classify_and_project_chat_parameters,
 )
-from aigateway.core.request_cache.global_controls import GlobalCacheControls
 from aigateway.core.request_cache.global_keys import (
     build_global_cache_key,
-    build_global_cache_key_dto,
-    canonical_key_material,
 )
-from aigateway.core.request_cache.global_plan import build_global_cache_plan
 from aigateway.plugins.openrouter_provider.plugin import (
     GLOBAL_CACHE_ADAPTER_REVISION,
     OFFICIAL_API_BASE,
-    OpenRouterProviderPlugin,
 )
 from aigateway.plugins.openrouter_provider.routing_policy import (
-    ROUTING_CONTROLS,
     STRICT_ROUTING_KEY,
 )
-from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
-_MODEL = "openrouter/anthropic/claude-fable-5"
-_UPSTREAM = "anthropic/claude-fable-5"
-_MESSAGES: list[Any] = [{"role": "user", "content": "hi"}]
-
-# Spelled out rather than imported: a rename of the production constant must not be
-# able to silently rename what the gateway forces onto every routing policy.
-_STRICT = {"require_parameters": True}
-
-
-def _plugin() -> OpenRouterProviderPlugin:
-    return OpenRouterProviderPlugin()
-
-
-def _body(**overrides: Any) -> dict[str, Any]:
-    body: dict[str, Any] = {"model": _MODEL, "messages": [dict(m) for m in _MESSAGES]}
-    body.update(overrides)
-    return body
-
-
-def _projected(**overrides: Any) -> dict[str, Any]:
-    produced = _plugin().global_cache_projection(_body(**overrides))
-    assert not isinstance(produced, CacheBypass), produced
-    return produced
-
-
-def _policy(**overrides: Any) -> Any:
-    return _projected(**overrides)["prepared"]["provider"]
-
-
-def _reason(**overrides: Any) -> str:
-    produced = _plugin().global_cache_projection(_body(**overrides))
-    assert isinstance(produced, CacheBypass), produced
-    return produced.reason
-
+# The shared arrangement; see ``projection_harness``. Bound to the original private
+# names so every relocated test body below reads unchanged.
+from .projection_harness import MODEL as _MODEL
+from .projection_harness import STRICT as _STRICT
+from .projection_harness import UPSTREAM as _UPSTREAM
+from .projection_harness import body as _body
+from .projection_harness import plugin as _plugin
+from .projection_harness import policy as _policy
+from .projection_harness import projected as _projected
+from .projection_harness import reason as _reason
 
 # --- the projected shape ------------------------------------------------------
 
@@ -303,295 +271,6 @@ def test_a_caller_supplied_provider_object_is_never_projected() -> None:
     # refuses it, and the projection reads only the wrapper — so a caller cannot
     # reach the routing control plane through the fingerprint either.
     assert _policy(provider={"order": ["openai"], "allow_fallbacks": True}) == dict(_STRICT)
-
-
-# --- the promotion to `keyed`: the same pins, at the HASH ----------------------
-#
-# Plan §10 stop condition: "a provider parameter becomes keyed without a
-# key-difference test". Everything above proves the PROJECTION canonicalizes
-# correctly; a projection can be perfect while the value never reaches the key at
-# all — which is exactly what a `bypass` rule does, and exactly what these catch.
-
-
-def _key(**overrides: Any) -> str:
-    plugin = _plugin()
-    built = build_global_cache_key(
-        provider="openrouter",
-        body=_body(**overrides),
-        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=None),
-        projection=plugin.global_cache_projection,
-        provider_auth_modes=plugin.available_auth_modes(),
-    )
-    assert not isinstance(built, CacheBypass), built
-    return built.key_hash
-
-
-def test_a_routing_controlled_request_is_keyed_rather_than_bypassed() -> None:
-    # The half the promotion delivers: a request CARRYING a control gets a key at all.
-    # While the rules declared `bypass` this returned a CacheBypass, so `_key`'s own
-    # assertion is the test.
-    assert len(_key(provider_params={"sort": "price"})) == 64
-
-
-def test_the_same_routing_controlled_request_repeats_to_the_same_key() -> None:
-    # A keyed HIT on repeat — the hit rate this promotion exists to create.
-    controls = {"max_price_prompt": "1", "data_collection": "deny"}
-    assert _key(provider_params=dict(controls)) == _key(provider_params=dict(controls))
-
-
-def test_a_routing_control_changes_the_key_at_all() -> None:
-    # Guards against the control being accepted and then silently excluded — the
-    # under-keying failure that would share one entry across two policies.
-    assert _key(provider_params={"sort": "price"}) != _key()
-
-
-@pytest.mark.parametrize(
-    ("leaf", "first", "second"),
-    [
-        ("max_price_prompt", "1", "2"),
-        ("max_price_completion", "0.5", "0.75"),
-        ("data_collection", "deny", "allow"),
-        ("zdr", True, False),
-    ],
-)
-def test_two_requests_differing_only_in_one_control_never_cross_hit(
-    leaf: str, first: Any, second: Any
-) -> None:
-    # THE privacy/correctness test for this promotion. A different price ceiling or a
-    # different data policy is a different request, and serving one from the other's
-    # entry is a correctness bug for price and a privacy bug for data policy.
-    #
-    # AIDEV-NOTE: `sort` is absent from this table because its reviewed enum admits
-    # exactly one value (`("price",)`), so two distinct VALID values cannot be
-    # constructed for it. Its key difference is presence-vs-absence and is covered by
-    # test_a_routing_control_changes_the_key_at_all. Widen the enum and add a row here.
-    assert _key(provider_params={leaf: first}) != _key(provider_params={leaf: second})
-
-
-def test_every_reviewed_control_is_covered_by_a_key_difference_test() -> None:
-    """Guards the table above against a control being promoted and never pinned.
-
-    AIDEV-NOTE: plan §10 forbids a parameter becoming keyed without a key-difference
-    test, and a hand-written parametrize table cannot notice a SIXTH control being
-    added to ``ROUTING_CONTROLS``. This asserts the reviewed surface is exactly what
-    the tests above exercise, so adding a control without pinning it fails here.
-    """
-    covered = {"max_price_prompt", "max_price_completion", "data_collection", "zdr"}
-    # `sort` is pinned by presence-vs-absence rather than by two values — see above.
-    assert {control.leaf for control in ROUTING_CONTROLS} == covered | {"sort"}
-
-
-@pytest.mark.parametrize(
-    ("path", "first", "second"),
-    [
-        ("seed", 1, 2),
-        ("response_format", {"type": "text"}, {"type": "json_object"}),
-        ("n", 1, 2),
-        ("logprobs", False, True),
-        ("top_logprobs", 1, 2),
-        ("stop", ["alpha"], ["beta"]),
-        ("max_tokens", 32, 64),
-        ("temperature", 0.2, 0.8),
-        ("frequency_penalty", 0.1, 0.2),
-        ("presence_penalty", 0.1, 0.2),
-        (
-            "tools",
-            [{"type": "function", "function": {"name": "a"}}],
-            [{"type": "function", "function": {"name": "b"}}],
-        ),
-        (
-            "tool_choice",
-            "auto",
-            {"type": "function", "function": {"name": "f"}},
-        ),
-        # OME-781: the deployment blocklist that forced these to `bypass` is deleted,
-        # so both search fields are keyed exactly like every other direct path.
-        ("web_search", True, False),
-        ("web_search_excluded_domains", ["a.test"], ["b.test"]),
-    ],
-)
-def test_two_openrouter_requests_differing_only_in_one_keyed_value_never_share_a_key(
-    path: str, first: Any, second: Any
-) -> None:
-    assert _key(**{path: first}) != _key(**{path: second})
-
-
-def test_every_openrouter_keyed_path_has_an_explicit_key_difference_proof() -> None:
-    """Ruling 7: the tables in this module account for every keyed path."""
-    plugin = _plugin()
-    keyed = {
-        rule.request_path
-        for rule in plugin.chat_parameter_rules(model=_MODEL, auth_type=None)
-        if rule.cache_behavior == "keyed"
-    }
-    covered_by_two_values = {
-        "seed",
-        "response_format",
-        "n",
-        "logprobs",
-        "top_logprobs",
-        "stop",
-        "max_tokens",
-        "temperature",
-        "frequency_penalty",
-        "presence_penalty",
-        "top_p",
-        "provider_params.max_price_prompt",
-        "provider_params.max_price_completion",
-        "provider_params.data_collection",
-        "provider_params.zdr",
-        "provider_params.top_k",
-        # OME-787: OpenRouter is the first provider opted into keyed tools/tool_choice
-        # (it has a real ``global_cache_projection`` to back them) — pinned by the two
-        # rows above, same as every other direct-keyed path.
-        "tools",
-        "tool_choice",
-        # OME-781: the deployment blocklist that forced these to `bypass` is deleted.
-        "web_search",
-        "web_search_excluded_domains",
-    }
-    # `sort` has one valid value and is pinned by presence versus absence above.
-    assert keyed == covered_by_two_values | {"provider_params.sort"}
-
-
-def test_the_two_price_ceilings_are_keyed_independently() -> None:
-    # A ceiling on the prompt is not a ceiling on the completion; collapsing them
-    # would serve a completion-capped answer to a prompt-capped request.
-    assert _key(provider_params={"max_price_prompt": "1"}) != _key(
-        provider_params={"max_price_completion": "1"}
-    )
-
-
-@pytest.mark.parametrize("spelling", ["1", "1.0", "1.000"])
-def test_every_spelling_of_one_price_ceiling_shares_one_key(spelling: str) -> None:
-    # Plan §2.6 at the hash: "1" == "1.0" == "1.000". These are ONE upstream ceiling,
-    # so they must be one entry — three would be a silent 3x loss of hit rate.
-    #
-    # WHY this can only work through the reconstructed policy: `normalize_price`
-    # collapses the spellings on the way to the wire, so hashing the caller's raw leaf
-    # could never make them agree.
-    assert _key(provider_params={"max_price_prompt": spelling}) == _key(
-        provider_params={"max_price_prompt": "1"}
-    )
-
-
-def test_a_false_zdr_flag_keys_exactly_like_omitting_it() -> None:
-    # Plan §2.6: `zdr` omitted == `zdr: false`. The gateway sends NOTHING for a false
-    # flag, so the two requests are byte-identical upstream and must be one entry.
-    assert _key(provider_params={"zdr": False}) == _key()
-
-
-def test_a_true_zdr_flag_is_a_distinct_key() -> None:
-    # The inverse, and the one that matters for privacy: a zero-data-retention
-    # request must never be answered from an entry filled without that restriction.
-    true_key = _key(provider_params={"zdr": True})
-    assert true_key != _key()
-    assert true_key != _key(provider_params={"zdr": False})
-
-
-def test_the_strict_routing_policy_participates_in_every_key() -> None:
-    # OME-651's `require_parameters` is forced onto every dispatch, so every stored
-    # response was produced under strict routing. It reaches the key through
-    # `prepared_request`, which is what makes that a property of the ENTRY and not
-    # merely of the dispatch.
-    plugin = _plugin()
-    dto = build_global_cache_key_dto(
-        provider="openrouter",
-        body=_body(),
-        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=None),
-        projection=plugin.global_cache_projection,
-        provider_auth_modes=plugin.available_auth_modes(),
-    )
-    assert not isinstance(dto, CacheBypass), dto
-    assert dto.prepared_request["provider"] == dict(_STRICT)
-    assert WRAPPER_KEY not in canonical_key_material(dto)
-
-
-def test_the_callers_raw_spelling_never_appears_in_the_key_material() -> None:
-    # The design this promotion rests on: what participates is the RECONSTRUCTED
-    # policy, not the caller's wrapper. A caller leaf name leaking into the hashed
-    # material would mean the spelling was being keyed after all, and the §2.6
-    # equivalences above would be accidental rather than structural.
-    plugin = _plugin()
-    dto = build_global_cache_key_dto(
-        provider="openrouter",
-        body=_body(provider_params={"max_price_prompt": "1.000"}),
-        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=None),
-        projection=plugin.global_cache_projection,
-        provider_auth_modes=plugin.available_auth_modes(),
-    )
-    assert not isinstance(dto, CacheBypass), dto
-    material = canonical_key_material(dto)
-    assert "max_price_prompt" not in material
-    assert "1.000" not in material
-    # ...while the canonical upstream form IS there.
-    assert dto.prepared_request["provider"]["max_price"] == {"prompt": "1"}
-
-
-# --- the operator gate decides PARTICIPATION, not KEY MATERIAL (review MEDIUM-1) --
-
-
-def _disabled_plugin() -> OpenRouterProviderPlugin:
-    return OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=False))
-
-
-def _enabled_plugin() -> OpenRouterProviderPlugin:
-    # WHY spelled out here and NOT folded into `_plugin()`: `enabled` ships FALSE, so
-    # the two arrangements differ — but only for PARTICIPATION. Every projection
-    # assertion above deliberately keeps using the default-constructed plugin, because
-    # the projection is contractually blind to this setting and those tests are the
-    # place that stays true whichever way the switch is thrown.
-    return OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=True))
-
-
-def test_a_disabled_provider_declines_to_participate_in_the_shared_cache() -> None:
-    # INVARIANT: a provider kill switch must reach the CACHE path, not only the
-    # dispatch path. `register_models` returns nothing and `api_key_strategy_for`
-    # returns None when disabled — but a STORED ROW needs neither a model entry nor a
-    # credential to be replayed, and the cache stage runs ahead of both checks.
-    assert _disabled_plugin().participates_in_global_cache() is False
-    assert _enabled_plugin().participates_in_global_cache() is True
-
-
-def test_the_gate_changes_participation_without_touching_key_material() -> None:
-    # WHY both halves in one test: they are the two directions of the same ruling —
-    # settings may gate participation, never shape the key. If the gate also changed
-    # the key, flipping the switch would abandon every stored row: a silent cache
-    # flush dressed up as a bug fix.
-    #
-    # The projection is therefore asserted to be BLIND to the setting. That is also
-    # its port contract (it reads the body alone), enforced globally by
-    # `tests/unit/test_global_cache_projection_purity.py`; this is the
-    # OpenRouter-specific statement of the same property, at the value level.
-    expected = {
-        "resolved_model": _UPSTREAM,
-        "provider_adapter_revision": GLOBAL_CACHE_ADAPTER_REVISION,
-        "prepared": {"api_base": OFFICIAL_API_BASE, "provider": dict(_STRICT)},
-    }
-    assert _projected() == expected
-    assert _disabled_plugin().global_cache_projection(_body()) == expected
-
-
-def test_a_disabled_provider_yields_a_plan_that_does_not_participate() -> None:
-    # The layer that actually enforces the gate: participation is refused in the PLAN,
-    # which is where a settings read is legitimate. Asserted here rather than only at
-    # the route so the property is pinned without a database, a profile or a
-    # credential — and so a future refactor that drops the plan's call to the hook
-    # fails a unit test rather than only an end-to-end one.
-    def _plan(plugin: OpenRouterProviderPlugin):
-        return build_global_cache_plan(
-            body=_body(),
-            plugin=plugin,
-            controls=GlobalCacheControls(participate=True, bypass_reason=""),
-            cache_enabled=True,
-        )
-
-    refused = _plan(_disabled_plugin())
-    assert isinstance(refused, CacheBypass)
-    assert refused.reason == PROJECTION_BYPASS_REASON
-    # Non-vacuous: the SAME request under an enabled provider does participate, so the
-    # refusal is owed to the gate and not to the request being unkeyable.
-    assert not isinstance(_plan(_enabled_plugin()), CacheBypass)
 
 
 # --- the declared `top_k` leaf is really projected (OME-305 review, MEDIUM-2) ---

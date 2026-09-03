@@ -22,6 +22,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Pin the image's embedded build timestamp to the commit's own timestamp.
+      # WHY: with a warm layer cache, two builds from different commits can
+      # reproduce an IDENTICAL config `created` time (observed 2026-08-21:
+      # #686's chart-only merge tied #684's build to the second), and any
+      # consumer that orders these tags by build time — the deployment
+      # automation that promotes them does exactly that — treats a tie as
+      # not-newer and never ships the new build. Commit time is unique per
+      # merge, monotonic on main, and makes the build reproducible.
+      - id: epoch
+        run: echo "epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
       - id: sha
         run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4
@@ -41,6 +51,8 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - run: az acr login --name acropenmined
       - uses: docker/build-push-action@v7
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.epoch.outputs.epoch }}
         with:
           # Context is the repo root — matches the release workflows (screamingface-engine's
           # Dockerfile COPYs packages/url4 from outside its own directory).

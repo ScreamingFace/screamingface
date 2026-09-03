@@ -15,7 +15,7 @@ branch. Each one either spends money incorrectly or discards work the user has a
 for, so none of them can ship. The normative contract is
 [`docs/spec/2026-08-10-OME-605-review-critical-fixes.md`](../spec/2026-08-10-OME-605-review-critical-fixes.md);
 the findings are inline comments on
-[PR #539](https://github.com/OpenMined/screamingface/pull/539#pullrequestreview-4901288332).
+[PR #539](https://github.com/ScreamingFace/screamingface/pull/539#pullrequestreview-4901288332).
 
 Owner decisions taken before implementation: small symmetric async stop (not the scope
 redesign), include the replay-safety marking with the status gate, and additive edits to

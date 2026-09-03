@@ -48,7 +48,11 @@ def verified_claims(request: Request) -> dict[str, object]:
     """
     settings: Settings = request.app.state.settings
     clock: Clock = getattr(request.app.state, "clock", _default_clock)
-    codec = JwtCodec(secret=settings.jwt_secret, iat_window_s=settings.iat_window_s)
+    codec = JwtCodec(
+        secret=settings.jwt_secret,
+        iat_window_s=settings.iat_window_s,
+        capability_lifetime_s=settings.capability_lifetime_s,
+    )
     try:
         token = _extract_capability(request)
         return codec.verify(token, clock())

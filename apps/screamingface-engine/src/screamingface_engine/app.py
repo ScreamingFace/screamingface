@@ -16,8 +16,14 @@ from pathlib import Path
 from fastapi import APIRouter, FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from screamingface_engine import job_env
 from screamingface_engine.adapters.factory import build_job_runner
-from screamingface_engine.artifacts import ArtifactStore
+from screamingface_engine.artifacts import (
+    ArtifactReader,
+    ArtifactStore,
+    S3ArtifactStore,
+)
+from screamingface_engine.artifacts.wiring import s3_config_from_values
 from screamingface_engine.auth import Clock, install_problem_handlers
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -99,13 +105,19 @@ def create_app(
     app.state.benchmarks = benchmarks
     app.state.metrics = build_metrics()
     # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
-    artifact_store = ArtifactStore(Path(settings.artifacts_dir))
+    # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
+    # (OME-929).
+    artifact_store = _build_artifact_reader(settings)
     app.state.artifact_store = artifact_store
-    # WHY startup + periodic: artifacts are deleted on fetch, so the only leak source is
-    # parcels nobody redeemed (crashed runs, vanished clients). The boot sweep clears the
+    # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
+    # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
+    # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
     # backlog immediately; the periodic task covers a hosted App that stays up for weeks
-    # between redeploys — startup-only would let abandoned parcels pool until the next
+    # between redeploys — startup-only would let parcels pool until the next
     # restart (owner decision on OME-892).
+    #
+    # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
+    # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
     _install_artifact_sweeper(app, artifact_store, settings)
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
@@ -131,7 +143,44 @@ def create_app(
 _logger = logging.getLogger(__name__)
 
 
-def _install_artifact_sweeper(app: FastAPI, store: ArtifactStore, settings: Settings) -> None:
+def _build_artifact_reader(settings: Settings) -> ArtifactReader:
+    """The serve side of the spill store, and a refusal for the combination that loses results.
+
+    FEATURE: over-cap results survive the Runner Job on a multi-pod deployment (OME-929).
+
+    INVARIANT: `runner="k8s"` with filesystem storage is refused. A Runner Job pod and this App
+    pod do not share a disk, so the Runner writes into an `emptyDir` that dies with the Job and
+    every over-cap redemption 404s — after the run has been paid for in full. That pairing was
+    the DEFAULT before OME-929, reachable by configuring nothing, and nothing in the setup said
+    so. It fails at boot now.
+
+    AIDEV-NOTE: if a shared RWX volume is ever mounted into both pods, THIS is the check to
+    relax — deliberately, and with the mount as evidence. Do not relax it to quiet a startup
+    error; that restores the bug.
+    """
+    if settings.artifact_store == "s3":
+        return S3ArtifactStore(
+            s3_config_from_values(
+                {
+                    job_env.ARTIFACT_S3_ENDPOINT_URL: settings.artifact_s3_endpoint_url,
+                    job_env.ARTIFACT_S3_BUCKET: settings.artifact_s3_bucket,
+                    job_env.ARTIFACT_S3_REGION: settings.artifact_s3_region,
+                    job_env.ARTIFACT_S3_ACCESS_KEY: settings.artifact_s3_access_key,
+                    job_env.ARTIFACT_S3_SECRET_KEY: settings.artifact_s3_secret_key,
+                }
+            )
+        )
+    if settings.runner == "k8s":
+        raise ValueError(
+            f"runner='k8s' schedules each run as a separate Job pod, whose disk is destroyed "
+            f"with it, so results spilled to a local directory can never be served back. Set "
+            f"{job_env.ARTIFACT_STORE}=s3 and the {job_env.ARTIFACT_S3_BUCKET} settings, or "
+            f"use runner='none' for a single-process deployment."
+        )
+    return ArtifactStore(Path(settings.artifacts_dir))
+
+
+def _install_artifact_sweeper(app: FastAPI, store: ArtifactReader, settings: Settings) -> None:
     """Wire the artifact TTL sweep: once at startup, then every sweep interval for life.
 
     FEATURE: deliver large results in full (OME-892). The loop is an asyncio task on the
@@ -283,7 +332,9 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         logging.warning(
             "URL4_CLOUD_RUNNER is 'none' — this App bridges NATS but cannot schedule runs"
         )
-    connections = build_connections(settings)
+    # INVARIANT: deployed availability comes from the signed-in caller's profiles. The provider
+    # catalogue describes capability, not which operator-managed credentials this caller owns.
+    connections = build_connections(settings, listing_source="profiles")
     app = create_app(
         settings,
         stream=stream,

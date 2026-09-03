@@ -7,7 +7,7 @@ from typing import Protocol
 
 import httpx
 
-from screamingface_engine.connections.aigateway import AigatewayConnections
+from screamingface_engine.connections.aigateway import AigatewayConnections, ListingSource
 from screamingface_engine.connections.port import (
     Caller,
     Connection,
@@ -38,13 +38,17 @@ def _default_client(base_url: str) -> httpx.AsyncClient:
 def build_connections(
     settings: _ConnectionSettings,
     *,
+    listing_source: ListingSource,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
 ) -> Connections | None:
     """Build the AI Gateway adapter, or disable the endpoints when no upstream is configured."""
 
     if not settings.aigateway_base_url:
         return None
-    return AigatewayConnections(client_factory(settings.aigateway_base_url))
+    return AigatewayConnections(
+        client_factory(settings.aigateway_base_url),
+        listing_source=listing_source,
+    )
 
 
 __all__ = [

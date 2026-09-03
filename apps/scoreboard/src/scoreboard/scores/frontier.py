@@ -48,14 +48,47 @@ def _compute_trend(scores: list[ScoreSchema]) -> tuple[FrontierPoint | None, lis
     return current, trend
 
 
+def _comparable(scores: list[ScoreSchema], registered_case_count: int | None) -> list[ScoreSchema]:
+    """Drop runs that covered fewer cases than the benchmark defines (OME-1056).
+
+    INVARIANT: the same rule the RANKING applies, applied here too. It lived only in
+    `_build_leaderboard_query`, so a one-case run scoring 1.0 was hidden from the table while
+    this frontier still published it — on the same page, from the same benchmark. A partial run
+    is advantaged rather than merely admitted, because fewer cases makes a perfect score easier.
+
+    WHY it matters more here than in the ranking: `_compute_trend` advances the holder only on a
+    STRICT improvement, so a partial 1.0 becomes `current` and no complete run — 0.99, anything
+    short of a tie-break — can ever displace it. The table's version of this bug is a wrong row
+    ordering; this one is permanent.
+
+    `None` means the board has no registered count, so nothing is comparable-or-not and every row
+    stands, exactly as before this change.
+    """
+    if registered_case_count is None:
+        return scores
+    return [score for score in scores if score.total_questions >= registered_case_count]
+
+
 def compute_frontier(
     scores: list[ScoreSchema],
     baselines: list[BaselineSchema],
+    registered_case_count: int | None = None,
 ) -> FrontierResult:
     """Two independent passes (spec §6's baseline-timing resolution — deliberately
     NOT one merged computation): the current open/closed split over all rows
     (`_current_split`), and the trend over Score rows only (`_compute_trend`).
+
+    Both passes see only comparable runs — see `_comparable`.
+
+    AIDEV-NOTE: `registered_case_count` defaults to None, meaning "rank everything" — the weaker
+    of the two signatures, chosen deliberately. Required is safer and is what
+    `_build_leaderboard_query` does, but seven prior tests call this function and rule 5 makes
+    editing them an owner decision a keyword default does not justify. The realistic regression is
+    someone editing the route, not a second caller appearing, and
+    `test_the_frontier_route_passes_the_registered_case_count` pins that. If a second production
+    caller does appear, make this required and take the seven-site approval then (OME-1056).
     """
+    scores = _comparable(scores, registered_case_count)
     open_count, closed_count, open_share = _current_split(scores, baselines)
     current, trend = _compute_trend(scores)
 

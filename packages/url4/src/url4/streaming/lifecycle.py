@@ -104,6 +104,11 @@ async def _terminate(
         topic,
         TerminatedEvent(**seq.next(root_tp), data=TerminatedData(status=status, error=error)),
     )
+    # The terminal frame is the one frame a subscriber is guaranteed, so `run` must not
+    # return while it is still only queued. Each arm in `run` keeps its own policy for a
+    # raise from here — the cancellation arm suppresses it, exactly as it already did for a
+    # failing publish.
+    await stream.flush()
 
 
 def _trace_fields(
@@ -163,6 +168,14 @@ async def _publish_execution(
     subtree = completed.subtree_cost.model_copy(update={"scope": "subtree"})
     await stream.publish(topic, CostUsageEvent(**seq.next(root_tp), data=subtree))
     await stream.publish(topic, ResultEvent(**seq.next(root_tp), data=completed.result))
+    # INVARIANT: durability is settled BEFORE the outcome is. A publisher may defer its
+    # acknowledgements (see `EventPublisher.publish`), so without this barrier `run` could
+    # publish `succeeded` over a stream that silently lost a span frame — and a consumer
+    # cannot tell that from a complete one.
+    #
+    # WHY here rather than in `run`: this function raises to select `run`'s outcome arm, so
+    # a deferred failure reported here reaches the `failed` arm with no new control flow.
+    await stream.flush()
 
 
 async def run(

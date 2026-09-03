@@ -8,6 +8,8 @@ from pydantic import ValidationError
 from tortoise import BaseDBAsyncClient
 from tortoise.transactions import in_transaction
 
+from scoreboard.classification.openness import Openness
+
 from .models import Baseline, Benchmark
 from .schemas import BaselineImportRow, BaselineSchema
 
@@ -24,7 +26,11 @@ def _baseline_to_schema(model: Baseline) -> BaselineSchema:
         source_url=model.source_url,
         imported_at=model.imported_at,
         metadata=model.metadata,
-        openness_override=model.openness_override,
+        # WHY: tortoise-orm >=1.1.8 types CharField as `str | None`, which no longer
+        # satisfies the schema's `Openness | None`. The DB column is a bare CharField, so
+        # the narrowing is ours to assert; Pydantic still rejects a junk value on
+        # construction, which is what actually enforces the invariant at runtime.
+        openness_override=cast(Openness | None, model.openness_override),
     )
 
 

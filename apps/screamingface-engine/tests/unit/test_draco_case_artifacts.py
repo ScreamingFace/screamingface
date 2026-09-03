@@ -9,15 +9,24 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import Mock
 
 import httpx
 import pytest
 from benchmark_support import install_benchmarks
 
-from screamingface_engine.benchmarks.draco.definition import DRACO, JUDGE_MODEL
+from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+from screamingface_engine.benchmarks.draco import runtime as draco_runtime
+from screamingface_engine.benchmarks.draco.definition import CANONICAL_EXAM, DRACO, JUDGE_MODEL
+from screamingface_engine.grading_accounting import capture_grading_requests
+from screamingface_engine.operation_calls import (
+    capture_operation_calls,
+    capture_request_accounting,
+)
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world_config import ModelSpec
 from url4 import Node, RelExpr, build, expr, render, src, text
+from url4.peer.server import Request
 
 _QUESTION = "What is two plus two?"
 _ANSWER = "Four."
@@ -70,6 +79,35 @@ def _link(candidate: Node, benchmark: Node) -> str:
     )
 
 
+def test_task_rows_render_each_criterion_prompt_once_across_judge_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "draco"
+    _assets(root)
+    render_context = Mock(wraps=draco_runtime.judge_context)
+    render_intent = Mock(wraps=draco_runtime.judge_intent)
+    monkeypatch.setattr(draco_runtime, "judge_context", render_context)
+    monkeypatch.setattr(draco_runtime, "judge_intent", render_intent)
+    handler = draco_runtime._task_rows(root, CANONICAL_EXAM)
+
+    with capture_grading_requests():
+        rows = json.loads(
+            handler(
+                Request(
+                    path=CANONICAL_EXAM.routes.tasks,
+                    context=encode_candidate_invocation(_ANSWER, "stop", None),
+                    intent="1",
+                    params={},
+                )
+            )
+        )
+
+    assert len(rows) == 1
+    assert render_context.call_count == 1
+    assert render_intent.call_count == 1
+
+
 @pytest.mark.asyncio
 async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) -> None:
     _assets(tmp_path / "draco")
@@ -109,11 +147,15 @@ async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) ->
         )
         install_benchmarks(world.node, tmp_path, benchmarks=(DRACO,))
         try:
-            result = await world.node.evaluate(_link(candidate, build(benchmark)))
+            with capture_operation_calls() as operation_calls:
+                with capture_request_accounting():
+                    with capture_grading_requests():
+                        result = await world.node.evaluate(_link(candidate, build(benchmark)))
         finally:
             await world.aclose()
 
     decoded = json.loads(result.text)
+    assert len(operation_calls) == 5
     assert decoded["cases"] == [
         {
             "status": "scored",
@@ -159,6 +201,27 @@ async def test_canonical_draco_retains_complete_case_evidence(tmp_path: Path) ->
                                 "outcome": "MET",
                                 "explanation": _EXPLANATION,
                                 "raw_output": _RAW_JUDGE_REPLY,
+                                "accounting": {
+                                    "provider": "openrouter",
+                                    "request_model": JUDGE_MODEL,
+                                    "response_model": None,
+                                    "usage": {
+                                        "input_tokens": 1,
+                                        "output_tokens": 1,
+                                        "cache_read_tokens": None,
+                                        "cache_creation_tokens": None,
+                                        "reasoning_tokens": None,
+                                        "cost_usd": None,
+                                    },
+                                    "provider_latency_ms": None,
+                                    "provider_attempts": None,
+                                    "cache": {
+                                        "hits": 0,
+                                        "misses": 0,
+                                        "bypasses": 0,
+                                        "unknown": 1,
+                                    },
+                                },
                                 "metadata": {},
                             }
                             for sequence in range(1, 6)

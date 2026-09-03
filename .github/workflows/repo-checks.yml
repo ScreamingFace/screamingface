@@ -8,6 +8,11 @@ on:
       - ".claude/skills/sdlc-**"
       - ".claude/scripts/**"
       - ".github/workflows/repo-checks.yml"
+      - ".github/workflows/preview-*.yml"
+      - ".github/scripts/preview_contract.py"
+      - ".github/scripts/preview_access.sh"
+      - ".github/scripts/test_preview_access.py"
+      - ".github/scripts/test_preview_contract.py"
       - ".github/dependabot.yml"
       - ".github/dependabot-ignores.yml"
   pull_request:
@@ -15,6 +20,11 @@ on:
       - ".claude/skills/sdlc-**"
       - ".claude/scripts/**"
       - ".github/workflows/repo-checks.yml"
+      - ".github/workflows/preview-*.yml"
+      - ".github/scripts/preview_contract.py"
+      - ".github/scripts/preview_access.sh"
+      - ".github/scripts/test_preview_access.py"
+      - ".github/scripts/test_preview_contract.py"
       - ".github/dependabot.yml"
       - ".github/dependabot-ignores.yml"
   # WHY a schedule: the ignore audit checks state that changes when UPSTREAM ships, not when we
@@ -29,6 +39,17 @@ permissions:
   contents: read
 
 jobs:
+  preview-contract:
+    name: Preview contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Test Preview selection, security, and admission
+        run: uv run --project apps/screamingface-engine pytest .github/scripts/test_preview_*.py -q
+      - name: Validate Preview access helper
+        run: bash -n .github/scripts/preview_access.sh
+
   loop-parity:
     runs-on: ubuntu-latest
     steps:

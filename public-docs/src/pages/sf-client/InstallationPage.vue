@@ -17,7 +17,7 @@ const pypiRuntime = `pip install "screamingface[runtime,notebook]"`
 
 const verify = `import screamingface as sf
 
-len(sf.__all__)   # 55`
+len(sf.__all__)   # 56`
 
 const point = `import screamingface as sf
 
@@ -40,6 +40,15 @@ ScreamingFace is ready.
 const localPoint = `sf.configure(engine_url="http://127.0.0.1:9108")`
 
 const localBoth = `sf.configure(engine_url="http://127.0.0.1:9108", scoreboard_url="http://127.0.0.1:9106")`
+
+const ports = `# either as flags, on up and restart...
+screamingface up --gateway-port 9205 --scoreboard-port 9206 --engine-port 9208
+
+# ...or as environment variables
+export SCREAMINGFACE_GATEWAY_PORT=9205
+export SCREAMINGFACE_SCOREBOARD_PORT=9206
+export SCREAMINGFACE_ENGINE_PORT=9208
+screamingface up`
 
 const tavily = `export TAVILY_API_KEY="tvly-..."
 screamingface up`
@@ -78,8 +87,8 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
     <CodeBlock :code="pypiTerminal" language="bash" />
 
     <p>
-      The <code>[notebook]</code> extra pulls in ipywidgets and jupyterlab, so
-      <code>sf.connect()</code> renders a live panel; drop it for scripts. Everything else,
+      The <code>[notebook]</code> extra pulls in ipywidgets, so <code>sf.connect()</code> renders a
+      live panel in whatever Jupyter frontend you already use; drop it for scripts. Everything else,
       including <RouterLink to="/learn/url4"><code>url4</code></RouterLink
       >, resolves automatically. A quick check that it worked:
     </p>
@@ -96,6 +105,8 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
           The fastest start. Name the hosted engine once, log in through your browser, and you are
           running on compute we provide. There is no local setup, and no provider key of your own:
           the hosted engine does not take one (bring-your-own-key is the local path).
+          Hosted access is currently by invitation — if you haven't been approved yet, use the
+          local engine tab below while you wait.
         </p>
 
         <div class="not-prose">
@@ -113,7 +124,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
         <p>
           That is the whole hosted path. The
-          <RouterLink to="/sf-client/quickstartPage">Quickstart</RouterLink> takes it from here, and
+          <RouterLink to="/sf-client/first-fusion">Quickstart</RouterLink> takes it from here, and
           the <RouterLink to="/sf-client/guides/connections">Connections</RouterLink> guide covers
           provider access.
         </p>
@@ -186,12 +197,28 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
     <Collapsible title="up refuses to start: a port is already in use">
       <p>
-        The stack needs 9105, 9106 and 9108, and it names the occupied ones rather than starting
-        halfway. Run <code>screamingface status</code>:
+        The stack defaults to 9105, 9106 and 9108, and it names the occupied ones rather than
+        starting halfway. Run <code>screamingface status</code>:
         <code>foreign processes occupy runtime ports</code>
-        means something unrelated holds them and you need to free it; if a previous stack is still
-        up,
+        means something unrelated holds them; if a previous stack is still up,
         <code>screamingface down</code> is enough.
+      </p>
+      <p>
+        If the occupant is something you would rather not kill, you do not have to free the port —
+        move the stack instead. Every port is overridable, either as a flag on <code>up</code> and
+        <code>restart</code>, or as an environment variable:
+      </p>
+      <CodeBlock :code="ports" language="bash" />
+      <p>
+        If you move the <em>engine</em> port, point the client at the new one:
+        <code>sf.configure(engine_url="http://127.0.0.1:9208")</code>.
+      </p>
+      <p>
+        One caveat worth knowing: the environment variables are read by <code>up</code>,
+        <code>restart</code>, <code>status</code> and <code>doctor</code> only —
+        <code>down</code> and <code>logs</code> ignore them. That is harmless in practice, because
+        those two work from the runtime state recorded in your data directory rather than from a
+        port, so they stop and tail whatever <code>up</code> started, on whichever ports it used.
       </p>
     </Collapsible>
 

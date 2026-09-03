@@ -48,6 +48,8 @@ from url4.peer.server import Url4Node
 
 type ExamMean = Callable[[Sequence[float]], float | None]
 
+ASSET_BUNDLE_ID = "healthbench"
+
 
 @dataclass(frozen=True, slots=True)
 class Routes:
@@ -221,6 +223,14 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
         ),
         body=(src(rubric_evaluation, name="evaluated", weight=0.0),),
         intent=Text("$evaluated"),
+        # WHY fail, not the collect default (OME-924): a failed rubric-item judge branch
+        # (e.g. an upstream 429, or judge_reply_invalid after its bounded retries) must
+        # surface as ITS OWN error at the case-execution boundary, not be collected into
+        # the rubric-row list — where the case-evaluation route would decode the error
+        # object as a typed grading record and mask the real failure. The shared
+        # preserve_candidate_outcome() boundary still collects this error per Case, so one
+        # bad rubric item fails only that Case, with the Candidate answer intact.
+        on_error="fail",
     )
     # Stage 4a — roll a Case's rubric rows up into one per-Case score.
     case_evaluation = expr(
@@ -259,6 +269,8 @@ def healthbench_benchmark(
     scoring: str,
     mean: ExamMean,
     selection_sha: str,
+    focus: str | None = None,
+    dataset_url: str | None = None,
 ) -> tuple[Exam, Benchmark]:
     """Wire one HealthBench board: identity → addresses → expression → private routes.
 
@@ -272,6 +284,9 @@ def healthbench_benchmark(
         scoring: this board's scoring-rule name (hashed) — the metric's identity.
         mean: the exam-level reduction over per-Case scores.
         selection_sha: the fingerprint of the case selection (hashed).
+        focus: the short editorial line the leaderboard shows in its "Focus" column. It has
+            to separate this board from its siblings at a glance, since they share a dataset.
+        dataset_url: where a reader can go and look at the source data.
 
     Returns:
         ``(exam, benchmark)`` — the ``Exam`` for the runtime's private routes, and the
@@ -302,7 +317,7 @@ def healthbench_benchmark(
 
         # INVARIANT: every board reads the SAME baked asset directory — one immutable
         # answer key, selected from at serve time, never a per-board bake.
-        install_runtime(node, assets / "healthbench", exam)
+        install_runtime(node, assets / ASSET_BUNDLE_ID, exam)
 
     benchmark = Benchmark(
         id=id,
@@ -312,6 +327,10 @@ def healthbench_benchmark(
         case_count=len(case_ids),
         build=build,
         install=install,
+        # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the
+        # only place the board's text is written; it is seeded from the catalogue at deploy.
+        focus=focus,
+        dataset_url=dataset_url,
         # Every check is a Judge call over the case rubric, so the loop's cost is real.
         check_surface=CheckSurface(
             check_route=exam.routes.check_surface,

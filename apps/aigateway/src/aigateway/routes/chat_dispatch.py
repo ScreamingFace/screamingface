@@ -189,6 +189,10 @@ _PROVIDER_ERROR_MESSAGE = {
     "rate_limited": "The upstream provider is rate limiting requests.",
     "provider_unavailable": "The upstream provider is temporarily unavailable.",
     "provider_error": "The upstream provider returned an error.",
+    # OME-927: a 402 (out of credits) is not a generic provider fault — the
+    # status itself is safe to name (it carries no provider text), so the
+    # dedicated message tells the caller they need to top up, without str(exc).
+    "insufficient_credits": "The upstream provider reported insufficient credits.",
 }
 
 
@@ -212,6 +216,8 @@ def _provider_error_code(status: int, *, validated: bool) -> str:
         return "bad_request"
     if status == 401:
         return "auth_required"
+    if status == 402:
+        return "insufficient_credits"
     if status == 429:
         return "rate_limited"
     if validated and status >= 500:

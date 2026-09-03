@@ -31,9 +31,9 @@
 #     builds it only inside a version-gated `screamingface-engine-v*` release, so a benchmark-only change
 #     still rides an engine version bump. Independent benchmark versioning needs an explicit tag
 #     plus a control-plane/Runner compatibility check;
-#   - `datasets` (and its pyarrow tail) is installed in a build stage that is thrown away — the
-#     runtime image never carries it. `prepare.py` imports it through `importlib` for exactly
-#     this reason.
+#   - `datasets` (and its pyarrow tail), plus GDPval's `pdfplumber`/`python-docx`, are installed
+#     in a build stage that is thrown away — the runtime image never carries them. Every
+#     `prepare.py` imports them through `importlib` for exactly this reason.
 #
 # INVARIANT: build context is the REPO ROOT, like the base image — `prepare` runs from the
 # installed package, which path-depends on `packages/url4`.
@@ -55,14 +55,20 @@ WORKDIR /app/apps/screamingface-engine
 # WHY: `uv` is copied in because the base image's uv-created venv has no pip and its runtime
 # stage does not install uv. Reusing the base image's package manager keeps one installer across
 # both Dockerfiles.
-# Keep this digest and the exact datasets version synchronized with DRACO's preparer revision.
-# Changing either changes the bytes that may be baked into an image.
+# Keep this digest and the exact datasets version synchronized with the pinned preparer inputs.
+# Changing either may change the benchmark bytes baked into an image.
 COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 /usr/local/bin/uv /usr/local/bin/uv
+# WHY pdfplumber and python-docx: GDPval's preparer flattens the task's reference PDFs and Word
+# documents to text HERE, at image build time, and that text is baked into the answer key — a Job
+# is offline with a read-only rootfs and cannot parse anything. Pinned exactly for the same reason
+# the datasets version is: a release whose extraction differs would silently change what every
+# candidate is asked. Keep these in step with `packages/screamingface`'s runtime extra and with
+# `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --python /app/apps/screamingface-engine/.venv/bin/python --quiet "datasets==5.0.0"
-RUN mkdir -p /opt/benchmarks/draco \
- && /app/apps/screamingface-engine/.venv/bin/python -m screamingface_engine.benchmarks.draco.prepare \
-      --out /opt/benchmarks/draco
+    uv pip install --python /app/apps/screamingface-engine/.venv/bin/python --quiet \
+      "datasets==5.0.0" "pdfplumber==0.11.10" "python-docx==1.2.0"
+RUN /app/apps/screamingface-engine/.venv/bin/python \
+      -m screamingface_engine.benchmarks.prepare --root /opt/benchmarks
 
 # --- runtime: the base image + the prepared assets -------------------------------------------
 FROM ${BASE} AS runtime

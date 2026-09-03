@@ -112,6 +112,7 @@ def test_paper_metrics_are_computed_across_cases_and_instructions() -> None:
     assert result["cases"][0]["input"] == _SPECS[1]["prompt"]
     assert result["cases"][0]["output"] == "Answer 1"
     assert result["cases"][0]["grade"]["checks"][0]["evidence"][0]["outcome"] == "PASS"
+    assert result["cases"][0]["grade"]["checks"][0]["evidence"][0]["accounting"] is None
     # INVARIANT: each check carries its own MET/UNMET verdict (strict verifier decides) —
     # readers of the report schema judge a check by its outcome, not by digging into
     # evidence, and a check without one renders as unjudged.

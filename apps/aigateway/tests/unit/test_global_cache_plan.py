@@ -442,7 +442,10 @@ class _SwitchedOff(_Plugin):
 
     custom_llm_provider = "switched-off"
 
-    def participates_in_global_cache(self) -> bool:
+    def participates_in_global_cache(self, model: object = None) -> bool:
+        # OME-884: mechanical signature adaptation. The port now receives the raw
+        # requested model; this double still ignores it and still declines.
+        del model
         return False
 
 
@@ -451,7 +454,9 @@ class _BrokenGate(_Plugin):
 
     custom_llm_provider = "broken-gate"
 
-    def participates_in_global_cache(self) -> bool:
+    def participates_in_global_cache(self, model: object = None) -> bool:
+        # OME-884: mechanical signature adaptation; the hazard under test is unchanged.
+        del model
         raise RuntimeError("boom")
 
 
@@ -494,3 +499,58 @@ def test_a_provider_participates_by_default() -> None:
 def test_the_plan_result_is_exactly_a_key_or_a_bypass() -> None:
     assert isinstance(_plan(), GlobalCacheKeyResult)
     assert isinstance(_plan(cache_enabled=False), CacheBypass)
+
+
+# --- the model-aware participation port (OME-884) -----------------------------
+
+
+class _ModelRecordingGate(_Plugin):
+    """Records exactly what the participation port was handed."""
+
+    custom_llm_provider = "model-recording"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen: list[object] = []
+
+    def participates_in_global_cache(self, model: object = None) -> bool:
+        self.seen.append(model)
+        return True
+
+
+def test_the_participation_hook_receives_the_raw_requested_model() -> None:
+    """OME-884: the ONE fact the gate may see beyond deployment-local state.
+
+    WHY the port needs it at all: an ambient ``litellm.model_alias_map`` entry silently
+    REDIRECTS one model to another, so a stored row for the requested id would be
+    replayed while a miss would dispatch something else entirely. That is a per-MODEL
+    hazard, and a model-free gate could only answer it by disabling the whole provider.
+
+    INVARIANT: the RAW value, exactly as the caller sent it — not a resolved, prefixed,
+    stripped or validated form. Nothing else about the request crosses this port: no
+    body, no account, no auth mode, no credential, no settings.
+    """
+    plugin = _ModelRecordingGate()
+    _key(_plan(plugin=plugin))
+
+    assert plugin.seen == [_MODEL]
+
+
+def test_the_participation_hook_is_consulted_before_the_model_shape_is_adjudicated() -> None:
+    # The gates are deliberately NOT reordered by OME-884. Participation still runs
+    # ahead of the ``is_text`` shape check, so a body whose model is not a string still
+    # reaches the gate — with that raw value — and the hook must be total over it.
+    plugin = _ModelRecordingGate()
+    body = _body()
+    body["model"] = 7
+
+    _bypass(_plan(body, plugin=plugin))
+
+    assert plugin.seen == [7]
+
+
+def test_a_provider_that_ignores_the_model_is_unaffected() -> None:
+    # The default implementation and every provider that does not care must keep
+    # participating: OME-884 widened the port, it did not add a duty.
+    assert ProviderPluginBase.participates_in_global_cache(_Plugin(), _MODEL) is True
+    assert _Plugin().participates_in_global_cache(_MODEL) is True

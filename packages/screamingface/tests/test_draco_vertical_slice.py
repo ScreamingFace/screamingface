@@ -139,6 +139,7 @@ def _case_payload(*, score: float = 1.0) -> dict[str, object]:
                             "explanation": "The response satisfies the criterion.",
                             "raw_output": raw,
                             "metadata": {},
+                            "accounting": None,
                         }
                     ],
                     "metadata": {
@@ -167,6 +168,7 @@ def _unscored_invalid_evidence_case_payload() -> dict[str, object]:
             "valid": False,
             "raw_output": "not json",
             "metadata": {"rejection_reason": "invalid_json"},
+            "accounting": None,
         }
     ]
     case["failures"] = [

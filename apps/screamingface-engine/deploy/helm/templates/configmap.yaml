@@ -17,6 +17,10 @@ data:
   # replica is streaming and stop healthy runs. Multi-replica needs a shared subscriber gate
   # (NATS consumer interest) before this can be scaled out. 0 disables the reaper.
   URL4_CLOUD_ORPHAN_GRACE_S: {{ .Values.config.orphanGraceS | quote }}
+  # Per-run downstream in-flight budget (OME-908). This is the APP's setting — the value it
+  # writes onto every Job as an explicit env entry (which beats this ConfigMap's `envFrom`,
+  # so a stale copy here can never reach a Job).
+  URL4_CLOUD_RUNNER_IO_CONCURRENCY: {{ .Values.config.runnerIoConcurrency | quote }}
   # The run substrate the App schedules on (spec §9). `k8s` is what makes this chart functional —
   # without it the App bridges NATS but answers every `GET /?q=` with 503.
   URL4_CLOUD_RUNNER: {{ .Values.runner.backend | quote }}
@@ -34,6 +38,14 @@ data:
   # pydantic-settings parses complex fields as JSON — so the k8s `resources` block travels
   # verbatim instead of being flattened into a per-field env sprawl.
   URL4_CLOUD_RUNNER_RESOURCES: {{ toJson . | quote }}
+  {{- end }}
+  {{- if .Values.nodeSelector }}
+  # Runner Jobs and the Engine Deployment use the same operator-owned node placement.
+  URL4_CLOUD_RUNNER_NODE_SELECTOR: {{ toJson .Values.nodeSelector | quote }}
+  {{- end }}
+  {{- if .Values.tolerations }}
+  # JSON preserves the Kubernetes toleration structure for each generated Runner Job.
+  URL4_CLOUD_RUNNER_TOLERATIONS: {{ toJson .Values.tolerations | quote }}
   {{- end }}
   {{- with .Values.runner.jobTtlSeconds }}
   # Optional EXTENSION of how long a finished Runner Job is kept. Unset => the App derives the
@@ -58,6 +70,33 @@ data:
   # it by name in each Job's `envFrom` — it never reads the keys, so adding a variable there needs
   # no App change and no restart.
   URL4_CLOUD_RUNNER_ENV_CONFIGMAP: {{ include "screamingface-engine.fullname" . }}-runner-env
+  # The READ side of the artifact hand-off (OME-929) — the same store the Runner writes to.
+  #
+  # INVARIANT: rendered from the SAME `artifactStorage` values stanza as the Runner's copy in
+  # `configmap-runner-env.yaml`. That shared origin is the fix: the two halves used to read one
+  # variable nothing set, so each silently resolved its own pod-local directory.
+  URL4_CLOUD_ARTIFACT_STORE: {{ .Values.artifactStorage.backend | quote }}
+  {{- if and (eq .Values.artifactStorage.backend "filesystem") .Values.artifactStorage.filesystemDir }}
+  # Only meaningful in filesystem mode, which is single-process only. Rendered under the same
+  # condition it is read, so it is Helm-owned exactly when it is the operative setting — rather
+  # than declared Helm-owned and set by nobody, which is how OME-929 happened.
+  #
+  # WHY also gated on a non-empty value: rendering "" would OVERRIDE the code's default with an
+  # empty path, and `Path("")` is the working directory — a silently wrong location rather than
+  # an absent setting. Omitting the key lets the documented default apply.
+  URL4_CLOUD_ARTIFACTS_DIR: {{ .Values.artifactStorage.filesystemDir | quote }}
+  {{- end }}
+  {{- if eq .Values.artifactStorage.backend "s3" }}
+  URL4_CLOUD_ARTIFACT_S3_ENDPOINT_URL: {{ include "screamingface-engine.artifactEndpointUrl" . | quote }}
+  URL4_CLOUD_ARTIFACT_S3_BUCKET: {{ .Values.artifactStorage.s3.bucket | quote }}
+  URL4_CLOUD_ARTIFACT_S3_REGION: {{ .Values.artifactStorage.s3.region | quote }}
+  # NOTE: the ACCESS KEY is not here either. It is auto-generated when unset, so it must be
+  # stable across upgrades — which means living in the Secret the chart can `lookup`. Both
+  # halves of the pair therefore arrive by `envFrom.secretRef`, from one source.
+  # The Secret carrying URL4_CLOUD_ARTIFACT_S3_SECRET_KEY, attached to each Runner Job by the App
+  # with `envFrom.secretRef`. Only the NAME travels here; nothing secret belongs in a ConfigMap.
+  URL4_CLOUD_ARTIFACT_S3_SECRET_NAME: {{ include "screamingface-engine.artifactSecretName" . | quote }}
+  {{- end }}
   {{- if .Values.tavily.enabled }}
   # WHY: only the Secret's NAME travels; the App attaches it to each Job with `envFrom.secretRef`
   # and never reads the credential, so nothing secret belongs in this ConfigMap. The Secret's KEY

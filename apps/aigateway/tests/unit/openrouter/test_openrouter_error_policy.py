@@ -355,7 +355,12 @@ def test_embedded_top_level_error_is_sanitized_and_does_not_invalidate(
         resp = _post_chat(authenticated_client)
 
     assert resp.status_code == 402
-    assert resp.json()["detail"]["code"] == "provider_error"
+    # OME-927: a 402 gets its own dedicated code/message instead of the generic
+    # "provider_error" fallback, so the client can tell the caller to top up.
+    assert resp.json()["detail"]["code"] == "insufficient_credits"
+    assert (
+        resp.json()["detail"]["message"] == "The upstream provider reported insufficient credits."
+    )
     # Raw provider message/metadata is discarded, never echoed.
     assert "Insufficient credits" not in resp.text
     assert "secret-internal-router" not in resp.text

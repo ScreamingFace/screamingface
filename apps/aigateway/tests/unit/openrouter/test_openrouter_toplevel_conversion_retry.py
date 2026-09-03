@@ -225,7 +225,7 @@ def test_toplevel_malformed_status_sanitized_to_502_never_500(
     ("status", "expected_status", "expected_code"),
     [
         (400, 400, "bad_request"),
-        (402, 402, "provider_error"),
+        (402, 402, "insufficient_credits"),
         (403, 403, "provider_error"),
         (408, 408, "provider_error"),
         (500, 500, "provider_unavailable"),
@@ -253,6 +253,36 @@ def test_toplevel_billing_and_client_statuses_single_dispatch_sanitized(
     assert calls["n"] == 1
     assert resp.status_code == expected_status
     assert resp.json()["detail"]["code"] == expected_code
+    assert _SECRET not in resp.text
+
+
+def test_toplevel_402_surfaces_a_dedicated_insufficient_credits_message(
+    enabled_openrouter,
+    fast_retries,
+    credential_blobs,
+    authenticated_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-927: OpenRouter reports out-of-credits as a top-level ``payment_required``
+    error embedded in a nominal HTTP-200 body (this module's own docstring) — the
+    exact shape the ticket's lead example describes. Pin the client-facing wording
+    through THIS path specifically, since it is a separate status→code mapping
+    (``_embedded_error_exception``) from the generic transport-exception one
+    covered in ``test_litellm_http_exception_sanitize.py``.
+
+    FEATURE: insufficient-credits surfacing.
+    """
+    _create_connection(authenticated_client, "work-or")
+
+    calls = {"n": 0}
+    _counting_wire(lambda: _wire_response(200, _top_level_error(402, _SECRET)), calls, monkeypatch)
+    resp = _post_chat(authenticated_client)
+
+    assert calls["n"] == 1
+    assert resp.status_code == 402
+    detail = resp.json()["detail"]
+    assert detail["code"] == "insufficient_credits"
+    assert detail["message"] == "The upstream provider reported insufficient credits."
     assert _SECRET not in resp.text
 
 

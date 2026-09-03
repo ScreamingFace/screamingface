@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 
+import httpx
 import pytest
 
-from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.app import create_app
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_DEPLOYMENT
 from screamingface_engine.benchmarks.case_execution import (
     CASE_EXECUTION_SCHEMA,
     install_case_execution,
@@ -21,20 +24,46 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
-from url4 import RelExpr, Text, render, src
+from screamingface_engine.config import Settings
+from screamingface_engine.testing import InMemoryEventStream
+from url4 import RelExpr, Text, expr, render, src, struct
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def test_public_catalogue_contains_exactly_the_four_product_benchmarks() -> None:
-    # OME-903 added the professional board beside the worst-30% challenge; both are
-    # complete, independently meaningful benchmark identities over one baked answer key.
-    assert tuple(benchmark.id for benchmark in BUILTIN_BENCHMARKS) == (
-        "draco",
-        "healthbench-professional",
-        "healthbench-worst30",
-        "ifeval",
+@pytest.mark.asyncio
+async def test_the_public_catalogue_publishes_exactly_the_registered_boards() -> None:
+    """Every board this deployment registers is discoverable on the wire, and nothing else is.
+
+    WHY derived rather than a hand-typed tuple of ids (OME-1095): the deployment is the ONE
+    place a board is declared, and a second list here had to be edited by hand for every new
+    board — the exact cost this epic removes. What is load bearing is the relationship: what
+    an operator registered is what a client can discover, under the ids it was registered
+    with.
+
+    WHAT THIS DOES NOT COVER: membership. Both sides derive from the same registrations, so
+    deleting a board from `builtins.py` makes it vanish from both and passes here. That a
+    given board is public is pinned in the board's own definition test — see
+    `test_both_draco_boards_are_registered_under_their_own_ids` and its siblings.
+    """
+
+    registered = sorted(
+        registration.benchmark.id for registration in BUILTIN_DEPLOYMENT.registrations
     )
+    app = create_app(
+        Settings(jwt_secret="s"),
+        stream=InMemoryEventStream(),
+        benchmarks=BUILTIN_BENCHMARKS,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://engine.test",
+    ) as client:
+        entries = (await client.get("/v1/benchmarks")).json()["data"]
+
+    published = [entry["id"] for entry in entries]
+
+    assert sorted(published) == registered
 
 
 def test_canonical_draco_limit_changes_cases_only_not_grading_strength() -> None:
@@ -106,9 +135,89 @@ async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -
         "intent": "aggregate:2",
         "case_evaluations": [
             {"case_id": 11, "output": "first"},
-            {"error": {"kind": "ResolutionError", "message": "candidate failed"}},
+            {
+                "error": {
+                    "kind": "ResolutionError",
+                    "message": "candidate failed",
+                    "code": "candidate_failed",
+                    "retryable": False,
+                }
+            },
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_protocol_evaluates_only_one_complete_case_at_a_time() -> None:
+    node = Url4Node("benchmark-sequential-cases")
+    node.data(
+        "/example/cases",
+        json.dumps([{"id": "case-1"}, {"id": "case-2"}, {"id": "case-3"}]),
+        media_type="application/json",
+    )
+    active_cases: set[str] = set()
+    active_branches = max_active_cases = max_active_branches = 0
+
+    @node.endpoint("/example/case-branch")
+    async def case_branch(request: Request) -> str:
+        nonlocal active_branches, max_active_branches, max_active_cases
+        active_cases.add(request.context)
+        active_branches += 1
+        max_active_cases = max(max_active_cases, len(active_cases))
+        max_active_branches = max(max_active_branches, active_branches)
+        try:
+            await asyncio.sleep(0.01)
+            return request.intent
+        finally:
+            active_branches -= 1
+
+    @node.endpoint("/example/complete-case")
+    def complete_case(request: Request) -> str:
+        payload = json.loads(request.context)
+        active_cases.remove(payload["case_id"])
+        return json.dumps({"case_id": payload["case_id"]})
+
+    @node.endpoint("/example/aggregate")
+    def aggregate(request: Request) -> str:
+        return request.context
+
+    case_evaluation = expr(
+        src(
+            RelExpr(path="/example/case-branch", context="$item.id", intent=Text("left")),
+            name="left",
+            weight=0.0,
+        ),
+        src(
+            RelExpr(path="/example/case-branch", context="$item.id", intent=Text("right")),
+            name="right",
+            weight=0.0,
+        ),
+        src(
+            RelExpr(
+                path="/example/complete-case",
+                context=render(struct({"case_id": "$item.id", "left": "$left", "right": "$right"})),
+                intent=Text(""),
+            ),
+            name="completed",
+            weight=0.0,
+        ),
+        intent=Text("$completed"),
+    )
+    protocol = build_evaluation_protocol(
+        cases_route="/example/cases",
+        case_evaluation=case_evaluation,
+        selected_case_count=3,
+        available_case_count=3,
+        aggregate_route="/example/aggregate",
+    )
+    rendered = render(protocol)
+
+    await node.evaluate(rendered)
+
+    # INVARIANT: whole Cases are serial, while independent work inside one Case stays parallel.
+    assert max_active_cases == 1
+    assert max_active_branches == 2
+    assert "iteration.concurrency=1" in rendered
 
 
 @pytest.mark.asyncio
@@ -141,7 +250,16 @@ async def test_case_execution_preserves_candidate_invocation_when_grading_fails(
         "schema": CASE_EXECUTION_SCHEMA,
         "case_id": "case-1",
         "candidate_invocation": encode_candidate_invocation("", "content_filter", "exact refusal"),
-        "grading": [{"error": {"kind": "ResolutionError", "message": "checker unavailable"}}],
+        "grading": [
+            {
+                "error": {
+                    "kind": "ResolutionError",
+                    "message": "checker unavailable",
+                    "code": "checker_failed",
+                    "retryable": False,
+                }
+            }
+        ],
     }
 
 
@@ -159,11 +277,13 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
-        (DRACO, "6a9e0deb13a9e88868dc5452cce46527f89236be2aa34da3fbaa7afb413ecefa"),
-        (IFEVAL, "c01431240e88cbe76fcbebfa3cab9fb36f36f70e8fa28807a070bbe5fb3f21eb"),
+        # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low
+        # (max_tokens stays the paper's 4096) and a bounded ;retry=2 per verdict source.
+        (DRACO, "0f619c21ae16061ed7356b8f32a4f94df1d077c59073887a2aad38a26c173f70"),
+        (IFEVAL, "c272779623671772ad8c2629e320e283837f34e3b270c693643285174794e4f8"),
         (
             HEALTHBENCH_WORST30,
-            "a5a729e1fcc53c7bb4c506f8a29a577ad4c68e983dcc32c6a9edcd33a443054c",
+            "bc4c584c826b5fa40ff0b563b4470cb89790712f08e92f0c0aeff151f3210102",
         ),
     ),
 )

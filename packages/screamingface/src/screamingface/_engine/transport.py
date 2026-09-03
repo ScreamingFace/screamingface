@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import logging
+import random
 import ssl
 import time
 from collections.abc import Awaitable, Callable
@@ -28,6 +30,7 @@ from screamingface._access.contract import _challenge_audience
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.run_lifecycle import _Lifecycle
+from screamingface._engine.trace import TraceContext, new_trace_context
 from screamingface._evaluation.model import Candidate
 from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
 from screamingface.events import Event
@@ -56,6 +59,24 @@ _ALREADY_STOPPED_STATUSES = frozenset({404, 409, 410})
 # URL4_CLOUD_RESULT_INLINE_CAP_BYTES past 4 MiB must account for this client-side bound too.
 _MAX_FRAME_BYTES = 8 * 1024 * 1024
 
+# OME-1020 (spec §6 S3/S6): reconnect pacing. The budget is 90 s — STRICTLY inside the
+# engine's subscriber-loss reaper grace (`orphan_grace_s = 120`, OME-890): a reconnecting
+# client IS exactly the "no subscriber" the reaper waits on, so a budget at or above the
+# grace lets the reaper kill the Run one attempt before the client gets back.
+_RECONNECT_BUDGET_S = 90.0
+_RECONNECT_BASE_DELAY_S = 0.5
+_RECONNECT_MAX_DELAY_S = 15.0
+
+_logger = logging.getLogger(__name__)
+
+
+def _reconnect_delay(
+    attempt: int, base_s: float, *, max_s: float = _RECONNECT_MAX_DELAY_S
+) -> float:
+    """Full-jitter backoff (AWS): uniform in [0, min(cap, base * 2^attempt)]."""
+    cap = min(max_s, base_s * (2**attempt))
+    return random.random() * cap
+
 
 class _SyncSender(Protocol):
     def send(self, message: str) -> None: ...
@@ -75,7 +96,14 @@ class _ObserverRaised(Exception):
 class Url4CloudTransport:
     """Synchronous adapter for the confirmed url4-cloud lifecycle."""
 
-    def __init__(self, engine_url: str, caller_auth: _TransportAuth | None = None) -> None:
+    def __init__(
+        self,
+        engine_url: str,
+        caller_auth: _TransportAuth | None = None,
+        *,
+        reconnect_budget_s: float = _RECONNECT_BUDGET_S,
+        reconnect_base_delay_s: float = _RECONNECT_BASE_DELAY_S,
+    ) -> None:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
@@ -83,6 +111,12 @@ class Url4CloudTransport:
         # INVARIANT: built from the same source as the client above, so the two halves of
         # this transport can never verify against different roots.
         self._ssl = _websocket_ssl_context(engine_url)
+        # Test-only seams; production callers leave the defaults (spec §6 S3).
+        self._reconnect_budget_s = reconnect_budget_s
+        self._reconnect_base_delay_s = reconnect_base_delay_s
+        # Set by `cancel_active`: once the OWNER has aborted, reconnecting is pointless —
+        # the sweep already stopped every Run this client owns. Plain bool, GIL-atomic.
+        self._aborted = False
         self._active_lock = Lock()
         self._active_tokens: set[str] = set()
 
@@ -91,40 +125,22 @@ class Url4CloudTransport:
         candidate: Candidate,
         on_event: SyncEventCallback | None,
     ) -> _RunOutcome:
-        minted = [_mint_sync(self._http)]
+        # INVARIANT (OME-967): the trace exists BEFORE the first outbound call. Minting the
+        # capability is that first call, so a mint failure is already joinable.
+        trace = new_trace_context()
+        minted = [_mint_sync(self._http, trace=trace)]
         with self._active_lock:
             self._active_tokens.add(minted[0])
         lifecycle = _Lifecycle(candidate)
         started = time.monotonic()
         try:
-            for attempt in range(2):
-                try:
-                    with sync_ws.connect(
-                        _websocket_url(self._engine_url, minted[-1]),
-                        subprotocols=[_SUBPROTOCOL],
-                        additional_headers=self._caller_auth.websocket_headers(),
-                        open_timeout=30,
-                        close_timeout=10,
-                        max_size=_MAX_FRAME_BYTES,
-                        ssl=self._ssl,
-                    ) as websocket:
-                        outcome = self._run_connected(
-                            websocket,
-                            lifecycle,
-                            minted[-1],
-                            candidate,
-                            on_event,
-                        )
-                    # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
-                    # By now the run is over and the WS is closed — a fetch failure here
-                    # must surface as its own error, never trip the socket-scoped
-                    # stop-on-interrupt arm into writing to a dead connection.
-                    return _materialize_sync(self._http, outcome)
-                except InvalidStatus as exc:
-                    if attempt != 0 or not _is_access_websocket_rejection(exc):
-                        raise
-                    self._remint_after_challenge(minted)
-            raise AssertionError("WebSocket authentication retry loop exhausted")
+            # WHY stamped here and not in `contract.py`: that layer decodes what the
+            # Engine sent, while this id is what the CLIENT minted (OME-967). Only the
+            # transport holds it, and the outcome is where a caller reads it back.
+            return _dataclass_replace(
+                self._run_reconnecting(lifecycle, minted, candidate, on_event, started, trace),
+                trace_id=trace.trace_id,
+            )
         except _ObserverRaised as exc:
             _copy_notes(exc, exc.original)
             raise exc.original
@@ -134,20 +150,133 @@ class Url4CloudTransport:
             with self._active_lock:
                 self._active_tokens.difference_update(minted)
 
-    def _remint_after_challenge(self, minted: list[str]) -> None:
+    def _run_reconnecting(
+        self,
+        lifecycle: _Lifecycle,
+        minted: list[str],
+        candidate: Candidate,
+        on_event: SyncEventCallback | None,
+        started: float,
+        trace: TraceContext,
+    ) -> _RunOutcome:
+        """Drive the Run across connection losses: BACKOFF and re-attach, bounded (spec §6 S3).
+
+        The FIRST connection attaches fresh and starts the Run; every later connection
+        resumes from the last accepted stream sequence with the SAME capability (valid for
+        the Run's whole life after OME-1018). A handshake 401/403 that is not an Access
+        challenge is FATAL — dead credentials, no probe on a single-engine fleet (D5). A
+        connect/OS/timeout failure backs off with full jitter; when the cumulative budget
+        is spent, everything this client owns is stopped and the Run surfaces as
+        `websocket_disconnected`.
+        """
+        budget_deadline = time.monotonic() + self._reconnect_budget_s
+        attempts = 0
+        run_started = False
+        while True:
+            try:
+                with sync_ws.connect(
+                    _websocket_url(self._engine_url, minted[-1]),
+                    subprotocols=[_SUBPROTOCOL],
+                    additional_headers={
+                        **self._caller_auth.websocket_headers(),
+                        **_trace_headers(trace),
+                    },
+                    open_timeout=30,
+                    close_timeout=10,
+                    max_size=_MAX_FRAME_BYTES,
+                    ssl=self._ssl,
+                ) as websocket:
+                    _require_subprotocol(websocket.subprotocol)
+                    if not run_started:
+                        websocket.send(lifecycle.initial_attach())
+                        _start_sync(self._http, minted[-1], candidate.url4, trace=trace)
+                        run_started = True
+                    else:
+                        websocket.send(lifecycle.resume_attach())
+                    outcome = self._run_connected(websocket, lifecycle, on_event)
+                # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
+                # By now the run is over and the WS is closed — a fetch failure here
+                # must surface as its own error, never trip the socket-scoped
+                # stop-on-interrupt arm into writing to a dead connection.
+                return _materialize_sync(self._http, outcome)
+            except InvalidStatus as exc:
+                self._on_handshake_rejection(exc, minted, run_started, trace)
+                attempts += 1
+                continue
+            except (WebSocketException, OSError, TimeoutError) as exc:
+                attempts = self._on_stream_failure(exc, attempts, budget_deadline, started)
+                continue
+
+    def _on_handshake_rejection(
+        self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
+    ) -> None:
+        """Classify a refused handshake: Access challenge remints; anything else is FATAL.
+
+        A non-Access 401/403 means dead credentials — retrying cannot help and no probe
+        is needed on a single-engine fleet (D5). If the Run already started, stop it
+        rather than orphan it (G3).
+        """
+        if _is_access_websocket_rejection(exc):
+            self._remint_after_challenge(minted, trace)
+            return
+        if run_started:
+            self._sweep_after_disconnect()
+        raise exc
+
+    def _on_stream_failure(
+        self,
+        exc: WebSocketException | OSError | TimeoutError,
+        attempts: int,
+        budget_deadline: float,
+        started: float,
+    ) -> int:
+        """Sleep the backoff delay, or raise the terminal disconnect error.
+
+        WHY the abort check first: the owner's sweep (`cancel_active`) has already
+        stopped every Run this client owns — reconnecting now is pointless and only
+        delays the abort the user already chose (the SIGINT lands on the main thread;
+        worker threads learn of it here).
+        """
+        if self._aborted or time.monotonic() >= budget_deadline:
+            if not self._aborted:
+                _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
+                self._sweep_after_disconnect()
+            raise _disconnected(exc, time.monotonic() - started) from exc
+        delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
+        _logger.warning(
+            "SF Engine connection lost; reconnecting in %.1fs (attempt %d)",
+            delay,
+            attempts + 1,
+        )
+        time.sleep(delay)
+        return attempts + 1
+
+    def _sweep_after_disconnect(self) -> None:
+        """Stop every Run this client owns after a reconnect gives up (G3, OME-1020).
+
+        Best-effort: a failed sweep must not mask the disconnect itself — the sweep's own
+        failure is logged, not raised.
+        """
+        try:
+            self.cancel_active()
+        except Exception as stop_error:  # noqa: BLE001 - see the WHY above
+            _logger.warning("Stopping active SF Engine runs also failed: %s", stop_error)
+
+    def _remint_after_challenge(self, minted: list[str], trace: TraceContext) -> None:
         """Refresh Access auth and mint a fresh capability after a WS challenge.
 
         WHY a NEW capability rather than the one in hand: its iat window is 60s and the
         re-login can take minutes — see the async twin's inline comment.
         """
         self._caller_auth.reauthenticate()
-        minted.append(_mint_sync(self._http))
+        minted.append(_mint_sync(self._http, trace=trace))
         with self._active_lock:
             self._active_tokens.add(minted[-1])
 
     def cancel_active(self) -> None:
         """Stop every run currently owned by this synchronous Client."""
 
+        self._aborted = True
         with self._active_lock:
             tokens = tuple(self._active_tokens)
         if not tokens:
@@ -169,14 +298,9 @@ class Url4CloudTransport:
         self,
         websocket: SyncConnection,
         lifecycle: _Lifecycle,
-        token: str,
-        candidate: Candidate,
         on_event: SyncEventCallback | None,
     ) -> _RunOutcome:
-        _require_subprotocol(websocket.subprotocol)
-        websocket.send(lifecycle.initial_attach())
         try:
-            _start_sync(self._http, token, candidate.url4)
             while True:
                 try:
                     frame = websocket.recv(timeout=_EVENT_RECEIVE_TIMEOUT_SECONDS)
@@ -214,18 +338,33 @@ class AsyncUrl4CloudTransport:
     That one is genuinely required, because a thread pool drives it.
     """
 
-    def __init__(self, engine_url: str, caller_auth: _TransportAuth | None = None) -> None:
+    def __init__(
+        self,
+        engine_url: str,
+        caller_auth: _TransportAuth | None = None,
+        *,
+        reconnect_budget_s: float = _RECONNECT_BUDGET_S,
+        reconnect_base_delay_s: float = _RECONNECT_BASE_DELAY_S,
+    ) -> None:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
         self._http = httpx.AsyncClient(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
         # INVARIANT: see the synchronous twin — one trust store for HTTP and WebSocket.
         self._ssl = _websocket_ssl_context(engine_url)
+        # Test-only seams; production callers leave the defaults (spec §6 S3).
+        self._reconnect_budget_s = reconnect_budget_s
+        self._reconnect_base_delay_s = reconnect_base_delay_s
+        # Set by `cancel_active`: once the OWNER has aborted, reconnecting is pointless —
+        # the sweep already stopped every Run this client owns. One loop per instance;
+        # plain bool, no lock (see the class INVARIANT above).
+        self._aborted = False
         self._active_tokens: set[str] = set()
 
     async def cancel_active(self) -> None:
         """Stop every Run currently owned by this asynchronous Client."""
 
+        self._aborted = True
         tokens = tuple(self._active_tokens)
         if not tokens:
             return
@@ -250,12 +389,20 @@ class AsyncUrl4CloudTransport:
         candidate: Candidate,
         on_event: AsyncEventCallback | None,
     ) -> _RunOutcome:
-        minted = [await _mint_async(self._http)]
+        # INVARIANT (OME-967): see the sync twin — the trace precedes the first call.
+        trace = new_trace_context()
+        minted = [await _mint_async(self._http, trace=trace)]
         self._active_tokens.add(minted[0])
         cancelled = False
         started = time.monotonic()
+        lifecycle = _Lifecycle(candidate)
         try:
-            return await self._connected_run(minted, candidate, on_event)
+            return _dataclass_replace(
+                await self._run_reconnecting(
+                    lifecycle, minted, candidate, on_event, started, trace
+                ),
+                trace_id=trace.trace_id,
+            )
         # WHY: a cancelled Run keeps its capability registered so the Evaluation's sweep can
         # still stop it. asyncio.gather cancels its children and only re-raises once they have
         # all unwound, so by the time the sweep runs every Run here has already finished its
@@ -275,59 +422,108 @@ class AsyncUrl4CloudTransport:
             if not cancelled:
                 self._active_tokens.difference_update(minted)
 
-    async def _connected_run(
+    async def _run_reconnecting(
         self,
+        lifecycle: _Lifecycle,
         minted: list[str],
         candidate: Candidate,
         on_event: AsyncEventCallback | None,
+        started: float,
+        trace: TraceContext,
     ) -> _RunOutcome:
-        lifecycle = _Lifecycle(candidate)
-        for attempt in range(2):
+        """Async twin of the sync reconnecting loop — see its docstring (spec §6 S3)."""
+        budget_deadline = time.monotonic() + self._reconnect_budget_s
+        attempts = 0
+        run_started = False
+        while True:
             try:
                 async with async_ws.connect(
                     _websocket_url(self._engine_url, minted[-1]),
                     subprotocols=[_SUBPROTOCOL],
-                    additional_headers=await self._caller_auth.websocket_headers_async(),
+                    additional_headers={
+                        **(await self._caller_auth.websocket_headers_async()),
+                        **_trace_headers(trace),
+                    },
                     open_timeout=30,
                     close_timeout=10,
                     max_size=_MAX_FRAME_BYTES,
                     ssl=self._ssl,
                 ) as websocket:
-                    outcome = await self._run_connected(
-                        websocket,
-                        lifecycle,
-                        minted[-1],
-                        candidate,
-                        on_event,
-                    )
+                    _require_subprotocol(websocket.subprotocol)
+                    if not run_started:
+                        await websocket.send(lifecycle.initial_attach())
+                        await _start_async(self._http, minted[-1], candidate.url4, trace=trace)
+                        run_started = True
+                    else:
+                        await websocket.send(lifecycle.resume_attach())
+                    outcome = await self._run_connected(websocket, lifecycle, on_event)
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
-                if attempt != 0 or not _is_access_websocket_rejection(exc):
-                    raise
-                await self._caller_auth.reauthenticate_async()
-                # WHY a NEW capability rather than the one already in hand: its iat window is
-                # 60s, and `reauthenticate` runs a Cloudflare Access browser login worth up to
-                # 300s. Retrying with the pre-challenge token therefore presents an expired
-                # capability, the Engine refuses the handshake with 1008, and the Run dies as
-                # `websocket_disconnected`. Minting is unauthenticated and per-Run, so
-                # replacing the token is cheaper than widening the window that protects it.
-                minted.append(await _mint_async(self._http))
-                self._active_tokens.add(minted[-1])
-        raise AssertionError("WebSocket authentication retry loop exhausted")
+                await self._on_handshake_rejection(exc, minted, run_started, trace)
+                attempts += 1
+                continue
+            except (WebSocketException, OSError, TimeoutError) as exc:
+                attempts = await self._on_stream_failure(exc, attempts, budget_deadline, started)
+                continue
+
+    async def _on_handshake_rejection(
+        self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
+    ) -> None:
+        """Async twin of the sync handshake classification — see its docstring (D5, G3)."""
+        if _is_access_websocket_rejection(exc):
+            await self._caller_auth.reauthenticate_async()
+            # WHY a NEW capability rather than the one already in hand: a
+            # re-authentication can take minutes, and the challenge may predate the
+            # last mint. Minting is unauthenticated and per-Run, so replacing the
+            # token is cheaper than widening any window.
+            minted.append(await _mint_async(self._http, trace=trace))
+            self._active_tokens.add(minted[-1])
+            return
+        if run_started:
+            await self._sweep_after_disconnect()
+        raise exc
+
+    async def _on_stream_failure(
+        self,
+        exc: WebSocketException | OSError | TimeoutError,
+        attempts: int,
+        budget_deadline: float,
+        started: float,
+    ) -> int:
+        """Async twin of the sync backoff/terminal decision — see its docstring."""
+        if self._aborted or time.monotonic() >= budget_deadline:
+            if not self._aborted:
+                _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
+                await self._sweep_after_disconnect()
+            raise _disconnected(exc, time.monotonic() - started) from exc
+        delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
+        _logger.warning(
+            "SF Engine connection lost; reconnecting in %.1fs (attempt %d)",
+            delay,
+            attempts + 1,
+        )
+        await asyncio.sleep(delay)
+        return attempts + 1
+
+    async def _sweep_after_disconnect(self) -> None:
+        """Stop every Run this client owns after a reconnect gives up (G3, OME-1020).
+
+        Best-effort: a failed sweep must not mask the disconnect itself — the sweep's own
+        failure is logged, not raised.
+        """
+        try:
+            await self.cancel_active()
+        except Exception as stop_error:  # noqa: BLE001 - see the WHY above
+            _logger.warning("Stopping active SF Engine runs also failed: %s", stop_error)
 
     async def _run_connected(
         self,
         websocket: AsyncClientConnection,
         lifecycle: _Lifecycle,
-        token: str,
-        candidate: Candidate,
         on_event: AsyncEventCallback | None,
     ) -> _RunOutcome:
-        _require_subprotocol(websocket.subprotocol)
-        await websocket.send(lifecycle.initial_attach())
         try:
-            await _start_async(self._http, token, candidate.url4)
             while True:
                 try:
                     frame = await asyncio.wait_for(
@@ -384,24 +580,34 @@ def _event_stream_timeout() -> ExecutionError:
     )
 
 
-def _mint_sync(http: httpx.Client) -> str:
+def _mint_sync(http: httpx.Client, *, trace: TraceContext | None = None) -> str:
+    # AIDEV-NOTE (OME-967): `trace` is keyword-with-default so the capability mint stays
+    # callable without one (artifact redemption, and a prior contract test). The RUN path
+    # always passes it — minting is the first outbound call, and a mint failure is one of
+    # the three pre-first-frame classes this ticket exists to make joinable.
     try:
-        response = http.post("/token", extensions={_REPLAY_SAFE: True})
+        response = http.post(
+            "/token", headers=_trace_headers(trace), extensions={_REPLAY_SAFE: True}
+        )
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
             "Could not reach the SF Engine capability endpoint",
             engine_url=_http_origin(http),
+            trace_id=trace.trace_id if trace else None,
         ) from exc
     return _token(response)
 
 
-async def _mint_async(http: httpx.AsyncClient) -> str:
+async def _mint_async(http: httpx.AsyncClient, *, trace: TraceContext | None = None) -> str:
     try:
-        response = await http.post("/token", extensions={_REPLAY_SAFE: True})
+        response = await http.post(
+            "/token", headers=_trace_headers(trace), extensions={_REPLAY_SAFE: True}
+        )
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
             "Could not reach the SF Engine capability endpoint",
             engine_url=_http_origin(http),
+            trace_id=trace.trace_id if trace else None,
         ) from exc
     return _token(response)
 
@@ -422,7 +628,9 @@ def _token(response: httpx.Response) -> str:
     return payload["token"].strip()
 
 
-def _start_sync(http: httpx.Client, token: str, url4: str) -> None:
+def _start_sync(
+    http: httpx.Client, token: str, url4: str, *, trace: TraceContext | None = None
+) -> None:
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
             time.sleep(delay)
@@ -430,16 +638,21 @@ def _start_sync(http: httpx.Client, token: str, url4: str) -> None:
             response = http.get(
                 "/",
                 params={"q": url4},
-                headers={"URL4-Capability": token, "Prefer": "respond-async"},
+                headers={
+                    "URL4-Capability": token,
+                    "Prefer": "respond-async",
+                    **_trace_headers(trace),
+                },
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
                 "Could not start the SF Engine Run",
                 engine_url=_http_origin(http),
+                trace_id=trace.trace_id if trace else None,
             ) from exc
         if not _attachment_is_still_registering(response):
             break
-    _accepted(response)
+    _accepted(response, trace_id=trace.trace_id if trace else None)
 
 
 def _stop_sync(http: httpx.Client, token: str) -> None:
@@ -487,7 +700,9 @@ def _require_stopped(response: httpx.Response) -> None:
     _require_success(response, "stop the Run")
 
 
-async def _start_async(http: httpx.AsyncClient, token: str, url4: str) -> None:
+async def _start_async(
+    http: httpx.AsyncClient, token: str, url4: str, *, trace: TraceContext | None = None
+) -> None:
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
             await asyncio.sleep(delay)
@@ -495,16 +710,21 @@ async def _start_async(http: httpx.AsyncClient, token: str, url4: str) -> None:
             response = await http.get(
                 "/",
                 params={"q": url4},
-                headers={"URL4-Capability": token, "Prefer": "respond-async"},
+                headers={
+                    "URL4-Capability": token,
+                    "Prefer": "respond-async",
+                    **_trace_headers(trace),
+                },
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
                 "Could not start the SF Engine Run",
                 engine_url=_http_origin(http),
+                trace_id=trace.trace_id if trace else None,
             ) from exc
         if not _attachment_is_still_registering(response):
             break
-    _accepted(response)
+    _accepted(response, trace_id=trace.trace_id if trace else None)
 
 
 def _attachment_is_still_registering(response: httpx.Response) -> bool:
@@ -519,13 +739,17 @@ def _attachment_is_still_registering(response: httpx.Response) -> bool:
     return isinstance(detail, str) and "attach a websocket" in detail.casefold()
 
 
-def _accepted(response: httpx.Response) -> None:
+def _accepted(response: httpx.Response, *, trace_id: str | None = None) -> None:
     if response.status_code != 202:
-        _raise_response(response, "start the Run")
+        _raise_response(response, "start the Run", trace_id=trace_id)
     if response.headers.get("Preference-Applied") != "respond-async":
-        raise ExecutionError("SF Engine did not acknowledge asynchronous execution")
+        raise ExecutionError(
+            "SF Engine did not acknowledge asynchronous execution", trace_id=trace_id
+        )
     if not response.headers.get("Location"):
-        raise ExecutionError("SF Engine asynchronous response is missing Location")
+        raise ExecutionError(
+            "SF Engine asynchronous response is missing Location", trace_id=trace_id
+        )
 
 
 _FETCH_ARTIFACT = "fetch the Run's result artifact"
@@ -665,12 +889,20 @@ async def _materialize_async(http: httpx.AsyncClient, outcome: _RunOutcome) -> _
     ) from last_error
 
 
-def _require_success(response: httpx.Response, operation: str) -> None:
+def _require_success(
+    response: httpx.Response, operation: str, *, trace_id: str | None = None
+) -> None:
     if not response.is_success:
-        _raise_response(response, operation)
+        _raise_response(response, operation, trace_id=trace_id)
 
 
-def _raise_response(response: httpx.Response, operation: str) -> None:
+def _raise_response(
+    response: httpx.Response, operation: str, *, trace_id: str | None = None
+) -> None:
+    # WHY the id reaches THIS function (OME-967): every response-derived failure funnels
+    # here — mint, start, stop, artifact. A pre-first-frame failure is far more often an
+    # Engine problem+json than an httpx transport error, so attaching the id only on the
+    # transport branch would miss the common case.
     code: str | None = None
     problem: object = None
     detail = response.text.strip() or f"HTTP {response.status_code}"
@@ -693,6 +925,7 @@ def _raise_response(response: httpx.Response, operation: str) -> None:
             status=response.status_code,
             permanent=True,
             details=problem if media_type == "application/problem+json" else None,
+            trace_id=trace_id,
         )
     raise ExecutionError(
         f"Could not {operation}: {detail}",
@@ -700,6 +933,7 @@ def _raise_response(response: httpx.Response, operation: str) -> None:
         status=response.status_code,
         permanent=response.status_code < 500,
         details=problem if media_type == "application/problem+json" else None,
+        trace_id=trace_id,
     )
 
 
@@ -737,6 +971,11 @@ def _websocket_url(engine_url: str, token: str) -> str:
     parts = urlsplit(engine_url)
     scheme = "wss" if parts.scheme == "https" else "ws"
     return urlunsplit((scheme, parts.netloc, "/ws", urlencode({"ticket": token}), ""))
+
+
+def _trace_headers(trace: TraceContext | None) -> dict[str, str]:
+    """The run's trace context as headers, or nothing when there is no trace to send."""
+    return trace.headers() if trace is not None else {}
 
 
 def _http_origin(http: httpx.Client | httpx.AsyncClient) -> str:

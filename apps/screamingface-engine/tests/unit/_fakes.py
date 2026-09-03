@@ -81,6 +81,19 @@ class _JetStreamEventStream(EventStream):
 
     async def publish(self, topic: str, event: OutboundFrame) -> None:
         await self._publisher.publish(topic, event)
+        # WHY flush here (OME-906): `JetStreamPublisher.publish` now DEFERS its
+        # acknowledgement, so it returns before the broker has confirmed the frame. The shared
+        # contract suite publishes and then reads, and it must mean the same thing for both
+        # parameters — `InMemoryEventStream.publish` is durable on return, so this composite
+        # makes itself durable on return too.
+        #
+        # AIDEV-NOTE: this deliberately DIVERGES from the Runner, which flushes once at the
+        # outcome boundary rather than per frame — that is the whole point of the pipeline. The
+        # contract suite asserts sequence, replay and purge semantics, not durability timing;
+        # the timing is covered by `test_jetstream_pipelining.py`. Do not "fix" this to match
+        # production, and do not add a flush to the contract suite instead: that would make
+        # every adapter's contract depend on a barrier only one of them needs.
+        await self._publisher.flush()
 
     def subscribe(
         self, topic: str, from_sequence: int | None = None

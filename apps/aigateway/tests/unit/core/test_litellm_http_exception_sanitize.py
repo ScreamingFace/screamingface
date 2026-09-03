@@ -48,7 +48,7 @@ def _detail(out: HTTPException) -> dict[str, Any]:
     [
         (400, "bad_request"),
         (401, "auth_required"),
-        (402, "provider_error"),
+        (402, "insufficient_credits"),
         (429, "rate_limited"),
         (500, "provider_unavailable"),
         (503, "provider_unavailable"),
@@ -65,6 +65,21 @@ def test_recognized_status_maps_to_code_without_leaking_raw_text(
     # Gateway-authored message only — the raw provider text must never surface.
     assert _SECRET not in detail["message"]
     assert str(detail["message"])  # a non-empty, human-readable message exists
+
+
+def test_402_surfaces_a_dedicated_insufficient_credits_message() -> None:
+    """OME-927: a 402 (out-of-credits) must not read as a generic provider fault.
+
+    FEATURE: insufficient-credits surfacing. Distinct from the parametrized
+    code-mapping check above — this pins the exact client-facing wording so the
+    UI text itself is covered, not merely the machine ``code``.
+    """
+    out = _litellm_http_exception(_FakeLLMError(402, _SECRET))
+    detail = _detail(out)
+    assert out.status_code == 402
+    assert detail["code"] == "insufficient_credits"
+    assert detail["message"] == "The upstream provider reported insufficient credits."
+    assert _SECRET not in detail["message"]
 
 
 def test_malformed_string_status_degrades_to_502_never_raises() -> None:

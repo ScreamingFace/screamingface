@@ -1,45 +1,35 @@
 """SFDS widget styling for public Leaderboard notebook surfaces."""
 
-from screamingface._ui.style import FUSION_GRADIENT_FLOW
+from screamingface._ui.style import FUSION_GRADIENT_FLOW, _theme_rules
+
+_LIGHT = (
+    "--sf-lb-bg:#fcfdff;--sf-lb-surface:#f4f6f9;--sf-lb-surface-2:#eceef0;"
+    "--sf-lb-ink:#3b3c3e;--sf-lb-ink-2:#828386;--sf-lb-ink-3:#b4b6b8;"
+    "--sf-lb-line:#cdcfd2;--sf-lb-line-2:#b4b6b8;"
+    "--sf-lb-accent:#4b91f0;--sf-lb-accent-hover:#4185de;"
+    "--sf-lb-accent-text:#4e85ca;--sf-lb-accent-contrast:#fff"
+)
+_DARK = (
+    "--sf-lb-bg:#05070b;--sf-lb-surface:#0c0f13;--sf-lb-surface-2:#15181c;"
+    "--sf-lb-ink:#e0e5eb;--sf-lb-ink-2:#aeb2b8;--sf-lb-ink-3:#585c61;"
+    "--sf-lb-line:#35383d;--sf-lb-line-2:#585c61;"
+    "--sf-lb-accent:#5a93e0;--sf-lb-accent-hover:#68a0e9;"
+    "--sf-lb-accent-text:#87b4f0;--sf-lb-accent-contrast:#fff"
+)
 
 # This surface follows the product register in screamingface-brand:
 # product-demos/widgets-view/widgets.css and components/style.css. Tokens are
 # repeated here so rich notebook output is self-contained and theme-aware.
-LEADERBOARD_STYLE = """<style>
+LEADERBOARD_STYLE = (
+    """<style>
 .sf-lb{
-  --sf-lb-bg:#fcfdff;--sf-lb-surface:#f4f6f9;--sf-lb-surface-2:#eceef0;
-  --sf-lb-ink:#3b3c3e;--sf-lb-ink-2:#828386;--sf-lb-ink-3:#b4b6b8;
-  --sf-lb-line:#cdcfd2;--sf-lb-line-2:#b4b6b8;
-  --sf-lb-accent:#4b91f0;--sf-lb-accent-hover:#4185de;
-  --sf-lb-accent-text:#4e85ca;--sf-lb-accent-contrast:#fff;
+  __LIGHT__;
   --sf-lb-fusion:__FUSION__;
   max-width:920px;color:var(--sf-lb-ink);background:var(--sf-lb-bg);
   font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   font-size:13px;line-height:1.38;
 }
-@media(prefers-color-scheme:dark){.sf-lb{
-  --sf-lb-bg:#05070b;--sf-lb-surface:#0c0f13;--sf-lb-surface-2:#15181c;
-  --sf-lb-ink:#e0e5eb;--sf-lb-ink-2:#aeb2b8;--sf-lb-ink-3:#585c61;
-  --sf-lb-line:#35383d;--sf-lb-line-2:#585c61;
-  --sf-lb-accent:#5a93e0;--sf-lb-accent-hover:#68a0e9;
-  --sf-lb-accent-text:#87b4f0;--sf-lb-accent-contrast:#fff;
-}}
-.jp-mod-theme-dark .sf-lb,[data-jp-theme-light="false"] .sf-lb,
-.vscode-dark .sf-lb,.vscode-high-contrast .sf-lb{
-  --sf-lb-bg:#05070b;--sf-lb-surface:#0c0f13;--sf-lb-surface-2:#15181c;
-  --sf-lb-ink:#e0e5eb;--sf-lb-ink-2:#aeb2b8;--sf-lb-ink-3:#585c61;
-  --sf-lb-line:#35383d;--sf-lb-line-2:#585c61;
-  --sf-lb-accent:#5a93e0;--sf-lb-accent-hover:#68a0e9;
-  --sf-lb-accent-text:#87b4f0;--sf-lb-accent-contrast:#fff;
-}
-.jp-mod-theme-light .sf-lb,[data-jp-theme-light="true"] .sf-lb,
-.vscode-light .sf-lb{
-  --sf-lb-bg:#fcfdff;--sf-lb-surface:#f4f6f9;--sf-lb-surface-2:#eceef0;
-  --sf-lb-ink:#3b3c3e;--sf-lb-ink-2:#828386;--sf-lb-ink-3:#b4b6b8;
-  --sf-lb-line:#cdcfd2;--sf-lb-line-2:#b4b6b8;
-  --sf-lb-accent:#4b91f0;--sf-lb-accent-hover:#4185de;
-  --sf-lb-accent-text:#4e85ca;--sf-lb-accent-contrast:#fff;
-}
+__THEME_RULES__
 .sf-lb,.sf-lb *{box-sizing:border-box}
 .sf-lb__head{display:flex;flex-direction:column;align-items:flex-start;gap:4px;
   margin-bottom:16px}
@@ -140,6 +130,9 @@ LEADERBOARD_STYLE = """<style>
   .sf-lb__controls{flex-wrap:wrap}.sf-lb__checkbox{margin-left:0}
   .sf-lb-list__row{grid-template-columns:1fr}.sf-lb-list__meta{justify-content:flex-start}
 }
-</style>""".replace("__FUSION__", FUSION_GRADIENT_FLOW)
+</style>""".replace("__LIGHT__", _LIGHT)
+    .replace("__THEME_RULES__", _theme_rules(".sf-lb", _LIGHT, _DARK))
+    .replace("__FUSION__", FUSION_GRADIENT_FLOW)
+)
 
 __all__: list[str] = []

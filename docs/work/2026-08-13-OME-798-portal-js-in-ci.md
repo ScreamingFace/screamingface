@@ -99,7 +99,7 @@ assertions. Verified by observation, not by reading YAML:
 4. **`#516` edits the same workflow file** and is awaiting review. Distinct steps, so a trivial
    merge; whichever lands second rebases.
 5. No PR was open at the time of writing this section. Superseded: `11b7c95d` and `d93a3c39`
-   are open as [#595](https://github.com/OpenMined/screamingface/pull/595), CI green,
+   are open as [#595](https://github.com/ScreamingFace/screamingface/pull/595), CI green,
    awaiting review.
 
 ## Review pass (2026-08-14) — four findings, all valid

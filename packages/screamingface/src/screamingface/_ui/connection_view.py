@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from html import escape
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, assert_never
 
 from screamingface._ui.connection_state import _ConnectionPanelState
 from screamingface._ui.engine_origin import _is_screamingface_engine
 from screamingface._ui.provider_icons import provider_icon_html
-from screamingface._ui.style import STYLE
+from screamingface._ui.style import STYLE, _theme_rules
 
 if TYPE_CHECKING:
     from screamingface.connections import Connection
@@ -26,8 +27,6 @@ class _PanelController(Protocol):
     def close(self) -> None: ...
 
     def _attempt(self, action: Any) -> None: ...
-
-    def _cancel_access_login(self) -> None: ...
 
     def _cancel_flow(self, provider: str) -> None: ...
 
@@ -84,22 +83,19 @@ _STYLE = (
 .sf-tile-icon--logo{width:auto;height:auto;background:none;border:0}
 .sf-tile-icon--logo svg{display:block;width:1.35em;height:1.35em}
 .sf-tile-icon--logo .sf-icon-dark{display:none}
-@media(prefers-color-scheme:dark){.sf-tile-icon--logo .sf-icon-light{display:none}
-  .sf-tile-icon--logo .sf-icon-dark{display:block}}
-.jp-mod-theme-dark .sf-tile-icon--logo .sf-icon-light,
-[data-jp-theme-light="false"] .sf-tile-icon--logo .sf-icon-light,
-.vscode-dark .sf-tile-icon--logo .sf-icon-light,
-.vscode-high-contrast .sf-tile-icon--logo .sf-icon-light{display:none}
-.jp-mod-theme-dark .sf-tile-icon--logo .sf-icon-dark,
-[data-jp-theme-light="false"] .sf-tile-icon--logo .sf-icon-dark,
-.vscode-dark .sf-tile-icon--logo .sf-icon-dark,
-.vscode-high-contrast .sf-tile-icon--logo .sf-icon-dark{display:block}
-.jp-mod-theme-light .sf-tile-icon--logo .sf-icon-light,
-[data-jp-theme-light="true"] .sf-tile-icon--logo .sf-icon-light,
-.vscode-light .sf-tile-icon--logo .sf-icon-light{display:block}
-.jp-mod-theme-light .sf-tile-icon--logo .sf-icon-dark,
-[data-jp-theme-light="true"] .sf-tile-icon--logo .sf-icon-dark,
-.vscode-light .sf-tile-icon--logo .sf-icon-dark{display:none}
+"""
+    + _theme_rules(
+        ".sf-tile-icon--logo .sf-icon-light",
+        "display:block",
+        "display:none",
+    )
+    + "\n"
+    + _theme_rules(
+        ".sf-tile-icon--logo .sf-icon-dark",
+        "display:none",
+        "display:block",
+    )
+    + """
 .sf-connections__provider{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;min-width:0}
 .sf-connections__status{display:inline-flex;align-items:center;gap:8px;font-size:14px;
@@ -112,7 +108,8 @@ _STYLE = (
   background:var(--sf-blind)}
 /* an inactive row recedes (the whole label dims) while a live one stays full ink — state
    reads from weight+square, never from hue alone, so a colour-blind reader still gets it */
-.sf-connections__status.not_connected,.sf-connections__status.login_required{
+.sf-connections__status.not_connected,.sf-connections__status.unavailable,
+.sf-connections__status.login_required{
   color:var(--sf-ink-3)}
 .sf-connections__source{font-size:14px;color:var(--sf-ink-3);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
@@ -243,10 +240,15 @@ class _NotebookConnectionView:
             button = self._button("Checking…", "Checking whether this Engine requires Access")
             button.disabled = True
         elif status == "waiting":
-            button = self._button("Cancel", "Cancel the Cloudflare Access login")
-            button.on_click(
-                lambda _: self._controller._attempt(self._controller._cancel_access_login)
-            )
+            # AIDEV-NOTE: no Cancel here, deliberately. Login blocks the click handler, so a
+            # queued Cancel click cannot run until the wait is already over — a control that
+            # looks live and does nothing is worse than none. The notebook stop button is the
+            # escape, and it leaves a clean row. Re-adding it means restoring the controller's
+            # _cancel_access_login too, and making the wait pump the kernel so a click can
+            # actually be delivered mid-login.
+            authorization_url = self._state.access_authorization_url
+            controls = [self._authorization_link(authorization_url)] if authorization_url else []
+            return self._row(meta, controls)
         elif status == "authenticated":
             button = self._button("Log out", "Log out of this Client and Cloudflare Access")
             button.on_click(lambda _: self._controller._attempt(self._controller._logout_access))
@@ -258,6 +260,29 @@ class _NotebookConnectionView:
             )
             button.on_click(lambda _: self._controller._start_login_access())
         return self._row(meta, [button])
+
+    def _authorization_link(self, authorization_url: str) -> Any:
+        """The Access authorization URL as a single link.
+
+        WHY a link at all: nothing running in the kernel can open a tab on the user's
+        machine — a hosted notebook executes in a datacenter, so `webbrowser.open` would
+        open a browser there. An anchor rendered in the user's own browser is the only
+        channel that reaches them (OME-930).
+
+        WHY the URL is not also shown as text: it is hundreds of characters of Cloudflare
+        token, and it collided with the provider and status columns. It existed as a
+        fallback against a blocked popup, and clicking the anchor is confirmed working
+        inside Colab's sandboxed output iframe, so the link alone is the affordance.
+        """
+
+        href = escape(authorization_url, quote=True)
+        return self._widgets.HTML(
+            value=(
+                "<a class='sf-connections__authorize' "
+                f"href='{href}' target='_blank' rel='noopener noreferrer' "
+                "title='Complete Cloudflare Access login in a new tab'>Authorize</a>"
+            )
+        )
 
     def _interactive_row(self, connection: Connection):
         widgets = self._widgets
@@ -407,30 +432,45 @@ def _source_html(text: str | None) -> str:
     return f"<span class='sf-connections__source'>{escape(text) if text else '—'}</span>"
 
 
+@dataclass(frozen=True, slots=True)
+class _ProviderPresentation:
+    status_class: str
+    status_label: str
+    source: str | None
+
+
 def _provider_presentation(
     connection: Connection,
     *,
     provider_mutations_enabled: bool,
-) -> tuple[str, str | None]:
-    status = _provider_status(
-        connection,
-        provider_mutations_enabled=provider_mutations_enabled,
-    )
+) -> _ProviderPresentation:
     if provider_mutations_enabled:
-        return status, connection.account_label
-    # On a hosted Engine the connection rows are caller-scoped BYOK state, not the
-    # operator-managed credentials used for execution. Every provider the hosted Engine
-    # advertises is therefore presented as managed availability; its caller status must not
-    # make a deployment credential look unavailable.
-    return status, "Available via ScreamingFace"
+        return _ProviderPresentation(
+            status_class=connection.status,
+            status_label=_status_label(connection.status),
+            source=connection.account_label,
+        )
 
-
-def _provider_status(connection: Connection, *, provider_mutations_enabled: bool) -> str:
-    return connection.status if provider_mutations_enabled else "connected"
+    # INVARIANT: hosted callers see only availability they can act on. Profile lifecycle states
+    # belong to the operator, so they must not leak into the caller-facing label or styling.
+    match connection.status:
+        case "connected":
+            return _ProviderPresentation(
+                status_class="connected",
+                status_label="Connected",
+                source="Available via ScreamingFace",
+            )
+        case "not_connected" | "pending" | "needs_reauth" | "error":
+            return _ProviderPresentation(
+                status_class="unavailable",
+                status_label="Unavailable",
+                source=None,
+            )
+    assert_never(connection.status)
 
 
 def _meta_html(connection: Connection, *, provider_mutations_enabled: bool) -> str:
-    status, source = _provider_presentation(
+    presentation = _provider_presentation(
         connection,
         provider_mutations_enabled=provider_mutations_enabled,
     )
@@ -440,8 +480,8 @@ def _meta_html(connection: Connection, *, provider_mutations_enabled: bool) -> s
         f"{_icon_html(connection.provider, connection.display_name)}"
         f"<span class='sf-connections__provider'>{escape(connection.display_name)}</span>"
         "</span>"
-        f"{_status_html(status)}"
-        f"{_source_html(source)}</div>"
+        f"{_status_html(presentation.status_class, label=presentation.status_label)}"
+        f"{_source_html(presentation.source)}</div>"
     )
 
 
@@ -480,16 +520,16 @@ def _access_meta_html(status: str, engine_url: str) -> str:
 
 
 def _status_label(status: str) -> str:
-    """Live states are capitalised; an inactive state stays lowercase and recedes."""
+    """Capitalise decisive states; transitional and diagnostic states stay quiet."""
 
     words = status.replace("_", " ")
     return words.capitalize() if status in {"connected", "authenticated"} else words
 
 
-def _status_html(status: str) -> str:
+def _status_html(status: str, *, label: str | None = None) -> str:
     return (
         f"<div class='sf-connections__status {status}'><i class='sq'></i>"
-        f"{escape(_status_label(status))}</div>"
+        f"{escape(_status_label(status) if label is None else label)}</div>"
     )
 
 

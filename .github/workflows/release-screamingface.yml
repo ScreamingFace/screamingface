@@ -6,10 +6,17 @@ name: Release screamingface
 # Auth is PyPI Trusted Publishing (OIDC) — no stored token. Before the first real
 # publish an owner must, one time:
 #   1. reserve the `screamingface` project on PyPI and add a Trusted Publisher →
-#      owner/repo: OpenMined/screamingface, workflow: release-screamingface.yml,
+#      owner/repo: ScreamingFace/screamingface, workflow: release-screamingface.yml,
 #      environment: pypi
 #   2. create the `pypi` GitHub Environment (optionally with required reviewers)
 # Until then verify+build still run (packaging is validated); only publish fails.
+#
+# AIDEV-NOTE (OME-910): the repo moved from the OpenMined org to ScreamingFace. PyPI Trusted
+# Publishing matches the OIDC `repository` claim as an EXACT string and does NOT follow
+# GitHub's org redirect, so an existing publisher entry registered against
+# `OpenMined/screamingface` no longer matches and publish fails with an OIDC mismatch while
+# verify+build stay green. The owner/repo above is the value to set; correcting this comment
+# does not repoint PyPI. Verify the entry in the PyPI console before trusting a release.
 #
 # AIDEV-NOTE: the name `screamingface` is NOT yet reserved on PyPI. Reserve it before
 # announcing the package, or the first tag will build cleanly and fail at the publish step.

@@ -6,8 +6,9 @@ ScreamingFace is a toolkit for composing **fusions**, several models answering t
 reduced to a single answer, and scoring them against real benchmarks. Concretely, it is three pieces:
 
 - **An open protocol, `url4`.** Every fusion and its benchmark run compile to one short,
-  human-readable line. Sharing a result is sharing that string, and `sf.from_url4(...)` reproduces
-  the exact run in a single call. **A result is only worth as much as your ability to rerun it.**
+  human-readable line. Sharing a result is sharing that string: `sf.evaluate(url4_string)` replays
+  the exact run, and `sf.Url4(url4_string).to_python()` hands you the same recipe as Python source
+  you can edit. **A result is only worth as much as your ability to rerun it.**
 - **A shared cache.** Every model call is cached and shared across the community, so reproducing a
   run is both **faithful and nearly free**. Verifying someone's work costs minutes, not budgets, and
   the more people run, the cheaper it gets for everyone.
@@ -39,7 +40,7 @@ be rerun and picked apart.
   difference, so the next person starts where the last one finished.
 - **Shared cache, and subsidized compute.** Model calls are cached and shared across the
   community, and we sponsor compute for researchers on a discretionary basis. A BYOK path is also
-  available, and we are happy to extend the providers we support — just open an issue.
+  available, and we are happy to extend the providers we support — just [open an issue](https://github.com/ScreamingFace/screamingface/issues).
 
 And it only really works as a community: no one team can measure every model, on every benchmark,
 across every domain. **We are looking for talented people to join this early community and help
@@ -50,8 +51,11 @@ Right now this is single-turn evaluation. No multi-turn or tool-using agent loop
 ## Quickstart
 
 ```bash
-pip install "screamingface[notebook]"   # once it is on PyPI; until then, install from source (see the docs)
+pip install "screamingface[notebook]"
 ```
+
+> To run your own engine locally, add the `[runtime]` extra:
+> `pip install "screamingface[runtime]"`
 
 ```python
 import screamingface as sf
@@ -60,7 +64,7 @@ sf.configure(engine_url="http://127.0.0.1:9108")   # your own engine, or a hoste
 
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 flash = sf.Model("openrouter/google/gemini-3-flash-preview")
-fusion = sf.Fusion([gpt, flash])
+fusion = sf.Fusion([gpt, flash], synthesizer="openrouter/openai/gpt-5.5")
 
 # score the solo model beside the fusion, on the same cases
 report = sf.evaluate([gpt, fusion], benchmark="ifeval", limit=3)
@@ -106,7 +110,7 @@ docs/             SDLC artifacts: spec/ plan/ tasks/ work/ diagrams/ (see docs/R
 ## Working in this repo
 
 ```bash
-git clone https://github.com/OpenMined/screamingface.git
+git clone https://github.com/ScreamingFace/screamingface.git
 cd screamingface
 git config core.hooksPath .githooks     # pre-commit guard (blocks commits to main)
 ```

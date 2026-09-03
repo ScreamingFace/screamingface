@@ -132,6 +132,8 @@ What the App schedules:
   at `/tmp` (required by `readOnlyRootFilesystem`)
 - `resources` from `runner.resources` — without them the Runner schedules **BestEffort**: placed
   blind, evicted first, free to OOM the node it shares
+- `nodeSelector` and `tolerations` from the chart's top-level placement values — the Runner and
+  Engine Deployment therefore use the same operator-owned node pool and taint policy
 - `ttlSecondsAfterFinished` — see the invariant below
 
 > **INVARIANT — the TTL floor.** The Job's deterministic *name* is the stateless single-use replay
@@ -167,6 +169,79 @@ Job controller. Past roughly tens of requests per second the replay guard would 
 the Job name onto a cheap keyed store (e.g. a NATS KV of spent `jti`s), trading the App's
 statelessness for throughput.
 
+## Artifact storage (OME-929)
+
+A Run whose serialized result exceeds the inline cap (1 MiB) is parked under its content address,
+and the terminal frame carries only a claim ticket the client redeems over `GET /artifacts/{id}`.
+
+**With `config.runner: k8s` this store cannot be a local directory.** Each run is a separate Job
+pod whose disk is destroyed with it, so a result spilled there can never be served back: the run
+succeeds, and then the client's redemption 404s — after every model call has been paid for. A full
+DRACO 3-pass run is 11,902 calls and a ~3 MiB result, so it spills every time. The App therefore
+**refuses to start** when `runner: k8s` is paired with `artifactStorage.backend: filesystem`.
+
+```yaml
+artifactStorage:
+  backend: s3
+garage:
+  enabled: true
+```
+
+That is the whole configuration. No credentials to invent, no bucket to create, no commands to
+run: the chart generates a stable key pair (reused across upgrades via `lookup`) and Garage
+**adopts** it on first boot via its `--single-node`, `--default-access-key` and `--default-bucket`
+server flags (Garage ≥ 2.3.0).
+
+Set `artifactStorage.s3.accessKey` / `.secretKey`, or `existingSecret`, only to use credentials
+you already have — e.g. when pointing at storage you already run.
+
+Both halves are rendered from this one stanza — the Runner's copy in `configmap-runner-env.yaml`
+and the App's in `configmap.yaml` — so a one-sided edit cannot point the writer and the reader at
+different stores. That was the original defect: both read one variable that nothing set, and each
+fell back to its own pod-local `/tmp`.
+
+The read path goes **through the App**, not via a presigned URL, so the object store stays
+cluster-internal and the SDK's existing size + sha256 verification is unchanged.
+
+### Why there is no bootstrap Job
+
+The obvious alternative — a `post-install` hook running `garage key create` — was rejected. It
+makes Garage **mint** the credential, which the chart then has to discover and write back into a
+Secret: that needs `create secrets` RBAC and turns a declarative chart into a two-phase one where
+`helm template` no longer describes the result. Adopting a chart-stated key keeps the data flowing
+one way.
+
+Scripted layout is worse still. Garage's
+[layout operations guide](https://garagehq.deuxfleurs.fr/documentation/operations/layout/) warns
+that repeating `layout apply --version N` can leave a cluster **inconsistent**, and that the
+version must be exactly one past the current one — precisely what a hook re-running on every
+`helm upgrade` gets wrong. `--single-node` removes the operation rather than automating it.
+
+### Credential rotation
+
+The key pair is reused across upgrades on purpose: Garage adopts a default key only on **first
+boot**, so minting a new pair later would leave the engine signing with credentials the store has
+never seen — a 403 on every artifact, which reads like a code bug. To rotate deliberately, add the
+new key to Garage (`garage key create` / `bucket allow`) and then set
+`artifactStorage.s3.accessKey` / `.secretKey` to it.
+
+### Expiry
+
+Objects expire by **bucket lifecycle rule**, not by the App's sweeper — which is a no-op in `s3`
+mode, because listing objects would need query-string signing beyond what the adapter's signer
+supports. **A bucket with no lifecycle rule never expires artifacts.**
+
+### Using storage you already run
+
+Set `artifactStorage.s3.endpointUrl` (plus `accessKey`/`secretKey` or `existingSecret`) and leave
+`garage.enabled` off. Only single-part PUT, streaming GET, HEAD and DELETE of one object are used.
+
+**Caveat — path-style addressing.** The adapter addresses objects as `{endpoint}/{bucket}/{key}`.
+That works with Garage, MinIO, SeaweedFS, Ceph RGW and Cloudflare R2. AWS S3 proper has deprecated
+path-style in favour of virtual-hosted-style (`bucket.s3.region.amazonaws.com`), so pointing this
+at real AWS S3 may fail — and it fails as a signing/404 error that looks like a credential
+problem. Azure Blob is **not** S3-compatible at all and would need a new adapter behind the port.
+
 ## Workload hardening
 
 Both workloads — the same image, entered in its two modes — run non-root (uid 1000, the image's
@@ -197,7 +272,7 @@ There is exactly one container image, and it should carry the OCI
 ```dockerfile
 LABEL org.opencontainers.image.title="screamingface-engine" \
       org.opencontainers.image.description="ScreamingFace screamingface-engine control plane + runner" \
-      org.opencontainers.image.source="https://github.com/openmined/screamingface" \
+      org.opencontainers.image.source="https://github.com/ScreamingFace/screamingface" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="0.1.0" \
       org.opencontainers.image.vendor="OpenMined"

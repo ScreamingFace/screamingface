@@ -182,8 +182,13 @@ class TestSharedHandlerLifecycle:
         with TestClient(app, client=("10.1.2.3", 50000)):
             handler = app.state.usage_accounting_handler
             assert handler is not None
-            assert handler.client.is_closed is False
-        assert handler.client.is_closed is True, "lifespan shutdown left the pool open"
+            # AIDEV-NOTE (OME-918): bind the client ONCE — see the note in
+            # test_handler.py::TestLifecycle. Since litellm 1.97 ``client`` is a
+            # self-healing property, so re-reading it after shutdown would resurrect an
+            # open pool and mask the leak this assertion exists to catch.
+            client = handler.client
+            assert client.is_closed is False
+        assert client.is_closed is True, "lifespan shutdown left the pool open"
         # Cleared too, so a post-shutdown request cannot hand a closed pool to litellm.
         assert app.state.usage_accounting_handler is None
 

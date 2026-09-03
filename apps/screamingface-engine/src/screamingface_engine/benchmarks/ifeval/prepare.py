@@ -48,10 +48,17 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.ifeval.definition import CASE_COUNT, DATASET, DATASET_REVISION
+from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
+from screamingface_engine.benchmarks.ifeval.definition import (
+    ASSET_BUNDLE_ID,
+    CASE_COUNT,
+    DATASET,
+    DATASET_REVISION,
+)
+from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 
 
-class PrepareError(RuntimeError):
+class PrepareError(BenchmarkAssetPreparationError):
     """The dataset could not be turned into a declared world."""
 
 
@@ -222,19 +229,33 @@ def prepare_nltk(out: Path) -> dict[str, Any]:
     return {"nltk_data": str(target)}
 
 
+def _prepare(out: Path, limit: int | None) -> dict[str, Any]:
+    summary = build(
+        load_rows(limit),
+        out,
+        expected_count=CASE_COUNT if limit is None else limit,
+    )
+    return summary | prepare_nltk(out)
+
+
+def prepare(out: Path) -> dict[str, Any]:
+    """Prepare the complete deployable IFEval asset bundle, including NLTK data."""
+
+    return _prepare(out, None)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ifeval-prepare", description=__doc__)
-    parser.add_argument("--out", type=Path, default=Path("/opt/benchmarks/ifeval"))
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_BENCHMARK_ASSETS_ROOT / ASSET_BUNDLE_ID,
+    )
     parser.add_argument("--limit", type=int, default=None, help="cap the case count (probes)")
     args = parser.parse_args(argv)
 
     try:
-        summary = build(
-            load_rows(args.limit),
-            args.out,
-            expected_count=CASE_COUNT if args.limit is None else args.limit,
-        )
-        summary |= prepare_nltk(args.out)
+        summary = _prepare(args.out, args.limit)
     except PrepareError as exc:
         print(f"prepare failed: {exc}", file=sys.stderr)
         return 1

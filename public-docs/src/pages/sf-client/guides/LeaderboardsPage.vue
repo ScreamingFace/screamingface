@@ -183,7 +183,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     <p>
       Without configuration, leaderboard calls use the default hosted ScreamingFace Leaderboard.
       Local development usually points both the engine and the leaderboard at the stack
-      <code>just stack-up</code> starts:
+      <code>screamingface up</code> starts:
     </p>
 
     <div class="not-prose">
@@ -273,7 +273,7 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
       </li>
       <li>
         <a
-          href="https://github.com/OpenMined/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
           >Companion notebook: <code>00_quickstart.ipynb</code></a

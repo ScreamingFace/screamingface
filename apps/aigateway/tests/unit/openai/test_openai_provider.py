@@ -79,7 +79,7 @@ def test_settings_reject_unsafe_or_unbounded_model_tokens(model: str) -> None:
         OpenAIPluginSettings(default_models=[model], validation_model=model)
 
 
-def test_settings_require_nonempty_unique_seed_and_registered_validation_model() -> None:
+def test_settings_require_a_nonempty_unique_seed_and_a_route_valid_validation_model() -> None:
     with pytest.raises(ValidationError):
         OpenAIPluginSettings(default_models=[])
     with pytest.raises(ValidationError):
@@ -87,10 +87,21 @@ def test_settings_require_nonempty_unique_seed_and_registered_validation_model()
             default_models=["openai/gpt-5", "openai/gpt-5"],
             validation_model="openai/gpt-5",
         )
+    # OME-884 (authorized contract change): the readiness probe model must be ROUTE
+    # VALID, and no longer has to appear in the bootstrap catalog. Membership used to be
+    # required here, which let an operator who unpublished a model silently break
+    # API-key validation for every profile. Syntax is still mandatory — a malformed id
+    # could never reach OpenAI at all.
+    unpublished = OpenAIPluginSettings(
+        default_models=["openai/gpt-5"],
+        validation_model="openai/gpt-5-nano",
+    )
+    assert unpublished.validation_model == "openai/gpt-5-nano"
+    assert unpublished.validation_model not in unpublished.default_models
     with pytest.raises(ValidationError):
         OpenAIPluginSettings(
             default_models=["openai/gpt-5"],
-            validation_model="openai/gpt-5-nano",
+            validation_model="openai/gpt 5",
         )
 
 
@@ -103,7 +114,11 @@ def test_max_tokens_is_the_only_enabled_parameter() -> None:
     assert rule.provider_target is None
     assert rule.parameter_schema == MAX_TOKENS_SCHEMA
     assert rule.applicable_auth_modes == ("api_key",)
-    assert rule.cache_behavior == "bypass"
+    # OME-884 (authorized contract change): promoted from ``bypass``. It could not be
+    # keyed under OME-864 — a keyed rule on a provider with no ``global_cache_projection``
+    # is unobservable, because the missing projection bypasses the request whatever its
+    # rules declare — so the promotion landed in the same increment as the projection.
+    assert rule.cache_behavior == "keyed"
 
 
 def test_max_tokens_has_locked_runtime_evidence() -> None:
@@ -116,11 +131,22 @@ def test_max_tokens_has_locked_runtime_evidence() -> None:
     ]
 
 
-def test_provider_bypasses_global_cache_and_contributes_no_accounting_strategy() -> None:
+def test_provider_projects_for_the_global_cache_and_contributes_no_accounting_strategy() -> None:
+    # OME-884 (authorized contract change): OME-864 shipped the base class's safe
+    # inherited ``CacheBypass``, so no direct OpenAI request was ever cacheable. The
+    # provider now describes its own output-affecting preparation instead — the full
+    # contract lives in ``test_openai_global_cache_projection``. Accounting is still
+    # unsupported: caching a response and accounting for one are unrelated capabilities.
+    projected = PLUGIN.global_cache_projection(
+        {"model": "openai/gpt-5.6-sol", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert isinstance(projected, dict)
+    assert set(projected) == {"resolved_model", "provider_adapter_revision", "prepared"}
+    assert projected["resolved_model"] == "gpt-5.6-sol"
+    # A malformed id is still refused, and still as a BYPASS rather than a raise.
     assert isinstance(
-        PLUGIN.global_cache_projection(
-            {"model": "openai/gpt-5.6-sol", "messages": [{"role": "user", "content": "hi"}]}
-        ),
+        PLUGIN.global_cache_projection({"model": "openai/gpt 5", "messages": []}),
         CacheBypass,
     )
     assert not hasattr(PLUGIN, "usage_accounting_strategy")

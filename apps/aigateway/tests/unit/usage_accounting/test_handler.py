@@ -671,10 +671,17 @@ class TestLifecycle:
     async def test_close_closes_the_underlying_client(self, transport_spy: dict[str, Any]) -> None:
         # §9.12 — the app-lifetime handler must be closed in lifespan shutdown, not left
         # to __del__.
+        #
+        # AIDEV-NOTE (OME-918): bind the client ONCE and assert on that object. Since
+        # litellm 1.97 ``AsyncHTTPHandler.client`` is a self-healing property that rebuilds
+        # the client whenever it finds the stored one closed, so re-reading it here would
+        # hand back a fresh OPEN client and undo the very thing being measured. The
+        # invariant is unchanged — the pool this handler opened must really be released.
         handler = build_accounting_handler()
-        assert handler.client.is_closed is False
+        client = handler.client
+        assert client.is_closed is False
         await handler.close()
-        assert handler.client.is_closed is True
+        assert client.is_closed is True
 
 
 class TestSharedHandlerConcurrency:

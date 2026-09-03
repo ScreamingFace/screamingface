@@ -50,3 +50,11 @@ release/
 # excluded only via .git/info/exclude, which is local to a clone and never travels, so a
 # fresh clone saw them as untracked.
 .claude/worktrees/
+
+# local cache-snapshot artifacts — never commit (OME-951)
+*.sql.gz
+*.manifest.json
+# …except a blessed e2e board fixture's sidecar: the committed replay fixture is the
+# snapshot+manifest+golden triple (OME-964; the synthetic plumbing fixture stays
+# generated per-machine by generate_synthetic.py and remains ignored).
+!packages/screamingface/tests/e2e/fixtures/snapshots/draco-3pass.manifest.json

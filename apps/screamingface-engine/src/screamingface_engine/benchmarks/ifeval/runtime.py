@@ -86,7 +86,7 @@ def _check(root: Path):
                 else candidate.execution.model_dump(by_alias=True)
             ),
             # INVARIANT: absence stays absence (OME-843) — the key exists only when
-            # the Engine attributed member outputs.
+            # the Engine attributed named model outputs.
             **(
                 {}
                 if candidate.operations is None

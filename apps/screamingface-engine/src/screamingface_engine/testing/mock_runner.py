@@ -169,6 +169,10 @@ async def publish_mock_run(stream: EventPublisher, topic: str, url4: str) -> Non
     await stream.ensure_stream(topic)
     for event in build_run(topic, url4):
         await stream.publish(topic, event)
+    # A publisher may defer its acknowledgements, and this function's only caller exits the
+    # process right after it returns — without the barrier the mock run's frames could still
+    # be in flight when the connection closes.
+    await stream.flush()
 
 
 def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule, spec §11)

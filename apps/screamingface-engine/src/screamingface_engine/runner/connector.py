@@ -6,7 +6,10 @@ resolves and runs an expression against.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import random
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -17,12 +20,20 @@ import httpx
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.models.registry import decode_route_id
+from screamingface_engine.operation_accounting import (
+    OperationAccounting,
+    combine_operation_accounting,
+)
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
 )
-from screamingface_engine.runner.accounting import CallAccounting, read_aigw
+from screamingface_engine.runner.accounting import (
+    CallAccounting,
+    read_aigw,
+    retained_operation_accounting,
+)
 from screamingface_engine.runner.cache import policy_to_body_field
 from screamingface_engine.runner.cache_readback import (
     CacheOutcome,
@@ -59,6 +70,17 @@ from url4.streaming.protocol import CachePolicy
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _truncate_tool_result = truncate_tool_result
+logger = logging.getLogger(__name__)
+
+# Transport-retry policy for the aigateway hop (OME-1016). A transport failure
+# (connection reset, read error, timeout) is transient by nature, so the connector
+# retries it with exponential backoff + jitter before surfacing a retryable
+# ResolutionError. Module-level so tests can zero them; the benchmark's own ``retry=``
+# (url4) remains a second layer for HTTP-status failures and for a sustained outage.
+_TRANSPORT_RETRIES = 1  # one retry → two attempts; url4's retry= adds more if needed
+_TRANSPORT_BACKOFF_BASE_S = 0.5
+_TRANSPORT_BACKOFF_MAX_S = 8.0
+_TRANSPORT_BACKOFF_JITTER_S = 0.25
 
 
 @dataclass(frozen=True)
@@ -178,7 +200,12 @@ class _ModelEndpoint:
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
             # source text — the policy-applied set may differ from what was written.
-            with operation_call_identity(request.path, request.params):
+            with operation_call_identity(
+                request.path,
+                request.params,
+                context=request.context,
+                intent=request.intent,
+            ):
                 return await _chat_completion_loop(
                     http_client=self._http_client,
                     cfg=self._cfg,
@@ -408,6 +435,63 @@ def _report_usage(
     )
 
 
+async def _post_completion(
+    http_client: httpx.AsyncClient,
+    *,
+    headers: dict[str, str],
+    body: dict,
+) -> httpx.Response:
+    """One chat-completions POST: retry transport failures, then translate to a retryable error.
+
+    WHY (OME-1016): a transport failure (connection reset, read error, timeout) is
+    transient by nature — aigateway may be restarting or a pooled keep-alive connection
+    went stale. Left raw, an ``httpx.ReadError`` bypasses the benchmark's declared
+    ``retry=`` policy (url4 retries only ``Url4Error``) and carries no error ``code``,
+    so the report falls back to the opaque benchmark default (``draco_grading_failed``)
+    with a useless ``ReadError('')`` message. This retries the transport failure with
+    exponential backoff + jitter (so concurrent judge calls that fail together do not
+    retry in lockstep), then raises a retryable ``ResolutionError`` that names the real
+    cause. ``HTTPStatusError`` is deliberately NOT caught — ``_raise_for_status``
+    handles non-2xx after the post returns.
+    """
+    last: httpx.TransportError | None = None
+    for attempt in range(_TRANSPORT_RETRIES + 1):
+        try:
+            return await http_client.post(_COMPLETIONS_PATH, headers=headers, json=body)
+        except httpx.TransportError as exc:
+            last = exc
+            if attempt < _TRANSPORT_RETRIES:
+                await asyncio.sleep(_transport_backoff(attempt))
+    assert last is not None  # the loop always runs at least once
+    raise ResolutionError(
+        f"aigateway request failed at the transport layer: {_transport_detail(last)}",
+        code="aigateway_transport_error",
+        permanent=False,
+    ) from last
+
+
+def _transport_backoff(attempt: int) -> float:
+    """Exponential backoff plus jitter for the next transport retry.
+
+    ``attempt`` is the zero-based index of the attempt that just failed, so the first
+    retry waits ``base``, the second ``2*base``, capped at ``backoff_max_s``; jitter
+    de-synchronises concurrent siblings that failed together.
+    """
+    delay = min(_TRANSPORT_BACKOFF_BASE_S * 2**attempt, _TRANSPORT_BACKOFF_MAX_S)
+    return delay + random.uniform(0.0, _TRANSPORT_BACKOFF_JITTER_S)
+
+
+def _transport_detail(exc: httpx.TransportError) -> str:
+    """A stable one-line description of a transport failure, even when ``str()`` is empty.
+
+    ``httpx.ReadError('')`` stringifies to an empty string; the class name alone is
+    still actionable, and a non-empty message keeps ``_error_payload`` from falling
+    back to ``repr(exc)``.
+    """
+    detail = str(exc).strip()
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
+
 async def _fetch_completion(
     http_client: httpx.AsyncClient,
     *,
@@ -432,14 +516,14 @@ async def _fetch_completion(
         The response to consume, and the cache outcome of the round trip that produced IT — not
         of the one that was discarded, whose only remaining trace is that it happened.
     """
-    resp = await http_client.post(
-        _COMPLETIONS_PATH,
+    resp = await _post_completion(
+        http_client,
         headers=headers,
         # `policy_to_body_field` yields an EMPTY dict for a run that participates, so an ordinary
         # run's body is byte-identical to the one this connector has always sent — which is also
         # the smallest surface exposed to the gateway's closed cache grammar, where one
         # unrecognised key silently costs every hit (spec §1.0).
-        json={**body, **policy_to_body_field(cache)},
+        body={**body, **policy_to_body_field(cache)},
     )
     _raise_for_status(resp)
     outcome = read_cache_outcome(resp.headers)
@@ -448,10 +532,10 @@ async def _fetch_completion(
     # An explicit opt-out, built here rather than derived from `cache`: the run's own policy
     # PARTICIPATES (a bound is not a refusal), and the re-issue must state the one thing the
     # closed grammar understands — `use-cache: false` — and nothing else.
-    resp = await http_client.post(
-        _COMPLETIONS_PATH,
+    resp = await _post_completion(
+        http_client,
         headers=headers,
-        json={**body, **policy_to_body_field(CachePolicy(participate=False))},
+        body={**body, **policy_to_body_field(CachePolicy(participate=False))},
     )
     _raise_for_status(resp)
     return resp, read_cache_outcome(resp.headers)
@@ -503,6 +587,7 @@ async def _chat_completion_loop(
     )
     sampling = model_params(params)
     headers = _headers(profile, identity_headers)
+    operation_accounting: list[OperationAccounting | None] = []
     for _ in range(cfg.web_tool_max_iterations):
         body = {"model": real_model_id, "messages": messages, **sampling, **extra}
         resp, outcome = await _fetch_completion(
@@ -510,11 +595,22 @@ async def _chat_completion_loop(
         )
         data = _json_or_raise(resp)
         _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
+        retained = _retained_operation_accounting(
+            request_model=real_model_id,
+            usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
+            aigw=data.get("_aigw"),
+            cache=outcome,
+        )
+        operation_accounting.append(retained)
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
         # to audit, and raising first would lose exactly the event OME-679 exists to capture.
         _report_response(choice, outcome)
-        raise_if_unusable(choice, max_tokens=sampling.get("max_tokens"))
+        _raise_if_unusable_with_accounting(
+            choice,
+            max_tokens=sampling.get("max_tokens"),
+            accounting=operation_accounting,
+        )
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
             # Recorded HERE, not per round trip: a tool loop is several round trips serving ONE
@@ -522,7 +618,11 @@ async def _chat_completion_loop(
             # `tool_calls` rounds too would leave a consumer unable to tell a call that progressed
             # from two calls that disagreed (`_terminal_outcome` in `benchmarks/candidate.py`).
             record_model_outcome(choice.finish_reason, choice.refusal)
-            record_operation_call(content or "", choice.finish_reason)
+            record_operation_call(
+                content or "",
+                choice.finish_reason,
+                combine_operation_accounting(operation_accounting),
+            )
             return content or ""
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
         await append_tool_results(messages, tool_calls, tools, cfg)
@@ -531,6 +631,52 @@ async def _chat_completion_loop(
         code="web_tool_loop_limit",
         permanent=False,
     )
+
+
+def _retained_operation_accounting(
+    *,
+    request_model: str,
+    usage: Mapping[str, object] | None,
+    aigw: object,
+    cache: CacheOutcome,
+) -> OperationAccounting | None:
+    """Fail-open projection of untrusted Gateway accounting onto the strict retained contract."""
+
+    try:
+        return retained_operation_accounting(
+            request_model=request_model,
+            usage=usage,
+            aigw=aigw,
+            cache=cache,
+        )
+    except Exception as exc:
+        # INVARIANT: accounting is optional bookkeeping over an already-consumed response. No
+        # malformed accounting field may replace a successful answer/refusal with a run failure,
+        # and diagnostics disclose only the phase plus exception type — never Gateway payloads.
+        logger.warning("operation accounting unavailable after %s", type(exc).__name__)
+        return None
+
+
+def _raise_if_unusable_with_accounting(
+    choice: Choice,
+    *,
+    max_tokens: object,
+    accounting: list[OperationAccounting | None],
+) -> None:
+    """Classify one response while retaining a consumed provider refusal."""
+
+    try:
+        raise_if_unusable(choice, max_tokens=max_tokens)
+    except RunnerRequestError as exc:
+        if exc.code == "provider_refusal":
+            # INVARIANT: a refusal remains a terminal Candidate outcome. Record its consumed
+            # accounting before the typed failure exits; the invocation adapter then retains it.
+            record_operation_call(
+                "",
+                choice.finish_reason,
+                combine_operation_accounting(accounting),
+            )
+        raise
 
 
 def _retrieval_request(

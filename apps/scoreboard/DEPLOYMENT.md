@@ -118,27 +118,41 @@ Leaving `config.authMode` at its default (`disabled`) keeps today's behavior —
 
 The app chart runs `python -m scoreboard.seed` after install and upgrade. Seed data comes from `.Values.seedBenchmarks.benchmarks` and is passed through `SCOREBOARD_SEED_BENCHMARKS_JSON`.
 
-The default seed registers HLE plus the Livetruth public datasets:
+**The default seeds nothing.** `benchmarks` is `[]` and `engineUrl` is empty, so a fresh install registers no benchmark at all and `GET /v1/benchmarks` returns an empty list. The legacy `hle` / `livetruth` / `livetruth-latest` demo entries were removed in OME-986; they were leftovers from the previous SF project.
+
+A real deployment gets its benchmarks from the Engine, by pointing `engineUrl` at the Engine's **in-cluster** address:
+
+```yaml
+seedBenchmarks:
+  enabled: true
+  engineUrl: http://screamingface-engine.screamingface.svc.cluster.local:8000
+  benchmarks: []
+```
+
+To register a benchmark the Engine does not publish — a local smoke target, say — list it explicitly:
 
 ```yaml
 seedBenchmarks:
   enabled: true
   benchmarks:
-    - id: livetruth-latest
-      display_name: News Livetruth Latest
-      description: OpenMined Livetruth latest demo dataset
-      dataset_url: https://scoreboard.screamingface.ai/livetruth-latest.jsonl
-    - id: hle
-      display_name: News Hallucinations
-      description: OpenMined HLE benchmark
-      dataset_url: https://github.com/openmined/HLE.jsonl
-    - id: livetruth
-      display_name: News Livetruth
-      description: OpenMined Livetruth benchmark
-      dataset_url: https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
+    - id: smoke
+      display_name: Smoke
+      description: Local smoke target, not an Engine benchmark
 ```
 
-Re-running the Job is safe because benchmark registration is an upsert. Disable seeding with `--set seedBenchmarks.enabled=false`.
+An entry whose id the Engine also publishes is ignored and named in the Job's output; the Engine is the only place a published benchmark's text is written (OME-904).
+
+Re-running the Job is safe because benchmark registration is an upsert.
+
+**Seeding never deletes.** Removing an entry from this list stops it being recreated; it does not remove a row that already exists, which stays and is still served. To remove one:
+
+```bash
+python -m scoreboard.retire_benchmark --benchmark <id> --yes
+```
+
+It refuses while any score or baseline references the benchmark, and refuses an Engine-published one unless you also pass `--include-engine-owned` — which is only correct once the Engine has stopped publishing it, since otherwise the next seed recreates it.
+
+Disable seeding with `--set seedBenchmarks.enabled=false`.
 
 ## Smoke Checks
 
@@ -150,15 +164,15 @@ curl -fsS http://scoreboard.40.76.107.241.nip.io/healthz
 curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/benchmarks
 ```
 
-Submit a smoke score with an idempotency key. If `config.authMode=cloudflare_headers` is set, add `-H "X-User-Email: <email>"` (and submit from an allowed peer) or this 401s:
+Submit a smoke score with an idempotency key. **`benchmark_id` must name a benchmark this deployment actually registered** — the default seed list is empty, so pick one from the `/v1/benchmarks` call above or seed a `smoke` entry as shown under Benchmark Seeding. Submitting to an unregistered id returns 404. If `config.authMode=cloudflare_headers` is set, add `-H "X-User-Email: <email>"` (and submit from an allowed peer) or this 401s:
 
 ```bash
 curl -fsS -X POST http://scoreboard.40.76.107.241.nip.io/v1/scores \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: score-007-smoke-1" \
-  -d '{"version":1,"benchmark_id":"hle","spec_id":"score-007-smoke","url4_expression":"url4://smoke","submitted_by":"score-007","score":0.5,"total_questions":2,"ran_with_providers":["smoke"],"client":{"name":"curl","version":"0.1.0","platform":"k3s"}}'
+  -d '{"version":1,"benchmark_id":"smoke","spec_id":"score-007-smoke","url4_expression":"url4://smoke","submitted_by":"score-007","score":0.5,"total_questions":2,"ran_with_providers":["smoke"],"client":{"name":"curl","version":"0.1.0","platform":"k3s"}}'
 
-curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/leaderboard/hle
+curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/leaderboard/smoke
 ```
 
 The SCORE-007 initial task mentions POSTing from SF desktop, but current D-SCORE-006 in this repo is AIGateway desktop login, not scoreboard score publishing. Use the public API smoke above until a desktop submission task exists.
@@ -208,6 +222,10 @@ helm history scoreboard --namespace scoreboard
 helm rollback scoreboard <revision> --namespace scoreboard --wait
 ```
 
+> **Run `python -m scoreboard.check_rollback_safety` first.** Rolling back below the release that
+> introduced private boards publishes every private submission — see
+> [Private boards and rollback](#private-boards-and-rollback--run-the-preflight-first).
+
 Helm rollback does not roll back database schema migrations. Keep migrations forward-compatible where possible.
 
 ### Breaking migrations and multi-replica rollouts
@@ -234,6 +252,55 @@ the time. Re-check that assumption before releasing it.
 
 `0006_benchmark_native_scores` (OME-866, renaming `accuracy` to `score` and making
 `correct_questions` nullable) is the second. Same reasoning, same rollout options as above.
+
+### Private boards and rollback — run the preflight first
+
+**Once any benchmark is private, `helm rollback` below the release that introduced private boards
+publishes every submission on it.** Privacy is enforced by code that reads `Benchmark.visibility`;
+the database only stores the column. Roll the code back and the column survives untouched while
+nothing reads it.
+
+This was executed, not reasoned about. Against a database holding one private board with three
+submissions, the merge base `454253da` — whose `src/scoreboard/` contains no occurrence of
+`visibility` at all — returned all three from `ScoreStore.leaderboard()`, submitter addresses
+included. There is no configuration of the old code that filters, because it has nothing to filter
+on.
+
+**Helm cannot guard this, so do not look for a hook.** `helm rollback` executes the *target*
+revision's hooks (`execHook(targetRelease, release.HookPreRollback, ...)` in Helm's
+`pkg/action/rollback.go`). The revision being rolled back **to** is a pre-privacy one and its
+stored manifest has no such hook, so nothing added to this chart can run in the dangerous
+direction.
+
+Before **any** `helm rollback`, run the preflight in a pod on the current release:
+
+```bash
+kubectl -n scoreboard exec deploy/scoreboard-scoreboard -- \
+  python -m scoreboard.check_rollback_safety
+```
+
+It exits `0` when no benchmark is private, and non-zero — listing each private board and its
+submission count — when one is. It is read-only and has no override flag: clearing the refusal by
+flipping a board to public *is* the leak, performed deliberately.
+
+If it refuses and you still must roll back below the floor it names, use the fail-closed
+procedure:
+
+1. `kubectl -n scoreboard scale deploy/scoreboard-scoreboard --replicas=0` — stop serving before
+   anything else. Every later step is safe only while nothing answers requests.
+2. `python -m scoreboard.export_private_submissions --benchmark <id>` for each board the preflight
+   listed, keeping the output somewhere staff-only. This is the participants' data and the next
+   step destroys it.
+3. Delete the exported rows and the private benchmarks, so the restored code has nothing private
+   left to serve.
+4. `helm rollback`, then scale back up.
+
+Re-importing after rolling forward again is manual; there is no tooling for it. That asymmetry is
+deliberate — it should be easier to postpone a rollback than to destroy a challenge in progress.
+
+**Ordering rule for activation:** deploy the privacy-aware release *before* flipping any board to
+private, so a rollback target that understands `visibility` already exists in `helm history`. The
+preflight cannot check this for you — it sees the database, not the release history.
 
 ## Troubleshooting
 

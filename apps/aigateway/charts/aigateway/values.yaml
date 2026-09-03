@@ -15,7 +15,17 @@ serviceAccount:
   name: ""
 
 podAnnotations: {}
+# Extra Pod labels. MUST NOT contain `app.kubernetes.io/component` — the Service and the
+# NetworkPolicy select on it, and podLabels renders last, so an entry here would win on the Pod
+# and leave the Service with no Endpoints. The render fails if you try; use `componentLabel`.
 podLabels: {}
+
+# The gateway Pod's `app.kubernetes.io/component`, applied to the Pod template and to every
+# selector that names the gateway (Service, NetworkPolicy, Garage's :3900 ingress) at once.
+# Override it to adopt a platform convention that already names this Pod something else, e.g.
+# `server`. It must stay distinct from the migrate Job (`migrate`) and the bundled Garage
+# (`garage`), which share this release's name+instance labels.
+componentLabel: gateway
 
 podSecurityContext: {}
 
@@ -98,7 +108,7 @@ config:
   # gets, whoever they are.
   #
   # ON BY DEFAULT for chart deployments. This is a product decision about data sharing, not a
-  # performance knob, so read all five consequences before deploying it; set `enabled: false` to
+  # performance knob, so read all six consequences before deploying it; set `enabled: false` to
   # opt the deployment out:
   #
   #   1. CROSS-USER REPLAY. Two callers who send the identical request receive the identical stored
@@ -116,6 +126,16 @@ config:
   #      shared across — the corpus is simply common to everyone with network access. This is NOT
   #      refused: the gateway does not gate the cache on the auth mode. It is a posture to
   #      understand before enabling the cache where authentication is off.
+  #
+  #   6. HUGGING FACE GATED REPOSITORIES REPLAY ACROSS ACCOUNTS. Hugging Face participates for
+  #      requests pinned to a KNOWN partner provider (`…:novita`, `…:groq`, …). Unsuffixed ids and
+  #      the routing policies `:fastest` / `:cheapest` / `:preferred` are NOT cached, because the
+  #      backend is chosen per request and `:preferred` follows the requesting ACCOUNT's
+  #      preference order. For the ids that DO cache: many Hugging Face repositories are *gated*
+  #      and require per-account licence acceptance, and a cache hit returns BEFORE any credential
+  #      is resolved — so a row filled by an account that accepted the licence can be served to an
+  #      account that never did. If you rely on Hugging Face gating for licence compliance across
+  #      tenants, decide this deliberately. See "The Global Response Cache" in DEPLOYMENT.md.
   #
   # Callers can opt a single request out with the `use-cache=false` cache control.
   requestCache:
@@ -145,7 +165,11 @@ auth:
 
 # Extra environment variables appended verbatim to the container (e.g. provider
 # enablement flags such as AIGW_OPENROUTER_ENABLED). List of EnvVar objects.
-extraEnv: []
+extraEnv:
+  # OME-921: finite headroom above Engine's ~32-call fan-out; never set this to 0 in prod.
+  - name: AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES
+    value: '{"openrouter": 50}'
+
 
 service:
   type: ClusterIP
@@ -241,3 +265,47 @@ networkPolicy:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# Weekly response-cache snapshot to Garage (OME-1021). Schedule-only: the gateway's
+# in-process scheduler exports `request_cache_entries` every Friday 05:00 UTC into the
+# OME-952 snapshot format and PUTs the archive + manifest to object storage under
+# `cache-snapshots/<stamp>` in a dedicated bucket. Retention is keep-all — expiry is a
+# bucket lifecycle rule, an operator decision.
+snapshot:
+  # Master switch: turns the in-process scheduler on (`AIGW_CACHE_SNAPSHOT_ENABLED=true`).
+  # Storage must be configured when enabled; the app refuses to boot otherwise.
+  enabled: false
+  # The only schedule form the app accepts (UTC). Change only together with the code.
+  schedule: "0 5 * * 5"
+  # Bundled Garage, mirroring the Engine chart's self-configuring single-node instance
+  # (OME-929): Garage v2.3.0 creates its own layout, adopts the key pair from the snapshot
+  # Secret, and creates the bucket on first boot — no bootstrap step, no post-install hook.
+  garage:
+    enabled: true
+    image: dxflrs/garage:v2.3.0
+    replicaCount: 1
+    # When networkPolicy.enabled (chart default), a Garage-scoped NetworkPolicy admits ONLY
+    # the gateway's snapshot PUTs on 3900 — Garage's sole client. Set networkPolicy.enabled,
+    # not a garage-local flag, to drop it.
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+    resources: {}
+  # The S3-compatible target. With `garage.enabled`, the endpoint is the bundled Service
+  # and the key pair comes from the chart-owned Secret; with `garage.enabled: false`, point
+  # at any S3-compatible endpoint — bringing BOTH halves of its key pair
+  # (endpointUrl + accessKey + secretKey) or an existingSecret. A chart-generated pair is
+  # for the bundled Garage only (it adopts it at first boot); an external store cannot know
+  # a minted key, so the render refuses external mode without operator-supplied credentials.
+  storage:
+    endpointUrl: ""
+    bucket: screamingface-cache-snapshots
+    region: garage
+    accessKey: ""
+    secretKey: ""
+    # Alternative to accessKey/secretKey: a pre-existing Secret holding
+    # AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY / AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY.
+    existingSecret: ""

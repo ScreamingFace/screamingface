@@ -119,6 +119,7 @@ class _CloudflareAccessAuth(_ClientAuth):
         )
         self._present_browser = browser_presenter or _present_access_authorization
         self._present_logout = browser_presenter or _present_access_logout
+        self._authorization_subscribers: list[_BrowserPresenter] = []
         self._clock = clock
         self._wall_clock = wall_clock
         self._sleep = sleep
@@ -141,6 +142,50 @@ class _CloudflareAccessAuth(_ClientAuth):
     def authenticating(self) -> bool:
         with self._lock:
             return not self._closed and self._login_attempt is not None
+
+    def subscribe_authorization(self, presenter: _BrowserPresenter) -> Callable[[], None]:
+        """Also deliver each authorization URL to ``presenter``; returns an unsubscribe.
+
+        WHY: the built-in presenter writes the URL to stdout, which a notebook widget
+        callback on a worker thread cannot surface (OME-930). A UI registers here to render
+        the URL as a link instead. Subscribers are ADDITIVE — the constructor presenter
+        still runs, so the terminal browser-open path is unchanged.
+        INVARIANT: `_access` never imports a UI; presentation is always passed in.
+        """
+
+        with self._lock:
+            self._authorization_subscribers.append(presenter)
+
+        def unsubscribe() -> None:
+            with self._lock:
+                if presenter in self._authorization_subscribers:
+                    self._authorization_subscribers.remove(presenter)
+
+        return unsubscribe
+
+    def _announce_authorization(self, authorization_url: str) -> bool:
+        """Hand the URL to every subscriber; True if any took responsibility for it.
+
+        WHY the return value: a subscriber renders the URL itself, so the built-in stdout
+        narration becomes duplication the user has to read past. The terminal path has no
+        subscriber and keeps printing, because there stdout IS the presentation.
+        """
+
+        with self._lock:
+            subscribers = tuple(self._authorization_subscribers)
+        presented = False
+        for presenter in subscribers:
+            try:
+                presenter(authorization_url)
+            except Exception:
+                # INVARIANT: presentation never fails the login it is announcing. One bad
+                # subscriber must not strand a login that is otherwise fine.
+                continue
+            presented = True
+        # INVARIANT: only a presenter that actually ran counts. Reporting success for a
+        # subscriber that raised would suppress the stdout fallback too, leaving the user
+        # with no link and no printed URL — worse than the duplication that motivated it.
+        return presented
 
     def login(self, *, timeout: float = _DEFAULT_LOGIN_TIMEOUT) -> None:
         _require_positive_timeout(timeout)
@@ -435,8 +480,10 @@ class _CloudflareAccessAuth(_ClientAuth):
             _raise_if_cancelled(attempt.cancel)
             self._require_open()
             self._browser_session_started = True
-        self._present_browser(authorization_url)
-        print("Waiting for Cloudflare Access login to complete...")
+        presented = self._announce_authorization(authorization_url)
+        if not presented:
+            self._present_browser(authorization_url)
+            print("Waiting for Cloudflare Access login to complete...")
         token = self._poll_transfer(private_key, public_key, timeout, attempt.cancel)
         access_token = _access_token(token, self._clock(), self._wall_clock())
         with self._lock:
@@ -452,7 +499,8 @@ class _CloudflareAccessAuth(_ClientAuth):
             self._audience = audience
             self._token_store.put(audience, access_token)
             self._generation += 1
-        print("Cloudflare Access login complete.")
+        if not presented:
+            print("Cloudflare Access login complete.")
 
     def _poll_transfer(
         self,

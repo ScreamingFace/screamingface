@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import httpx
 
@@ -45,6 +45,9 @@ class _ClientAuth(_TransportAuth, ABC):
 
     @abstractmethod
     async def login_async(self, *, timeout: float = 300.0) -> None: ...
+
+    @abstractmethod
+    def subscribe_authorization(self, presenter: Callable[[str], None]) -> Callable[[], None]: ...
 
     @abstractmethod
     def cancel_login(self) -> None: ...

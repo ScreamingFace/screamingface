@@ -3,7 +3,7 @@ environment variables."""
 
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env
@@ -15,6 +15,7 @@ from screamingface_engine import job_env
 _TTL_SKEW_MARGIN_S = 60
 
 RunnerBackend = Literal["none", "k8s"]
+ArtifactStoreBackend = Literal["filesystem", "s3"]
 """Which ``JobRunner`` substrate the deployed App schedules runs on (spec §9).
 
 ``k8s`` is prod (namespace-scoped batch/v1 Jobs) and ``none`` a stream-only App that mints tokens
@@ -54,6 +55,25 @@ class Settings(BaseSettings):
     # Same env var (URL4_CLOUD_ARTIFACTS_DIR) the Runner's spill side reads — one name, so the
     # writer and the `GET /artifacts/{id}` server cannot be pointed at different directories.
     artifacts_dir: str = job_env.DEFAULT_ARTIFACTS_DIR
+    # FEATURE: over-cap results survive the Runner Job on a multi-pod deployment (OME-929).
+    #
+    # INVARIANT: every field below reads the env var `job_env` declares for it, by construction —
+    # `env_prefix` + the field name, uppercased. `test_artifact_storage_selection.py` pins that
+    # equality, because a one-sided rename would point the Runner's writer and the App's reader at
+    # different buckets, which is OME-929 again in a shape the 404 would not hint at.
+    #
+    # WHY a choice and not derived from `runner`: the Runner cannot see its own cluster topology,
+    # so the chart states this for both halves. The App CAN see it, and `create_app` refuses
+    # `runner="k8s"` paired with filesystem storage — that pairing IS the bug, and it used to be
+    # the default.
+    artifact_store: ArtifactStoreBackend = "filesystem"
+    artifact_s3_endpoint_url: str = ""
+    artifact_s3_bucket: str = ""
+    artifact_s3_region: str = job_env.DEFAULT_ARTIFACT_S3_REGION
+    artifact_s3_access_key: str = ""
+    # AIDEV-NOTE: credential material. Never logged, never rendered into a ConfigMap — it
+    # reaches the pod from a Secret, the same way `TAVILY_API_KEY` does.
+    artifact_s3_secret_key: str = ""
     # WHY 48h: long enough for any client that survived its run to come back for the parcel
     # (a run itself is bounded by job_deadline_s = 16h), short enough that crashed runs
     # cannot pool disk for more than two days. Swept at App startup AND periodically.
@@ -73,8 +93,13 @@ class Settings(BaseSettings):
     # INVARIANT: this bounds SPEND, not correctness — job_deadline_s (16h) remains the backstop.
     # Raising it costs money per orphaned run; lowering it risks stopping a live one.
     orphan_grace_s: float = Field(default=120.0, ge=0.0)
-    # INVARIANT: stateless iat window (seconds) — start rejected when now - iat exceeds it (§4).
+    # INVARIANT: stateless iat window (seconds) — now a CLOCK-SKEW tolerance only: a mint
+    # from more than one window in the future is rejected. It never bounds lifetime.
     iat_window_s: int = 60
+    # INVARIANT: capability-token lifetime (seconds) — `exp = iat + this` at mint (spec §6
+    # S1, OME-1016). WHY 58_800: the 16 h Job deadline (job_deadline_s) plus 1 h slack, so a
+    # Run's owner can always re-attach, stop, or redeem for the Run's whole life (D1).
+    capability_lifetime_s: int = 58_800
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
     sync_max_wait_s: float = 30.0
     # WHY: idle interval between WS HeartbeatEvents for liveness (spec §6).
@@ -106,6 +131,23 @@ class Settings(BaseSettings):
     # App neither names nor reads those variables — Helm owns name AND value. These two settings
     # are the only thing it needs: what to reference.
     runner_env_configmap: str | None = None
+    # FEATURE (OME-908): the per-run downstream in-flight budget written onto every Runner Job
+    # as `URL4_CLOUD_IO_CONCURRENCY` and enforced by URL4's `BoundedIOLayer`.
+    #
+    # WHY a STATIC bound in deployed mode: each run is its own Job Pod, so no process sees
+    # enough of the fleet to schedule it dynamically — the fair-share gate exists only in local
+    # mode (`local_io_capacity`). The static value shapes each run's ARRIVALS at the gateway's
+    # per-provider FIFO, which is what keeps one benchmark-sized run from monopolizing it.
+    #
+    # WHY 4 and not the URL4 default of 32: with the gateway admitting 4 per provider
+    # (`AIGW_PROVIDER_MAX_CONCURRENCY`), a 32-wide run keeps the queue continuously full for
+    # hours, so a second run's calls wait behind a wall of the first run's requests. 4 matches
+    # the provider ceiling exactly — a run can saturate its provider but never pile a backlog
+    # behind it, so a second run's calls interleave as soon as the first run's in-flight calls
+    # complete. 32 restores the previous behavior exactly — that is the revert switch.
+    # INVARIANT (pinned by `test_job_env_contract`): the App writes it on EVERY Job, so a stale
+    # copy left in the Helm ConfigMap can never reach a Job through `envFrom`.
+    runner_io_concurrency: int = Field(default=4, ge=1)
     # --- Tavily web tools (spec 2026-07-23). The connector declares web_search/web_fetch ONLY
     # when the Runner sees TAVILY_API_KEY; unset here => deny-by-default (dec:W5).
     #
@@ -115,12 +157,21 @@ class Settings(BaseSettings):
     # `envFrom.secretRef`, never a literal copied into the manifest (see
     # ``K8sJobRunner._env_from``). The name of the Secret the Runner Job's env references:
     tavily_secret_name: str | None = None
+    # The Secret carrying URL4_CLOUD_ARTIFACT_S3_SECRET_KEY into each Runner Job (OME-929).
+    # A reference for the same reason `tavily_secret_name` is one: a `batch/v1` Job object is not
+    # a secret, so the credential travels via `envFrom.secretRef` and never as a literal in the
+    # manifest. The App reads the same Secret through its own Deployment `envFrom`.
+    artifact_s3_secret_name: str | None = None
     # WHY: the Runner drives the url4 DAG engine and buffers model responses — it is the
     # workload that actually consumes CPU/memory here. Without requests it schedules into the
     # BestEffort QoS class (placed blind, evicted first, free to OOM its node), so the chart
     # supplies the numbers. Shape is the k8s `resources` block verbatim, e.g.
     # {"requests": {"cpu": "200m", "memory": "256Mi"}, "limits": {"memory": "1Gi"}}.
     runner_resources: dict[str, dict[str, str]] | None = None
+    # INVARIANT: Runner Jobs use the same operator-owned placement as the Engine Deployment.
+    # The chart supplies Kubernetes-native structures, so this code stays environment-neutral.
+    runner_node_selector: dict[str, str] = Field(default_factory=dict)
+    runner_tolerations: list[dict[str, object]] = Field(default_factory=list)
     # --- model catalog (OME-625). The catalog endpoint forwards the CALLER's
     # credential, so there is deliberately NO credential setting here:
     # screamingface-engine holds no aigateway secret. `aigateway_base_url` above is
@@ -169,6 +220,19 @@ class Settings(BaseSettings):
     # WHY bounded run history: `status()` answers from finished tasks, so they are retained past
     # completion — this caps how many, the way `ttlSecondsAfterFinished` caps retained Jobs.
     local_max_run_history: int = 1000
+    # FEATURE (OME-908): the shared downstream capacity every local run fair-shares through
+    # `runner.fair_share.FairShareGate` — the dynamic, work-conserving counterpart of the
+    # deployed mode's static `runner_io_concurrency`.
+    #
+    # WHY dynamic here and static in deployed mode: local mode's runs share one event loop and
+    # one process, so ONE gate can watch every active run — a solo run gets the whole capacity,
+    # two runs split it near-evenly, and a finished run's share reverts instantly. Deployed Jobs
+    # are separate processes and get the static per-run bound instead.
+    #
+    # WHY 32: equal to URL4's `DEFAULT_RUN_CONCURRENCY`, so a solo local run's ceiling — and
+    # therefore its speed — is unchanged from before this feature existed. Lower it to shape
+    # local arrivals the same way `runner_io_concurrency` shapes a Job's.
+    local_io_capacity: int = Field(default=32, ge=1)
     # WHY a SECOND gateway address rather than defaulting `aigateway_base_url` itself: that field
     # is read by the model catalog too, where `None` is a meaningful state (the endpoint answers
     # 503 "not configured"). Defaulting it to loopback would silently switch the local catalog on
@@ -209,6 +273,21 @@ class Settings(BaseSettings):
         if self.job_ttl_s is not None:
             return self.job_ttl_s
         return self.iat_window_s + _TTL_SKEW_MARGIN_S
+
+    @field_validator("artifacts_dir", mode="before")
+    @classmethod
+    def _blank_artifacts_dir_means_unset(cls, value: object) -> object:
+        """An empty or whitespace value falls back to the default instead of becoming `Path("")`.
+
+        WHY (OME-929): `Path("")` is the WORKING DIRECTORY, not an error — so a ConfigMap that
+        renders the key with no value would silently relocate the store to wherever the process
+        happens to be, which for a read-only rootfs also fails at write time rather than here.
+        The chart omits the key when it has no value; this makes the same intent safe even if
+        some other deployment path renders it blank.
+        """
+        if isinstance(value, str) and not value.strip():
+            return job_env.DEFAULT_ARTIFACTS_DIR
+        return value
 
     @model_validator(mode="after")
     def _reject_replayable_job_ttl(self) -> Self:

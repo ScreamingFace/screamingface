@@ -58,6 +58,11 @@ class _RunState:
         self._consecutive_replay_requests = 0
         self._stream_reattach_requests = 0
 
+    @property
+    def last_sequence(self) -> int:
+        """The highest broker-sequenced frame accepted so far — the resume cursor."""
+        return self._last_sequence
+
     def accept(self, raw: str | bytes) -> _Accepted:
         payload = _payload(raw)
         event_type = _text(payload, "type")
@@ -100,6 +105,16 @@ class _RunState:
         self._observe_run(_common_envelope(payload)["run_id"])
         if event_type == "ai.url4.error":
             code, message = _advisory_error(data)
+            if code == "stream_reclaimed":
+                # OME-1019/1020: FINAL — the Run finished and the Runner reclaimed its
+                # stream (grace elapsed) while this client was away. The result is
+                # unrecoverable; reconnecting cannot change that.
+                raise ExecutionError(
+                    message or "this run's stream was reclaimed",
+                    code="run_result_lost",
+                    permanent=True,
+                    details=data,
+                )
             if code == "stream_failed":
                 self._stream_reattach_requests += 1
                 if self._stream_reattach_requests > _MAX_STREAM_REATTACH_REQUESTS:
@@ -335,6 +350,8 @@ def _span(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Span:
             "span finish reasons",
         ),
         refusal=_optional_text(data.get("refusal"), "span refusal"),
+        cache_status=_cache_status(data.get("cache_status")),
+        cache_reason=_optional_text(data.get("cache_reason"), "span cache_reason"),
     )
 
 
@@ -449,6 +466,14 @@ def _span_kind(value: str) -> events.SpanKind:
     if value == "server":
         return "server"
     raise ExecutionError("SF Engine span kind is invalid")
+
+
+def _cache_status(value: object) -> events.CacheStatus | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in {"hit", "miss", "bypass"}:
+        raise ExecutionError("SF Engine span cache_status is invalid")
+    return cast(events.CacheStatus, value)
 
 
 def _usage_scope(value: str) -> events.UsageScope:

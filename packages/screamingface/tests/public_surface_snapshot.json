@@ -1,0 +1,1183 @@
+{
+  "screamingface": {
+    "__all__": [
+      "AsyncClient",
+      "AsyncOAuthFlow",
+      "AuthenticationError",
+      "Benchmark",
+      "BenchmarkInfo",
+      "CandidateResult",
+      "CaseGrade",
+      "CaseResult",
+      "Check",
+      "Client",
+      "Connection",
+      "ConnectionPanel",
+      "CorrectiveLoop",
+      "EngineUnavailableError",
+      "EvaluationWarning",
+      "Event",
+      "Evidence",
+      "EvidenceProducer",
+      "ExecutionError",
+      "Failure",
+      "Fusion",
+      "Leaderboard",
+      "LeaderboardBaseline",
+      "LeaderboardEntry",
+      "LeaderboardError",
+      "LeaderboardInfo",
+      "LeaderboardScore",
+      "MemberResult",
+      "Model",
+      "ModelCapability",
+      "ModelDetails",
+      "ModelInfo",
+      "ModelParameter",
+      "ModelParameterSchema",
+      "OAuthFlow",
+      "OperationAccounting",
+      "OperationCache",
+      "OperationInfo",
+      "Pipeline",
+      "PlanningError",
+      "ProviderConnectionError",
+      "Recipe",
+      "Report",
+      "ScreamingFaceError",
+      "SelfCorrective",
+      "Url4",
+      "Usage",
+      "__version__",
+      "benchmarks",
+      "close",
+      "configure",
+      "connect",
+      "connections",
+      "disconnect",
+      "evaluate",
+      "events",
+      "leaderboards",
+      "models"
+    ],
+    "exports": {
+      "AsyncClient": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.dev.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.dev.screamingface.ai', http_transport: 'httpx.AsyncBaseTransport | None' = None, scoreboard_transport: 'httpx.AsyncBaseTransport | None' = None, run_transport: 'AsyncRunTransport | None' = None) -> 'None'",
+          "aclose": "method (self) -> 'None'",
+          "authenticated": "property",
+          "authenticating": "property",
+          "closed": "property",
+          "connect": "method (self, provider: 'str', *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | AsyncOAuthFlow'",
+          "disconnect": "method (self, provider: 'str') -> 'Connection'",
+          "engine_url": "property",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None) -> 'Report'",
+          "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
+          "logout": "method (self) -> 'None'",
+          "scoreboard_url": "property"
+        }
+      },
+      "AsyncOAuthFlow": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str', authorize_url: 'str', expires_in: 'int', status: \"Literal['pending']\" = 'pending', _get: 'Callable[[], Awaitable[Connection]] | None' = None, _disconnect: 'Callable[[], Awaitable[Connection]] | None' = None, _expires_at: 'float' = 0.0) -> None",
+          "authorize_url": "field",
+          "cancel": "method (self) -> 'Connection'",
+          "expired": "property",
+          "expires_in": "field",
+          "provider": "field",
+          "status": "field",
+          "wait": "method (self, *, poll_interval: 'float' = 0.5, timeout: 'float | None' = None) -> 'Connection'"
+        }
+      },
+      "AuthenticationError": {
+        "catches_as": [
+          "ScreamingFaceError",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, trace_id: 'str | None' = None) -> 'None'",
+          "retryable": "property",
+          "user_message": "property"
+        }
+      },
+      "Benchmark": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int') -> None",
+          "case_count": "field",
+          "description": "field",
+          "id": "field",
+          "revision": "field",
+          "title": "field"
+        }
+      },
+      "BenchmarkInfo": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', revision: 'str', case_count: 'int') -> None",
+          "case_count": "field",
+          "id": "field",
+          "revision": "field"
+        }
+      },
+      "CandidateResult": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage') -> 'None'",
+          "benchmark": "field",
+          "cases": "field",
+          "completed_at": "field",
+          "coverage": "field",
+          "duration_ms": "property",
+          "failures": "field",
+          "kind": "field",
+          "members": "field",
+          "metrics": "property",
+          "models": "field",
+          "name": "field",
+          "operations": "field",
+          "run_id": "field",
+          "score": "field",
+          "started_at": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "url4": "field",
+          "usage": "field"
+        }
+      },
+      "CaseGrade": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, method: 'str', score: 'float | None', metrics: 'Mapping[str, object]', checks: 'Sequence[Check]') -> 'None'",
+          "checks": "field",
+          "method": "field",
+          "metrics": "property",
+          "score": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "CaseResult": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, case_id: 'CaseId', input: 'str', output: 'str | None', finish_reason: 'str | None', grade: 'CaseGrade | None', failures: 'Sequence[Failure]', metadata: 'Mapping[str, object]', status: 'CaseStatus | None' = None, refusal: 'str | None' = None, stop_reason: 'StopReason | None' = None, rounds_executed: 'int | None' = None, operations: 'Sequence[CaseOperation] | None' = None) -> 'None'",
+          "case_id": "field",
+          "conversation": "property",
+          "display_input": "property",
+          "failures": "field",
+          "finish_reason": "field",
+          "grade": "field",
+          "input": "field",
+          "metadata": "property",
+          "operations": "field",
+          "output": "field",
+          "prompt_preview": "property",
+          "refusal": "field",
+          "refusal_kind": "property",
+          "rounds_executed": "field",
+          "status": "field",
+          "stop_reason": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "Check": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, type: 'str', id: 'str', label: 'str', evidence: 'Sequence[Evidence]', metadata: 'Mapping[str, object] | None' = None, outcome: 'CheckOutcome | None' = None, score: 'float | None' = None) -> 'None'",
+          "evidence": "field",
+          "id": "field",
+          "label": "field",
+          "metadata": "property",
+          "outcome": "field",
+          "score": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "type": "field"
+        }
+      },
+      "Client": {
+        "kind": "class",
+        "members": {
+          "__enter__": "method (self) -> 'Client'",
+          "__exit__": "method (self, exc_type: 'type[BaseException] | None', exc: 'BaseException | None', traceback: 'TracebackType | None') -> 'None'",
+          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.dev.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.dev.screamingface.ai', http_transport: 'httpx.BaseTransport | None' = None, scoreboard_transport: 'httpx.BaseTransport | None' = None, run_transport: 'SyncRunTransport | None' = None) -> 'None'",
+          "authenticated": "property",
+          "authenticating": "property",
+          "close": "method (self) -> 'None'",
+          "closed": "property",
+          "connect": "method (self, provider: 'str | None' = None, *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | ConnectionPanel | OAuthFlow'",
+          "disconnect": "method (self, provider: 'str') -> 'Connection'",
+          "engine_url": "property",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None) -> 'Report'",
+          "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
+          "logout": "method (self) -> 'None'",
+          "scoreboard_url": "property"
+        }
+      },
+      "Connection": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str', display_name: 'str', auth_methods: 'tuple[AuthMethod, ...]', status: 'ConnectionStatus', auth_method: 'AuthMethod | None', account_label: 'str | None') -> None",
+          "account_label": "field",
+          "auth_method": "field",
+          "auth_methods": "field",
+          "display_name": "field",
+          "provider": "field",
+          "status": "field"
+        }
+      },
+      "ConnectionPanel": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, client: '_Client') -> 'None'",
+          "authenticated": "property",
+          "authenticating": "property",
+          "close": "method (self) -> 'None'",
+          "connections": "property",
+          "refresh": "method (self) -> 'tuple[Connection, ...]'",
+          "widget": "method (self) -> 'Widget'"
+        }
+      },
+      "CorrectiveLoop": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, judge: 'str | Recipe', max_rounds: 'int' = 3, name: 'str | None' = None) -> 'None'",
+          "judge": "field",
+          "max_rounds": "field",
+          "members": "field",
+          "name": "field",
+          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+        }
+      },
+      "EngineUnavailableError": {
+        "catches_as": [
+          "ScreamingFaceError",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, message: 'str', *, engine_url: 'str', trace_id: 'str | None' = None) -> 'None'",
+          "retryable": "property",
+          "user_message": "property"
+        }
+      },
+      "EvaluationWarning": {
+        "catches_as": [
+          "UserWarning",
+          "Warning",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
+      },
+      "Event": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', run_id: 'str', sequence: 'int', timestamp: 'datetime', source: 'str', traceparent: 'str | None' = None, tracestate: 'str | None' = None) -> None",
+          "id": "field",
+          "kind": "attribute",
+          "run_id": "field",
+          "sequence": "field",
+          "source": "field",
+          "timestamp": "field",
+          "traceparent": "field",
+          "tracestate": "field"
+        }
+      },
+      "Evidence": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, sequence: 'int', producer: 'EvidenceProducer', valid: 'bool', raw_output: 'object', outcome: 'EvidenceOutcome | None' = None, explanation: 'str | None' = None, metadata: 'Mapping[str, object] | None' = None, accounting: 'OperationAccounting | None' = None) -> 'None'",
+          "accounting": "field",
+          "explanation": "field",
+          "metadata": "property",
+          "outcome": "field",
+          "producer": "field",
+          "raw_output": "field",
+          "sequence": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "valid": "field"
+        }
+      },
+      "EvidenceProducer": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, type: 'str', id: 'str') -> None",
+          "id": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "type": "field"
+        }
+      },
+      "ExecutionError": {
+        "catches_as": [
+          "ScreamingFaceError",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, trace_id: 'str | None' = None) -> 'None'",
+          "retryable": "property",
+          "user_message": "property"
+        }
+      },
+      "Failure": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, stage: 'FailureStage', code: 'str', message: 'str', retryable: 'bool | None' = None, operation_id: 'str | None' = None, case_id: 'CaseId | None' = None, metadata: 'Mapping[str, object] | None' = None) -> 'None'",
+          "case_id": "field",
+          "code": "field",
+          "message": "field",
+          "metadata": "field",
+          "operation_id": "field",
+          "retryable": "field",
+          "stage": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "Fusion": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, synthesizer: 'str | Recipe') -> 'None'",
+          "members": "field",
+          "name": "field",
+          "synthesizer": "field",
+          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+        }
+      },
+      "Leaderboard": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, benchmark: 'LeaderboardInfo', entries: 'tuple[LeaderboardEntry, ...]', baselines: 'tuple[LeaderboardBaseline, ...]') -> None",
+          "baselines": "field",
+          "benchmark": "field",
+          "entries": "field"
+        }
+      },
+      "LeaderboardBaseline": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'UUID', benchmark_id: 'str', model_name: 'str', score: 'float', source: 'str', source_url: 'str | None', imported_at: 'datetime', metadata: 'Mapping[str, object] | None') -> None",
+          "benchmark_id": "field",
+          "id": "field",
+          "imported_at": "field",
+          "metadata": "field",
+          "model_name": "field",
+          "score": "field",
+          "source": "field",
+          "source_url": "field"
+        }
+      },
+      "LeaderboardEntry": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, rank: 'int', spec_id: 'str', score: 'float', total_questions: 'int', ran_with_providers: 'tuple[str, ...]', submitted_at: 'datetime', submitted_by: 'str | None', verified_by_screamingface: 'bool', url4: 'Url4') -> None",
+          "ran_with_providers": "field",
+          "rank": "field",
+          "score": "field",
+          "spec_id": "field",
+          "submitted_at": "field",
+          "submitted_by": "field",
+          "total_questions": "field",
+          "url4": "field",
+          "verified_by_screamingface": "field"
+        }
+      },
+      "LeaderboardError": {
+        "catches_as": [
+          "ScreamingFaceError",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, message: 'str', *, scoreboard_url: 'str | None' = None, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None) -> 'None'",
+          "retryable": "property",
+          "user_message": "property"
+        }
+      },
+      "LeaderboardInfo": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', display_name: 'str', description: 'str | None', dataset_url: 'str | None', created_at: 'datetime') -> None",
+          "created_at": "field",
+          "dataset_url": "field",
+          "description": "field",
+          "display_name": "field",
+          "id": "field"
+        }
+      },
+      "LeaderboardScore": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None) -> None",
+          "benchmark_id": "field",
+          "client_name": "field",
+          "client_platform": "field",
+          "client_version": "field",
+          "correct_questions": "field",
+          "id": "field",
+          "metadata": "field",
+          "ran_at_local": "field",
+          "ran_with_providers": "field",
+          "score": "field",
+          "scoreboard_url": "field",
+          "spec_id": "field",
+          "submitted_at": "field",
+          "submitted_by": "field",
+          "total_questions": "field",
+          "url4": "field",
+          "verified_by_screamingface": "field",
+          "version": "field"
+        }
+      },
+      "MemberResult": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, operation_id: 'str', name: 'str', kind: 'RecipeKind', models: 'Sequence[str]', failures: 'Sequence[Failure] | None', duration_ms: 'int | None', usage: 'Usage | None') -> 'None'",
+          "duration_ms": "field",
+          "failures": "field",
+          "kind": "field",
+          "models": "field",
+          "name": "field",
+          "operation_id": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "usage": "field"
+        }
+      },
+      "Model": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, model: 'str', *, name: 'str | None' = None, prompt: 'str | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None) -> 'None'",
+          "model": "field",
+          "name": "field",
+          "params": "property",
+          "prompt": "field",
+          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+        }
+      },
+      "ModelCapability": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider_support: 'str', gateway_status: 'str', reason: 'str | None' = None) -> None",
+          "gateway_status": "field",
+          "provider_support": "field",
+          "reason": "field"
+        }
+      },
+      "ModelDetails": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', provider: 'str', upstream_id: 'str', contract_id: 'str', scope: 'str', auth_mode: 'str', context_revision: 'str', source_revision: 'str | None', parameters: 'Mapping[str, ModelParameter]', tools: 'Mapping[str, ModelCapability]', transport: 'Mapping[str, ModelCapability]', observed_at: 'datetime | None', expires_at: 'datetime | None', stale: 'bool', degraded: 'bool') -> None",
+          "auth_mode": "field",
+          "context_revision": "field",
+          "contract_id": "field",
+          "degraded": "field",
+          "expires_at": "field",
+          "id": "field",
+          "observed_at": "field",
+          "parameters": "field",
+          "provider": "field",
+          "scope": "field",
+          "source_revision": "field",
+          "stale": "field",
+          "tools": "field",
+          "transport": "field",
+          "upstream_id": "field"
+        }
+      },
+      "ModelInfo": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', provider: 'str', supported_parameters: 'tuple[str, ...]' = (), supported_tools: 'tuple[str, ...]' = ()) -> None",
+          "id": "field",
+          "provider": "field",
+          "supported_parameters": "field",
+          "supported_tools": "field"
+        }
+      },
+      "ModelParameter": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, name: 'str', request_path: 'str', schema: 'ModelParameterSchema | None', provider_support: 'str', provider_source: 'str', provider_stale: 'bool', provider_deprecated: 'bool | None', gateway_status: 'str', gateway_projection: 'str | None', gateway_reason: 'str | None', cache_behavior: 'str', applicable_auth_modes: 'tuple[str, ...]') -> None",
+          "applicable_auth_modes": "field",
+          "cache_behavior": "field",
+          "enabled": "property",
+          "gateway_projection": "field",
+          "gateway_reason": "field",
+          "gateway_status": "field",
+          "name": "field",
+          "provider_deprecated": "field",
+          "provider_source": "field",
+          "provider_stale": "field",
+          "provider_support": "field",
+          "request_path": "field",
+          "schema": "field"
+        }
+      },
+      "ModelParameterSchema": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, type: 'str | tuple[str, ...]', minimum: 'float | None' = None, maximum: 'float | None' = None, enum: 'tuple[str, ...] | None' = None, items: 'str | None' = None, pattern: 'str | None' = None, max_length: 'int | None' = None) -> None",
+          "enum": "field",
+          "items": "field",
+          "max_length": "field",
+          "maximum": "field",
+          "minimum": "field",
+          "pattern": "field",
+          "type": "field",
+          "validate": "method (self, value: 'object') -> 'None'"
+        }
+      },
+      "OAuthFlow": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str', authorize_url: 'str', expires_in: 'int', status: \"Literal['pending']\" = 'pending', _get: 'Callable[[], Connection] | None' = None, _disconnect: 'Callable[[], Connection] | None' = None, _expires_at: 'float' = 0.0) -> None",
+          "authorize_url": "field",
+          "cancel": "method (self) -> 'Connection'",
+          "expired": "property",
+          "expires_in": "field",
+          "provider": "field",
+          "status": "field",
+          "wait": "method (self, *, poll_interval: 'float' = 0.5, timeout: 'float | None' = None) -> 'Connection'"
+        }
+      },
+      "OperationAccounting": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str | None', request_model: 'str | None', response_model: 'str | None', usage: 'Usage', provider_latency_ms: 'int | None', provider_attempts: 'int | None', cache: 'OperationCache') -> None",
+          "cache": "field",
+          "provider": "field",
+          "provider_attempts": "field",
+          "provider_latency_ms": "field",
+          "request_model": "field",
+          "response_model": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "usage": "field"
+        }
+      },
+      "OperationCache": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, hits: 'int', misses: 'int', bypasses: 'int', unknown: 'int') -> None",
+          "bypasses": "field",
+          "hits": "field",
+          "misses": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "unknown": "field"
+        }
+      },
+      "OperationInfo": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, id: 'str', kind: 'str', label: 'str', depends_on: 'Sequence[str]' = ()) -> 'None'",
+          "depends_on": "field",
+          "id": "field",
+          "kind": "field",
+          "label": "field"
+        }
+      },
+      "Pipeline": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, stages: 'Sequence[str | Recipe]', *, name: 'str | None' = None) -> 'None'",
+          "name": "field",
+          "stages": "field",
+          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+        }
+      },
+      "PlanningError": {
+        "catches_as": [
+          "ScreamingFaceError",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, trace_id: 'str | None' = None) -> 'None'",
+          "retryable": "property",
+          "user_message": "property"
+        }
+      },
+      "ProviderConnectionError": {
+        "catches_as": [
+          "ScreamingFaceError",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, message: 'str', *, provider: 'str | None' = None, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None) -> 'None'",
+          "retryable": "property",
+          "user_message": "property"
+        }
+      },
+      "Recipe": {
+        "kind": "class",
+        "members": {
+          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+        }
+      },
+      "Report": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]') -> 'None'",
+          "benchmark": "field",
+          "candidates": "field",
+          "case_count": "field",
+          "completed_at": "property",
+          "duration_ms": "property",
+          "export": "method (self, path: 'str | PathLike[str]' = 'report.json') -> 'Path'",
+          "failures": "property",
+          "ok": "property",
+          "started_at": "property",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self) -> 'str'",
+          "usage": "property"
+        }
+      },
+      "ScreamingFaceError": {
+        "catches_as": [
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, trace_id: 'str | None' = None) -> 'None'",
+          "retryable": "property",
+          "user_message": "property"
+        }
+      },
+      "SelfCorrective": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, model: 'str | Recipe', *, max_rounds: 'int' = 3, name: 'str | None' = None) -> 'None'",
+          "max_rounds": "field",
+          "member": "field",
+          "name": "field",
+          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+        }
+      },
+      "Url4": {
+        "kind": "class",
+        "members": {
+          "to_python": "method (self) -> 'str'"
+        }
+      },
+      "Usage": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, input_tokens: 'int | None' = None, output_tokens: 'int | None' = None, cache_read_tokens: 'int | None' = None, cache_creation_tokens: 'int | None' = None, reasoning_tokens: 'int | None' = None, cost_usd: 'Decimal | str | None' = None) -> 'None'",
+          "cache_creation_tokens": "field",
+          "cache_read_tokens": "field",
+          "cost_usd": "field",
+          "input_tokens": "field",
+          "output_tokens": "field",
+          "reasoning_tokens": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "__version__": {
+        "kind": "value",
+        "type": "str"
+      },
+      "benchmarks": {
+        "kind": "module",
+        "module": "screamingface.benchmarks"
+      },
+      "close": {
+        "kind": "function",
+        "signature": "() -> 'None'"
+      },
+      "configure": {
+        "kind": "function",
+        "signature": "(*, engine_url: 'str' = 'https://fusion.dev.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.dev.screamingface.ai') -> 'Client'"
+      },
+      "connect": {
+        "kind": "function",
+        "signature": "(provider: 'str | None' = None, *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | ConnectionPanel | OAuthFlow'"
+      },
+      "connections": {
+        "kind": "module",
+        "module": "screamingface.connections"
+      },
+      "disconnect": {
+        "kind": "function",
+        "signature": "(provider: 'str') -> 'Connection'"
+      },
+      "evaluate": {
+        "kind": "function",
+        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None) -> 'Report'"
+      },
+      "events": {
+        "kind": "module",
+        "module": "screamingface.events"
+      },
+      "leaderboards": {
+        "kind": "module",
+        "module": "screamingface.leaderboards"
+      },
+      "models": {
+        "kind": "module",
+        "module": "screamingface.models"
+      }
+    }
+  },
+  "screamingface.benchmarks": {
+    "__all__": [
+      "get",
+      "list"
+    ],
+    "exports": {
+      "get": {
+        "kind": "function",
+        "signature": "(benchmark_id: 'str') -> 'Benchmark'"
+      },
+      "list": {
+        "kind": "function",
+        "signature": "() -> 'Sequence[Benchmark]'"
+      }
+    }
+  },
+  "screamingface.connections": {
+    "__all__": [
+      "AsyncOAuthFlow",
+      "Connection",
+      "ConnectionStatus",
+      "OAuthFlow",
+      "get",
+      "list"
+    ],
+    "exports": {
+      "AsyncOAuthFlow": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str', authorize_url: 'str', expires_in: 'int', status: \"Literal['pending']\" = 'pending', _get: 'Callable[[], Awaitable[Connection]] | None' = None, _disconnect: 'Callable[[], Awaitable[Connection]] | None' = None, _expires_at: 'float' = 0.0) -> None",
+          "authorize_url": "field",
+          "cancel": "method (self) -> 'Connection'",
+          "expired": "property",
+          "expires_in": "field",
+          "provider": "field",
+          "status": "field",
+          "wait": "method (self, *, poll_interval: 'float' = 0.5, timeout: 'float | None' = None) -> 'Connection'"
+        }
+      },
+      "Connection": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str', display_name: 'str', auth_methods: 'tuple[AuthMethod, ...]', status: 'ConnectionStatus', auth_method: 'AuthMethod | None', account_label: 'str | None') -> None",
+          "account_label": "field",
+          "auth_method": "field",
+          "auth_methods": "field",
+          "display_name": "field",
+          "provider": "field",
+          "status": "field"
+        }
+      },
+      "ConnectionStatus": {
+        "kind": "type alias",
+        "value": "typing.Literal['not_connected', 'pending', 'connected', 'needs_reauth', 'error']"
+      },
+      "OAuthFlow": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str', authorize_url: 'str', expires_in: 'int', status: \"Literal['pending']\" = 'pending', _get: 'Callable[[], Connection] | None' = None, _disconnect: 'Callable[[], Connection] | None' = None, _expires_at: 'float' = 0.0) -> None",
+          "authorize_url": "field",
+          "cancel": "method (self) -> 'Connection'",
+          "expired": "property",
+          "expires_in": "field",
+          "provider": "field",
+          "status": "field",
+          "wait": "method (self, *, poll_interval: 'float' = 0.5, timeout: 'float | None' = None) -> 'Connection'"
+        }
+      },
+      "get": {
+        "kind": "function",
+        "signature": "(provider: 'str') -> 'Connection'"
+      },
+      "list": {
+        "kind": "function",
+        "signature": "() -> 'tuple[Connection, ...]'"
+      }
+    }
+  },
+  "screamingface.events": {
+    "__all__": [
+      "Event",
+      "Log",
+      "Span",
+      "Started",
+      "Terminated",
+      "TerminationError",
+      "Usage"
+    ],
+    "exports": {
+      "Event": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', run_id: 'str', sequence: 'int', timestamp: 'datetime', source: 'str', traceparent: 'str | None' = None, tracestate: 'str | None' = None) -> None",
+          "id": "field",
+          "kind": "attribute",
+          "run_id": "field",
+          "sequence": "field",
+          "source": "field",
+          "timestamp": "field",
+          "traceparent": "field",
+          "tracestate": "field"
+        }
+      },
+      "Log": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, id: 'str', run_id: 'str', sequence: 'int', timestamp: 'datetime', source: 'str', severity_number: 'int', severity_text: 'Severity', body: 'str', attributes: 'Mapping[str, str | int | float | bool | None]' = mappingproxy({}), traceparent: 'str | None' = None, tracestate: 'str | None' = None) -> 'None'",
+          "attributes": "property",
+          "body": "field",
+          "id": "field",
+          "kind": "attribute",
+          "run_id": "field",
+          "sequence": "field",
+          "severity_number": "field",
+          "severity_text": "field",
+          "source": "field",
+          "timestamp": "field",
+          "traceparent": "field",
+          "tracestate": "field"
+        }
+      },
+      "Span": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', run_id: 'str', sequence: 'int', timestamp: 'datetime', source: 'str', traceparent: 'str | None' = None, tracestate: 'str | None' = None, name: 'str' = '', operation: 'str' = '', start: 'datetime | None' = None, end: 'datetime | None' = None, status: 'SpanStatus' = 'ok', span_kind: 'SpanKind' = 'internal', provider: 'str | None' = None, request_model: 'str | None' = None, response_model: 'str | None' = None, input_tokens: 'int | None' = None, output_tokens: 'int | None' = None, finish_reasons: 'tuple[str, ...]' = (), refusal: 'str | None' = None, cache_status: 'CacheStatus | None' = None, cache_reason: 'str | None' = None) -> None",
+          "cache_reason": "field",
+          "cache_status": "field",
+          "end": "field",
+          "finish_reasons": "field",
+          "id": "field",
+          "input_tokens": "field",
+          "kind": "attribute",
+          "name": "field",
+          "operation": "field",
+          "output_tokens": "field",
+          "provider": "field",
+          "refusal": "field",
+          "request_model": "field",
+          "response_model": "field",
+          "run_id": "field",
+          "sequence": "field",
+          "source": "field",
+          "span_kind": "field",
+          "start": "field",
+          "status": "field",
+          "timestamp": "field",
+          "traceparent": "field",
+          "tracestate": "field"
+        }
+      },
+      "Started": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', run_id: 'str', sequence: 'int', timestamp: 'datetime', source: 'str', traceparent: 'str | None' = None, tracestate: 'str | None' = None, url4: 'str' = '') -> None",
+          "id": "field",
+          "kind": "attribute",
+          "run_id": "field",
+          "sequence": "field",
+          "source": "field",
+          "timestamp": "field",
+          "traceparent": "field",
+          "tracestate": "field",
+          "url4": "field"
+        }
+      },
+      "Terminated": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', run_id: 'str', sequence: 'int', timestamp: 'datetime', source: 'str', traceparent: 'str | None' = None, tracestate: 'str | None' = None, status: 'TerminationStatus' = 'succeeded', error: 'TerminationError | None' = None) -> None",
+          "error": "field",
+          "id": "field",
+          "kind": "attribute",
+          "run_id": "field",
+          "sequence": "field",
+          "source": "field",
+          "status": "field",
+          "timestamp": "field",
+          "traceparent": "field",
+          "tracestate": "field"
+        }
+      },
+      "TerminationError": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, code: 'str', message: 'str', permanent: 'bool' = False) -> None",
+          "code": "field",
+          "message": "field",
+          "permanent": "field"
+        }
+      },
+      "Usage": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', run_id: 'str', sequence: 'int', timestamp: 'datetime', source: 'str', traceparent: 'str | None' = None, tracestate: 'str | None' = None, scope: 'UsageScope' = 'self', provider: 'str' = '', model: 'str' = '', pricing_version: 'str' = '', usage: 'AccountingUsage' = <factory>) -> None",
+          "id": "field",
+          "kind": "attribute",
+          "model": "field",
+          "pricing_version": "field",
+          "provider": "field",
+          "run_id": "field",
+          "scope": "field",
+          "sequence": "field",
+          "source": "field",
+          "timestamp": "field",
+          "traceparent": "field",
+          "tracestate": "field",
+          "usage": "field"
+        }
+      }
+    }
+  },
+  "screamingface.leaderboards": {
+    "__all__": [
+      "get",
+      "get_score",
+      "list",
+      "submit"
+    ],
+    "exports": {
+      "get": {
+        "kind": "function",
+        "signature": "(benchmark_id: 'str', *, top: 'int' = 50) -> 'Leaderboard'"
+      },
+      "get_score": {
+        "kind": "function",
+        "signature": "(score_id: 'UUID | str') -> 'LeaderboardScore'"
+      },
+      "list": {
+        "kind": "function",
+        "signature": "() -> 'Sequence[LeaderboardInfo]'"
+      },
+      "submit": {
+        "kind": "function",
+        "signature": "(candidate_result: 'CandidateResult') -> 'LeaderboardScore'"
+      }
+    }
+  },
+  "screamingface.models": {
+    "__all__": [
+      "get",
+      "list"
+    ],
+    "exports": {
+      "get": {
+        "kind": "function",
+        "signature": "(model_id: 'str') -> 'ModelDetails'"
+      },
+      "list": {
+        "kind": "function",
+        "signature": "() -> 'Sequence[ModelInfo]'"
+      }
+    }
+  },
+  "screamingface.report": {
+    "__all__": [
+      "CandidateResult",
+      "CaseGrade",
+      "CaseResult",
+      "Check",
+      "Evidence",
+      "EvidenceProducer",
+      "Failure",
+      "MemberResult",
+      "OperationAccounting",
+      "OperationCache",
+      "OperationInfo",
+      "Report",
+      "Usage"
+    ],
+    "exports": {
+      "CandidateResult": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage') -> 'None'",
+          "benchmark": "field",
+          "cases": "field",
+          "completed_at": "field",
+          "coverage": "field",
+          "duration_ms": "property",
+          "failures": "field",
+          "kind": "field",
+          "members": "field",
+          "metrics": "property",
+          "models": "field",
+          "name": "field",
+          "operations": "field",
+          "run_id": "field",
+          "score": "field",
+          "started_at": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "url4": "field",
+          "usage": "field"
+        }
+      },
+      "CaseGrade": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, method: 'str', score: 'float | None', metrics: 'Mapping[str, object]', checks: 'Sequence[Check]') -> 'None'",
+          "checks": "field",
+          "method": "field",
+          "metrics": "property",
+          "score": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "CaseResult": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, case_id: 'CaseId', input: 'str', output: 'str | None', finish_reason: 'str | None', grade: 'CaseGrade | None', failures: 'Sequence[Failure]', metadata: 'Mapping[str, object]', status: 'CaseStatus | None' = None, refusal: 'str | None' = None, stop_reason: 'StopReason | None' = None, rounds_executed: 'int | None' = None, operations: 'Sequence[CaseOperation] | None' = None) -> 'None'",
+          "case_id": "field",
+          "conversation": "property",
+          "display_input": "property",
+          "failures": "field",
+          "finish_reason": "field",
+          "grade": "field",
+          "input": "field",
+          "metadata": "property",
+          "operations": "field",
+          "output": "field",
+          "prompt_preview": "property",
+          "refusal": "field",
+          "refusal_kind": "property",
+          "rounds_executed": "field",
+          "status": "field",
+          "stop_reason": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "Check": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, type: 'str', id: 'str', label: 'str', evidence: 'Sequence[Evidence]', metadata: 'Mapping[str, object] | None' = None, outcome: 'CheckOutcome | None' = None, score: 'float | None' = None) -> 'None'",
+          "evidence": "field",
+          "id": "field",
+          "label": "field",
+          "metadata": "property",
+          "outcome": "field",
+          "score": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "type": "field"
+        }
+      },
+      "Evidence": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, sequence: 'int', producer: 'EvidenceProducer', valid: 'bool', raw_output: 'object', outcome: 'EvidenceOutcome | None' = None, explanation: 'str | None' = None, metadata: 'Mapping[str, object] | None' = None, accounting: 'OperationAccounting | None' = None) -> 'None'",
+          "accounting": "field",
+          "explanation": "field",
+          "metadata": "property",
+          "outcome": "field",
+          "producer": "field",
+          "raw_output": "field",
+          "sequence": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "valid": "field"
+        }
+      },
+      "EvidenceProducer": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, type: 'str', id: 'str') -> None",
+          "id": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "type": "field"
+        }
+      },
+      "Failure": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, stage: 'FailureStage', code: 'str', message: 'str', retryable: 'bool | None' = None, operation_id: 'str | None' = None, case_id: 'CaseId | None' = None, metadata: 'Mapping[str, object] | None' = None) -> 'None'",
+          "case_id": "field",
+          "code": "field",
+          "message": "field",
+          "metadata": "field",
+          "operation_id": "field",
+          "retryable": "field",
+          "stage": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "MemberResult": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, operation_id: 'str', name: 'str', kind: 'RecipeKind', models: 'Sequence[str]', failures: 'Sequence[Failure] | None', duration_ms: 'int | None', usage: 'Usage | None') -> 'None'",
+          "duration_ms": "field",
+          "failures": "field",
+          "kind": "field",
+          "models": "field",
+          "name": "field",
+          "operation_id": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "usage": "field"
+        }
+      },
+      "OperationAccounting": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str | None', request_model: 'str | None', response_model: 'str | None', usage: 'Usage', provider_latency_ms: 'int | None', provider_attempts: 'int | None', cache: 'OperationCache') -> None",
+          "cache": "field",
+          "provider": "field",
+          "provider_attempts": "field",
+          "provider_latency_ms": "field",
+          "request_model": "field",
+          "response_model": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "usage": "field"
+        }
+      },
+      "OperationCache": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, hits: 'int', misses: 'int', bypasses: 'int', unknown: 'int') -> None",
+          "bypasses": "field",
+          "hits": "field",
+          "misses": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "unknown": "field"
+        }
+      },
+      "OperationInfo": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, id: 'str', kind: 'str', label: 'str', depends_on: 'Sequence[str]' = ()) -> 'None'",
+          "depends_on": "field",
+          "id": "field",
+          "kind": "field",
+          "label": "field"
+        }
+      },
+      "Report": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]') -> 'None'",
+          "benchmark": "field",
+          "candidates": "field",
+          "case_count": "field",
+          "completed_at": "property",
+          "duration_ms": "property",
+          "export": "method (self, path: 'str | PathLike[str]' = 'report.json') -> 'Path'",
+          "failures": "property",
+          "ok": "property",
+          "started_at": "property",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self) -> 'str'",
+          "usage": "property"
+        }
+      },
+      "Usage": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, input_tokens: 'int | None' = None, output_tokens: 'int | None' = None, cache_read_tokens: 'int | None' = None, cache_creation_tokens: 'int | None' = None, reasoning_tokens: 'int | None' = None, cost_usd: 'Decimal | str | None' = None) -> 'None'",
+          "cache_creation_tokens": "field",
+          "cache_read_tokens": "field",
+          "cost_usd": "field",
+          "input_tokens": "field",
+          "output_tokens": "field",
+          "reasoning_tokens": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      }
+    }
+  }
+}

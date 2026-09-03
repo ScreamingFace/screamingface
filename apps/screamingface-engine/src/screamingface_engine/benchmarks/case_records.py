@@ -55,8 +55,8 @@ def bind_case_record(
         ),
         "metadata": {key: value for key, value in row.items() if key not in {"id", "input"}},
     }
-    # INVARIANT: absence stays absence (OME-843) — a solo Candidate's record keeps its
-    # legacy shape; the key exists only when the Engine attributed member outputs.
+    # INVARIANT: absence stays absence (OME-843) — an unattributed Candidate keeps its
+    # legacy shape; the key exists only when the Engine attributed named model outputs.
     if candidate.operations is not None:
         record["operations"] = [
             operation.model_dump(by_alias=True) for operation in candidate.operations

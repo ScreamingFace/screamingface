@@ -184,6 +184,10 @@ window.ScorePortal = (function () {
     if (value === null || value === undefined || value === "") return EM_DASH;
     return String(value);
   }
+  function formatAuthors(values) {
+    if (!Array.isArray(values) || values.length === 0) return EM_DASH;
+    return values.map(String).join(", ");
+  }
   function formatCount(value, singular, plural) {
     var count = typeof value === "number" && !isNaN(value) ? value : 0;
     return count.toLocaleString(PORTAL_LOCALE) + " " + (count === 1 ? singular : plural);
@@ -255,21 +259,6 @@ window.ScorePortal = (function () {
   }
 
   /* ---- index page ------------------------------------------------------ */
-  // Site-root data files (published by the deploy workflow) open in the
-  // in-portal viewer instead of forcing a download — GitHub Pages serves
-  // .jsonl as application/octet-stream with no MIME override available.
-  function publishedDataFileName(href) {
-    try {
-      var u = new URL(href);
-      if (u.hostname !== "scoreboard.screamingface.ai") return null;
-      var m = u.pathname.match(/^\/([A-Za-z0-9][A-Za-z0-9._-]*\.jsonl)$/);
-      if (!m) return null;
-      return ["livetruth-latest.jsonl", "livetruth-masking.dataset.jsonl"].indexOf(m[1]) === -1 ? null : m[1];
-    } catch (e) {
-      return null;
-    }
-  }
-
   // "Subtitle" isn't an explicit field on Benchmark — using `description`
   // provisionally (flagged to Irina on OME-768; easy to swap if she says
   // otherwise, this is the one place it's read).
@@ -298,49 +287,10 @@ window.ScorePortal = (function () {
     var best = board && typeof board.best === "number" ? board.best : null;
     tr.appendChild(el("td", "num mono", best === null ? EM_DASH : formatScore(best)));
 
-    // dataset_url is API-provided/untrusted: only render it when it is a real
-    // http(s) URL, so a javascript:/data: scheme can never reach the href.
-    var datasetTd = el("td");
-    var datasetHref = httpUrlOrNull(b.dataset_url);
-    if (datasetHref) {
-      var viewerName = publishedDataFileName(datasetHref);
-      if (viewerName) {
-        datasetTd.appendChild(link("", "data.html?file=" + encodeURIComponent(viewerName), "Dataset"));
-      } else {
-        var dataset = link("", datasetHref, "Dataset");
-        dataset.setAttribute("rel", "noopener noreferrer nofollow");
-        datasetTd.appendChild(dataset);
-      }
-    } else {
-      datasetTd.textContent = EM_DASH;
-    }
-    tr.appendChild(datasetTd);
-
     var lbTd = el("td", "col-open");
     lbTd.appendChild(link("", "benchmark.html?id=" + encodeURIComponent(b.id), "Open →"));
     tr.appendChild(lbTd);
     return tr;
-  }
-
-  function formatDateOnly(value) {
-    if (!value) return EM_DASH;
-    var d = new Date(value);
-    if (isNaN(d.getTime())) return EM_DASH;
-    return d.toLocaleDateString(PORTAL_LOCALE, { year: "numeric", month: "short", day: "numeric" });
-  }
-
-  function updateIndexStats(benchmarks) {
-    var counts = {
-      "stat-benchmarks": String(benchmarks.length),
-      "stat-datasets": String(benchmarks.filter(function (b) { return httpUrlOrNull(b.dataset_url) !== null; }).length),
-      "stat-newest": formatDateOnly(
-        benchmarks.map(function (b) { return b.created_at; }).filter(Boolean).sort().pop()
-      ),
-    };
-    Object.keys(counts).forEach(function (id) {
-      var node = document.getElementById(id);
-      if (node) node.textContent = counts[id];
-    });
   }
 
   // D11: no aggregate "submission count" endpoint exists yet (OME-772). One
@@ -378,7 +328,6 @@ window.ScorePortal = (function () {
     fetchJson("/v1/benchmarks").then(
       function (data) {
         var benchmarks = (data && data.benchmarks) || [];
-        updateIndexStats(benchmarks);
         if (benchmarks.length === 0) {
           showEmpty(statusNode, "No public benchmarks yet. The API is live; rows will appear here as soon as benchmark specs are registered.");
           return;
@@ -426,6 +375,7 @@ window.ScorePortal = (function () {
     formatDate: formatDate,
     formatProviders: formatProviders,
     formatSubmitter: formatSubmitter,
+    formatAuthors: formatAuthors,
     formatCount: formatCount,
     createVerifiedBadge: createVerifiedBadge,
     createCopyButton: createCopyButton,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import builtins
 import json
 import re
 import threading
@@ -16,6 +15,7 @@ import httpx
 from nacl.exceptions import CryptoError
 from nacl.public import Box, PrivateKey, PublicKey
 
+from screamingface._environment import running_in_notebook as _running_in_notebook
 from screamingface.errors import AuthenticationError
 
 _MAX_TRANSFER_BYTES = 1_000_000
@@ -175,17 +175,6 @@ def _invalid_token() -> AuthenticationError:
         "Cloudflare Access returned an invalid or expired application token",
         code="access_invalid_token",
     )
-
-
-def _running_in_notebook() -> bool:
-    get_ipython = getattr(builtins, "get_ipython", None)
-    if not callable(get_ipython):
-        return False
-    try:
-        shell = get_ipython()
-    except Exception:  # pragma: no cover - defensive around a host-provided hook
-        return False
-    return shell is not None and shell.__class__.__module__.startswith("ipykernel")
 
 
 def _auth_error(

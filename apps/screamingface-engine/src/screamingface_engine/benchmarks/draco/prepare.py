@@ -39,7 +39,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.draco.definition import (
+    ASSET_BUNDLE_ID,
     CASE_COUNT,
     DATASET,
     DATASET_REVISION,
@@ -47,6 +49,7 @@ from screamingface_engine.benchmarks.draco.definition import (
     RETRIEVAL_POLICY_ID,
 )
 from screamingface_engine.benchmarks.draco.scoring import flatten_criteria
+from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 
 COLUMN_QUESTION = "problem"
 COLUMN_RUBRIC = "answer"
@@ -73,7 +76,7 @@ copy baked into the image. Add HOSTS; anything longer is a 400.
 """
 
 
-class PrepareError(RuntimeError):
+class PrepareError(BenchmarkAssetPreparationError):
     """The dataset could not be turned into a declared world."""
 
 
@@ -227,18 +230,32 @@ def write_policy(out: Path) -> Path:
     return path
 
 
+def _prepare(out: Path, limit: int | None) -> dict[str, Any]:
+    return build(
+        load_rows(limit),
+        out,
+        expected_count=CASE_COUNT if limit is None else limit,
+    )
+
+
+def prepare(out: Path) -> dict[str, Any]:
+    """Prepare the complete deployable DRACO asset bundle."""
+
+    return _prepare(out, None)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="draco-prepare", description=__doc__)
-    parser.add_argument("--out", type=Path, default=Path("/opt/benchmarks/draco"))
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_BENCHMARK_ASSETS_ROOT / ASSET_BUNDLE_ID,
+    )
     parser.add_argument("--limit", type=int, default=None, help="cap the case count (probes)")
     args = parser.parse_args(argv)
 
     try:
-        summary = build(
-            load_rows(args.limit),
-            args.out,
-            expected_count=CASE_COUNT if args.limit is None else args.limit,
-        )
+        summary = _prepare(args.out, args.limit)
     except PrepareError as exc:
         print(f"prepare failed: {exc}", file=sys.stderr)
         return 1

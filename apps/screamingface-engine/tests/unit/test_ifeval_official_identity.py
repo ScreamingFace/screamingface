@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.ifeval.aggregate import (
@@ -22,6 +23,7 @@ from screamingface_engine.benchmarks.ifeval.aggregate import (
     load_case_order,
 )
 from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
+from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.benchmarks.ifeval.prepare import (
     KNOWN_DIVERGENT_KEYS,
     PrepareError,
@@ -29,6 +31,26 @@ from screamingface_engine.benchmarks.ifeval.prepare import (
     official_rows,
     verify_against_official,
 )
+
+
+def test_the_ifeval_board_is_registered_under_its_id() -> None:
+    """INVARIANT: this board is PUBLIC — dropping it is a leaderboard regression.
+
+    The shared cross-benchmark tests iterate the registry, so a board deleted from
+    `builtins.py` stops being iterated and they all still pass (OME-1095). Membership is
+    pinned here, in the board's own module, where a new board costs one line.
+    """
+
+    assert BUILTIN_BENCHMARKS.get("ifeval") is IFEVAL
+
+
+def test_the_ifeval_board_publishes_no_dataset_link() -> None:
+    # WHY none: the dataset is vendored inside the Engine
+    # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is
+    # authoritative. The shared suite cannot express this — "which boards have a link" is a
+    # per-board editorial fact, so it is pinned beside the board that decides it.
+    assert IFEVAL.dataset_url is None
+    assert IFEVAL.focus
 
 
 def _official(key: int) -> dict[str, object]:

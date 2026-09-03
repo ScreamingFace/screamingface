@@ -632,3 +632,24 @@ def test_duplicate_member_display_names_do_not_fail_a_finished_run() -> None:
                 }
             }
         )
+
+
+def test_candidate_export_preserves_full_benchmark_size_beside_report_selection() -> None:
+    value = report(candidate("opus"))
+
+    payload = value.to_dict()
+
+    assert payload["benchmark"] == {
+        "id": "draco",
+        "revision": "fixture-revision",
+        "case_count": 2,
+    }
+    candidates = payload["candidates"]
+    assert isinstance(candidates, list)
+    candidate_payload = candidates[0]
+    assert isinstance(candidate_payload, dict)
+    assert candidate_payload["benchmark"] == {
+        "id": "draco",
+        "revision": "fixture-revision",
+        "case_count": 100,
+    }

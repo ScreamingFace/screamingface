@@ -51,6 +51,7 @@ from url4.streaming.protocol import (
 
 SECRET = "rest-cache-convergence-secret"
 WINDOW_S = 60
+LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 T0 = datetime(2026, 8, 5, 9, 0, 0, tzinfo=UTC)
 
 OPT_OUT = CachePolicy(participate=False)
@@ -158,7 +159,9 @@ def test_carriers_agreeing_on_participation_but_not_on_the_bound_still_conflict(
 
 
 def _token(topic: str) -> str:
-    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0)
+    return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(
+        topic, T0
+    )
 
 
 @pytest.fixture

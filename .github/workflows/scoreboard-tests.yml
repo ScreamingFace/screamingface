@@ -92,7 +92,7 @@ jobs:
       # results.xml/coverage.xml unwritten, so the two `if: always()` reporter steps
       # failed on missing paths and buried the real cause under three red steps.
       - name: Run portal JS tests
-        run: node --test tests/portal/leaderboard-logic.test.js
+        run: node --test tests/portal/leaderboard-logic.test.js tests/portal/pareto-chart.test.js tests/portal/pareto-chart-review.test.js
 
       - name: Test report
         uses: dorny/test-reporter@v3
@@ -116,6 +116,60 @@ jobs:
           coverageFile: apps/scoreboard/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           thresholdAll: 0.80
+
+  # WHY a separate job rather than an env var on `test`: setting
+  # SCOREBOARD_TEST_DATABASE_URL routes the shared `tortoise_db` fixture through
+  # `postgres_schema_database_url`, which calls `asyncio.run()` inside a running loop and
+  # errors out 260 tests before any body runs (OME-430). The modules below open their own
+  # connections and do not touch that fixture, so they are the part that can run today.
+  #
+  # AIDEV-NOTE: the modules are NAMED, deliberately — same reasoning as the portal JS step.
+  # `pytest tests/unit/scores/` would also drag the SQLite suite in here, and a glob that
+  # matches nothing exits 0, leaving this green while running none of it. A named file that
+  # has been renamed exits non-zero. `test_postgres_regressions_run_in_ci.py` asserts this
+  # list still covers every PostgreSQL module on disk (review of PR #719).
+  postgres:
+    name: PostgreSQL regressions
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/scoreboard
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: scoreboard
+          POSTGRES_PASSWORD: scoreboard
+          POSTGRES_DB: scoreboard_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run the PostgreSQL-only regressions
+        env:
+          SCOREBOARD_TEST_DATABASE_URL: postgres://scoreboard:scoreboard@localhost:5432/scoreboard_test
+        run: |
+          uv run pytest \
+            tests/unit/scores/test_idempotency_postgres.py \
+            tests/unit/scores/test_idempotency_postgres_safety.py \
+            -v
 
   cost:
     name: CI cost diff

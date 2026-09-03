@@ -34,6 +34,10 @@ from screamingface_engine.benchmarks.healthbench.exam import case_ids_sha, healt
 from screamingface_engine.benchmarks.healthbench.scoring import clipped_mean, unclipped_mean
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS, subset_sha
 
+# Both boards grade the same physician-written rubrics over the same public dataset; they
+# differ in which conversations they serve and how they average the per-case scores.
+HEALTHBENCH_DATASET_URL = "https://huggingface.co/datasets/openai/healthbench"
+
 # ── Board 1 — the worst-30% challenge ────────────────────────────────────────────────
 WORST30_EXAM, HEALTHBENCH_WORST30 = healthbench_benchmark(
     id="healthbench-worst30",
@@ -54,6 +58,8 @@ WORST30_EXAM, HEALTHBENCH_WORST30 = healthbench_benchmark(
     # worst-30% selection out of the dataset, so its fingerprint is taken over the
     # dataset's own stable row ids (subset.py).
     selection_sha=subset_sha(),
+    focus="Clinical safety, hardest cases",
+    dataset_url=HEALTHBENCH_DATASET_URL,
 )
 
 # ── Board 2 — the full professional exam ─────────────────────────────────────────────
@@ -82,6 +88,8 @@ PROFESSIONAL_EXAM, HEALTHBENCH_PROFESSIONAL = healthbench_benchmark(
     # WHY the Case ids, not dataset row ids: this board's selection IS "every position in
     # the baked file", so the id list is the honest fingerprint of what it serves.
     selection_sha=case_ids_sha(PROFESSIONAL_CASE_IDS),
+    focus="Clinical safety, full official exam",
+    dataset_url=HEALTHBENCH_DATASET_URL,
 )
 
 # AIDEV-NOTE: a board exposes exactly two names — the `Exam` (what the runtime installs:

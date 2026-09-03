@@ -70,7 +70,11 @@ def build_global_cache_plan(
     if not cache_enabled:
         return CacheBypass(BYPASS_DISABLED)
     try:
-        provider_participates = plugin.participates_in_global_cache()
+        # OME-884: the RAW requested model, and nothing else about the request. The gate
+        # order is deliberately UNCHANGED — this still runs ahead of the caller opt-out
+        # and ahead of the ``is_text`` shape check below, so the hook may be handed a
+        # non-string and must be total over it.
+        provider_participates = plugin.participates_in_global_cache(body.get("model"))
     except Exception:
         # Same argument as the rule-table and projection calls below: a provider hook
         # on this path costs a bypass, never the caller's request.
