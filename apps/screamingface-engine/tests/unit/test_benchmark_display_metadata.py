@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks import Benchmark, BenchmarkRegistry, candidate
-from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_DEPLOYMENT
 from screamingface_engine.config import Settings
 from screamingface_engine.testing import InMemoryEventStream
 
@@ -104,33 +104,53 @@ async def test_a_dataset_link_that_is_not_an_absolute_web_url_is_refused(referen
         _benchmark(dataset_url=reference)
 
 
-async def test_every_installed_benchmark_publishes_a_focus_line() -> None:
+@pytest.mark.parametrize(
+    "benchmark",
+    tuple(BUILTIN_BENCHMARKS),
+    ids=lambda benchmark: benchmark.id,
+)
+async def test_every_installed_benchmark_publishes_a_focus_line(benchmark: Benchmark) -> None:
     # STORY: the portal's "Focus" column is filled from the Engine, not hand-copied into a chart.
-    assert {benchmark.id: benchmark.focus for benchmark in BUILTIN_BENCHMARKS} == {
-        "draco": "Research reports with citations",
-        # Same dataset and subject as the canonical board — the judge-pass count is the only
-        # thing that separates them, so that is what a reader needs in the Focus column.
-        "draco-3pass": "Research reports, three judge passes",
-        "gdpval-text": "Real professional work, prose deliverables",
-        # The two HealthBench boards share a dataset, so their focus lines have to separate
-        # them at a glance — that is the only place a reader sees the difference.
-        "healthbench-professional": "Clinical safety, full official exam",
-        "healthbench-worst30": "Clinical safety, hardest cases",
-        "ifeval": "Instruction following",
-    }
+    # WHY not a table of the exact lines (OME-1095): the wording is authored in the board's own
+    # definition module and reviewed in that diff; a second copy here would only have to be
+    # edited by hand for every new board. What the shared suite owns is that the column is
+    # never empty for a registered board.
+    assert benchmark.focus
 
 
-async def test_only_the_benchmarks_with_a_public_dataset_publish_a_link() -> None:
-    # WHY IFEval has none: its dataset is vendored inside the Engine
-    # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
-    assert {benchmark.id: benchmark.dataset_url for benchmark in BUILTIN_BENCHMARKS} == {
-        "draco": "https://huggingface.co/datasets/perplexity-ai/draco",
-        "draco-3pass": "https://huggingface.co/datasets/perplexity-ai/draco",
-        "gdpval-text": "https://huggingface.co/datasets/openai/gdpval",
-        "healthbench-professional": "https://huggingface.co/datasets/openai/healthbench",
-        "healthbench-worst30": "https://huggingface.co/datasets/openai/healthbench",
-        "ifeval": None,
-    }
+async def test_no_two_boards_are_published_under_the_same_focus_line() -> None:
+    """INVARIANT: the Focus column is where a reader tells two boards over one dataset apart.
+
+    The two HealthBench boards share a dataset and the two DRACO boards share cases, rubrics
+    and dataset alike — the focus line is the only place the leaderboard shows the difference.
+    Two boards sharing one line leaves a reader with two indistinguishable rows.
+    """
+
+    lines = [benchmark.focus for benchmark in BUILTIN_BENCHMARKS]
+
+    assert len(set(lines)) == len(lines), f"duplicate focus lines across boards: {lines}"
+
+
+async def test_boards_baked_from_one_asset_bundle_publish_one_dataset_link() -> None:
+    """INVARIANT: one physical dataset, one published link — derived, not hand-listed.
+
+    A board's dataset link is a fact about the assets it reads, and boards that share an
+    asset bundle read the same baked files. Two links under one bundle means at least one
+    board sends a reader to a dataset it was not built from.
+
+    WHY nothing here asserts which boards have a link at all: that is a per-board editorial
+    fact (IFEval publishes none because its dataset is vendored inside the Engine, so no
+    public URL is authoritative), owned by the board's definition module.
+    """
+
+    published: dict[str, set[str | None]] = {}
+    for registration in BUILTIN_DEPLOYMENT.registrations:
+        published.setdefault(registration.asset_bundle.id, set()).add(
+            registration.benchmark.dataset_url
+        )
+
+    conflicting = {bundle: links for bundle, links in published.items() if len(links) > 1}
+    assert not conflicting, f"one asset bundle, more than one dataset link: {conflicting}"
 
 
 async def test_the_catalog_publishes_the_computed_revision_untouched_by_display_metadata() -> None:

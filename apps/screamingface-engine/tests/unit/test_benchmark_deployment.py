@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+from dataclasses import replace
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -29,6 +32,7 @@ from screamingface_engine.benchmarks.healthbench.prepare import (
 from screamingface_engine.benchmarks.ifeval.prepare import PrepareError as IFEvalPrepareError
 from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 from url4 import Text
+from url4.peer.server import Url4Node
 
 # WHY resolved + checked: the workflow guard reads a file OUTSIDE this app. In a standalone
 # engine checkout the monorepo siblings are simply absent, and a guard that cannot see its
@@ -192,21 +196,90 @@ def test_asset_bundle_ids_are_safe_directory_names(bundle_id: str) -> None:
         BenchmarkAssetBundle(id=bundle_id, prepare=lambda _out: {})
 
 
-def test_builtins_are_registered_with_their_physical_asset_bundles() -> None:
-    registrations = {
-        registration.benchmark.id: registration.asset_bundle.id
-        for registration in BUILTIN_DEPLOYMENT.registrations
-    }
-
+def test_the_runtime_registry_is_the_deployments_own_registrations() -> None:
     assert BUILTIN_DEPLOYMENT.benchmarks is BUILTIN_BENCHMARKS
-    assert registrations == {
-        "draco": "draco",
-        "draco-3pass": "draco",
-        "gdpval-text": "gdpval",
-        "ifeval": "ifeval",
-        "healthbench-worst30": "healthbench",
-        "healthbench-professional": "healthbench",
-    }
+
+
+def _installer_bundle_id(registration: BenchmarkRegistration) -> str | None:
+    """The bundle directory the board's OWN installer reads, or None when it declares none.
+
+    A board's installer is defined in its family module beside that family's
+    ``ASSET_BUNDLE_ID`` constant, and reads ``assets_root / ASSET_BUNDLE_ID`` — see
+    ``benchmarks/gdpval/exam.py``. So the constant exported next to the installer is the
+    directory the board actually opens at runtime, read here from the board itself rather
+    than from a second list.
+    """
+
+    module = sys.modules.get(registration.benchmark.install.__module__)
+    return getattr(module, "ASSET_BUNDLE_ID", None)
+
+
+def _family_package(registration: BenchmarkRegistration) -> str:
+    """The family package a board's installer lives in — ``...benchmarks.<family>.<module>``."""
+
+    return registration.benchmark.install.__module__.split(".")[-2]
+
+
+@pytest.mark.parametrize(
+    "registration",
+    BUILTIN_DEPLOYMENT.registrations,
+    ids=lambda registration: registration.benchmark.id,
+)
+def test_every_board_is_registered_against_the_bundle_its_installer_reads(
+    registration: BenchmarkRegistration,
+) -> None:
+    """INVARIANT: the deployment bakes the directory the board goes on to open.
+
+    WHY derived rather than a hand-written board->bundle map (OME-1095): the map had to be
+    edited for every new board, and it could only ever restate what the registration already
+    says. Registering a board against another family's bundle bakes one directory and reads
+    another — the board's assets are simply absent at runtime — and that is what this catches
+    for a board nobody has written yet.
+    """
+
+    declared = _installer_bundle_id(registration)
+
+    assert declared is not None, (
+        f"{registration.benchmark.id} installs from "
+        f"{registration.benchmark.install.__module__}, which exports no ASSET_BUNDLE_ID; "
+        "a board must name the asset directory it reads next to the installer that reads it"
+    )
+    assert declared == registration.asset_bundle.id, (
+        f"{registration.benchmark.id} is registered against bundle "
+        f"{registration.asset_bundle.id!r} but its installer reads {declared!r}"
+    )
+
+
+def test_the_bundle_provenance_check_covers_a_board_the_registry_has_never_seen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deletion test, made measurable: the check is a pure function of a registration.
+
+    A throwaway board declared here — never added to ``BUILTIN_DEPLOYMENT`` — is checked by
+    the same function the built-ins go through, which is what "a seventh board extends the
+    suite by existing" means in practice.
+    """
+
+    family = ModuleType("screamingface_engine.benchmarks.throwaway.exam")
+    family.ASSET_BUNDLE_ID = "throwaway"  # type: ignore[attr-defined]
+
+    def install(_node: Url4Node, _assets: Path) -> None:
+        """The board's installer, defined in its family module beside the constant above."""
+
+    install.__module__ = family.__name__
+    monkeypatch.setitem(sys.modules, family.__name__, family)
+    bundle = BenchmarkAssetBundle(id="throwaway", prepare=lambda _out: {})
+    board = replace(_benchmark("throwaway-text"), install=install)
+
+    matched = BenchmarkRegistration(board, asset_bundle=bundle)
+    assert _installer_bundle_id(matched) == matched.asset_bundle.id
+    assert _family_package(matched) == "throwaway"
+
+    borrowed = BenchmarkRegistration(
+        board,
+        asset_bundle=BenchmarkAssetBundle(id="someone-elses", prepare=lambda _out: {}),
+    )
+    assert _installer_bundle_id(borrowed) != borrowed.asset_bundle.id
 
 
 def test_benchmark_image_invokes_only_the_registered_asset_orchestrator() -> None:
@@ -289,9 +362,17 @@ def test_the_family_guard_does_not_flag_the_orchestrator_itself() -> None:
 
 
 def test_the_family_guard_covers_every_family_preparer_package() -> None:
-    """WHY: a guard derived from a mistyped path would match nothing and pass in silence."""
+    """WHY: a guard derived from a mistyped path would match nothing and pass in silence.
 
-    assert set(FAMILY_PACKAGES) == {"draco", "gdpval", "healthbench", "ifeval"}
+    Both sides are derived (OME-1095): the families found on disk must be exactly the
+    families the registered boards install from, so a preparer package nobody deploys — or a
+    deployed family whose preparer vanished — fails here instead of going unguarded.
+    """
+
+    assert FAMILY_PACKAGES
+    assert set(FAMILY_PACKAGES) == {
+        _family_package(registration) for registration in BUILTIN_DEPLOYMENT.registrations
+    }
     for family in FAMILY_PACKAGES:
         assert _FAMILY_PREPARER.search(f"-m screamingface_engine.benchmarks.{family}.prepare")
 
