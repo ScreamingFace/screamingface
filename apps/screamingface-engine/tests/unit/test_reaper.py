@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.adapters.queue_runner import QueueJobRunner
 from screamingface_engine.reaper import RunReaper
 
@@ -44,12 +45,20 @@ class _FakeAudience:
 class _FakeRunner:
     """Records stop calls; `live` is the set of topics `exists` answers True for."""
 
-    def __init__(self, live: set[str] | None = None, fail_on: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        live: set[str] | None = None,
+        fail_on: set[str] | None = None,
+        fail_exists_on: set[str] | None = None,
+    ) -> None:
         self.live = live if live is not None else set()
         self.fail_on = fail_on if fail_on is not None else set()
+        self.fail_exists_on = fail_exists_on if fail_exists_on is not None else set()
         self.stopped: list[str] = []
 
     async def exists(self, topic: str) -> bool:
+        if topic in self.fail_exists_on:
+            raise QueueReadError("stream tail unreadable")
         return topic in self.live
 
     async def stop(self, topic: str) -> None:
@@ -357,3 +366,28 @@ async def test_armed_implies_no_subscriber_across_a_scripted_sequence() -> None:
                 assert not await audience.has_subscriber(topic), (
                     f"{topic} is armed while its audience is present"
                 )
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_exists_rearms_rather_than_forgetting_the_topic() -> None:
+    """P2-10: `_reap` popped the deadline BEFORE the `exists` guard, and the guard was not
+    wrapped — one transient read failure aborted the sweep with the topic already claimed
+    (disarmed) and nothing left to re-arm it: the orphan was silently forgotten and ran
+    to the 16h ceiling, the exact spend the reaper exists to prevent. A guard failure now
+    re-arms like a failed stop."""
+    clock, audience = _FakeClock(), _FakeAudience()
+    runner = _FakeRunner(live={"t"}, fail_exists_on={"t"})
+    reaper = _reaper(clock, audience, runner)
+
+    reaper.audience_left("t")
+    clock.advance(GRACE)
+
+    assert await reaper.sweep() == ()
+    assert reaper.armed_count == 1  # re-armed, not forgotten
+    assert runner.stopped == []
+
+    runner.fail_exists_on.clear()
+    clock.advance(reaper.tick_s)
+
+    assert await reaper.sweep() == ("t",)
+    assert runner.stopped == ["t"]

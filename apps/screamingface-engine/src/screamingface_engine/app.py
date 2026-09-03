@@ -311,7 +311,7 @@ def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:
         return
     from screamingface_engine.adapters.max_deliveries import MaxDeliveriesAdvisor
 
-    advisor = MaxDeliveriesAdvisor(settings.nats_url)
+    advisor = MaxDeliveriesAdvisor(settings.nats_url, run_queue_stream=settings.run_queue_stream)
     app.state.max_deliveries_advisor = advisor
 
     async def _start() -> None:

@@ -112,13 +112,24 @@ def build_job_runner(
         return QueueJobRunner(
             queue=RunQueue(
                 settings.nats_url,
+                # The stream and subject-prefix follow the CONFIGURED settings (review
+                # follow-up P2-2): the App publishes to the same stream and buckets the
+                # worker pulls, so a renamed queue must not split the two sides (a stream
+                # name mismatch makes every admission fail loudly; a prefix mismatch
+                # publishes where no worker listens). `run_worker` passes the same
+                # settings, so the sides agree for any Settings.
+                stream=settings.run_queue_stream,
                 ack_wait_s=settings.run_queue_ack_wait_s,
                 max_deliver=settings.run_queue_max_deliver,
                 max_ack_pending=settings.run_queue_max_ack_pending,
                 duplicate_window_s=settings.run_queue_duplicate_window_s,
                 max_age_s=settings.run_queue_max_age_s,
             ),
-            publisher=JetStreamPublisher(settings.nats_url),
+            # The publisher's sweep must exclude the CONFIGURED queue stream (review
+            # follow-up P2-3) — the same rule `run_worker` already applied.
+            publisher=JetStreamPublisher(
+                settings.nats_url, run_queue_stream=settings.run_queue_stream
+            ),
             control=ControlClient(settings.nats_url),
             clock=lambda: datetime.now(UTC),
             capability_lifetime_s=settings.capability_lifetime_s,

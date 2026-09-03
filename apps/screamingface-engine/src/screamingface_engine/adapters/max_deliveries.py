@@ -29,6 +29,7 @@ from nats.aio.client import Client
 
 from screamingface_engine.adapters.jetstream import JetStreamPublisher, QueueReadError
 from screamingface_engine.runner_queue import topic_of_message
+from screamingface_engine.subjects import RUN_QUEUE_STREAM
 from url4.streaming.protocol import (
     ErrorInfo,
     TerminatedData,
@@ -38,12 +39,24 @@ from url4.streaming.protocol import (
 
 logger = logging.getLogger(__name__)
 
-# The advisory subject for the run queue's durable consumer. The stream and consumer names
-# are the queue's own constants restated here — an advisory subject is a broker-side
-# convention, not a subject we derive, so it is spelled out rather than built.
-MAX_DELIVERIES_ADVISORY_SUBJECT = (
-    "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.url4-runq.url4-runners"
-)
+
+def advisory_subject_for(stream: str) -> str:
+    """The max-deliveries advisory subject for one queue stream's durable consumers.
+
+    Advisories are broker-published on ``$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.
+    <stream>.<consumer>``, so the stream token follows the CONFIGURED queue name — a
+    subscription built on a hardcoded stream matches nothing the moment an operator
+    renames the queue, and every run the queue gives up on ends without a terminal
+    frame (review follow-up P2-4).
+    """
+    return f"$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.{stream}.*"
+
+
+# The advisor's default subject: the default queue stream. The stream token is wildcarded
+# for the CONSUMER — a consumer is `url4-runners-<bucket>`, ONE token (dashes are not NATS
+# separators), so `.*` matches it while `.url4-runners.*` would demand a second token and
+# match nothing.
+MAX_DELIVERIES_ADVISORY_SUBJECT = advisory_subject_for(RUN_QUEUE_STREAM)
 # The named failure code on the frame the advisor publishes: the queue gave up on the run.
 MAX_DELIVERIES = "max_deliveries"
 # How long the subscription loop waits before retrying after a connection failure.
@@ -78,15 +91,29 @@ class MaxDeliveriesAdvisor:
         self,
         nats_url: str,
         *,
+        run_queue_stream: str = RUN_QUEUE_STREAM,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._url = nats_url
+        self._run_queue_stream = run_queue_stream
+        # The advisory subject follows the CONFIGURED stream name (review follow-up P2-4):
+        # a renamed queue publishes advisories on a different subject, and a subscription
+        # on the default would silently stop hearing every max-deliveries event.
+        self._subject = advisory_subject_for(run_queue_stream)
         self._clock = clock if clock is not None else (lambda: datetime.now(UTC))
         self._nc: Client | None = None
         self._publisher: JetStreamPublisher | None = None
 
     async def run(self) -> None:
-        """Serve the advisory subscription for the process's lifetime, retrying failures."""
+        """Serve the advisory subscription for the process's lifetime, retrying failures.
+
+        WHY close and sleep on EVERY iteration (review follow-up P2-5): a dropped
+        subscription ends its `async for` NORMALLY — `_serve` returns without raising —
+        so a closed connection is only distinguishable from a healthy long-running one by
+        the fact that `_serve` returned. Retrying without closing leaked the previous
+        publisher's own lazy NATS connection, and without sleeping, a subscription that
+        died immediately reconnected in a hot loop.
+        """
         while True:
             try:
                 await self._serve()
@@ -97,16 +124,19 @@ class MaxDeliveriesAdvisor:
                     "max-deliveries advisory subscription failed; retrying in %.0fs",
                     RETRY_DELAY_S,
                 )
+            finally:
+                # Runs on the normal-return (disconnect) path too, so the nc/publisher
+                # pair of a dead iteration is always closed before the next connects.
                 await self.aclose()
-                await asyncio.sleep(RETRY_DELAY_S)
+            await asyncio.sleep(RETRY_DELAY_S)
 
     async def _serve(self) -> None:
         """Connect, subscribe, and forward every advisory to `_handle`."""
         nc = await nats.connect(self._url)
         self._nc = nc
-        publisher = JetStreamPublisher(self._url)
+        publisher = JetStreamPublisher(self._url, run_queue_stream=self._run_queue_stream)
         self._publisher = publisher
-        sub = await nc.subscribe(MAX_DELIVERIES_ADVISORY_SUBJECT)
+        sub = await nc.subscribe(self._subject)
         async for msg in sub.messages:
             await self._handle(publisher, msg.data)
 
@@ -138,9 +168,7 @@ class MaxDeliveriesAdvisor:
         try:
             last = await publisher.last_frame(topic)
         except QueueReadError:
-            logger.warning(
-                "max-deliveries advisory for %s skipped: stream tail unreadable", topic
-            )
+            logger.warning("max-deliveries advisory for %s skipped: stream tail unreadable", topic)
             return
         if isinstance(last, TerminatedEvent):
             return
@@ -178,5 +206,6 @@ __all__ = [
     "MAX_DELIVERIES_ADVISORY_SUBJECT",
     "MaxDeliveriesAdvisor",
     "RETRY_DELAY_S",
+    "advisory_subject_for",
     "topic_of_advisory",
 ]

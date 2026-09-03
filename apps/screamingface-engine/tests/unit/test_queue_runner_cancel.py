@@ -19,7 +19,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from nats.errors import NoRespondersError
 
 from screamingface_engine.adapters.queue_runner import QueueJobRunner
@@ -337,3 +336,22 @@ async def test_a_run_completing_inside_the_ask_window_keeps_its_real_outcome() -
 
     assert publisher.published == [], "a run that succeeded needs no second terminal frame"
     assert await runner.status("t-midask") == "succeeded"
+
+
+async def test_an_unreadable_tail_makes_stop_a_no_op_not_a_500() -> None:
+    """P2-10: `stop()`'s tail reads were unguarded — a `QueueReadError` surfaced as a 500
+    on `DELETE /`. An unreadable tail is UNKNOWN, not a state: stop returns without a
+    tombstone and without a control ask (no state change), and a retried DELETE once the
+    broker is readable reaches the truth."""
+    from screamingface_engine.adapters.jetstream import QueueReadError
+
+    class _UnreadablePublisher(_FakePublisher):
+        async def last_frame(self, topic: str) -> Any:
+            raise QueueReadError("stream tail unreadable")
+
+    control = _FakeControl()
+    runner = _runner(_UnreadablePublisher(), control)
+
+    await runner.stop("t-unreadable")  # must not raise
+
+    assert control.requested == [], "an unknown tail must not even reach the control ask"

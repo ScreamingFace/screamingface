@@ -42,6 +42,7 @@ from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.errors import NoRespondersError
 
+from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.runner_queue import DEFAULT_IO_CONCURRENCY, encode_message
 from screamingface_engine.subjects import control_subject_for
@@ -65,6 +66,12 @@ CANCELLED = "cancelled"
 # running here". The worker's reply is a local NATS round trip; a second is far beyond it
 # and far below the client's patience for a DELETE.
 CONTROL_TIMEOUT_S = 1.0
+
+# The sentinel `_read_tail` returns for an UNREADABLE stream tail — distinct from "no
+# frame" and from "a terminal frame", because an unreadable broker answers neither
+# question. Every caller treats it as UNKNOWN: no tombstone, no state change (review
+# follow-up P2-10).
+_UNREADABLE_TAIL = object()
 
 
 class _Queue(Protocol):
@@ -244,24 +251,58 @@ class QueueJobRunner(IdentityAwareJobRunner):
         (success landing between the re-read and the publish) is two broker round trips
         wide, and the confirmation ask below still reaches a live worker, whose own
         publish is suppressed by `_publish_if_needed`'s re-read.
+
+        WHY the tail reads are GUARDED (review follow-up P2-10): an unreadable tail is
+        UNKNOWN — neither terminal nor missing — so answering either way would stop a run
+        that might be running or fail to stop one that needs stopping. On a
+        `QueueReadError` the stop degrades to a no-op (no tombstone, no control ask), and
+        retrying the DELETE once the broker is readable reaches the truth.
         """
-        frame = await self._publisher.last_frame(topic)
-        if isinstance(frame, TerminatedEvent):
+        frame = await self._read_tail(topic)
+        if frame is _UNREADABLE_TAIL or isinstance(frame, TerminatedEvent):
             return
         if await self._request_control(topic):
             return
-        # The ask's window is where a run can finish: re-read the tail BEFORE writing the
-        # marker, and a run that completed during the ask keeps its real outcome.
-        frame = await self._publisher.last_frame(topic)
-        if isinstance(frame, TerminatedEvent):
-            return
+        # The ask's window is where a run can finish — and where the tail can become
+        # unreadable. Either way the marker is not written: a run that finished during the
+        # ask keeps its real outcome, and an unknown tail is never trusted with a state
+        # change.
+        if await self._tombstone_queued_run(topic):
+            # The confirmation pass: a worker that claimed between the first ask and the
+            # tombstone answers THIS ask (registration precedes spawn), enacts the cancel,
+            # and skips its own terminal frame — the tombstone is the one frame either way.
+            await self._request_control(topic)
+
+    async def _tombstone_queued_run(self, topic: str) -> bool:
+        """Write the queued-cancel marker unless the run finished (or vanished, or went
+        unreadable) in the ask window; True when a marker was written.
+
+        The re-read is the overwrite guard: the first read is one control-timeout old by
+        now, and a run that completed during the ask must keep its real outcome.
+        """
+        frame = await self._read_tail(topic)
+        if frame is _UNREADABLE_TAIL or isinstance(frame, TerminatedEvent):
+            return False
         if frame is None and not await self._publisher.stream_exists(topic):
-            return
+            return False
         await self._publish_tombstone(topic)
-        # The confirmation pass: a worker that claimed between the first ask and the
-        # tombstone answers THIS ask (registration precedes spawn), enacts the cancel,
-        # and skips its own terminal frame — the tombstone is the one frame either way.
-        await self._request_control(topic)
+        return True
+
+    async def _read_tail(self, topic: str) -> TerminatedEvent | None | object:
+        """The run's stream tail, or the `_UNREADABLE_TAIL` sentinel when the broker
+        cannot be read.
+
+        WHY a sentinel and not a raise (review follow-up P2-10): `JetStreamPublisher.
+        last_frame` translates a transport-level read failure to `QueueReadError` so the
+        caller can distinguish "no frame" from "could not read" — the two have opposite
+        meanings for every terminal-frame decision. Every App-side caller (stop, status,
+        the reaper through them) treats the sentinel as UNKNOWN and takes no action.
+        """
+        try:
+            return await self._publisher.last_frame(topic)
+        except QueueReadError:
+            logger.warning("stream tail unreadable for %s; treating as unknown", topic)
+            return _UNREADABLE_TAIL
 
     async def exists(self, topic: str) -> bool:
         """Whether a run is live: scheduled (queued) or running.
@@ -283,11 +324,16 @@ class QueueJobRunner(IdentityAwareJobRunner):
         Any non-terminal frame counts as running evidence: the runner publishes
         `StartedEvent` first, so a log/span/cost frame means the run started, whatever it
         is doing now.
+
+        WHY an unreadable tail reads as ``running`` (review follow-up P2-10): an unknown
+        tail must never give the reaper a terminal-ish answer — `exists()` is this very
+        status, and a ``not_found`` read would make the reaper stop an unknown run. Assumed
+        alive: the client retries, and the reaper's sweep re-reads on its next tick.
         """
-        frame = await self._publisher.last_frame(topic)
+        frame = await self._read_tail(topic)
         if isinstance(frame, TerminatedEvent):
             return frame.data.status
-        if frame is not None:
+        if frame is not None or frame is _UNREADABLE_TAIL:
             return "running"
         return "scheduled" if self._capability_valid(topic) else "not_found"
 
