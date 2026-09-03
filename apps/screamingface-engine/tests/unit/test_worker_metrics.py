@@ -313,12 +313,15 @@ async def test_the_claim_loop_stamps_its_last_attempt() -> None:
 
     async with asyncio.TaskGroup() as tg:
         claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
-        await _wait_until(
-            lambda: _sample_values(metrics, "screamingface_engine_worker_last_claim_attempt_unix_seconds")
-            and _sample_values(metrics, "screamingface_engine_worker_last_claim_attempt_unix_seconds")[0] > 0
-        )
+        name = "screamingface_engine_worker_last_claim_attempt_unix_seconds"
+
+        def _stamped() -> bool:
+            values = _sample_values(metrics, name)
+            return bool(values) and values[0] > 0
+
+        await _wait_until(_stamped)
         worker._draining.set()  # noqa: SLF001
         await claim
 
-    stamped = _sample_values(metrics, "screamingface_engine_worker_last_claim_attempt_unix_seconds")[0]
+    stamped = _sample_values(metrics, name)[0]
     assert time.time() - stamped < 5.0
