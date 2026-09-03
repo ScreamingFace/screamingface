@@ -50,6 +50,8 @@ class LeaderboardEntry:
     submitted_by: str | None
     verified_by_screamingface: bool
     url4: Url4
+    # Public Scoreboard JSON strips domains; these are immutable display identifiers.
+    authors: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         _positive_int(self.rank, "Leaderboard rank")
@@ -74,6 +76,12 @@ class LeaderboardEntry:
             "url4",
             Url4(_text(self.url4, "Leaderboard url4")),
         )
+        if self.authors is not None:
+            object.__setattr__(
+                self,
+                "authors",
+                _authors(self.authors, "Leaderboard authors"),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +108,8 @@ class LeaderboardScore:
     verified_by_screamingface: bool
     metadata: Mapping[str, object] | None
     scoreboard_url: str | None = None
+    # Public Scoreboard JSON strips domains; full author emails never enter this read model.
+    authors: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -147,6 +157,12 @@ class LeaderboardScore:
                 self,
                 "metadata",
                 freeze_mapping(self.metadata, "Leaderboard score metadata"),
+            )
+        if self.authors is not None:
+            object.__setattr__(
+                self,
+                "authors",
+                _authors(self.authors, "Leaderboard score authors"),
             )
 
     def __repr__(self) -> str:
@@ -285,6 +301,19 @@ def _names(values: object, label: str) -> tuple[str, ...]:
     selected = tuple(_text(value, label) for value in values)
     if len(set(selected)) != len(selected):
         raise ValueError(f"{label} must not contain duplicates")
+    return selected
+
+
+def _authors(values: object, label: str) -> tuple[str, ...]:
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        raise TypeError(f"{label} must be a sequence")
+    selected = tuple(_text(value, label) for value in values)
+    if not selected:
+        raise ValueError(f"{label} must not be empty")
+    if len(selected) > 10:
+        raise ValueError(f"{label} must contain at most 10 values")
+    # INVARIANT (OME-1053): authorship is an ordered credit line. Unlike provider names,
+    # duplicates are preserved because the client must not rewrite the Scoreboard's public value.
     return selected
 
 

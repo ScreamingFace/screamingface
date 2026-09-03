@@ -452,7 +452,10 @@ boards = sf.leaderboards.list()
 draco_board = sf.leaderboards.get("draco", top=50)
 
 # After evaluating a Benchmark whose Scoreboard accepts submissions:
-submission = sf.leaderboards.submit(report.candidates.only)
+submission = sf.leaderboards.submit(
+    report.candidates.only,
+    authors=["alice@example.com", "bob@example.org"],
+)
 same_submission = sf.leaderboards.get_score(submission.id)
 editable_python = same_submission.url4.to_python()
 replayed_report = sf.evaluate(same_submission.url4)
@@ -470,7 +473,10 @@ best-per-spec entries and imported single-Model baselines. `submit(candidate_res
 already-evaluated result — the Benchmark-native score exactly as the Engine graded it, fractional
 or negative included — without asking the caller to repeat its Benchmark, URL4,
 models, or run identity; `get_score(id)` retrieves the resulting immutable
-`LeaderboardScore`. Its `.url4` property is a string-compatible `Url4` value:
+`LeaderboardScore`. Omit `authors` to credit the authenticated submitter by default. When supplied,
+the list is the exact credit line—the submitter is not added automatically—and the public
+`LeaderboardScore.authors` and `LeaderboardEntry.authors` values contain the Scoreboard's
+privacy-trimmed author identifiers. A score's `.url4` property is a string-compatible `Url4` value:
 `.to_python()` produces an editable fork, while passing the value to `sf.evaluate(...)` replays it
 through the configured Engine. Submitting a limited or incompletely graded Candidate surfaces a
 `Partial submission` advisory because its score is not directly comparable with a full run. In a

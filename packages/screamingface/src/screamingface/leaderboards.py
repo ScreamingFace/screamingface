@@ -22,10 +22,19 @@ def get(benchmark_id: str, *, top: int = 50) -> Leaderboard:
     return default_client().leaderboards.get(benchmark_id, top=top)
 
 
-def submit(candidate_result: CandidateResult) -> LeaderboardScore:
+def submit(
+    candidate_result: CandidateResult,
+    *,
+    authors: Sequence[str] | None = None,
+) -> LeaderboardScore:
     """Publish one evaluated Candidate Result to its registered Leaderboard."""
 
-    return default_client().leaderboards.submit(candidate_result)
+    leaderboards = default_client().leaderboards
+    # INVARIANT (OME-1053): the no-authors lazy call remains the exact delegation it was before
+    # this keyword existed. Only an explicit credit line adds the new argument and wire field.
+    if authors is None:
+        return leaderboards.submit(candidate_result)
+    return leaderboards.submit(candidate_result, authors=authors)
 
 
 def get_score(score_id: UUID | str) -> LeaderboardScore:

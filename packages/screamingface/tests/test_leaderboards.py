@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -1379,3 +1379,130 @@ def test_the_wire_string_parses_back_to_the_same_decimal(cost: str) -> None:
 def test_no_cost_is_absent_rather_than_an_empty_string() -> None:
     # An empty string would parse as neither a Decimal nor null and would 422 the submission.
     assert _submission(_result_costing(None))["run_cost_usd"] is None
+
+
+# --- OME-1053: explicit authorship is distinct from the authenticated submitter ----------------
+
+
+def test_submission_omits_unspecified_authors_and_preserves_an_explicit_list() -> None:
+    candidate = _candidate_result()
+
+    assert "authors" not in _submission(candidate)
+    assert _submission(
+        candidate,
+        authors=("alice@example.com", "bob@example.org", "alice@example.com"),
+    )["authors"] == ["alice@example.com", "bob@example.org", "alice@example.com"]
+
+
+@pytest.mark.parametrize(
+    ("authors", "error"),
+    [
+        ("alice@example.com", TypeError),
+        (("alice@example.com", 7), TypeError),
+        ((), ValueError),
+        (("alice@example.com",) * 11, ValueError),
+        (("not-an-email",), ValueError),
+        (("alice@localhost",), ValueError),
+        ((" alice@example.com",), ValueError),
+        (("a" * 244 + "@example.com",), ValueError),
+    ],
+)
+def test_submission_rejects_invalid_author_arguments_before_http(
+    authors: object,
+    error: type[Exception],
+) -> None:
+    with pytest.raises(error):
+        _submission(_candidate_result(), authors=cast(Any, authors))
+
+
+def test_sync_submit_sends_exact_authors_and_decodes_public_authors() -> None:
+    seen: list[httpx.Request] = []
+    response = _score_response()
+    response["authors"] = ["alice", "bob"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=response)
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(
+            _candidate_result(),
+            authors=["alice@example.com", "bob@example.org"],
+        )
+
+    assert json.loads(seen[-1].content)["authors"] == [
+        "alice@example.com",
+        "bob@example.org",
+    ]
+    assert submitted.authors == ("alice", "bob")
+    assert isinstance(submitted.authors, tuple)
+
+
+@pytest.mark.asyncio
+async def test_async_submit_uses_the_same_authors_contract() -> None:
+    seen: list[httpx.Request] = []
+    response = _score_response()
+    response["authors"] = ["alice"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=response)
+
+    async with _async_client(handler) as client:
+        submitted = await client.leaderboards.submit(
+            _candidate_result(), authors=["alice@example.com"]
+        )
+
+    assert json.loads(seen[-1].content)["authors"] == ["alice@example.com"]
+    assert submitted.authors == ("alice",)
+
+
+def test_lazy_submit_forwards_authors_to_the_default_client(monkeypatch: Any) -> None:
+    seen: list[object] = []
+
+    class Leaderboards:
+        def submit(
+            self,
+            candidate_result: object,
+            *,
+            authors: Sequence[str] | None = None,
+        ) -> tuple[object, Sequence[str] | None]:
+            seen.extend((candidate_result, authors))
+            return candidate_result, authors
+
+    class FakeClient:
+        leaderboards = Leaderboards()
+
+    fake = FakeClient()
+    monkeypatch.setattr(_default_client, "_client", fake)
+    candidate = _candidate_result()
+
+    assert sf.leaderboards.submit(candidate, authors=["alice@example.com"]) == (
+        candidate,
+        ["alice@example.com"],
+    )
+    assert seen == [candidate, ["alice@example.com"]]
+
+
+def test_leaderboard_entries_decode_public_authors_as_an_immutable_tuple() -> None:
+    response = _get_response()
+    entries = cast(list[dict[str, object]], response["entries"])
+    entries[0]["authors"] = ["alice", "bob"]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        board = client.leaderboards.get("draco")
+
+    assert board.entries[0].authors == ("alice", "bob")
+    assert isinstance(board.entries[0].authors, tuple)
+
+
+@pytest.mark.parametrize("authors", [[], "alice", [""], ["alice"] * 11])
+def test_score_response_rejects_malformed_public_authors(authors: object) -> None:
+    response = _score_response()
+    response["authors"] = authors
+
+    with (
+        _sync_client(lambda _request: httpx.Response(200, json=response)) as client,
+        pytest.raises(sf.LeaderboardError, match="Invalid Scoreboard Leaderboard response"),
+    ):
+        client.leaderboards.get_score(SCORE_ID)
