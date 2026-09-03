@@ -171,6 +171,206 @@
     "91": "scored",
     "99": "failed"
   },
+  "case_failures": {
+    "1": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "113": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "129": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "167": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "186": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "191": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "215": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "216": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "241": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "26": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "317": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "336": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "349": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "350": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "359": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "366": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "370": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "373": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "394": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "408": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "419": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "42": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "420": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "424": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "427": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "428": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "492": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "493": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "505": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "518": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "521": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "67": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "99": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ]
+  },
   "kind": "fusion",
   "recipe": "best_open_source",
   "synthesizer": "openrouter/deepseek/deepseek-v4-pro-0813"

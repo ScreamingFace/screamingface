@@ -453,6 +453,8 @@ def _fusion_golden_document() -> dict:
         "case_count": 2,
         "gradeable_count": 1,
         "case_statuses": {"1": "scored", "3": "failed"},
+        # OME-1094: a failed case must name its reason or the golden refuses to load.
+        "case_failures": {"3": [{"stage": "grading", "code": "case_error"}]},
     }
 
 

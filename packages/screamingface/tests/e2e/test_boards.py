@@ -5,7 +5,8 @@ The real user path, driven exactly like a notebook: ``sf.Client(engine_url=...)`
 ``Report`` — against the real engine and the real gateway whose only answers come from
 that board's recorded cache snapshot. Deterministic, free (zero provider keys), and
 compared against the board's golden with the R11 ladder: expression SHA first, then
-case statuses, then coverage counters, then the score as a decimal string.
+case statuses, then per-case failure codes, then coverage counters, then the score as
+a decimal string.
 
 SKIP DISCIPLINE — a board with no fixtures SKIPS LOUDLY, naming exactly what is
 missing; it never fake-passes. Three prerequisites per board:
@@ -31,6 +32,7 @@ from harness.goldens import (
     GoldenReport,
     build_candidate,
     compare_outcome,
+    failure_map,
     load_golden,
 )
 from harness.stack import replay_stack
@@ -125,5 +127,7 @@ def test_board_replays_end_to_end_and_matches_its_golden(board: str, tmp_path) -
             final_score=candidate.score,
             case_statuses={str(case.case_id): str(case.status) for case in candidate.cases},
             coverage=candidate.coverage,
+            # OME-1094: WHY a case failed, not just that it did — the codes rung.
+            case_failures=failure_map(candidate.cases),
         ),
     )
