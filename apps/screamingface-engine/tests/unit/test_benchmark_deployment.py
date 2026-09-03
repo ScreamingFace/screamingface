@@ -13,10 +13,7 @@ from typing import Any
 import pytest
 
 from screamingface_engine.benchmarks import prepare as prepare_module
-from screamingface_engine.benchmarks.builtins import (
-    BUILTIN_BENCHMARKS,
-    BUILTIN_DEPLOYMENT,
-)
+from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
 from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
@@ -196,10 +193,6 @@ def test_asset_bundle_ids_are_safe_directory_names(bundle_id: str) -> None:
         BenchmarkAssetBundle(id=bundle_id, prepare=lambda _out: {})
 
 
-def test_the_runtime_registry_is_the_deployments_own_registrations() -> None:
-    assert BUILTIN_DEPLOYMENT.benchmarks is BUILTIN_BENCHMARKS
-
-
 def _installer_bundle_id(registration: BenchmarkRegistration) -> str | None:
     """The bundle directory the board's OWN installer reads, or None when it declares none.
 
@@ -253,11 +246,12 @@ def test_every_board_is_registered_against_the_bundle_its_installer_reads(
 def test_the_bundle_provenance_check_covers_a_board_the_registry_has_never_seen(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The deletion test, made measurable: the check is a pure function of a registration.
+    """The check is a pure function of a registration — it holds no board ids of its own.
 
-    A throwaway board declared here — never added to ``BUILTIN_DEPLOYMENT`` — is checked by
-    the same function the built-ins go through, which is what "a seventh board extends the
-    suite by existing" means in practice.
+    A throwaway board declared here, never added to ``BUILTIN_DEPLOYMENT``, goes through the
+    same helper the built-ins do, and the helper both accepts the matched bundle and rejects
+    a borrowed one. That is the property this test claims and nothing more: it exercises the
+    helper, not a real board's runtime — an actual seventh board is only proven by adding one.
     """
 
     family = ModuleType("screamingface_engine.benchmarks.throwaway.exam")

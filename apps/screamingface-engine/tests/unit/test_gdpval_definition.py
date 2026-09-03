@@ -7,6 +7,7 @@ keeping its addresses — would silently re-grade published submissions.
 
 from __future__ import annotations
 
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.gdpval.definition import (
     GDPVAL_TEXT,
     TEXT_CASE_COUNT,
@@ -23,6 +24,23 @@ _BASE = {
     "selection_sha": subset_sha(),
     "scoring": "rubric-mean-v1",
 }
+
+
+def test_the_text_board_is_registered_under_its_id() -> None:
+    """INVARIANT: this board is PUBLIC — dropping it is a leaderboard regression.
+
+    The shared cross-benchmark tests iterate the registry, so a board deleted from
+    `builtins.py` stops being iterated and they all still pass (OME-1095). Membership is
+    pinned here, in the board's own module, where a new board costs one line.
+    """
+
+    assert BUILTIN_BENCHMARKS.get("gdpval-text") is GDPVAL_TEXT
+
+
+def test_the_text_board_links_the_openai_gdpval_dataset() -> None:
+    # WHY the literal: the leaderboard renders this as a clickable target for the public, and
+    # the shared suite can only check that boards sharing a bundle agree on it.
+    assert GDPVAL_TEXT.dataset_url == "https://huggingface.co/datasets/openai/gdpval"
 
 
 def test_the_board_serves_the_frozen_selection() -> None:

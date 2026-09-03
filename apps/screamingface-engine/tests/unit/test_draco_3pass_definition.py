@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from benchmark_support import install_benchmarks
 
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco import aggregate as agg
@@ -58,6 +59,28 @@ def _url4(benchmark, limit: int | None = None) -> str:
 def test_the_canonical_revision_is_frozen_against_refactors() -> None:
     assert DRACO.revision == CANONICAL_REVISION
     assert CANONICAL_EXAM.revision == CANONICAL_REVISION
+
+
+def test_both_draco_boards_are_registered_under_their_own_ids() -> None:
+    """INVARIANT: these boards are PUBLIC — dropping one is a leaderboard regression.
+
+    WHY here and not in a shared test (OME-1095): the shared suite iterates the registry, so
+    a board deleted from `builtins.py` simply stops being iterated and every cross-benchmark
+    test still passes. Membership can only be pinned by a test that names the board, and the
+    board's own definition module is where that costs one line per new board instead of an
+    edit to every shared test.
+    """
+
+    assert BUILTIN_BENCHMARKS.get("draco") is DRACO
+    assert BUILTIN_BENCHMARKS.get("draco-3pass") is DRACO_3PASS
+
+
+def test_both_draco_boards_link_the_perplexity_dataset() -> None:
+    # WHY the literal, on both boards: the leaderboard renders this as a clickable target for
+    # the public. The shared suite can only check that boards sharing a bundle agree — and
+    # both DRACO boards read one constant, so they would agree on a wrong value too.
+    assert DRACO.dataset_url == "https://huggingface.co/datasets/perplexity-ai/draco"
+    assert DRACO_3PASS.dataset_url == DRACO.dataset_url
 
 
 def test_the_three_pass_board_has_its_own_identity() -> None:

@@ -39,7 +39,12 @@ async def test_the_public_catalogue_publishes_exactly_the_registered_boards() ->
     place a board is declared, and a second list here had to be edited by hand for every new
     board — the exact cost this epic removes. What is load bearing is the relationship: what
     an operator registered is what a client can discover, under the ids it was registered
-    with, each exactly once.
+    with.
+
+    WHAT THIS DOES NOT COVER: membership. Both sides derive from the same registrations, so
+    deleting a board from `builtins.py` makes it vanish from both and passes here. That a
+    given board is public is pinned in the board's own definition test — see
+    `test_both_draco_boards_are_registered_under_their_own_ids` and its siblings.
     """
 
     registered = sorted(
@@ -59,7 +64,6 @@ async def test_the_public_catalogue_publishes_exactly_the_registered_boards() ->
     published = [entry["id"] for entry in entries]
 
     assert sorted(published) == registered
-    assert len(set(published)) == len(published)
 
 
 def test_canonical_draco_limit_changes_cases_only_not_grading_strength() -> None:

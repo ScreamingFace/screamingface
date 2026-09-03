@@ -58,6 +58,18 @@ Verified by running the four affected test modules (free, no paid models).
   (2280 passed, 5 skipped). The append-only check is skipped BY DESIGN for this unit: rewriting
   the hand-listed prior tests IS the deliverable the ticket approves, and the skip flag is the
   runner's own escape hatch rather than an edit to the gate.
+- **Review round 1 (request-changes), both blockers closed:** removing the six-id tuple left
+  board MEMBERSHIP uncovered — deleting `draco-3pass` from `builtins.py` passed the whole
+  suite, because the catalogue test compares the route against the same registrations the
+  registry is built from. And "one bundle, one dataset link" could not catch a family-wide
+  wrong value, since each family declares one shared `*_DATASET_URL` its boards both read.
+  Both facts are per-board, so both are now pinned in each board's OWN definition test
+  (`test_draco_3pass_definition.py`, `test_gdpval_definition.py`,
+  `test_ifeval_official_identity.py`, `test_healthbench_definition.py`) — one line per new
+  board in the author's module, so the deletion test still holds. Verified: unregistering
+  `draco-3pass` or `gdpval-text`, pointing `DRACO_DATASET_URL` at another dataset, and giving
+  IFEval a link each now fail. Two vacuous assertions were deleted and one over-claiming
+  docstring corrected in the same round.
 - **Deviations:** each replacement was mutation-verified rather than trusted — a board
   registered against another family's bundle, an orphan preparer family, two boards sharing a
   focus line, two dataset links under one bundle, and a board dropped by the catalogue route
