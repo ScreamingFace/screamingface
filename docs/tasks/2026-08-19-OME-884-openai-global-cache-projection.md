@@ -1,13 +1,13 @@
 ---
 id: OME-884
 linear_url: https://linear.app/openmined/issue/OME-884/support-global-exact-response-caching-for-direct-openai
-status: In Progress
+status: Done
 type: improvement
 priority: medium
 labels: [aigateway, agentic, autonomous]
 parent: OME-787
 created: 2026-08-19
-closed:
+closed: 2026-09-03
 ---
 
 # Support global exact-response caching for direct OpenAI
