@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import SelectedCase
-from screamingface_engine.benchmarks.spine.case_ladder import CaseLadder
+from screamingface_engine.benchmarks.spine.grading import CaseGrader
 
 MESSAGES = {
     "missing_rubric_asset": "test: rubric asset gone",
@@ -68,7 +68,7 @@ def _case_score(points: list[int], verdicts: Mapping[int, bool]) -> float | None
     return max(0.0, earned / best)
 
 
-LADDER = CaseLadder(
+GRADER = CaseGrader(
     failure_messages=MESSAGES,
     case_score=_case_score,
     verdicts=_verdicts,
@@ -86,7 +86,7 @@ def _sole_failure(result: Any) -> Any:
 
 
 def test_missing_rubric_asset_is_the_first_rung() -> None:
-    result, score, judged, met, invalid = LADDER.case_result(CASE, {"verdicts": {}}, None)
+    result, score, judged, met, invalid = GRADER.case_result(CASE, {"verdicts": {}}, None)
     failure = _sole_failure(result)
     assert (failure.stage, failure.code) == ("grading", "missing_rubric_asset")
     assert failure.message == MESSAGES["missing_rubric_asset"]
@@ -98,7 +98,7 @@ def test_missing_case_row_surfaces_the_first_collected_orphan_error() -> None:
     # surfaces as a missing row — the orphan payload carries the actual cause, and
     # the public metadata retains only the sanitized source_error, never raw rows.
     orphans = [{"error": {"message": f"boom {index}", "type": "api_error"}} for index in range(5)]
-    result, score, *_ = LADDER.case_result(CASE, None, [5, -3], orphans)
+    result, score, *_ = GRADER.case_result(CASE, None, [5, -3], orphans)
     failure = _sole_failure(result)
     assert (failure.stage, failure.code) == ("candidate", "missing_case_row")
     assert failure.message == "boom 0"
@@ -108,7 +108,7 @@ def test_missing_case_row_surfaces_the_first_collected_orphan_error() -> None:
 
 
 def test_missing_case_row_without_orphans_keeps_the_board_message() -> None:
-    result, *_ = LADDER.case_result(CASE, None, [5, -3])
+    result, *_ = GRADER.case_result(CASE, None, [5, -3])
     failure = _sole_failure(result)
     assert failure.code == "missing_case_row"
     assert failure.message == MESSAGES["missing_case_row"]
@@ -117,7 +117,7 @@ def test_missing_case_row_without_orphans_keeps_the_board_message() -> None:
 
 def test_an_error_row_becomes_case_error_with_its_source_attached() -> None:
     row = {"error": {"message": "judge exploded", "type": "api_error"}}
-    result, score, *_ = LADDER.case_result(CASE, row, [5, -3])
+    result, score, *_ = GRADER.case_result(CASE, row, [5, -3])
     failure = _sole_failure(result)
     assert (failure.stage, failure.code) == ("candidate", "case_error")
     assert failure.message == "judge exploded"
@@ -127,7 +127,7 @@ def test_an_error_row_becomes_case_error_with_its_source_attached() -> None:
 
 def test_incomplete_verdicts_fail_with_judged_and_expected_counts() -> None:
     row = {"verdicts": {1: True}}
-    result, score, judged, met, invalid = LADDER.case_result(CASE, row, [5, -3])
+    result, score, judged, met, invalid = GRADER.case_result(CASE, row, [5, -3])
     failure = _sole_failure(result)
     assert (failure.stage, failure.code) == ("grading", "incomplete_verdicts")
     assert failure.metadata == {"judged": 1, "expected": 2}
@@ -138,7 +138,7 @@ def test_complete_but_unscorable_case_names_no_positive_points() -> None:
     # WHY distinct from incomplete_verdicts: a complete-but-unscorable Case means the
     # baked asset lost its guaranteed positive item — a baked-asset defect, not judge loss.
     row = {"verdicts": {1: True, 2: False}}
-    result, score, judged, met, invalid = LADDER.case_result(CASE, row, [0, -3])
+    result, score, judged, met, invalid = GRADER.case_result(CASE, row, [0, -3])
     failure = _sole_failure(result)
     assert (failure.stage, failure.code) == ("grading", "no_positive_points")
     assert score is None
@@ -147,7 +147,7 @@ def test_complete_but_unscorable_case_names_no_positive_points() -> None:
 
 def test_a_fully_judged_case_scores_without_failures() -> None:
     row = {"verdicts": {1: True, 2: False}, "output": "an answer", "finish_reason": "stop"}
-    result, score, judged, met, invalid = LADDER.case_result(CASE, row, [4, 4])
+    result, score, judged, met, invalid = GRADER.case_result(CASE, row, [4, 4])
     assert result.status == "scored"
     assert result.failures == []
     assert result.grade is not None and result.grade.score == 0.5
@@ -162,7 +162,7 @@ def test_a_refused_case_still_carries_its_numeric_grade() -> None:
         "refusal": "I cannot help with that.",
         "finish_reason": "content_filter",
     }
-    result, score, *_ = LADDER.case_result(CASE, row, [4, 4])
+    result, score, *_ = GRADER.case_result(CASE, row, [4, 4])
     assert result.status == "refused"
     assert result.refusal == "I cannot help with that."
     assert score == 0.0

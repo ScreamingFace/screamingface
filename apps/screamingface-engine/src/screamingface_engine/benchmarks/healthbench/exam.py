@@ -332,10 +332,10 @@ def healthbench_benchmark(
         case_count=len(case_ids),
         # INVARIANT: the declared policy matches the code — every board reduces through
         # the shared finalize_candidate_result, which scores exactly the gradeable subset
-        # and publishes coverage (coverage-declare). Declare `withhold` only if the
+        # and publishes coverage (coverage_declare). Declare `withhold` only if the
         # aggregate actually withholds (OME-1039).
         declaration=BenchmarkDeclaration(
-            failure_policy="coverage-declare",
+            failure_policy="coverage_declare",
             interaction="single_shot",
         ),
         build=build,

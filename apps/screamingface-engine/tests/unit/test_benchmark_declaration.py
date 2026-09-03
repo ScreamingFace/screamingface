@@ -18,7 +18,7 @@ from screamingface_engine.benchmarks.definition import (
 )
 
 DECLARATION = BenchmarkDeclaration(
-    failure_policy="coverage-declare",
+    failure_policy="coverage_declare",
     interaction="single_shot",
 )
 
@@ -83,23 +83,23 @@ def test_wrong_declaration_type_is_refused() -> None:
 
 def test_catalog_entry_names_both_declared_values() -> None:
     entry = Benchmark(**_benchmark_values()).catalog_entry()  # type: ignore[arg-type]
-    assert entry["failure_policy"] == "coverage-declare"
+    assert entry["failure_policy"] == "coverage_declare"
     assert entry["interaction"] == "single_shot"
 
 
 def test_resource_names_both_declared_values() -> None:
     resource = Benchmark(**_benchmark_values()).resource(limit=1)  # type: ignore[arg-type]
-    assert resource["failure_policy"] == "coverage-declare"
+    assert resource["failure_policy"] == "coverage_declare"
     assert resource["interaction"] == "single_shot"
 
 
 def test_every_builtin_board_declares_its_actual_policy() -> None:
     # INVARIANT: the declaration tells the truth about the code. Every board reduces
     # through the shared `finalize_candidate_result`, which scores exactly the gradeable
-    # subset and publishes coverage — coverage-declare behavior. A board may only declare
+    # subset and publishes coverage — coverage_declare behavior. A board may only declare
     # `withhold` once its aggregate actually withholds.
     benchmarks = list(BUILTIN_BENCHMARKS)
     assert len(benchmarks) == 6
     for benchmark in benchmarks:
-        assert benchmark.declaration.failure_policy == "coverage-declare", benchmark.id
+        assert benchmark.declaration.failure_policy == "coverage_declare", benchmark.id
         assert benchmark.declaration.interaction == "single_shot", benchmark.id

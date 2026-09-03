@@ -48,8 +48,8 @@ type CaseOutcome = tuple[CaseResult, float | None, int, int, int]
 
 
 @dataclass(frozen=True, slots=True)
-class CaseLadder:
-    """One board's binding of the shared ladder to its own reading and scoring hooks.
+class CaseGrader:
+    """One board's case grader — the shared ladder bound to its own reading and scoring hooks.
 
     Each board constructs one module-level instance. The hooks are the pieces a rubric
     board still owns after this extraction (their folds are later spine tickets):
@@ -254,4 +254,4 @@ def _source_error(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
     )
 
 
-__all__ = ["CaseLadder", "CaseOutcome"]
+__all__ = ["CaseGrader", "CaseOutcome"]

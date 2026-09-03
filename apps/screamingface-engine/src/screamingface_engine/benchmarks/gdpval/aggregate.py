@@ -34,7 +34,7 @@ from screamingface_engine.benchmarks.gdpval.scoring import (
     sample_stdev,
     verdict_coverage,
 )
-from screamingface_engine.benchmarks.spine.case_ladder import CaseLadder
+from screamingface_engine.benchmarks.spine.grading import CaseGrader
 
 _FAILURE_MESSAGES = {
     "missing_rubric_asset": "the baked rubric asset for this Case is missing or invalid",
@@ -140,7 +140,7 @@ def aggregate(
             )
         else:
             points = load_rubric_points(root, case_id)
-            result, _, _, _, _ = _LADDER.case_result(
+            result, _, _, _, _ = _GRADER.case_result(
                 selected, by_case.get(case_id), points, errors_by_case.get(case_id)
             )
         case_results.append(result)
@@ -395,10 +395,10 @@ def _verdicts(row: Mapping[str, Any]) -> tuple[dict[int, bool], int]:
     return verdicts, invalid
 
 
-# WHY bound at module bottom: the ladder logic lives in the spine (OME-1039); the
+# WHY bound at module bottom: the grading ladder lives in the spine (OME-1039); the
 # hooks and the failure-message wording stay board-owned so per-case failure output
 # is byte-identical to the pre-extraction copies (the goldens' codes rung pins it).
-_LADDER = CaseLadder(
+_GRADER = CaseGrader(
     failure_messages=_FAILURE_MESSAGES,
     case_score=case_score,
     verdicts=_verdicts,

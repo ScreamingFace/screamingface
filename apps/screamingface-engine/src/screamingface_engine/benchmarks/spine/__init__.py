@@ -6,6 +6,6 @@ spine extraction — the live-progress branches (OME-932, OME-934) own those fil
 spine grows beside them as new modules only.
 """
 
-from screamingface_engine.benchmarks.spine.case_ladder import CaseLadder
+from screamingface_engine.benchmarks.spine.grading import CaseGrader
 
-__all__ = ["CaseLadder"]
+__all__ = ["CaseGrader"]

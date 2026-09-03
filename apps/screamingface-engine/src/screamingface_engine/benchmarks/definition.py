@@ -17,10 +17,10 @@ CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 type CheckCost = Literal["free", "paid"]
-type FailurePolicy = Literal["withhold", "coverage-declare"]
+type FailurePolicy = Literal["withhold", "coverage_declare"]
 type InteractionType = Literal["single_shot"]
 
-_FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage-declare")
+_FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage_declare")
 _INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot",)
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -81,7 +81,7 @@ class BenchmarkDeclaration:
 
     ``failure_policy`` — what a Case that never got a valid grade does to the published
     score. ``withhold``: the case counts against the candidate (all-or-nothing).
-    ``coverage-declare``: the case is excluded from the score and the report's coverage
+    ``coverage_declare``: the case is excluded from the score and the report's coverage
     figure drops, so a reader sees "scored 124 of 157".
 
     ``interaction`` — how the Candidate is exercised. ``single_shot`` is the only value

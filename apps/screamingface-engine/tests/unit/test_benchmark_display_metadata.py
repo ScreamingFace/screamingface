@@ -44,7 +44,7 @@ def _benchmark(
         focus=focus,
         dataset_url=dataset_url,
         declaration=BenchmarkDeclaration(
-            failure_policy="coverage-declare",
+            failure_policy="coverage_declare",
             interaction="single_shot",
         ),
     )

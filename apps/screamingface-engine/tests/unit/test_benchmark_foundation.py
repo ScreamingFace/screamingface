@@ -60,7 +60,7 @@ def _benchmark(
         "revision": "example-smoke-v1",
         "case_count": 3,
         "declaration": BenchmarkDeclaration(
-            failure_policy="coverage-declare",
+            failure_policy="coverage_declare",
             interaction="single_shot",
         ),
         "build": build_protocol
@@ -124,7 +124,7 @@ async def test_list_is_complete_metadata_and_detail_is_an_exact_selection() -> N
                 "case_count": 3,
                 # OME-1039: the declared grading contract is part of the public catalog —
                 # reviewers approve the policy by reading the manifest, never engine source.
-                "failure_policy": "coverage-declare",
+                "failure_policy": "coverage_declare",
                 "interaction": "single_shot",
                 "href": "/v1/benchmarks/example-smoke",
             }

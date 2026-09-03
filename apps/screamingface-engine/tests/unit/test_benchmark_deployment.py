@@ -69,7 +69,7 @@ def _benchmark(benchmark_id: str) -> Benchmark:
         case_count=1,
         build=lambda _selected: Text("protocol"),
         declaration=BenchmarkDeclaration(
-            failure_policy="coverage-declare",
+            failure_policy="coverage_declare",
             interaction="single_shot",
         ),
     )
