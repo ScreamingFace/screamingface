@@ -1,12 +1,12 @@
 ---
 id: OME-1029
 linear_url: https://linear.app/openmined/issue/OME-1029/send-run-cost-usd-on-leaderboard-submissions-from-the-sdk
-status: in_review
+status: done
 type: feature
 priority: P1
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-28
-closed:
+closed: 2026-08-31
 ---
 
 The last missing link in the run-cost chain. Scoreboard accepts `run_cost_usd`, the Engine produces
