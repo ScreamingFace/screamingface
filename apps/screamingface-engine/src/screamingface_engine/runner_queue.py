@@ -115,6 +115,26 @@ DEFAULT_CALLER_INFLIGHT_CAP = 8
 # queue sat empty and the pool idle. One hour is far above the longest legitimate run observed
 # (~6 min) and far below that lifetime, so it never fires in normal use.
 DEFAULT_RESERVATION_LEASE_S = 3600.0
+# The margin added to the stream grace before an ABSENT stream is trusted as evidence that a run
+# finished. It covers the gap between "the run ended" and "the reclamation actually landed":
+# `run_and_reclaim` sleeps the grace and THEN calls `delete_stream`, and both the sleep and the
+# delete run on a busy worker against a possibly-retrying broker. Half the grace again, so the
+# threshold stays the same order of magnitude as the mechanism it waits for.
+_RECLAIM_EVIDENCE_MARGIN_S = 30.0
+# How old a reservation must be before a MISSING stream releases it (OME-1108 follow-up).
+#
+# WHY absence is evidence and not unknown: `runner/main.py::run_and_reclaim` deletes a run's
+# stream in a `finally`, `job_env.DEFAULT_STREAM_GRACE_S` after the run ended — strictly AFTER
+# the run is over — so a stream that is gone belongs to a run that finished. That is what makes
+# this a release and not a weakening of "unknown never frees a slot": a broker that cannot
+# ANSWER is still unknown and still releases nothing.
+#
+# WHY an age gate at all: absence has one other cause — a stream that does not exist YET. The
+# WS attach creates it (`JetStreamConsumer.subscribe` -> `ensure_stream`) and the 428 gate makes
+# that attach precede admission, but the two are separate awaits, and the worker re-ensures the
+# stream at claim time. A reservation younger than this threshold is therefore treated as
+# starting, not finished — otherwise a caller could exceed its cap the instant it reached it.
+DEFAULT_RECLAIM_EVIDENCE_AFTER_S = job_env.DEFAULT_STREAM_GRACE_S + _RECLAIM_EVIDENCE_MARGIN_S
 # The anonymous caller's key: a run with no verified identity is its own caller, so it cannot
 # hide behind another caller's footprint.
 _ANONYMOUS_CALLER = "anonymous"
@@ -653,6 +673,8 @@ __all__ = [
     "DEFAULT_MAX_ACK_PENDING",
     "DEFAULT_MAX_DELIVER",
     "DEFAULT_QUEUE_MAX_AGE_S",
+    "DEFAULT_RECLAIM_EVIDENCE_AFTER_S",
+    "DEFAULT_RESERVATION_LEASE_S",
     "DEFAULT_STATE_CACHE_TTL_S",
     "DEFAULT_WORKER_SLOTS",
     "PULL_BUCKET_BATCH",
