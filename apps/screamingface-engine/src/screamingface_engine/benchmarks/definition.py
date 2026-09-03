@@ -17,7 +17,23 @@ CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 type CheckCost = Literal["free", "paid"]
+# What a Case that never got a valid grade (model call errored, judge died, rubric asset
+# missing) does to the published score. Picture an exam of 157 questions where 33 answer
+# sheets got lost in the mail:
+#   "withhold"         — the lost sheets count against the candidate: score = earned / all
+#                        157. Coverage always reads 100%; failures are silently priced in,
+#                        so an infra outage makes the model look WORSE.
+#   "coverage_declare" — the lost sheets are excluded and the report says so: score =
+#                        earned / the 124 actually graded, published next to a visible
+#                        "scored 124 of 157" coverage figure. An outage makes the score
+#                        less COMPLETE, not lower; each excluded Case keeps a named
+#                        failure code.
+# Neither is wrong — but the two produce different numbers from identical model behavior,
+# which is why the choice must be declared per benchmark, never defaulted (OME-1039).
 type FailurePolicy = Literal["withhold", "coverage_declare"]
+# How the Candidate is exercised: "single_shot" = one prompt in, one reply out, graded —
+# no follow-up turns, no tool environment. The only value today; multi-turn/agentic
+# arrive later as NEW declared values (see BenchmarkDeclaration's AIDEV-NOTE).
 type InteractionType = Literal["single_shot"]
 
 _FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage_declare")
