@@ -13,7 +13,9 @@ from typing import Any
 import pytest
 from nats.js.api import RetentionPolicy, StorageType
 from nats.js.errors import BadRequestError
+from pydantic import ValidationError
 
+from screamingface_engine.config import Settings
 from screamingface_engine.runner_queue import RunQueue, encode_message
 from screamingface_engine.subjects import RUN_QUEUE_STREAM, RUN_QUEUE_SUBJECT
 
@@ -241,3 +243,16 @@ def test_the_fleet_ack_pending_default_is_not_replica_derived() -> None:
         runner_queue.QUEUE_REPLICAS * runner_queue.DEFAULT_WORKER_SLOTS
     )
     assert runner_queue.DEFAULT_MAX_ACK_PENDING >= 64
+
+
+def test_settings_rejects_a_sweepable_run_queue_stream_name() -> None:
+    """V-8: the `url4-cloud_` naming rule was an unenforced comment at the field. The
+    orphan sweep deletes any stream `owns_stream()` accepts, and the queue is the one
+    stream an accepted run may not be lost from — so a queue named under the per-run
+    prefix is a data-loss config, and it must be a STARTUP error, not a latent one
+    waiting on every composition root remembering the exclusion."""
+    with pytest.raises(ValidationError, match="url4-cloud_"):
+        Settings(run_queue_stream="url4-cloud_prod-runq")
+    # The default and an ordinary rename stay legal.
+    assert Settings().run_queue_stream == RUN_QUEUE_STREAM
+    assert Settings(run_queue_stream="prod-runq").run_queue_stream == "prod-runq"
