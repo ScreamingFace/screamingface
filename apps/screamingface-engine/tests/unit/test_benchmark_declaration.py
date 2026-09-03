@@ -8,6 +8,8 @@ semantics for every board at once.
 
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -103,3 +105,21 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
     for benchmark in benchmarks:
         assert benchmark.declaration.failure_policy == "coverage_declare", benchmark.id
         assert benchmark.declaration.interaction == "single_shot", benchmark.id
+
+
+def test_each_board_aggregate_reduces_through_the_shared_finalizer() -> None:
+    # WHY: the coverage_declare pins above are only TRUE while every board funnels its
+    # cases through the shared finalizer (score over the gradeable subset + published
+    # coverage). This asserts the mechanism, not just the literal: a board that stops
+    # importing the shared finalize_candidate_result (hand-rolling its own reduction,
+    # or shadowing the name) trips here and must revisit its declaration.
+    # AIDEV-NOTE: import identity, not call-path proof — the e2e goldens' coverage rung
+    # proves the call path; full closure lands when the spine itself consumes
+    # failure_policy (`OME-1097`+) and the policy stops being prose entirely.
+    from screamingface_engine.benchmarks import aggregation
+
+    for family in ("draco", "gdpval", "healthbench", "ifeval"):
+        module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.aggregate")
+        assert module.finalize_candidate_result is aggregation.finalize_candidate_result, (
+            f"{family} no longer reduces through the shared finalizer"
+        )
