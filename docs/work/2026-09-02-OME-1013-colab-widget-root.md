@@ -57,15 +57,17 @@ from a hosted runtime.
   footer adapter, focused notebook tests, and this ledger. The public receipt/export API is
   unchanged.
 - **Commits:** this iteration's `fix(screamingface): refine notebook diagnostic footer` commit.
-- **Gates:** focused diagnostics 45 passed; complete package suite 1,353 passed and 17 skipped at
-  95.01% coverage; Ruff lint and format, Pyright (0 errors), wheel/sdist build, and distribution
-  validation green.
+- **Gates:** after rebasing onto current `origin/main`, focused diagnostics plus protocol integration
+  91 passed; complete package suite 1,376 passed and 17 skipped at 95.02% coverage; Ruff lint and
+  format, Pyright (0 errors), deterministic generated-notebook validation, wheel/sdist build, and
+  distribution validation green.
 - **Deviations:** the ordinary gate wrapper and generated-notebook check remain blocked by the
   pre-existing user-modified `examples/00_quickstart.ipynb` (`leaderboard` is undefined and the
-  generated notebook is stale). The equivalent source/test/type/build/distribution gates passed;
-  that notebook and the untracked exported diagnostic JSON were preserved unchanged and excluded
-  from this iteration. The owner approved the prior-test wording changes on 2026-09-03; they replace
+  generated notebook is stale). The clean generated-notebook check passed while those user-owned
+  artifacts were safely stashed; both were restored unchanged and remain excluded from this
+  iteration. The owner approved the prior-test wording changes on 2026-09-03; they replace
   the superseded Preview/Export/local-only presentation contract with View details/Save JSON and
   notebook-only rich guidance. Live Colab verification confirmed that removing root shrink-wrap
-  makes the widget visible; the refined copy and transparent styling remain for owner visual check
-  from the pushed branch.
+  makes the widget visible. The rebase conflict retained both `OME-967` trace rendering and
+  terminal-only OME-1013 diagnostic notes; the refined copy and transparent styling remain for
+  owner visual check from the pushed branch.
