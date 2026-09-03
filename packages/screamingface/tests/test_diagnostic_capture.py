@@ -4,6 +4,7 @@ import json
 from collections.abc import Mapping
 from typing import cast
 
+import pytest
 from websockets.exceptions import ConnectionClosedError
 from websockets.frames import Close
 
@@ -146,6 +147,19 @@ def test_engine_capture_retains_only_host_and_locality() -> None:
         "host": "127.0.0.1",
         "mode": "local",
     }
+
+
+@pytest.mark.parametrize(
+    ("engine_url", "host"),
+    [
+        ("http://0.0.0.0:9108", "0.0.0.0"),
+        ("http://127.0.0.42:9108", "127.0.0.42"),
+        ("http://[::]:9108", "::"),
+    ],
+)
+def test_engine_capture_treats_local_ip_aliases_as_local(engine_url: str, host: str) -> None:
+    # INVARIANT: support receipts use the same IP-aware locality semantics as Client UI surfaces.
+    assert _engine_document(engine_url) == {"host": host, "mode": "local"}
 
 
 def test_client_capture_is_an_allowlist_not_an_environment_dump(monkeypatch) -> None:

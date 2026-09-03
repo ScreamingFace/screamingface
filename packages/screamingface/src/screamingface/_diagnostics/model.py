@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from types import MappingProxyType
 
+from screamingface._immutable_json import freeze_mapping
 from screamingface.diagnostic import DiagnosticReceipt
 
 _SAFE_ERROR_FIELDS = frozenset(
@@ -52,9 +51,7 @@ def _new_receipt(evidence: _ReceiptEvidence) -> DiagnosticReceipt:
         "executions": [dict(value) for value in evidence.executions],
         "breadcrumbs": [dict(value) for value in evidence.breadcrumbs],
     }
-    frozen = _freeze(document)
-    if not isinstance(frozen, Mapping):
-        raise AssertionError("a diagnostic document must remain a mapping")
+    frozen = freeze_mapping(document, "Diagnostic")
     return DiagnosticReceipt._from_frozen(frozen)
 
 
@@ -64,31 +61,6 @@ def _validate_error(value: Mapping[str, object]) -> None:
     if unsafe:
         raise ValueError(f"Diagnostic contains unsafe error fields: {', '.join(unsafe)}")
     _nonblank(value.get("type"), "Diagnostic error type")
-
-
-def _freeze(value: object) -> object:
-    if value is None or isinstance(value, (str, bool, int)):
-        frozen: object = value
-    elif isinstance(value, float):
-        if not math.isfinite(value):
-            raise ValueError("Diagnostic numbers must be finite")
-        frozen = value
-    elif isinstance(value, Mapping):
-        frozen = _freeze_mapping(value)
-    elif isinstance(value, (list, tuple)):
-        frozen = tuple(_freeze(item) for item in value)
-    else:
-        raise TypeError(f"Diagnostic values cannot contain {type(value).__name__}")
-    return frozen
-
-
-def _freeze_mapping(value: Mapping[object, object]) -> Mapping[str, object]:
-    frozen: dict[str, object] = {}
-    for key, item in value.items():
-        if not isinstance(key, str):
-            raise TypeError("Diagnostic object keys must be strings")
-        frozen[key] = _freeze(item)
-    return MappingProxyType(frozen)
 
 
 def _nonblank(value: object, label: str) -> str:

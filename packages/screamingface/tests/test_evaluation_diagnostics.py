@@ -122,6 +122,31 @@ def test_public_client_input_validation_stages_a_degraded_receipt() -> None:
     assert receipt.to_dict()["error"]["type"] == "TypeError"
 
 
+@pytest.mark.parametrize(
+    ("option", "message"),
+    [
+        ({"benchmark": "draco"}, "benchmark must not be passed"),
+        ({"limit": 1}, "limit must not be passed"),
+    ],
+)
+def test_public_url4_option_validation_stages_a_degraded_receipt(
+    option: dict[str, object],
+    message: str,
+) -> None:
+    # INVARIANT: direct URL4 replay owns the same diagnostic boundary as Recipe evaluation.
+    with sf.Client(
+        engine_url="https://engine.example",
+        run_transport=_fixtures.FailingTransport(AssertionError("transport must not run")),
+    ) as client:
+        with pytest.raises(TypeError, match=message) as caught:
+            cast(Any, client).evaluate("(@)!'hello'", **option)
+
+    receipt = sf.diagnostics.last()
+    assert receipt is not None
+    assert receipt.to_dict()["error"]["type"] == "TypeError"
+    assert receipt.diagnostic_id in caught.value.__notes__[0]
+
+
 def test_preparation_failure_retains_safe_caller_candidate_identity() -> None:
     with sf.Client(
         engine_url="https://engine.example",

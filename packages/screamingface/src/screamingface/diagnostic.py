@@ -8,6 +8,8 @@ from os import PathLike
 from pathlib import Path
 from typing import Any
 
+from screamingface._immutable_json import thaw_mapping
+
 
 class DiagnosticReceipt:
     """One privacy-safe local record of a failed ScreamingFace operation."""
@@ -40,7 +42,7 @@ class DiagnosticReceipt:
         return _string_field(self._document, "outcome")
 
     def to_dict(self) -> dict[str, Any]:
-        return {key: _thaw(value) for key, value in self._document.items()}
+        return thaw_mapping(self._document)
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
@@ -63,14 +65,6 @@ def _string_field(document: Mapping[str, object], name: str) -> str:
     value = document[name]
     if not isinstance(value, str):
         raise AssertionError(f"Diagnostic {name} must remain a string")
-    return value
-
-
-def _thaw(value: object) -> Any:
-    if isinstance(value, Mapping):
-        return {key: _thaw(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thaw(item) for item in value]
     return value
 
 

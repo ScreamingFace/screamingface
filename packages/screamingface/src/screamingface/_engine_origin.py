@@ -1,4 +1,4 @@
-"""Shared Engine-origin classification for notebook UI surfaces."""
+"""Shared Engine-origin classification for Client surfaces and evidence."""
 
 from __future__ import annotations
 

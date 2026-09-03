@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
+from screamingface._engine_origin import _is_hosted_engine
 from screamingface._ui.connection_state import (
     _ConnectionPanelState,
     _sync_access_probe,
@@ -16,7 +17,6 @@ from screamingface._ui.connection_view import (
     _provider_presentation,
     static_panel_html,
 )
-from screamingface._ui.engine_origin import _is_hosted_engine
 from screamingface.errors import ScreamingFaceError
 
 if TYPE_CHECKING:

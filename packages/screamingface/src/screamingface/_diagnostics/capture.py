@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from websockets.exceptions import ConnectionClosed
 
+from screamingface._engine_origin import _is_hosted_engine
 from screamingface._environment import running_in_notebook
 from screamingface.errors import ScreamingFaceError
 
@@ -57,7 +58,7 @@ def _engine_document(engine_url: str) -> dict[str, str]:
     host = selected.hostname
     if host is None:
         raise ValueError("Engine URL must contain a host")
-    mode = "local" if host in {"localhost", "127.0.0.1", "::1"} else "hosted"
+    mode = "hosted" if _is_hosted_engine(engine_url) else "local"
     return {"host": host, "mode": mode}
 
 
