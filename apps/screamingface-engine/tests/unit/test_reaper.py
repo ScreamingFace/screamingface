@@ -391,3 +391,44 @@ async def test_an_unreadable_exists_rearms_rather_than_forgetting_the_topic() ->
 
     assert await reaper.sweep() == ("t",)
     assert runner.stopped == ["t"]
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_read_during_the_reap_rearms_the_real_runner_too() -> None:
+    """V-2 — the COMPOSITION the first P2-10 fix never tested: both halves were verified
+    in isolation (the reaper against a fake whose `stop` raised; `stop()` against the
+    sentinel) and the combination reinstated the bug — the real `stop()` answered the
+    unreadable tail with a SILENT no-op, so `_reap` fell through to `reaped_total += 1`
+    and logged "orphan run reaped" for a run it never touched, with the deadline popped
+    and nothing re-arming it. Unknown must reach the reaper as a FAILURE so its existing
+    re-arm runs: the tail reads fine for `exists` (the run is live) and goes unreadable
+    under `stop` — exactly a reconnect landing between the two reads."""
+    from test_queue_runner_cancel import _FakeControl, _FakePublisher, _runner
+
+    from url4.streaming.protocol import StartedData, StartedEvent, source_for
+
+    class _UnreadableOnTheSecondRead(_FakePublisher):
+        """`exists` reads a live Started frame; `stop`'s re-read lands mid-reconnect."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.reads = 0
+
+        async def last_frame(self, topic: str) -> Any:
+            self.reads += 1
+            if self.reads >= 2:
+                raise QueueReadError("stream tail unreadable")
+            return StartedEvent(
+                id="s", source=source_for(topic), subject=topic, data=StartedData(url4="'hi'")
+            )
+
+    clock, audience = _FakeClock(), _FakeAudience()
+    runner = _runner(_UnreadableOnTheSecondRead(), _FakeControl())
+    reaper = RunReaper(runner, audience, grace_s=GRACE, clock=clock, tick_s=10.0)
+
+    reaper.audience_left("t")
+    clock.advance(GRACE)
+
+    assert await reaper.sweep() == ()
+    assert reaper.armed_count == 1, "an unknown read must re-arm, not count as a reap"
+    assert reaper.reaped_total == 0, "telemetry must not assert a reap that did not happen"

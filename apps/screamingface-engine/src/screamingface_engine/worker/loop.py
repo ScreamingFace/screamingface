@@ -16,11 +16,17 @@ import contextlib
 import logging
 import signal
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import nats
 
 from screamingface_engine.config import Settings
+
+if (
+    TYPE_CHECKING
+):  # the adapters are imported lazily at runtime; only the annotation needs the names
+    from screamingface_engine.adapters.jetstream import JetStreamPublisher
+    from screamingface_engine.runner_queue import RunQueue
 from screamingface_engine.runner_queue import topic_of_message
 from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX
 from screamingface_engine.worker.supervisor import (
@@ -363,17 +369,17 @@ class Worker:
         self._drained.set()
 
 
-def run_worker(settings: Settings | None = None) -> None:
-    """The worker's composition root: build the queue, publisher, control channel, and
-    worker from Settings.
+def worker_composition(settings: Settings) -> tuple[RunQueue, JetStreamPublisher]:
+    """The worker's queue and publisher, from Settings.
 
-    ``settings`` is injectable for tests; production callers leave it ``None`` and let
-    ``Settings()`` read the environment.
+    Extracted from `run_worker` (review follow-up V-9) so the stream-wiring test can hold
+    the WORKER's composition root to the same Settings the App's roots answer to — the two
+    sides agreeing on the stream name is the whole P2-2 fix, and a test that only inspects
+    one root cannot see the other drifting.
     """
     from screamingface_engine.adapters.jetstream import JetStreamPublisher
     from screamingface_engine.runner_queue import RunQueue
 
-    settings = settings if settings is not None else Settings()
     queue = RunQueue(
         settings.nats_url,
         stream=settings.run_queue_stream,
@@ -391,6 +397,18 @@ def run_worker(settings: Settings | None = None) -> None:
     )
     # The publisher's sweep must exclude the CONFIGURED queue stream, not a stale constant.
     publisher = JetStreamPublisher(settings.nats_url, run_queue_stream=settings.run_queue_stream)
+    return queue, publisher
+
+
+def run_worker(settings: Settings | None = None) -> None:
+    """The worker's composition root: build the queue, publisher, control channel, and
+    worker from Settings.
+
+    ``settings`` is injectable for tests; production callers leave it ``None`` and let
+    ``Settings()`` read the environment.
+    """
+    settings = settings if settings is not None else Settings()
+    queue, publisher = worker_composition(settings)
 
     async def _main() -> None:
         # The control channel is a core NATS client of its own, like the queue's and the

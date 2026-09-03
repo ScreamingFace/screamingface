@@ -338,11 +338,13 @@ async def test_a_run_completing_inside_the_ask_window_keeps_its_real_outcome() -
     assert await runner.status("t-midask") == "succeeded"
 
 
-async def test_an_unreadable_tail_makes_stop_a_no_op_not_a_500() -> None:
-    """P2-10: `stop()`'s tail reads were unguarded — a `QueueReadError` surfaced as a 500
-    on `DELETE /`. An unreadable tail is UNKNOWN, not a state: stop returns without a
-    tombstone and without a control ask (no state change), and a retried DELETE once the
-    broker is readable reaches the truth."""
+async def test_an_unreadable_tail_makes_stop_raise_without_changing_state() -> None:
+    """P2-10 then V-2/V-3: `stop()`'s tail reads were unguarded (a 500 on `DELETE /`), and
+    the first fix made the unknown a SILENT no-op — which the reaper counted as a
+    successful reap (deadline popped, telemetry asserting it) for a run it never touched,
+    and which let `DELETE /` fall through to deleting a possibly-live run's stream. The
+    unknown now raises the typed error: no tombstone, no control ask, no state change —
+    and every caller can tell "did not act" from "acted"."""
     from screamingface_engine.adapters.jetstream import QueueReadError
 
     class _UnreadablePublisher(_FakePublisher):
@@ -352,6 +354,8 @@ async def test_an_unreadable_tail_makes_stop_a_no_op_not_a_500() -> None:
     control = _FakeControl()
     runner = _runner(_UnreadablePublisher(), control)
 
-    await runner.stop("t-unreadable")  # must not raise
+    with pytest.raises(QueueReadError):
+        await runner.stop("t-unreadable")
 
     assert control.requested == [], "an unknown tail must not even reach the control ask"
+    assert getattr(control, "requested", []) == []

@@ -252,14 +252,22 @@ class QueueJobRunner(IdentityAwareJobRunner):
         wide, and the confirmation ask below still reaches a live worker, whose own
         publish is suppressed by `_publish_if_needed`'s re-read.
 
-        WHY the tail reads are GUARDED (review follow-up P2-10): an unreadable tail is
-        UNKNOWN — neither terminal nor missing — so answering either way would stop a run
-        that might be running or fail to stop one that needs stopping. On a
-        `QueueReadError` the stop degrades to a no-op (no tombstone, no control ask), and
-        retrying the DELETE once the broker is readable reaches the truth.
+        WHY an unreadable tail RAISES and does not no-op (review follow-ups P2-10 then
+        V-2/V-3): an unreadable tail is UNKNOWN — neither terminal nor missing — so
+        answering either way would stop a run that might be running or fail to stop one
+        that needs stopping. The first P2-10 fix made this a SILENT no-op, which the
+        reaper read as a successful reap (deadline popped, `reaped_total` incremented,
+        "orphan run reaped" logged) for a run it never touched — the original bug with
+        telemetry asserting the opposite — and which let `DELETE /` fall through to
+        deleting the stream of a possibly-live run. The typed raise keeps "no state
+        change" while making the unknown HONEST: the REST edge answers 503 (retryable),
+        and the reaper's existing guard re-arms the deadline, so a retried stop once the
+        broker is readable reaches the truth.
         """
         frame = await self._read_tail(topic)
-        if frame is _UNREADABLE_TAIL or isinstance(frame, TerminatedEvent):
+        if frame is _UNREADABLE_TAIL:
+            raise QueueReadError(f"stream tail unreadable for {topic}: run state unknown")
+        if isinstance(frame, TerminatedEvent):
             return
         if await self._request_control(topic):
             return
@@ -325,15 +333,20 @@ class QueueJobRunner(IdentityAwareJobRunner):
         `StartedEvent` first, so a log/span/cost frame means the run started, whatever it
         is doing now.
 
-        WHY an unreadable tail reads as ``running`` (review follow-up P2-10): an unknown
-        tail must never give the reaper a terminal-ish answer — `exists()` is this very
-        status, and a ``not_found`` read would make the reaper stop an unknown run. Assumed
-        alive: the client retries, and the reaper's sweep re-reads on its next tick.
+        WHY an unreadable tail RAISES (review follow-ups P2-10 then V-2/V-3): the first
+        fix answered ``running`` — assumed alive — reasoning only about the reaper. But
+        ``exists()`` is this same status, and ``POST /`` used it to answer 409 "a run
+        already exists" for a BRAND-NEW topic on a transient blip: a definitive false
+        claim clients do not retry. Unknown is not a state, for any consumer. The typed
+        raise lets each caller answer honestly — the REST edge 503s (retryable, no state
+        change), and the reaper's guard re-arms for the next sweep.
         """
         frame = await self._read_tail(topic)
         if isinstance(frame, TerminatedEvent):
             return frame.data.status
-        if frame is not None or frame is _UNREADABLE_TAIL:
+        if frame is _UNREADABLE_TAIL:
+            raise QueueReadError(f"stream tail unreadable for {topic}: run state unknown")
+        if frame is not None:
             return "running"
         return "scheduled" if self._capability_valid(topic) else "not_found"
 
