@@ -19,6 +19,7 @@ def _valid_payload() -> dict[str, object]:
         "total_questions": 4,
         "correct_questions": 3,
         "ran_with_providers": ["openai"],
+        "run_cost_usd": "1.25",
     }
 
 
@@ -468,12 +469,11 @@ def test_score_submission_rejects_a_client_supplied_verified_flag(claimed: bool)
         ScoreSubmission.model_validate(payload)
 
 
-# --- OME-770: run cost on a submission ------------------------------------
-# A cost is optional, and its ABSENCE is a distinct state from a zero cost:
-# absent means "we were never told", zero means "this run genuinely cost
-# nothing" (a fully cache-served run — the goal OME-767 is chasing). The
-# Pareto frontier in OME-770 would put an unknown-cost row at the cheapest
-# end if these two ever collapsed together, so the distinction is pinned here.
+# --- OME-770 / OME-822: run cost on a submission ---------------------------
+# Every direct submission reports a cost. Zero means "this run genuinely cost
+# nothing" (a fully cache-served run); omission and null are client errors.
+# Imported and legacy rows retain their distinct unknown-cost state in the
+# nullable database and read DTOs, outside ScoreSubmission.
 
 
 def test_score_submission_accepts_a_run_cost() -> None:
@@ -485,10 +485,16 @@ def test_score_submission_accepts_a_run_cost() -> None:
     assert submission.run_cost_usd == Decimal("12.50")
 
 
-def test_score_submission_without_a_run_cost_is_none_not_zero() -> None:
-    submission = ScoreSubmission.model_validate(_valid_payload())
+@pytest.mark.parametrize("missing", [True, False])
+def test_score_submission_requires_a_non_null_run_cost(missing: bool) -> None:
+    payload = _valid_payload()
+    if missing:
+        payload.pop("run_cost_usd")
+    else:
+        payload["run_cost_usd"] = None
 
-    assert submission.run_cost_usd is None
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
 
 
 def test_score_submission_accepts_a_genuinely_zero_run_cost() -> None:

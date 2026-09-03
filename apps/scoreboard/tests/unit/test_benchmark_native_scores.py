@@ -49,6 +49,7 @@ def _native_payload(benchmark_id: str, score: float, **overrides: Any) -> dict[s
         "score": score,
         "total_questions": 10,
         "ran_with_providers": ["openrouter"],
+        "run_cost_usd": "2.500000",
         "ran_at_local": "2026-08-18T09:00:00+00:00",
         "client": {"name": "screamingface", "version": "0.3.0", "platform": "darwin"},
         "metadata": {"benchmark_revision": "rev-1", "run_id": "run-native"},

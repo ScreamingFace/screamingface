@@ -38,6 +38,7 @@ def _sf_payload(**overrides: Any) -> dict[str, Any]:
         "total_questions": 1000,
         "correct_questions": 810,
         "ran_with_providers": ["claude", "codex", "gemini"],
+        "run_cost_usd": "4.250000",
         "submitted_by": None,
         "ran_at_local": "2026-05-04T11:55:00Z",
         "client": {"name": "screamingface-desktop", "version": "0.4.2", "platform": "darwin"},

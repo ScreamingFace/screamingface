@@ -11,6 +11,7 @@ Runs only when SCOREBOARD_TEST_DATABASE_URL is set; skips otherwise.
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 
 import pytest
 from tortoise import Tortoise
@@ -35,6 +36,7 @@ def _submission(submitted_by: str) -> ScoreSubmission:
         total_questions=100,
         correct_questions=75,
         ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
     )
 
 
