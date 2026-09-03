@@ -1295,9 +1295,7 @@ async def test_concurrent_spawns_from_one_claim_batch_divide_the_io_budget() -> 
         return proc
 
     msgs = [_FakeMsg(encode_message(f"t-io-{i}", "'hi'", 60)) for i in range(2)]
-    worker = _worker(
-        _FakeQueue([msgs]), _FakePublisher(), slots=2, spawn=slow_spawn, io_capacity=8
-    )
+    worker = _worker(_FakeQueue([msgs]), _FakePublisher(), slots=2, spawn=slow_spawn, io_capacity=8)
     async with asyncio.TaskGroup() as tg:
         claim = tg.create_task(worker._claim_loop(tg))
         await _wait_until(lambda: len(budgets) == 2)

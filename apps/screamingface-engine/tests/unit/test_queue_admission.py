@@ -306,7 +306,9 @@ async def test_a_release_racing_a_refresh_cannot_drive_the_counter_negative() ->
         state_cache_ttl_s=0.0,  # every check refreshes — the racing refresh is the point
     )
 
-    async def refresh_then_fail(message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def refresh_then_fail(
+        message: bytes, *, identity: Mapping[str, str] | None = None
+    ) -> None:
         # The racing sibling's refresh, landing between this run's reserve and release:
         # the depth now accounts for everything older than the window, so the counter
         # RESETS — and the release that follows must not decrement from that baseline.
@@ -376,9 +378,7 @@ class _HangingQueue(_FakeQueue):
         super().__init__()
         self._release = asyncio.Event()
 
-    async def publish(
-        self, message: bytes, *, identity: Mapping[str, str] | None = None
-    ) -> None:
+    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
         await self._release.wait()
 
     def finish(self) -> None:
@@ -418,9 +418,7 @@ class _FailingQueue(_FakeQueue):
         super().__init__()
         self.fail_next = False
 
-    async def publish(
-        self, message: bytes, *, identity: Mapping[str, str] | None = None
-    ) -> None:
+    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
         if self.fail_next:
             self.fail_next = False
             raise OSError("broker unavailable")
@@ -492,9 +490,7 @@ class _FailsSecondPublishQueue(_FakeQueue):
         super().__init__()
         self._failed_once = False
 
-    async def publish(
-        self, message: bytes, *, identity: Mapping[str, str] | None = None
-    ) -> None:
+    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
         from screamingface_engine.runner_queue import topic_of_message
 
         if topic_of_message(message) == "t-retry" and self.published:
@@ -523,3 +519,22 @@ async def test_a_failed_retry_of_a_live_topic_keeps_the_first_admission_counted(
         # If the failed retry had erased the first admission, this would be admitted
         # (count read 1) — one run PAST the caller's cap.
         await runner.schedule("t-third", "'hi'", 60, identity=identity)
+
+
+async def test_a_cap_refusals_retry_after_reflects_the_callers_oldest_run() -> None:
+    """P2-11: the caller-cap refusal reused the QUEUE-drain estimate, which answered 1
+    exactly when the cap branch fires — the branch is reached precisely when the queue
+    is NOT at its ceiling, so the drain formula underflows to its floor. A caller
+    sitting at its cap behind a long evaluation was told to retry every second, for up
+    to the 16h run ceiling — a hot loop for any well-behaved client. The estimate now
+    comes from the caller's own oldest in-flight run, floored."""
+    clock = _FakeClock()
+    runner = _runner(_FakeQueue(), caller_inflight_cap=2, clock=clock)  # empty queue
+    await runner.schedule("a1", "'hi'", 60, identity=CALLER_A)
+    await runner.schedule("a2", "'hi'", 60, identity=CALLER_A)
+    clock.advance(90)  # the caller's runs have been in flight 90s
+
+    with pytest.raises(JobRunnerAtCapacity) as exc:
+        await runner.schedule("a3", "'hi'", 60, identity=CALLER_A)
+
+    assert exc.value.retry_after_s == 90, "the oldest run's age, not the queue's '1'"

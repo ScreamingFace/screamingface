@@ -231,7 +231,9 @@ async def _schedule(
             # the header is where the value becomes protocol, so the boundary renders
             # ANY future adapter's fractional estimate as a valid integer — rounding
             # UP, so a caller is never told to retry sooner than the estimate.
-            headers={"Retry-After": str(math.ceil(retry_after)) if retry_after is not None else "1"},
+            headers={
+                "Retry-After": str(math.ceil(retry_after)) if retry_after is not None else "1"
+            },
         ) from exc
 
 

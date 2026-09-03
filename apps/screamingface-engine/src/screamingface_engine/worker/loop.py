@@ -383,6 +383,7 @@ def worker_composition(settings: Settings) -> tuple[RunQueue, JetStreamPublisher
     queue = RunQueue(
         settings.nats_url,
         stream=settings.run_queue_stream,
+        subject_prefix=settings.run_queue_subject_prefix,
         ack_wait_s=settings.run_queue_ack_wait_s,
         max_deliver=settings.run_queue_max_deliver,
         max_ack_pending=settings.run_queue_max_ack_pending,

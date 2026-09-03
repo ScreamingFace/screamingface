@@ -259,7 +259,12 @@ class RunSupervisor:
         await self._run_child(msg, topic)
 
     async def _run_child(self, msg: ClaimedMessage, topic: str) -> None:
-        """Fork the run as a child, supervise it to its terminal frame, then ack."""
+        """Fork the run as a child, supervise it to its terminal frame, then ack.
+
+        The spawn slot is reserved and released HERE; everything after a successful
+        spawn belongs to `_supervise_live_child` — the split is what keeps each half
+        inside the house complexity limits without burying the invariants.
+        """
         # Reserve the spawn slot SYNCHRONOUSLY, before the budget read below: every
         # `await` is a preemption point, and the old order (budget → await spawn →
         # register) let two batch siblings both read `len(self._children) == 0` and both
@@ -282,39 +287,51 @@ class RunSupervisor:
             self._children.add(proc)
             self._spawning -= 1  # the registries count this spawn from here — no double count
             promoted = True
-            self._children_by_topic[topic] = proc
-            if topic in self._cancelled:
-                # A cancel was ACKNOWLEDGED while this child was starting (the control loop
-                # replied from the starting registry): enact it the moment the child exists.
-                proc.terminate()
-            heartbeat = asyncio.create_task(self._heartbeat(msg, topic))
-            output = asyncio.create_task(self._forward_output(proc, topic))
-            try:
-                outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
-                await self._publish_if_needed(topic, self._classify(outcome, proc.returncode, topic))
-                await msg.ack()
-            finally:
-                heartbeat.cancel()
-                output.cancel()
-                # WHY gather and not sequential awaits under one `suppress`: a task that already
-                # FAILED (not cancelled) re-raises its own exception on await, and `cancel()` is a
-                # no-op on it — so `await heartbeat` would blow the finally block open and skip
-                # every line below it (the child stays in `self._children`, a live child is never
-                # killed). `return_exceptions=True` makes the gather itself unraisable; the
-                # cleanup after it is therefore unconditional.
-                for result in await asyncio.gather(heartbeat, output, return_exceptions=True):
-                    if isinstance(result, BaseException) and not isinstance(
-                        result, asyncio.CancelledError
-                    ):
-                        logger.warning("run supervision task failed during cleanup: %r", result)
-                self._release_child(proc, topic)
-                if proc.returncode is None:
-                    # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
-                    # must not orphan its child.
-                    proc.kill()
+            await self._supervise_live_child(msg, topic, proc, env)
         finally:
             if not promoted:
                 self._spawning -= 1  # the spawn never registered — release its reservation
+
+    async def _supervise_live_child(
+        self, msg: ClaimedMessage, topic: str, proc: _ChildProcess, env: Mapping[str, str]
+    ) -> None:
+        """Carry a REGISTERED child to its terminal frame and the ack.
+
+        Registration, the pre-registered cancel, the side-channel tasks, the hard wall,
+        and the cleanup that must run even when a sibling's failure cancels this
+        supervisor mid-run.
+        """
+        self._children_by_topic[topic] = proc
+        if topic in self._cancelled:
+            # A cancel was ACKNOWLEDGED while this child was starting (the control loop
+            # replied from the starting registry): enact it the moment the child exists.
+            proc.terminate()
+        heartbeat = asyncio.create_task(self._heartbeat(msg, topic))
+        output = asyncio.create_task(self._forward_output(proc, topic))
+        try:
+            outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
+            classification = self._classify(outcome, proc.returncode, topic)
+            await self._publish_if_needed(topic, classification)
+            await msg.ack()
+        finally:
+            heartbeat.cancel()
+            output.cancel()
+            # WHY gather and not sequential awaits under one `suppress`: a task that already
+            # FAILED (not cancelled) re-raises its own exception on await, and `cancel()` is a
+            # no-op on it — so `await heartbeat` would blow the finally block open and skip
+            # every line below it (the child stays in `self._children`, a live child is never
+            # killed). `return_exceptions=True` makes the gather itself unraisable; the
+            # cleanup after it is therefore unconditional.
+            for result in await asyncio.gather(heartbeat, output, return_exceptions=True):
+                if isinstance(result, BaseException) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
+                    logger.warning("run supervision task failed during cleanup: %r", result)
+            self._release_child(proc, topic)
+            if proc.returncode is None:
+                # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
+                # must not orphan its child.
+                proc.kill()
 
     def _release_child(self, proc: _ChildProcess, topic: str) -> None:
         """Drop a finished child from every registry the worker shares.

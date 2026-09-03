@@ -23,6 +23,7 @@ import logging
 import time
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 import nats
 from nats.aio.client import Client
@@ -75,6 +76,18 @@ DEFAULT_STATE_CACHE_TTL_S = 2.0
 # More buckets mean fewer caller collisions (two callers sharing a bucket share its cap and its
 # round-robin slot), at the cost of more subjects the worker must poll each pull.
 DEFAULT_BUCKET_COUNT = 16
+# The per-bucket fetch cap per rotation visit (review follow-up P2-7): ONE message per
+# bucket per visit let a single caller's burst drain at ~1 run per poll — with the default
+# bucket count the rest of the rotation burned the poll's budget on empty buckets while the
+# burst sat in its bucket. A cap > 1 lets a burst drain several messages per visit while
+# round-robin fairness survives: a bucket takes at most this many (or its fair share of a
+# larger batch) per visit, never the whole poll. Pending production numbers from the sized
+# fleet; the levers are this cap and `PULL_FAST_PASS_S` below.
+PULL_BUCKET_BATCH = 2
+# The fast pass's total budget: one rotation with a short per-bucket window, so messages
+# that are IMMEDIATELY available are collected before the poll spends its budget waiting
+# on empty buckets. Bounded by `timeout_s` so a short poll never over-waits.
+PULL_FAST_PASS_S = 1.0
 # The per-caller in-flight cap (OME-1091): how many of one caller's runs may be admitted at
 # once. 8 matches the Client's fan-out (`_MAX_CANDIDATES_IN_FLIGHT`), so one ordinary
 # Evaluation fits while a second concurrent one is refused until the first's runs finish.
@@ -412,12 +425,18 @@ class RunQueue:
         subjects: Sequence[str] | None = None,
     ) -> list[Msg]:
         """Pull up to `batch` queued messages, round-robin across `subjects` (default: every
-        bucket), waiting up to `timeout_s` in total for the first.
+        bucket), waiting up to `timeout_s` in total.
 
-        The round-robin is one message per bucket per cycle: a busy caller cannot drain ahead
-        of a quieter one within a single pull, and the rotation index advances so no bucket is
-        permanently first. Each bucket gets a share of the timeout, so an empty queue still
-        returns within `timeout_s` overall.
+        The round-robin visits every bucket in rotation, up to `PULL_BUCKET_BATCH`
+        messages (or the batch's fair share, whichever is larger) per bucket per visit, in
+        TWO phases: a FAST pass whose short per-bucket windows collect what is immediately
+        available — a burst sitting in one bucket — and a slow pass that spends the
+        remaining budget on a second rotation, so a message that is not there yet still
+        has a window to land. A busy caller cannot drain ahead of a quieter one WITHIN a
+        pull (the per-visit cap sees to that), and the rotation index advances so no
+        bucket is permanently first. A poll against an empty queue returns within
+        `timeout_s` overall: the fast pass is capped at `PULL_FAST_PASS_S`, and the slow
+        pass only re-splits what remains.
 
         Returns the raw NATS messages; the caller acks each after processing. Under the
         EXPLICIT ack policy an unacked message is redelivered after `ack_wait`, up to
@@ -433,20 +452,22 @@ class RunQueue:
         reconnect clears it — the subscriptions died with the connection.
 
         THE RPC ACCOUNTING (review follow-up, recorded so the tradeoff is a decision, not
-        an accident): one pull costs one `fetch(1)` per bucket VISITED — up to
-        `max(batch, len(subjects))` per poll, 16 with the default bucket count — against
-        one `fetch(batch)` for a single-subject consumer. That multiplier is the price of
+        an accident): one pull costs one `fetch` per bucket VISITED — the fast pass
+        always costs a full rotation (16 with the default bucket count); the slow pass
+        only runs while the batch is unfilled and budget remains — against one
+        `fetch(batch)` for a single-subject consumer. That multiplier is the price of
         per-caller fairness: JetStream dispatches one consumer in stream order, so a
         single wildcard consumer would collapse the buckets back into FIFO — the exact
         head-of-line unfairness the bucket rotation exists to break. Two properties keep
-        the cost bounded: each fetch window is `timeout_s / visits` (an empty queue never
-        holds a worker longer than `timeout_s`), and an empty bucket's fetch returns as
-        soon as its own short window expires, so a poll against an empty queue is 16
-        cheap timeouts, not 16 long ones. Revisit only with production RPC-budget numbers
-        from the sized fleet (worker pods x polls/second x buckets vs what the broker
-        absorbs); the levers, in order of preference, are a smaller `bucket_count`, more
-        than one message per bucket visit, or a server-side fair consumer if JetStream
-        ever ships one — never a silent fallback to the wildcard.
+        the cost bounded: the fast pass's windows total `min(PULL_FAST_PASS_S,
+        timeout_s)`, and an empty bucket's fetch returns as soon as its own short window
+        expires, so a poll against an empty queue is 16 cheap timeouts plus at most one
+        more rotation of the REMAINING budget — never more than `timeout_s` overall.
+        Revisit only with production RPC-budget numbers from the sized fleet (worker pods
+        x polls/second x buckets vs what the broker absorbs); the levers, in order of
+        preference, are a smaller `bucket_count`, the per-visit cap, or a server-side
+        fair consumer if JetStream ever ships one — never a silent fallback to the
+        wildcard.
         """
         subjects = list(subjects) if subjects is not None else self.bucket_subjects()
         if not subjects or batch <= 0:
@@ -454,28 +475,26 @@ class RunQueue:
         await self.ensure_stream()
         js = await self._jetstream()
         collected: list[Msg] = []
-        # The round-robin visits every bucket in rotation, one message per bucket per cycle,
-        # cycling until the batch is filled — so a busy caller cannot drain ahead of a quieter
-        # one, and a message is found wherever it sits. Each bucket gets a share of the
-        # timeout, so the total wait stays within `timeout_s` even when every bucket is empty.
-        per_bucket = timeout_s / max(batch, len(subjects))
-        for slot in range(max(batch, len(subjects))):
+        # TWO PHASES over the same rotation (review follow-up P2-7). The FAST pass (the
+        # first rotation) gives each bucket a short window so messages that are already
+        # there — a burst sitting in one bucket — are collected before the budget is
+        # spent waiting on empty buckets; the SLOW pass spends the remaining budget on a
+        # second rotation, so a message that lands mid-poll still has a window. Each
+        # visit fetches at most `per_visit` messages, so a busy caller cannot drain ahead
+        # of a quieter one WITHIN a pull, and the total wait never exceeds `timeout_s`.
+        rotation = len(subjects)
+        per_visit = max(PULL_BUCKET_BATCH, -(-batch // rotation))
+        fast_window = min(PULL_FAST_PASS_S, timeout_s) / rotation
+        deadline = time.monotonic() + timeout_s
+        for slot in range(max(batch, 2 * rotation)):
             if len(collected) >= batch:
                 break
-            subject = subjects[(self._rr_index + slot) % len(subjects)]
-            sub = self._pull_subs.get(subject)
-            if sub is None:
-                sub = await js.pull_subscribe(
-                    subject,
-                    durable=_consumer_for(subject),
-                    stream=self._stream,
-                    config=_work_queue_consumer_config(
-                        ack_wait_s=self._ack_wait_s,
-                        max_deliver=self._max_deliver,
-                        max_ack_pending=self._max_ack_pending,
-                    ),
-                )
-                self._pull_subs[subject] = sub
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            window = fast_window if slot < rotation else remaining / rotation
+            subject = subjects[(self._rr_index + slot) % rotation]
+            sub = await self._bound_subscription(js, subject)
             try:
                 # INVARIANT: an empty bucket is a RESULT, not an error. nats-py's `fetch`
                 # RAISES `nats.errors.TimeoutError` (or its `FetchTimeoutError` subclass)
@@ -485,13 +504,36 @@ class RunQueue:
                 # pool; with 16 buckets most rotations visit empty buckets before the
                 # one that holds a message. A timed-out HELD subscription stays usable —
                 # the next fetch on it is an independent request.
-                msgs = await sub.fetch(1, timeout=per_bucket)
+                want = min(batch - len(collected), per_visit)
+                msgs = await sub.fetch(want, timeout=window)
             except TimeoutError:
                 continue
-            if msgs:
-                collected.append(msgs[0])
-        self._rr_index = (self._rr_index + 1) % len(subjects)
+            collected.extend(msgs)
+        self._rr_index = (self._rr_index + 1) % rotation
         return collected
+
+    async def _bound_subscription(self, js: Any, subject: str) -> Any:
+        """The HELD pull subscription for one bucket subject, bound on first use.
+
+        WHY held and not per-cycle: binding a durable consumer costs a `consumer_info`
+        round trip, and the claim loop pulls in a tight loop — per-cycle binding paid
+        that once per bucket PER POLL, even against an empty queue. The cache is bounded
+        by the configured bucket list and cleared on reconnect (the subscriptions died
+        with the connection)."""
+        sub = self._pull_subs.get(subject)
+        if sub is None:
+            sub = await js.pull_subscribe(
+                subject,
+                durable=_consumer_for(subject),
+                stream=self._stream,
+                config=_work_queue_consumer_config(
+                    ack_wait_s=self._ack_wait_s,
+                    max_deliver=self._max_deliver,
+                    max_ack_pending=self._max_ack_pending,
+                ),
+            )
+            self._pull_subs[subject] = sub
+        return sub
 
     async def _state(self) -> tuple[int, str | None]:
         """(queued message count, first message's publish timestamp) from one stream-info round
@@ -556,6 +598,8 @@ __all__ = [
     "DEFAULT_QUEUE_MAX_AGE_S",
     "DEFAULT_STATE_CACHE_TTL_S",
     "DEFAULT_WORKER_SLOTS",
+    "PULL_BUCKET_BATCH",
+    "PULL_FAST_PASS_S",
     "QUEUE_CONSUMER",
     "QUEUE_REPLICAS",
     "RunQueue",
