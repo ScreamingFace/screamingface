@@ -32,11 +32,15 @@ only reads the chart's own defaults, so a legal override (`drainGraceS: 30`,
 relation is enforced HERE, where neither defaults nor overrides can bypass it.
 KILL_GRACE_S restates `worker.supervisor.KILL_GRACE_S` (10s) — the chart cannot import
 Python; keep the two in step. */ -}}
-{{- $killGraceS := 10 -}}
-{{- $publishBudgetS := 15 -}}
-{{- $minimum := add (int .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS -}}
-{{- if lt (int .Values.runnerPool.terminationGracePeriodSeconds) $minimum -}}
-{{- fail (printf "runnerPool.terminationGracePeriodSeconds (%d) must be >= runnerPool.drainGraceS (%d) + kill grace (%d) + terminal-publish budget (%d) = %d: the kubelet SIGKILLs the pod at the termination deadline, and a drain cut short interrupts every in-flight run" (int .Values.runnerPool.terminationGracePeriodSeconds) (int .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS $minimum) -}}
+{{- $killGraceS := 10.0 -}}
+{{- $publishBudgetS := 15.0 -}}
+{{- /* V-10: `drainGraceS` is typed `number` in the schema, so truncating it with `int`
+would let a fractional grace slip under the real requirement (30.9/55 rendered, though
+55.9 is required). The minimum is computed in floats and CEILED — the termination grace
+is an integer, so it must cover the whole fractional requirement. */ -}}
+{{- $minimum := ceil (addf (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS) -}}
+{{- if lt (float64 .Values.runnerPool.terminationGracePeriodSeconds) $minimum -}}
+{{- fail (printf "runnerPool.terminationGracePeriodSeconds (%v) must be >= runnerPool.drainGraceS (%v) + kill grace (%v) + terminal-publish budget (%v) = %v: the kubelet SIGKILLs the pod at the termination deadline, and a drain cut short interrupts every in-flight run" (float64 .Values.runnerPool.terminationGracePeriodSeconds) (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS $minimum) -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: Deployment

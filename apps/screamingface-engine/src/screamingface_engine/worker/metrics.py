@@ -35,6 +35,7 @@ class WorkerMetrics:
     slots_busy: Gauge
     slots_total: Gauge
     last_claim_attempt: Gauge
+    pull_failures_total: Counter
     claim_latency_s: Histogram
     run_duration_s: Histogram
     redeliveries: Counter
@@ -69,6 +70,14 @@ def build_worker_metrics() -> WorkerMetrics:
             "A wedged claim loop with a live scrape thread passes a /metrics liveness probe; "
             "this gauge stops advancing when the loop is stuck. Alert when it goes stale "
             "while slots_busy < slots_total and the queue has depth.",
+            registry=registry,
+        ),
+        pull_failures_total=Counter(
+            "screamingface_engine_worker_pull_failures_total",
+            "Broker errors the claim loop caught and retried. The liveness stamp advances "
+            "on every pull ATTEMPT, so a pull that keeps failing still looks alive — a "
+            "rising counter is the operator's signal that the worker's broker path needs "
+            "attention (V-5).",
             registry=registry,
         ),
         claim_latency_s=Histogram(

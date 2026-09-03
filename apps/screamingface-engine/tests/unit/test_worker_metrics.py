@@ -23,6 +23,8 @@ from screamingface_engine.worker.metrics import build_worker_metrics
 from screamingface_engine.worker.supervisor import RunSupervisor
 from url4.streaming.protocol import TerminatedData, TerminatedEvent, source_for
 
+pytestmark = pytest.mark.asyncio
+
 
 class _FakeMsg:
     def __init__(self, data: bytes, *, num_delivered: int = 1) -> None:
@@ -325,3 +327,51 @@ async def test_the_claim_loop_stamps_its_last_attempt() -> None:
 
     stamped = _sample_values(metrics, name)[0]
     assert time.time() - stamped < 5.0
+
+
+async def test_a_pull_failure_increments_the_failure_counter() -> None:
+    """V-5: the liveness stamp advances on every pull ATTEMPT, so a claim loop whose
+    pulls keep failing still looks alive — the failure counter is the operator's signal
+    that the worker's broker path needs attention. A caught pull error must increment it
+    and the loop must keep going."""
+    import nats
+
+    metrics = build_worker_metrics()
+
+    class _FailingOnceQueue(_FakeQueue):
+        def __init__(self) -> None:
+            super().__init__(batches=[[_FakeMsg(_message("t-fail"))]])
+            self.failed = False
+
+        async def pull(self, batch: int, timeout_s: float) -> list[_FakeMsg]:
+            if not self.failed:
+                self.failed = True
+                raise nats.errors.Error("transient broker blip")
+            return await super().pull(batch, timeout_s)
+
+    queue = _FailingOnceQueue()
+    worker = Worker(
+        queue=queue,
+        publisher=_FakePublisher(),
+        slots=2,
+        drain_grace_s=0.05,
+        io_capacity=4,
+        memory_budget_bytes=1024**3,
+        pull_timeout_s=0.05,
+        spawn=_async_spawn(_FakeProcess(exit_code=0)),
+        metrics=metrics,
+    )
+
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        name = "screamingface_engine_worker_pull_failures_total"
+
+        def _counted() -> bool:
+            values = _sample_values(metrics, name)
+            return bool(values) and values[0] >= 1
+
+        await _wait_until(_counted)
+        worker._draining.set()  # noqa: SLF001
+        await claim
+
+    assert _sample_values(metrics, name)[0] == 1, "the caught failure must be counted"

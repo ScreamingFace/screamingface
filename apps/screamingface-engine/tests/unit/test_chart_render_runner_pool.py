@@ -352,14 +352,36 @@ def test_a_termination_grace_that_cannot_cover_the_drain_fails_the_render() -> N
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 def test_the_default_termination_grace_covers_the_full_drain_with_headroom() -> None:
-    """The shipped defaults must clear the render guard with real headroom — the old
-    45s left only 5s for terminal publishes after the kill grace."""
+    """The shipped defaults must clear the render guard with REAL headroom — the old 45s
+    left only 5s for terminal publishes after the kill grace.
+
+    V-9: the first draft asserted `>= drainGrace + killGrace + budget - 5` — weaker than
+    the guard's own enforced minimum, so it could never fail while the guard passed. The
+    assertion is now STRICTLY above the enforced minimum: a default that merely clears
+    the guard (e.g. exactly 55) has zero publish headroom and must fail this test."""
     with open(_CHART / "values.yaml") as fh:
         values = yaml.safe_load(fh)
     pool = values["runnerPool"]
     kill_grace_s = 10  # worker.supervisor.KILL_GRACE_S — restated by the template's guard
     publish_budget_s = 15
 
-    assert pool["terminationGracePeriodSeconds"] >= pool["drainGraceS"] + kill_grace_s + (
-        publish_budget_s - 5
-    ), "the default must leave real publish headroom past grace + kill grace"
+    assert pool["terminationGracePeriodSeconds"] > pool["drainGraceS"] + kill_grace_s + (
+        publish_budget_s
+    ), "the default must leave real publish headroom PAST the enforced minimum"
+
+
+def test_the_charts_kill_grace_literal_matches_the_workers_constant() -> None:
+    """V-10: the template's kill-grace literal and `supervisor.KILL_GRACE_S` are linked
+    only by prose — nothing detects drift, and a drift silently shrinks the drain budget
+    the render guard enforces. The chart cannot import Python, so the test does: parse
+    the literal out of the template and hold it to the constant."""
+    import re
+
+    from screamingface_engine.worker.supervisor import KILL_GRACE_S
+
+    template = (_CHART / "templates" / "deployment-runner.yaml").read_text()
+    match = re.search(r"\$killGraceS := ([\d.]+)", template)
+    assert match, "the template must restate the kill grace"
+    assert float(match.group(1)) == KILL_GRACE_S, (
+        "the chart's kill-grace literal drifted from worker.supervisor.KILL_GRACE_S"
+    )
