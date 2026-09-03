@@ -7,6 +7,16 @@ Hand-run notebooks that validate the correlation chain against the **deployed** 
 | `traceability_e2e_k8s.ipynb` | Walks the tracing ladder (`OME-935`), one rung per section, printing PASS/FAIL and a summary table |
 | `build_notebook.py` | Regenerates the notebook's authored cells — edit here, re-run, commit both |
 
+## Check your setup first
+
+```sh
+python3 e2e/failor/check_setup.py
+```
+
+Reports both lanes with the exact remedy for anything missing. Worth running before the
+notebook: without prepared assets every e2e rung **skips**, and `pytest` exits 0 — an
+all-skipped run is indistinguishable from a passing one by exit code alone.
+
 ## Run it
 
 ```sh
