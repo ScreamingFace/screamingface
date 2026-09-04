@@ -27,7 +27,11 @@ from typing import Any, Literal, Protocol
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.logs import run_scope
-from screamingface_engine.runner_queue import decode_message, topic_of_message
+from screamingface_engine.runner_queue import (
+    UNDECODABLE_BODY_ERRORS,
+    decode_message,
+    topic_of_message,
+)
 from screamingface_engine.subjects import ENQUEUED_AT_HEADER
 from url4.streaming.protocol import (
     ErrorInfo,
@@ -274,11 +278,8 @@ class RunSupervisor:
         """
         try:
             return topic_of_message(msg.data)
-        except (ValueError, KeyError, TypeError):
-            # `ValueError` covers `json.JSONDecodeError` and `UnicodeDecodeError` (both
-            # subclasses); `KeyError` is a body that decoded but names no topic; `TypeError`
-            # a payload that is not bytes at all. The body is never logged — it is the
-            # caller's and may carry prompts.
+        except UNDECODABLE_BODY_ERRORS:
+            # The body itself is never logged — it is the caller's and may carry prompts.
             logger.exception(
                 "undecodable run-queue message settled without executing; "
                 "a publisher is writing bodies this worker's codec cannot read"
@@ -287,9 +288,55 @@ class RunSupervisor:
             return None
 
     async def _claim(self, msg: ClaimedMessage, topic: str) -> None:
-        """The claim gates and the run, after the duplicate guard has admitted the topic."""
-        # One check for three cases: redelivery of a run that already finished, a
-        # cancel that landed before the claim, and a stale message whose run is over.
+        """The claim gates and the run, after the duplicate guard has admitted the topic.
+
+        AIDEV-NOTE: kept to ruff's `max-returns = 3` by delegating each gate. Add a new
+        gate as another `_settled_*` helper returning ``bool``, never as a fourth return.
+        """
+        if topic in self._cancelled:
+            await self._enact_accepted_cancel(msg, topic)
+            return
+        if await self._already_settled(msg, topic):
+            return
+        await self._run_child(msg, topic)
+
+    async def _enact_accepted_cancel(self, msg: ClaimedMessage, topic: str) -> None:
+        """Keep the promise made when the control loop accepted a cancel for this topic.
+
+        INVARIANT: an accepted cancel is a PROMISE, and this is where it is kept. The
+        control loop answers `ok` for a topic that is still starting, so
+        `QueueJobRunner.stop()` takes the "a worker owns it" branch and writes NO tombstone
+        — the client already holds a 204 and this worker owes the frame.
+
+        The promise used to live only in the in-memory `_cancelled` set, which
+        `supervise`'s `finally` discards on EVERY exit — including `_already_settled`'s
+        unreadable-tail path, which deliberately does not ack. The message then
+        redelivered, found no terminal frame anywhere (the App wrote none, the worker
+        published none), passed every gate and executed a run the caller was told was
+        stopped.
+
+        WHY this runs BEFORE the tail read rather than beside the other gates: that read is
+        the one step in the claim that can fail on a broker blip, and stranding the promise
+        is exactly what it did. Publishing first also makes the cancel durable for a
+        redelivery that lands on a DIFFERENT worker — the durable consumer is shared, so an
+        in-memory mark could never have covered that case at all.
+
+        WHY no child is spawned: the outcome is already promised, so starting the run only
+        to SIGTERM it would pay for a process, and a model call or two, to arrive back here.
+        """
+        await self._publish_terminal(
+            topic, "stopped", CANCELLED, "the run was cancelled by its owner"
+        )
+        await msg.ack()
+
+    async def _already_settled(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Whether this claim is finished without running: the run is over, or it expired.
+
+        ``True`` means the message has been dealt with — acked, or deliberately left for
+        redelivery — and the caller must not execute it. One read answers three cases: a
+        redelivery of a run that already finished, a cancel that landed before the claim,
+        and a stale message whose run is over.
+        """
         try:
             already_terminal = await self._terminal_frame_exists(topic)
         except QueueReadError:
@@ -300,17 +347,18 @@ class RunSupervisor:
             # the ack leaves the message for redelivery: the next attempt re-runs this check
             # and, once the broker is readable again, the dedupe answer is the real one.
             logger.warning("stream tail unreadable for %s; leaving the claim for redelivery", topic)
-            return
-        if already_terminal:
-            await msg.ack()
-            return
-        if self._capability_expired(msg):
+            return True
+        # Evaluated only when the run is not already over, exactly as the short-circuiting
+        # chain of early returns this replaced did.
+        expired = not already_terminal and self._capability_expired(msg)
+        if not already_terminal and not expired:
+            return False
+        if expired:
             await self._publish_terminal(
                 topic, "failed", QUEUE_EXPIRED, "the run's capability expired while queued"
             )
-            await msg.ack()
-            return
-        await self._run_child(msg, topic)
+        await msg.ack()
+        return True
 
     async def _run_child(self, msg: ClaimedMessage, topic: str) -> None:
         """Fork the run as a child, supervise it to its terminal frame, then ack."""
