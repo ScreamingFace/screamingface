@@ -12,14 +12,24 @@ or which entries were seeds. The provider returns FINISHED rows.
 INVARIANT: live data changes what is LISTED, never what is dispatchable —
 nothing here touches admission, dispatch, or credentials, and the catalog is
 consulted off the chat critical path only.
+
+INVARIANT (OME-1026 scope): this catalog serves ``PUBLIC_GLOBAL`` providers ONLY.
+One snapshot per provider is shared with every account, so a credential-derived
+(``PROFILE_CREDENTIAL``) listing is refused outright — see ``_public_source``. Private
+per-credential snapshots live in ``profile_model_catalog`` and never pass through
+here; ``GET /v1/models`` composes them per CALLER (OME-1026 U3), so "no account's
+models can enter a cache another account reads" stays structural rather than a
+rule each caller must remember.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from .model_capabilities import canonical_model_id
+from .background_error_sink import mark_observed
+from .model_capabilities import canonical_ids
+from .model_discovery_scope import DiscoveryScope, discovery_scope_of
 from .parameter_discovery import DiscoveryError
 from .parameter_discovery_cache import (
     CacheLimits,
@@ -29,14 +39,45 @@ from .parameter_discovery_cache import (
 )
 
 if TYPE_CHECKING:
+    import asyncio
+
+    from .background_refresh import BackgroundRefreshManager
     from .parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
     from .plugin_base import ModelDiscoverySource, ModelEntry
+
+# The identity one public refresh runs under. A TUPLE, matching the private catalog's
+# convention: a joined string would let a provider name alias a sibling identity
+# through the separator, and it would turn "cancel this provider" into prefix
+# matching. The REVISION rides along so a source-revision bump starts a new refresh
+# instead of joining one that is still computing the superseded revision.
+type PublicRefreshKey = tuple[str, str, str]
 
 logger = logging.getLogger(__name__)
 
 # WHY 4: each provider cache holds ONE listing key; the headroom exists only so
 # a source-revision bump does not evict the key it replaces mid-transition.
 _CACHE_MAX_ENTRIES = 4
+
+
+def _public_source(plugin: object) -> ModelDiscoverySource | None:
+    """The provider's declared source, but ONLY when it is safe to share globally.
+
+    ``None`` means "this provider has no place in the shared catalog" — no declared
+    source, or a ``PROFILE_CREDENTIAL`` scope whose listing belongs to one account.
+    Both are normal answers whose correct global result is the compiled seeds.
+
+    # WHY it is a function and not inlined twice: the same two questions decide
+    # whether a refresh may be STARTED (``start_public_refresh``) and whether one may
+    # be CONSULTED (``entries_for``). Asking them in one place is what keeps a future
+    # caller from acquiring a task slot — or a dial — for a private provider.
+    """
+    scope = discovery_scope_of(plugin)
+    if scope is not DiscoveryScope.PUBLIC_GLOBAL:
+        return None
+    declare = getattr(plugin, "model_discovery_source", None)
+    if declare is None:  # pragma: no cover - the Protocol requires it
+        return None
+    return declare()
 
 
 class ModelListingProvider(Protocol):
@@ -90,7 +131,19 @@ class ModelCatalog:
         older than the stale window. A stale-but-trusted snapshot is returned
         as entries — the caller cannot (and must not) tell it from fresh.
         """
-        source = plugin.model_discovery_source()
+        # INVARIANT (OME-1026, the load-bearing one): this catalog is SHARED — one
+        # snapshot per provider, served to every account through GET /v1/models. A
+        # PROFILE_CREDENTIAL provider's listing is derived from ONE account's
+        # credential, so admitting it here would publish that account's
+        # entitlements deployment-wide. Refuse the scope outright, BEFORE consulting
+        # the source, so no cache slot is opened and no dial can happen.
+        # WHY here rather than only in the route: the route is one caller. Enforcing
+        # it at the shared cache means no future consumer — a prewarm task, an
+        # admission path, a new endpoint — can reintroduce the leak by forgetting.
+        # AIDEV-NOTE: deliberately NOT an error. A provider legitimately declares a
+        # private scope; "not for the global listing" is a normal answer, and the
+        # caller's seed fallback is the correct global result.
+        source = _public_source(plugin)
         if source is None:
             return None
         provider = plugin.custom_llm_provider
@@ -137,6 +190,81 @@ class ModelCatalog:
         self._log_tier(provider, outcome.freshness)
         return cast("tuple[ModelEntry, ...]", outcome.value)
 
+    def start_public_refresh(
+        self,
+        plugin: ModelListingProvider,
+        *,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None,
+        refreshes: BackgroundRefreshManager[PublicRefreshKey],
+    ) -> asyncio.Task[Any] | None:
+        """Start — or join — the background refresh of one PUBLIC provider's listing.
+
+        Returns the task doing the work, or ``None`` when there is no work to do (a
+        private or source-less provider) and when the manager refuses it (closed, or
+        at capacity). Every ``None`` means the same thing to a caller: serve seeds.
+
+        # WHY this primitive is shared by startup prewarm AND the listing route: they
+        # must use the SAME key, or a request arriving during prewarm starts a second
+        # refresh of the identical catalog instead of joining the one already running —
+        # which is precisely how a cold request came to wait out the provider's own
+        # 10-second aggregate deadline (OME-1026 F2).
+        """
+        source = _public_source(plugin)
+        if source is None:
+            return None
+        key: PublicRefreshKey = (plugin.custom_llm_provider, source.key, source.revision)
+        return refreshes.start_or_join(
+            key, lambda: self.entries_for(plugin, client=client, limits=limits)
+        )
+
+    async def entries_within(
+        self,
+        plugin: ModelListingProvider,
+        *,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None,
+        refreshes: BackgroundRefreshManager[PublicRefreshKey],
+        budget_s: float,
+    ) -> tuple[ModelEntry, ...] | None:
+        """``entries_for``, but the CALLER waits at most ``budget_s`` for it.
+
+        INVARIANT (F2): the answer arrives within the budget; the refresh is NOT
+        bounded by it. On expiry this returns ``None`` — "serve seeds" — while the
+        shared refresh runs on, so the next request reads a real snapshot.
+
+        # WHY the budget cannot simply wrap ``entries_for``: the refresh runs inside
+        # ``ObservationCache.get_or_refresh``, which awaits it while HOLDING the
+        # single-flight lock. ``asyncio.wait_for`` would cancel the winner mid-flight —
+        # no failure recorded, lock released, next arrival dialing again. One upstream
+        # attempt would become N under exactly the slow-upstream conditions that caused
+        # the timeout. So the work lives in a task this method does not own, and
+        # ``wait_up_to`` (built on ``asyncio.wait``) never cancels what it waits on.
+        # AIDEV-NOTE: the honest trade-off. A snapshot that is expired but still inside
+        # its stale window is served by ``entries_for`` only AFTER the refresh fails, so
+        # a budget expiry answers seeds rather than that stale snapshot. Seeds within
+        # the budget is the owner-approved answer; the stale row set returns on the next
+        # request. Serving stale here would require a non-refreshing read of the cache.
+        """
+        task = self.start_public_refresh(plugin, client=client, limits=limits, refreshes=refreshes)
+        if task is None:
+            return None
+        if not await refreshes.wait_up_to(task, timeout=budget_s):
+            return None
+        if task.cancelled():
+            # Superseded or shut down while we waited. Not this caller's failure.
+            return None
+        error = task.exception()
+        if error is None:
+            return cast("tuple[ModelEntry, ...] | None", task.result())
+        if isinstance(error, DiscoveryError):
+            return None
+        # INVARIANT (F6): anything else is a programming error — the suite's no-egress
+        # tripwire above all. Raise it to the caller who waited, and mark it observed so
+        # the manager's retention sink does not report the same bug a second time.
+        mark_observed(error)
+        raise error
+
     async def ids_for(
         self,
         plugin: ModelListingProvider,
@@ -145,18 +273,8 @@ class ModelCatalog:
         limits: DiscoveryLimits | None,
     ) -> frozenset[str]:
         """The gateway model ids of the live listing; empty when degraded/absent."""
-        entries = await self.entries_for(plugin, client=client, limits=limits)
-        if entries is None:
-            return frozenset()
-        # INVARIANT: canonical ids, matching exactly what ``/v1/models`` publishes
-        # (``model_row`` canonicalizes too). A provider using the established
-        # unprefixed ``model_name`` convention would otherwise publish an id this
-        # set never matches — and the detail route would 404 its own listing.
-        return frozenset(
-            canonical_model_id(
-                custom_llm_provider=plugin.custom_llm_provider, model_name=entry.model_name
-            )
-            for entry in entries
+        return canonical_ids(
+            cast("Any", plugin), await self.entries_for(plugin, client=client, limits=limits)
         )
 
     def _cache_for(self, provider: str, source: ModelDiscoverySource) -> ObservationCache:

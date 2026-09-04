@@ -15,9 +15,23 @@ the detailed-contract route's per-model observations, model admission (OME-879),
 and the live model catalog (OME-972) via the shared client/limits. Chat dispatch
 holds no reference to it, so no chat request can ever wait on a network fetch.
 
-INVARIANT (no secrets, no caller URLs): ``observe`` takes a model id and nothing
-else. The URL comes from the provider's own fixed allowlisted constants, and no
-credential is in scope — discovery reads PUBLIC catalogs only.
+INVARIANT (no caller URLs): ``observe`` takes a model id and nothing else. The URL
+comes from the provider's own fixed allowlisted constants — never a caller-supplied
+or response-derived URL, never a followed redirect.
+
+INVARIANT (credentials, narrowed by OME-1026): no credential is in scope on the
+``observe`` path, which reads PUBLIC catalogs only. That is not true of every consumer
+of the shared client: the PRIVATE profile catalog
+(``core.profile_model_catalog``) dials a provider's credentialed-only listing with ONE
+authenticated profile's OWN stored credential, projected into headers by that
+profile's credential strategy and sent only to the provider's own allowlisted origin.
+Its result is cached under that profile's private identity and served only to its
+owner. There is deliberately NO deployment-wide discovery credential: an
+operator-configured key would make one party's entitlements the whole deployment's
+listing, which is why ``PUBLIC_GLOBAL`` discovery is defined as "no credential was
+used to fetch it" rather than "no credential was needed".
+AIDEV-NOTE: adding request logging or an httpx event hook to this shared client can
+now touch an ACCOUNT credential — one profile's own. It could not before OME-1026.
 """
 
 from __future__ import annotations

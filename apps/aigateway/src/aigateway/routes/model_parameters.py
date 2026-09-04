@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.discovery_runtime import (
@@ -22,17 +22,31 @@ from ..core.discovery_runtime import (
     auth_scoped,
     static_discovery_outcome,
 )
-from ..core.model_capabilities import canonical_model_id
+from ..core.effective_credential import EffectiveCredential, resolve_effective_credential
+from ..core.model_capabilities import canonical_ids, canonical_model_id
+from ..core.model_discovery_scope import DiscoveryScope, discovery_scope_of
 from ..core.model_parameter_contract import build_model_parameter_document
 from ..core.registry import ProviderRegistry
-from .chat_credentials import _credential_target_for_chat, resolved_auth_mode
+from .chat_credentials import (
+    _credential_target_for_chat,
+    _oauth_connection_store,
+    resolved_auth_mode,
+)
+from .private_cache import private_cache_route
+from .profile_models import deferred_auth_provider
 
 if TYPE_CHECKING:
     from ..core.oauth.models import OAuthConnection
     from ..core.plugin_base import ProviderPluginBase
     from ..core.profile_models import AuthMode, Profile
 
-router = APIRouter()
+# INVARIANT (F1): the private cache policy is the ROUTE CLASS's, so it covers every
+# response this route can produce — the profile-dependent 401/404/409 whose bodies
+# carry the requested profile name and a profile-specific reauth URL, AND the 401/403
+# that ``CurrentAccount`` raises during dependency resolution, which never reach the
+# handler at all. ``X-Profile`` is named because this route's body additionally varies
+# by the caller-selected profile at one unchanged URL.
+router = APIRouter(route_class=private_cache_route("X-Profile"))
 
 
 async def _discovery_outcome(
@@ -61,20 +75,6 @@ async def _discovery_outcome(
     return await runtime.observe(auth_scoped(plugin, auth_mode), model=model)
 
 
-# INVARIANT: this policy belongs to the ROUTE, not to its happy path — EVERY
-# response it produces, success or error, is per-account/profile and unshareable.
-# WHY it must be applied twice: FastAPI merges the injected ``Response`` into the
-# reply only on a NORMAL RETURN, while a raised ``HTTPException`` is rendered by
-# ``http_exception_handler`` from the EXCEPTION's own headers. A policy set only on
-# the injected response is therefore structurally invisible to every raise — and the
-# raises are exactly the profile-dependent 401/404/409 whose bodies carry the
-# requested profile name and a profile-specific reauth URL.
-_PRIVATE_CACHE_HEADERS: dict[str, str] = {
-    "Cache-Control": "private, no-store",
-    "Vary": "Authorization, X-Profile",
-}
-
-
 def _context_identity(
     account_id: str,
     profile: Profile | None,
@@ -98,7 +98,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     """Resolve provider + profile and compose the contract, or raise ``HTTPException``.
 
     Split from the route handler so the handler is purely the HTTP policy boundary
-    (see ``_PRIVATE_CACHE_HEADERS``): every exit below — including the ones raised
+    (``routes/private_cache.py``): every exit below — including the ones raised
     inside the shared chat credential resolution — passes through that one boundary.
     """
     provider = model.split("/", 1)[0] if "/" in model else None
@@ -120,18 +120,33 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     }
     # OME-879: dynamically admitted ids resolve like seeded ones — a model the
     # gateway agreed to serve must not 404 on its own contract endpoint.
+    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
+    # OME-1026 F4: set only when this request admitted the id from the caller's PRIVATE
+    # snapshot, and then it is the durable credential REVISION that snapshot was fetched
+    # under — Profile- or Connection-backed alike (U4). ``None`` means no private
+    # catalog was consulted, so there is no credential context to mix.
+    private_revision: str | None = None
     if model not in known and model not in request.app.state.admitted_models:
         # OME-972: an id published from a healthy live snapshot must resolve on
         # its own contract endpoint. Lazy by construction — a known-set hit
         # above never pays for a listing read — and served from the same
         # process-local cache the /v1/models route fills.
+        # OME-1026 F4: the same promise for a PRIVATE id. The profile listing publishes
+        # a ``parameter_contract_url`` on every row, so an id that exists only in this
+        # caller's own credentialed snapshot must resolve here too — otherwise the
+        # listing advertises a URL that 404s. Consulted SECOND: the public catalog
+        # refuses a private provider outright and costs nothing for it, and a public
+        # provider never reaches the private read at all.
         if model not in await _live_catalog_ids(request, plugin):
-            raise HTTPException(
-                status_code=404,
-                detail={"code": "model_not_found", "provider": provider, "model": model},
+            private_ids, private_revision = await _private_catalog_ids(
+                request, plugin, account_id=account_id, profile_name=profile_name
             )
+            if model not in private_ids:
+                raise HTTPException(
+                    status_code=404,
+                    detail={"code": "model_not_found", "provider": provider, "model": model},
+                )
 
-    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
     # Reuse the chat resolution verbatim (raises the same 404/409 on a missing/
     # pending/errored profile) so summary, detail, and dispatch agree on context.
     profile, connection, _defaults = await _credential_target_for_chat(
@@ -167,7 +182,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         discovered.snapshot,
     )
 
-    return build_model_parameter_document(
+    document = build_model_parameter_document(
         canonical_id=model,
         gateway_provider=provider,
         auth_mode=auth_mode,
@@ -182,6 +197,66 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         # reading, is part of the contract's IDENTITY — so a client that pinned a
         # contract_id is not silently handed evidence with a different provenance.
         source_revision=discovered.snapshot.source_revision if discovered.snapshot else None,
+    )
+    if private_revision is not None:
+        await _refuse_changed_credential(
+            request,
+            plugin,
+            account_id=account_id,
+            profile_name=profile_name,
+            validated_revision=private_revision,
+        )
+    return document
+
+
+async def _refuse_changed_credential(
+    request: Request,
+    plugin: ProviderPluginBase[Any],
+    *,
+    account_id: str,
+    profile_name: str,
+    validated_revision: str,
+) -> None:
+    """Refuse if the durable credential REVISION moved during THIS request.
+
+    INVARIANT (OME-1026 F4, extended to Connection identity by U4): one request
+    answers under ONE credential context. The id was admitted from a snapshot fetched
+    under ``validated_revision``; the document above was built from a SECOND
+    resolution. A credential replacement committing between them — a profile key
+    rotation OR a Connection key replacement/delete/recreate — would otherwise
+    produce a 200 that mixed the two: admitted under the revoked credential,
+    described under its replacement.
+
+    # WHY a recheck rather than threading one resolved context through: the contract
+    # path deliberately reuses the chat credential resolution verbatim, so summary,
+    # detail and dispatch cannot drift. Passing a pre-resolved target into it would
+    # fork that shared path — the very drift the reuse exists to prevent — while this
+    # adds one resolution on the RESCUE path only, for PROFILE_CREDENTIAL providers
+    # only. A seeded or admitted id pays nothing.
+    # WHY 409 and not a silent retry here: the retry would need its own bound and could
+    # be defeated by a caller rotating in a loop. A refusal names the condition, is
+    # safe to repeat, and leaves the choice with the client.
+    # INVARIANT (sanitized): a code plus the caller's OWN provider/profile names. Never
+    # key material, a revision token, or upstream text.
+    """
+    resolution = await _resolve_effective(
+        request, plugin, account_id=account_id, profile_name=profile_name
+    )
+    if (
+        isinstance(resolution, EffectiveCredential)
+        and resolution.credential_revision == validated_revision
+    ):
+        return
+    # A non-resolving outcome lands here too: a profile or connection deleted
+    # mid-request has no revision at all, and a document validated against its
+    # snapshot is exactly as wrong as one validated against a replaced credential.
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "credential_generation_changed",
+            "provider": plugin.custom_llm_provider,
+            "profile": profile_name,
+        },
     )
 
 
@@ -198,22 +273,97 @@ async def _live_catalog_ids(request: Request, plugin: ProviderPluginBase[Any]) -
     return await catalog.ids_for(plugin, client=runtime.client, limits=runtime.limits)
 
 
+async def _private_catalog_ids(
+    request: Request,
+    plugin: ProviderPluginBase[Any],
+    *,
+    account_id: str,
+    profile_name: str,
+) -> tuple[frozenset[str], str | None]:
+    """Gateway ids in the CALLER'S OWN private snapshot, and the revision used.
+
+    The second element is the durable credential REVISION the snapshot was fetched
+    under — Profile- or Connection-backed — or ``None`` when no private catalog was
+    consulted. The caller fences the finished document on it (OME-1026 F4) so one
+    request cannot mix two credential contexts.
+
+    INVARIANT (the isolation this must not break): every input is the authenticated
+    caller's — ``account_id`` comes from ``CurrentAccount`` and ``profile_name`` from
+    the same ``X-Profile`` header that will select the credential for dispatch. There
+    is no code path here that reads another account's row or a sibling profile's
+    snapshot, so a private id resolves in exactly the context that discovered it and
+    is ``model_not_found`` everywhere else.
+
+    # WHY the same ``snapshot_for`` the listing route uses, rather than a read-only
+    # peek at whatever this worker happens to have cached: a cached-only lookup would
+    # make the advertised URL work on the replica that served the listing and 404 on
+    # its siblings, since a private snapshot is deliberately process-local. Reusing the
+    # catalog keeps ONE implementation of the refusal gates, the cache identity, the
+    # single-flight dedup and the capacity bound — and adds no capability: it is the
+    # caller's own already-stored credential, on the path that already publishes it.
+    # WHY empty over raising: like ``_live_catalog_ids``, this WIDENS the known-id set.
+    # A degraded private catalog must leave the 404 verdict to the offline inventory.
+    """
+    catalog = getattr(request.app.state, "profile_model_catalog", None)
+    runtime: DiscoveryRuntime | None = request.app.state.discovery_runtime
+    if catalog is None or runtime is None:
+        return frozenset(), None
+    # Cheapest refusal first: a PUBLIC provider has no private catalog, and asking
+    # would cost an index read that decrypts a credential blob for nothing.
+    if discovery_scope_of(plugin) is not DiscoveryScope.PROFILE_CREDENTIAL:
+        return frozenset(), None
+    # OME-1026 U4: the SHARED resolver — hosted Profile or sole active Connection —
+    # with the caller's requested name, so a local-mode ``parameter_contract_url``
+    # resolves exactly like a hosted one. A non-resolving outcome (no credential,
+    # ambiguous, unknown label) declines to widen: the shared chat resolution below
+    # raises the canonical 404/409 for it, and no discovery is funded by a guess.
+    resolution = await _resolve_effective(
+        request, plugin, account_id=account_id, profile_name=profile_name
+    )
+    if not isinstance(resolution, EffectiveCredential):
+        return frozenset(), None
+    snapshot = await catalog.snapshot_for_target(
+        plugin,
+        account_id=account_id,
+        target=resolution,
+        client=runtime.client,
+        limits=runtime.limits,
+        auth_provider=deferred_auth_provider(
+            request.app,
+            plugin,
+            credential_name=resolution.credential_name,
+            auth_type=resolution.auth_type,
+        ),
+    )
+    return canonical_ids(plugin, snapshot.entries), resolution.credential_revision
+
+
+async def _resolve_effective(
+    request: Request,
+    plugin: ProviderPluginBase[Any],
+    *,
+    account_id: str,
+    profile_name: str,
+):
+    """The shared effective-credential resolution, with this route's inputs."""
+    return await resolve_effective_credential(
+        account_id=account_id,
+        provider=plugin.custom_llm_provider,
+        profile_name=profile_name,
+        profile_index=request.app.state.profile_index,
+        connections=_oauth_connection_store(request),
+    )
+
+
 @router.get("/v1/model-parameters")
 async def model_parameters(
     request: Request,
-    response: Response,
     current: CurrentAccount,
     model: Annotated[str, Query()],
 ) -> dict[str, Any]:
-    # Success path: the injected response is merged into the reply on return.
-    response.headers.update(_PRIVATE_CACHE_HEADERS)
-    try:
-        return await _contract_document(request, account_id=str(current.id), model=model)
-    except HTTPException as exc:
-        # AIDEV-NOTE: policy LAST in the merge. A raiser's own headers (a future
-        # WWW-Authenticate / Retry-After) survive, but this route's cache policy wins
-        # on the keys it owns — an error can never be emitted with a weaker cache
-        # directive than the success response. Do not "simplify" this boundary away:
-        # exc.headers is the ONLY channel that reaches an HTTPException response.
-        exc.headers = {**(exc.headers or {}), **_PRIVATE_CACHE_HEADERS}
-        raise
+    """The profile-bound detailed contract for ONE model.
+
+    The cache policy is the ROUTE CLASS's; ``_contract_document`` does the work and
+    may raise ``HTTPException`` freely.
+    """
+    return await _contract_document(request, account_id=str(current.id), model=model)

@@ -21,9 +21,9 @@ def _default_scopes() -> list[str]:
 def _default_models() -> list[ModelEntry]:
     """Claude models the gateway routes by default.
 
-    Single source of truth for the SF Settings model dropdown: the
-    aigw-claude-backend plugin derives its suggestions from this list via
-    ``GET /v1/models`` (SF-284), so it must NOT be copied SF-side.
+    Provider-owned source of truth for the compiled fallback listing. The historical
+    SF-284 ``aigw-claude-backend`` derived its suggestions from ``GET /v1/models``
+    rather than copying this list, but that consumer was removed before this baseline.
 
     Ordered newest-first within each tier (opus, fable, sonnet, haiku). Older
     snapshots are kept alongside the latest so existing configs pinned to
@@ -80,6 +80,18 @@ class AnthropicPluginSettings(PluginSettings):
         ]
     )
 
+    # OME-1026: gates PROFILE-SCOPED live catalog discovery for the model LISTING
+    # (never dispatch), mirroring AIGW_OPENROUTER_LIVE_MODELS.
+    # INVARIANT: there is NO deployment discovery credential. Anthropic's catalog is
+    # credentialed-only, and the owner decision is that the credential is always the
+    # CALLER's own already-stored profile key — so a private snapshot describes exactly
+    # one account's entitlements and never becomes the deployment's listing. False here
+    # means zero Anthropic catalog egress for every account.
+    # AIDEV-NOTE: an earlier iteration had a dedicated AIGW_ANTHROPIC_DISCOVERY_API_KEY
+    # feeding ONE shared snapshot. It was rejected and removed: it made "whose
+    # entitlements are these?" a deployment question, and it excluded account
+    # credentials only because the snapshot was global. Do not reintroduce it.
+    live_models: bool = True
     models: list[ModelEntry] = Field(default_factory=_default_models)
     validation_model: str | None = None
 

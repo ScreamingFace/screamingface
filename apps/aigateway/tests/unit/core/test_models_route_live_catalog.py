@@ -17,11 +17,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from aigateway.core.background_refresh import BackgroundRefreshManager
 from aigateway.core.discovery_runtime import DiscoveryRuntime
-from aigateway.core.model_catalog import ModelCatalog, ModelListingProvider
+from aigateway.core.model_catalog import ModelCatalog
 from aigateway.core.parameter_discovery import (
     DiscoveryError,
-    DiscoveryHttpClient,
     DiscoveryLimits,
     RawResponse,
 )
@@ -331,13 +331,10 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
     _enable_openrouter(monkeypatch, OpenRouterPluginSettings(enabled=True))
 
     callers = 6
-    # WHY a rendezvous, not a slow fetch: the peak-depth assertion needs every caller in
-    # the catalog AT ONCE. A fixed sleep only HOPES so — on a loaded runner late threads
-    # are served by the refresh that already finished and never overlap (CI: `assert
-    # 4 == 6` on 3.12, gateway behaving perfectly, OME-1055). Waiting for the last
-    # caller makes the overlap structural.
-    all_callers_in = asyncio.Event()
-    # AIDEV-NOTE: a dict like `depth` below — written on the loop, read after the join.
+    # Hold the one manager-owned refresh until every caller has joined it. This keeps
+    # the OME-1055 rendezvous deterministic after OME-1026 moved single-flight from
+    # ModelCatalog to BackgroundRefreshManager.
+    all_joined = asyncio.Event()
     rendezvous = {"timed_out": False}
 
     class _RendezvousClient:
@@ -348,10 +345,8 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
 
         async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
             self.dialed.append(url)
-            # INVARIANT: the fetch never outruns the burst it exists to serve. The timeout
-            # keeps a real failure-to-assemble loud and bounded instead of hanging.
             try:
-                await asyncio.wait_for(all_callers_in.wait(), timeout=_RENDEZVOUS_TIMEOUT_S)
+                await asyncio.wait_for(all_joined.wait(), timeout=_RENDEZVOUS_TIMEOUT_S)
             except TimeoutError:
                 rendezvous["timed_out"] = True
             return RawResponse(
@@ -369,31 +364,45 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
     )
     app.state.model_catalog = ModelCatalog(clock=_Clock())
 
-    # WHY instrument the catalog instead of timing the client: every caller
-    # enters ``entries_for`` and all but the winner park on the single-flight,
-    # so its peak depth IS the concurrency. Client-side start stamps prove
-    # nothing — the pool launches all six threads at once, so they are all ~t0
-    # even if the server answered them strictly one after another.
-    depth = {"now": 0, "peak": 0}
-    unwrapped = ModelCatalog.entries_for
+    # WHY instrument the task manager instead of timing the client: client-side
+    # start stamps prove nothing — the pool launches all six threads at once, so
+    # they are all ~t0 even if the server answered them strictly one after
+    # another. The manager is where single-flight now lives, so the two facts that
+    # matter are observable there: how many DISTINCT tasks were created for the
+    # provider's key, and how many callers were parked on one at the same moment.
+    # OME-1026 F2 (owner-approved re-pin): this test previously counted callers
+    # inside ``ModelCatalog.entries_for``, which every caller used to enter before
+    # parking on the observation cache's single-flight lock. The route now waits on
+    # ONE manager-owned task with its own budget, so exactly one caller reaches
+    # ``entries_for`` and the other five join the task. The invariant is unchanged
+    # and the guarantee is stronger — one task rather than six coroutines on a lock —
+    # so the probe moved to where the joining happens.
+    joined: list[tuple[object, int]] = []
+    waiters = {"now": 0, "peak": 0}
+    start_or_join = BackgroundRefreshManager.start_or_join
+    wait_up_to = BackgroundRefreshManager.wait_up_to
 
-    async def _counting_entries_for(
-        self: ModelCatalog,
-        plugin: ModelListingProvider,
-        *,
-        client: DiscoveryHttpClient,
-        limits: DiscoveryLimits | None,
-    ) -> tuple[ModelEntry, ...] | None:
-        depth["now"] += 1
-        depth["peak"] = max(depth["peak"], depth["now"])
-        if depth["now"] == callers:
-            all_callers_in.set()
+    def _recording_start_or_join(self, key, factory):
+        task = start_or_join(self, key, factory)
+        if task is not None and key[0] == "openrouter":
+            joined.append((key, id(task)))
+            if len(joined) == callers:
+                # Every caller has joined, so the held dial may now complete. Both this
+                # and the wait above run on the app's single event loop, so the release
+                # is ordered after the sixth join with no lock and no sleep.
+                all_joined.set()
+        return task
+
+    async def _counting_wait_up_to(self, task, *, timeout: float) -> bool:
+        waiters["now"] += 1
+        waiters["peak"] = max(waiters["peak"], waiters["now"])
         try:
-            return await unwrapped(self, plugin, client=client, limits=limits)
+            return await wait_up_to(self, task, timeout=timeout)
         finally:
-            depth["now"] -= 1
+            waiters["now"] -= 1
 
-    monkeypatch.setattr(ModelCatalog, "entries_for", _counting_entries_for)
+    monkeypatch.setattr(BackgroundRefreshManager, "start_or_join", _recording_start_or_join)
+    monkeypatch.setattr(BackgroundRefreshManager, "wait_up_to", _counting_wait_up_to)
 
     def _get(_n: int) -> int:
         return authenticated_client.get("/v1/models").status_code
@@ -404,14 +413,20 @@ def test_concurrent_callers_share_one_upstream_fetch_chain_and_all_get_200(
     assert statuses == [200] * callers
     # A timed-out rendezvous means the burst never assembled, so the assertions below
     # would measure a serialized run. Name that cause instead of a bare depth mismatch.
-    msg = f"rendezvous timed out — peak overlap {depth['peak']} of {callers} callers"
+    msg = f"rendezvous timed out: {len(joined)} of {callers} joined, peak waiters {waiters['peak']}"
     assert not rendezvous["timed_out"], msg
     # INVARIANT: single-flight — one refresh serves every contemporaneous caller,
     # so a burst of listings costs ONE upstream fetch chain, not N.
     assert http.dialed == [LIVE_MODELS_URL]
-    # ...and all six really were in flight together, so the single dial is
+    # All six callers asked for the provider's refresh...
+    assert len(joined) == callers, joined
+    # ...and every one of them was handed the SAME task object, which is what
+    # "joined" means here — not six tasks that happened to share a cache.
+    assert len({task_id for _key, task_id in joined}) == 1, joined
+    assert len({key for key, _task_id in joined}) == 1, "one identity, one refresh"
+    # ...and they really were parked on it together, so the single dial is
     # single-flight and not just a cache hit behind a serialized server.
-    assert depth["peak"] == callers
+    assert waiters["peak"] == callers, waiters
 
 
 def test_a_raising_discovery_source_stays_loud_on_the_listing_route(

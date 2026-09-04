@@ -28,6 +28,8 @@ from .chat_parameters import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from .plugin_base import ModelEntry, ProviderPluginBase
 
 # INVARIANT: unsupported_parameter_behavior is the literal 'reject' in schema
@@ -50,6 +52,27 @@ def canonical_model_id(*, custom_llm_provider: str, model_name: str) -> str:
     """
     prefix = f"{custom_llm_provider}/"
     return model_name if model_name.startswith(prefix) else f"{prefix}{model_name}"
+
+
+def canonical_ids(
+    plugin: ProviderPluginBase, entries: Iterable[ModelEntry] | None
+) -> frozenset[str]:
+    """The canonical ids of a listing — exactly what ``/v1/models`` publishes.
+
+    # INVARIANT: canonicalized, because ``model_row`` canonicalizes too. A provider
+    # using the established unprefixed ``model_name`` convention would otherwise
+    # publish an id this set never matches, and the detail route would 404 its own
+    # listing. ``None`` (no live listing) is an empty set, never an error: this widens
+    # a known-id set, it never gates one.
+    """
+    if entries is None:
+        return frozenset()
+    return frozenset(
+        canonical_model_id(
+            custom_llm_provider=plugin.custom_llm_provider, model_name=entry.model_name
+        )
+        for entry in entries
+    )
 
 
 def parameter_contract_url(canonical_id: str) -> str:

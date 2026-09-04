@@ -116,7 +116,17 @@ def test_profile_index_serializes_with_version() -> None:
     data = idx.model_dump()
     # oauth_generations carries the per-profile OAuth ownership nonces (OME-307 Blocker 1);
     # it defaults to an empty map and is part of the durable index document.
-    assert data == {"version": 1, "profiles": [], "oauth_generations": {}}
+    # credential_generations (OME-1026 F3, owner-approved re-pin) joined it for the same
+    # reason and by the same rule: a per-profile counter bumped inside the index CAS, so
+    # it is durable index state and MUST appear here. The two are deliberately separate —
+    # overloading the OAuth nonce would make a credential change look like a superseded
+    # OAuth flow and break authenticate_pending's ownership check.
+    assert data == {
+        "version": 1,
+        "profiles": [],
+        "oauth_generations": {},
+        "credential_generations": {},
+    }
 
 
 @pytest.mark.asyncio

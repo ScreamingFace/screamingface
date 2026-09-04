@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import logs
@@ -27,15 +27,7 @@ from .core.auth.log_filter import (
 )
 from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
-from .core.discovery_runtime import DiscoveryRuntime
 from .core.loader import load_plugins
-from .core.model_catalog import build_model_catalog
-from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
-from .core.parameter_discovery_cache import (
-    CacheLimits,
-    ObservationCache,
-    SystemMonotonicClock,
-)
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
@@ -45,6 +37,12 @@ from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
+from .discovery_lifecycle import (
+    build_discovery_runtime,
+    install_discovery,
+    shutdown_discovery,
+    start_public_prewarm,
+)
 from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .routes import (
     accounts,
@@ -58,10 +56,14 @@ from .routes import (
     model_admission,
     model_parameters,
     models,
+    oauth_callbacks,
     oauth_connections,
+    profile_models,
+    profile_routes,
     providers,
 )
 from .routes.chat_accounting import accounting_error_response
+from .routes.private_cache import stamp_private_cache_policy
 
 logger = logging.getLogger(__name__)
 
@@ -220,12 +222,9 @@ async def _lifespan(app):
             build_accounting_handler
         )
 
-        # Weekly cache-snapshot to Garage (OME-1021): armed only when enabled, owned by
-        # this lifespan — started here, cancelled and awaited in the finally below.
+        # OME-1026: app-owned, non-blocking public prewarm; shutdown awaits it.
+        start_public_prewarm(app)
         if app.state.settings.cache_snapshot_enabled:
-            # The builder (exporter + store + publish protocol) lives in
-            # core/snapshot_publish.py; the lifespan keeps only WHEN — armed here, stopped
-            # in the finally below.
             app.state.cache_snapshot_scheduler = build_snapshot_scheduler(app.state.settings)
             app.state.cache_snapshot_scheduler.start()
             logger.info(
@@ -235,7 +234,6 @@ async def _lifespan(app):
 
         yield
     finally:
-        # The scheduler's owned task must never outlive the app: cancel and await it.
         scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
         if scheduler is not None:
             await scheduler.stop()
@@ -247,6 +245,9 @@ async def _lifespan(app):
         except Exception:
             logger.warning("usage accounting handler did not close cleanly")
         app.state.usage_accounting_handler = None
+        # OME-1026: stop background discovery before the loop goes away. Cancel AND
+        # await, so a task's own cleanup runs and nothing is destroyed while pending.
+        await shutdown_discovery(app)
         await auth.close_loopback_callbacks(app)
         # Clear the process-wide active store so it does not leak across app
         # instances (e.g. multiple TestClient lifecycles in one process).
@@ -254,16 +255,23 @@ async def _lifespan(app):
         await close_db()
 
 
-async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONResponse:
+async def _redact_validation_errors(request: Request, exc: Exception) -> JSONResponse:
     """Return 422s without the echoed request body.
 
     FastAPI's default validation handler includes ``input`` (the raw submitted
     body) in each error. For api-key endpoints that body carries the raw key, so
     echoing it back leaks the secret into error responses and logs (SF-291
-    review F1). Strip ``input`` from every error while preserving type/loc/msg."""
+    review F1). Strip ``input`` from every error while preserving type/loc/msg.
+
+    # OME-1026 adversarial B1: a validation error is raised while FastAPI SOLVES the
+    # request, so the private routes' own route class never renders it. The scope
+    # marker it left behind is what makes this 422 unshareable; the redaction above is
+    # unchanged.
+    """
     errors = exc.errors() if isinstance(exc, RequestValidationError) else []
     cleaned = [{k: v for k, v in err.items() if k != "input"} for err in errors]
-    return JSONResponse(status_code=422, content=jsonable_encoder({"detail": cleaned}))
+    response = JSONResponse(status_code=422, content=jsonable_encoder({"detail": cleaned}))
+    return cast(JSONResponse, stamp_private_cache_policy(request, response))
 
 
 async def _accounted_http_exception(request: Request, exc: Exception) -> Response:
@@ -280,8 +288,12 @@ async def _accounted_http_exception(request: Request, exc: Exception) -> Respons
     if isinstance(exc, StarletteHTTPException):
         accounted = accounting_error_response(request, cast(HTTPException, exc))
         if accounted is not None:
-            return accounted
-    return await http_exception_handler(request, cast(StarletteHTTPException, exc))
+            return stamp_private_cache_policy(request, accounted)
+    rendered = await http_exception_handler(request, cast(StarletteHTTPException, exc))
+    # Belt AND braces (adversarial B1): the route class already merged the policy into
+    # ``exc.headers``, but this handler is where the response is actually rendered, and
+    # not every renderer above copies those headers. Stamping is idempotent.
+    return stamp_private_cache_policy(request, rendered)
 
 
 async def _profile_index_conflict(request: Request, _exc: Exception) -> JSONResponse:
@@ -294,40 +306,34 @@ async def _profile_index_conflict(request: Request, _exc: Exception) -> JSONResp
     )
     accounted = accounting_error_response(request, exc)
     if accounted is not None:
-        return accounted
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return cast(JSONResponse, stamp_private_cache_policy(request, accounted))
+    response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return cast(JSONResponse, stamp_private_cache_policy(request, response))
 
 
-def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:
-    """Construct the ONE bounded discovery runtime the detailed contract reads from.
+async def _sanitized_server_error(request: Request, _exc: Exception) -> Response:
+    """Render the generic 500 INSIDE the application, so its headers are observable.
 
-    # WHY built here rather than per request: the cache is the whole point. A
-    # runtime rebuilt per request would carry an empty cache, turning the TTL into
-    # a no-op and re-dialling a public catalog on every contract read.
-    # WHY ``None`` when disabled rather than an unbounded stub: the absence of a
-    # runtime is the honest "no dynamic evidence", and it leaves no object that
-    # could later be handed limits nobody configured.
-    # AIDEV-NOTE: ``HttpxDiscoveryClient`` opens (and closes) its connection per
-    # fetch, so there is nothing to shut down in the lifespan.
+    # WHY this handler exists (OME-1026 adversarial B1): Starlette renders an unhandled
+    # exception in ``ServerErrorMiddleware``, which is installed OUTSIDE every user
+    # middleware and writes with the ORIGINAL ``send``. No middleware this app can add
+    # will ever see that response, so a private route's 500 was emitted with no cache
+    # directives and no ``Vary`` at all. Registering a handler moves the rendering into
+    # the app, which is the only place the policy can be applied.
+    # INVARIANT: the body is byte-identical to Starlette's default and discloses
+    # nothing about ``_exc``; ``ServerErrorMiddleware`` still re-raises afterwards, so
+    # logging, uvicorn's traceback, and test propagation are unchanged.
     """
-    if not settings.discovery_enabled:
-        return None
-    return DiscoveryRuntime(
-        client=HttpxDiscoveryClient(),
-        cache=ObservationCache(
-            clock=SystemMonotonicClock(),
-            limits=CacheLimits(
-                ttl_s=settings.discovery_cache_ttl_seconds,
-                stale_ttl_s=settings.discovery_cache_stale_ttl_seconds,
-                max_entries=settings.discovery_cache_max_entries,
-                failure_ttl_s=settings.discovery_cache_failure_ttl_seconds,
-            ),
-        ),
-        limits=DiscoveryLimits(
-            timeout_s=settings.discovery_timeout_seconds,
-            max_bytes=settings.discovery_max_bytes,
-        ),
-    )
+    response = PlainTextResponse("Internal Server Error", status_code=500)
+    return stamp_private_cache_policy(request, response)
+
+
+# Re-exported under its original private name: a PRIOR test imports
+# ``aigateway.main._build_discovery_runtime``
+# (tests/unit/core/test_parameter_discovery_negative_cache.py, merged in #443) and tests
+# are append-only. The implementation moved to ``discovery_lifecycle`` with the rest of
+# the discovery wiring (OME-1026 F8).
+_build_discovery_runtime = build_discovery_runtime
 
 
 def _describe_admin_security(app: FastAPI) -> None:
@@ -359,6 +365,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)
     app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
     app.add_exception_handler(StarletteHTTPException, _accounted_http_exception)
+    app.add_exception_handler(Exception, _sanitized_server_error)
     app.state.settings = settings
     app.state.taxonomy_plugin = TaxonomyPlugin()
     app.state.usage_accounting_handler = None
@@ -397,12 +404,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _configure_fake_codex_oauth(app)
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
-    app.state.discovery_runtime = _build_discovery_runtime(settings)
-    # OME-972: the app-lifetime, process-local live model-listing catalog. Same kill switch
-    # as the runtime above — AIGW_DISCOVERY_ENABLED=false audits to zero
-    # discovery egress of ANY kind. The catalog owns no transport; the models
-    # route passes the runtime's client/limits per call.
-    app.state.model_catalog = build_model_catalog(enabled=settings.discovery_enabled)
+    # OME-972/1026: build all app-owned discovery state from one kill switch.
+    install_discovery(app, settings=settings)
     # OME-952: the admin cache-snapshot upload runner. app-state-only by the same reasoning
     # as `admitted_models` above: job REPORTS are deployment-lifetime, the loaded data and
     # the audit log are the durable truth.
@@ -426,8 +429,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_cache.router)
     app.include_router(api_key_validation.router)
     app.include_router(auth.router)
+    # The profile CRUD and OAuth-callback halves of the auth surface, split out of
+    # ``routes.auth`` by responsibility. Registered adjacently and prefix-free, so
+    # the served paths are byte-identical to the single-router arrangement.
+    app.include_router(profile_routes.router)
+    app.include_router(oauth_callbacks.router)
     app.include_router(oauth_connections.router)
     app.include_router(health.router)
+    app.include_router(profile_models.router)
     app.include_router(models.router)
     app.include_router(model_admission.router)
     app.include_router(providers.router)

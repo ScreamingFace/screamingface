@@ -22,27 +22,23 @@ An API-key-only provider (no OAuth) routed through LiteLLM's built-in
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.cache_ports import CacheBypass
+from aigateway.core.model_discovery_scope import DiscoveryScope
 from aigateway.core.parameter_discovery import (
     DiscoveryHttpClient,
     DiscoveryLimits,
     DiscoverySourceRef,
 )
-from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelAdmission,
     ModelDiscoverySource,
     ModelEntry,
     ProviderPluginBase,
-)
-from aigateway.core.standard_parameters import (
-    direct_parameter_observations,
-    tool_parameter_observations,
 )
 from aigateway.plugins.taxonomy import (
     CacheReference,
@@ -53,18 +49,13 @@ from aigateway.plugins.taxonomy import (
 from .admission import admit_openrouter_model
 from .api_key_validation import OpenRouterApiKeyValidator
 from .discovery import (
-    LOCAL_SOURCE,
-    MODEL_SOURCE,
-    REVIEWED_ENDPOINT_OBSERVATIONS,
-    SNAPSHOT_SOURCE_REVISION,
-    discover_openrouter_snapshot,
+    discover_openrouter_chat_snapshot,
+    openrouter_chat_discovery_source,
 )
+from .dispatch import dispatch_openrouter_chat
 from .dispatch_errors import (
-    _embedded_error_exception,
     _invalid_model_error,
     _online_model_suffix_error,
-    _response_conversion_exception,
-    _unsafe_litellm_state_error,
 )
 
 # AIDEV-NOTE: ``X as X`` is an explicit RE-EXPORT, not a redundant alias. OME-305
@@ -75,7 +66,6 @@ from .dispatch_errors import (
 from .global_cache import GLOBAL_CACHE_ADAPTER_REVISION as GLOBAL_CACHE_ADAPTER_REVISION
 from .global_cache import project_global_cache_request
 from .litellm_controls import (
-    _has_unsafe_litellm_global_state,
     _strip_openrouter_litellm_controls,
 )
 from .live_models import (
@@ -84,14 +74,14 @@ from .live_models import (
     live_listing_entries,
     publishable_upstream_ids,
 )
-from .observations import ROUTING_POLICY_OBSERVATIONS
-from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
-from .provenance import converter_error_status, is_http200_body_error
-from .response_errors import (
-    _embedded_error_status as _embedded_error_status,
+from .parameters import (
+    openrouter_chat_parameter_observations,
+    openrouter_chat_parameter_rules,
+    openrouter_chat_parameter_tools,
+    validate_openrouter_parameter_combination,
 )
 from .response_errors import (
-    _find_embedded_error,
+    _embedded_error_status as _embedded_error_status,
 )
 from .response_errors import (
     _top_level_error_is_meaningful as _top_level_error_is_meaningful,
@@ -109,8 +99,6 @@ from .usage_accounting import (
     normalize_openrouter_usage_accounting,
 )
 from .web_search import (
-    WEB_SEARCH_EXCLUDED_DOMAINS_PARAM,
-    WEB_SEARCH_PARAM,
     apply_web_search,
 )
 
@@ -129,21 +117,6 @@ if TYPE_CHECKING:
 def _credential_service_for(profile_name: str) -> str:
     """Namespace the stored credential slot by provider + profile/connection."""
     return f"aigateway:openrouter:{profile_name}"
-
-
-def _upstream_model_for_discovery(model: str) -> str | None:
-    """The upstream catalog key for a gateway id, or None when there is none.
-
-    ONE predicate shared by ``chat_discovery_source`` and
-    ``discover_chat_parameter_snapshot``: the source declaration and the fetch must
-    agree on exactly which ids are discoverable, or the runtime sees a provider that
-    promised evidence and then reported NO ATTEMPT. It applies the SAME strip as
-    ``prepare_chat_body``, so discovery and dispatch also agree on model identity.
-    """
-    if not model.startswith(GATEWAY_MODEL_PREFIX):
-        return None
-    upstream = model[len(GATEWAY_MODEL_PREFIX) :]
-    return upstream if is_valid_upstream_model_id(upstream) else None
 
 
 # D7: trusted attribution, injected AFTER caller-header sanitization so the
@@ -195,6 +168,19 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             ModelEntry(model_name=slug, litellm_params={"model": slug})
             for slug in self.settings.default_models
         ]
+
+    def model_discovery_scope(self) -> DiscoveryScope:
+        # INVARIANT (OME-1026): OpenRouter's catalog is genuinely PUBLIC — the
+        # listing fetch carries no credential at all — so ONE snapshot is shared by
+        # every account and stays visible even to a caller with no OpenRouter
+        # profile. Catalog visibility is not dispatch readiness: listing a model
+        # promises nothing about that caller's access, quota, or billing.
+        # AIDEV-NOTE: do NOT duplicate this per profile to represent per-account
+        # credits. That is a separate concern and would multiply identical upstream
+        # fetches by the number of profiles.
+        if not (self.settings.enabled and self.settings.live_models):
+            return DiscoveryScope.NONE
+        return DiscoveryScope.PUBLIC_GLOBAL
 
     def model_discovery_source(self) -> ModelDiscoverySource | None:
         # INVARIANT (OME-972): gated on BOTH flags — a disabled provider or
@@ -292,17 +278,9 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         model: str,
         auth_mode: AuthMode,
     ) -> None:
+        # The pair rules are model- and auth-independent, so neither is consulted.
         del model, auth_mode
-        if "top_logprobs" in body and body.get("logprobs") is not True:
-            raise IncompatibleParametersError(
-                ("logprobs", "top_logprobs"),
-                reason="top_logprobs_requires_logprobs_true",
-            )
-        if WEB_SEARCH_EXCLUDED_DOMAINS_PARAM in body and body.get(WEB_SEARCH_PARAM) is not True:
-            raise IncompatibleParametersError(
-                (WEB_SEARCH_PARAM, WEB_SEARCH_EXCLUDED_DOMAINS_PARAM),
-                reason="web_search_excluded_domains_requires_web_search_true",
-            )
+        validate_openrouter_parameter_combination(body)
 
     def chat_parameter_tools(
         self, *, model: str, auth_type: AuthMode | None = None
@@ -314,42 +292,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
     def chat_parameter_observations(
         self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
-        # OME-479 §5.3: labelled-local endpoint evidence (NO network) so the detail
-        # contract shows every accepted field with its gateway status — an unruled
-        # field (e.g. top_p) stays visible-but-DISABLED (projection_not_implemented),
-        # while a ruled+observed field (temperature, provider_params.top_k) is
-        # ENABLED and carries its provenance. The live per-model catalog overlays
-        # this via discover_chat_parameter_snapshot when request-path discovery is
-        # wired; endpoint-level evidence is model-independent, so it does not vary
-        # by model here.
-        # OME-583: tools + tool_choice are ALSO ruled → ENABLED, evidenced here (same
-        # labelled-local source) so every enabled tool path is fully backed (§4.4).
-        # OME-584: response_format is likewise ruled → ENABLED, evidenced here.
-        # OME-585: seed is already evidenced by the sampling constant; n (a non-sampling
-        # control) is evidenced here alongside response_format — both ruled → ENABLED.
-        # OME-704: the five price/privacy routing controls are ruled → ENABLED, and
-        # carry their OWN source label (openrouter:routing-policy) because they are
-        # evidence about routing behaviour, not about the model's sampling surface.
-        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
-        return (
-            REVIEWED_ENDPOINT_OBSERVATIONS
-            + ROUTING_POLICY_OBSERVATIONS
-            + tool_parameter_observations(
-                openrouter_chat_parameter_tools(model=model, auth_type=auth_type),
-                source=LOCAL_SOURCE,
-            )
-            + direct_parameter_observations(
-                (
-                    "response_format",
-                    "n",
-                    "logprobs",
-                    "top_logprobs",
-                    "web_search",
-                    "web_search_excluded_domains",
-                ),
-                source=LOCAL_SOURCE,
-            )
-        )
+        return openrouter_chat_parameter_observations(model=model, auth_type=auth_type)
 
     def chat_discovery_source(
         self, *, model: str, auth_type: AuthMode | None = None
@@ -357,21 +300,8 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # OME-632: the catalog is public and auth-INDEPENDENT — OpenRouter publishes
         # one row per model whichever credential dispatch will use — so the resolved
         # mode is accepted for port conformance and deliberately ignored.
-        # OME-629: declare the public catalog BEFORE any fetch, so the observation
-        # cache can judge a stored entry's trustworthiness without paying for a
-        # round trip. The revision names the reading as well as the source.
-        # INVARIANT: the SAME predicate gates both hooks — a model this provider
-        # cannot dispatch has nothing to discover. Owning it here (rather than only
-        # in the fetch) makes "declared a source, then reported NOT ATTEMPTED"
-        # structurally unreachable, which is the one inconsistency the runtime
-        # cannot distinguish from a real outage.
-        # AIDEV-NOTE (OME-647): ``source`` is the provider's CACHE-KEY label, not a
-        # published claim about which document an observation came from — that
-        # provenance rides on each observation. The snapshot now draws on the
-        # catalog AND the OpenAPI document, and the REVISION names the pair.
-        if _upstream_model_for_discovery(model) is None:
-            return None
-        return DiscoverySourceRef(source=MODEL_SOURCE, revision=SNAPSHOT_SOURCE_REVISION)
+        del auth_type
+        return openrouter_chat_discovery_source(model)
 
     async def discover_chat_parameter_snapshot(
         self,
@@ -381,19 +311,9 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         limits: DiscoveryLimits | None = None,
         auth_type: AuthMode | None = None,
     ) -> ProviderDiscoverySnapshot | None:
-        # OME-479 §5.1: the DYNAMIC source. Strip the gateway prefix to the
-        # upstream id the public catalog is keyed by — the SAME rule as
-        # prepare_chat_body, so discovery and dispatch agree on identity. A value
-        # that is not a valid gateway id is not dispatchable, so there is nothing
-        # to discover: return None WITHOUT opening a connection — NOT ATTEMPTED,
-        # which is a different claim from "attempted and failed".
-        # INVARIANT: never enables a parameter (only a rule does); off the chat
-        # dispatch path; a sanitized DiscoveryError from the fetch PROPAGATES so
-        # the cache can degrade honestly rather than store a failure as fresh.
-        upstream = _upstream_model_for_discovery(model)
-        if upstream is None:
-            return None
-        return await discover_openrouter_snapshot(upstream, client=client, limits=limits)
+        # Auth-independent for the same reason as the source declaration above.
+        del auth_type
+        return await discover_openrouter_chat_snapshot(model, client=client, limits=limits)
 
     def strip_provider_dispatch_controls(self, body: dict[str, Any]) -> dict[str, Any]:
         # OME-479: neutralize LiteLLM orchestration selectors BEFORE the
@@ -501,58 +421,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         return cache_reference_from_cached(cached_response)
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
-        import litellm
-
-        # INVARIANT: process-global LiteLLM routing and callbacks must never
-        # receive or redirect an account-scoped OpenRouter credential.
-        if _has_unsafe_litellm_global_state(litellm, body.get("model")):
-            raise _unsafe_litellm_state_error()
-
-        dispatch_body = dict(body)
-        # AIDEV-NOTE (OME-303 §4.2): this field is IGNORED whenever the gateway injects
-        # its own client — LiteLLM uses the client it was given, and that client's TLS
-        # was fixed when it was built. For an accounted request the active TLS guarantee
-        # is ``core.usage_accounting.hooks.AccountingAsyncHTTPHandler``, which pins
-        # verification on its primary AND on the replacement client litellm builds
-        # during its hidden retry. This line still governs the un-accounted path.
-        dispatch_body["ssl_verify"] = True
-        dispatch_body["caching"] = False
-        dispatch_body["cache"] = {"no-cache": True, "no-store": True}
-        # OME-303 §4.3: pin the gateway-owned OUTER retry cardinality so the accounting
-        # contract's observed-attempt count cannot be changed by a process-global default.
-        dispatch_body["num_retries"] = 0
-        dispatch_body["max_retries"] = 0
-
-        # cast: acompletion's static type is a ModelResponse|CustomStreamWrapper
-        # union, but D5 guarantees non-streaming here (stream rejected at the
-        # route before dispatch), so model_dump is always present.
-        try:
-            response = cast("Any", await litellm.acompletion(**dispatch_body))
-        except Exception as exc:
-            # WHY (FINDING A): litellm 1.87.0 RAISES while converting a nominal
-            # HTTP-200 body that carries a meaningful top-level error — it never
-            # returns a payload for _find_embedded_error to scan below. Such an
-            # error came from an already-returned, potentially billed upstream call, so
-            # route it through the SAME sanitizer as a scanned embedded error:
-            # non-retryable, status sanitized, raw provider text discarded.
-            # INVARIANT: a genuine transport failure is re-raised unchanged so
-            # the shared overload-retry loop (core.retry) still applies to it.
-            if is_http200_body_error(exc):
-                raise _embedded_error_exception(converter_error_status(exc)) from exc
-            raise
-        try:
-            payload: Any = response.model_dump() if hasattr(response, "model_dump") else response
-        except Exception:
-            raise _response_conversion_exception() from None
-        if isinstance(payload, dict):
-            found, status = _find_embedded_error(payload)
-            if found:
-                # A 401 here flows through the route's dispatch-failure path
-                # and marks only the selected connection (D9 local).
-                raise _embedded_error_exception(status)
-        # Return the dumped dict so native usage/cost/generation metadata
-        # reaches the caller byte-for-byte (D10 — URL4 per-leaf telemetry).
-        return payload
+        return await dispatch_openrouter_chat(body)
 
 
 PLUGIN = OpenRouterProviderPlugin()

@@ -223,6 +223,23 @@ class Settings(BaseSettings):
     discovery_cache_max_entries: int = Field(
         default=512, gt=0, validation_alias="AIGW_DISCOVERY_CACHE_MAX_ENTRIES"
     )
+    # OME-1026 F7: the HARD retention bound on the private per-profile snapshot cache,
+    # counted in retained model rows. Bounding identities alone bounded how many tenants
+    # are remembered and said nothing about size: a provider caps its own catalog walk
+    # (Anthropic at 2,000 models), so 512 identities admitted over a million retained
+    # rows per worker. The default still holds eight maximum-size catalogs.
+    # INVARIANT: a row COUNT, not a byte budget — no per-row byte size is claimed,
+    # because none has been measured. Retained rows never exceed this value, and a
+    # single snapshot larger than it is refused rather than cached (no carve-out).
+    discovery_profile_cache_max_rows: int = Field(
+        default=16_384, gt=0, validation_alias="AIGW_DISCOVERY_PROFILE_CACHE_MAX_ROWS"
+    )
+    # INVARIANT (OME-1026 F2): this is the provider DIAL deadline, not the user's wait.
+    # Raising it (a slowly paginating catalog) cannot lengthen any caller's model-listing
+    # wait, which ``core.discovery_budget.user_wait_budget`` clamps to MAX_USER_WAIT_S;
+    # a value below that ceiling is honoured as-is. WHY not a second setting: two dials
+    # to tune invites a deployment where the user wait is minutes, and the wait is not
+    # an operator preference — it is a product guarantee.
     discovery_timeout_seconds: float = Field(
         default=3.0,
         gt=0,

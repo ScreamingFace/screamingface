@@ -166,3 +166,44 @@ def test_anthropic_provider_uses_injected_settings() -> None:
     strategy = plugin.oauth_strategy_for("work")
     assert isinstance(strategy, AnthropicOAuth)
     assert strategy.credential_account() == "account-custom"
+
+
+def test_there_is_no_deployment_discovery_credential(monkeypatch) -> None:
+    """OME-1026 rework — the dedicated deployment discovery key was REMOVED.
+
+    # WHY this test replaces the three that previously specified that key: the owner
+    # decision is that Anthropic discovery is PRIVATE and profile-scoped. A
+    # deployment-wide credential would make one key's entitlements the whole
+    # deployment's listing and would answer "whose models are these?" with "the
+    # operator's", which is the design that was rejected.
+    # INVARIANT: absence is asserted structurally (the field does not exist) AND
+    # operationally (setting the old env var changes nothing), so a well-meaning
+    # re-introduction fails here rather than silently restoring global egress.
+    """
+    _clear_anthropic_env(monkeypatch)
+
+    assert "discovery_api_key" not in AnthropicPluginSettings.model_fields
+
+    monkeypatch.setenv("AIGW_ANTHROPIC_DISCOVERY_API_KEY", "sk-ant-not-a-real-key-0123456789")
+    settings = AnthropicPluginSettings()
+
+    assert not hasattr(settings, "discovery_api_key")
+    # ``extra="ignore"``: the stale variable is dropped, not stored under another name.
+    assert "not-a-real-key" not in repr(settings)
+    assert "not-a-real-key" not in str(settings.model_dump())
+
+
+def test_live_models_defaults_true_and_env_overrides(monkeypatch) -> None:
+    """OME-1026 rework — the off-switch for Anthropic's live catalog.
+
+    # WHY default True is safe with no credential in sight: the flag only decides
+    # whether the provider DECLARES a discovery scope. Egress still requires an
+    # authenticated api-key profile whose owner asks for its own model list, so a
+    # deployment that stores no key performs zero catalog egress with the flag on.
+    """
+    _clear_anthropic_env(monkeypatch)
+
+    assert AnthropicPluginSettings().live_models is True
+
+    monkeypatch.setenv("AIGW_ANTHROPIC_LIVE_MODELS", "false")
+    assert AnthropicPluginSettings().live_models is False

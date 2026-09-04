@@ -5,14 +5,17 @@ import base64
 import os
 import sqlite3
 import uuid
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping
 from pathlib import Path
+from typing import cast
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from tortoise import Tortoise
 
+from aigateway.core.background_error_sink import assert_no_unexpected, reset_unexpected
 from aigateway.core.secrets.local import _SECRET_ENVELOPE_RE
 from aigateway.core.secrets.mixin import SecretDecryptionError
 from aigateway.db import build_tortoise_config
@@ -152,15 +155,28 @@ def _no_discovery_egress(monkeypatch):
     # exercised with an injected ``httpx.MockTransport``; production builds it with
     # none. Gating on that keeps those tests running the real adapter code while
     # blocking exactly the path that opens a socket.
+    # OME-1026 (CC-1): the wrapper must accept and forward the adapter's OPTIONAL
+    # ``headers`` (a credentialed Anthropic catalog dial carries them). Left on the
+    # legacy signature it would raise TypeError, which ``ModelCatalog`` sanitizes into
+    # a degraded seeds listing — so a test that genuinely reached the internet would go
+    # QUIETLY green instead of failing. The AssertionError check therefore stays FIRST,
+    # before any argument forwarding, so a real-transport dial trips loudly either way.
     """
     from aigateway.core.parameter_discovery import HttpxDiscoveryClient
 
     real_get = HttpxDiscoveryClient.get
 
-    async def _guarded(self, url: str, *, timeout_s: float, max_bytes: int):
+    async def _guarded(
+        self,
+        url: str,
+        *,
+        timeout_s: float,
+        max_bytes: int,
+        headers: Mapping[str, str] | None = None,
+    ):
         if self._transport is None:
             raise AssertionError(f"test attempted real discovery egress to {url}")
-        return await real_get(self, url, timeout_s=timeout_s, max_bytes=max_bytes)
+        return await real_get(self, url, timeout_s=timeout_s, max_bytes=max_bytes, headers=headers)
 
     monkeypatch.setattr(HttpxDiscoveryClient, "get", _guarded)
 
@@ -211,6 +227,11 @@ def client(
     monkeypatch.setenv("AIGW_ALLOWED_NETWORKS", "10.0.0.0/8")
     with TestClient(create_app(), client=("10.1.2.3", 50000)) as test_client:
         yield test_client
+        # OME-1026 F6: land the app's background discovery BEFORE the suite-wide
+        # assertion reads the error sink, and before the lifespan's own shutdown
+        # CANCELS those tasks (a cancelled task reports nothing, so asserting after
+        # shutdown would make a parked real-egress attempt silent).
+        drain_app_discovery(test_client)
     asyncio.run(Tortoise.close_connections())
 
 
@@ -237,3 +258,164 @@ def provisioned_user_factory(client: TestClient) -> Callable[[str, str], dict]:
         return response.json()
 
     return _create
+
+
+# A bound on the teardown barrier, not on discovery itself. A test that parks a
+# refresh on an event it never sets would otherwise hang the whole session here.
+_DRAIN_TIMEOUT_S = 5.0
+
+
+def drain_app_discovery(client: TestClient) -> None:
+    """Barrier: await this app's in-flight discovery, PUBLIC and PRIVATE, without cancelling.
+
+    ``TestClient`` runs the app in another thread, so a synchronous test cannot await
+    its tasks directly; the blocking portal installed by ``__enter__`` submits the
+    managers' own ``drain`` into the app's loop.
+
+    # WHY awaiting rather than cancelling: cancellation is how the lifespan shuts
+    # discovery down, and ``_reap`` deliberately reports nothing for a cancelled task.
+    # Draining first is what makes a background bug — a real-egress attempt above all —
+    # reach the error sink before anything reads it.
+    # WHY the shield: ``wait_for`` cancels what it awaits on timeout. Shielding the
+    # drain means a slow refresh keeps running (the lifespan will cancel it moments
+    # later) instead of being torn down by the barrier meant to observe it.
+    """
+    portal = client.portal
+    if portal is None:  # not entered as a context manager; nothing was started
+        return
+    app = cast("FastAPI", client.app)
+    targets = [
+        target
+        for target in (
+            getattr(app.state, "profile_model_catalog", None),
+            getattr(app.state, "public_refreshes", None),
+        )
+        if target is not None
+    ]
+
+    async def _drain() -> None:
+        for target in targets:
+            try:
+                await asyncio.wait_for(asyncio.shield(target.drain()), timeout=_DRAIN_TIMEOUT_S)
+            except TimeoutError:
+                # A deliberately parked refresh. The lifespan's bounded aclose owns it.
+                pass
+
+    portal.call(_drain)
+
+
+def drain_private_catalog(client: TestClient) -> None:
+    """Barrier: finish the app's in-flight PRIVATE discovery inside its own loop.
+
+    Publishing a credential starts a post-commit refresh, and ``TestClient`` runs the
+    app in another thread. Sleeping and hoping is a race; the blocking portal that
+    ``TestClient.__enter__`` installs lets a synchronous test submit the catalog's own
+    ``drain`` into the app's loop and wait for it.
+    """
+    portal = client.portal
+    assert portal is not None, "the TestClient must be entered as a context manager"
+    catalog = cast("FastAPI", client.app).state.profile_model_catalog
+    if catalog is not None:
+        portal.call(catalog.drain)
+
+
+def observe_background_discovery_errors(context: str) -> None:
+    """The suite-wide observation point: fail ``context`` for a background bug.
+
+    A plain function so it can be driven directly by a test — a fixture that only
+    ever runs as teardown is a fixture whose failure path nothing pins.
+    """
+    assert_no_unexpected(context)
+
+
+@pytest.fixture(autouse=True)
+def _background_discovery_errors(request):
+    """OME-1026 F6 — a background programming error FAILS the test that caused it.
+
+    ``BackgroundRefreshManager`` retains an unexpected exception from a refresh nobody
+    awaited — the no-egress tripwire's ``AssertionError`` above all — until something
+    observes it. This is that observation point, for every test in the suite.
+
+    # WHY it can assert now, where the previous pass could only drain: the blocker was
+    # that publishing an api key starts a post-commit PRIVATE refresh and Anthropic's
+    # ``live_models`` default is ``True``, so ~236 credential tests tripped the tripwire
+    # in the background. Owner decision: tests that do not exercise profile discovery
+    # DISABLE it (``_anthropic_private_discovery_disabled`` below) and discovery suites
+    # opt in explicitly. Production defaults are untouched — the lever is this process's
+    # plugin instance, not the setting's default.
+    # AIDEV-NOTE: reset on the way IN as well. A leak escaping some earlier path must
+    # be attributed to the test that produced it, never to the next one.
+    """
+    reset_unexpected()
+    yield
+    observe_background_discovery_errors(request.node.name)
+
+
+@pytest.fixture(autouse=True)
+def _anthropic_private_discovery_disabled(monkeypatch):
+    """Anthropic private discovery is OFF for the shared unit suite (OME-1026 F6).
+
+    # WHY per-instance rather than per-env: ``AnthropicPluginSettings.live_models``
+    # defaults to ``True`` in PRODUCTION and a prior test pins that default
+    # (``tests/unit/anthropic/test_settings.py`` constructs the settings object
+    # directly). Overriding the loaded plugin's instance leaves both facts intact while
+    # making the default test app perform zero private discovery.
+    # WHY ``model_copy`` rather than a fresh settings object: a fresh one would re-read
+    # ``AIGW_ANTHROPIC_*`` from the environment and quietly discard whatever an
+    # enclosing fixture had configured.
+    """
+    from aigateway.plugins.anthropic_provider.plugin import PLUGIN
+
+    monkeypatch.setattr(
+        PLUGIN, "settings", PLUGIN.settings.model_copy(update={"live_models": False})
+    )
+
+
+@pytest.fixture(autouse=True)
+def _public_catalog_prewarm_disabled(monkeypatch):
+    """Startup prewarm of PUBLIC catalogs is OFF for the shared unit suite (OME-1026 F6).
+
+    # WHY (the same owner principle as the Anthropic default above): a test must not
+    # perform discovery it never asked for. Several suites enable a public provider
+    # through a fixture that runs BEFORE the app is built — ``openrouter_enabled`` in
+    # ``tests/unit/core/test_contract_source_revision_identity.py`` and five siblings —
+    # so app startup dialled the live model LIST with the real client and no transport.
+    # The no-egress tripwire caught it, which is exactly why the suite-wide assertion
+    # cannot coexist with prewarm-by-default.
+    # INVARIANT (nothing under test is weakened): prewarm is a latency optimisation. A
+    # request keys its refresh identically, so it starts its own instead of joining
+    # one — the route behaviour every test asserts is unchanged. That prewarm really
+    # does start refreshes during a real lifespan is pinned by the
+    # ``public_catalog_prewarm`` opt-in below and by the direct prewarm tests in
+    # ``tests/unit/core/test_background_failure_semantics.py``.
+    """
+    from aigateway import main
+
+    monkeypatch.setattr(main, "start_public_prewarm", lambda _app: 0)
+
+
+@pytest.fixture
+def public_catalog_prewarm(monkeypatch):
+    """Explicit opt-in: let this test's app run the real startup prewarm."""
+    # Imported from its DEFINING module, which the autouse fixture above never
+    # touches — it patches the name ``main`` resolves at lifespan time.
+    from aigateway import main
+    from aigateway.discovery_lifecycle import start_public_prewarm
+
+    monkeypatch.setattr(main, "start_public_prewarm", start_public_prewarm)
+
+
+@pytest.fixture
+def anthropic_live_discovery(monkeypatch):
+    """Explicit opt-in: this test DOES exercise Anthropic private discovery.
+
+    Requesting this fixture is the declaration. It is not autouse, and because
+    autouse fixtures are set up first, it reliably overrides the suite-wide default
+    above.
+    """
+    from aigateway.plugins.anthropic_provider.plugin import PLUGIN
+
+    monkeypatch.setattr(
+        PLUGIN, "settings", PLUGIN.settings.model_copy(update={"live_models": True})
+    )
+    return PLUGIN.settings

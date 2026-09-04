@@ -1,10 +1,4 @@
-"""Credential-side helpers for /v1/chat/completions.
-
-Everything between the incoming request and a dispatch-ready body lives here:
-profile/connection resolution, credential-strategy lookup, profile-defaults
-merging, and credential injection. Split out of routes/chat.py (OME-428
-Phase 1) behind characterization tests; behavior is unchanged.
-"""
+"""Credential resolution, defaults, and injection for `/v1/chat/completions`."""
 
 from __future__ import annotations
 
@@ -13,6 +7,12 @@ from typing import Any, cast
 from fastapi import HTTPException, Request
 
 from ..core.credential_strategy_cache import credential_strategy_cache
+from ..core.effective_credential import (
+    DEFAULT_PROFILE_NAME,
+    AmbiguousCredential,
+    UnknownConnectionLabel,
+    resolve_effective_credential,
+)
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
 from ..core.oauth.store import OAuthConnectionStore, credential_key_for
@@ -27,20 +27,14 @@ from ..core.profile_models import (
     credential_name_for,
 )
 
-_DEFAULT_PROFILE_NAME = "default"
-
 
 def auth_mode_for_target(
     profile: Profile | None,
     connection: OAuthConnection | None,
 ) -> AuthType:
-    """Resolve the REAL auth mode for a resolved chat/contract target.
+    """Resolve the stored target's auth mode, never a caller-declared value.
 
-    INVARIANT: the auth mode is never caller-declared — it is derived solely from
-    the stored connection/profile. A connection's own ``auth_type`` wins; a bare
-    profile uses its ``auth_type``; with neither resolved, oauth is the safe
-    default. Single source so chat dispatch and the detailed contract cannot
-    disagree about which mode a profile uses.
+    INVARIANT: chat dispatch and the detailed contract share this decision.
     """
     if connection is not None:
         # WHY: tortoise-orm >=1.1.8 types CharField as `str`; the stored column is a bare
@@ -58,20 +52,10 @@ def resolved_auth_mode(
     *,
     plugin: ProviderPluginBase,
 ) -> AuthMode:
-    """Resolve the auth mode the PARAMETER CONTRACT and dispatch are matched against.
+    """Resolve the auth mode shared by parameter validation and dispatch.
 
-    Same resolution as ``auth_mode_for_target`` for anything with a stored
-    credential, widened by one outcome: a provider that declares no credential
-    type at all resolves to ``"none"`` instead of the ``"oauth"`` fiction (OME-636).
-
-    # WHY this is a separate function rather than a wider return on
-    # ``auth_mode_for_target``: that function also feeds credential-strategy
-    # selection, which has no ``"none"`` branch and cannot grow one. Splitting
-    # keeps the credential path structurally unable to receive a mode it could
-    # not serve, instead of relying on a runtime check.
-    # INVARIANT: ``"none"`` comes from the PROVIDER's declaration, never from an
-    # absent profile. Gemini also permits a profile-less request, so triggering on
-    # the missing profile would silently drop a credentialed provider into no-auth.
+    INVARIANT: `none` comes only from the provider declaration; credential
+    strategy selection remains structurally limited to credentialed modes.
     """
     if connection is None and profile is None:
         profileless_mode = plugin.profileless_auth_mode()
@@ -152,9 +136,7 @@ async def _repair_api_key_only_connection_auth_type(
     modes = _available_auth_modes(plugin)
     if auth_type != "oauth" or "oauth" in modes or "api_key" not in modes:
         return connection
-    # INVARIANT: an api-key-only provider has no OAuth path. Retag the connection
-    # before parameter validation and credential reads so failures stay recoverable
-    # through the connection-native replace-key endpoint.
+    # INVARIANT: repair an impossible OAuth tag before validation or credential reads.
     repaired = await _oauth_connection_store(request).set_auth_type(connection, "api_key")
     if repaired is None:
         raise HTTPException(
@@ -167,51 +149,6 @@ async def _repair_api_key_only_connection_auth_type(
     return repaired
 
 
-async def _active_oauth_connection_for_profile(
-    request: Request,
-    *,
-    account_id: str,
-    provider: str,
-    profile_name: str,
-) -> OAuthConnection | None:
-    connections = await _oauth_connection_store(request).list(
-        account_id,
-        provider=provider,
-        status="active",
-    )
-    if not connections:
-        return None
-
-    for connection in connections:
-        if connection.label == profile_name:
-            return connection
-
-    if profile_name == _DEFAULT_PROFILE_NAME and len(connections) == 1:
-        return connections[0]
-
-    if profile_name == _DEFAULT_PROFILE_NAME:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "connection_ambiguous",
-                "provider": provider,
-                "message": (
-                    "Multiple active connections exist. Select one by setting "
-                    "X-Profile to the connection label."
-                ),
-            },
-        )
-    raise HTTPException(
-        status_code=404,
-        detail={
-            "code": "connection_not_found",
-            "provider": provider,
-            "requested_label": profile_name,
-            "valid_labels": [connection.label for connection in connections],
-        },
-    )
-
-
 async def _credential_target_for_chat(
     request: Request,
     *,
@@ -220,22 +157,47 @@ async def _credential_target_for_chat(
     profile_name: str,
     plugin: Any,
 ) -> tuple[Profile | None, OAuthConnection | None, ProfileDefaults]:
+    """Map shared effective-credential outcomes onto chat's HTTP contract.
+
+    INVARIANT: models, parameters, and chat use the same resolver rules.
+    """
     idx: ProfileIndexStore = request.app.state.profile_index
-    profile = await idx.get(account_id, provider, profile_name)
-    if profile is None:
-        connection = await _active_oauth_connection_for_profile(
-            request,
-            account_id=account_id,
-            provider=provider,
-            profile_name=profile_name,
+    resolution = await resolve_effective_credential(
+        account_id=account_id,
+        provider=provider,
+        profile_name=profile_name,
+        profile_index=idx,
+        connections=_oauth_connection_store(request),
+    )
+    if isinstance(resolution, AmbiguousCredential):
+        selectable_labels = [
+            label for label in resolution.valid_labels if label != DEFAULT_PROFILE_NAME
+        ]
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "connection_ambiguous",
+                "provider": provider,
+                "message": (
+                    "Multiple active connections exist. Remove extras until one remains, "
+                    "or select a non-default connection by setting X-Profile to its label."
+                ),
+                "valid_labels": selectable_labels,
+            },
         )
-        if connection is not None:
-            connection = await _repair_api_key_only_connection_auth_type(
-                request,
-                plugin=plugin,
-                connection=connection,
-            )
-            return None, connection, ProfileDefaults()
+    if isinstance(resolution, UnknownConnectionLabel):
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "connection_not_found",
+                "provider": provider,
+                "requested_label": resolution.requested_label,
+                "valid_labels": [
+                    label for label in resolution.valid_labels if label != DEFAULT_PROFILE_NAME
+                ],
+            },
+        )
+    if resolution is None:
         if not _allows_chatless_profile(plugin):
             raise HTTPException(
                 status_code=404,
@@ -246,7 +208,16 @@ async def _credential_target_for_chat(
                 },
             )
         return None, None, ProfileDefaults()
+    if resolution.connection is not None:
+        connection = await _repair_api_key_only_connection_auth_type(
+            request,
+            plugin=plugin,
+            connection=resolution.connection,
+        )
+        return None, connection, ProfileDefaults()
 
+    profile = resolution.profile
+    assert profile is not None  # EffectiveCredential holds exactly one backing
     if profile.state == ProfileState.PENDING:
         raise HTTPException(
             status_code=409,
@@ -279,8 +250,7 @@ def _strategy_for_credential_target(
     profile: Profile | None,
     connection: OAuthConnection | None,
 ) -> tuple[Any, str | None, AuthType]:
-    """Resolve (strategy, credential_name, auth_type) for the chat credential
-    target, branching on the target's auth_type discriminator."""
+    """Resolve `(strategy, credential_name, auth_type)` for the stored target."""
     auth_type: AuthType
     if connection is not None:
         credential_name = credential_key_for(account_id, connection.id)
