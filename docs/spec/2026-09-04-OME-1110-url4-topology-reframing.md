@@ -156,7 +156,7 @@ The node answers with the best it supports. RFC 6455 lets a WebSocket handshake 
 |---|---|---|
 | `101 Switching Protocols` | **WebSocket**: bidirectional; cancel and attach in-band | frames, same names as the SSE events |
 | `200 text/event-stream` | **stream**: SSE on the same GET (v0.2 §11.2) | SSE events, then `result`, then `envelope` |
-| `200 application/json` | **sync**: result plus envelope | envelope `meta` (§7) |
+| `200 text/plain` or `application/json` | **sync**: bare answer, or the envelope, by `Accept` | envelope `meta` (below) |
 | `202` + `Location` | **async**: run handle; `GET` it for status, `DELETE` it to cancel | on the handle |
 
 Rules:
@@ -165,8 +165,20 @@ Rules:
 - **Ladder, not error.** WebSocket → SSE → sync. A node answering below the ask is normal; the envelope's `delivery` field says what happened (v0.2 §11.4).
 - **Async is an axis, not a rung.** It is requested with `Prefer: respond-async`, or entered by the node when a sync run would outlive the timeout (v0.2 §11.4 `sync → async`).
 - **Browsers go SSE-first.** A browser cannot attach `Accept` to a WebSocket handshake, so a browser evaluator asks for SSE and upgrades only where the capabilities document says WebSocket is offered.
-- **Telemetry is always in-band.** Whatever the mode, the caller receives logs, spans and cost on the same connection or in the envelope. A remote host's own OTLP export is its business, never something the caller depends on (§7).
 - **The Engine's product session** keeps its WebSocket at `/ws`. It is one instance of the WebSocket rung, not a separate protocol.
+- **Telemetry is always in-band.** Whatever the mode, the caller receives logs, spans and cost on the same connection or in the envelope. A remote host's own OTLP export is its business, never something the caller depends on (§7).
+
+**Telemetry per mode.** WebSocket and SSE carry it *in place*: an SSE body is a sequence of named events (`event: log`, `event: span`, `event: cost.usage`, then `event: result`, `event: envelope`), in order, on the one response. The spec already builds on this (v0.2 §12.5 is an SSE event catalog); our three signals are three more names. What SSE lacks against WebSocket is only the return path: no in-band cancel or attach.
+
+Sync has no room for that: the body is the answer. So the wrapper is negotiated, with two knobs that must not be conflated:
+
+| Knob | Governs | Values |
+|---|---|---|
+| `Accept` header | the wrapper | `text/plain` (default): the bare answer, no logs, no telemetry, what `url4 serve` returns today. `application/json`: the envelope (v0.2 §13) |
+| `meta` param | how much the envelope carries | `none`: result and status. `summary`: counts, latency, cost. `full`: per-source detail, nested child envelopes (v0.2 §13.3), and a `telemetry` block with logs and spans |
+| `fmt` param | the shape of the answer *content* | `text`, `markdown`, `json` (v0.2 §7.1); orthogonal, a JSON envelope can wrap a markdown answer |
+
+A JSON answer with no `meta` gets `summary`, so asking for JSON always buys the cheap insight; `meta=full` is the explicit debug switch. What a node exposes is its decision (v0.2 §14.4): a production node may answer `meta=full` with the `telemetry` block redacted, but it MUST keep the structure and use `null` or `"redacted"`, never drop fields silently. A development node hands over everything. Same envelope, same evaluator code, different policy.
 
 **Cancel.** The spec calls cancellation a gap (v0.2 §34). Over WebSocket, cancel is in-band. Otherwise it is `DELETE` on the run handle returned as `Location` (and `Link rel=self`), which the Engine already does. New terminal state `cancelled`; SSE event `request.cancelled`.
 
@@ -174,7 +186,7 @@ Rules:
 
 Three signals, one trace, as in the doctrine skill. What changes is where a one-shot GET puts them.
 
-- **sync**: in the body. The envelope's `meta` carries counts, latencies and cost at the level the requestor asked for (`none`, `summary`, `full`; v0.2 §13.2). At `meta=full` a child's envelope nests in `source.envelope` (v0.2 §13.3). Each node aggregates only what it saw itself (v0.2 §14.1).
+- **sync**: in the body, only when the caller asked for the envelope (`Accept: application/json`, §6). `meta` sets the level (`summary` by default, `full` adds logs and spans; v0.2 §13.2). At `meta=full` a child's envelope nests in `source.envelope` (v0.2 §13.3). Each node aggregates only what it saw itself (v0.2 §14.1). A bare `text/plain` answer carries nothing.
 - **stream** and **WebSocket**: as events: logs, spans, `cost.usage` (self and subtree), then `result`, then `envelope`. Same names in both.
 - **durable**: OTLP export to the trace backend. There is no separate "Enclave" store; the exporter superseded it.
 
@@ -212,7 +224,8 @@ Each item names the anchor and the change. All are proposals.
 4. **Part C §11.4 — ladder and floor.** The node answers with the richest mode it supports, WebSocket → SSE → sync, in one round trip; sync is the only MUST and `any → sync` is always legal. A node answering below the ask is not an error; the envelope's `delivery` field says what happened.
 5. **v0.2 §33 (Part H in v0.5) — idempotency.** Replace "the protocol does not guarantee idempotency" with: GET is idempotent per RFC 9110 §9.2.2; results are not guaranteed deterministic.
 6. **v0.2 §34 (Part H in v0.5) — cancellation.** `DELETE` on the run handle (`Location`). Terminal state `cancelled`; SSE event `request.cancelled`; propagates to in-flight children.
-7. **Part G §27.2 — capabilities document.** Schema as drafted in §5: `nodes` keyed by path, `mount`, `target`, `delivery`, `features`; `holdings`. Optional binding: the same entry as an `OPTIONS` body with `Content-Type: application/url4-capabilities+json`.
+7. **Part D §13 — envelope for sync callers.** `Accept: text/plain` returns the bare answer; `Accept: application/json` returns the envelope, `meta=summary` by default. At `meta=full` the envelope carries a `telemetry` block (`logs[]`, `spans[]`, `cost`) that a node MAY redact per §14.4 (structure kept, `"redacted"` sentinel). `fmt` stays the answer's content format and is orthogonal.
+8. **Part G §27.2 — capabilities document.** Schema as drafted in §5: `nodes` keyed by path, `mount`, `target`, `delivery`, `features`; `holdings`. Optional binding: the same entry as an `OPTIONS` body with `Content-Type: application/url4-capabilities+json`.
 
 # Appendix B — follow-up work items
 

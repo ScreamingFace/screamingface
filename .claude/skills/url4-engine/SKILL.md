@@ -95,7 +95,10 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
   Location` (async). Live events — log records, OTel spans, `cost.usage` (O2), then `result`,
   then `envelope` — carry the same names over WS and SSE. **sync is the only MUST**; SSE, WS
   and async are SHOULD, advertised per node in the capabilities document.
-- **T2 — HTTP GET = transactional.** Sync: the node returns the final result plus envelope.
+- **T2 — HTTP GET = transactional.** Sync: `Accept: text/plain` (default) returns the bare
+  answer with no telemetry; `Accept: application/json` returns the envelope (`meta=summary`
+  by default; `meta=full` adds a `telemetry` block with logs and spans, redactable per node
+  policy, v0.2 §14.4). `fmt` is the answer's content format and is orthogonal.
   Async (`Prefer: respond-async`): `202 Accepted` + `Location` run handle (also as
   **RFC 8288 `Link rel=self`**) so the caller can poll status, read the durable record, or
   `DELETE` to cancel (F3).
