@@ -15,6 +15,7 @@ from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, DiscardPolicy,
 from nats.js.errors import APIError, BadRequestError, NotFoundError
 from pydantic import ValidationError
 
+from screamingface_engine import subjects
 from screamingface_engine.subjects import owns_stream, stream_for, subject_for, topic_of
 from url4.streaming.codec import decode, encode
 from url4.streaming.interfaces import (
@@ -74,9 +75,10 @@ _MAX_STREAM_PAGES = 100
 _MAX_ENSURED_MEMO = 4096
 
 
-def _consumer_config(from_sequence: int | None) -> ConsumerConfig:
-    """Replays from the start of the stream when `from_sequence` is None, else resumes at that
-    1-based stream sequence (attach/resume, spec §8).
+def _broadcast_consumer_config(from_sequence: int | None) -> ConsumerConfig:
+    """The broadcast replay reader's config: replays from the start of the stream when
+    `from_sequence` is None, else resumes at that 1-based stream sequence (attach/resume, spec
+    §8).
 
     INVARIANT: `ack_policy` is NONE, and this is load-bearing rather than a default worth
     inheriting. These consumers are broadcast replay readers — nothing here can act on a
@@ -85,6 +87,9 @@ def _consumer_config(from_sequence: int | None) -> ConsumerConfig:
     anything (nats-py only auto-acks the callback path), which means every frame is redelivered
     after AckWait and delivery stops outright once `max_ack_pending` (server default 1000)
     unacked messages pile up — i.e. any run over ~1000 frames silently truncates mid-stream.
+
+    The run queue's consumer is the OPPOSITE of this in every way that matters; it has its own
+    builder in `runner_queue` (OME-1088).
     """
     if from_sequence is None:
         return ConsumerConfig(deliver_policy=DeliverPolicy.ALL, ack_policy=AckPolicy.NONE)
@@ -110,12 +115,18 @@ class _JetStreamConnection:
         stream_max_bytes: int = DEFAULT_STREAM_MAX_BYTES,
         orphan_grace_s: float = DEFAULT_ORPHAN_GRACE_S,
         never_started_s: float = DEFAULT_NEVER_STARTED_S,
+        run_queue_stream: str = subjects.RUN_QUEUE_STREAM,
     ) -> None:
         self._url = nats_url
         self._stream_max_age_s = stream_max_age_s
         self._stream_max_bytes = stream_max_bytes
         self._orphan_grace_s = orphan_grace_s
         self._never_started_s = never_started_s
+        # The queue stream THIS connection's sweep must never touch. Composition roots pass
+        # the CONFIGURED name (`Settings.run_queue_stream`); the default keeps tests and the
+        # default deployment on the constant. A sweep armed with a stale constant against a
+        # renamed queue deletes the one stream an accepted run may not be lost from.
+        self._run_queue_stream = run_queue_stream
         self._nc: Client | None = None
         self._js: JetStreamContext | None = None
         self._ensured: set[str] = set()
@@ -207,7 +218,7 @@ class _JetStreamConnection:
         freed: list[str] = []
         for info in await self._all_streams(js):
             name = info.config.name
-            if name is None or not owns_stream(name):
+            if name is None or not owns_stream(name, run_queue_stream=self._run_queue_stream):
                 continue
             if not await self._is_orphan(js, info):
                 continue
@@ -352,7 +363,7 @@ class JetStreamConsumer(_JetStreamConnection, EventConsumer):
         sub = await js.subscribe(
             subject_for(topic),
             stream=stream_for(topic),
-            config=_consumer_config(from_sequence),
+            config=_broadcast_consumer_config(from_sequence),
         )
         # WHY: the caller may abandon this generator mid-run (a re-attach cancels the WS pump, a
         # sync GET gives up at `sync_max_wait_s`). Without the unsubscribe the push consumer keeps
@@ -402,6 +413,7 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
         stream_max_bytes: int = DEFAULT_STREAM_MAX_BYTES,
         orphan_grace_s: float = DEFAULT_ORPHAN_GRACE_S,
         never_started_s: float = DEFAULT_NEVER_STARTED_S,
+        run_queue_stream: str = subjects.RUN_QUEUE_STREAM,
     ) -> None:
         # Forwarded explicitly rather than through `**kwargs`: the base takes one `int` among
         # its floats, so a single widened annotation cannot type-check, and the alternative
@@ -412,6 +424,7 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
             stream_max_bytes=stream_max_bytes,
             orphan_grace_s=orphan_grace_s,
             never_started_s=never_started_s,
+            run_queue_stream=run_queue_stream,
         )
         # A dict used as an ORDERED set. Insertion order is publish order, and `_reap` keeps
         # the first failure — meaning the one on the earliest-published frame. A plain `set`
