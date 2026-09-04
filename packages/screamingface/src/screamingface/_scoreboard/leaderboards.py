@@ -26,6 +26,7 @@ from screamingface.leaderboard import (
     LeaderboardBaseline,
     LeaderboardEntry,
     LeaderboardInfo,
+    LeaderboardRankingNotice,
     LeaderboardScore,
 )
 from screamingface.report import CandidateResult
@@ -378,9 +379,30 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             metadata=metadata,
             scoreboard_url=scoreboard_url,
             authors=_decode_authors(root.get("authors"), "Leaderboard score authors"),
+            ranking_notice=_decode_ranking_notice(root),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
+
+
+def _decode_ranking_notice(root: Mapping[str, object]) -> LeaderboardRankingNotice | None:
+    if "ranking_notice" not in root:
+        return None
+    notice = _mapping(root["ranking_notice"], "Leaderboard score ranking notice")
+    code = _text(notice.get("code"), "Leaderboard score ranking notice code")
+    if code != "benchmark_revision_mismatch":
+        _invalid("Leaderboard score ranking notice has an unsupported code")
+    return LeaderboardRankingNotice(
+        code="benchmark_revision_mismatch",
+        submitted_benchmark_revision=_optional_text(
+            notice.get("submitted_benchmark_revision"),
+            "Leaderboard score ranking notice submitted_benchmark_revision",
+        ),
+        registered_benchmark_revision=_text(
+            notice.get("registered_benchmark_revision"),
+            "Leaderboard score ranking notice registered_benchmark_revision",
+        ),
+    )
 
 
 def _cost_text(cost: Decimal | None) -> str | None:
