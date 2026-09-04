@@ -40,6 +40,7 @@ def _submission(
         total_questions=100,
         correct_questions=correct_questions,
         ran_with_providers=providers or ["openai"],
+        run_cost_usd=Decimal("1.000000"),
         ran_at_local=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
         client=ClientInfo(name="scoreboard-test", version="0.1.0", platform="test"),
         metadata={"source": "unit"},
@@ -477,6 +478,7 @@ def _revision_submission(
         total_questions=100,
         correct_questions=75,
         ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
         benchmark_revision=benchmark_revision,
         metadata=metadata,
     )
@@ -653,6 +655,7 @@ async def test_leaderboard_still_collapses_within_one_revision(tortoise_db: None
             total_questions=100,
             correct_questions=60,
             ran_with_providers=["openai"],
+            run_cost_usd=Decimal("1.000000"),
             benchmark_revision="rev-same",
         )
     )
@@ -665,6 +668,7 @@ async def test_leaderboard_still_collapses_within_one_revision(tortoise_db: None
             total_questions=100,
             correct_questions=90,
             ran_with_providers=["openai"],
+            run_cost_usd=Decimal("1.000000"),
             benchmark_revision="rev-same",
         )
     )
@@ -905,7 +909,9 @@ async def test_run_cost_persists_and_reads_back_on_the_leaderboard(tortoise_db: 
     assert entries[0].run_cost_usd == Decimal("3.500000")
 
 
-async def test_a_submission_without_a_cost_reads_back_none_not_zero(tortoise_db: None) -> None:
+async def test_a_legacy_submission_without_a_cost_reads_back_none_not_zero(
+    tortoise_db: None,
+) -> None:
     """INVARIANT: unreported cost must stay distinguishable from a free run.
 
     OME-770's Pareto frontier would rank an unknown-cost entry as the cheapest
@@ -914,7 +920,8 @@ async def test_a_submission_without_a_cost_reads_back_none_not_zero(tortoise_db:
     await Benchmark.create(id="hle", display_name="HLE")
     store = ScoreStore()
 
-    await store.submit(_submission(spec_id="uncosted"))
+    legacy = _submission(spec_id="uncosted").model_copy(update={"run_cost_usd": None})
+    await store.submit(legacy)
     entries = await store.leaderboard("hle")
 
     assert entries[0].run_cost_usd is None
@@ -1124,6 +1131,7 @@ def _owned_submission(
         total_questions=100,
         correct_questions=int(score * 100),
         ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
         benchmark_revision=benchmark_revision,
     )
 
@@ -1181,6 +1189,7 @@ def _same_recipe(submitted_by: str) -> ScoreSubmission:
         total_questions=100,
         correct_questions=80,
         ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
     )
 
 
@@ -1354,6 +1363,7 @@ async def test_owned_rows_include_every_submission_for_one_spec(tortoise_db: Non
                 total_questions=100,
                 correct_questions=int(score * 100),
                 ran_with_providers=["openai"],
+                run_cost_usd=Decimal("1.000000"),
                 benchmark_revision="rev-1",
             ),
             identity_verified=True,

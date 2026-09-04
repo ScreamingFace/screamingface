@@ -24,7 +24,7 @@ COST_CEILING = Decimal("999999.999999")
 _ZERO_COST = Decimal("0").quantize(COST_QUANTUM)
 
 
-def _validate_run_cost(value: Decimal | None) -> Decimal | None:
+def _validate_run_cost(value: Decimal) -> Decimal:
     """Reject a cost that cannot be stored; normalize every cost that can.
 
     Only two things are actually unstorable and therefore rejected: a negative or
@@ -45,8 +45,6 @@ def _validate_run_cost(value: Decimal | None) -> Decimal | None:
     Those constraints run BEFORE this validator, so they would reject the very
     values it exists to normalize.
     """
-    if value is None:
-        return None
     # ge=0 on the field already rejects negatives, and NaN fails that comparison,
     # but +Infinity passes it — and quantize() raises InvalidOperation rather than
     # returning a value, so non-finites have to go before any arithmetic.
@@ -324,17 +322,11 @@ class ScoreSubmission(BaseModel):
     # (D-SCORE-006). Persisted onto the flat client_* columns by the store.
     client: ClientInfo | None = None
     metadata: dict[str, Any] | None = None
-    # INVARIANT: absent (None) means "no cost was reported" and is NOT the same as
-    # 0. A fully cache-served run genuinely costing nothing is a legitimate 0, so
-    # OME-770's Pareto frontier must exclude None rather than rank it as the
-    # cheapest entry. Decimal, not float — this is money.
-    #
-    # AIDEV-NOTE: optional only because nothing emits a run cost yet (OME-303 is
-    # unmerged, the Engine does not roll per-call cost into a run total, and the
-    # Client has no field for it), and because the column lands on an already
-    # populated table. Once a client can send it, a direct submission arriving
-    # without one is a client bug and should be REJECTED — null then means
-    # "imported or legacy" only. Tracked on OME-770.
+    # INVARIANT (OME-822): every direct submission reports a cost. A fully
+    # cache-served run genuinely costing nothing is represented by 0; omission or
+    # null is a client bug and is rejected by this non-nullable required field.
+    # Database and read DTOs deliberately remain nullable because imported and
+    # legacy rows can still have no known cost. Decimal, not float — this is money.
     # INVARIANT: the request contract mirrors the column exactly — DECIMAL(12, 6).
     # `ge=0` alone let three failures through, each reproduced live:
     #   0.0000009 -> accepted (201) and silently stored as 0.000001, publishing a
@@ -350,11 +342,11 @@ class ScoreSubmission(BaseModel):
     # requires us to quantize and accept. `ge=0` stays here (it also rejects NaN,
     # which fails the comparison); allow_inf_nan=False stops +Infinity, which
     # would pass ge=0 and then raise inside quantize().
-    run_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    run_cost_usd: Decimal = Field(ge=0, allow_inf_nan=False)
 
     @field_validator("run_cost_usd")
     @classmethod
-    def validate_run_cost(cls, value: Decimal | None) -> Decimal | None:
+    def validate_run_cost(cls, value: Decimal) -> Decimal:
         return _validate_run_cost(value)
 
     @field_validator("url4_expression")
