@@ -22,6 +22,7 @@ from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.worker.loop import Worker
 from screamingface_engine.worker.supervisor import (
+    CANCELLED,
     CHILD_EXITED,
     DEADLINE_EXCEEDED,
     KILLED,
@@ -152,6 +153,7 @@ def _worker(
         heartbeat_interval_s=kwargs.pop("heartbeat_interval_s", 20.0),
         deadline_margin_s=kwargs.pop("deadline_margin_s", 30.0),
         kill_grace_s=kwargs.pop("kill_grace_s", 0.05),
+        control=kwargs.pop("control", None),
     )
 
 
@@ -597,13 +599,13 @@ def test_an_unrelated_failure_during_drain_is_not_relabeled_a_drain_stop() -> No
     worker._draining.set()
     classify = worker._supervisor._classify
 
-    oom = classify("finished", 137)
+    oom = classify("finished", 137, "topic-oom")
     assert oom is not None and oom[0] == "failed" and oom[1] == OOM_KILLED
 
-    crash = classify("finished", 1)
+    crash = classify("finished", 1, "topic-crash")
     assert crash is not None and crash[0] == "failed" and crash[1] == CHILD_EXITED
 
-    drain_kill = classify("draining", None)
+    drain_kill = classify("draining", None, "topic-drain")
     assert drain_kill is not None
     assert drain_kill[0] == "stopped" and drain_kill[1] == WORKER_DRAINING
 
@@ -998,7 +1000,278 @@ async def test_a_publish_failure_after_exit_does_not_cancel_a_siblings_live_chil
     assert sib.kill_calls == 0 and sib.terminate_calls == 1
 
 
-# --- 9. an undecodable BODY is data, not a code bug ----------------------------------------
+# --- 9. the control subject (OME-1090) -----------------------------------------------------
+
+
+class _FakeControlMessage:
+    """A control request: records whether (and how) the worker replied."""
+
+    def __init__(self, subject: str) -> None:
+        self.subject = subject
+        self.data = b""
+        self.replied: list[bytes] = []
+
+    async def respond(self, data: bytes = b"") -> None:
+        self.replied.append(data)
+
+
+class _FakeControl:
+    """A control channel the test feeds requests into, one at a time."""
+
+    def __init__(self) -> None:
+        self._queue: asyncio.Queue[_FakeControlMessage] = asyncio.Queue()
+
+    def feed(self, msg: _FakeControlMessage) -> None:
+        self._queue.put_nowait(msg)
+
+    async def subscribe(self, subject: str) -> Any:
+        async def _messages() -> Any:
+            while True:
+                yield await self._queue.get()
+
+        return SimpleNamespace(messages=_messages())
+
+
+async def test_the_control_request_reaches_only_the_owning_worker() -> None:
+    """A control request for a topic this worker owns is answered and SIGTERMs the child;
+    a request for a topic it does not own is ignored — no reply, so the App's timeout
+    falls back to the tombstone."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t1", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    control = _FakeControl()
+    worker = _worker(queue, publisher, slots=1, spawn=fake_spawn, control=control)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+        ctl = tg.create_task(worker._control_loop(tg))
+
+        await _wait_until(lambda: len(procs) == 1)
+        owned = _FakeControlMessage("url4.runctl.t1")
+        foreign = _FakeControlMessage("url4.runctl.t2")
+        control.feed(owned)
+        control.feed(foreign)
+
+        await _wait_until(lambda: bool(owned.replied))
+        assert not foreign.replied, "a non-owner must not reply"
+        assert procs[0].terminate_calls == 1
+
+        # The child died on SIGTERM; the supervisor classifies the death as a cancel and
+        # publishes the one `Terminated(stopped)` frame.
+        await _wait_until(
+            lambda: bool(publisher.published) and publisher.published[-1].data.status == "stopped"
+        )
+        frame = publisher.published[-1]
+        assert frame.data.error is not None and frame.data.error.code == CANCELLED
+
+        claim.cancel()
+        ctl.cancel()
+
+
+async def test_run_completes_after_the_drain_signal_with_a_control_channel_attached() -> None:
+    """`Worker.run()` must RETURN once the drain signal fires — even with the control
+    channel attached. The TaskGroup awaits `_control_loop`, whose message iterator only
+    ends when the connection closes, and `run_worker` closes that only AFTER `run()`
+    returns: a control loop that cannot exit turns every rolling deploy into a hang
+    until the kubelet SIGKILLs the pod — the deploy-interrupts-runs regression the
+    drain exists to prevent."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-run", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    control = _FakeControl()
+    worker = _worker(
+        queue, publisher, slots=1, spawn=fake_spawn, control=control, drain_grace_s=0.05
+    )
+    run_task = asyncio.create_task(worker.run())
+
+    await _wait_until(lambda: len(procs) == 1)
+    worker._draining.set()  # exactly what the SIGTERM handler in run() does
+    await asyncio.wait_for(run_task, timeout=5.0)  # must COMPLETE, not hang
+
+    assert procs[0].terminate_calls == 1
+    assert publisher.published[-1].data.status == "stopped"
+
+
+async def test_a_cancel_during_the_spawn_window_is_answered_and_enacted() -> None:  # noqa: PLR0915
+    """A cancel that lands between the supervisor's terminal-frame check and the child's
+    registration used to get NO reply — the control loop ignored it, the App's timeout
+    expired and it tombstoned the queued run, and the child ran to completion and
+    published its own terminal frame: TWO terminal frames for one run. The control loop
+    now answers from the starting registry (so the App writes nothing) and the supervisor
+    enacts the cancel the moment the child exists.
+
+    WHY the complexity is accepted rather than split: this is one linear scenario — a
+    cancel fed mid-spawn, answered, then enacted at registration. Carving the assertions
+    into helpers would obscure exactly the ordering under test; the story is the test."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-race", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+    spawn_entered = asyncio.Event()
+    release_spawn = asyncio.Event()
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawn_entered.set()
+        await release_spawn.wait()  # the cancel lands HERE, mid-spawn
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    control = _FakeControl()
+    worker = _worker(queue, publisher, slots=1, spawn=fake_spawn, control=control)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+        ctl = tg.create_task(worker._control_loop(tg))
+
+        await _wait_until(lambda: spawn_entered.is_set())
+        assert worker._starting == {"t-race"}, "the claim loop registers the run before spawn"
+
+        cancel = _FakeControlMessage("url4.runctl.t-race")
+        control.feed(cancel)
+        await _wait_until(lambda: bool(cancel.replied))
+        assert "t-race" in worker._cancelled, "the cancel is acknowledged, not ignored"
+
+        release_spawn.set()
+        await _wait_until(lambda: procs and procs[0].terminate_calls == 1)
+        await _wait_until(
+            lambda: bool(publisher.published) and publisher.published[-1].data.status == "stopped"
+        )
+        assert len(publisher.published) == 1, "exactly one terminal frame"
+        frame = publisher.published[0]
+        assert frame.data.error is not None and frame.data.error.code == CANCELLED
+
+        claim.cancel()
+        ctl.cancel()
+
+
+# --- review follow-up: the cancel must be recorded before the ack that promises it ----------
+
+
+class _GatedRespondControlMessage(_FakeControlMessage):
+    """A control request whose `respond` SUSPENDS until released — the network I/O window
+    the old ordering raced in."""
+
+    def __init__(self, subject: str, gate: asyncio.Event) -> None:
+        super().__init__(subject)
+        self._gate = gate
+
+    async def respond(self, data: bytes = b"") -> None:
+        await self._gate.wait()
+        await super().respond(data)
+
+
+async def test_a_cancel_acked_during_a_slow_respond_is_still_enacted() -> None:
+    """`respond` is real network I/O — a suspension point. The old order (ack, THEN
+    record the cancel) let the spawn complete and the supervisor's registration check
+    (`if topic in self._cancelled`) run inside that window: the mark was absent, the
+    child was never terminated, and the App — already holding "ok" — wrote no tombstone:
+    the caller believed the run was stopped while it ran to completion. The mark now
+    precedes the ack, so the registration check sees it on every schedule order."""
+
+    spawn_gate = asyncio.Event()
+    respond_gate = asyncio.Event()
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> Any:
+        await spawn_gate.wait()  # mid-spawn (fork/exec) until the test releases it
+        return proc
+
+    proc = _FakeProcess(hang=True)
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-slowresp", "'hi'", 60))]])
+    control = _FakeControl()
+    # Bound to a local instead of read back via `worker._publisher` (typed to the
+    # `_Publisher` Protocol, which rightly does not declare `published`).
+    publisher = _FakePublisher()
+    worker = _worker(queue, publisher, slots=1, spawn=fake_spawn, control=control)
+
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+        ctl = tg.create_task(worker._control_loop(tg))
+
+        # The run is STARTING (spawn suspended); the cancel arrives mid-spawn.
+        await _wait_until(lambda: "t-slowresp" in worker._starting)
+        cancel = _GatedRespondControlMessage("url4.runctl.t-slowresp", respond_gate)
+        control.feed(cancel)
+        # The control loop is now suspended INSIDE respond() — with the mark already
+        # recorded (the fix); in the old order the mark did not exist yet.
+        await _wait_until(lambda: "t-slowresp" in worker._cancelled)
+
+        # The spawn completes while the ack is still in flight: the registration check
+        # runs HERE, on every schedule order — and with the mark already recorded it
+        # terminates the child the moment it exists. (The whole post-spawn chain is one
+        # scheduling step — no await between register and terminate — so the DURABLE
+        # terminal frame is the observable, not the transient registry entry.)
+        spawn_gate.set()
+        await _wait_until(
+            lambda: publisher.published and publisher.published[-1].data.status == "stopped"
+        )
+        frame = publisher.published[-1]
+        assert frame.data.error is not None and frame.data.error.code == CANCELLED
+
+        respond_gate.set()  # the ack finally leaves — AFTER the cancel was already enacted
+        await _wait_until(lambda: cancel.replied == [b"ok"])
+
+        claim.cancel()
+        ctl.cancel()
+
+
+def topic_starting(worker: Worker) -> bool:
+    return "t-slowresp" in worker._starting
+
+
+def topic_cancelled(worker: Worker) -> bool:
+    return "t-slowresp" in worker._cancelled
+
+
+async def test_cancels_stay_answered_through_the_drain_window() -> None:
+    """P2-12: the control loop used to exit the instant the drain signal fired, while
+    `_children_by_topic` stayed populated for the whole `drain_grace_s` window — every
+    `url4.runctl.*` request in that window timed out, the App tombstoned a run that was
+    still executing and still billing, and the caller was told the run stopped when it
+    had not. The loop now serves until the drain phase completes, so a cancel issued
+    mid-drain is answered and enacted."""
+    queue = _FakeQueue([[_FakeMsg(encode_message("t-drainctl", "'hi'", 60))]])
+    procs: list[_FakeProcess] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        proc = _FakeProcess(hang=True)
+        procs.append(proc)
+        return proc
+
+    publisher = _FakePublisher()
+    control = _FakeControl()
+    worker = _worker(
+        queue, publisher, slots=1, spawn=fake_spawn, control=control, drain_grace_s=0.3
+    )
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        ctl = tg.create_task(worker._control_loop(tg))  # noqa: SLF001
+
+        await _wait_until(lambda: len(procs) == 1)
+        worker._draining.set()  # noqa: SLF001 — the drain signal fires; the run is draining
+        # Let the signal resolve the control loop's pending wait BY ITSELF first: feeding
+        # in the same tick lets a drain-exiting loop observe both waiters done and handle
+        # the request anyway — the exact schedule-order dependence the fix removes.
+        await asyncio.sleep(0.05)
+        msg = _FakeControlMessage("url4.runctl.t-drainctl")
+        control.feed(msg)
+        await _wait_until(lambda: bool(msg.replied))
+        assert procs[0].terminate_calls == 1, "the mid-drain request must SIGTERM the child"
+        assert msg.replied == [b"ok"]
+        await claim
+        await ctl
+
+
+# --- 10. an undecodable BODY is data, not a code bug ---------------------------------------
 
 
 def _undecodable() -> bytes:
@@ -1152,4 +1425,74 @@ async def test_an_unreadable_stream_grace_does_not_kill_the_pod_either() -> None
     await worker._supervisor.supervise(msg)
 
     assert len(spawns) == 1, "the run must be executed, not lost to a malformed grace"
+    assert msg.acked
+
+
+# --- 11. a cancel accepted in the starting window is a PROMISE (pass-3 #3) -----------------
+
+
+async def test_a_cancel_accepted_while_starting_is_enacted_not_lost_to_an_unreadable_tail() -> None:
+    """Pass-3 #3: the control loop answers `ok` for a topic in `_starting`, so
+    `QueueJobRunner.stop()` takes the "a worker owns it" branch and writes NO tombstone —
+    the worker now owns the promise that the run is stopped, and the client already has its
+    204. That promise lived only in the in-memory `_cancelled` set, and `supervise`'s
+    `finally` discards it on EVERY exit — including `_claim`'s early return on an
+    unreadable tail, which does not ack. The message then redelivered, found no terminal
+    frame anywhere (the App wrote none, the worker published none), passed every claim
+    gate, and executed the run to completion — a run the caller was told was stopped.
+
+    INVARIANT: the cancel is enacted BEFORE the tail read, and the terminal frame is what
+    makes it durable. A redelivery — to this worker or, since the durable consumer is
+    shared, to any other — sees the frame at its own claim gate and acks it away."""
+    topic = "t-cancel-starting"
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    spawns: list[Any] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawns.append(kwargs)
+        return _FakeProcess(0)
+
+    class _UnreadableTailPublisher(_FakePublisher):
+        """The tail read fails — the blip that used to strand the promise."""
+
+        async def last_frame(self, topic: str) -> TerminatedEvent | None:
+            raise QueueReadError("stream tail unreadable")
+
+    publisher = _UnreadableTailPublisher()
+    worker = _worker(_FakeQueue(), publisher, spawn=fake_spawn)
+    # What the control loop does when a cancel lands on a topic that is still starting.
+    worker._cancelled.add(topic)  # noqa: SLF001
+
+    await worker._supervisor.supervise(msg)
+
+    assert not spawns, "a run already cancelled must never be spawned"
+    assert len(publisher.published) == 1, "the accepted cancel must leave a terminal frame"
+    frame = publisher.published[0]
+    assert frame.data.status == "stopped"
+    assert frame.data.error is not None and frame.data.error.code == CANCELLED
+    assert msg.acked, "the settled cancel must not redeliver into an execution"
+
+
+async def test_a_run_cancelled_before_it_starts_is_stopped_without_spawning() -> None:
+    """The same promise on the ordinary path, with a perfectly readable stream: a cancel
+    accepted while the topic was starting means there is nothing to execute. Spawning the
+    child and letting the control loop SIGTERM it afterwards would pay for a process, and
+    a model call or two, to reach the outcome already promised."""
+    topic = "t-cancel-clean"
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    spawns: list[Any] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawns.append(kwargs)
+        return _FakeProcess(0)
+
+    publisher = _FakePublisher()
+    worker = _worker(_FakeQueue(), publisher, spawn=fake_spawn)
+    worker._cancelled.add(topic)  # noqa: SLF001
+
+    await worker._supervisor.supervise(msg)
+
+    assert not spawns, "a cancelled run must not be spawned"
+    assert len(publisher.published) == 1
+    assert publisher.published[0].data.status == "stopped"
     assert msg.acked

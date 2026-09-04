@@ -15,10 +15,20 @@ import asyncio
 import contextlib
 import logging
 import signal
-from collections.abc import Awaitable, Callable, Sequence
-from typing import Protocol
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from typing import TYPE_CHECKING, Protocol
+
+import nats
 
 from screamingface_engine.config import Settings
+
+if (
+    TYPE_CHECKING
+):  # the adapters are imported lazily at runtime; only the annotation needs the names
+    from screamingface_engine.adapters.jetstream import JetStreamPublisher
+    from screamingface_engine.runner_queue import RunQueue
+from screamingface_engine.runner_queue import UNDECODABLE_BODY_ERRORS, topic_of_message
+from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
     HEARTBEAT_INTERVAL_S,
@@ -52,6 +62,28 @@ class _Queue(Protocol):
     async def pull(self, batch: int, timeout_s: float) -> Sequence[ClaimedMessage]: ...
 
 
+class _ControlMessage(Protocol):
+    """The slice of ``nats.aio.msg.Msg`` the control loop uses."""
+
+    subject: str
+    data: bytes
+
+    async def respond(self, data: bytes) -> None: ...
+
+
+class _ControlSubscription(Protocol):
+    """The slice of ``nats.aio.subscription.Subscription`` the control loop uses."""
+
+    @property
+    def messages(self) -> AsyncIterator[_ControlMessage]: ...
+
+
+class _Control(Protocol):
+    """The slice of a core NATS client the control loop uses."""
+
+    async def subscribe(self, subject: str) -> _ControlSubscription: ...
+
+
 class Worker:
     """The slot pool: claim runs from the queue, supervise each as a child process.
 
@@ -71,6 +103,7 @@ class Worker:
         io_capacity: int,
         memory_budget_bytes: int,
         spawn: Callable[..., Awaitable[_ChildProcess]] | None = None,
+        control: _Control | None = None,
         pull_timeout_s: float = PULL_TIMEOUT_S,
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
         deadline_margin_s: float = DEADLINE_MARGIN_S,
@@ -83,6 +116,10 @@ class Worker:
         self._slots = slots
         self._drain_grace_s = drain_grace_s
         self._pull_timeout_s = pull_timeout_s
+        # The run-control channel (OME-1090): a core NATS client subscribed to
+        # `url4.runctl.*`. `None` disables the control loop (tests that do not exercise
+        # cancellation).
+        self._control = control
         # The drain signal: set by SIGTERM/SIGINT (or by a test). The claim loop stops
         # pulling once it is set; the supervisors read it to classify a drain termination.
         self._draining = asyncio.Event()
@@ -90,9 +127,27 @@ class Worker:
         # the remaining children. A supervisor waiting on a child that ignores SIGTERM
         # wakes on this and SIGKILLs instead of waiting out the hard wall.
         self._terminating = asyncio.Event()
+        # Set when the drain phase has COMPLETED (the grace window elapsed, the remaining
+        # children were SIGTERM'd, and the pool is empty). The control loop exits on THIS
+        # rather than on `_draining` (review follow-up P2-12): with the signal only, every
+        # `url4.runctl.*` request in the drain window went unanswered — see `_control_loop`.
+        self._drained = asyncio.Event()
         # The live children, shared with the supervisors: the drain phase reads it to know
         # when the pool has drained, and SIGTERMs whatever is left.
         self._children: set[_ChildProcess] = set()
+        # The topic → child index (OME-1090): the control loop reads it to find the owner
+        # of a run; the supervisors maintain it alongside `_children`.
+        self._children_by_topic: dict[str, _ChildProcess] = {}
+        # Topics a control request has cancelled (OME-1090): the control loop adds a topic
+        # before SIGTERMing its child; the supervisors read it to classify the death.
+        self._cancelled: set[str] = set()
+        # Runs this worker has CLAIMED but not yet spawned (OME-1090): the control loop
+        # answers from here while a run is starting, so a cancel that lands in the spawn
+        # window gets a reply (and the App writes no tombstone) instead of being ignored
+        # until the child has run to completion — two terminal frames. The claim loop
+        # registers a topic BEFORE creating the supervisor task (closing the scheduling
+        # gap), and the supervisor clears it once the child registers (or fails to).
+        self._starting: set[str] = set()
         # The in-flight supervisor tasks — the slot accounting. asyncio is single-threaded,
         # so no lock is needed; the fetch batch is computed from the free slots below.
         self._active: set[asyncio.Task[None]] = set()
@@ -104,6 +159,9 @@ class Worker:
             draining=self._draining,
             terminating=self._terminating,
             children=self._children,
+            children_by_topic=self._children_by_topic,
+            cancelled=self._cancelled,
+            starting=self._starting,
             heartbeat_interval_s=heartbeat_interval_s,
             deadline_margin_s=deadline_margin_s,
             kill_grace_s=kill_grace_s,
@@ -122,6 +180,8 @@ class Worker:
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(self._claim_loop(tg))
+                if self._control is not None:
+                    tg.create_task(self._control_loop(tg))
         finally:
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.remove_signal_handler(sig)
@@ -168,10 +228,102 @@ class Worker:
                 await asyncio.sleep(_PULL_RETRY_S)
                 continue
             for msg in msgs:
+                # Register the run as STARTING before the supervisor task exists: a cancel
+                # that arrives while the claim loop is between pulls must find the topic,
+                # or the control loop ignores it and the App tombstones a run this worker
+                # is about to own (two terminal frames — the race OME-1090's fix closes).
+                # INVARIANT: the decode is SUPPRESSED here and settled in `supervise`. This
+                # line runs on the claim loop's own stack, inside the shared TaskGroup, so
+                # an undecodable body raising here cancels every co-located supervisor and
+                # SIGKILLs each one's live child — the cascade the guarded `pull` above
+                # exists to prevent, reached one line later. A body with no readable topic
+                # has no run to register and nothing to cancel, so skipping the
+                # registration is not merely safe, it is the correct entry.
+                with contextlib.suppress(*UNDECODABLE_BODY_ERRORS):
+                    self._starting.add(topic_of_message(msg.data))
                 task = tg.create_task(self._supervisor.supervise(msg))
                 self._active.add(task)
                 task.add_done_callback(self._active.discard)
         await self._drain()
+
+    async def _control_loop(self, tg: asyncio.TaskGroup) -> None:
+        """Serve run-control requests: only the owner of a run replies, and it SIGTERMs
+        its child (OME-1090).
+
+        Every worker subscribes to ``url4.runctl.*``; a request for a topic this worker
+        does not own is ignored — no reply — so the App's short timeout reads "not
+        running here" and falls back to the tombstone. A request for an owned topic is
+        answered (the App then writes nothing) and the child is SIGTERM'd; the supervisor
+        classifies the death as a cancel and publishes ``Terminated(stopped)``.
+
+        INVARIANT: the loop EXITS when the drain phase has COMPLETED — not the moment the
+        drain signal arrives (review follow-up P2-12). The subscription's iterator only
+        ends when the CONNECTION closes, and `run_worker` closes the control connection
+        only after `Worker.run()` returns — so a loop that merely awaits the next message
+        keeps the TaskGroup (and the rolling deploy behind it) alive past the drain, which
+        is the deploy-interrupts-runs regression the drain exists to prevent. But exiting
+        on the SIGNAL used to leave every cancel in the drain window unanswered:
+        `_children_by_topic` stays populated while the drained runs drain, so up to
+        `drain_grace_s` of `url4.runctl.*` requests timed out, the App tombstoned runs
+        that were still executing and still billing, and the caller was told the run
+        stopped when it had not. Serving until `_drained` (set when the drain phase is
+        done and the pool is empty) keeps cancels answerable through the window, and the
+        abandon-on-timeout shape below still ends the TaskGroup.
+        """
+        control = self._control
+        if control is None:
+            return
+        sub = await control.subscribe(f"{CONTROL_SUBJECT_PREFIX}.*")
+        messages = sub.messages.__aiter__()
+        while True:
+            msg_task = asyncio.ensure_future(messages.__anext__())
+            drained_task = asyncio.create_task(self._drained.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {msg_task, drained_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                drained_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await drained_task
+            if msg_task not in done:
+                # The drain phase finished: abandon the pending fetch and exit.
+                msg_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await msg_task
+                return
+            await self._handle_control(msg_task.result())
+
+    async def _handle_control(self, msg: _ControlMessage) -> None:
+        """Answer one control request: SIGTERM the child that owns the topic, or reply to a
+        starting run's cancellation. A request for a topic this worker does not own gets no
+        reply — the App's short timeout reads "not running here" and falls back to the
+        tombstone.
+        """
+        topic = msg.subject.removeprefix(f"{CONTROL_SUBJECT_PREFIX}.")
+        proc = self._children_by_topic.get(topic)
+        if proc is None:
+            if topic in self._starting:
+                # A run this worker is STARTING: the child has not registered yet, but
+                # the App must not tombstone a run this worker is about to own — that
+                # is how a run ends with two terminal frames. Mark the topic cancelled
+                # and reply; the supervisor enacts the cancel the moment the child
+                # registers.
+                #
+                # WHY the mark BEFORE the reply: `respond` is real network I/O — a
+                # suspension point. In the other order, the spawn could complete and
+                # the supervisor's registration check (`if topic in self._cancelled`)
+                # could run while `respond` was in flight, find the mark absent, and
+                # let the child run to completion — while the App, already holding
+                # "ok", wrote no tombstone: the caller believes the run was stopped
+                # and it never was. By the time the ack is SENT, the cancellation is
+                # recorded, so the registration check sees it on every schedule order.
+                self._cancelled.add(topic)
+                await msg.respond(b"ok")
+            return
+        self._cancelled.add(topic)
+        proc.terminate()
+        await msg.respond(b"ok")
 
     async def _drain(self) -> None:
         """The drain phase: let children finish naturally up to ``drain_grace_s``, then
@@ -180,7 +332,8 @@ class Worker:
         The supervisors keep heartbeating throughout, so a draining worker never looks
         abandoned to the queue. After the grace, ``_terminating`` is set and the remaining
         children are SIGTERM'd; each supervisor classifies the death as a drain and
-        publishes its named frame before acking.
+        publishes its named frame before acking. `_drained` is set when the phase is done
+        — the control loop's exit condition (see `_control_loop`).
         """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._drain_grace_s
@@ -219,18 +372,22 @@ class Worker:
                 with contextlib.suppress(ProcessLookupError):
                     proc.terminate()
             await asyncio.sleep(_DRAIN_POLL_S)
+        # The drain phase is complete (the pool is empty) — the control loop's exit
+        # signal (see `_control_loop` and P2-12).
+        self._drained.set()
 
 
-def run_worker(settings: Settings | None = None) -> None:
-    """The worker's composition root: build the queue, publisher, and worker from Settings.
+def worker_composition(settings: Settings) -> tuple[RunQueue, JetStreamPublisher]:
+    """The worker's queue and publisher, from Settings.
 
-    ``settings`` is injectable for tests; production callers leave it ``None`` and let
-    ``Settings()`` read the environment.
+    Extracted from `run_worker` (review follow-up V-9) so the stream-wiring test can hold
+    the WORKER's composition root to the same Settings the App's roots answer to — the two
+    sides agreeing on the stream name is the whole P2-2 fix, and a test that only inspects
+    one root cannot see the other drifting.
     """
     from screamingface_engine.adapters.jetstream import JetStreamPublisher
     from screamingface_engine.runner_queue import RunQueue
 
-    settings = settings if settings is not None else Settings()
     queue = RunQueue(
         settings.nats_url,
         stream=settings.run_queue_stream,
@@ -248,23 +405,47 @@ def run_worker(settings: Settings | None = None) -> None:
     )
     # The publisher's sweep must exclude the CONFIGURED queue stream, not a stale constant.
     publisher = JetStreamPublisher(settings.nats_url, run_queue_stream=settings.run_queue_stream)
-    worker = Worker(
-        queue=queue,
-        publisher=publisher,
-        # INVARIANT: the worker's slot count is `run_queue_worker_slots` — the same value
-        # the queue settings derive `max_ack_pending` from — so the worker's concurrency
-        # and the queue's ack-pending bound cannot disagree.
-        slots=settings.run_queue_worker_slots,
-        drain_grace_s=settings.worker_drain_grace_s,
-        io_capacity=settings.worker_io_capacity,
-        memory_budget_bytes=settings.worker_memory_budget_bytes,
-        # INVARIANT: the heartbeat cadence is DERIVED from the configured `ack_wait`, not
-        # left at the constant — a heartbeat slower than `ack_wait` redelivers a still-
-        # running run to a second worker (double execution). `derived_heartbeat_interval_s`
-        # keeps `heartbeat <= ack_wait / 3` for every legal configuration.
-        heartbeat_interval_s=derived_heartbeat_interval_s(settings.run_queue_ack_wait_s),
-    )
-    asyncio.run(worker.run())
+    return queue, publisher
+
+
+def run_worker(settings: Settings | None = None) -> None:
+    """The worker's composition root: build the queue, publisher, control channel, and
+    worker from Settings.
+
+    ``settings`` is injectable for tests; production callers leave it ``None`` and let
+    ``Settings()`` read the environment.
+    """
+    settings = settings if settings is not None else Settings()
+    queue, publisher = worker_composition(settings)
+
+    async def _main() -> None:
+        # The control channel is a core NATS client of its own, like the queue's and the
+        # publisher's: each component owns its connection, and the worker closes the one it
+        # created.
+        nc = await nats.connect(settings.nats_url)
+        try:
+            worker = Worker(
+                queue=queue,
+                publisher=publisher,
+                # INVARIANT: the worker's slot count is `run_queue_worker_slots` — the same value
+                # the queue settings derive `max_ack_pending` from — so the worker's concurrency
+                # and the queue's ack-pending bound cannot disagree.
+                slots=settings.run_queue_worker_slots,
+                drain_grace_s=settings.worker_drain_grace_s,
+                io_capacity=settings.worker_io_capacity,
+                memory_budget_bytes=settings.worker_memory_budget_bytes,
+                control=nc,
+                # INVARIANT: the heartbeat cadence is DERIVED from the configured `ack_wait`, not
+                # left at the constant — a heartbeat slower than `ack_wait` redelivers a still-
+                # running run to a second worker (double execution). `derived_heartbeat_interval_s`
+                # keeps `heartbeat <= ack_wait / 3` for every legal configuration.
+                heartbeat_interval_s=derived_heartbeat_interval_s(settings.run_queue_ack_wait_s),
+            )
+            await worker.run()
+        finally:
+            await nc.close()
+
+    asyncio.run(_main())
 
 
 __all__ = ["PULL_TIMEOUT_S", "Worker", "run_worker"]

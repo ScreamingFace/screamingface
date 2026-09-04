@@ -146,22 +146,29 @@ class RunReaper:
         # atomic step, so a reconnect cannot land between the check and the claim. One arriving
         # afterwards simply finds nothing armed, which is the same end state as a disarm.
         self._deadlines.pop(topic, None)
-        # First guard: the audience came back and the disarm was missed or raced.
-        # Second guard: the run is already terminal. `stop` is idempotent, but on the k8s runner
-        # it DELETEs the Job, which would drop a finished Job before the TTL that is its
-        # single-use replay guard. The order matters: an in-process dict lookup short-circuits
-        # ahead of a possible Kubernetes API call.
-        if await self._audience.has_subscriber(topic) or not await self._job_runner.exists(topic):
-            return False
         try:
+            # First guard: the audience came back and the disarm was missed or raced.
+            # Second guard: the run is already terminal. `stop` is idempotent, but on the k8s runner
+            # it DELETEs the Job, which would drop a finished Job before the TTL that is its
+            # single-use replay guard. The order matters: an in-process dict lookup short-circuits
+            # ahead of a possible Kubernetes API call.
+            #
+            # WHY both guards sit under the try (review follow-up P2-10): `exists` raises
+            # `QueueReadError` on a transient broker failure, and the pop above already
+            # CLAIMED the topic — an unguarded raise aborted the sweep with the deadline
+            # gone and nothing left to re-arm it: the orphan was silently forgotten and
+            # ran to the 16h ceiling, the exact spend this module exists to prevent. A
+            # failure here re-arms like a failed stop below.
+            if not await self._still_armed(topic):
+                return False
             await self._job_runner.stop(topic)
         except Exception:
-            # INVARIANT: a failed stop RE-ARMS rather than gives up, without bound. Abandoning
+            # INVARIANT: a failed action RE-ARMS rather than gives up, without bound. Abandoning
             # the topic would hand the run back to the 16h ceiling, which is the exact spend this
             # module exists to prevent; the per-tick warning is the operator's signal that the
             # runner itself needs attention.
             self._deadlines[topic] = now + self._tick_s
-            _logger.warning("orphan stop failed topic=%s; will retry", topic, exc_info=True)
+            _logger.warning("orphan reap failed topic=%s; will retry", topic, exc_info=True)
             return False
         self._reaped_total += 1
         _logger.info(
@@ -170,3 +177,16 @@ class RunReaper:
             self._grace_s,
         )
         return True
+
+    async def _still_armed(self, topic: str) -> bool:
+        """Whether the expired topic still deserves a reap: nobody is listening AND the run
+        is live.
+
+        The audience lookup is an in-process dict read and short-circuits the `exists`
+        call (a broker RPC on the queue runner), so an audience that returned costs no
+        RPC. `exists` raises `QueueReadError` on a transient broker failure — that raise
+        is caught by `_reap`'s guard try, which re-arms the deadline.
+        """
+        if await self._audience.has_subscriber(topic):
+            return False
+        return await self._job_runner.exists(topic)

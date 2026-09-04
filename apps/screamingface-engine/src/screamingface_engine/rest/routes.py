@@ -13,12 +13,13 @@ import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Protocol, runtime_checkable
 
 from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import FileResponse
 
 from screamingface_engine import job_env, notices
+from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.artifacts import ArtifactStore
 from screamingface_engine.auth import (
     PROBLEM_MEDIA_TYPE,
@@ -172,7 +173,19 @@ async def _schedule(
     the REST edge, re-rendered onto the aigateway call by the Runner. It is deliberately NOT world
     config; a per-run value parked on the shared aigateway configuration would leak across runs.
     """
-    if await deps.job_runner.exists(topic):
+    try:
+        already_exists = await deps.job_runner.exists(topic)
+    except QueueReadError:
+        # V-3: an unreadable queue tail is UNKNOWN, and a 409 would assert — definitively,
+        # in a form clients do not retry — that a run exists for a topic that may be brand
+        # new. 503 says "this server could not read the queue; retry": honest, retryable,
+        # and no state change either way.
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the run queue could not be read; retry",
+        ) from None
+    if already_exists:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
     try:
         await deps.job_runner.schedule(
@@ -332,6 +345,49 @@ def _converge_cache(
             ),
         )
     return resolution.effective
+
+
+@runtime_checkable
+class _QueueAware(Protocol):
+    """A job runner that can report its queue depth — the queue backend (OME-1090).
+
+    The port has no such method; the queue runner widens it, and the notice is only for
+    that backend, so the route checks structurally rather than importing the adapter.
+    """
+
+    async def queue_depth(self) -> int: ...
+
+
+async def _notify_queue_position(deps: _Deps, topic: str, clock: Callable[[], datetime]) -> None:
+    """Tell the attached client how many runs the queue holds, if the runner is
+    queue-backed (OME-1090).
+
+    The client is already attached while its run is queued, so the wait should be visible
+    instead of silent. The notice travels the WS bridge's existing `add_notifier` path —
+    no protocol change, no stream write — and is superseded once `StartedEvent` arrives.
+
+    INVARIANT: purely advisory — a failure here must never fail the request. This runs
+    AFTER the run is durably queued, so an exception would turn an accepted run into a
+    500 while the run proceeds anyway. The value is also a cached fleet-wide depth that
+    may lag this publish by `state_cache_ttl_s`, so the notice reports a DEPTH, not a
+    promise about this run's exact position.
+    """
+    if not isinstance(deps.job_runner, _QueueAware):
+        return
+    try:
+        depth = await deps.job_runner.queue_depth()
+    except Exception:  # noqa: BLE001 - advisory only; the broker blip is not the client's error
+        _logger.debug("queue depth notice skipped: the broker read failed", exc_info=True)
+        return
+    deps.sessions.notify(
+        topic,
+        notices.info(
+            topic,
+            clock,
+            f"the run is queued; the queue holds {depth} run(s)",
+            {"queue.depth": depth},
+        ),
+    )
 
 
 async def _run_sync(deps: _Deps, topic: str, wait_s: float | None) -> Response:
@@ -497,6 +553,7 @@ async def start_run(
         identity=identity,
         cache=_converge_cache(deps, topic, cache_control, clock),
     )
+    await _notify_queue_position(deps, topic, clock)
     pref = _parse_prefer(prefer or "")
     if pref.respond_async:
         return _accepted(topic)
@@ -523,7 +580,18 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             detail="the capability token is not authorized for that topic",
         )
     _logger.info("run stop requested topic=%s", sub)
-    await deps.job_runner.stop(sub)
+    try:
+        await deps.job_runner.stop(sub)
+    except QueueReadError:
+        # V-2: an unreadable tail used to make `stop()` a SILENT no-op, and this handler
+        # fell through to deleting the stream of a possibly-live run while answering 204.
+        # The raise keeps the state unchanged and the answer honest: 503, retryable, and
+        # the stream deletion below does not run.
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the run queue could not be read; retry",
+        ) from None
     # WHY delete and not purge: this is the run's terminal teardown, and purging a broker-backed
     # stream empties it but leaves the stream object, its consumer state and its filestore
     # directory behind — one permanent stream per run, forever. `delete_stream` defaults to

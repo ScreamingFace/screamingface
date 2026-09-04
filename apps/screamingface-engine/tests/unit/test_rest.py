@@ -308,3 +308,50 @@ async def test_delete_topic_mismatch_is_403() -> None:
     assert resp.status_code == 403
     assert resp.headers["content-type"].startswith("application/problem+json")
     assert runner.stopped == []
+
+
+@pytest.mark.asyncio
+async def test_get_when_the_queue_is_unreadable_is_503_not_a_false_409() -> None:
+    """V-3: `POST /` (the GET handler) pre-checks `exists()` to answer 409 for a live
+    topic. An unreadable queue tail used to surface from `status()` as "running", so a
+    BRAND-NEW topic on a transient broker blip got 409 "a run already exists" — a
+    definitive false claim that clients do not retry. Unknown is not a state: the handler
+    answers a retryable 503 and schedules nothing."""
+    from screamingface_engine.adapters.jetstream import QueueReadError
+
+    class _UnreadableRunner(RecordingJobRunner):
+        async def exists(self, topic: str) -> bool:
+            raise QueueReadError("stream tail unreadable")
+
+    runner = _UnreadableRunner()
+    app = _make_app(job_runner=runner, gate_present=True)
+    async with _client(app) as client:
+        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap("topic-unread"))
+
+    assert resp.status_code == 503
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    assert runner.scheduled == [], "no run may be scheduled on an unreadable queue"
+
+
+@pytest.mark.asyncio
+async def test_delete_when_the_queue_is_unreadable_is_503_and_purges_nothing() -> None:
+    """V-2/V-3: with `stop()` silently no-op'ing on an unreadable tail, `DELETE /` fell
+    through to `delete_stream` — purging the stream of a possibly-live run — while
+    answering a confident 204. The unknown now raises through: the handler answers 503,
+    and the stream is left exactly as it was."""
+    from screamingface_engine.adapters.jetstream import QueueReadError
+
+    class _UnreadableStopRunner(RecordingJobRunner):
+        async def stop(self, topic: str) -> None:
+            raise QueueReadError("stream tail unreadable")
+
+    topic = "topic-del503"
+    stream = InMemoryEventStream()
+    await stream.publish(topic, _started(topic, "gpt()"))
+    runner = _UnreadableStopRunner()
+    app = _make_app(stream=stream, job_runner=runner, gate_present=True)
+    async with _client(app) as client:
+        resp = await client.delete("/", params={"topic": topic}, headers=_cap(topic))
+
+    assert resp.status_code == 503
+    assert stream._log[topic] != [], "the stream must NOT be deleted on an unknown state"  # noqa: SLF001

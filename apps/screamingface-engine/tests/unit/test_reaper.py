@@ -7,8 +7,13 @@ verified against real time would be both slow and flaky, and the grace window it
 measured in minutes.
 """
 
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import pytest
 
+from screamingface_engine.adapters.jetstream import QueueReadError
+from screamingface_engine.adapters.queue_runner import QueueJobRunner
 from screamingface_engine.reaper import RunReaper
 
 GRACE = 120.0
@@ -40,12 +45,20 @@ class _FakeAudience:
 class _FakeRunner:
     """Records stop calls; `live` is the set of topics `exists` answers True for."""
 
-    def __init__(self, live: set[str] | None = None, fail_on: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        live: set[str] | None = None,
+        fail_on: set[str] | None = None,
+        fail_exists_on: set[str] | None = None,
+    ) -> None:
         self.live = live if live is not None else set()
         self.fail_on = fail_on if fail_on is not None else set()
+        self.fail_exists_on = fail_exists_on if fail_exists_on is not None else set()
         self.stopped: list[str] = []
 
     async def exists(self, topic: str) -> bool:
+        if topic in self.fail_exists_on:
+            raise QueueReadError("stream tail unreadable")
         return topic in self.live
 
     async def stop(self, topic: str) -> None:
@@ -211,6 +224,82 @@ async def test_a_failed_stop_is_retried_rather_than_abandoned() -> None:
 
 
 @pytest.mark.asyncio
+async def test_an_audience_loss_stop_reaches_a_queued_run() -> None:
+    """The Job path stopped a queued run by deleting a Job that might never have started;
+    the queue runner must stop a QUEUED run the same way. `exists()` is True for a
+    scheduled (queued) run, so the reaper's stop() lands and writes the tombstone."""
+    clock = _FakeClock()
+    publisher = _FakePublisher()
+    runner = QueueJobRunner(
+        queue=_FakeQueue(),
+        publisher=publisher,
+        control=_FakeControl(),
+        clock=_QueueClock(),
+        capability_lifetime_s=100.0,
+    )
+    await runner.schedule("t", "'hi'", 60)
+    reaper = RunReaper(runner, _FakeAudience(), grace_s=GRACE, clock=clock, tick_s=10.0)
+
+    reaper.audience_left("t")
+    clock.advance(GRACE)
+
+    assert await reaper.sweep() == ("t",)
+    assert reaper.reaped_total == 1
+    assert len(publisher.published) == 1
+    assert publisher.published[0].data.status == "stopped"
+
+
+class _QueueClock:
+    """A wall clock for the queue runner, independent of the reaper's monotonic one."""
+
+    def __init__(self) -> None:
+        self.now = datetime(2026, 9, 2, 9, 0, 0, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += timedelta(seconds=seconds)
+
+
+class _FakeQueue:
+    def __init__(self) -> None:
+        self.published: list[bytes] = []
+
+    async def publish(self, message: bytes) -> None:
+        self.published.append(message)
+
+    async def depth(self) -> int:
+        return 0
+
+
+class _FakePublisher:
+    def __init__(self) -> None:
+        self.published: list[Any] = []
+        self.ensured: list[str] = []
+
+    async def last_frame(self, topic: str) -> Any:
+        return None
+
+    async def stream_exists(self, topic: str) -> bool:
+        return True
+
+    async def ensure_stream(self, topic: str) -> None:
+        self.ensured.append(topic)
+
+    async def publish(self, topic: str, event: Any) -> None:
+        self.published.append(event)
+
+    async def flush(self) -> None:
+        pass
+
+
+class _FakeControl:
+    async def request(self, subject: str, payload: bytes, *, timeout: float) -> Any:
+        raise TimeoutError()
+
+
+@pytest.mark.asyncio
 async def test_only_the_due_topics_are_swept() -> None:
     clock, audience = _FakeClock(), _FakeAudience()
     runner = _FakeRunner(live={"early", "late"})
@@ -277,3 +366,69 @@ async def test_armed_implies_no_subscriber_across_a_scripted_sequence() -> None:
                 assert not await audience.has_subscriber(topic), (
                     f"{topic} is armed while its audience is present"
                 )
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_exists_rearms_rather_than_forgetting_the_topic() -> None:
+    """P2-10: `_reap` popped the deadline BEFORE the `exists` guard, and the guard was not
+    wrapped — one transient read failure aborted the sweep with the topic already claimed
+    (disarmed) and nothing left to re-arm it: the orphan was silently forgotten and ran
+    to the 16h ceiling, the exact spend the reaper exists to prevent. A guard failure now
+    re-arms like a failed stop."""
+    clock, audience = _FakeClock(), _FakeAudience()
+    runner = _FakeRunner(live={"t"}, fail_exists_on={"t"})
+    reaper = _reaper(clock, audience, runner)
+
+    reaper.audience_left("t")
+    clock.advance(GRACE)
+
+    assert await reaper.sweep() == ()
+    assert reaper.armed_count == 1  # re-armed, not forgotten
+    assert runner.stopped == []
+
+    runner.fail_exists_on.clear()
+    clock.advance(reaper.tick_s)
+
+    assert await reaper.sweep() == ("t",)
+    assert runner.stopped == ["t"]
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_read_during_the_reap_rearms_the_real_runner_too() -> None:
+    """V-2 — the COMPOSITION the first P2-10 fix never tested: both halves were verified
+    in isolation (the reaper against a fake whose `stop` raised; `stop()` against the
+    sentinel) and the combination reinstated the bug — the real `stop()` answered the
+    unreadable tail with a SILENT no-op, so `_reap` fell through to `reaped_total += 1`
+    and logged "orphan run reaped" for a run it never touched, with the deadline popped
+    and nothing re-arming it. Unknown must reach the reaper as a FAILURE so its existing
+    re-arm runs: the tail reads fine for `exists` (the run is live) and goes unreadable
+    under `stop` — exactly a reconnect landing between the two reads."""
+    from test_queue_runner_cancel import _FakeControl, _FakePublisher, _runner
+
+    from url4.streaming.protocol import StartedData, StartedEvent, source_for
+
+    class _UnreadableOnTheSecondRead(_FakePublisher):
+        """`exists` reads a live Started frame; `stop`'s re-read lands mid-reconnect."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.reads = 0
+
+        async def last_frame(self, topic: str) -> Any:
+            self.reads += 1
+            if self.reads >= 2:
+                raise QueueReadError("stream tail unreadable")
+            return StartedEvent(
+                id="s", source=source_for(topic), subject=topic, data=StartedData(url4="'hi'")
+            )
+
+    clock, audience = _FakeClock(), _FakeAudience()
+    runner = _runner(_UnreadableOnTheSecondRead(), _FakeControl())
+    reaper = RunReaper(runner, audience, grace_s=GRACE, clock=clock, tick_s=10.0)
+
+    reaper.audience_left("t")
+    clock.advance(GRACE)
+
+    assert await reaper.sweep() == ()
+    assert reaper.armed_count == 1, "an unknown read must re-arm, not count as a reap"
+    assert reaper.reaped_total == 0, "telemetry must not assert a reap that did not happen"
