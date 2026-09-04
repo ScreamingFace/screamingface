@@ -22,11 +22,6 @@ from screamingface_engine.benchmarks.aggregation import (
     finalize_candidate_result,
     grading_failure_case_result,
 )
-from screamingface_engine.benchmarks.case_execution import (
-    CaseExecutionOutcome,
-    case_execution_matches,
-    case_execution_outcome,
-)
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.gdpval.case_evaluation import decode_case_evaluation
 from screamingface_engine.benchmarks.gdpval.scoring import (
@@ -35,6 +30,7 @@ from screamingface_engine.benchmarks.gdpval.scoring import (
     verdict_coverage,
 )
 from screamingface_engine.benchmarks.spine.grading import CaseGrader
+from screamingface_engine.benchmarks.spine.rows import RowReader
 
 _FAILURE_MESSAGES = {
     "missing_rubric_asset": "the baked rubric asset for this Case is missing or invalid",
@@ -123,11 +119,11 @@ def aggregate(
     """
 
     selected_cases = _selected_cases(root, case_ids)
-    by_case, errors_by_case, grading_failures = _index_rows(_decode_rows(raw_rows), case_ids)
+    indexed = _ROWS.index(raw_rows, case_ids)
     case_results: list[CaseResult] = []
     for selected in selected_cases:
         case_id = int(selected.case_id)
-        grading_failure = grading_failures.get(case_id)
+        grading_failure = indexed.grading_failures.get(case_id)
         if grading_failure is not None:
             assert grading_failure.error is not None
             result = grading_failure_case_result(
@@ -141,7 +137,10 @@ def aggregate(
         else:
             points = load_rubric_points(root, case_id)
             result, _, _, _, _ = _GRADER.case_result(
-                selected, by_case.get(case_id), points, errors_by_case.get(case_id)
+                selected,
+                indexed.rows.get(case_id),
+                points,
+                indexed.collected_errors.get(case_id),
             )
         case_results.append(result)
     return finalize_candidate_result(
@@ -276,98 +275,6 @@ def _evidence(record: Mapping[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _decode_rows(raw: str) -> list[Any]:
-    try:
-        decoded = json.loads(raw or "")
-    except ValueError as exc:
-        raise AggregateError(f"GDPval rows are not JSON: {exc}") from None
-    if not isinstance(decoded, list):
-        raise AggregateError("GDPval rows must be a JSON array")
-    return decoded
-
-
-def _index_rows(
-    rows: list[Any], case_ids: tuple[int, ...]
-) -> tuple[
-    dict[int, dict[str, Any]],
-    dict[int, list[dict[str, Any]]],
-    dict[int, CaseExecutionOutcome],
-]:
-    """Validate rows and split evaluations from positional collected errors."""
-
-    if len(rows) > len(case_ids):
-        raise AggregateError(
-            f"aggregate received {len(rows)} rows for {len(case_ids)} selected Cases"
-        )
-    indexed: dict[int, dict[str, Any]] = {}
-    errors_by_case: dict[int, list[dict[str, Any]]] = {}
-    grading_failures: dict[int, CaseExecutionOutcome] = {}
-    for index, entry in enumerate(rows):
-        _index_row(entry, index, case_ids[index], indexed, errors_by_case, grading_failures)
-    return indexed, errors_by_case, grading_failures
-
-
-def _index_row(
-    entry: object,
-    index: int,
-    expected_case_id: int,
-    indexed: dict[int, dict[str, Any]],
-    errors_by_case: dict[int, list[dict[str, Any]]],
-    grading_failures: dict[int, CaseExecutionOutcome],
-) -> None:
-    row = _row_value(entry, index)
-    if _index_outer_error(row, index, expected_case_id, indexed, errors_by_case):
-        return
-    try:
-        outcome = case_execution_outcome(row)
-        if not case_execution_matches(outcome, expected_case_id):
-            raise ValueError(
-                f"Case execution claims case_id {outcome.case_id!r}, "
-                f"but the selected Case is {expected_case_id!r}"
-            )
-        if outcome.error is not None:
-            grading_failures[expected_case_id] = outcome
-        else:
-            indexed[expected_case_id] = decode_case_evaluation(outcome.grading, expected_case_id)
-    except (TypeError, ValueError) as exc:
-        raise AggregateError(f"Case result at position {index} is invalid: {exc}") from None
-
-
-def _index_outer_error(
-    row: Mapping[str, Any],
-    index: int,
-    expected_case_id: int,
-    indexed: dict[int, dict[str, Any]],
-    errors_by_case: dict[int, list[dict[str, Any]]],
-) -> bool:
-    error = row.get("error")
-    if error is None:
-        return False
-    if not isinstance(error, Mapping):
-        raise AggregateError(f"Case result at position {index} has an invalid error")
-    claimed = row.get("case_id")
-    if claimed is not None and claimed != expected_case_id:
-        raise AggregateError(
-            f"Case result at position {index} claims case_id {claimed}, "
-            f"but the selected Case is {expected_case_id}"
-        )
-    if claimed is None:
-        errors_by_case.setdefault(expected_case_id, []).append(dict(row))
-    else:
-        indexed[expected_case_id] = dict(row)
-    return True
-
-
-def _row_value(entry: object, index: int) -> Mapping[str, Any]:
-    try:
-        row = json.loads(entry) if isinstance(entry, str) else entry
-    except ValueError as exc:
-        raise AggregateError(f"Case result at position {index} is not JSON: {exc}") from None
-    if not isinstance(row, Mapping):
-        raise AggregateError(f"Case result at position {index} must be an object")
-    return row
-
-
 def _verdicts(row: Mapping[str, Any]) -> tuple[dict[int, bool], int]:
     verdicts: dict[int, bool] = {}
     invalid = 0
@@ -398,6 +305,12 @@ def _verdicts(row: Mapping[str, Any]) -> tuple[dict[int, bool], int]:
 # WHY bound at module bottom: the grading steps live in the spine (OME-1039); the
 # hooks and the failure-message wording stay board-owned so per-case failure output
 # is byte-identical to the pre-extraction copies (the goldens pin every failure code).
+_ROWS = RowReader(
+    benchmark_label="GDPval",
+    error_type=AggregateError,
+    decode_case_evaluation=decode_case_evaluation,
+)
+
 _GRADER = CaseGrader(
     failure_messages=_FAILURE_MESSAGES,
     case_score=case_score,

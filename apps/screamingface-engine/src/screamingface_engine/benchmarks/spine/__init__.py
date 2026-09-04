@@ -7,5 +7,6 @@ spine grows beside them as new modules only.
 """
 
 from screamingface_engine.benchmarks.spine.grading import CaseGrader
+from screamingface_engine.benchmarks.spine.rows import RowIndex, RowReader
 
-__all__ = ["CaseGrader"]
+__all__ = ["CaseGrader", "RowIndex", "RowReader"]
