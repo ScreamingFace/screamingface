@@ -370,7 +370,8 @@
       "LeaderboardEntry": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, rank: 'int', spec_id: 'str', score: 'float', total_questions: 'int', ran_with_providers: 'tuple[str, ...]', submitted_at: 'datetime', submitted_by: 'str | None', verified_by_screamingface: 'bool', url4: 'Url4') -> None",
+          "__init__": "method (self, rank: 'int', spec_id: 'str', score: 'float', total_questions: 'int', ran_with_providers: 'tuple[str, ...]', submitted_at: 'datetime', submitted_by: 'str | None', verified_by_screamingface: 'bool', url4: 'Url4', authors: 'tuple[str, ...] | None' = None) -> None",
+          "authors": "field",
           "ran_with_providers": "field",
           "rank": "field",
           "score": "field",
@@ -408,7 +409,8 @@
       "LeaderboardScore": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None) -> None",
+          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None) -> None",
+          "authors": "field",
           "benchmark_id": "field",
           "client_name": "field",
           "client_platform": "field",
@@ -951,7 +953,7 @@
       },
       "submit": {
         "kind": "function",
-        "signature": "(candidate_result: 'CandidateResult') -> 'LeaderboardScore'"
+        "signature": "(candidate_result: 'CandidateResult', *, authors: 'Sequence[str] | None' = None) -> 'LeaderboardScore'"
       }
     }
   },

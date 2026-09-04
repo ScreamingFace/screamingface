@@ -16,7 +16,10 @@ client = sf.Client()
 const listRunOut = `[('draco/smoke', 'DRACO Smoke')]`
 
 const submit = `report = client.evaluate(recipe, benchmark="ifeval", limit=1)
-client.leaderboards.submit(report.candidates.only)`
+client.leaderboards.submit(
+    report.candidates.only,
+    authors=["alice@example.com", "bob@example.org"],
+)`
 </script>
 
 <template>
@@ -178,6 +181,11 @@ client.leaderboards.submit(report.candidates.only)`
           <td>When it was published, and by whom where that is recorded.</td>
         </tr>
         <tr>
+          <td><code>authors</code></td>
+          <td><code>tuple[str, ...]&nbsp;|&nbsp;None</code></td>
+          <td>The ordered credit line, with email domains removed by the public leaderboard.</td>
+        </tr>
+        <tr>
           <td><code>verified_by_screamingface</code></td>
           <td><code>bool</code></td>
           <td>Whether ScreamingFace re-ran the entry and confirmed the score.</td>
@@ -241,6 +249,12 @@ client.leaderboards.submit(report.candidates.only)`
       <NbCell :count="2" :code="submit" />
     </div>
 
+    <p>
+      <code>submit(candidate_result, *, authors=None)</code> accepts one to ten email addresses. A
+      supplied list is exact: order and duplicates are preserved, and the authenticated submitter is
+      not added automatically. Omit it to use the leaderboard's default credit line.
+    </p>
+
     <table>
       <thead>
         <tr>
@@ -298,6 +312,14 @@ client.leaderboards.submit(report.candidates.only)`
           <td><code>submitted_at</code> · <code>submitted_by</code></td>
           <td><code>datetime</code> / <code>str&nbsp;|&nbsp;None</code></td>
           <td>When it was published, and by whom.</td>
+        </tr>
+        <tr>
+          <td><code>authors</code></td>
+          <td><code>tuple[str, ...]&nbsp;|&nbsp;None</code></td>
+          <td>
+            The ordered, privacy-trimmed credit line. This is separate from
+            <code>submitted_by</code>, which records who sent the result.
+          </td>
         </tr>
         <tr>
           <td><code>verified_by_screamingface</code></td>

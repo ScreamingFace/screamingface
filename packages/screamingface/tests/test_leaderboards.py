@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -469,6 +469,23 @@ def test_submit_surfaces_the_live_closed_write_contract() -> None:
     assert exc_info.value.details == "score submission is not open yet"
 
 
+def test_submit_surfaces_a_scoreboard_conflict_as_retryable() -> None:
+    client = _sync_client(
+        lambda _: httpx.Response(
+            409,
+            json={"detail": "another request changed this submission; retry"},
+        )
+    )
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.submit(_candidate_result())
+
+    assert exc_info.value.code == "score_submission_conflict"
+    assert exc_info.value.status == 409
+    assert exc_info.value.retryable is True
+    assert exc_info.value.hint == "Retry the submission."
+
+
 def test_leaderboard_rich_display_uses_the_brand_board_with_only_real_fields() -> None:
     with _sync_client(lambda _: httpx.Response(200, json=_get_response())) as client:
         board = client.leaderboards.get("draco")
@@ -562,6 +579,8 @@ async def test_async_client_submits_and_gets_scores() -> None:
 
 
 def test_module_leaderboards_delegate_to_the_lazy_default_client(monkeypatch: Any) -> None:
+    omitted = object()
+
     class Leaderboards:
         def list(self) -> tuple[str, ...]:
             return ("draco",)
@@ -569,8 +588,13 @@ def test_module_leaderboards_delegate_to_the_lazy_default_client(monkeypatch: An
         def get(self, benchmark_id: str, *, top: int = 50) -> str:
             return f"{benchmark_id}:{top}"
 
-        def submit(self, candidate_result: object) -> tuple[str, object]:
-            return ("submitted", candidate_result)
+        def submit(
+            self,
+            candidate_result: object,
+            *,
+            authors: object = omitted,
+        ) -> tuple[str, object, object]:
+            return ("submitted", candidate_result, authors)
 
         def get_score(self, score_id: object) -> tuple[str, object]:
             return ("score", score_id)
@@ -583,7 +607,12 @@ def test_module_leaderboards_delegate_to_the_lazy_default_client(monkeypatch: An
     assert sf.leaderboards.list() == ("draco",)
     assert sf.leaderboards.get("draco", top=20) == "draco:20"
     candidate = _candidate_result()
-    assert sf.leaderboards.submit(candidate) == ("submitted", candidate)
+    assert sf.leaderboards.submit(candidate) == ("submitted", candidate, None)
+    assert sf.leaderboards.submit(candidate, authors=("alice@example.com",)) == (
+        "submitted",
+        candidate,
+        ("alice@example.com",),
+    )
     assert sf.leaderboards.get_score(SCORE_ID) == ("score", SCORE_ID)
 
     monkeypatch.setattr(_default_client, "_client", None)
@@ -1379,3 +1408,195 @@ def test_the_wire_string_parses_back_to_the_same_decimal(cost: str) -> None:
 def test_no_cost_is_absent_rather_than_an_empty_string() -> None:
     # An empty string would parse as neither a Decimal nor null and would 422 the submission.
     assert _submission(_result_costing(None))["run_cost_usd"] is None
+
+
+# --- OME-1053: explicit authorship is distinct from the authenticated submitter ----------------
+
+
+def test_submission_omits_unspecified_authors_and_preserves_an_explicit_list() -> None:
+    candidate = _candidate_result()
+
+    assert "authors" not in _submission(candidate)
+    assert _submission(
+        candidate,
+        authors=("alice@example.com", "bob@example.org", "alice@example.com"),
+    )["authors"] == ["alice@example.com", "bob@example.org", "alice@example.com"]
+
+
+def test_submission_accepts_the_author_count_and_length_boundaries() -> None:
+    boundary_address = "a" * 243 + "@example.com"
+    authors = (boundary_address,) * 10
+
+    assert len(boundary_address) == 255
+    assert _submission(_candidate_result(), authors=authors)["authors"] == list(authors)
+
+
+@pytest.mark.parametrize(
+    ("authors", "error"),
+    [
+        ("alice@example.com", TypeError),
+        (("alice@example.com", 7), TypeError),
+        ((), ValueError),
+        (("alice@example.com",) * 11, ValueError),
+        (("not-an-email",), ValueError),
+        (("alice@localhost",), ValueError),
+        ((" alice@example.com",), ValueError),
+        (("a" * 244 + "@example.com",), ValueError),
+    ],
+)
+def test_submission_rejects_invalid_author_arguments_before_http(
+    authors: object,
+    error: type[Exception],
+) -> None:
+    with pytest.raises(error):
+        _submission(_candidate_result(), authors=cast(Any, authors))
+
+
+def test_sync_submit_sends_exact_authors_and_decodes_public_authors() -> None:
+    seen: list[httpx.Request] = []
+    response = _score_response()
+    response["authors"] = ["alice", "bob"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=response)
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(
+            _candidate_result(),
+            authors=["alice@example.com", "bob@example.org"],
+        )
+
+    assert json.loads(seen[-1].content)["authors"] == [
+        "alice@example.com",
+        "bob@example.org",
+    ]
+    assert submitted.authors == ("alice", "bob")
+    assert isinstance(submitted.authors, tuple)
+
+
+def test_submit_decodes_corrected_authors_from_a_deduplicated_response() -> None:
+    response = _score_response()
+    response["authors"] = ["alice", "bob"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # INVARIANT: Scoreboard answers a deduplicated correction with 200, not the 201 used for a
+        # newly created row. Both successful POST outcomes carry the same score response contract.
+        assert request.method == "POST"
+        return httpx.Response(200, json=response)
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(
+            _candidate_result(),
+            authors=["alice@example.com", "bob@example.org"],
+        )
+
+    assert submitted.authors == ("alice", "bob")
+    assert isinstance(submitted.authors, tuple)
+
+
+@pytest.mark.asyncio
+async def test_async_submit_uses_the_same_authors_contract() -> None:
+    seen: list[httpx.Request] = []
+    response = _score_response()
+    response["authors"] = ["alice"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=response)
+
+    async with _async_client(handler) as client:
+        submitted = await client.leaderboards.submit(
+            _candidate_result(), authors=["alice@example.com"]
+        )
+
+    assert json.loads(seen[-1].content)["authors"] == ["alice@example.com"]
+    assert submitted.authors == ("alice",)
+
+
+def test_lazy_submit_forwards_authors_to_the_default_client(monkeypatch: Any) -> None:
+    seen: list[object] = []
+
+    class Leaderboards:
+        def submit(
+            self,
+            candidate_result: object,
+            *,
+            authors: Sequence[str] | None = None,
+        ) -> tuple[object, Sequence[str] | None]:
+            seen.extend((candidate_result, authors))
+            return candidate_result, authors
+
+    class FakeClient:
+        leaderboards = Leaderboards()
+
+    fake = FakeClient()
+    monkeypatch.setattr(_default_client, "_client", fake)
+    candidate = _candidate_result()
+
+    assert sf.leaderboards.submit(candidate, authors=["alice@example.com"]) == (
+        candidate,
+        ["alice@example.com"],
+    )
+    assert seen == [candidate, ["alice@example.com"]]
+
+
+def test_leaderboard_entries_decode_public_authors_as_an_immutable_tuple() -> None:
+    response = _get_response()
+    entries = cast(list[dict[str, object]], response["entries"])
+    entries[0]["authors"] = ["alice", "bob"]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        board = client.leaderboards.get("draco")
+
+    assert board.entries[0].authors == ("alice", "bob")
+    assert isinstance(board.entries[0].authors, tuple)
+
+
+def test_score_response_does_not_apply_the_write_cap_to_public_authors() -> None:
+    response = _score_response()
+    response["authors"] = [f"author-{index}" for index in range(11)]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    assert score.authors == tuple(f"author-{index}" for index in range(11))
+
+
+def test_score_response_preserves_nonblank_public_author_text_exactly() -> None:
+    response = _score_response()
+    response["authors"] = [" alice "]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    assert score.authors == (" alice ",)
+
+
+def test_score_receipt_distinguishes_submitter_from_authors_and_escapes_them() -> None:
+    response = _score_response()
+    response["authors"] = ["alice<admin>", "bob"]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    html = cast(Any, score)._repr_html_()
+
+    assert ">submitter<" in html
+    assert ">authors<" in html
+    assert ">author<" not in html
+    assert "researcher@example.com" in html
+    assert "alice&lt;admin&gt;, bob" in html
+    assert "alice<admin>" not in html
+
+
+@pytest.mark.parametrize("authors", [[], "alice", [""]])
+def test_score_response_rejects_malformed_public_authors(authors: object) -> None:
+    response = _score_response()
+    response["authors"] = authors
+
+    with (
+        _sync_client(lambda _request: httpx.Response(200, json=response)) as client,
+        pytest.raises(sf.LeaderboardError, match="Invalid Scoreboard Leaderboard response"),
+    ):
+        client.leaderboards.get_score(SCORE_ID)

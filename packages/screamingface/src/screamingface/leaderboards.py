@@ -22,10 +22,14 @@ def get(benchmark_id: str, *, top: int = 50) -> Leaderboard:
     return default_client().leaderboards.get(benchmark_id, top=top)
 
 
-def submit(candidate_result: CandidateResult) -> LeaderboardScore:
+def submit(
+    candidate_result: CandidateResult,
+    *,
+    authors: Sequence[str] | None = None,
+) -> LeaderboardScore:
     """Publish one evaluated Candidate Result to its registered Leaderboard."""
 
-    return default_client().leaderboards.submit(candidate_result)
+    return default_client().leaderboards.submit(candidate_result, authors=authors)
 
 
 def get_score(score_id: UUID | str) -> LeaderboardScore:

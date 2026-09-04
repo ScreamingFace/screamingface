@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import platform
+import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
@@ -33,6 +34,9 @@ from screamingface.url4 import Url4
 _BENCHMARKS_PATH = "/v1/benchmarks"
 _LEADERBOARD_PATH = "/v1/leaderboard"
 _SCORES_PATH = "/v1/scores"
+_AUTHOR_EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
+_MAX_AUTHORS = 10
+_MAX_AUTHOR_LENGTH = 255
 
 
 class Leaderboards:
@@ -68,8 +72,13 @@ class Leaderboards:
             )
         )
 
-    def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
-        payload = _submission(candidate_result)
+    def submit(
+        self,
+        candidate_result: CandidateResult,
+        *,
+        authors: Sequence[str] | None = None,
+    ) -> LeaderboardScore:
+        payload = _submission(candidate_result, authors=authors)
         notebook_notice = prepare_submission_notice(candidate_result)
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
@@ -139,8 +148,13 @@ class AsyncLeaderboards:
             )
         )
 
-    async def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
-        payload = _submission(candidate_result)
+    async def submit(
+        self,
+        candidate_result: CandidateResult,
+        *,
+        authors: Sequence[str] | None = None,
+    ) -> LeaderboardScore:
+        payload = _submission(candidate_result, authors=authors)
         notebook_notice = prepare_submission_notice(candidate_result)
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
@@ -245,13 +259,19 @@ def _response_json(
     if not response.is_success:
         details = _error_details(response)
         suffix = f" ({details})" if isinstance(details, str) and details else ""
+        submission_conflict = response.status_code == 409 and operation == "submit a score to"
         raise LeaderboardError(
             f"Could not {operation} the Scoreboard: HTTP {response.status_code}{suffix}",
             scoreboard_url=scoreboard_url,
             code=_status_code(response.status_code, operation),
             status=response.status_code,
-            permanent=response.status_code < 500 and response.status_code != 429,
+            permanent=(
+                response.status_code < 500
+                and response.status_code != 429
+                and not submission_conflict
+            ),
             details=details,
+            hint="Retry the submission." if submission_conflict else None,
         )
     try:
         return response.json()
@@ -276,6 +296,7 @@ def _status_code(status: int, operation: str) -> str:
         400: "invalid_score_submission",
         401: "scoreboard_authentication_required",
         403: "score_submission_forbidden",
+        409: "score_submission_conflict",
         422: "invalid_score_submission",
     }.get(status, "scoreboard_contract_error")
 
@@ -356,6 +377,7 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             ),
             metadata=metadata,
             scoreboard_url=scoreboard_url,
+            authors=_decode_authors(root.get("authors"), "Leaderboard score authors"),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
@@ -381,10 +403,15 @@ def _cost_text(cost: Decimal | None) -> str | None:
     return None if cost is None else str(cost)
 
 
-def _submission(candidate_result: CandidateResult) -> dict[str, object]:
+def _submission(
+    candidate_result: CandidateResult,
+    *,
+    authors: Sequence[str] | None = None,
+) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
-    return {
+    selected_authors = _submission_authors(authors)
+    payload: dict[str, object] = {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
         "spec_id": candidate_result.name,
@@ -405,6 +432,29 @@ def _submission(candidate_result: CandidateResult) -> dict[str, object]:
             "run_id": candidate_result.run_id,
         },
     }
+    # INVARIANT (OME-1053): absence means "use the authenticated submitter" while a supplied
+    # list is exact. Never send null or auto-add an identity the caller did not name.
+    if selected_authors is not None:
+        payload["authors"] = list(selected_authors)
+    return payload
+
+
+def _submission_authors(authors: Sequence[str] | None) -> tuple[str, ...] | None:
+    if authors is None:
+        return None
+    if isinstance(authors, (str, bytes)) or not isinstance(authors, Sequence):
+        raise TypeError("authors must be a sequence of email addresses")
+    selected = tuple(authors)
+    if not selected:
+        raise ValueError("authors must contain at least one email address")
+    if len(selected) > _MAX_AUTHORS:
+        raise ValueError(f"authors must contain at most {_MAX_AUTHORS} email addresses")
+    for author in selected:
+        if not isinstance(author, str):
+            raise TypeError("each author must be an email address string")
+        if len(author) > _MAX_AUTHOR_LENGTH or _AUTHOR_EMAIL.fullmatch(author) is None:
+            raise ValueError("each author must be a valid email address of at most 255 characters")
+    return selected
 
 
 def _score_value(candidate_result: CandidateResult) -> float:
@@ -476,6 +526,7 @@ def _decode_entry(value: object) -> LeaderboardEntry:
                 root.get("verified_by_screamingface"), "Leaderboard entry verified_by_screamingface"
             ),
             url4=Url4(_text(root.get("url4_expression"), "Leaderboard entry url4_expression")),
+            authors=_decode_authors(root.get("authors"), "Leaderboard entry authors"),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
@@ -510,6 +561,24 @@ def _mapping(value: object, label: str) -> Mapping[str, object]:
 def _array(value: object, label: str) -> list[object]:
     if not isinstance(value, list):
         _invalid(f"{label} must be an array")
+    return value
+
+
+def _decode_authors(value: object, label: str) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    selected = _array(value, label)
+    if not selected:
+        _invalid(f"{label} must not be empty")
+    # WHY no email validation: public Scoreboard JSON strips email domains before returning
+    # authors. These are public credit identifiers, while full email syntax and the write-side cap
+    # belong only to submissions. Preserve every nonblank value exactly as the read contract says.
+    return tuple(_public_author(author, f"{label} item") for author in selected)
+
+
+def _public_author(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        _invalid(f"{label} must be non-blank text")
     return value
 
 
