@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.6.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v1.5.0...screamingface-engine-v1.6.0) (2026-09-04)
+
+
+### Features
+
+* **engine:** fair-share concurrent run admission (OME-908) ([#750](https://github.com/ScreamingFace/screamingface/issues/750)) ([345dd46](https://github.com/ScreamingFace/screamingface/commit/345dd467c229d90cd43353fb854e5862096a6886))
+* **engine:** refuse a run when the namespace quota has no headroom (OME-1065) ([#808](https://github.com/ScreamingFace/screamingface/issues/808)) ([ed1c67b](https://github.com/ScreamingFace/screamingface/commit/ed1c67b7a66e95454571dc3c441c04fddef0e4c6))
+* **screamingface-engine:** declare failure policy + interaction per benchmark; extract shared failure ladder ([0867af8](https://github.com/ScreamingFace/screamingface/commit/0867af888c173c81f972f0255d1addd5990889cf))
+* **screamingface-engine:** declare failure policy + interaction per benchmark; extract shared failure ladder ([0ba4d39](https://github.com/ScreamingFace/screamingface/commit/0ba4d39ee8f1cd370b640296a2070475a96e63ec))
+* **screamingface-engine:** retain operation accounting ([#762](https://github.com/ScreamingFace/screamingface/issues/762)) ([dd51ea8](https://github.com/ScreamingFace/screamingface/commit/dd51ea815374b92ce8b907d162476a690ec72d4a))
+* **screamingface-engine:** runner traceability and logging layer ([#797](https://github.com/ScreamingFace/screamingface/issues/797)) ([1d665d1](https://github.com/ScreamingFace/screamingface/commit/1d665d171cbef779ab0a2d8940b604f633005180))
+
+
+### Bug Fixes
+
+* **docs:** onboarding audit fixes — benchmark ids, routing, READMEs, 404 page ([#787](https://github.com/ScreamingFace/screamingface/issues/787)) ([039167c](https://github.com/ScreamingFace/screamingface/commit/039167ccf1d61db2320c56976b4211e3d55cd750))
+* **repo:** complete the org repoint sweep ([32a3868](https://github.com/ScreamingFace/screamingface/commit/32a3868a06a52716efaabe7b51c47aed9d704e4f))
+* **scoreboard:** close partial-run leaderboard follow-ups ([#820](https://github.com/ScreamingFace/screamingface/issues/820)) ([2b47ae3](https://github.com/ScreamingFace/screamingface/commit/2b47ae3cdbd9a6cccfac4e584e0c1c838f68028a))
+* **screamingface-engine:** read the k8s client's default_request attribute ([#813](https://github.com/ScreamingFace/screamingface/issues/813)) ([1cd3b89](https://github.com/ScreamingFace/screamingface/commit/1cd3b8918de0577ba5a2d261e6973975762e590a))
+
+
+### Refactors
+
+* **screamingface-engine:** read benchmark rows through one shared spine reader ([5057f98](https://github.com/ScreamingFace/screamingface/commit/5057f980d6a042019f705abdc4d7f1e7f277a047))
+* **screamingface-engine:** read benchmark rows through one shared spine reader ([0b83739](https://github.com/ScreamingFace/screamingface/commit/0b837391df9d29f9a0289add81c139f485cfcded))
+* **screamingface-engine:** rename CaseLadder to CaseGrader; snake_case coverage_declare ([9caa692](https://github.com/ScreamingFace/screamingface/commit/9caa69283a7fae8a4a18985b027d4f169cf68f4d))
+
+
+### Documentation
+
+* **repo:** repoint the remaining OpenMined org references to ScreamingFace ([9e739a0](https://github.com/ScreamingFace/screamingface/commit/9e739a051cf6abf1778b39b57198f2ad75701205))
+* **screamingface-engine:** explain each failure policy at its definition site ([46b7cea](https://github.com/ScreamingFace/screamingface/commit/46b7cea849cfa9d314d375dcd81087c5b9deac85))
+* **screamingface-engine:** name which fan-out the row reader reads ([7092a5c](https://github.com/ScreamingFace/screamingface/commit/7092a5cfac647892ac3c6208e7ca428c21246272))
+* **screamingface-engine:** plain words for the grading checks ([332ce20](https://github.com/ScreamingFace/screamingface/commit/332ce201a343a7115ec73902852c3d77ca6cc41b))
+
 ## [1.5.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v1.4.0...screamingface-engine-v1.5.0) (2026-08-27)
 
 
