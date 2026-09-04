@@ -1269,6 +1269,8 @@ async def test_cancels_stay_answered_through_the_drain_window() -> None:
         assert msg.replied == [b"ok"]
         await claim
         await ctl
+
+
 # --- 10. an undecodable BODY is data, not a code bug ---------------------------------------
 
 
@@ -1423,4 +1425,74 @@ async def test_an_unreadable_stream_grace_does_not_kill_the_pod_either() -> None
     await worker._supervisor.supervise(msg)
 
     assert len(spawns) == 1, "the run must be executed, not lost to a malformed grace"
+    assert msg.acked
+
+
+# --- 11. a cancel accepted in the starting window is a PROMISE (pass-3 #3) -----------------
+
+
+async def test_a_cancel_accepted_while_starting_is_enacted_not_lost_to_an_unreadable_tail() -> None:
+    """Pass-3 #3: the control loop answers `ok` for a topic in `_starting`, so
+    `QueueJobRunner.stop()` takes the "a worker owns it" branch and writes NO tombstone —
+    the worker now owns the promise that the run is stopped, and the client already has its
+    204. That promise lived only in the in-memory `_cancelled` set, and `supervise`'s
+    `finally` discards it on EVERY exit — including `_claim`'s early return on an
+    unreadable tail, which does not ack. The message then redelivered, found no terminal
+    frame anywhere (the App wrote none, the worker published none), passed every claim
+    gate, and executed the run to completion — a run the caller was told was stopped.
+
+    INVARIANT: the cancel is enacted BEFORE the tail read, and the terminal frame is what
+    makes it durable. A redelivery — to this worker or, since the durable consumer is
+    shared, to any other — sees the frame at its own claim gate and acks it away."""
+    topic = "t-cancel-starting"
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    spawns: list[Any] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawns.append(kwargs)
+        return _FakeProcess(0)
+
+    class _UnreadableTailPublisher(_FakePublisher):
+        """The tail read fails — the blip that used to strand the promise."""
+
+        async def last_frame(self, topic: str) -> TerminatedEvent | None:
+            raise QueueReadError("stream tail unreadable")
+
+    publisher = _UnreadableTailPublisher()
+    worker = _worker(_FakeQueue(), publisher, spawn=fake_spawn)
+    # What the control loop does when a cancel lands on a topic that is still starting.
+    worker._cancelled.add(topic)  # noqa: SLF001
+
+    await worker._supervisor.supervise(msg)
+
+    assert not spawns, "a run already cancelled must never be spawned"
+    assert len(publisher.published) == 1, "the accepted cancel must leave a terminal frame"
+    frame = publisher.published[0]
+    assert frame.data.status == "stopped"
+    assert frame.data.error is not None and frame.data.error.code == CANCELLED
+    assert msg.acked, "the settled cancel must not redeliver into an execution"
+
+
+async def test_a_run_cancelled_before_it_starts_is_stopped_without_spawning() -> None:
+    """The same promise on the ordinary path, with a perfectly readable stream: a cancel
+    accepted while the topic was starting means there is nothing to execute. Spawning the
+    child and letting the control loop SIGTERM it afterwards would pay for a process, and
+    a model call or two, to reach the outcome already promised."""
+    topic = "t-cancel-clean"
+    msg = _FakeMsg(encode_message(topic, "'hi'", 60))
+    spawns: list[Any] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawns.append(kwargs)
+        return _FakeProcess(0)
+
+    publisher = _FakePublisher()
+    worker = _worker(_FakeQueue(), publisher, spawn=fake_spawn)
+    worker._cancelled.add(topic)  # noqa: SLF001
+
+    await worker._supervisor.supervise(msg)
+
+    assert not spawns, "a cancelled run must not be spawned"
+    assert len(publisher.published) == 1
+    assert publisher.published[0].data.status == "stopped"
     assert msg.acked
