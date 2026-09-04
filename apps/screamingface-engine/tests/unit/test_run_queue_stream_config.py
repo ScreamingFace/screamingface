@@ -12,13 +12,17 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from nats.js.api import RetentionPolicy, StorageType
+from nats.js.api import RetentionPolicy, StorageType, StreamConfig
 from nats.js.errors import BadRequestError
 from pydantic import ValidationError
 
 from screamingface_engine.config import Settings
 from screamingface_engine.runner_queue import RunQueue, encode_message
-from screamingface_engine.subjects import RUN_QUEUE_STREAM, RUN_QUEUE_SUBJECT
+from screamingface_engine.subjects import (
+    RUN_QUEUE_STREAM,
+    RUN_QUEUE_SUBJECT,
+    RUN_QUEUE_SUBJECT_PREFIX,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -40,6 +44,8 @@ class _FakeJetStream:
 
     def __init__(self) -> None:
         self.added: list[dict[str, Any]] = []
+        self.updates: list[Any] = []
+        self.legacy: Any = None  # set to a StreamConfig to simulate a pre-1091 stream
         self.published: list[tuple[str, bytes, dict[str, str]]] = []
         self.api_calls = 0
         self._state: dict[str, Any] = {"messages": 0, "first_ts": None}
@@ -50,7 +56,26 @@ class _FakeJetStream:
         return self.pull_sub
 
     async def add_stream(self, **kwargs: Any) -> object:
+        if self.legacy is not None:
+            # The real server's answer to re-declaring an existing stream: a 400 whose
+            # JetStream err_code is the name-in-use code (see STREAM_NAME_IN_USE).
+            raise BadRequestError(
+                code=400, err_code=10_058, description="stream name already in use"
+            )
         self.added.append(kwargs)
+        return object()
+
+    async def stream_info(self, name: str) -> Any:
+        return SimpleNamespace(config=self.legacy)
+
+    async def update_stream(self, config: Any = None, **params: Any) -> object:
+        # The REAL client's contract: a FRESH config evolved from the given kwargs —
+        # anything not passed resets to its default. That reset is what the widening
+        # must not trigger.
+        fresh = config if config is not None else StreamConfig()
+        for key, value in params.items():
+            setattr(fresh, key, value)
+        self.updates.append(fresh)
         return object()
 
     async def publish(
@@ -91,7 +116,9 @@ async def test_the_queue_stream_is_declared_with_the_spec_properties() -> None:
     added = fake.added[0]
     assert added["name"] == RUN_QUEUE_STREAM
     assert not added["name"].startswith("url4-cloud_")
-    assert added["subjects"] == [RUN_QUEUE_SUBJECT]
+    # The stream is declared with the wildcard over every per-caller bucket subject
+    # (OME-1091), so one stream holds every caller's runs.
+    assert added["subjects"] == [f"{RUN_QUEUE_SUBJECT_PREFIX}.>"]
     assert added["retention"] is RetentionPolicy.WORK_QUEUE
     assert added["storage"] is StorageType.FILE
     assert added["num_replicas"] == 1
@@ -112,7 +139,11 @@ async def test_duplicate_publish_carries_the_same_dedupe_key() -> None:
     await queue.publish(message)
 
     assert [headers["Nats-Msg-Id"] for _, _, headers in fake.published] == ["topic-a", "topic-a"]
-    assert [subject for subject, _, _ in fake.published] == [RUN_QUEUE_SUBJECT] * 2
+    # An identity-less run lands in the anonymous caller's bucket — the same bucket both times,
+    # so the dedupe key still collapses the retry.
+    subjects = [subject for subject, _, _ in fake.published]
+    assert subjects == [subjects[0], subjects[0]]
+    assert subjects[0].startswith(f"{RUN_QUEUE_SUBJECT_PREFIX}.")
 
 
 async def test_publish_awaits_the_broker_acknowledgement() -> None:
@@ -193,6 +224,12 @@ class _ConflictingStreamJS(_FakeJetStream):
     def __init__(self, err_code: int) -> None:
         super().__init__()
         self._err_code = err_code
+        # The benign path (10058) continues into the widening check — an already-wide
+        # stream answers "no widening needed".
+        self.legacy = StreamConfig(
+            name=RUN_QUEUE_STREAM,
+            subjects=[f"{RUN_QUEUE_SUBJECT_PREFIX}.>"],
+        )
 
     async def add_stream(self, **kwargs: Any) -> object:
         raise BadRequestError(
@@ -265,3 +302,33 @@ def test_settings_rejects_a_sweepable_run_queue_stream_name() -> None:
     # The default and an ordinary rename stay legal.
     assert Settings().run_queue_stream == RUN_QUEUE_STREAM
     assert Settings(run_queue_stream="prod-runq").run_queue_stream == "prod-runq"
+
+
+async def test_widening_a_legacy_stream_preserves_its_own_config() -> None:
+    """A stream declared before per-caller buckets holds the single work subject;
+    widening it must change ONLY the subjects. nats-py's `update_stream` evolves a
+    FRESH config from the given kwargs, so a kwargs-only update resets retention,
+    replicas, max_age and the dedupe window to defaults — the server rejects the
+    retention change outright (every publish then fails), and were it accepted the
+    dedupe window would be silently gone. The update must carry the LIVE config."""
+    fake = _FakeJetStream()
+    fake.legacy = StreamConfig(
+        name=RUN_QUEUE_STREAM,
+        subjects=[RUN_QUEUE_SUBJECT],
+        retention=RetentionPolicy.WORK_QUEUE,
+        storage=StorageType.FILE,
+        num_replicas=3,
+        max_age=86_400.0,
+        duplicate_window=120.0,
+    )
+    await _queue(fake).ensure_stream()
+
+    assert len(fake.updates) == 1, "the narrow subject must trigger exactly one widening"
+    config = fake.updates[0]
+    assert config.subjects == [f"{RUN_QUEUE_SUBJECT_PREFIX}.>"], "widened to the bucket wildcard"
+    # Everything the DECLARING replica set survives the update:
+    assert config.retention is RetentionPolicy.WORK_QUEUE
+    assert config.storage is StorageType.FILE
+    assert config.num_replicas == 3
+    assert config.duplicate_window == 120.0
+    assert config.max_age == 86_400.0

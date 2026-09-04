@@ -1271,6 +1271,40 @@ async def test_cancels_stay_answered_through_the_drain_window() -> None:
         await ctl
 
 
+# --- the spawn-time io budget counts committed spawns (review follow-up) --------------------
+
+
+async def test_concurrent_spawns_from_one_claim_batch_divide_the_io_budget() -> None:
+    """The claim loop hands several claimed messages to several tasks at once, and each
+    computes its child's io budget BEFORE awaiting the spawn — every `await` is a
+    preemption point, so two siblings both read `len(children) == 0` and both took the
+    FULL capacity: the exact burst the fair share exists to divide. The reservation is
+    now taken synchronously before the read, so each later sibling's budget counts every
+    spawn already committed (the first of the batch keeps the whole budget — its budget
+    was fixed before any sibling committed, the same spawn-fixed limitation as sibling
+    exits)."""
+    from screamingface_engine import job_env
+
+    budgets: list[int] = []
+
+    async def slow_spawn(*args: Any, env: Any = None, **kwargs: Any) -> _FakeProcess:
+        await asyncio.sleep(0)  # the preemption point: the sibling reserves and reads now
+        budgets.append(int(env[job_env.IO_CONCURRENCY]))  # type: ignore[index]
+        proc = _FakeProcess(exit_code=0)
+        proc.release(0)
+        return proc
+
+    msgs = [_FakeMsg(encode_message(f"t-io-{i}", "'hi'", 60)) for i in range(2)]
+    worker = _worker(_FakeQueue([msgs]), _FakePublisher(), slots=2, spawn=slow_spawn, io_capacity=8)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))
+        await _wait_until(lambda: len(budgets) == 2)
+        claim.cancel()
+
+    assert budgets[0] == 8, "the first spawn of the batch has the pool to itself"
+    assert budgets[1] == 4, "the second must divide against its sibling's committed spawn"
+
+
 # --- 10. an undecodable BODY is data, not a code bug ---------------------------------------
 
 

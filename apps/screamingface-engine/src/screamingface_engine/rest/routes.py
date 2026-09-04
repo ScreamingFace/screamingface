@@ -10,6 +10,7 @@ observe the run) lives elsewhere; this module only schedules work onto it via
 
 import asyncio
 import logging
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -214,11 +215,25 @@ async def _schedule(
         # saturate, and why retrying is safe, is `JobRunnerAtCapacity`'s own contract (the
         # shapes: one shared event loop, a queue-depth ceiling, a scheduler's exhausted quota)
         # — this handler maps, it does not restate; the port's docstring stays the one source.
+        #
+        # WHY a derived `Retry-After` (OME-1091): the queue-backed runner attaches its drain
+        # estimate — how long until the queue has room, from depth and observed throughput — so a
+        # client told to retry in 1 second when the true wait is minutes does not retry into a
+        # wall. A runner with no estimate (the in-process and k8s ones) keeps the constant 1.
+        retry_after = exc.retry_after_s
         raise ProblemException(
             status=503,
             title="Service Unavailable",
             detail="the runner is at capacity — retry shortly",
-            headers={"Retry-After": "1"},
+            # CEIL at the boundary, not trust in the producer: `Retry-After` is
+            # delta-seconds per RFC 7231 — a non-negative decimal INTEGER. The port
+            # types the estimate as `int | None` and today's only producer ceils, but
+            # the header is where the value becomes protocol, so the boundary renders
+            # ANY future adapter's fractional estimate as a valid integer — rounding
+            # UP, so a caller is never told to retry sooner than the estimate.
+            headers={
+                "Retry-After": str(math.ceil(retry_after)) if retry_after is not None else "1"
+            },
         ) from exc
 
 

@@ -31,7 +31,10 @@ plane and the worker half may import it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import math
+import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
@@ -44,9 +47,16 @@ from nats.errors import NoRespondersError
 
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.ports import IdentityAwareJobRunner
-from screamingface_engine.runner_queue import DEFAULT_IO_CONCURRENCY, encode_message
+from screamingface_engine.runner_queue import (
+    DEFAULT_CALLER_INFLIGHT_CAP,
+    DEFAULT_DEPTH_CEILING,
+    DEFAULT_IO_CONCURRENCY,
+    DEFAULT_STATE_CACHE_TTL_S,
+    caller_key,
+    encode_message,
+)
 from screamingface_engine.subjects import control_subject_for
-from url4.streaming.interfaces import JobStatus, job_name
+from url4.streaming.interfaces import JobRunnerAtCapacity, JobStatus, job_name
 from url4.streaming.protocol import (
     CachePolicy,
     ErrorInfo,
@@ -66,6 +76,15 @@ CANCELLED = "cancelled"
 # running here". The worker's reply is a local NATS round trip; a second is far beyond it
 # and far below the client's patience for a DELETE.
 CONTROL_TIMEOUT_S = 1.0
+# The floor for a caller-cap `Retry-After` estimate (review follow-up P2-11): tens of
+# seconds, so a well-behaved client honouring the header cannot be turned into a hot
+# loop against the API for up to the 16h run ceiling.
+CALLER_RETRY_FLOOR_S = 30
+# V-10: the caller retry estimate's upper clamp. The estimate is the age of the caller's
+# OLDEST in-flight run, which can reach the 16h run ceiling — but the slot frees when ANY
+# of the caller's runs ends, and a `Retry-After` of hours tells a well-behaved client to
+# give up or poll at a useless cadence. The cap is a poll cadence, not a deadline.
+CALLER_RETRY_MAX_S = 300
 
 # The sentinel `_read_tail` returns for an UNREADABLE stream tail — distinct from "no
 # frame" and from "a terminal frame", because an unreadable broker answers neither
@@ -77,9 +96,13 @@ _UNREADABLE_TAIL = object()
 class _Queue(Protocol):
     """The slice of ``RunQueue`` the queue runner uses."""
 
-    async def publish(self, message: bytes) -> None: ...
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None
+    ) -> None: ...
 
     async def depth(self) -> int: ...
+
+    async def oldest_age(self) -> float | None: ...
 
 
 class _Publisher(Protocol):
@@ -164,6 +187,17 @@ class QueueJobRunner(IdentityAwareJobRunner):
         control_timeout_s: float = CONTROL_TIMEOUT_S,
         io_concurrency: int = DEFAULT_IO_CONCURRENCY,
         extra_models: Callable[[], Sequence[str]] | None = None,
+        # FEATURE (OME-1091): depth-based admission. The queue refuses a run when its depth is
+        # at the ceiling — the substrate is saturated, and the REST edge maps the refusal to
+        # 503 + a `Retry-After` derived from the drain estimate.
+        depth_ceiling: int = DEFAULT_DEPTH_CEILING,
+        # FEATURE (OME-1091): the per-caller in-flight cap — how many of one caller's runs may
+        # be admitted at once, so one caller's 9-candidate evaluation cannot occupy every slot.
+        caller_inflight_cap: int = DEFAULT_CALLER_INFLIGHT_CAP,
+        # FEATURE (OME-1091): how long a depth reading stays fresh before the next refresh. The
+        # queue itself caches its `stream_info` reading; this is the runner's own window, which
+        # is what the reservation counter covers.
+        state_cache_ttl_s: float = DEFAULT_STATE_CACHE_TTL_S,
     ) -> None:
         self._queue = queue
         self._publisher = publisher
@@ -176,10 +210,43 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # while the app runs, and a model admitted a second ago must reach the very next
         # run — the same rule as `K8sJobRunner._extra_models`.
         self._extra_models = extra_models
+        self._depth_ceiling = depth_ceiling
+        self._caller_inflight_cap = caller_inflight_cap
+        self._state_cache_ttl_s = state_cache_ttl_s
         # topic → when this replica accepted it. The capability-validity input for the
         # scheduled/not_found boundary; pruned on each schedule so it stays bounded by the
         # topics accepted within one capability lifetime.
         self._scheduled_at: dict[str, datetime] = {}
+        # FEATURE (OME-1091): the OME-1065 cache-plus-reservation shape, carried over. The
+        # counted resource changed (quota headroom → queue depth); the race did not. `_reserved`
+        # counts runs admitted since the last refresh — it closes the read-modify-write race
+        # when two `schedule()` calls land in one refresh window. The lock makes refresh +
+        # check + reserve atomic.
+        #
+        # SCOPE (review follow-up): PER-PROCESS, and that is a deploy constraint, not an
+        # accident. The App currently runs `replicaCount: 1` (the WS-subscriber registry is
+        # in-process; see the Helm values' note) — one process, so one counter IS the fleet
+        # counter. Lifting replicas without first moving this state to a shared counter (a
+        # NATS KV bucket keyed by caller is the natural fit alongside the queue) re-opens the
+        # TOCTOU race across replicas: each admits against its own snapshot, the fleet exceeds
+        # the depth ceiling and the per-caller cap by up to one run per replica per window.
+        # Do NOT build that shared counter speculatively — it belongs to the ticket that
+        # lifts the replica gate, which is the same ticket that fixes the WS registry.
+        self._depth_snapshot: int | None = None
+        self._oldest_age: float | None = None
+        self._depth_cache_time: float | None = None
+        self._reserved = 0
+        self._admission_lock = asyncio.Lock()
+        # The per-caller in-flight tracking: caller → {topic: [admitted_at, ...]} — a LIST,
+        # because one caller CAN legitimately re-schedule a live topic (a client retry outside
+        # the broker's dedupe window) and each admission is its own reservation, released only
+        # by the schedule attempt that minted it (see `_release_reservation`). A run counts
+        # until the runner sees its terminal frame (the reaper's polls, a re-schedule
+        # pre-check) or its capability expires — the runner cannot observe a finish any other
+        # way. Per-process scope: same replica constraint and same future shared-counter
+        # design as `_reserved` above.
+        self._in_flight_by_caller: dict[str, dict[str, list[datetime]]] = {}
+        self._caller_of_topic: dict[str, str] = {}
 
     # --- the JobRunner port ----------------------------------------------------------------
 
@@ -205,21 +272,43 @@ class QueueJobRunner(IdentityAwareJobRunner):
         `duplicate_window` (`Nats-Msg-Id` is the topic), which is the queue's
         `JobAlreadyExists` equivalent — the REST pre-check's 409 and the broker's dedupe
         collapse a race into one run.
+
+        Raises:
+            JobRunnerAtCapacity: the queue is at its depth ceiling, or the caller has too
+                many runs in flight (503 + `Retry-After` at the REST edge).
         """
-        message = encode_message(
-            topic,
-            url4,
-            deadline_s,
-            traceparent=traceparent,
-            profile=profile,
-            identity=identity,
-            cache=cache,
-            io_concurrency=self._io_concurrency,
-            extra_models=() if self._extra_models is None else self._extra_models(),
-        )
-        await self._queue.publish(message)
+        reservation = await self._admit_or_raise(identity, topic)
+        try:
+            message = encode_message(
+                topic,
+                url4,
+                deadline_s,
+                traceparent=traceparent,
+                profile=profile,
+                identity=identity,
+                cache=cache,
+                io_concurrency=self._io_concurrency,
+                extra_models=() if self._extra_models is None else self._extra_models(),
+            )
+            await self._queue.publish(message, identity=identity)
+        except BaseException:
+            # WHY BaseException and not Exception: a task cancelled mid-publish (a client
+            # disconnect, an upstream timeout) raises `CancelledError`, which since 3.8 is
+            # NOT an Exception — the release below was skipped and the reservation leaked
+            # forever: the caller's in-flight dict accumulated dead topics until every
+            # later schedule was refused for runs that never queued. Cleanup runs on the
+            # cancellation path too; the bare `raise` still propagates the cancellation.
+            # (BaseException also covers KeyboardInterrupt/SystemExit reaching this await —
+            # releasing there is harmless, and they still propagate.)
+            # WHY the reservation TOKEN and not the (caller, topic) pair: a caller can
+            # re-schedule a topic that is STILL LIVE (a client retry outside the broker's
+            # dedupe window) — the retry mints its own reservation — and when THAT retry
+            # fails, releasing "whatever the caller holds for the topic" would erase the
+            # FIRST, still-running admission too, under-counting the caller from then on.
+            # The release removes exactly the reservation this attempt minted.
+            await self._release_reservation(topic, caller_key(identity), reservation)
+            raise
         self._scheduled_at[topic] = self._clock()
-        self._prune()
         return job_name(topic)
 
     async def stop(self, topic: str) -> None:
@@ -343,6 +432,10 @@ class QueueJobRunner(IdentityAwareJobRunner):
         """
         frame = await self._read_tail(topic)
         if isinstance(frame, TerminatedEvent):
+            # The run is over — release the caller's in-flight slot so the cap reflects what
+            # is actually running, not what once was. Guarded against a stale observation of a
+            # PRIOR run of a re-scheduled topic (see `_forget_in_flight`).
+            self._forget_in_flight(topic, frame)
             return frame.data.status
         if frame is _UNREADABLE_TAIL:
             raise QueueReadError(f"stream tail unreadable for {topic}: run state unknown")
@@ -412,6 +505,185 @@ class QueueJobRunner(IdentityAwareJobRunner):
         )
         await self._publisher.flush()
 
+    # --- depth-based admission (OME-1091) ---------------------------------------------------
+
+    async def _admit_or_raise(self, identity: Mapping[str, str] | None, topic: str) -> datetime:
+        """Admission gate: refresh the depth snapshot, refuse if the queue is at the ceiling
+        or the caller is at its in-flight cap, else reserve.
+
+        Returns the reservation TOKEN (the admission moment) — `schedule`'s failure path
+        releases by that token, never by position, so a failed retry of a live topic
+        cannot erase the first admission's accounting.
+
+        Raises:
+            JobRunnerAtCapacity: the queue is at its depth ceiling, or the caller has too
+                many runs in flight. The exception carries the drain estimate so the REST edge
+                can derive `Retry-After`.
+        """
+        caller = caller_key(identity)
+        async with self._admission_lock:
+            self._prune()
+            await self._refresh_if_stale()
+            if (
+                self._depth_snapshot is not None
+                and self._depth_snapshot + self._reserved >= self._depth_ceiling
+            ):
+                raise JobRunnerAtCapacity(
+                    self._depth_snapshot + self._reserved,
+                    self._depth_ceiling,
+                    retry_after_s=self._drain_estimate_s(),
+                )
+            count = sum(
+                len(topics) for topics in self._in_flight_by_caller.get(caller, {}).values()
+            )
+            if count >= self._caller_inflight_cap:
+                # WHY not the drain estimate (review follow-up P2-11): the cap branch is
+                # reached precisely when the queue is NOT at its ceiling, so the drain
+                # formula underflows to its floor — a caller behind a long evaluation was
+                # told to retry every second. This caller's own runs are what hold the
+                # slot; the estimate comes from them.
+                raise JobRunnerAtCapacity(
+                    count,
+                    self._caller_inflight_cap,
+                    retry_after_s=self._caller_retry_after_s(caller),
+                )
+            token = self._clock()
+            self._reserved += 1
+            self._in_flight_by_caller.setdefault(caller, {}).setdefault(topic, []).append(token)
+            self._caller_of_topic[topic] = caller
+            return token
+
+    async def _release_reservation(self, topic: str, caller: str, token: datetime) -> None:
+        """Release the ONE reservation `token` identifies, for a run that was not durably
+        accepted (a publish failure or a cancellation mid-publish).
+
+        WHY a token and not the (caller, topic) pair (review follow-up): a caller can
+        re-schedule a STILL-LIVE topic — a client retry outside the broker's dedupe window,
+        whose publish then fails — and the pair-held entry at that moment is the FIRST
+        admission's. Releasing "whatever the caller holds for the topic" erased the live
+        admission with the failed retry: the caller's in-flight count dropped by one for
+        the rest of that run's lifetime, letting it exceed `caller_inflight_cap` by exactly
+        that much. The token removes only the reservation this `schedule` attempt minted;
+        the first admission's token survives, in order, in the same list.
+        """
+        async with self._admission_lock:
+            # WHY the floor: `_refresh_if_stale` RESETS the counter on every refresh, and
+            # the refresh can land between this run's reserve and its release (a sibling
+            # `schedule()` raced it). Decrementing from the reset baseline drove the counter
+            # to -1, under-counting depth FOREVER after — one extra run past the ceiling on
+            # every subsequent admission check. A release below zero is the refresh having
+            # already accounted for this reservation; clamp, and the counter stays honest.
+            self._reserved = max(0, self._reserved - 1)
+            by_caller = self._in_flight_by_caller.get(caller)
+            if by_caller is not None and topic in by_caller:
+                with contextlib.suppress(ValueError):
+                    by_caller[topic].remove(token)
+                if not by_caller[topic]:
+                    del by_caller[topic]
+            if by_caller is not None and not by_caller:
+                del self._in_flight_by_caller[caller]
+            if not any(topic in topics for topics in self._in_flight_by_caller.values()):
+                self._caller_of_topic.pop(topic, None)
+
+    async def _refresh_if_stale(self) -> None:
+        """Re-read the queue's depth and oldest-message age when the cache is stale.
+
+        The queue itself caches its `stream_info` reading (~2s), so this is one cheap read;
+        the runner's own window is what the reservation counter covers. The depth now reflects
+        everything older than the window, so the window's reservations are reset — the counter
+        only covers the gap between refreshes.
+        """
+        now = time.monotonic()
+        if (
+            self._depth_cache_time is not None
+            and now - self._depth_cache_time < self._state_cache_ttl_s
+        ):
+            return
+        self._depth_snapshot = await self._queue.depth()
+        self._oldest_age = await self._queue.oldest_age()
+        self._depth_cache_time = now
+        self._reserved = 0
+
+    def _caller_retry_after_s(self, caller: str) -> int | None:
+        """`Retry-After` for a caller refused at its in-flight cap: the age of its OLDEST
+        in-flight run, floored at `CALLER_RETRY_FLOOR_S`.
+
+        The reservation tokens ARE admission timestamps, so the oldest token is the
+        caller's longest-running run — the closest to done under roughly-equal durations,
+        and the only basis available without per-run duration data. `None` when the
+        caller holds no reservations (the REST edge falls back to its constant).
+        """
+        tokens = [
+            token
+            for topics in self._in_flight_by_caller.get(caller, {}).values()
+            for token in topics
+        ]
+        if not tokens:
+            return None
+        age_s = (self._clock() - min(tokens)).total_seconds()
+        # V-10: clamped above as well as floored — see `CALLER_RETRY_MAX_S`.
+        return min(CALLER_RETRY_MAX_S, max(CALLER_RETRY_FLOOR_S, math.ceil(age_s)))
+
+    def _drain_estimate_s(self) -> int | None:
+        """Seconds until the queue drains below the ceiling, from the pool's observed
+        throughput — the `Retry-After` the REST edge forwards.
+
+        The oldest message's wait implies the drain rate: in a FIFO queue at depth `d` whose
+        oldest message has waited `age`, the pool drains at about `d / age` per second, so the
+        queue reaches the ceiling in `(depth - ceiling) / rate` seconds. `None` when there is
+        no basis (no depth, no age) — the caller falls back to the constant 1.
+        """
+        depth = self._depth_snapshot
+        age = self._oldest_age
+        if depth is None or age is None or depth <= 0 or age <= 0:
+            return None
+        # V-10: the admission check admits on `depth + reservations` — reservations that
+        # pushed the queue past the ceiling are not yet visible in `_depth_snapshot`, so
+        # the raw depth underflowed the formula and the refusal answered `Retry-After: 1`
+        # on a genuinely full queue. The estimate uses the same effective depth the
+        # admission decision used. (Called under `_admission_lock`, so `_reserved` is
+        # stable for the read.)
+        depth = depth + self._reserved
+        rate = depth / age
+        retry = (depth - self._depth_ceiling) / rate
+        return max(1, math.ceil(retry))
+
+    def _forget_in_flight(self, topic: str, frame: TerminatedEvent | None = None) -> None:
+        """Drop a topic from the per-caller in-flight tracking: the run is over (a terminal
+        frame was observed), was never admitted (a publish failure), or its capability expired.
+
+        ``frame`` guards the observed-terminal path against a stale observation: a topic
+        re-scheduled after its first run finished still shows the FIRST run's terminal frame,
+        and forgetting on that sighting would release the SECOND run's slot. A frame older
+        than a tracked admission is that stale sighting and is ignored — checked PER CALLER
+        and PER RESERVATION (one caller can hold several for a re-scheduled topic).
+
+        WHY every caller and not `_caller_of_topic[topic]`: admission OVERWRITES that
+        mapping when a re-scheduled topic is admitted under a second identity, so the
+        first caller's entry would never be reached again — `_prune` routes through here
+        too — and that caller permanently loses one of its in-flight slots, surfacing
+        eventually as spurious 503s for a caller whose runs have all finished.
+        """
+        for by_caller in self._in_flight_by_caller.values():
+            tokens = by_caller.get(topic)
+            if not tokens:
+                continue
+            # Keep only reservations minted AFTER the sighting — those are live runs the
+            # frame cannot speak for. No frame (expiry, never-admitted) keeps nothing.
+            kept = [
+                t for t in tokens if frame is not None and frame.time is not None and frame.time < t
+            ]
+            if kept:
+                by_caller[topic] = kept
+            else:
+                del by_caller[topic]
+        if not any(topic in topics for topics in self._in_flight_by_caller.values()):
+            self._caller_of_topic.pop(topic, None)
+        # Drop callers left with no in-flight topics — the cleanup the single-caller path
+        # always did, so the map stays bounded by callers with live runs.
+        for caller in [c for c, topics in self._in_flight_by_caller.items() if not topics]:
+            del self._in_flight_by_caller[caller]
+
     # --- capability validity ---------------------------------------------------------------
 
     def _capability_valid(self, topic: str) -> bool:
@@ -428,7 +700,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
 
     def _prune(self) -> None:
         """Drop schedule records whose capability has expired, so the dict stays bounded by
-        the topics accepted within one capability lifetime."""
+        the topics accepted within one capability lifetime — and release their in-flight
+        slots, so the per-caller cap reflects only live runs."""
         now = self._clock()
         expired = [
             topic
@@ -437,6 +710,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         ]
         for topic in expired:
             del self._scheduled_at[topic]
+            self._forget_in_flight(topic)
 
 
 __all__ = [

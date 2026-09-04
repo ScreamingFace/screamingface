@@ -188,6 +188,11 @@ class RunSupervisor:
         self._spawn = spawn
         self._memory_budget_bytes = memory_budget_bytes
         self._io_capacity = io_capacity
+        # Spawns committed-to but not yet registered in `_children` (review follow-up):
+        # the io budget's denominator counts these, so a batch of concurrent spawns
+        # divides capacity by every spawn already committed — not just the ones whose
+        # subprocess finished starting.
+        self._spawning = 0
         self._draining = draining
         self._terminating = terminating
         self._children = children
@@ -361,17 +366,48 @@ class RunSupervisor:
         return True
 
     async def _run_child(self, msg: ClaimedMessage, topic: str) -> None:
-        """Fork the run as a child, supervise it to its terminal frame, then ack."""
-        env = self._child_env(msg)
+        """Fork the run as a child, supervise it to its terminal frame, then ack.
+
+        The spawn slot is reserved and released HERE; everything after a successful
+        spawn belongs to `_supervise_live_child` — the split is what keeps each half
+        inside the house complexity limits without burying the invariants.
+        """
+        # Reserve the spawn slot SYNCHRONOUSLY, before the budget read below: every
+        # `await` is a preemption point, and the old order (budget → await spawn →
+        # register) let two batch siblings both read `len(self._children) == 0` and both
+        # take the FULL io capacity — the exact burst the fair share exists to divide.
+        # The reserve→read pair has no await between it, so on the single event loop it
+        # is atomic: a later sibling's budget always counts every spawn already
+        # committed-to, whether or not its process has finished starting.
+        self._spawning += 1
+        promoted = False
         try:
-            proc = await self._spawn_child(env)
-        except OSError as exc:
-            # The run cannot start at all — a named failure beats silence, and the
-            # message is acked so the run is not redelivered to fail the same way.
-            await self._publish_terminal(topic, "failed", SPAWN_FAILED, str(exc))
-            await msg.ack()
-            return
-        self._children.add(proc)
+            env = self._child_env(msg)
+            try:
+                proc = await self._spawn_child(env)
+            except OSError as exc:
+                # The run cannot start at all — a named failure beats silence, and the
+                # message is acked so the run is not redelivered to fail the same way.
+                await self._publish_terminal(topic, "failed", SPAWN_FAILED, str(exc))
+                await msg.ack()
+                return
+            self._children.add(proc)
+            self._spawning -= 1  # the registries count this spawn from here — no double count
+            promoted = True
+            await self._supervise_live_child(msg, topic, proc, env)
+        finally:
+            if not promoted:
+                self._spawning -= 1  # the spawn never registered — release its reservation
+
+    async def _supervise_live_child(
+        self, msg: ClaimedMessage, topic: str, proc: _ChildProcess, env: Mapping[str, str]
+    ) -> None:
+        """Carry a REGISTERED child to its terminal frame and the ack.
+
+        Registration, the pre-registered cancel, the side-channel tasks, the hard wall,
+        and the cleanup that must run even when a sibling's failure cancels this
+        supervisor mid-run.
+        """
         self._children_by_topic[topic] = proc
         if topic in self._cancelled:
             # A cancel was ACKNOWLEDGED while this child was starting (the control loop
@@ -381,7 +417,8 @@ class RunSupervisor:
         output = asyncio.create_task(self._forward_output(proc, topic))
         try:
             outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
-            await self._publish_if_needed(topic, self._classify(outcome, proc.returncode, topic))
+            classification = self._classify(outcome, proc.returncode, topic)
+            await self._publish_if_needed(topic, classification)
             await msg.ack()
         finally:
             heartbeat.cancel()
@@ -529,8 +566,25 @@ class RunSupervisor:
         """
         env = dict(os.environ)
         env.update(decode_message(msg.data))
-        env[job_env.IO_CONCURRENCY] = str(self._io_capacity)
+        env[job_env.IO_CONCURRENCY] = str(self._io_budget())
         return env
+
+    def _io_budget(self) -> int:
+        """The spawn-time io budget: `io_capacity / (active children + committed spawns)`,
+        floored at 1 — the deployed half of OME-908's fair share.
+
+        WHY a division rather than the static `io_capacity`: with `N` children running, each
+        gets `io_capacity / N` of the gateway's downstream capacity, so one benchmark-sized run
+        cannot monopolize it. WHY FIXED at spawn: the budget travels by env and the child is a
+        separate process — it does not rebalance when a sibling exits (the dynamic
+        `FairShareGate` is local-mode only; a cross-process control socket is the declared
+        follow-up). The caller's OWN reservation is included (`_run_child` reserves before
+        reading this — synchronously, no await between — so two siblings spawning in one
+        claim batch cannot both divide by one and take the full capacity each); the first
+        spawn of a batch keeps the whole budget because its budget was fixed before any
+        sibling committed — the same spawn-fixed limitation as sibling exits.
+        """
+        return max(1, self._io_capacity // max(1, len(self._children) + self._spawning))
 
     async def _spawn_child(self, env: Mapping[str, str]) -> _ChildProcess:
         """Fork the run entrypoint as a supervised child, under its own ``RLIMIT_AS``.
