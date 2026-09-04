@@ -96,16 +96,18 @@ async def test_an_empty_private_board_is_still_refused(tortoise_db: None) -> Non
     assert "0 submissions" in format_verdict(boards, running_version="0.1.1")
 
 
-def test_the_verdict_names_the_version_that_must_not_be_rolled_below() -> None:
-    # The floor is not a constant this module can hardcode: the privacy-aware release did not
-    # exist when it was written. What IS knowable at runtime is the version doing the reporting,
-    # and that is exactly the floor — this code reads `visibility`, so anything below it may not.
+def test_the_verdict_does_not_treat_package_version_as_the_rollback_floor() -> None:
+    # INVARIANT (OME-1027): privacy-aware and privacy-blind images both package version 0.1.1.
+    # Package semver is useful diagnostics but cannot identify the safe Helm revision or immutable
+    # image digest, so presenting it as the floor gives an operator false confidence.
     verdict = format_verdict(
         [PrivateBoard(benchmark_id="secret", display_name="Secret", submissions=3)],
         running_version="9.9.9",
     )
 
-    assert "9.9.9" in verdict
+    assert "Package version: 9.9.9 (diagnostic only; not a rollback floor)." in verdict
+    assert "Helm revision and immutable image digest" in verdict
+    assert "releases below 9.9.9" not in verdict
     assert "secret" in verdict
 
 
