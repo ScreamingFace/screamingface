@@ -1475,6 +1475,26 @@ def test_sync_submit_sends_exact_authors_and_decodes_public_authors() -> None:
     assert isinstance(submitted.authors, tuple)
 
 
+def test_submit_decodes_corrected_authors_from_a_deduplicated_response() -> None:
+    response = _score_response()
+    response["authors"] = ["alice", "bob"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # INVARIANT: Scoreboard answers a deduplicated correction with 200, not the 201 used for a
+        # newly created row. Both successful POST outcomes carry the same score response contract.
+        assert request.method == "POST"
+        return httpx.Response(200, json=response)
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(
+            _candidate_result(),
+            authors=["alice@example.com", "bob@example.org"],
+        )
+
+    assert submitted.authors == ("alice", "bob")
+    assert isinstance(submitted.authors, tuple)
+
+
 @pytest.mark.asyncio
 async def test_async_submit_uses_the_same_authors_contract() -> None:
     seen: list[httpx.Request] = []

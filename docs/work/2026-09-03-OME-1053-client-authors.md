@@ -163,3 +163,54 @@ delegation has one explicit, maintainable path.
 - **Wisdom review:** this removes speculative compatibility logic without changing the public or
   wire contract; `authors=None` is still omitted by the submission serializer. No schema,
   dependency, security, or UI behavior changed.
+
+## Deduplicated-response review follow-up — 2026-09-04
+
+### Intent
+
+Pin the client side of the Scoreboard resubmission-correction contract: a successful score POST
+may return HTTP 200 when it deduplicates onto an existing row, and the returned corrected author
+list must still decode as the immutable public value.
+
+### Planned changes
+
+- Add one append-only fake-transport test covering a score submission that returns HTTP 200 with
+  corrected public authors.
+- File the separate public-API design question about preserving the Scoreboard's 201-versus-200
+  outcome signal, and add its required task mirror without implementing it in this PR.
+- Add visual evidence of the changed notebook receipt to PR #830.
+
+### Test plan
+
+- CHARACTERIZATION: run the new focused test and prove it exercises the POST/200 response seam.
+  The behavior already exists because `_response_json` accepts every successful status, so an
+  honest production-code RED is not expected and no artificial failure will be manufactured.
+- GREEN: run the complete ScreamingFace gate runner with all prior tests unchanged.
+
+### Acceptance
+
+- A POST returning HTTP 200 decodes its returned authors into an immutable tuple.
+- No production behavior or public API changes in this follow-up.
+- The created-versus-deduplicated outcome question is captured outside OME-1053.
+- PR #830 includes visual evidence for its notebook receipt UI change.
+
+### Outcome
+
+- **Actual files:** added one append-only fake-transport regression in
+  `packages/screamingface/tests/test_leaderboards.py`, this ledger entry, and the required
+  `docs/tasks/` mirror for follow-up `OME-1123`.
+- **Characterization:** the focused POST/200 test passed immediately (`1 passed, 79 deselected`),
+  confirming the client behavior already existed and the review finding was a coverage gap rather
+  than a production defect.
+- **Gates:** `python3 .claude/scripts/run_gates.py screamingface` passed the append-only check,
+  ruff check and format, pyright, pytest with the 95% coverage floor, deterministic notebooks,
+  wheel build, and distribution validation.
+- **Follow-up:** filed `OME-1123` in Backlog at medium priority with `py-screamingface`, `agentic`,
+  and `design-session`, related to `OME-970`. No created-versus-deduplicated API was designed or
+  implemented in this PR.
+- **Deviation:** no failing production RED was possible because the requested behavior already
+  worked; an artificial failure was not manufactured. The browser surface was unavailable, so the
+  PR's receipt screenshot remains an explicit owner-verification item.
+- **Wisdom review:** the direct test is simpler than introducing a helper, asserts the meaningful
+  POST/status/decode seam, and changes no public contract, runtime path, dependency, schema, or
+  security behavior. All prior tests remain unchanged.
