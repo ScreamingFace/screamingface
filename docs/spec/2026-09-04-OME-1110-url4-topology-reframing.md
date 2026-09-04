@@ -296,6 +296,47 @@ Recommendation to explore first: host-issued run capability for nodes (the Engin
 - **Swarm** as a protocol noun. Would need membership and trust rules that belong to the unwritten governance parts.
 - **Node grades** (processor-only vs evaluator). Rejected: every node evaluates.
 
+# 11. Networking sketch: nodes act on behalf of the host
+
+A brainstorm, not a decision. It answers one question from §10 concretely: **how does a node make an outbound request without holding a credential?**
+
+![auth network](../diagrams/url4-topology-auth-network.svg)
+
+**Three candidate mechanisms**
+
+| | A · Host egress | B · Delegated token | C · Sidecar |
+|---|---|---|---|
+| Who opens the outbound connection | the host | the node, with a host-minted token | a per-node proxy process |
+| Where credentials live | host only | host mints; node carries a destination-bound token (v0.2 §22.2) | sidecar only |
+| Policy, disclosure, cache, budgets, rate limits | one place: the host's egress (v0.2 §16.2.2, §16.3, §20, §31) | at mint time on the host; enforcement split | in the sidecar |
+| Serverless node | nothing to configure | needs network egress and key handling per function | platform-dependent |
+| Cost | an extra hop; large payloads through the host, or by reference (§8) | none | one process per node |
+| What it is today | how the SDK already works: an in-process node fetches through the host's `IOLayer` | the Engine's per-run JWT, generalised | not built |
+
+**Recommendation to explore first: A for nodes, B between hosts.** A node never talks to the network. It talks to its host. The host talks to other hosts with the spec's tokens. A standalone serverless function is its own host, so the same two rules cover it: the parent host reaches it host-to-host (B), and inside it the function is a node using its own host's egress (A). C is a deployment shape of A, not a third protocol.
+
+**The flow the diagram draws**
+
+1. The requestor calls Host A with its `URL4-Auth-Token` (Part B §3.5). Host A's auth gate validates it.
+2. The gate mints a **run session S**: `rid`, the request tree, purpose, expiry, the requestor's identity. Every node in the run receives S and nothing else. In-process nodes get it as an object; command mounts get it in the environment.
+3. A node that needs `url4://beta.example/gemini` or `s3://brand-assets/logo.png` hands the target and S to the host's **egress**. It does not open a connection.
+4. Egress does the host's work once, in one place: consults the policy registry and discloses consumers (v0.2 §16.2.2), checks budgets and rate limits (v0.2 §20, §31), serves from cache when allowed (v0.2 §16.3), and either fetches with the host's own credentials (`s3://`, `pg://`) or mints a destination-bound token **T(B)** for Host B, on behalf of the requestor (v0.2 §22.2, §22.3).
+5. Host B's gate validates T(B), mints its own session S′, and runs `/gemini`. Its result and envelope come back on the same connection.
+6. A proxy-mounted standalone function is Host C: same as step 5 with T(C).
+7. Host A's telemetry relay merges what came back into the run's one trace (doctrine F1).
+
+**What is new on the wire, and what is not**
+
+- Requestor to host, and host to host: nothing new. The spec's tokens and `traceparent`.
+- Node to host: **nothing on the wire for in-process nodes**; it is a function call through the host's `IOLayer`, which is what `Url4Node` does today. For out-of-process nodes (command mounts, containers) an explicit host endpoint is needed, something like `GET /.host/egress?u=<absolute URI>` with `URL4-Session: S`. Its path and shape are open.
+
+**Open questions this sketch adds**
+
+- Does egress return bytes to the node, or a reference (§8)? For large sources, by reference keeps the host out of the data path.
+- Is T(B) bound to the run (`rid`) as well as the destination, so a leaked token cannot be replayed into another run? The spec binds to `rid` and a timestamp (v0.2 §22.2); we should keep that.
+- Can a node ever be granted direct egress (mechanism B at node level)? Probably only for trusted local mounts, and only by host policy.
+- Where does the egress endpoint live for command mounts: a Unix socket, a loopback port, or the host's public origin with S as the credential?
+
 # Appendix A — proposed spec deltas for Kevin
 
 Each item names the anchor and the change. All are proposals.
