@@ -61,4 +61,7 @@ No code. Verification gates:
   (3) IBM Plex TTFs were fetched from Google Fonts and installed to `~/Library/Fonts` so rsvg and
   WeasyPrint render the same faces. (4) Two spec deltas cite `v0.2 §33/§34` rather than `Part C`
   because the v0.5 index allocates those topics to Part H. (5) Q12 (plan/preflight) was deferred by
-  the owner mid-grill after validation showed no such facility exists.
+  the owner mid-grill after validation showed no such facility exists. (6) Q5/Q13 revised by the
+  owner after review: delivery is negotiated in one request (`Upgrade: websocket` + `Accept`), the
+  node picks WS → SSE → sync; sync is the only MUST, SSE/WS/async SHOULD; doc §6, the delivery
+  diagram and doctrine T1/T3 updated accordingly.

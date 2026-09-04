@@ -23,12 +23,12 @@ Each section states a definition, says where the spec agrees or is silent, and s
 | 5 | `/name` vs `url4://name`? | `/name` is a node mounted on the host that is evaluating. `url4://name` is host `name`'s default node `/`. Spec Part B §5.4 already says this. |
 | 6 | Where does an ensemble run? | Wherever an evaluator runs: the SDK on a laptop, or a host. A local host may mount remote nodes under local names (proxy mounts). |
 | 7 | Can I test a host first? | One fetch of the host's capabilities document, or one OPTIONS per node (§5). A separate "plan" concept is deferred (§9). |
-| 8 | Streaming fallback? | Ask for `stream` in one GET; accept whatever comes back. `stream → sync`, `sync → async`, and `any → sync` (§6). WebSocket is never a node transport. |
+| 8 | Streaming fallback? | One GET asks for the richest mode; the node answers with the best it has: WebSocket, then SSE, then sync (§6). Sync is the only MUST. Async is a separate axis. |
 
 **What changes against today**
 
 - The Engine becomes a url4 **host**. Today no url4 node is reachable over HTTP; the SDK's node-to-node code is unused.
-- Node streaming is **SSE on the same GET**, as the spec says. WebSocket stays for the product client only.
+- Every node speaks the same GET. The node picks the richest delivery it supports: **WebSocket → SSE → sync**, in one round trip. Sync is the only MUST.
 - Two spec words move: the spec's *Node* becomes our *Host*; the spec's *Endpoint* becomes our *Node*. Appendix A asks Kevin for the rename.
 
 # 1. Terms
@@ -75,9 +75,9 @@ A node:
 - **MUST** be stateless per invocation. It keeps nothing between calls. Its own data is reached through `@` (Part B §5.6) and lives behind it, not in it. Multi-turn work uses an explicit session key (`;coord=`, Part B §4.2), never process memory.
 - **MUST** return the envelope (v0.2 §13) and state the delivery mode it actually used (v0.2 §11.4).
 - **MUST NOT** resolve `@` inside a sub-expression addressed to another host (Part B §5.6.3.1).
-- **SHOULD** stream with SSE when asked (§6) and **MUST** answer sync when it cannot.
+- **MUST** answer sync. **SHOULD** offer stream (SSE), WebSocket, and async, and advertise which (§5, §6). When asked for more than it has, it answers with the richest mode it does have; that is never an error.
 - **MAY** be mounted on any host, or be its own origin. A Lambda-style function with its own URL is a host with one node.
-- Speaks GET. Other verbs are 405, except the ones this document adds: `DELETE` on a run handle (§6) and, if adopted, `OPTIONS` (§5).
+- Speaks GET. A WebSocket, when offered, is the same GET with `Upgrade: websocket` (§6). Other verbs are 405, except the ones this document adds: `DELETE` on a run handle (§6) and, if adopted, `OPTIONS` (§5).
 
 Nodes share nothing. A node knows another node only by address, and only because the expression named it.
 
@@ -138,34 +138,44 @@ Both share one hazard: the Engine's JWT header is called `URL4-Capability`. The 
 
 # 6. Delivery and transport
 
-The spec defines three delivery modes and a fallback rule (v0.2 §11). We adopt them and add one rule.
+The spec defines three delivery modes and a fallback rule (v0.2 §11). We adopt them, add WebSocket as a fourth answer, and make the whole ladder one request.
 
 ![delivery](../diagrams/url4-topology-delivery.svg)
 
-- **sync** (default): `GET` → `200`, result plus envelope.
-- **stream**: same `GET` with `delivery=stream` and `Accept: text/event-stream` → `200 text/event-stream`. Events per v0.2 §12.5; the Engine's `ai.url4.*` frames become SSE events with the same names.
-- **async**: same `GET` with `Prefer: respond-async` → `202` and a `Location` run handle. `GET` the handle for status; `DELETE` it to cancel.
+**One request, the node picks.** The evaluator sends the richest ask it can, once:
 
-**Fallback** (v0.2 §11.4, plus our floor):
+```
+GET /claude?delivery=stream&q=(ctx)!'go'
+Upgrade: websocket
+Accept: text/event-stream, application/json
+```
 
-| From | To | When |
+The node answers with the best it supports. RFC 6455 lets a WebSocket handshake ride an ordinary GET; RFC 9110 lets a server ignore `Upgrade` and answer normally. So one round trip covers the whole ladder:
+
+| Node answers | Meaning | Telemetry travels as |
 |---|---|---|
-| stream | sync | the node cannot stream; the envelope says `delivery: sync` |
-| sync | async | the run would outlive the timeout; `202` + `Location` |
-| any | sync | **sync is the universal floor** (ours) |
+| `101 Switching Protocols` | **WebSocket**: bidirectional; cancel and attach in-band | frames, same names as the SSE events |
+| `200 text/event-stream` | **stream**: SSE on the same GET (v0.2 §11.2) | SSE events, then `result`, then `envelope` |
+| `200 application/json` | **sync**: result plus envelope | envelope `meta` (§7) |
+| `202` + `Location` | **async**: run handle; `GET` it for status, `DELETE` it to cancel | on the handle |
 
-One optimistic request: ask for stream, accept what comes back. No probing call, no second protocol.
+Rules:
 
-**WebSocket** is the session transport between the product client and the Engine. It is never a node binding and never a fallback target. SSE is the spec's stream transport (v0.2 §11.2); doctrine T1 changes to match.
+- **sync is the only MUST.** SSE, WebSocket and async are SHOULD, advertised per node in the capabilities document (§5). A serverless function that offers only sync and SSE is conformant.
+- **Ladder, not error.** WebSocket → SSE → sync. A node answering below the ask is normal; the envelope's `delivery` field says what happened (v0.2 §11.4).
+- **Async is an axis, not a rung.** It is requested with `Prefer: respond-async`, or entered by the node when a sync run would outlive the timeout (v0.2 §11.4 `sync → async`).
+- **Browsers go SSE-first.** A browser cannot attach `Accept` to a WebSocket handshake, so a browser evaluator asks for SSE and upgrades only where the capabilities document says WebSocket is offered.
+- **Telemetry is always in-band.** Whatever the mode, the caller receives logs, spans and cost on the same connection or in the envelope. A remote host's own OTLP export is its business, never something the caller depends on (§7).
+- **The Engine's product session** keeps its WebSocket at `/ws`. It is one instance of the WebSocket rung, not a separate protocol.
 
-**Cancel.** The spec calls cancellation a gap (v0.2 §34). We use `DELETE` on the run handle returned as `Location` (and `Link rel=self`), which the Engine already does. New terminal state `cancelled`; SSE event `request.cancelled`.
+**Cancel.** The spec calls cancellation a gap (v0.2 §34). Over WebSocket, cancel is in-band. Otherwise it is `DELETE` on the run handle returned as `Location` (and `Link rel=self`), which the Engine already does. New terminal state `cancelled`; SSE event `request.cancelled`.
 
 # 7. Telemetry
 
 Three signals, one trace, as in the doctrine skill. What changes is where a one-shot GET puts them.
 
 - **sync**: in the body. The envelope's `meta` carries counts, latencies and cost at the level the requestor asked for (`none`, `summary`, `full`; v0.2 §13.2). At `meta=full` a child's envelope nests in `source.envelope` (v0.2 §13.3). Each node aggregates only what it saw itself (v0.2 §14.1).
-- **stream**: as SSE events: logs, spans, `cost.usage` (self and subtree), then `result`, then `envelope`.
+- **stream** and **WebSocket**: as events: logs, spans, `cost.usage` (self and subtree), then `result`, then `envelope`. Same names in both.
 - **durable**: OTLP export to the trace backend. There is no separate "Enclave" store; the exporter superseded it.
 
 This closes doctrine item F4. **Idempotency:** a url4 GET is idempotent in the HTTP sense (RFC 9110 §9.2.2): repeating it has no extra server-side effect. Results need not be identical; the spec's §33 conflates the two (Appendix A).
@@ -176,13 +186,13 @@ This closes doctrine item F4. **Idempotency:** a url4 GET is idempotent in the H
 
 | | Today | Target |
 |---|---|---|
-| App | control plane: `POST /token`, `GET /?q=`, `DELETE`, `/ws` bridged from NATS | a **host**: `/` evaluator node (`GET ?q=`, SSE, `DELETE`), model nodes over HTTP, capabilities, `/ws` kept for the product client |
+| App | control plane: `POST /token`, `GET /?q=`, `DELETE`, `/ws` bridged from NATS | a **host**: `/` evaluator node (`GET ?q=` with WebSocket, SSE, sync and async answers, `DELETE`), model nodes over HTTP, capabilities, `/ws` kept for the product client |
 | Runner | k8s Job with one in-process `Url4Node`; model routes are in-process handlers | the evaluator process the `/` node spawns per run |
 | Model nodes | `/anthropic/<model>` reachable only inside the Runner | reachable over HTTP on the host; later each one a standalone function, proxy-mounted |
 | aigateway | provider boundary | unchanged |
 | Node-to-node | unused SDK code | the normal path |
 
-**Phases.** (1) Host surface on the App: discovery per §5, `GET /?q=` with SSE, `DELETE`. (2) Model nodes over HTTP. (3) Standalone model functions, proxy-mounted, listed in the capabilities document.
+**Phases.** (1) Host surface on the App: discovery per §5, `GET /?q=` answering SSE and sync (WebSocket via `Upgrade` where the App already has it), `DELETE`. (2) Model nodes over HTTP. (3) Standalone model functions, proxy-mounted, listed in the capabilities document.
 
 **Serverless posture.** A node is a function; it needs no origin of its own. Only the host needs one. The Runner is already function-shaped. The App is not: it holds an audience count in memory, runs two perpetual tasks, and gates runs on an attached WebSocket. Those belong to the product session, not to the node surface, and stay in the App.
 
@@ -198,8 +208,8 @@ Each item names the anchor and the change. All are proposals.
 
 1. **Part A §1.4 — rename.** *Node* → **Host** ("an origin implementing the protocol; mounts nodes"). *Endpoint* → **Node** ("a path on a host bound to an evaluator and an intent processor"). Add **Mount** (`local | command | proxy`, proxies declare their target).
 2. **Part B §3.1.1, v0.2 §35.1 — root.** `url4://host` ≡ `url4://host/`; `/` is the host's default node at the current version; `/v1` is a version alias.
-3. **Part C §11.2 — stream binding.** `delivery=stream` is SSE on the same GET, requested with `Accept: text/event-stream`.
-4. **Part C §11.4 — fallback floor.** Add `any → sync`. A node MAY answer a stream request with a sync response; the envelope's `delivery` field says so. Not an error.
+3. **Part C §11.2 — bindings.** `delivery=stream` is SSE on the same GET, requested with `Accept: text/event-stream`. A node MAY also offer WebSocket by honouring `Upgrade: websocket` on that same GET (`101`); frames carry the same event names.
+4. **Part C §11.4 — ladder and floor.** The node answers with the richest mode it supports, WebSocket → SSE → sync, in one round trip; sync is the only MUST and `any → sync` is always legal. A node answering below the ask is not an error; the envelope's `delivery` field says what happened.
 5. **v0.2 §33 (Part H in v0.5) — idempotency.** Replace "the protocol does not guarantee idempotency" with: GET is idempotent per RFC 9110 §9.2.2; results are not guaranteed deterministic.
 6. **v0.2 §34 (Part H in v0.5) — cancellation.** `DELETE` on the run handle (`Location`). Terminal state `cancelled`; SSE event `request.cancelled`; propagates to in-flight children.
 7. **Part G §27.2 — capabilities document.** Schema as drafted in §5: `nodes` keyed by path, `mount`, `target`, `delivery`, `features`; `holdings`. Optional binding: the same entry as an `OPTIONS` body with `Content-Type: application/url4-capabilities+json`.
@@ -213,8 +223,8 @@ To file after owner review, one per landing.
 | screamingface-engine | Host surface phase 1: discovery per §5, `GET /?q=` with SSE, `DELETE` on the run handle |
 | screamingface-engine | Model nodes reachable over HTTP (phase 2); standalone model functions, proxy-mounted (phase 3) |
 | screamingface-engine | Rename the `URL4-Capability` JWT header to avoid the "capabilities" collision |
-| url4-sdk | SSE delivery in `Url4Node.asgi()`; `delivery` param and `Accept` negotiation |
-| url4-sdk | Capabilities document and/or OPTIONS responder, after the §5 decision |
+| url4-sdk | Delivery negotiation in `Url4Node.asgi()`: `Upgrade`/`Accept` handling, SSE body, optional WebSocket answer; evaluator-side single-request ladder in `HttpIOLayer` |
+| url4-sdk | Capabilities document and/or OPTIONS responder, after the §5 decision; advertise `delivery` per node |
 | url4-sdk | `url4 serve` default path `/`; `Client` default path `/`; `/v1` alias |
 | url4-sdk | `proxy` mount kind in `url4.toml` |
 | url4-sdk | `Url4Node` → host naming retrofit with a deprecation alias |

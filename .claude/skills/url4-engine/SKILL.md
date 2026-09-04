@@ -88,19 +88,22 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
 
 ## Transport & modes (T)
 
-- **T1 — SSE on the same GET = streaming (spec v0.2 §11.2).** With `delivery=stream` and
-  `Accept: text/event-stream` the node emits **live events** — log records, OTel spans, and
-  `cost.usage` events (O2), then `result`, then `envelope` — as SSE. **WebSocket is the product
-  client ↔ Engine session transport only**; it is never a node binding and never a fallback
-  target (OME-1110 §6).
+- **T1 — One GET, the node picks the richest delivery it has (OME-1110 §6).** The evaluator
+  sends `GET <node>?delivery=stream&q=…` with `Upgrade: websocket` and `Accept:
+  text/event-stream, application/json`. The node answers `101` (WebSocket frames), or `200
+  text/event-stream` (SSE, spec v0.2 §11.2), or `200 application/json` (sync), or `202 +
+  Location` (async). Live events — log records, OTel spans, `cost.usage` (O2), then `result`,
+  then `envelope` — carry the same names over WS and SSE. **sync is the only MUST**; SSE, WS
+  and async are SHOULD, advertised per node in the capabilities document.
 - **T2 — HTTP GET = transactional.** Sync: the node returns the final result plus envelope.
   Async (`Prefer: respond-async`): `202 Accepted` + `Location` run handle (also as
   **RFC 8288 `Link rel=self`**) so the caller can poll status, read the durable record, or
   `DELETE` to cancel (F3).
 - **T3 — Either edge may be either mode.** Client→node and node→node edges independently
-  choose stream (SSE) or sync/async GET. In **all** cases the three signals forward upstream
-  (F) — mode changes the *delivery channel*, never *whether* telemetry propagates. Fallback
-  ladder: `stream → sync`, `sync → async`, `any → sync` (sync is the universal floor).
+  land on WS, SSE, sync or async. In **all** cases the three signals forward upstream (F) —
+  mode changes the *delivery channel*, never *whether* telemetry propagates. Ladder:
+  WS → SSE → sync, decided by the node in one round trip; `sync → async` on timeout; `any →
+  sync` is always legal (sync is the universal floor).
 
 ## Observability — three signals, one trace (O)
 
@@ -153,5 +156,6 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
 | "The child dumps telemetry only to the collector; parent reads it there." | STOP (F1). Live path is per-hop relay; the store is the *durable* second path, not the only one. |
 | "A leaf can skip forwarding — it's a leaf." | STOP (T3). Every mode forwards all three signals upstream. |
 | "Point the `Link` header at the node's own ephemeral buffer." | STOP (F3). It resolves to the durable record. |
-| "Stream over WebSocket from a node." | STOP (T1). SSE on the same GET; WS is the product session only. |
+| "Probe WS, then SSE, then sync with three requests." | STOP (T1). One GET with `Upgrade` + `Accept`; the node picks. |
+| "Make WS or async a MUST for every node." | STOP (T1). Only sync is a MUST; a serverless function offering sync + SSE is conformant. |
 | "Call the server a node and the path an endpoint." | STOP (Terms). Host = origin; Node = the function at a path. |
