@@ -1,16 +1,12 @@
 """Read the per-Case fan-out's collected rows back and file each one under its Case id.
 
-Think of the exam hall at the end of a paper: the run fanned out over the selected Cases,
-one script came back per Case, and this is the invigilator collecting the pile and sorting
-it by student number. No marking happens here — a script is filed, or it is refused as
-unreadable. Marking is `spine.grading.CaseGrader`.
-
-WHAT "FAN-OUT" MEANS HERE — it is a url4 expression-graph word, not a scheduling one. A
-benchmark run is ONE url4 expression; a fan-out is a node in that expression producing N
-independent branches whose results collect back into an array. The branches are network
-calls to the AI Gateway, not CPU work, so the width is a property of the EXPRESSION and
-the bound on it is configured concurrency — never core count, never one Case per core.
-(`schemas/openapi.py` puts it plainly: "one url4 expression is many gateway calls".)
+A benchmark run is one url4 expression; every case in it produces one row. The engine fans
+out over the selected cases, and each case comes back as a row holding the candidate's answer
+plus the judge's verdicts, or an error where either step failed. The aggregate step is the part
+that reads all those rows back: decode the collected array, index rows by case id, notice
+an outer error (the whole fan-out branch failed), and pull the value out of each row.
+Think of it as collecting the exam scripts from the hall and sorting them by student
+number before any marking starts.
 
 WHICH fan-out — the repo has three, nested, and every other mention names its axis
 (`ensemble/policy.py` says "member fan-out"; `healthbench/exam.py` says "fan out one judge
