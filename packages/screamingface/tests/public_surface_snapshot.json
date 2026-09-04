@@ -27,6 +27,7 @@
       "LeaderboardEntry",
       "LeaderboardError",
       "LeaderboardInfo",
+      "LeaderboardRankingNotice",
       "LeaderboardScore",
       "MemberResult",
       "Model",
@@ -406,10 +407,19 @@
           "id": "field"
         }
       },
+      "LeaderboardRankingNotice": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, code: \"Literal['benchmark_revision_mismatch']\", submitted_benchmark_revision: 'str | None', registered_benchmark_revision: 'str') -> None",
+          "code": "field",
+          "registered_benchmark_revision": "field",
+          "submitted_benchmark_revision": "field"
+        }
+      },
       "LeaderboardScore": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None) -> None",
+          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None) -> None",
           "authors": "field",
           "benchmark_id": "field",
           "client_name": "field",
@@ -420,6 +430,7 @@
           "metadata": "field",
           "ran_at_local": "field",
           "ran_with_providers": "field",
+          "ranking_notice": "field",
           "score": "field",
           "scoreboard_url": "field",
           "spec_id": "field",

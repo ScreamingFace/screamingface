@@ -799,3 +799,125 @@ async def test_a_lost_race_after_a_flip_is_a_conflict_not_a_store_outage(
 
     assert seen["raises"], "the IntegrityError branch was never reached"
     assert response.status_code == 409, response.text
+
+
+# --- OME-909: a stored revision mismatch must not look rankable ------------------------------
+
+
+async def test_post_score_revision_mismatch_succeeds_and_names_both_revisions(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="registered-revision")
+
+    response = await score_client.post(
+        "/v1/scores",
+        json=_valid_payload(benchmark_revision="submitted-revision"),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["benchmark_revision"] == "submitted-revision"
+    assert body["ranking_notice"] == {
+        "code": "benchmark_revision_mismatch",
+        "submitted_benchmark_revision": "submitted-revision",
+        "registered_benchmark_revision": "registered-revision",
+    }
+    assert await Score.filter(id=body["id"]).exists(), "the warning must not reject the evidence"
+
+    fetched = await score_client.get(f"/v1/scores/{body['id']}")
+    assert fetched.status_code == 200
+    assert "ranking_notice" not in fetched.json(), "the notice belongs only to the submit snapshot"
+
+
+async def test_post_score_revision_mismatch_replay_returns_the_same_notice(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="registered-revision")
+    payload = _valid_payload(benchmark_revision="submitted-revision")
+
+    created = await score_client.post("/v1/scores", json=payload)
+    replayed = await score_client.post("/v1/scores", json=payload)
+
+    assert created.status_code == 201
+    assert replayed.status_code == 200
+    assert replayed.json()["id"] == created.json()["id"]
+    assert replayed.json()["ranking_notice"] == created.json()["ranking_notice"]
+    assert await Score.all().count() == 1
+
+
+async def test_post_score_matching_revision_keeps_the_existing_response_shape(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="same-revision")
+
+    response = await score_client.post(
+        "/v1/scores",
+        json=_valid_payload(benchmark_revision="same-revision"),
+    )
+
+    assert response.status_code == 201
+    assert "ranking_notice" not in response.json()
+
+
+async def test_post_score_revisionless_board_emits_no_revision_notice(
+    score_client: AsyncClient,
+) -> None:
+    response = await score_client.post(
+        "/v1/scores",
+        json=_valid_payload(benchmark_revision="some-revision"),
+    )
+
+    assert response.status_code == 201
+    assert "ranking_notice" not in response.json()
+
+
+async def test_post_score_missing_submitted_revision_mismatches_a_registered_board(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="registered-revision")
+
+    response = await score_client.post("/v1/scores", json=_valid_payload())
+
+    assert response.status_code == 201
+    assert response.json()["ranking_notice"] == {
+        "code": "benchmark_revision_mismatch",
+        "submitted_benchmark_revision": None,
+        "registered_benchmark_revision": "registered-revision",
+    }
+
+
+async def test_revision_mismatch_notice_does_not_make_the_score_rank(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="registered-revision")
+    submitted = await score_client.post(
+        "/v1/scores",
+        json=_valid_payload(benchmark_revision="submitted-revision"),
+    )
+
+    board = await score_client.get("/v1/leaderboard/hle")
+
+    assert submitted.status_code == 201
+    assert submitted.json()["ranking_notice"]["code"] == "benchmark_revision_mismatch"
+    assert board.status_code == 200
+    assert board.json()["entries"] == [], "OME-775's comparability filter must remain intact"
+
+
+async def test_openapi_documents_the_revision_mismatch_notice_on_the_score_contract(
+    score_client: AsyncClient,
+) -> None:
+    response = await score_client.get("/openapi.json")
+
+    assert response.status_code == 200
+    schema = response.json()
+    post_schema = schema["paths"]["/v1/scores"]["post"]["responses"]["201"]["content"][
+        "application/json"
+    ]["schema"]
+    get_schema = schema["paths"]["/v1/scores/{score_id}"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    notice_code = schema["components"]["schemas"]["ScoreRankingNotice"]["properties"]["code"]
+
+    assert post_schema == {"$ref": "#/components/schemas/ScoreSchema"}
+    assert get_schema == {"$ref": "#/components/schemas/ScoreSchema"}
+    assert notice_code["const"] == "benchmark_revision_mismatch"

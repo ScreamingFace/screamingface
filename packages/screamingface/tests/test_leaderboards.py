@@ -1600,3 +1600,138 @@ def test_score_response_rejects_malformed_public_authors(authors: object) -> Non
         pytest.raises(sf.LeaderboardError, match="Invalid Scoreboard Leaderboard response"),
     ):
         client.leaderboards.get_score(SCORE_ID)
+
+
+# --- OME-909: the successful submit receipt says when the score will not rank ----------------
+
+
+def _revision_mismatch_response(
+    *, submitted: str | None = "submitted-revision", registered: str = "registered-revision"
+) -> dict[str, object]:
+    payload = _score_response()
+    payload["benchmark_revision"] = submitted
+    payload["ranking_notice"] = {
+        "code": "benchmark_revision_mismatch",
+        "submitted_benchmark_revision": submitted,
+        "registered_benchmark_revision": registered,
+    }
+    return payload
+
+
+def test_submit_decodes_a_revision_mismatch_as_a_public_typed_value() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_revision_mismatch_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    assert submitted.ranking_notice == sf.LeaderboardRankingNotice(
+        code="benchmark_revision_mismatch",
+        submitted_benchmark_revision="submitted-revision",
+        registered_benchmark_revision="registered-revision",
+    )
+
+
+def test_submit_from_an_older_scoreboard_has_no_ranking_notice() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    assert submitted.ranking_notice is None
+
+
+@pytest.mark.parametrize(
+    "notice",
+    [
+        None,
+        {},
+        {
+            "code": "some_future_reason",
+            "submitted_benchmark_revision": "old",
+            "registered_benchmark_revision": "new",
+        },
+        {
+            "code": "benchmark_revision_mismatch",
+            "submitted_benchmark_revision": "old",
+            "registered_benchmark_revision": None,
+        },
+    ],
+)
+def test_submit_rejects_a_malformed_ranking_notice(notice: object) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = _score_response()
+        payload["ranking_notice"] = notice
+        return httpx.Response(201, json=payload)
+
+    with _sync_client(handler) as client:
+        with pytest.raises(sf.LeaderboardError, match="ranking notice"):
+            client.leaderboards.submit(_candidate_result())
+
+
+def test_revision_mismatch_card_keeps_the_receipt_and_adds_an_alert() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_revision_mismatch_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    html = cast(Any, submitted)._repr_html_()
+
+    assert "Score published" in html
+    assert "Not ranked · benchmark revision mismatch." in html
+    assert "This run used revision submitted-revision" in html
+    assert "the board ranks revision registered-revision" in html
+    assert "class='sf-report__warn'" in html
+    assert "role='alert'" in html
+
+
+def test_revision_mismatch_card_escapes_server_revision_text() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            201,
+            json=_revision_mismatch_response(
+                submitted="old<script>alert(1)</script>",
+                registered="new' onclick='alert(2)",
+            ),
+        )
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    html = cast(Any, submitted)._repr_html_()
+
+    assert "<script>" not in html
+    assert "old&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "new&#x27; onclick=&#x27;alert(2)" in html
+
+
+def test_matching_revision_card_has_no_not_ranked_warning() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    html = cast(Any, submitted)._repr_html_()
+
+    assert "Score published" in html
+    assert "Not ranked" not in html
+    assert "role='alert'" not in html
+
+
+def test_revision_mismatch_card_identity_uses_the_persisted_revision() -> None:
+    # The typed response field is the store-resolved authority. Metadata is untyped client input
+    # and can retain a stale, conflicting legacy revision; the warning and identity strip must not
+    # tell two different stories on the same receipt.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_revision_mismatch_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    html = cast(Any, submitted)._repr_html_()
+
+    assert "draco · rev submitted-revision" in html
+    assert "draco · rev fixture-revision" not in html
