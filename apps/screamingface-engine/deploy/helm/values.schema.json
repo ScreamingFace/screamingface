@@ -72,6 +72,11 @@
           "minimum": 1,
           "description": "The queue stream's replica count (OME-1088), rendered to both the App and the worker pool — they declare the same singleton stream and ensure_stream refuses a divergent declaration, so a one-sided value is a startup failure for whichever half declares second. Defaults to 1 because this chart bundles a SINGLE-NODE NATS subchart, and a single-node broker refuses replicas > 1 outright (ServerError 10074). Raise it only against a real NATS cluster."
         },
+        "runQueueBucketCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many bucket subjects the run queue is split into for per-caller fairness (OME-1091), rendered to both the App and the worker pool. The App publishes into one bucket and the worker polls them all, so a one-sided value is NOT a startup failure — the run is accepted, lands in a bucket nobody polls, and expires silently. Zero is the modulus of the bucket hash, so it is refused here before any template renders."
+        },
         "aigatewayBaseUrl": {
           "type": "string"
         },
