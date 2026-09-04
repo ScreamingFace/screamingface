@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="540" viewBox="0 0 980 540" role="img" aria-label="url4 topology — discovery: host document vs per-node OPTIONS"><title>url4 topology — discovery: host document vs per-node OPTIONS</title><defs><marker id="h-4b91f0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#4b91f0"/></marker><marker id="h-616265" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#616265"/></marker></defs>
+<rect x="0" y="0" width="980" height="540" fill="#fcfdff"/>
+<text x="24" y="34" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="15" font-weight="600" fill="#3b3c3e" text-anchor="start">url4 topology — discovery: host document vs per-node OPTIONS</text>
+<rect x="24" y="60" width="456" height="400" fill="#fcfdff" stroke="#c2c4c6" stroke-width="1"/>
+<rect x="500" y="60" width="456" height="400" fill="#fcfdff" stroke="#c2c4c6" stroke-width="1"/>
+<text x="40" y="84" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="500" fill="#616265" text-anchor="start" letter-spacing="1.2">A · ONE DOCUMENT PER HOST</text>
+<text x="516" y="84" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="500" fill="#616265" text-anchor="start" letter-spacing="1.2">B · ONE ANSWER PER NODE</text>
+<rect x="44" y="110" width="140" height="50" fill="#eceef0" stroke="#b4b6b8" stroke-width="1"/>
+<text x="54" y="139.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">Requestor</text>
+<rect x="330" y="100" width="126" height="170" fill="#f4f6f9" stroke="#c2c4c6" stroke-width="1"/>
+<text x="340" y="118" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">Host</text>
+<rect x="346" y="130" width="94" height="30" fill="#fcfdff" stroke="#3b3c3e" stroke-width="1"/>
+<text x="356" y="149.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">/</text>
+<rect x="346" y="170" width="94" height="30" fill="#fcfdff" stroke="#3b3c3e" stroke-width="1"/>
+<text x="356" y="189.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">/summarize</text>
+<rect x="346" y="210" width="94" height="30" fill="#fcfdff" stroke="#3b3c3e" stroke-width="1"/>
+<text x="356" y="229.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">/claude</text>
+<path d="M 184,125 L 330,125" fill="none" stroke="#4b91f0" stroke-width="1.2" marker-end="url(#h-4b91f0)"/>
+<rect x="44" y="88" width="236.4" height="19" fill="#fcfdff" stroke="#b2c5e1" stroke-width="1"/>
+<text x="162.2" y="101.35" font-family="'IBM Plex Mono', Menlo, monospace" font-size="11" font-weight="400" fill="#0f3b6e" text-anchor="middle">GET /.well-known/url4-capabilities</text>
+<path d="M 330,150 L 184,150" fill="none" stroke="#616265" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#h-616265)"/>
+<rect x="44" y="172" width="229.79999999999998" height="19" fill="#fcfdff" stroke="#c2c4c6" stroke-width="1"/>
+<text x="158.89999999999998" y="185.35" font-family="'IBM Plex Mono', Menlo, monospace" font-size="11" font-weight="400" fill="#3b3c3e" text-anchor="middle">one JSON: nodes, mounts, features</text>
+<rect x="44" y="300" width="412" height="120" fill="#f2f6fe" stroke="#b2c5e1" stroke-width="1"/>
+<text x="54" y="318" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">one call answers “can this host run my expression?”</text>
+<text x="54" y="335.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">+ cacheable, one round-trip, lists proxy mounts with targets</text>
+<text x="54" y="349.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">− lives at the origin root only (RFC 8615): a node behind a shared</text>
+<text x="54" y="364.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">   gateway is visible only if that gateway lists it</text>
+<rect x="520" y="110" width="140" height="50" fill="#eceef0" stroke="#b4b6b8" stroke-width="1"/>
+<text x="530" y="139.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">Requestor</text>
+<rect x="776" y="105" width="160" height="40" fill="#fcfdff" stroke="#3b3c3e" stroke-width="1"/>
+<text x="786" y="129.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">/summarize</text>
+<rect x="776" y="175" width="160" height="40" fill="#fcfdff" stroke="#3b3c3e" stroke-width="1"/>
+<text x="786" y="199.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">/claude</text>
+<path d="M 660,125 L 776,125" fill="none" stroke="#4b91f0" stroke-width="1.2" marker-end="url(#h-4b91f0)"/>
+<rect x="652.6" y="98.5" width="130.8" height="19" fill="#fcfdff" stroke="#b2c5e1" stroke-width="1"/>
+<text x="718.0" y="111.85" font-family="'IBM Plex Mono', Menlo, monospace" font-size="11" font-weight="400" fill="#0f3b6e" text-anchor="middle">OPTIONS /summarize</text>
+<path d="M 660,145 L 700,145 L 700,195 L 776,195" fill="none" stroke="#4b91f0" stroke-width="1.2" marker-end="url(#h-4b91f0)"/>
+<rect x="662.5" y="205.5" width="111.0" height="19" fill="#fcfdff" stroke="#b2c5e1" stroke-width="1"/>
+<text x="718.0" y="218.85" font-family="'IBM Plex Mono', Menlo, monospace" font-size="11" font-weight="400" fill="#0f3b6e" text-anchor="middle">OPTIONS /claude</text>
+<path d="M 776,135 L 660,135" fill="none" stroke="#616265" stroke-width="1.2" stroke-dasharray="3,3"/>
+<rect x="520" y="300" width="412" height="120" fill="#f2f6fe" stroke="#b2c5e1" stroke-width="1"/>
+<text x="530" y="318" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">each node describes only itself (RFC 9110 §9.3.7)</text>
+<text x="530" y="335.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">+ works for a standalone function with no host document</text>
+<text x="530" y="349.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">− one round-trip per node; browsers and CORS middleware also use</text>
+<text x="530" y="364.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">   OPTIONS (preflight); CDNs do not cache it; some gateways drop it</text>
+<text x="24" y="492" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#616265" text-anchor="start">They can coexist: the host document indexes, OPTIONS answers for one node. Section 5 leaves the choice to the owner.</text>
+<text x="24" y="510" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#616265" text-anchor="start">Neither exists yet: the spec names the document (Part A §1.4) but its schema is in the unwritten Part G; OPTIONS appears nowhere.</text>
+</svg>

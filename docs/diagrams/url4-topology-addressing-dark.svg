@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="580" viewBox="0 0 980 580" role="img" aria-label="url4 topology — addressing: what you write, where it resolves"><title>url4 topology — addressing: what you write, where it resolves</title><defs><marker id="h-7cdf8c" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#7cdf8c"/></marker><marker id="h-75affe" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#75affe"/></marker><marker id="h-c8ccd2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#c8ccd2"/></marker></defs>
+<rect x="0" y="0" width="980" height="580" fill="#05070b"/>
+<text x="24" y="34" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="15" font-weight="600" fill="#e0e5eb" text-anchor="start">url4 topology — addressing: what you write, where it resolves</text>
+<text x="24" y="70" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="500" fill="#c8ccd2" text-anchor="start" letter-spacing="1.2">WHAT YOU WRITE</text>
+<text x="560" y="70" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="500" fill="#c8ccd2" text-anchor="start" letter-spacing="1.2">WHERE IT RESOLVES</text>
+<rect x="560" y="80" width="396" height="110" fill="#0c0f13" stroke="#44484d" stroke-width="1"/>
+<text x="570" y="98" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">Host  (current, evaluating)</text>
+<rect x="576" y="115" width="180" height="40" fill="#05070b" stroke="#e0e5eb" stroke-width="1"/>
+<text x="586" y="139.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">/claude</text>
+<rect x="772" y="115" width="168" height="40" fill="#05070b" stroke="#e0e5eb" stroke-width="1"/>
+<text x="782" y="139.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">/</text>
+<rect x="560" y="230" width="396" height="110" fill="#0c0f13" stroke="#44484d" stroke-width="1"/>
+<text x="570" y="248" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">Host  url4://beta.example</text>
+<rect x="576" y="265" width="180" height="40" fill="#05070b" stroke="#e0e5eb" stroke-width="1"/>
+<text x="586" y="289.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">/claude</text>
+<rect x="772" y="265" width="168" height="40" fill="#05070b" stroke="#e0e5eb" stroke-width="1"/>
+<text x="782" y="289.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">/</text>
+<rect x="560" y="380" width="396" height="60" fill="#15181c" stroke="#585c61" stroke-width="1"/>
+<text x="570" y="398" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">https://data.example/rows</text>
+<text x="570" y="415.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">plain HTTP read · no url4 semantics</text>
+<rect x="560" y="460" width="396" height="60" fill="#15181c" stroke="#585c61" stroke-width="1"/>
+<text x="570" y="478" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">scheme adapters on the evaluating host</text>
+<text x="570" y="495.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">s3 · pg · sqlite · … own credentials, typed result</text>
+<rect x="24" y="122" width="134.39999999999998" height="20" fill="#05070b" stroke="#44484d" stroke-width="1"/>
+<text x="91.19999999999999" y="136.2" font-family="'IBM Plex Mono', Menlo, monospace" font-size="12" font-weight="400" fill="#e0e5eb" text-anchor="middle">/claude(ctx)!&#x27;go&#x27;</text>
+<path d="M 166.39999999999998,135 L 576,135" fill="none" stroke="#7cdf8c" stroke-width="1.2" marker-end="url(#h-7cdf8c)"/>
+<text x="174.39999999999998" y="127" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">same host, node /claude</text>
+<rect x="24" y="272" width="271.2" height="20" fill="#05070b" stroke="#44484d" stroke-width="1"/>
+<text x="159.6" y="286.2" font-family="'IBM Plex Mono', Menlo, monospace" font-size="12" font-weight="400" fill="#e0e5eb" text-anchor="middle">url4://beta.example/claude(ctx)!&#x27;go&#x27;</text>
+<path d="M 303.2,285 L 576,285" fill="none" stroke="#75affe" stroke-width="1.2" marker-end="url(#h-75affe)"/>
+<text x="311.2" y="277" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">beta evaluates the sub-expression itself</text>
+<rect x="24" y="332" width="148.79999999999998" height="20" fill="#05070b" stroke="#44484d" stroke-width="1"/>
+<text x="98.39999999999999" y="346.2" font-family="'IBM Plex Mono', Menlo, monospace" font-size="12" font-weight="400" fill="#e0e5eb" text-anchor="middle">url4://beta.example</text>
+<path d="M 180.79999999999998,345 L 540,345 L 540,360 L 856,360 L 856,305" fill="none" stroke="#75affe" stroke-width="1.2" marker-end="url(#h-75affe)"/>
+<text x="188.79999999999998" y="337" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">= url4://beta.example/  → default node</text>
+<rect x="24" y="397" width="192.0" height="20" fill="#05070b" stroke="#44484d" stroke-width="1"/>
+<text x="120.0" y="411.2" font-family="'IBM Plex Mono', Menlo, monospace" font-size="12" font-weight="400" fill="#e0e5eb" text-anchor="middle">https://data.example/rows</text>
+<path d="M 224.0,410 L 560,410" fill="none" stroke="#c8ccd2" stroke-width="1.2" marker-end="url(#h-c8ccd2)"/>
+<text x="232.0" y="402" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">not url4: fetched as data, nothing else</text>
+<rect x="24" y="477" width="285.59999999999997" height="20" fill="#05070b" stroke="#44484d" stroke-width="1"/>
+<text x="166.79999999999998" y="491.2" font-family="'IBM Plex Mono', Menlo, monospace" font-size="12" font-weight="400" fill="#e0e5eb" text-anchor="middle">pg://warehouse/analytics.monthly_sales</text>
+<path d="M 317.59999999999997,490 L 560,490" fill="none" stroke="#c8ccd2" stroke-width="1.2" marker-end="url(#h-c8ccd2)"/>
+<text x="325.59999999999997" y="482" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">other scheme → host adapter</text>
+<text x="24" y="558" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">Rule (spec §5.4, §3.5): /path resolves on the evaluating host; url4:// names another host; every other scheme is data read by an adapter.</text>
+</svg>

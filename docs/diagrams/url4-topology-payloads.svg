@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="560" viewBox="0 0 980 560" role="img" aria-label="url4 topology — typed payloads: every edge carries a media type"><title>url4 topology — typed payloads: every edge carries a media type</title><defs><marker id="h-2b964e" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#2b964e"/></marker><marker id="h-b85897" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#b85897"/></marker><marker id="h-c0621c" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#c0621c"/></marker></defs>
+<rect x="0" y="0" width="980" height="560" fill="#fcfdff"/>
+<text x="24" y="34" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="15" font-weight="600" fill="#3b3c3e" text-anchor="start">url4 topology — typed payloads: every edge carries a media type</text>
+<rect x="165.85000000000002" y="68.75" width="648.3" height="18.5" fill="#fcfdff" stroke="#c2c4c6" stroke-width="1"/>
+<text x="490.0" y="81.675" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="400" fill="#3b3c3e" text-anchor="middle">(shot=/flux(&#x27;a red fox at dawn&#x27;)!&#x27;render&#x27;;accept=image/png, alt=/claude($shot)!&#x27;write alt text&#x27;)!/tts</text>
+<rect x="24" y="130" width="218" height="74" fill="#eceef0" stroke="#b4b6b8" stroke-width="1"/>
+<text x="34" y="148" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">&#x27;a red fox at dawn&#x27;</text>
+<text x="34" y="165.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">inline text source</text>
+<rect x="262" y="130" width="218" height="74" fill="#fcfdff" stroke="#3b3c3e" stroke-width="1"/>
+<text x="272" y="148" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">/flux</text>
+<text x="272" y="165.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">image generation</text>
+<text x="272" y="179.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">accepts text · emits image/png</text>
+<rect x="500" y="130" width="218" height="74" fill="#fcfdff" stroke="#3b3c3e" stroke-width="1"/>
+<text x="510" y="148" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">/claude</text>
+<text x="510" y="165.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">vision + language</text>
+<text x="510" y="179.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">accepts image · emits text/plain</text>
+<rect x="738" y="130" width="218" height="74" fill="#fcfdff" stroke="#3b3c3e" stroke-width="1"/>
+<text x="748" y="148" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">/tts</text>
+<text x="748" y="165.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">text to speech</text>
+<text x="748" y="179.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">accepts text · emits audio/wav</text>
+<path d="M 242,167 L 262,167" fill="none" stroke="#2b964e" stroke-width="1.2" marker-end="url(#h-2b964e)"/>
+<rect x="214.5" y="106.75" width="75.0" height="18.5" fill="#fcfdff" stroke="#2b964e" stroke-width="1"/>
+<text x="252.0" y="119.675" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="400" fill="#2b964e" text-anchor="middle">text/plain</text>
+<path d="M 480,167 L 500,167" fill="none" stroke="#b85897" stroke-width="1.2" marker-end="url(#h-b85897)"/>
+<rect x="455.65" y="106.75" width="68.69999999999999" height="18.5" fill="#fcfdff" stroke="#b85897" stroke-width="1"/>
+<text x="490.0" y="119.675" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="400" fill="#b85897" text-anchor="middle">image/png</text>
+<path d="M 718,167 L 738,167" fill="none" stroke="#2b964e" stroke-width="1.2" marker-end="url(#h-2b964e)"/>
+<rect x="690.5" y="106.75" width="75.0" height="18.5" fill="#fcfdff" stroke="#2b964e" stroke-width="1"/>
+<text x="728.0" y="119.675" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="400" fill="#2b964e" text-anchor="middle">text/plain</text>
+<path d="M 847,204 L 847,250" fill="none" stroke="#c0621c" stroke-width="1.2" marker-end="url(#h-c0621c)"/>
+<rect x="784.3" y="262.75" width="125.39999999999999" height="18.5" fill="#fcfdff" stroke="#c0621c" stroke-width="1"/>
+<text x="847.0" y="275.675" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="400" fill="#c0621c" text-anchor="middle">audio/wav → result</text>
+<text x="24" y="250" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="500" fill="#616265" text-anchor="start" letter-spacing="1.2">ONE EXPRESSION · ONE TRACE · ONE COST ROLL-UP · NO GRAMMAR CHANGE</text>
+<rect x="24" y="320" width="456" height="150" fill="#f2f6fe" stroke="#b2c5e1" stroke-width="1"/>
+<text x="34" y="338" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">How a binary result travels</text>
+<text x="34" y="355.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">small: inline — result.content (base64) + result.media_type,</text>
+<text x="34" y="369.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">        or the bare response body with its Content-Type</text>
+<text x="34" y="384.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">large: by reference — result.artifact, an https:// data URL</text>
+<text x="34" y="398.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">        the next node fetches like any source (Part B §3.5)</text>
+<text x="34" y="413.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">threshold: the node&#x27;s, advertised as inline_max_bytes</text>
+<rect x="500" y="320" width="456" height="150" fill="#f4f6f9" stroke="#c2c4c6" stroke-width="1"/>
+<text x="510" y="338" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#3b3c3e" text-anchor="start">How a node declares types</text>
+<text x="510" y="355.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">source: fetched Content-Type · text/plain · emitting node&#x27;s type</text>
+<text x="510" y="369.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">;accept=&lt;type&gt; says what the consumer wants (Part B §4.2)</text>
+<text x="510" y="384.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">ct_mismatch says what to do when it differs (Part B §8.1.2)</text>
+<text x="510" y="398.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">capabilities: accepts: […], emits: […] per node (§5)</text>
+<text x="510" y="413.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">an evaluator can type-check the expression before spending</text>
+<text x="24" y="510" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#616265" text-anchor="start">Text stays the default. Image generation, speech, video and multimodal ensembles become ordinary url4 expressions on the same engine.</text>
+<text x="24" y="528" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#616265" text-anchor="start">Over WebSocket a binary frame carries bytes; over SSE a large payload always goes by reference.</text>
+</svg>
