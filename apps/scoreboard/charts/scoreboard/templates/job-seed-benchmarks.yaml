@@ -21,6 +21,9 @@ spec:
         {{- include "scoreboard.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: seed-benchmarks
     spec:
+      # See deployment.yaml — this is the Pod the collision actually killed: it
+      # builds the Settings object, where migrate only reads the database URL.
+      enableServiceLinks: false
       restartPolicy: OnFailure
       serviceAccountName: {{ .Values.seedBenchmarks.serviceAccountName | quote }}
       {{- with .Values.imagePullSecrets }}

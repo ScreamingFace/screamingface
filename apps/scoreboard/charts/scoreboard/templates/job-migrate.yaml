@@ -21,6 +21,9 @@ spec:
         {{- include "scoreboard.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: migrate
     spec:
+      # See deployment.yaml — the injected SCOREBOARD_* service-link variables
+      # collide with this app's own SCOREBOARD_ config prefix.
+      enableServiceLinks: false
       restartPolicy: OnFailure
       serviceAccountName: {{ .Values.migration.serviceAccountName | quote }}
       {{- with .Values.imagePullSecrets }}
