@@ -1,9 +1,30 @@
-"""Read a fan-out's collected rows back and file each one under its Case id.
+"""Read the per-Case fan-out's collected rows back and file each one under its Case id.
 
 Think of the exam hall at the end of a paper: the run fanned out over the selected Cases,
 one script came back per Case, and this is the invigilator collecting the pile and sorting
 it by student number. No marking happens here — a script is filed, or it is refused as
 unreadable. Marking is `spine.grading.CaseGrader`.
+
+WHAT "FAN-OUT" MEANS HERE — it is a url4 expression-graph word, not a scheduling one. A
+benchmark run is ONE url4 expression; a fan-out is a node in that expression producing N
+independent branches whose results collect back into an array. The branches are network
+calls to the AI Gateway, not CPU work, so the width is a property of the EXPRESSION and
+the bound on it is configured concurrency — never core count, never one Case per core.
+(`schemas/openapi.py` puts it plainly: "one url4 expression is many gateway calls".)
+
+WHICH fan-out — the repo has three, nested, and every other mention names its axis
+(`ensemble/policy.py` says "member fan-out"; `healthbench/exam.py` says "fan out one judge
+task per rubric item"). This module reads the OUTERMOST one and only that:
+
+    per-Case fan-out    one branch per selected Case          ← THIS MODULE reads it
+      member fan-out    an ensemble Candidate's member models — runs INSIDE one Candidate
+                        invocation and is collapsed into one answer before a row exists;
+                        its attribution rides opaquely in the row's `operations` field
+      judge fan-out     one judge call per rubric item        — already finished and nested
+                        inside the row as `rubric_evaluations`
+
+So by the time a row reaches this module the marking has happened and is stapled inside
+the script. `rubric_evaluations` is never read here; `CaseGrader`'s board hooks read it.
 
 FEATURE: one grading spine per benchmark (OME-1024); this module is the second extraction
 (OME-1039 took the failure ladder) — the row reader gdpval and healthbench duplicated
@@ -61,7 +82,7 @@ from screamingface_engine.benchmarks.case_execution import (
 
 @dataclass(frozen=True, slots=True)
 class RowIndex:
-    """One fan-out's rows, split by what each position turned out to be.
+    """One per-Case fan-out's rows, split by what each position turned out to be.
 
     Attributes:
         rows: Case id → the board-decoded evaluation envelope, opaque to the spine. Also
@@ -101,7 +122,7 @@ class RowReader:
     decode_case_evaluation: Callable[[object, int], dict[str, Any]]
 
     def index(self, raw_rows: str, case_ids: tuple[int, ...]) -> RowIndex:
-        """Sort one fan-out's collected rows into the three piles above.
+        """Sort one per-Case fan-out's collected rows into the three piles above.
 
         Args:
             raw_rows: the collected array as JSON text, in selected order.
@@ -114,8 +135,8 @@ class RowReader:
 
         Raises:
             `error_type`: the payload, a row, or a row's claimed identity is unusable. Every
-            such abort happens BEFORE any scoring, so a corrupt fan-out can never become a
-            quietly wrong score.
+            such abort happens BEFORE any scoring, so a corrupt per-Case fan-out can never
+            become a quietly wrong score.
         """
 
         # Stage 1-2 — decode the array and check it against the roll call.
@@ -189,7 +210,7 @@ class RowReader:
         expected_case_id: int,
         index: RowIndex,
     ) -> bool:
-        """Stage 4 — the whole fan-out branch failed; True when this row was filed here."""
+        """Stage 4 — this Case's whole branch failed; True when the row was filed here."""
 
         error = row.get("error")
         if error is None:
