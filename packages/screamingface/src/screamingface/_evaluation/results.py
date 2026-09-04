@@ -128,6 +128,11 @@ def _candidate_result(
         return CandidateResult(
             benchmark=evaluation.benchmark,
             run_id=outcome.run_id,
+            # OME-1121: carried across the boundary verbatim. The transport stamped the id
+            # the CLIENT minted (OME-967) rather than reading one back off a frame, so a
+            # user quoting it is quoting what actually travelled — including for a run whose
+            # frames never arrived. Do not re-derive it here.
+            trace_id=outcome.trace_id,
             started_at=outcome.started_at,
             completed_at=outcome.completed_at,
             name=candidate.name,
