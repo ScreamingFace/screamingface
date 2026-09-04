@@ -29,7 +29,7 @@ if (
 ):  # the adapters are imported lazily at runtime; only the annotation needs the names
     from screamingface_engine.adapters.jetstream import JetStreamPublisher
     from screamingface_engine.runner_queue import RunQueue
-from screamingface_engine.runner_queue import topic_of_message
+from screamingface_engine.runner_queue import UNDECODABLE_BODY_ERRORS, topic_of_message
 from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX, OWNERSHIP_SUBJECT_PREFIX
 from screamingface_engine.worker.metrics import WorkerMetrics, build_worker_metrics
 from screamingface_engine.worker.supervisor import (
@@ -268,7 +268,15 @@ class Worker:
                 # that arrives while the claim loop is between pulls must find the topic,
                 # or the control loop ignores it and the App tombstones a run this worker
                 # is about to own (two terminal frames — the race OME-1090's fix closes).
-                self._starting.add(topic_of_message(msg.data))
+                # INVARIANT: the decode is SUPPRESSED here and settled in `supervise`. This
+                # line runs on the claim loop's own stack, inside the shared TaskGroup, so
+                # an undecodable body raising here cancels every co-located supervisor and
+                # SIGKILLs each one's live child — the cascade the guarded `pull` above
+                # exists to prevent, reached one line later. A body with no readable topic
+                # has no run to register and nothing to cancel, so skipping the
+                # registration is not merely safe, it is the correct entry.
+                with contextlib.suppress(*UNDECODABLE_BODY_ERRORS):
+                    self._starting.add(topic_of_message(msg.data))
                 task = tg.create_task(self._supervisor.supervise(msg))
                 self._active.add(task)
                 task.add_done_callback(self._on_task_done)

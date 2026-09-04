@@ -273,6 +273,21 @@ def topic_of_message(payload: bytes) -> str:
     return decode_message(payload)[job_env.TOPIC]
 
 
+UNDECODABLE_BODY_ERRORS: tuple[type[Exception], ...] = (ValueError, KeyError, TypeError)
+"""What `decode_message`/`topic_of_message` raise on a body this codec cannot read.
+
+`ValueError` covers `json.JSONDecodeError` and `UnicodeDecodeError` (both subclasses);
+`KeyError` is a body that decoded but names no topic; `TypeError` a payload that is not
+bytes at all.
+
+INVARIANT: every caller that decodes a body OFF the settled path — the worker's claim loop
+and its supervisor — catches exactly this tuple. A body arrives from off-process, so a
+foreign publisher or a codec skew across a rolling deploy can produce one at any time; left
+uncaught in either place it escapes into the worker's shared TaskGroup and cancels every
+co-located supervisor, each of which SIGKILLs its live child. Named once here so the two
+call sites cannot drift apart."""
+
+
 STREAM_NAME_IN_USE = 10058
 """JetStream's err_code for "stream name already in use" — the ONE `BadRequestError` the
 queue treats as benign. The type alone cannot say: the server answers a real configuration
@@ -538,9 +553,44 @@ class RunQueue:
             subject = subjects[(self._rr_index + slot) % rotation]
             sub = await self._bound_subscription(js, subject)
             want = min(batch - len(collected), per_visit)
-            collected.extend(await self._fetch_from(sub, subject, want, window))
+            fetched = await self._visit(sub, subject, want, window, have=len(collected))
+            if fetched is None:
+                break
+            collected.extend(fetched)
         self._rr_index = (self._rr_index + 1) % rotation
         return collected
+
+    async def _visit(
+        self, sub: Any, subject: str, want: int, window: float, *, have: int
+    ) -> list[Any] | None:
+        """One bucket visit's messages, or ``None`` when a blip should end the rotation.
+
+        INVARIANT: a delivery attempt is never spent for nothing. `_fetch_from` re-raises a
+        non-timeout broker error, and `pull` accumulates across buckets — so letting that
+        escape discarded every message the earlier buckets had already yielded, along with
+        the stack frame holding them. Those messages had been DELIVERED: neither acked nor
+        NAK'd, they sat out the whole `ack_wait` and came back as their FINAL delivery
+        (`DEFAULT_MAX_DELIVER` is 2), where one further blip ends those runs as
+        `max_deliveries` instead of executing them.
+
+        WHY a visit that follows NOTHING still raises (`have == 0`): the claim loop counts
+        pull failures and backs off on them, so swallowing unconditionally would turn a
+        broker outage into a silent hot loop indistinguishable from an idle queue. With
+        work in hand the blip is simply left to the next pull, against the same broker.
+        """
+        try:
+            return await self._fetch_from(sub, subject, want, window)
+        except nats.errors.Error:
+            if not have:
+                raise
+            logger.warning(
+                "run-queue pull stopped early on %s after collecting %d message(s); "
+                "returning them and leaving the blip to the next pull",
+                subject,
+                have,
+                exc_info=True,
+            )
+            return None
 
     async def _fetch_from(self, sub: Any, subject: str, want: int, window: float) -> list[Any]:
         """One bucket visit: fetch up to `want` messages, clamped to `want`.

@@ -251,18 +251,20 @@ class Settings(BaseSettings):
     # WHY a ceiling at all: the serving half must stop accepting when the queue is deeper than
     # the fleet can drain in a reasonable time, rather than piling up unbounded work. THIS unit
     # only declares the setting; the admission decision lands with the cutover (OME-1086).
-    run_queue_depth_ceiling: int = runner_queue.DEFAULT_DEPTH_CEILING
+    run_queue_depth_ceiling: int = Field(default=runner_queue.DEFAULT_DEPTH_CEILING, ge=1)
     # FEATURE (OME-1091): how many bucket subjects the queue is split into for per-caller
     # fairness. The worker pulls round-robin across buckets, so one caller's runs cannot be
     # claimed ahead of another's; more buckets mean fewer caller collisions (two callers
     # sharing a bucket share its cap and its round-robin slot), at the cost of more subjects
     # the worker must poll each pull.
-    run_queue_bucket_count: int = runner_queue.DEFAULT_BUCKET_COUNT
+    run_queue_bucket_count: int = Field(default=runner_queue.DEFAULT_BUCKET_COUNT, ge=1)
     # FEATURE (OME-1091): the per-caller in-flight cap — how many of one caller's runs may be
     # admitted at once, so one caller's 9-candidate evaluation cannot occupy every slot. 8
     # matches the Client's fan-out, so one ordinary Evaluation fits while a second concurrent
     # one is refused until the first's runs finish.
-    run_queue_caller_inflight_cap: int = runner_queue.DEFAULT_CALLER_INFLIGHT_CAP
+    run_queue_caller_inflight_cap: int = Field(
+        default=runner_queue.DEFAULT_CALLER_INFLIGHT_CAP, ge=1
+    )
 
     # --- worker (OME-1089) -----------------------------------------------------------------
     # WHY a worker at all: OME-1086 replaces one-Job-per-run scheduling with a fixed pool of

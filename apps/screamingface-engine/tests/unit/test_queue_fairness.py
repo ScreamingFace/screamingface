@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
+import nats.errors
 import pytest
 
 from screamingface_engine import job_env
@@ -378,3 +379,80 @@ async def test_the_fast_pass_uses_short_windows_and_the_slow_pass_the_remainder(
     # The slow pass re-visits with the remaining budget split across the rotation.
     slow_windows = [s.timeouts[1] for s in fake.subs]
     assert all(w > fast_windows[0] for w in slow_windows), "the slow pass must spend the remainder"
+
+
+# --- 6. a blip mid-rotation must not discard what the rotation already collected ----------
+
+
+class _ErroringJetStream(_FakeJetStream):
+    """One nominated bucket's fetch fails with a real broker error; every other bucket
+    behaves normally. Set `failing` AFTER publishing, so the test can pick the bucket the
+    message did NOT land in."""
+
+    failing: str | None = None
+
+    async def pull_subscribe(
+        self,
+        subject: str,
+        durable: str | None = None,
+        stream: str | None = None,
+        config: Any = None,
+    ) -> _FakeSub:
+        sub = await super().pull_subscribe(subject, durable, stream, config)
+        if subject == self.failing:
+
+            async def _boom(batch: int, timeout: float) -> list[Any]:
+                raise nats.errors.Error("broker blip mid-rotation")
+
+            sub.fetch = _boom  # type: ignore[method-assign]
+        return sub
+
+
+def _bucket_index(subject: str) -> int:
+    """The bucket ordinal encoded in a run-queue subject (`url4-runq.0a` -> 10)."""
+    return int(subject.rsplit(".", 1)[1], 16)
+
+
+async def test_a_blip_mid_rotation_keeps_the_messages_already_collected() -> None:
+    """`_fetch_from` re-raises a non-timeout `nats.errors.Error` after invalidating the
+    subscription, and `pull` extends `collected` bucket by bucket — so a blip on a LATER
+    bucket discarded every message the earlier buckets had already yielded, along with the
+    stack frame holding them. Those messages had been DELIVERED: they were never acked and
+    never NAK'd, so they sat out the full `ack_wait` and came back as their FINAL delivery
+    (`DEFAULT_MAX_DELIVER` is 2). One more blip on that redelivery ends the run as
+    `max_deliveries` instead of executing it.
+
+    INVARIANT: a delivery attempt is expensive and must never be spent for nothing. Work
+    already in hand is returned; the blip is reported by the NEXT pull, which hits the same
+    broker. Only a pull that collected NOTHING propagates, so the claim loop keeps its
+    backoff signal for a genuinely unproductive poll."""
+    fake = _ErroringJetStream()
+    queue = _queue(fake, bucket_count=2)
+    await queue.publish(encode_message("a1", "'hi'", 60), identity=CALLER_A)
+
+    landed = fake.published[0][0]
+    # Fail the OTHER bucket, and start the rotation on the one holding the message so the
+    # blip lands with something already collected.
+    fake.failing = f"url4-runq.{(_bucket_index(landed) + 1) % 2:02x}"
+    queue._rr_index = _bucket_index(landed)  # noqa: SLF001
+
+    pulled = await queue.pull(2, timeout_s=1.0)
+
+    assert [topic_of_message(msg.data) for msg in pulled] == ["a1"], (
+        "the message collected before the blip must be returned, not dropped"
+    )
+    assert all(not sub.nakked for sub in fake.subs), (
+        "a collected message must not spend a delivery attempt on a NAK either"
+    )
+
+
+async def test_a_blip_with_nothing_collected_still_propagates() -> None:
+    """The claim loop counts pull failures and backs off on them, so a poll that produced
+    NO work must still report the blip. Swallowing it unconditionally would turn a broker
+    outage into a silent hot loop that looks exactly like an idle queue."""
+    fake = _ErroringJetStream()
+    queue = _queue(fake, bucket_count=1)
+    fake.failing = "url4-runq.00"
+
+    with pytest.raises(nats.errors.Error):
+        await queue.pull(2, timeout_s=1.0)
