@@ -166,6 +166,7 @@ class CandidateResult:
 
     benchmark: BenchmarkInfo
     run_id: str
+    trace_id: str | None
     started_at: datetime
     completed_at: datetime
     name: str
@@ -200,6 +201,7 @@ class CandidateResult:
         members: Sequence[MemberResult],
         failures: Sequence[Failure],
         usage: Usage,
+        trace_id: str | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -235,6 +237,12 @@ class CandidateResult:
         values = {
             "benchmark": benchmark,
             "run_id": _nonblank(run_id, "Candidate run_id"),
+            # WHY nullable and unvalidated (OME-1121): this is the id the CLIENT minted,
+            # carried across the report boundary verbatim. A Report decoded from a stored
+            # url4 replay has no live run behind it, and inventing a value would produce an
+            # id that joins to nothing. Empty is normalized to None so callers have one
+            # falsy case to test rather than two.
+            "trace_id": trace_id or None,
             "started_at": start,
             "completed_at": end,
             "name": _nonblank(name, "Candidate name"),

@@ -42,6 +42,7 @@ def candidate(
     cases: tuple[sf.CaseResult, ...] | None = None,
     failures: tuple[sf.Failure, ...] = (),
     usage: sf.Usage | None = None,
+    trace_id: str | None = None,
 ) -> sf.CandidateResult:
     selected_cases = case_results() if cases is None else cases
     if score is None and cases is None:
@@ -99,6 +100,7 @@ def candidate(
         members=(),
         failures=failures,
         usage=usage or sf.Usage(input_tokens=100, output_tokens=20, cost_usd="0.12"),
+        trace_id=trace_id,
     )
 
 
@@ -653,3 +655,48 @@ def test_candidate_export_preserves_full_benchmark_size_beside_report_selection(
         "revision": "fixture-revision",
         "case_count": 100,
     }
+
+
+# --- the run's trace id on the public result (OME-1121) -----------------------------------
+
+
+def _outcome_for_trace(trace_id: str | None):
+    """A minimal `_RunOutcome` carrying whatever the transport stamped."""
+    from screamingface._core.ports import _RunOutcome
+
+    return _RunOutcome(
+        run_id="run-1",
+        started_at=datetime(2026, 9, 4, tzinfo=UTC),
+        completed_at=datetime(2026, 9, 4, tzinfo=UTC),
+        result_body=None,
+        media_type=None,
+        root_usage=None,
+        trace_id=trace_id,
+    )
+
+
+def test_a_candidate_result_carries_the_trace_id_of_the_run_that_produced_it() -> None:
+    # INVARIANT (OME-1121): one run, one trace id, stored beside the `run_id` that already
+    # identifies that run. A Report may hold several candidates, each an independently
+    # executed run with its own client-minted trace — so this cannot live on Report.
+    result = candidate("model", trace_id="4bf92f3577b34da6a3ce929d0e0e4736")
+
+    assert result.trace_id == "4bf92f3577b34da6a3ce929d0e0e4736"
+
+
+def test_two_candidates_in_one_report_keep_their_own_trace_ids() -> None:
+    # WHY this test exists: it is the reason `trace_id` is NOT a Report attribute. Two
+    # candidates are two independent runs; a single Report-level id would have to pick one.
+    first = candidate("a", trace_id="a" * 32)
+    second = candidate("b", trace_id="b" * 32)
+
+    built = report(first, second)
+
+    assert [c.trace_id for c in built.candidates] == ["a" * 32, "b" * 32]
+
+
+def test_a_run_without_a_trace_id_reports_none_rather_than_raising() -> None:
+    # WHY nullable (OME-1121): `_RunOutcome.trace_id` is `str | None`, and a Report decoded
+    # from a stored url4 replay has no live run behind it. Forcing a value would mean
+    # inventing one, and an invented id joins to nothing.
+    assert _outcome_for_trace(None).trace_id is None
