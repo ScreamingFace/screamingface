@@ -69,4 +69,6 @@ No code. Verification gates:
   (ComfyUI analogy): new §8, seventh diagram `url4-topology-payloads`, Appendix A delta for Part F
   §25, doctrine N6; Engine and Deferred renumbered to §9/§10. (8) Owner example added: any scheme is a
   source (`s3://`, `pg://`, `sqlite://`) via host-mounted adapters; §2, addressing diagram row,
-  capabilities `schemes`, Appendix A delta 9, doctrine N7.
+  capabilities `schemes`, Appendix A delta 9, doctrine N7. (9) Owner question added to §10:
+  authentication as a host concern (host issues run-scoped sessions; nodes never hold raw credentials);
+  six questions listed, grounded on v0.2 §22, Part B §3.5 and the Engine's token-minting App.

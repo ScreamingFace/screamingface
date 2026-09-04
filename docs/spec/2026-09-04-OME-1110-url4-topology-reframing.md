@@ -272,7 +272,25 @@ Edges: text → image → text → audio. Three nodes, three processors, one exp
 
 **Serverless posture.** A node is a function; it needs no origin of its own. Only the host needs one. The Runner is already function-shaped. The App is not: it holds an audience count in memory, runs two perpetual tasks, and gates runs on an attached WebSocket. Those belong to the product session, not to the node surface, and stay in the App.
 
-# 10. Deferred
+# 10. Deferred, and one question to move forward
+
+**Authentication as a host concern (question, not a decision).** Separating Host from Node makes a safe place for authentication possible, because it gives the credentials exactly one owner. The spec's inter-node auth (v0.2 §22, "under active development") propagates per-destination encrypted tokens in `ABC-Auth-Token` headers, and Part B §3.5 names a `URL4-Auth-Token` with a target type. The SDK defers all of it: `url4 serve` ships no authn or authz and asks for a reverse proxy in front. The Engine already has the shape we want: the App mints a per-run capability token and the Runner only carries it.
+
+The idea to test: **the host, through its evaluator, is the only party that holds, validates and issues credentials. Nodes never see a raw credential.** A node receives a host-issued session, a capability scoped to one run (`rid`, request tree, purpose, expiry), and uses it for whatever it needs: reading `@` holdings, calling a sibling node, asking the host to fetch an `s3://` source. Outbound, the host attaches the per-destination token of spec §22 to the sub-request; inbound, the host validates before any node runs. A standalone serverless function is its own host and validates for itself, so the rule holds at every size.
+
+Questions to answer before this becomes a section:
+
+1. **Session shape.** Is the node-side session the Engine's JWT topic capability generalised (`sub` = run, `iat` window), or the spec's `URL4-Auth-Token`? One token type, or a host-internal one plus the spec's wire one?
+2. **Where the identity lives.** `@alice` access control and consent (Part B §5.6.4) need the requestor's identity at the node. Does the session carry it, or does the node ask the host?
+3. **Proxy mounts.** For `/claude → url4://beta.example/claude`, which side validates the requestor, and does beta see our identity or a delegated one (v0.2 §22.2 encrypts to the destination)?
+4. **Rename consequence.** Spec §22 addresses tokens to a "node". Under Appendix A delta 1 that becomes a host. Is the token's destination always the host, never the path?
+5. **`coord=` sessions.** The explicit session key of §3: issued by the host from the same capability, or separate?
+6. **What a node may do with a session.** Only call back into its own host, or reach other hosts directly with a host-minted, destination-bound token?
+
+Recommendation to explore first: host-issued run capability for nodes (the Engine's pattern), spec §22 tokens between hosts, identity carried in the capability claims. Attribution, consent and audit (Parts E and H) then attach to the same run identity.
+
+**Deferred**
+
 
 - **Plan / preflight** as a defined concept. Today the SDK's `Graph.validate()` checks syntax only and the Engine's preflight checks routes on one host. Deferred by owner decision; §5 answers the practical question.
 - **Swarm** as a protocol noun. Would need membership and trust rules that belong to the unwritten governance parts.
@@ -282,7 +300,7 @@ Edges: text → image → text → audio. Three nodes, three processors, one exp
 
 Each item names the anchor and the change. All are proposals.
 
-1. **Part A §1.4 — rename.** *Node* → **Host** ("an origin implementing the protocol; mounts nodes"). *Endpoint* → **Node** ("a path on a host bound to an evaluator and an intent processor"). Add **Mount** (`local | command | proxy`, proxies declare their target).
+1. **Part A §1.4 — rename.** *Node* → **Host** ("an origin implementing the protocol; mounts nodes"). *Endpoint* → **Node** ("a path on a host bound to an evaluator and an intent processor"). Add **Mount** (`local | command | proxy`, proxies declare their target). Consequence to confirm: v0.2 §22 tokens are then addressed to hosts, never to paths (§10).
 2. **Part B §3.1.1, v0.2 §35.1 — root.** `url4://host` ≡ `url4://host/`; `/` is the host's default node at the current version; `/v1` is a version alias.
 3. **Part C §11.2 — bindings.** `delivery=stream` is SSE on the same GET, requested with `Accept: text/event-stream`. A node MAY also offer WebSocket by honouring `Upgrade: websocket` on that same GET (`101`); frames carry the same event names.
 4. **Part C §11.4 — ladder and floor.** The node answers with the richest mode it supports, WebSocket → SSE → sync, in one round trip; sync is the only MUST and `any → sync` is always legal. A node answering below the ask is not an error; the envelope's `delivery` field says what happened.
