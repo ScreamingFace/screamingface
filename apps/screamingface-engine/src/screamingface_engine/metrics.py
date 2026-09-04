@@ -239,3 +239,74 @@ class _FairShareCollector:
 def register_fair_share_metrics(metrics: Metrics, get_gate: Callable[[], Any]) -> None:
     """Register a `_FairShareCollector` for `get_gate` on `metrics.registry`."""
     metrics.registry.register(_FairShareCollector(get_gate))
+
+
+class _QueueCollector:
+    """A `prometheus_client` custom collector for the run queue's own signals (OME-1092).
+
+    The queue is the substrate's admission and liveness surface: depth is how far behind the
+    fleet is, and the oldest-unclaimed age is the run that has waited longest for a worker —
+    the alert that would have fired on 2026-09-01, when a stuck pool left runs queued forever.
+    Both are read from the queue runner's CACHED snapshot (sync, no broker round trip at
+    scrape time).
+    """
+
+    def __init__(self, get_runner: Callable[[], Any]) -> None:
+        self._get_runner = get_runner
+
+    def collect(self) -> Iterable[Any]:
+        runner = self._get_runner()
+        snapshot = getattr(runner, "queue_snapshot", None)
+        if snapshot is None:
+            return
+        depth, oldest_age = snapshot()
+        # WHY depth is OMITTED (not rendered as 0) when unknown, like `oldest_age` (review
+        # follow-up): before the first refresh the snapshot has no reading, and a confident
+        # `queue_depth 0` is indistinguishable from a genuinely empty queue — a scrape at
+        # cold start (a rolling restart, when the queue may hold a backlog no worker has
+        # reported on yet) would mask it. An absent series says "no reading yet"; an alert
+        # on depth must be conditioned on the series existing.
+        if depth is not None:
+            yield GaugeMetricFamily(
+                "screamingface_engine_queue_depth",
+                "Runs queued but not yet claimed by a worker.",
+                value=float(depth),
+            )
+        if oldest_age is not None:
+            yield GaugeMetricFamily(
+                "screamingface_engine_queue_oldest_unclaimed_age_s",
+                "Seconds since the oldest queued run was published.",
+                value=float(oldest_age),
+            )
+
+
+def register_queue_metrics(metrics: Metrics, get_runner: Callable[[], Any]) -> None:
+    """Register a `_QueueCollector` for `get_runner` on `metrics.registry`."""
+    metrics.registry.register(_QueueCollector(get_runner))
+
+
+class _MaxDeliveriesCollector:
+    """A `prometheus_client` custom collector for the max-deliveries advisories (OME-1092).
+
+    Each advisory is a run the queue gave up on after `max_deliver` attempts — the queue's
+    terminal failure signal. The counter is the Observability section's max-deliveries
+    advisory metric.
+    """
+
+    def __init__(self, get_advisor: Callable[[], Any]) -> None:
+        self._get_advisor = get_advisor
+
+    def collect(self) -> Iterable[Any]:
+        advisor = self._get_advisor()
+        if advisor is None:
+            return
+        yield CounterMetricFamily(
+            "screamingface_engine_max_deliveries_advisories_total",
+            "Runs the queue gave up on after max_deliver attempts.",
+            value=float(getattr(advisor, "advisories_total", 0)),
+        )
+
+
+def register_max_deliveries_metrics(metrics: Metrics, get_advisor: Callable[[], Any]) -> None:
+    """Register a `_MaxDeliveriesCollector` for `get_advisor` on `metrics.registry`."""
+    metrics.registry.register(_MaxDeliveriesCollector(get_advisor))

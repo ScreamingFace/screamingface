@@ -381,7 +381,9 @@ print("\naigateway snapshot wiring (bundled Garage)")
 # Garage must get its own scoped policy admitting exactly the gateway.
 gw_snap = render(GATEWAY_CHART, GATEWAY_RELEASE, "--set", "snapshot.enabled=true")
 gw_snap_policy = find_named(gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway")
-garage_policy = find_named(gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway-garage")
+garage_policy = find_named(
+    gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway-garage"
+)
 garage_sts = find(gw_snap, "StatefulSet")
 gw_pod_labels = gw_deployment["spec"]["template"]["metadata"]["labels"]
 
@@ -414,7 +416,12 @@ check(
 # gate now renders the OVERRIDE path too: the Pod label and every selector must move together,
 # and the spelling that caused the outage must be refused outright.
 gw_component = render(
-    GATEWAY_CHART, GATEWAY_RELEASE, "--set", "componentLabel=server", "--set", "snapshot.enabled=true"
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "componentLabel=server",
+    "--set",
+    "snapshot.enabled=true",
 )
 gwc_deployment = find_named(gw_component, "Deployment", f"{GATEWAY_RELEASE}-aigateway")
 gwc_service = find_named(gw_component, "Service", f"{GATEWAY_RELEASE}-aigateway")
@@ -439,9 +446,9 @@ check(
 )
 check(
     any(
-        peer.get("podSelector", {}).get("matchLabels", {}).get(
-            "app.kubernetes.io/component"
-        )
+        peer.get("podSelector", {})
+        .get("matchLabels", {})
+        .get("app.kubernetes.io/component")
         == "server"
         for rule in gwc_garage_policy["spec"]["ingress"]
         for peer in rule.get("from", [])
@@ -460,17 +467,25 @@ check(
     "componentLabel, instead of silently emptying the Service",
 )
 check(
-    garage_sts["spec"]["template"]["metadata"]["labels"].get("app.kubernetes.io/component")
+    garage_sts["spec"]["template"]["metadata"]["labels"].get(
+        "app.kubernetes.io/component"
+    )
     == "garage",
     "bundled Garage Pods carry component: garage",
 )
 check(
-    garage_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    garage_policy["spec"]["podSelector"]["matchLabels"].get(
+        "app.kubernetes.io/component"
+    )
     == "garage",
     "the Garage NetworkPolicy selects ONLY Garage Pods",
 )
 check(
-    [p["port"] for rule in garage_policy["spec"]["ingress"] for p in rule.get("ports", [])]
+    [
+        p["port"]
+        for rule in garage_policy["spec"]["ingress"]
+        for p in rule.get("ports", [])
+    ]
     == [3900],
     "Garage admits exactly one ingress port: the S3 API on 3900",
 )
@@ -492,7 +507,9 @@ check(
     "the peer Garage admits IS the label set the gateway Deployment renders — the pair holds",
 )
 check(
-    gw_snap_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    gw_snap_policy["spec"]["podSelector"]["matchLabels"].get(
+        "app.kubernetes.io/component"
+    )
     == "gateway",
     "with snapshots on, the gateway policy still selects only gateway Pods",
 )
@@ -563,7 +580,8 @@ external_secret = find_named(
 )
 check(
     external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY"] == "AKIAEXTERNAL"
-    and external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY"] == "SKEXTERNAL",
+    and external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY"]
+    == "SKEXTERNAL",
     "external mode renders the OPERATOR's pair verbatim — nothing is generated",
 )
 bundled_secret = find_named(
@@ -699,19 +717,27 @@ engine_chart = render(
     "--set-string",
     "config.natsUrl=nats://nats.example:4222",
 )
-url4_deployment = find(engine_chart, "Deployment")
-url4_config = find_data_owner(engine_chart, "URL4_CLOUD_RUNNER_IMAGE")
+# The chart now renders TWO Deployments (the App and the runner pool, OME-1092), so both are
+# looked up by name rather than by `find` (which would silently return whichever renders first).
+url4_deployment = find_named(
+    engine_chart, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
+)
+url4_runner_deployment = find_named(
+    engine_chart, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-runner"
+)
 url4_app_image = url4_deployment["spec"]["template"]["spec"]["containers"][0]["image"]
-url4_runner_image = url4_config["data"]["URL4_CLOUD_RUNNER_IMAGE"]
+url4_runner_image = url4_runner_deployment["spec"]["template"]["spec"]["containers"][0][
+    "image"
+]
 url4_app_repository, url4_app_tag = url4_app_image.rsplit(":", 1)
 url4_runner_repository, url4_runner_tag = url4_runner_image.rsplit(":", 1)
 check(
     url4_runner_repository == f"{url4_app_repository}-benchmark",
-    "derives the Runner repository from the control-plane repository",
+    "derives the Runner pool image from the control-plane repository",
 )
 check(
     url4_runner_tag == url4_app_tag,
-    "pins the Runner and control-plane images to the same tag",
+    "pins the Runner pool and control-plane images to the same tag",
 )
 
 print("\nreport-intake chart")

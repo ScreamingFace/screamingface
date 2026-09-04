@@ -14,7 +14,7 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Annotated, Any, Protocol, runtime_checkable
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import FileResponse
@@ -362,49 +362,6 @@ def _converge_cache(
     return resolution.effective
 
 
-@runtime_checkable
-class _QueueAware(Protocol):
-    """A job runner that can report its queue depth — the queue backend (OME-1090).
-
-    The port has no such method; the queue runner widens it, and the notice is only for
-    that backend, so the route checks structurally rather than importing the adapter.
-    """
-
-    async def queue_depth(self) -> int: ...
-
-
-async def _notify_queue_position(deps: _Deps, topic: str, clock: Callable[[], datetime]) -> None:
-    """Tell the attached client how many runs the queue holds, if the runner is
-    queue-backed (OME-1090).
-
-    The client is already attached while its run is queued, so the wait should be visible
-    instead of silent. The notice travels the WS bridge's existing `add_notifier` path —
-    no protocol change, no stream write — and is superseded once `StartedEvent` arrives.
-
-    INVARIANT: purely advisory — a failure here must never fail the request. This runs
-    AFTER the run is durably queued, so an exception would turn an accepted run into a
-    500 while the run proceeds anyway. The value is also a cached fleet-wide depth that
-    may lag this publish by `state_cache_ttl_s`, so the notice reports a DEPTH, not a
-    promise about this run's exact position.
-    """
-    if not isinstance(deps.job_runner, _QueueAware):
-        return
-    try:
-        depth = await deps.job_runner.queue_depth()
-    except Exception:  # noqa: BLE001 - advisory only; the broker blip is not the client's error
-        _logger.debug("queue depth notice skipped: the broker read failed", exc_info=True)
-        return
-    deps.sessions.notify(
-        topic,
-        notices.info(
-            topic,
-            clock,
-            f"the run is queued; the queue holds {depth} run(s)",
-            {"queue.depth": depth},
-        ),
-    )
-
-
 async def _run_sync(deps: _Deps, topic: str, wait_s: float | None) -> Response:
     """Hold the request until the run's terminal frame, or 202-fall-back once the bound elapses.
 
@@ -568,7 +525,6 @@ async def start_run(
         identity=identity,
         cache=_converge_cache(deps, topic, cache_control, clock),
     )
-    await _notify_queue_position(deps, topic, clock)
     pref = _parse_prefer(prefer or "")
     if pref.respond_async:
         return _accepted(topic)

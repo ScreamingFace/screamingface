@@ -1,16 +1,17 @@
 {{/*
-The Runner Job's DEPLOY-TIME environment.
+The runner pool's DEPLOY-TIME environment.
 
-Every key here is injected into each Runner Job wholesale via `envFrom` (K8sJobRunner._env_from),
-so the chart names the variable AND supplies its value — the App never learns these names and
-cannot drift from them. Only PER-RUN values (topic, expression, traceparent, the caller's
-credential) are still built in Python, because they do not exist until a request arrives.
+Every key here is injected into the pool's pods wholesale via `envFrom` (the worker inherits
+it, and its children inherit it from the worker), so the chart names the variable AND supplies
+its value — the App never learns these names and cannot drift from them. Only PER-RUN values
+(topic, expression, traceparent, the caller's credential) travel in the queue message, because
+they do not exist until a request arrives.
 
 INVARIANT: keys are the literal env-var names the run mode reads (`screamingface_engine/job_env.py`),
 NOT the App's `URL4_CLOUD_*` Settings names — `envFrom` does no renaming. `URL4_CLOUD_NATS_URL`
 looks like a Settings key but is the Runner's own variable and happens to share the spelling.
 
-Rendered unconditionally: an empty ConfigMap is harmless, and always having it means the Job's
+Rendered unconditionally: an empty ConfigMap is harmless, and always having it means the pool's
 `envFrom` reference is stable across upgrades that turn an optional value on or off.
 */}}
 apiVersion: v1
@@ -20,8 +21,8 @@ metadata:
   labels:
     {{- include "screamingface-engine.labels" . | nindent 4 }}
 data:
-  # Where the Runner publishes its run log. Its own fallback is loopback, which inside a Job Pod
-  # is that Pod — so this must name the NATS Service to reach it.
+  # Where the worker's children publish their run log. Their own fallback is loopback, which
+  # inside a worker pod is that pod — so this must name the NATS Service to reach it.
   URL4_CLOUD_NATS_URL: {{ include "screamingface-engine.natsUrl" . | quote }}
   {{- with .Values.config.aigatewayBaseUrl }}
   # The Runner's fallback is loopback too, with the same consequence.
@@ -59,5 +60,5 @@ data:
   # halves of the pair therefore arrive by `envFrom.secretRef`, from one source.
   {{- end }}
   # NOTE: URL4_CLOUD_ARTIFACT_S3_SECRET_KEY is deliberately ABSENT here. It travels by Secret
-  # (`secret-artifact-storage.yaml`), attached to each Job with `envFrom.secretRef` — a ConfigMap
+  # (`secret-artifact-storage.yaml`), attached to the pool with `envFrom.secretRef` — a ConfigMap
   # is readable by anything with `get` on it and is printed in plain text by `helm get manifest`.

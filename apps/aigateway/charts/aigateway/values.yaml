@@ -242,7 +242,7 @@ networkPolicy:
   clientNamespace: ""
   # `app.kubernetes.io/name` of each client Pod allowed in `clientNamespace`. They share no label,
   # so each needs naming: the url4-cloud App carries its chart's name, each Runner Job carries
-  # `url4-runner` (adapters/k8s.py RUNNER_LABELS), and the admin console carries `aigateway-ui`.
+  # `url4-runner` (the runner pool's labels), and the admin console carries `aigateway-ui`.
   #
   # Every entry becomes its own `from` element pairing the namespace AND pod selector, so a name
   # here admits only that workload in that namespace — never the whole namespace.

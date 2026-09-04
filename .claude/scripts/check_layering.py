@@ -16,7 +16,7 @@ One image ships two modes, and the whole point of that shape is a rule about wha
                                                 import NOTHING from the run half.
 
   Control plane: app · rest · ws · auth · catalog · connections · config · metrics · ops · reaper
-                 schemas · adapters.k8s · adapters.factory  (FastAPI, uvicorn, the k8s client)
+                 schemas · adapters.factory  (FastAPI, uvicorn)
   Run mode:      runner.executor (the url4 engine) · runner.connector · runner.main
   Worker:        worker (the claim loop, the supervisor, the exec wrapper)
 
@@ -70,7 +70,6 @@ CONTROL_PLANE = {
     "rest",
     "schemas",
     "ws",
-    "adapters.k8s",
     "adapters.factory",
 }
 RUN_MODE = {"runner"}

@@ -107,6 +107,34 @@ PULL_SUB_TTL_S = 300.0
 # once. 8 matches the Client's fan-out (`_MAX_CANDIDATES_IN_FLIGHT`), so one ordinary
 # Evaluation fits while a second concurrent one is refused until the first's runs finish.
 DEFAULT_CALLER_INFLIGHT_CAP = 8
+# The BACKSTOP on how long one admission may hold a slot (OME-1108). The primary release is
+# observation — the runner re-reads a caller's terminal frames before refusing it — and this
+# covers only what observation cannot: a broker whose tails stay unreadable. Before it existed
+# the sole expiry was `capability_lifetime_s` (16.3h), so a run that finished in four minutes
+# could hold its slot for most of a day; a caller was then refused by its own history while the
+# queue sat empty and the pool idle. One hour is far above the longest legitimate run observed
+# (~6 min) and far below that lifetime, so it never fires in normal use.
+DEFAULT_RESERVATION_LEASE_S = 3600.0
+# The margin added to the stream grace before an ABSENT stream is trusted as evidence that a run
+# finished. It covers the gap between "the run ended" and "the reclamation actually landed":
+# `run_and_reclaim` sleeps the grace and THEN calls `delete_stream`, and both the sleep and the
+# delete run on a busy worker against a possibly-retrying broker. Half the grace again, so the
+# threshold stays the same order of magnitude as the mechanism it waits for.
+_RECLAIM_EVIDENCE_MARGIN_S = 30.0
+# How old a reservation must be before a MISSING stream releases it (OME-1108 follow-up).
+#
+# WHY absence is evidence and not unknown: `runner/main.py::run_and_reclaim` deletes a run's
+# stream in a `finally`, `job_env.DEFAULT_STREAM_GRACE_S` after the run ended — strictly AFTER
+# the run is over — so a stream that is gone belongs to a run that finished. That is what makes
+# this a release and not a weakening of "unknown never frees a slot": a broker that cannot
+# ANSWER is still unknown and still releases nothing.
+#
+# WHY an age gate at all: absence has one other cause — a stream that does not exist YET. The
+# WS attach creates it (`JetStreamConsumer.subscribe` -> `ensure_stream`) and the 428 gate makes
+# that attach precede admission, but the two are separate awaits, and the worker re-ensures the
+# stream at claim time. A reservation younger than this threshold is therefore treated as
+# starting, not finished — otherwise a caller could exceed its cap the instant it reached it.
+DEFAULT_RECLAIM_EVIDENCE_AFTER_S = job_env.DEFAULT_STREAM_GRACE_S + _RECLAIM_EVIDENCE_MARGIN_S
 # The anonymous caller's key: a run with no verified identity is its own caller, so it cannot
 # hide behind another caller's footprint.
 _ANONYMOUS_CALLER = "anonymous"
@@ -159,8 +187,8 @@ def _work_queue_consumer_config(
 
 
 # --- the message codec: ONE encoding, through `job_env` --------------------------------------
-# The message body is exactly the per-run env mapping `K8sJobRunner._env` writes onto a Job.
-# Both sides render through `job_env`'s renderers, so there is no second encoding to drift;
+# The message body is exactly the per-run env mapping the App writes onto a run. Both sides
+# render through `job_env`'s renderers, so there is no second encoding to drift;
 # `test_run_queue_codec.py` pins the two mappings identical.
 
 
@@ -178,9 +206,9 @@ def _env_mapping(
 ) -> dict[str, str]:
     """The per-run env mapping a queue message carries, keyed by env name.
 
-    Mirrors `K8sJobRunner._env` entry for entry: the same constants, the same renderers, the
-    same silence rules (an invalid traceparent is dropped, an unstated cache policy renders
-    nothing, an empty overlay renders an explicit empty `EXTRA_MODELS`).
+    Mirrors the inprocess adapter's `_env` entry for entry: the same constants, the same
+    renderers, the same silence rules (an invalid traceparent is dropped, an unstated cache
+    policy renders nothing, an empty overlay renders an explicit empty `EXTRA_MODELS`).
     """
     env: dict[str, str] = {
         job_env.TOPIC: topic,
@@ -695,6 +723,8 @@ __all__ = [
     "DEFAULT_MAX_ACK_PENDING",
     "DEFAULT_MAX_DELIVER",
     "DEFAULT_QUEUE_MAX_AGE_S",
+    "DEFAULT_RECLAIM_EVIDENCE_AFTER_S",
+    "DEFAULT_RESERVATION_LEASE_S",
     "DEFAULT_STATE_CACHE_TTL_S",
     "DEFAULT_WORKER_SLOTS",
     "PULL_BUCKET_BATCH",

@@ -37,7 +37,7 @@ import math
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 import nats
@@ -51,6 +51,8 @@ from screamingface_engine.runner_queue import (
     DEFAULT_CALLER_INFLIGHT_CAP,
     DEFAULT_DEPTH_CEILING,
     DEFAULT_IO_CONCURRENCY,
+    DEFAULT_RECLAIM_EVIDENCE_AFTER_S,
+    DEFAULT_RESERVATION_LEASE_S,
     DEFAULT_STATE_CACHE_TTL_S,
     caller_key,
     encode_message,
@@ -198,6 +200,18 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # queue itself caches its `stream_info` reading; this is the runner's own window, which
         # is what the reservation counter covers.
         state_cache_ttl_s: float = DEFAULT_STATE_CACHE_TTL_S,
+        # FEATURE (OME-1108): the backstop on a reservation's lifetime. The primary release is
+        # observation — see `_release_finished_for` — and this bounds the case observation
+        # cannot cover, a broker whose tails stay unreadable. It replaces reliance on
+        # `capability_lifetime_s` (16.3h), which let a finished run hold a slot for most of a
+        # day. Generous against the longest legitimate run, so it never fires in normal use.
+        reservation_lease_s: float = DEFAULT_RESERVATION_LEASE_S,
+        # FEATURE (OME-1108 follow-up): how old a reservation must be before a MISSING stream
+        # releases it. The runner reclaims each run's stream shortly after the run ends, which
+        # destroys the terminal frame the observation path reads — so absence is the only
+        # evidence left for a run that finished more than a grace period ago. The age gate is
+        # what separates "reclaimed" from "not created yet"; see the constant.
+        reclaim_evidence_after_s: float = DEFAULT_RECLAIM_EVIDENCE_AFTER_S,
     ) -> None:
         self._queue = queue
         self._publisher = publisher
@@ -208,8 +222,10 @@ class QueueJobRunner(IdentityAwareJobRunner):
         self._io_concurrency = io_concurrency
         # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows
         # while the app runs, and a model admitted a second ago must reach the very next
-        # run — the same rule as `K8sJobRunner._extra_models`.
+        # run — the same rule as the inprocess adapter's `_extra_models`.
         self._extra_models = extra_models
+        self._reservation_lease_s = reservation_lease_s
+        self._reclaim_evidence_after_s = reclaim_evidence_after_s
         self._depth_ceiling = depth_ceiling
         self._caller_inflight_cap = caller_inflight_cap
         self._state_cache_ttl_s = state_cache_ttl_s
@@ -265,8 +281,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         """Publish the run to the queue and return its job name.
 
         `credential` is accepted for port compatibility and DELIBERATELY DROPPED, exactly
-        as `K8sJobRunner` drops it: the queue message carries the caller's verified
-        identity, never a bearer token (see the k8s adapter's module INVARIANT).
+        as the inprocess adapter drops it: the queue message carries the caller's verified
+        identity, never a bearer token.
 
         The broker deduplicates a retried submission of the same topic within
         `duplicate_window` (`Nats-Msg-Id` is the topic), which is the queue's
@@ -444,8 +460,24 @@ class QueueJobRunner(IdentityAwareJobRunner):
         return "scheduled" if self._capability_valid(topic) else "not_found"
 
     async def queue_depth(self) -> int:
-        """How many runs are queued — the position notice's input (OME-1090)."""
+        """How many runs are queued: an uncached, on-demand read of the queue's depth.
+
+        Distinct from `queue_snapshot`, which returns the cached pair `/metrics` scrapes.
+        No caller in the App reads this today — the queue-position notice that motivated it
+        was removed — but it stays as the adapter's honest answer to the question, and as
+        the uncached counterpart the admission path's cached snapshot is measured against.
+        """
         return await self._queue.depth()
+
+    def queue_snapshot(self) -> tuple[int | None, float | None]:
+        """The last cached (depth, oldest-unclaimed age) — the /metrics collector's input.
+
+        Sync and lock-free: the values are written under `_admission_lock` by
+        `_refresh_if_stale`, and a scrape reading a half-updated pair is harmless (both are
+        gauges). `None` depth means no reading has happened yet; `None` age means the queue
+        was empty at the last reading.
+        """
+        return self._depth_snapshot, self._oldest_age
 
     async def aclose(self) -> None:
         """Close the control connection. The queue and publisher own their own connections
@@ -533,9 +565,16 @@ class QueueJobRunner(IdentityAwareJobRunner):
                     self._depth_ceiling,
                     retry_after_s=self._drain_estimate_s(),
                 )
-            count = sum(
-                len(topics) for topics in self._in_flight_by_caller.get(caller, {}).values()
-            )
+            count = self._in_flight_count(caller)
+            if count >= self._caller_inflight_cap:
+                # FEATURE (OME-1108): a caller at its cap may be held there by runs that have
+                # already finished. Nothing else releases them — `status()` is the only
+                # observer and it is reached only from the 409 pre-check and the orphan
+                # reaper, never from the WebSocket path the SDK actually uses — so before
+                # refusing, find out whether these runs are still running. Live deployment
+                # refused 7 of 8 candidates against an EMPTY queue and an idle pool this way.
+                await self._release_finished_for(caller)
+                count = self._in_flight_count(caller)
             if count >= self._caller_inflight_cap:
                 # WHY not the drain estimate (review follow-up P2-11): the cap branch is
                 # reached precisely when the queue is NOT at its ceiling, so the drain
@@ -552,6 +591,150 @@ class QueueJobRunner(IdentityAwareJobRunner):
             self._in_flight_by_caller.setdefault(caller, {}).setdefault(topic, []).append(token)
             self._caller_of_topic[topic] = caller
             return token
+
+    def _in_flight_count(self, caller: str) -> int:
+        """How many reservations `caller` currently holds, across all of its topics."""
+        return sum(len(topics) for topics in self._in_flight_by_caller.get(caller, {}).values())
+
+    async def _release_finished_for(self, caller: str) -> None:
+        """Release the reservations of `caller`'s runs that have already finished.
+
+        The runner's own observation of a finish, from the TWO pieces of positive evidence a
+        finished run can leave:
+
+        | Evidence on the run's stream | Meaning | Slot |
+        | a terminal frame | the run ended | RELEASE |
+        | no frame, no stream, reservation past the threshold | ended and reclaimed | RELEASE |
+        | no frame, stream present | queued, not yet published | hold |
+        | no frame, no stream, reservation under the threshold | starting | hold |
+        | the tail or the stream check unreadable | UNKNOWN | hold |
+
+        The threshold is `reclaim_evidence_after_s`.
+
+        WHY the second row exists (the OME-1108 defect): the terminal-frame path alone is
+        unreachable for the runs that actually cause the lockout. `runner/main.py::
+        run_and_reclaim` deletes each run's stream in a `finally`, `DEFAULT_STREAM_GRACE_S`
+        after the run ends — deliberate, because a leaked per-run stream holds a full
+        `max_bytes` reservation until the store fills and every new run fails with JetStream
+        10047 — and the terminal frame dies WITH the stream. So `_read_tail` can never answer
+        `TerminatedEvent` for a run that finished more than ~60s ago, and OME-1108 narrowed the
+        lockout from 16.3h to the 1h lease rather than removing it. Measured on a live cluster:
+        the 9th submission was ADMITTED inside the grace window and REFUSED after it, same 8
+        runs, empty queue, idle pool.
+
+        WHY absence is evidence and not unknown: `delete_stream` runs strictly AFTER the run is
+        over, so a stream that is GONE belongs to a run that finished. That is a different
+        question from the one `_UNREADABLE_TAIL` answers — note that a missing stream does not
+        even produce that sentinel, because `JetStreamPublisher.last_frame` maps the broker's
+        404-class `APIError` (`NotFoundError` IS an `APIError`) to None and reserves
+        `QueueReadError` for transport failures. `stream_exists` is what tells a stream that is
+        absent apart from one that is merely empty, exactly as `_tombstone_queued_run` uses it.
+
+        INVARIANT (unchanged): UNKNOWN NEVER FREES A SLOT. `_UNREADABLE_TAIL` releases nothing,
+        and a `stream_exists` call that fails releases nothing either (`_stream_absent` answers
+        False on any failure) — handing out a slot on a broker blip would let a caller exceed
+        its cap while its runs are still billing.
+
+        SCOPED to one caller deliberately: this runs on the admission path, so it must cost no
+        more than the decision it informs. A caller below its cap does no reads at all; a caller
+        at its cap reads only its own topics, bounded by the cap; and the extra `stream_exists`
+        round trip is reached only for a topic with no frame AND a reservation old enough for
+        absence to mean anything.
+        """
+        cutoff = self._clock() - timedelta(seconds=self._reclaim_evidence_after_s)
+        for topic in sorted(self._in_flight_by_caller.get(caller, {})):
+            frame = await self._read_tail(topic)
+            if isinstance(frame, TerminatedEvent):
+                self._forget_in_flight(topic, frame)
+            elif frame is None and self._holds_reservation_before(caller, topic, cutoff):
+                if await self._stream_absent(topic):
+                    self._forget_reclaimed(topic, cutoff)
+
+    def _holds_reservation_before(self, caller: str, topic: str, cutoff: datetime) -> bool:
+        """Whether `caller` holds a reservation for `topic` minted at or before `cutoff`.
+
+        The cheap pre-check that keeps the absence path off the hot path: with every reservation
+        younger than the threshold, absence cannot mean "reclaimed" for any of them, so the
+        `stream_exists` round trip is not worth making.
+        """
+        tokens = self._in_flight_by_caller.get(caller, {}).get(topic, ())
+        return any(token <= cutoff for token in tokens)
+
+    async def _stream_absent(self, topic: str) -> bool:
+        """Whether the run's stream is gone from the broker — False whenever that cannot be
+        established.
+
+        WHY every failure answers False: this is the fail-safe end of the "unknown never frees a
+        slot" invariant. `stream_exists` does NOT translate its failures the way `last_frame`
+        does — `_stream_exists` returns False only for `NotFoundError` and lets everything else
+        propagate — so a `NoServersError`, a `ConnectionClosedError` or a `nats.errors.
+        TimeoutError` arrives here raw, and a timeout must never be read as absence. The clause
+        is deliberately broad rather than a NATS-specific tuple: the publisher is a PORT (the
+        in-memory adapter implements it too), so the exception classes it may raise are not this
+        module's to enumerate, and the conservative answer is correct for all of them.
+        """
+        try:
+            return not await self._publisher.stream_exists(topic)
+        except Exception:
+            logger.warning(
+                "could not establish whether the stream for %s exists; keeping its slot", topic
+            )
+            return False
+
+    def _forget_reclaimed(self, topic: str, cutoff: datetime) -> None:
+        """Release `topic`'s reservations minted at or before `cutoff` — their runs finished and
+        the runner reclaimed the stream.
+
+        `cutoff` is the same stale-sighting guard `_forget_in_flight` applies to a terminal
+        frame, in the form absence can carry. A topic RE-SCHEDULED after its first run was
+        reclaimed still reads "absent" — the second run's own stream does not exist yet — and
+        releasing every reservation on that sighting would free the live second run's slot. Only
+        reservations old enough for the absence to be about THEM are released; a younger one is
+        a starting run and keeps its slot.
+        """
+        for by_caller in self._in_flight_by_caller.values():
+            tokens = by_caller.get(topic)
+            if not tokens:
+                continue
+            kept = [token for token in tokens if token > cutoff]
+            if kept:
+                by_caller[topic] = kept
+            else:
+                del by_caller[topic]
+        self._compact(topic)
+
+    def _compact(self, topic: str) -> None:
+        """Drop `topic` from the reverse map once no caller holds it, and drop callers left with
+        no in-flight topics — the bookkeeping every per-topic release path shares, so the maps
+        stay bounded by callers with live runs."""
+        if not any(topic in topics for topics in self._in_flight_by_caller.values()):
+            self._caller_of_topic.pop(topic, None)
+        for caller in [c for c, topics in self._in_flight_by_caller.items() if not topics]:
+            del self._in_flight_by_caller[caller]
+
+    def _expire_leases(self) -> None:
+        """Drop reservations older than `reservation_lease_s` — the backstop for what
+        observation cannot reach.
+
+        WHY a second mechanism at all: `_release_finished_for` needs a readable stream tail.
+        A broker that stays unreadable would otherwise leave the slot held until the
+        capability expires, which is 16.3 hours — long enough to lock a caller out for a
+        working day over a transient fault. The lease bounds that without weakening the cap
+        for any run shorter than it.
+        """
+        cutoff = self._clock() - timedelta(seconds=self._reservation_lease_s)
+        for by_caller in self._in_flight_by_caller.values():
+            for topic in list(by_caller):
+                kept = [token for token in by_caller[topic] if token > cutoff]
+                if kept:
+                    by_caller[topic] = kept
+                else:
+                    del by_caller[topic]
+        held = {topic for topics in self._in_flight_by_caller.values() for topic in topics}
+        for topic in [t for t in list(self._caller_of_topic) if t not in held]:
+            self._caller_of_topic.pop(topic, None)
+        for caller in [c for c, topics in self._in_flight_by_caller.items() if not topics]:
+            del self._in_flight_by_caller[caller]
 
     async def _release_reservation(self, topic: str, caller: str, token: datetime) -> None:
         """Release the ONE reservation `token` identifies, for a run that was not durably
@@ -677,12 +860,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 by_caller[topic] = kept
             else:
                 del by_caller[topic]
-        if not any(topic in topics for topics in self._in_flight_by_caller.values()):
-            self._caller_of_topic.pop(topic, None)
-        # Drop callers left with no in-flight topics — the cleanup the single-caller path
-        # always did, so the map stays bounded by callers with live runs.
-        for caller in [c for c, topics in self._in_flight_by_caller.items() if not topics]:
-            del self._in_flight_by_caller[caller]
+        self._compact(topic)
 
     # --- capability validity ---------------------------------------------------------------
 
@@ -711,6 +889,9 @@ class QueueJobRunner(IdentityAwareJobRunner):
         for topic in expired:
             del self._scheduled_at[topic]
             self._forget_in_flight(topic)
+        # OME-1108: the lease is the shorter of the two bounds and is checked on the same
+        # path, so a reservation cannot outlive its run by a capability lifetime.
+        self._expire_leases()
 
 
 __all__ = [

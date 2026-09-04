@@ -1,0 +1,26 @@
+# The runner pool's disruption budget (OME-1092): voluntary disruptions are SERIALIZED, and
+# the drain — not the budget — is what protects in-flight runs.
+#
+# WHY `maxUnavailable: 1` and not `0`: a PodDisruptionBudget cannot see slot occupancy — it
+# knows pod COUNT and nothing else — so `maxUnavailable: 0` does not "wait for the worker's
+# slots to free up"; it makes `disruptionsAllowed` permanently 0, the eviction API answers
+# 429 forever, and `kubectl drain`, node upgrades, and the cluster autoscaler block on this
+# pod indefinitely, idle or not, until someone passes `--disable-eviction`. The actual
+# protection for in-flight runs is the preStop drain + `terminationGracePeriodSeconds >
+# drainGraceS`: an evicted worker SIGTERMs, lets its children finish (or publishes their
+# `worker_draining` frames) inside the grace, and only then exits. `maxUnavailable: 1`
+# serializes voluntary disruptions one pod at a time so a multi-pod pool never loses more
+# than one drain-grace worth of work at once.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "screamingface-engine.fullname" . }}-runner
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runner
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: url4-runner
+      app.kubernetes.io/instance: {{ .Release.Name }}

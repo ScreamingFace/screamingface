@@ -132,13 +132,19 @@ def test_the_secret_key_is_assigned_in_the_secret_template() -> None:
 
 
 def test_runner_scheduling_is_serialized_from_deployment_values() -> None:
-    """INVARIANT: the control plane and every Runner Job share one placement source."""
-    app = _APP_ENV.read_text(encoding="utf-8")
+    """INVARIANT: the runner pool and the Engine Deployment share one placement source.
 
-    assert "URL4_CLOUD_RUNNER_NODE_SELECTOR" in app
-    assert "toJson .Values.nodeSelector" in app
-    assert "URL4_CLOUD_RUNNER_TOLERATIONS" in app
-    assert "toJson .Values.tolerations" in app
+    The Job path serialized placement through the App's env (`URL4_CLOUD_RUNNER_NODE_SELECTOR`);
+    the pool Deployment (OME-1092) reads the same `values.nodeSelector`/`tolerations` directly,
+    so the two Deployments cannot be pointed at different nodes by a one-sided edit.
+    """
+    runner = (_CHART / "deployment-runner.yaml").read_text(encoding="utf-8")
+    app = (_CHART / "deployment.yaml").read_text(encoding="utf-8")
+
+    assert "with .Values.nodeSelector" in runner
+    assert "with .Values.tolerations" in runner
+    assert "with .Values.nodeSelector" in app
+    assert "with .Values.tolerations" in app
 
 
 # --- the bundled store configures itself (OME-929) ---------------------------------------

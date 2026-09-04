@@ -18,46 +18,29 @@ data:
   # (NATS consumer interest) before this can be scaled out. 0 disables the reaper.
   URL4_CLOUD_ORPHAN_GRACE_S: {{ .Values.config.orphanGraceS | quote }}
   # Per-run downstream in-flight budget (OME-908). This is the APP's setting — the value it
-  # writes onto every Job as an explicit env entry (which beats this ConfigMap's `envFrom`,
-  # so a stale copy here can never reach a Job).
+  # writes onto every run as an explicit env entry (which beats this ConfigMap's `envFrom`,
+  # so a stale copy here can never reach a run).
   URL4_CLOUD_RUNNER_IO_CONCURRENCY: {{ .Values.config.runnerIoConcurrency | quote }}
-  # The run substrate the App schedules on (spec §9). `k8s` is what makes this chart functional —
+  # The run substrate the App schedules on (spec §9). `queue` is what makes this chart functional —
   # without it the App bridges NATS but answers every `GET /?q=` with 503.
   URL4_CLOUD_RUNNER: {{ .Values.runner.backend | quote }}
-  # INVARIANT: Jobs are created in the release namespace only — this must match the namespace the
-  # Role/RoleBinding bind, or the App's ServiceAccount is not authorized to create them.
-  URL4_CLOUD_NAMESPACE: {{ .Release.Namespace | quote }}
-  # The image every Runner Job runs, in its run mode (`screamingface-engine run`).
-  # WHY: the App is told the image because a process cannot reliably read
-  # back the image reference it was started from (that lives in the pod spec, needs RBAC on pods,
-  # and the Downward API does not expose it). The derived image carries private benchmark assets
-  # while retaining the control plane's resolved tag.
-  URL4_CLOUD_RUNNER_IMAGE: {{ include "screamingface-engine.runnerImage" . | quote }}
-  {{- with .Values.runner.resources }}
-  # The Runner's own requests/limits. Carried as JSON because a ConfigMap value is a string and
-  # pydantic-settings parses complex fields as JSON — so the k8s `resources` block travels
-  # verbatim instead of being flattened into a per-field env sprawl.
-  URL4_CLOUD_RUNNER_RESOURCES: {{ toJson . | quote }}
-  {{- end }}
-  {{- if .Values.nodeSelector }}
-  # Runner Jobs and the Engine Deployment use the same operator-owned node placement.
-  URL4_CLOUD_RUNNER_NODE_SELECTOR: {{ toJson .Values.nodeSelector | quote }}
-  {{- end }}
-  {{- if .Values.tolerations }}
-  # JSON preserves the Kubernetes toleration structure for each generated Runner Job.
-  URL4_CLOUD_RUNNER_TOLERATIONS: {{ toJson .Values.tolerations | quote }}
-  {{- end }}
-  {{- with .Values.runner.jobTtlSeconds }}
-  # Optional EXTENSION of how long a finished Runner Job is kept. Unset => the App derives the
-  # floor: iatWindowS + a 60s clock-skew margin. It may only ever be raised — the Job's name is
-  # the single-use replay guard, so reclaiming it while the token is still within `exp` re-opens
-  # replay (Settings refuses a lower value at startup).
-  URL4_CLOUD_JOB_TTL_S: {{ . | quote }}
-  {{- end }}
+  # The queue stream's replica count (OME-1088).
+  #
+  # INVARIANT: rendered here AND in the runner pool's env from the SAME value. Both halves
+  # declare the one singleton stream, and `ensure_stream` refuses a declaration whose
+  # properties diverge from an existing one — so a value reaching only one half is a startup
+  # failure for whichever half declares second, visible only on a clustered broker.
+  URL4_CLOUD_RUN_QUEUE_REPLICAS: {{ .Values.config.runQueueReplicas | quote }}
+  # The queue's bucket count (OME-1091).
+  #
+  # INVARIANT: rendered here AND in the runner pool's env from the SAME value. This half
+  # PUBLISHES into one bucket (`bucket_subject`) and the worker POLLS them all
+  # (`bucket_subjects`), so a count reaching only one half is not a startup failure like the
+  # replica count above — it is silent: runs are accepted with a 202, land in buckets nobody
+  # polls, and expire at `run_queue_max_age_s` with nothing to say why.
+  URL4_CLOUD_RUN_QUEUE_BUCKET_COUNT: {{ .Values.config.runQueueBucketCount | quote }}
   {{- with .Values.config.aigatewayBaseUrl }}
-  # Forwarded into every Runner Job as AIGATEWAY_BASE_URL. The Runner's own fallback is loopback,
-  # which inside a Job Pod is that Pod — so this must name the aigateway Service to reach it.
-  # ALSO enables the App's own `GET /v1/models` catalog endpoint (OME-625), which reads aigateway
+  # Enables the App's own `GET /v1/models` catalog endpoint (OME-625), which reads aigateway
   # using the CALLER's forwarded credential — it needs no credential of its own. Unset =>
   # `/v1/models` answers 503.
   # NOT sufficient on its own: the endpoint returns aigateway's catalog INTERSECTED with the
@@ -66,11 +49,7 @@ data:
   # it does NOT stop the App — runs, streaming and health are unaffected.
   URL4_CLOUD_AIGATEWAY_BASE_URL: {{ . | quote }}
   {{- end }}
-  # The ConfigMap of DEPLOY-TIME Runner env (configmap-runner-env.yaml). The App only references
-  # it by name in each Job's `envFrom` — it never reads the keys, so adding a variable there needs
-  # no App change and no restart.
-  URL4_CLOUD_RUNNER_ENV_CONFIGMAP: {{ include "screamingface-engine.fullname" . }}-runner-env
-  # The READ side of the artifact hand-off (OME-929) — the same store the Runner writes to.
+  # The READ side of the artifact hand-off (OME-929) — the same store the worker's children write to.
   #
   # INVARIANT: rendered from the SAME `artifactStorage` values stanza as the Runner's copy in
   # `configmap-runner-env.yaml`. That shared origin is the fix: the two halves used to read one
@@ -93,14 +72,4 @@ data:
   # NOTE: the ACCESS KEY is not here either. It is auto-generated when unset, so it must be
   # stable across upgrades — which means living in the Secret the chart can `lookup`. Both
   # halves of the pair therefore arrive by `envFrom.secretRef`, from one source.
-  # The Secret carrying URL4_CLOUD_ARTIFACT_S3_SECRET_KEY, attached to each Runner Job by the App
-  # with `envFrom.secretRef`. Only the NAME travels here; nothing secret belongs in a ConfigMap.
-  URL4_CLOUD_ARTIFACT_S3_SECRET_NAME: {{ include "screamingface-engine.artifactSecretName" . | quote }}
-  {{- end }}
-  {{- if .Values.tavily.enabled }}
-  # WHY: only the Secret's NAME travels; the App attaches it to each Job with `envFrom.secretRef`
-  # and never reads the credential, so nothing secret belongs in this ConfigMap. The Secret's KEY
-  # must be `TAVILY_API_KEY` — `envFrom` injects keys under their own names and does no renaming.
-  # Absent => the Runner never sees TAVILY_API_KEY and web tools stay off (dec:W5).
-  URL4_CLOUD_TAVILY_SECRET_NAME: {{ include "screamingface-engine.tavilySecretName" . | quote }}
   {{- end }}

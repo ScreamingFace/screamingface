@@ -1,37 +1,12 @@
-from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast
 
 import pytest
-from _k8s_fakes import FakeCoreV1, FakeCreatedJob
 
 from screamingface_engine.adapters.factory import build_job_runner
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
-from screamingface_engine.adapters.k8s import K8sJobRunner
 from screamingface_engine.adapters.queue_runner import QueueJobRunner
 from screamingface_engine.config import Settings
 from screamingface_engine.runner_queue import RunQueue
-
-
-class _FakeBatchApi:
-    def create_namespaced_job(
-        self, namespace: str, body: Mapping[str, object], *, _request_timeout: float | None = None
-    ) -> FakeCreatedJob:  # pragma: no cover
-        raise NotImplementedError
-
-    def read_namespaced_job(
-        self, name: str, namespace: str, *, _request_timeout: float | None = None
-    ) -> Any:  # pragma: no cover
-        raise NotImplementedError
-
-    def delete_namespaced_job(
-        self,
-        name: str,
-        namespace: str,
-        *,
-        propagation_policy: str = "",
-        _request_timeout: float | None = None,
-    ) -> object:  # pragma: no cover
-        raise NotImplementedError
 
 
 def test_runner_none_builds_no_job_runner() -> None:
@@ -42,38 +17,14 @@ def test_default_settings_build_no_job_runner() -> None:
     assert build_job_runner(Settings()) is None
 
 
-def test_k8s_runner_is_built_from_settings() -> None:
-    settings = Settings(
-        runner="k8s",
-        namespace="url4-prod",
-        runner_image="ghcr.io/screamingface/url4-cloud:1.2.3",
-        nats_url="nats://nats.url4-prod:4222",
-    )
-    loaded: list[bool] = []
-
-    runner = build_job_runner(
-        settings,
-        k8s_client_factory=lambda: (loaded.append(True), _FakeBatchApi())[1],
-        core_client_factory=FakeCoreV1,
-    )
-
-    assert isinstance(runner, K8sJobRunner)
-    assert loaded == [True]
-    assert runner._namespace == "url4-prod"
-    assert runner._image == "ghcr.io/screamingface/url4-cloud:1.2.3"
-    # The Job runs the App's OWN image in run mode, so the command IS the mode switch.
-    assert runner._command == ["url4-cloud", "run"]
-
-
 def test_unknown_runner_is_rejected_at_settings_construction() -> None:
     with pytest.raises(ValueError):
         Settings(runner="kubernetes")  # type: ignore[arg-type]
 
 
 def test_queue_runner_is_built_from_settings() -> None:
-    """The queue backend is selectable (OME-1090); the cutover to it is OME-1092, but the
-    adapter must exist and be wired. Nothing connects at construction — the queue, the
-    publisher, and the control client are all lazy."""
+    """The queue backend is the deployed substrate (OME-1090, cut over in OME-1092). Nothing
+    connects at construction — the queue, the publisher, and the control client are all lazy."""
     settings = Settings(
         runner="queue",
         nats_url="nats://localhost:4222",
@@ -84,68 +35,23 @@ def test_queue_runner_is_built_from_settings() -> None:
     runner = build_job_runner(settings)
 
     assert isinstance(runner, QueueJobRunner)
-    assert runner._io_concurrency == 7
-    assert runner._capability_lifetime_s == 1234
+    assert runner._io_concurrency == 7  # noqa: SLF001
+    assert runner._capability_lifetime_s == 1234  # noqa: SLF001
 
 
-def test_k8s_runner_receives_deployment_scheduling() -> None:
+def test_queue_runner_receives_the_admission_knobs() -> None:
+    """OME-1091: the depth ceiling and the per-caller in-flight cap reach the runner."""
     settings = Settings(
-        runner="k8s",
-        runner_node_selector={"openmined.org/pool": "preview"},
-        runner_tolerations=[
-            {
-                "key": "workload",
-                "operator": "Equal",
-                "value": "preview",
-                "effect": "NoSchedule",
-            }
-        ],
+        runner="queue",
+        run_queue_depth_ceiling=500,
+        run_queue_caller_inflight_cap=3,
     )
 
-    runner = build_job_runner(
-        settings,
-        k8s_client_factory=_FakeBatchApi,
-        core_client_factory=FakeCoreV1,
-    )
+    runner = build_job_runner(settings)
 
-    assert isinstance(runner, K8sJobRunner)
-    assert runner._node_selector == {"openmined.org/pool": "preview"}
-    assert runner._tolerations == [
-        {
-            "key": "workload",
-            "operator": "Equal",
-            "value": "preview",
-            "effect": "NoSchedule",
-        }
-    ]
-
-
-def test_k8s_runner_receives_the_settings_io_concurrency() -> None:
-    """OME-908: the per-run downstream budget reaches the runner that writes it onto Jobs."""
-    settings = Settings(runner="k8s", runner_io_concurrency=9)
-
-    runner = build_job_runner(
-        settings,
-        k8s_client_factory=_FakeBatchApi,
-        core_client_factory=FakeCoreV1,
-    )
-
-    assert isinstance(runner, K8sJobRunner)
-    assert runner._io_concurrency == 9
-
-
-def test_k8s_runner_receives_the_core_client() -> None:
-    """OME-1065: the quota/limitrange read surface is wired alongside the batch client."""
-    settings = Settings(runner="k8s", namespace="url4-prod")
-
-    runner = build_job_runner(
-        settings,
-        k8s_client_factory=_FakeBatchApi,
-        core_client_factory=FakeCoreV1,
-    )
-
-    assert isinstance(runner, K8sJobRunner)
-    assert isinstance(runner._core_client, FakeCoreV1)
+    assert isinstance(runner, QueueJobRunner)
+    assert runner._depth_ceiling == 500  # noqa: SLF001
+    assert runner._caller_inflight_cap == 3  # noqa: SLF001
 
 
 def test_the_queue_runner_wires_the_configured_stream_and_prefix_everywhere() -> None:

@@ -36,9 +36,29 @@ ENQUEUED_AT_HEADER = "Url4-Enqueued-At"
 # child. Every worker subscribes to the wildcard; only the owner replies.
 CONTROL_SUBJECT_PREFIX = "url4.runctl"
 
+# The cross-pod ownership channel (OME-1089): a core NATS request/reply subject per run, on
+# which a worker about to claim a REDELIVERED message asks the fleet "is this run executing
+# on another pod right now?" Every worker subscribes to the wildcard; only a worker that owns
+# the run replies, and a non-owner stays SILENT (the prober's request times out rather than
+# receiving a negative answer, so an old worker that never subscribes reads the same as a
+# fleet where nobody owns the run).
+#
+# WHY A SEPARATE SUBJECT and not a new payload on `url4.runctl` (the run-control channel):
+# `url4.runctl.*`'s handler has a SIDE EFFECT — it SIGTERMs the child that owns the topic
+# (`worker.loop._handle_control`), and the App sends `b""` today. A probe smuggled in as a
+# distinguishing payload on that subject would be understood only by workers running the new
+# code; an OLD worker, mid rolling deploy, would read it as the cancel it has always been and
+# KILL a healthy run. A new subject is inert to an old worker: it does not subscribe, does not
+# reply, and the prober fails open — exactly today's behavior.
+OWNERSHIP_SUBJECT_PREFIX = "url4.runown"
+
 
 def control_subject_for(topic: str) -> str:
     return f"{CONTROL_SUBJECT_PREFIX}.{topic}"
+
+
+def ownership_subject_for(topic: str) -> str:
+    return f"{OWNERSHIP_SUBJECT_PREFIX}.{topic}"
 
 
 def subject_for(topic: str) -> str:
@@ -79,10 +99,12 @@ def topic_of(stream_name: str) -> str:
 __all__ = [
     "CONTROL_SUBJECT_PREFIX",
     "ENQUEUED_AT_HEADER",
+    "OWNERSHIP_SUBJECT_PREFIX",
     "RUN_QUEUE_STREAM",
     "RUN_QUEUE_SUBJECT",
     "RUN_QUEUE_SUBJECT_PREFIX",
     "control_subject_for",
+    "ownership_subject_for",
     "owns_stream",
     "stream_for",
     "subject_for",

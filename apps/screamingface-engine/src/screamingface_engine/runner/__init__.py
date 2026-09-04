@@ -1,13 +1,13 @@
 """The DATA PLANE: executing one url4 expression and streaming its observation events.
 
-This is what `screamingface-engine run` enters — the mode a Kubernetes Job runs
-(`K8sJobRunner` schedules the App's own image with that command). It reads its whole
-world from the Job's environment (:mod:`screamingface_engine.job_env`) and publishes
+This is what `screamingface-engine run` enters — the mode the worker pool's children run
+(the worker forks each claimed run as a child from its own image). It reads its whole
+world from the run's environment (:mod:`screamingface_engine.job_env`) and publishes
 to NATS; it serves no port and answers no request.
 
 LAYERING: this subpackage and the control plane (`app`, `rest`, `ws`, `auth`,
-`catalog`, `config`, `metrics`, `ops`, `schemas`, `adapters.k8s`,
-`adapters.factory`) MUST NOT import each other. They share exactly four leaves —
+`catalog`, `config`, `metrics`, `ops`, `schemas`, `adapters.factory`) MUST NOT import
+each other. They share exactly four leaves —
 :mod:`screamingface_engine.job_env`, :mod:`screamingface_engine.subjects`,
 :mod:`screamingface_engine.adapters.jetstream` and
 :mod:`screamingface_engine.world_config` — and `.claude/scripts/check_layering.py`

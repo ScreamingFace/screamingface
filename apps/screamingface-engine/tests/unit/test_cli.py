@@ -37,7 +37,7 @@ def test_serve_subcommand_serves(modes: list[str]) -> None:
 
 
 def test_run_subcommand_runs(modes: list[str]) -> None:
-    # INVARIANT: this is what `K8sJobRunner` puts in every Job's `command`.
+    # INVARIANT: this is what the worker pool's children enter (`screamingface-engine run`).
     cli.main(["run"])
     assert modes == ["run"]
 
