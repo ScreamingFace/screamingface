@@ -67,4 +67,6 @@ No code. Verification gates:
   node picks WS → SSE → sync; sync is the only MUST, SSE/WS/async SHOULD; doc §6, the delivery
   diagram and doctrine T1/T3 updated accordingly. (7) Owner added the typed-payloads research
   (ComfyUI analogy): new §8, seventh diagram `url4-topology-payloads`, Appendix A delta for Part F
-  §25, doctrine N6; Engine and Deferred renumbered to §9/§10.
+  §25, doctrine N6; Engine and Deferred renumbered to §9/§10. (8) Owner example added: any scheme is a
+  source (`s3://`, `pg://`, `sqlite://`) via host-mounted adapters; §2, addressing diagram row,
+  capabilities `schemes`, Appendix A delta 9, doctrine N7.

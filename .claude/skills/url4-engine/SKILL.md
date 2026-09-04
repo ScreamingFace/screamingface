@@ -86,6 +86,9 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
   edge carries a typed value named by its media type (text is the default); binary results go
   inline below a node-declared threshold and by reference (`result.artifact`, plain https data
   URL) above it; nodes advertise `accepts`/`emits`. No grammar change.
+- **N7 — Any scheme is a source (OME-1110 §2).** `s3://`, `pg://`, `sqlite://`, … are reads through
+  scheme adapters the evaluating host mounts and advertises; own credentials, never in the
+  expression; typed by the adapter; unlisted scheme = `unsupported_mode` (Part B §3.5).
 - **N5 — Core never imports backends.** Grammar/AST/resolver live in `packages/url4-python-sdk`
   (a port); backend routes (`/claude`, `/codex`, `/gemini`) register as adapters; wiring is
   registry-driven. *Same hexagonal law as the rest of the monorepo.*

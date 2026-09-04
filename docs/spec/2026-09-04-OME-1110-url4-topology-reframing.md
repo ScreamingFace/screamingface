@@ -52,7 +52,7 @@ Words we do not use in the protocol: *ensembler*, *orchestrator*, *swarm*, *comp
 
 # 2. Addressing
 
-Three address forms. The spec fixes their meaning in Part B §3.1.1 and §5.4; we add one rule about the root.
+Three address forms, plus any other scheme as data. The spec fixes their meaning in Part B §3.1.1, §3.5 and §5.4; we add one rule about the root and one about other schemes.
 
 ![addressing](../diagrams/url4-topology-addressing.svg)
 
@@ -64,6 +64,24 @@ Three address forms. The spec fixes their meaning in Part B §3.1.1 and §5.4; w
 **Root and version.** `/` is the host's default node. The spec makes `/v1` the protocol-version path (v0.2 §35.1). We keep both: `/` serves the current version; `/v1` is an explicit alias. The SDK's `url4 serve` (`/v1`) and `Client` (default `/v1`) move to `/` (Appendix B).
 
 **Scheme inheritance.** A bare relative data URI inherits the scheme of the request that carried it (Part B §5.4.1). Under `url4://` it is a url4 read; under `https://` it is a plain read.
+
+**Any scheme is a source.** The spec fixes the roles of `url4://` (evaluate) and `https://` (read), lists `s3://` with the rule "the node uses its own credentials", and fails unknown schemes with `unsupported_mode` (Part B §3.5). We generalise the `s3://` rule: any other scheme is a **read through a scheme adapter that the evaluating host mounts**. The SDK already has the slot: `FetchRequest.kind` is `url4`, `http`, `relative`, or `other`.
+
+```
+(sales=pg://warehouse/analytics.monthly_sales,
+ logo=s3://brand-assets/logo.png;accept=image/png,
+ notes=sqlite:///srv/app/notes.db/notes,
+ policy=https://data.example/policy.md)!'Draft the Q3 update. Use the logo.'
+```
+
+Rules:
+
+- **The evaluating host resolves it, with its own credentials.** `pg://warehouse` names a connection the host knows; the expression never carries a secret, because the expression is the shareable audit artifact (Part A §1.2).
+- **The adapter types the result** (§8): an S3 object carries its stored `Content-Type`; a table or query returns `application/json` rows, or `text/csv` when asked with `;accept`. Rows are a collection, so `pg://warehouse/analytics.monthly_sales*(row)!'summarise $item'` iterates them (Part B §5.3).
+- **Advertised, or refused.** The host lists its schemes in the capabilities document; an unlisted scheme is `unsupported_mode`, permanent (Part B §3.5). Access control and consent apply as for any source (Part B §5.6.4).
+- **Hexagonal.** A scheme adapter is an `IOLayer` adapter registered by scheme; the core never imports it. `url4 serve` gains a `[schemes]` table beside `[data]`.
+
+What a scheme's path means (bucket and key; database, schema and table; file and table) is the adapter's contract, not the grammar's. The grammar only sees `scheme://authority/path`.
 
 # 3. Node contract
 
@@ -126,6 +144,7 @@ Both share one hazard: the Engine's JWT header is called `URL4-Capability`. The 
     "/upper":     { "mount": "command", "delivery": ["sync"] },
     "/claude":    { "mount": "proxy",   "target": "url4://beta.example/claude" }
   },
+  "schemes": { "s3": {}, "pg": { "connections": ["warehouse"] }, "sqlite": {} },
   "holdings": { "collections": ["default", "science"], "self_ref_support": true }
 }
 ```
@@ -271,7 +290,8 @@ Each item names the anchor and the change. All are proposals.
 6. **v0.2 §34 (Part H in v0.5) — cancellation.** `DELETE` on the run handle (`Location`). Terminal state `cancelled`; SSE event `request.cancelled`; propagates to in-flight children.
 7. **Part D §13 — envelope for sync callers.** `Accept: text/plain` returns the bare answer; `Accept: application/json` returns the envelope, `meta=summary` by default. At `meta=full` the envelope carries a `telemetry` block (`logs[]`, `spans[]`, `cost`) that a node MAY redact per §14.4 (structure kept, `"redacted"` sentinel). `fmt` stays the answer's content format and is orthogonal.
 8. **Part F §25 — typed payloads.** The payload on every edge is a typed value named by its media type; text is the default. Rules: a source declares its type (fetched `Content-Type`, `text/plain`, or the emitting node's type); `;accept` states the consumer's need and `ct_mismatch` the policy; binary results travel inline (`result.content` + `result.media_type`) below a node-declared threshold and by reference (`result.artifact`, an `https://` data URL) above it; WebSocket binary frames MAY carry bytes, SSE goes by reference.
-9. **Part G §27.2 — capabilities document.** Schema as drafted in §5: `nodes` keyed by path, `mount`, `target`, `delivery`, `features`, and `accepts` / `emits` media-type lists with `inline_max_bytes` (§8); `holdings`. Optional binding: the same entry as an `OPTIONS` body with `Content-Type: application/url4-capabilities+json`.
+9. **Part B §3.5 — other schemes.** Generalise the `s3://` row: any scheme other than `url4://`, `https://`, `http://` is a read through a scheme adapter on the evaluating host, resolved with the host's own credentials, typed by the adapter, advertised in the capabilities document (`schemes`), and otherwise `unsupported_mode` (permanent). Path semantics per scheme are the adapter's contract.
+10. **Part G §27.2 — capabilities document.** Schema as drafted in §5: `nodes` keyed by path, `mount`, `target`, `delivery`, `features`, and `accepts` / `emits` media-type lists with `inline_max_bytes` (§8); `schemes` the host reads (§2); `holdings`. Optional binding: the same entry as an `OPTIONS` body with `Content-Type: application/url4-capabilities+json`.
 
 # Appendix B — follow-up work items
 
@@ -286,6 +306,7 @@ To file after owner review, one per landing.
 | url4-sdk | Capabilities document and/or OPTIONS responder, after the §5 decision; advertise `delivery` per node |
 | url4-sdk | `url4 serve` default path `/`; `Client` default path `/`; `/v1` alias |
 | url4-sdk | `proxy` mount kind in `url4.toml` |
+| url4-sdk | Scheme adapters (`s3://`, `pg://`, `sqlite://`, …) as `IOLayer` adapters registered by scheme; `[schemes]` in `url4.toml`; `schemes` in capabilities |
 | url4-sdk | Typed payloads: bytes + media type through `IOLayer`/`FetchRequest`, `;accept`/`ct_mismatch` enforcement, `result.artifact` by-reference fetch |
 | screamingface-engine | Non-text processors over aigateway (image, speech); artifact store as the by-reference path; `accepts`/`emits` in capabilities |
 | url4-sdk | `Url4Node` → host naming retrofit with a deprecation alias |
