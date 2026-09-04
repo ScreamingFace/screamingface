@@ -20,6 +20,7 @@ def modes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     called: list[str] = []
     monkeypatch.setattr(cli, "_serve", lambda: called.append("serve"))
     monkeypatch.setattr(cli, "_run", lambda: called.append("run"))
+    monkeypatch.setattr(cli, "_worker", lambda: called.append("worker"))
     return called
 
 
@@ -39,6 +40,12 @@ def test_run_subcommand_runs(modes: list[str]) -> None:
     # INVARIANT: this is what `K8sJobRunner` puts in every Job's `command`.
     cli.main(["run"])
     assert modes == ["run"]
+
+
+def test_worker_subcommand_workers(modes: list[str]) -> None:
+    # INVARIANT: the worker pool (OME-1086) starts every Pod with this subcommand.
+    cli.main(["worker"])
+    assert modes == ["worker"]
 
 
 def test_an_unknown_mode_exits_loudly_rather_than_serving(modes: list[str]) -> None:
@@ -69,6 +76,39 @@ def test_run_resolves_the_real_runner_entrypoint(monkeypatch: pytest.MonkeyPatch
     cli._run()
 
     assert called == [True]
+
+
+def test_worker_resolves_the_real_worker_entrypoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_worker` itself, unshimmed — so the lazy import is proven to resolve."""
+    import screamingface_engine.worker.loop as worker_loop
+
+    called: list[bool] = []
+    monkeypatch.setattr(worker_loop, "run_worker", lambda: called.append(True))
+
+    cli._worker()
+
+    assert called == [True]
+
+
+def test_worker_mode_does_not_import_the_run_half() -> None:
+    """The worker spawns the run as a child process; it never imports it.
+
+    `check_layering.py` proves it over the import GRAPH; this proves it over what a real
+    interpreter actually loads — the worker's import graph is the serving half's plus the
+    queue, and the engine-bearing run half stays out of the worker's process.
+    """
+    probe = (
+        "import sys, screamingface_engine.worker.loop;"
+        "print(','.join(sorted(m for m in sys.modules if "
+        "m.startswith('screamingface_engine.runner.') or m == 'screamingface_engine.runner' "
+        "or m == 'url4.streaming.lifecycle')))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "", (
+        f"`screamingface-engine worker` loaded the run half: {result.stdout.strip()}"
+    )
 
 
 def test_run_mode_does_not_import_the_serving_stack() -> None:
