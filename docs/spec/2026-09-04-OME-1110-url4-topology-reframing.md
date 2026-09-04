@@ -22,7 +22,7 @@ Each section states a definition, says where the spec agrees or is silent, and s
 | 4 | `.well-known` or OPTIONS? | Both are documented in §5 with their trade-offs. The owner picks there. |
 | 5 | `/name` vs `url4://name`? | `/name` is a node mounted on the host that is evaluating. `url4://name` is host `name`'s default node `/`. Spec Part B §5.4 already says this. |
 | 6 | Where does an ensemble run? | Wherever an evaluator runs: the SDK on a laptop, or a host. A local host may mount remote nodes under local names (proxy mounts). |
-| 7 | Can I test a host first? | One fetch of the host's capabilities document, or one OPTIONS per node (§5). A separate "plan" concept is deferred (§10). |
+| 7 | Can I test a host first? | One fetch of the host's capabilities document, or one OPTIONS per node (§5). A dry-run **plan** on the host is reopened as a question (§10). |
 | 8 | Streaming fallback? | One GET asks for the richest mode; the node answers with the best it has: WebSocket, then SSE, then sync (§6). Sync is the only MUST. Async is a separate axis. |
 | 9 | Text in, text out? | A habit, not a rule. Every edge carries a **typed payload** (text, image, audio, video, embeddings) named by its media type. Text is the default. No grammar change (§8). |
 
@@ -237,7 +237,7 @@ Edges: text → image → text → audio. Three nodes, three processors, one exp
 
 1. **A source declares its type.** A URI source has the `Content-Type` it was fetched with. Inline text is `text/plain`. A nested expression has the type its node emitted. `;accept=<type>` says what the consumer wants; `ct_mismatch` says what to do when the two differ (fail, convert, or pass through).
 2. **A binary result travels inline when small, by reference when large.** Bare sync (`Accept: text/plain` and friends): the response body *is* the bytes, with its `Content-Type`. Envelope: `result.content` carries small payloads base64-encoded with `result.media_type`; large payloads become `result.artifact`, an `https://` URL that the next node fetches as plain data (Part B §3.5). The inline threshold is the node's, advertised in its capabilities. Over WebSocket a binary frame carries the bytes; over SSE a large payload always goes by reference.
-3. **A processor advertises what it accepts and emits.** Two lists of media types per node in the capabilities document or the OPTIONS answer. An evaluator can then type-check an expression before it spends anything: the one place the deferred "plan" idea (§10) would return.
+3. **A processor advertises what it accepts and emits.** Two lists of media types per node in the capabilities document or the OPTIONS answer. An evaluator can then type-check an expression before it spends anything, which is what the plan question in §10 builds on.
 
 ```json
 "/flux":   { "mount": "local",
@@ -272,7 +272,7 @@ Edges: text → image → text → audio. Three nodes, three processors, one exp
 
 **Serverless posture.** A node is a function; it needs no origin of its own. Only the host needs one. The Runner is already function-shaped. The App is not: it holds an audience count in memory, runs two perpetual tasks, and gates runs on an attached WebSocket. Those belong to the product session, not to the node surface, and stay in the App.
 
-# 10. Deferred, and one question to move forward
+# 10. Deferred, and two questions to move forward
 
 **Authentication as a host concern (question, not a decision).** Separating Host from Node makes a safe place for authentication possible, because it gives the credentials exactly one owner. The spec's inter-node auth (v0.2 §22, "under active development") propagates per-destination encrypted tokens in `ABC-Auth-Token` headers, and Part B §3.5 names a `URL4-Auth-Token` with a target type. The SDK defers all of it: `url4 serve` ships no authn or authz and asks for a reverse proxy in front. The Engine already has the shape we want: the App mints a per-run capability token and the Runner only carries it.
 
@@ -289,10 +289,23 @@ Questions to answer before this becomes a section:
 
 Recommendation to explore first: host-issued run capability for nodes (the Engine's pattern), spec §22 tokens between hosts, identity carried in the capability claims. Attribution, consent and audit (Parts E and H) then attach to the same run identity.
 
+**A plan endpoint on the host (question, reopened).** Deferred in the design session; reopened because three later additions give it inputs it did not have: per-node `accepts` and `emits` (§8), per-node `delivery` and `schemes` (§5, §2), and a host egress that already resolves every target's policy before spending (§11). Today the SDK's `Graph.validate()` checks syntax only and the Engine's preflight checks routes on one host.
+
+The idea: a **dry run** on the host. Steps 3 and 4 of §11 without step 5: parse, resolve mounts, type-check every edge against `accepts`/`emits`, check schemes and delivery modes, consult policy and budgets, and return the request tree with per-source verdicts and an estimated cost. Spend nothing. The answer is the envelope (v0.2 §13) with `sources[]` and `meta` filled in and no `result`; a refused source carries its error code, so "can this host run my expression?" becomes one call with a structured no.
+
+Questions:
+
+1. **Shape.** `Prefer: dry-run` on the ordinary GET (the RFC 7240 pattern we already use for `respond-async`), a `plan` protocol parameter beside `q=`, or a separate path? The header keeps the address identical for plan and run, which suits caching and audit.
+2. **Does a plan spend?** Policy-registry consults and budget reservations are real calls. Is a plan free by definition, with `meta.total_cost` as an estimate from `pricing_version`, or may it reserve?
+3. **Is the plan an artifact?** A plan id returned as a handle, so a later run can say "execute this plan" and skip re-planning. That ties to idempotency (§7) and to the token binding of §11.
+4. **Federation.** For a remote subtree, does the host forward `Prefer: dry-run` to the other host and merge its plan, or plan only from that host's capabilities document? The first is exact and costs a round trip; the second is instant and approximate.
+5. **Ownership.** The Engine's preflight admission (OME-880) becomes this endpoint's single-host case. Does the SDK gain `url4 plan`, calling the same thing?
+
+Recommendation to explore first: `Prefer: dry-run` on the same GET, envelope-only answer, cacheable like any GET, forwarded to remote hosts that advertise it and approximated from capabilities where they do not.
+
 **Deferred**
 
 
-- **Plan / preflight** as a defined concept. Today the SDK's `Graph.validate()` checks syntax only and the Engine's preflight checks routes on one host. Deferred by owner decision; §5 answers the practical question.
 - **Swarm** as a protocol noun. Would need membership and trust rules that belong to the unwritten governance parts.
 - **Node grades** (processor-only vs evaluator). Rejected: every node evaluates.
 

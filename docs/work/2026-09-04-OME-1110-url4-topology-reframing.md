@@ -74,4 +74,5 @@ No code. Verification gates:
   six questions listed, grounded on v0.2 §22, Part B §3.5 and the Engine's token-minting App.
   (10) Owner asked for the networking view: new §11 brainstorm (host egress vs delegated token vs
   sidecar; recommendation A for nodes, B between hosts) with the eighth diagram
-  `url4-topology-auth-network` (light + dark).
+  `url4-topology-auth-network` (light + dark). (11) Owner reopened plan/preflight as a question
+  (§10): a host dry run via `Prefer: dry-run`, envelope-only answer; five sub-questions; removed from Deferred.
