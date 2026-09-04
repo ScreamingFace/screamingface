@@ -38,6 +38,7 @@ def _submission(spec_id: str) -> ScoreSubmission:
         total_questions=100,
         correct_questions=80,
         ran_with_providers=["openai"],
+        run_cost_usd="1.000000",
     )
 
 
