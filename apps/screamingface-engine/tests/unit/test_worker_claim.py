@@ -996,3 +996,160 @@ async def test_a_publish_failure_after_exit_does_not_cancel_a_siblings_live_chil
         await claim
     assert fail_msg.acked, "the finished run must ack despite its lost terminal frame"
     assert sib.kill_calls == 0 and sib.terminate_calls == 1
+
+
+# --- 9. an undecodable BODY is data, not a code bug ----------------------------------------
+
+
+def _undecodable() -> bytes:
+    """A queue body this worker cannot decode: not JSON at all."""
+    return b"{not json at all"
+
+
+async def test_an_undecodable_message_does_not_cancel_a_siblings_live_child() -> None:
+    """`topic_of_message` JSON-decodes the body, and every call to it sits OUTSIDE a guard.
+    One body this worker cannot decode — a foreign publisher, a stray `nats pub`, a codec
+    skew across a rolling deploy — escaped its supervisor into the shared TaskGroup,
+    cancelling every co-located supervisor; each one's cleanup SIGKILLs its live child. One
+    poison message killed every healthy run on the pod, and because it was never acked it
+    redelivered and did it again until `max_deliver`.
+
+    INVARIANT: a message body is DATA, and data is contained per message — a body can only
+    ever spoil the one message carrying it, so it is settled and logged while every sibling
+    run continues. A defect in the worker's own code is a different case and stays loud."""
+    sib_msg = _FakeMsg(encode_message("t-sib", "'hi'", 60))
+    poison_msg = _FakeMsg(_undecodable())
+    sib = _FakeProcess(hang=True)
+    spawned = asyncio.Event()
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawned.set()
+        return sib
+
+    class _PoisonOnceLiveQueue(_FakeQueue):
+        """Serves the poison body only once the sibling's child is LIVE — landing it any
+        earlier leaves the blast-radius assertion nothing to blast."""
+
+        def __init__(self) -> None:
+            super().__init__([[sib_msg]])
+            self.served_poison = False
+
+        async def pull(self, batch: int, timeout_s: float) -> list[_FakeMsg]:
+            self.pull_calls.append((batch, timeout_s))
+            if self._batches:
+                return self._batches.pop(0)
+            if not self.served_poison and spawned.is_set():
+                self.served_poison = True
+                return [poison_msg]
+            await asyncio.sleep(timeout_s)
+            return []
+
+    queue = _PoisonOnceLiveQueue()
+    worker = _worker(queue, _FakePublisher(), slots=2, spawn=fake_spawn, drain_grace_s=0.1)
+    async with asyncio.TaskGroup() as tg:
+        claim = tg.create_task(worker._claim_loop(tg))  # noqa: SLF001
+        await _wait_until(lambda: poison_msg.acked, timeout_s=5.0)
+        assert sib.kill_calls == 0, "a live sibling must survive an undecodable message"
+        assert sib.terminate_calls == 0, "a live sibling must not be touched at all"
+        worker._draining.set()  # noqa: SLF001
+        await _wait_until(lambda: sib.terminate_calls == 1 or sib.kill_calls == 1, timeout_s=5.0)
+        assert sib.kill_calls == 0, "the sibling must not be caught in any cascade"
+        assert sib.terminate_calls == 1, "the sibling must be drained, not killed"
+        await claim
+
+
+async def test_an_undecodable_message_is_acked_so_it_cannot_redeliver_forever() -> None:
+    """A body that cannot be decoded can neither be executed nor reported: the topic it
+    would name is exactly the thing that is unreadable, so there is no run stream to
+    publish a terminal frame to. Acking is what stops it coming back — left unacked it
+    redelivers until `max_deliver`, reproducing the same failure on every attempt."""
+    msg = _FakeMsg(_undecodable())
+    spawns: list[Any] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawns.append(kwargs)
+        return _FakeProcess(0)
+
+    publisher = _FakePublisher()
+    worker = _worker(_FakeQueue(), publisher, spawn=fake_spawn)
+
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked, "an undecodable message must be settled, not left to redeliver"
+    assert not spawns, "nothing may be executed from a body that could not be decoded"
+    assert not publisher.published, "there is no topic to publish a terminal frame to"
+
+
+async def test_a_body_that_names_no_topic_is_settled_like_an_undecodable_one() -> None:
+    """The decode can succeed and still not name a run: `topic_of_message` indexes
+    `job_env.TOPIC` and raises `KeyError` when the mapping lacks it. Same class of defect,
+    same containment — the alternative is the same pod-wide cascade."""
+    msg = _FakeMsg(json.dumps({"something": "else"}).encode())
+    worker = _worker(_FakeQueue(), _FakePublisher(), spawn=_async_proc(_FakeProcess(0)))
+
+    await worker._supervisor.supervise(msg)
+
+    assert msg.acked, "a body that names no topic must be settled, not left to redeliver"
+
+
+async def test_an_unreadable_deadline_executes_the_run_instead_of_killing_the_pod() -> None:
+    """`_capability_expired` and `_hard_wall_s` both `float()` the message's deadline, and
+    a body that decodes perfectly well can still carry a non-numeric one. Unguarded, that
+    raised out of the claim into the shared TaskGroup — the same cascade, from a third site.
+
+    INVARIANT: an unreadable deadline is treated as ABSENT, which is the safe direction
+    both methods already document (not expired; unbounded). Nothing is lost by deferring:
+    the child re-reads the same value and `runner.main._deadline_from_env` REFUSES a
+    malformed one, so the run fails fast with its own terminal frame. The worker's only
+    obligation is to not die first."""
+    msg = _FakeMsg(
+        json.dumps(
+            {
+                job_env.TOPIC: "t-bad-deadline",
+                job_env.EXPRESSION: "'hi'",
+                job_env.JOB_DEADLINE_S: "whenever",
+            }
+        ).encode()
+    )
+    spawns: list[Any] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawns.append(kwargs)
+        return _FakeProcess(0)
+
+    publisher = _FakePublisher()
+    worker = _worker(_FakeQueue(), publisher, spawn=fake_spawn)
+
+    await worker._supervisor.supervise(msg)
+
+    assert len(spawns) == 1, "the run must be executed, not dropped on an unreadable deadline"
+    assert msg.acked
+    assert not publisher.published, "an unreadable deadline must not read as an expired one"
+
+
+async def test_an_unreadable_stream_grace_does_not_kill_the_pod_either() -> None:
+    """`_hard_wall_s` also `float()`s `STREAM_GRACE_S`, which travels in the same mapping
+    and can be malformed independently of the deadline — a second unguarded conversion on
+    the same line, and the same cascade if it raises."""
+    msg = _FakeMsg(
+        json.dumps(
+            {
+                job_env.TOPIC: "t-bad-grace",
+                job_env.EXPRESSION: "'hi'",
+                job_env.JOB_DEADLINE_S: "60",
+                job_env.STREAM_GRACE_S: "a while",
+            }
+        ).encode()
+    )
+    spawns: list[Any] = []
+
+    async def fake_spawn(*args: Any, **kwargs: Any) -> _FakeProcess:
+        spawns.append(kwargs)
+        return _FakeProcess(0)
+
+    worker = _worker(_FakeQueue(), _FakePublisher(), spawn=fake_spawn)
+
+    await worker._supervisor.supervise(msg)
+
+    assert len(spawns) == 1, "the run must be executed, not lost to a malformed grace"
+    assert msg.acked
