@@ -61,6 +61,7 @@ class ScreamingFaceError(Exception):
         # read is an id they cannot quote in a report, which is the whole point of holding it.
         if self.trace_id is not None:
             rendered.append(f"Trace: {self.trace_id}")
+        rendered.extend(getattr(self, "__notes__", ()))
         return ["\n".join(rendered)]
 
 

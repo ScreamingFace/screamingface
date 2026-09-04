@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-import logging
 from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from screamingface.errors import PlanningError
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
+from screamingface._diagnostics.evaluation import _EvaluationDiagnostic
 from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.model import (
     Candidate,
@@ -22,6 +20,18 @@ from screamingface._evaluation.model import (
     _validate_limit,
 )
 from screamingface._evaluation.model_parameters import preflight_async, preflight_sync
+from screamingface._evaluation.observers import (
+    _abort_event_observer,
+    _async_event_observer,
+    _AsyncEventObserver,
+    _evaluation_diagnostic,
+    _reconcile_event_observer,
+    _record_compiled_evaluation,
+    _record_validated_evaluation,
+    _stage_diagnostic,
+    _sync_event_observer,
+    _SyncEventObserver,
+)
 from screamingface.discovery import ModelDetails, ModelInfo
 from screamingface.events import Event
 from screamingface.recipe import Recipe
@@ -41,7 +51,6 @@ type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
 type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
-_logger = logging.getLogger(__name__)
 
 
 def evaluate_sync(
@@ -50,45 +59,52 @@ def evaluate_sync(
     load_models: _SyncModelLoading,
     load_model_details: _SyncModelDetailsLoading,
     candidates: Recipe | Sequence[Recipe],
-    benchmark: str,
+    benchmark: str | None,
     limit: int | None,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
+    *,
+    engine_url: str,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
-    from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.results import report_from_outcomes
-    from screamingface.errors import PlanningError
 
-    _evaluation_options(on_event, progress)
-    values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = load_benchmark(benchmark, limit)
-    check_disclosure = _validate_check_surface(values, benchmark, resource)
-    evaluation = compile_evaluation(values, resource, limit)
-    catalog = load_models()
-    # The availability probe (OME-878): a details fetch for EVERY listing-missing
-    # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
-    # pre-spend), or answers a plain 404 that reads as today's refusal.
-    for model in _missing_required_models(evaluation, catalog.models):
-        try:
-            load_model_details(model)
-        except PlanningError as exc:
-            _reraise_probe_miss(model, exc)
-    preflight_sync(tuple(evaluation.candidates), load_model_details)
-    observer = _sync_event_observer(
-        on_event,
-        progress,
-        tuple(evaluation.candidates),
-        evaluation.case_count,
-        benchmark,
-        check_disclosure=check_disclosure,
+    diagnostic = _evaluation_diagnostic(
+        engine_url=engine_url,
+        benchmark=benchmark,
+        candidates=candidates,
     )
+    observer: _SyncEventObserver | None = None
     try:
+        evaluation, check_disclosure = _prepare_evaluation_sync(
+            load_benchmark,
+            load_models,
+            load_model_details,
+            candidates,
+            benchmark,
+            limit,
+            on_event,
+            progress,
+            diagnostic,
+        )
+        observer = _sync_event_observer(
+            on_event,
+            progress,
+            tuple(evaluation.candidates),
+            evaluation.case_count,
+            benchmark,
+            check_disclosure=check_disclosure,
+            diagnostic=diagnostic,
+        )
         outcomes = _run_candidates_sync(transport, tuple(evaluation.candidates), observer)
         report = report_from_outcomes(evaluation, outcomes)
+    except (SystemExit, GeneratorExit) as exc:
+        _abort_event_observer(observer, exc)
+        raise
     except BaseException as exc:
         _abort_event_observer(observer, exc)
+        _stage_diagnostic(diagnostic, exc)
         raise
     _reconcile_event_observer(observer, report)
     return report
@@ -100,48 +116,137 @@ async def evaluate_async(
     load_models: _AsyncModelLoading,
     load_model_details: _AsyncModelDetailsLoading,
     candidates: Recipe | Sequence[Recipe],
-    benchmark: str,
+    benchmark: str | None,
     limit: int | None,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
+    *,
+    engine_url: str,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
-    from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.results import report_from_outcomes
-    from screamingface.errors import PlanningError
+
+    diagnostic = _evaluation_diagnostic(
+        engine_url=engine_url,
+        benchmark=benchmark,
+        candidates=candidates,
+    )
+    observer: _AsyncEventObserver | None = None
+    try:
+        evaluation, check_disclosure = await _prepare_evaluation_async(
+            load_benchmark,
+            load_models,
+            load_model_details,
+            candidates,
+            benchmark,
+            limit,
+            on_event,
+            progress,
+            diagnostic,
+        )
+        observer = _async_event_observer(
+            on_event,
+            progress,
+            tuple(evaluation.candidates),
+            evaluation.case_count,
+            benchmark,
+            check_disclosure=check_disclosure,
+            diagnostic=diagnostic,
+        )
+        outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
+        report = report_from_outcomes(evaluation, outcomes)
+    except (SystemExit, GeneratorExit) as exc:
+        _abort_event_observer(observer, exc)
+        raise
+    except BaseException as exc:
+        _abort_event_observer(observer, exc)
+        _stage_diagnostic(diagnostic, exc)
+        raise
+    _reconcile_event_observer(observer, report)
+    return report
+
+
+def _prepare_evaluation_sync(
+    load_benchmark: _SyncBenchmarkLoading,
+    load_models: _SyncModelLoading,
+    load_model_details: _SyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str | None,
+    limit: int | None,
+    on_event: object,
+    progress: object,
+    diagnostic: _EvaluationDiagnostic | None,
+) -> tuple[_Evaluation, str | None]:
+    from screamingface._evaluation.compilation import compile_evaluation
 
     _evaluation_options(on_event, progress)
-    values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = await load_benchmark(benchmark, limit)
-    check_disclosure = _validate_check_surface(values, benchmark, resource)
+    selected_benchmark = _benchmark_id(benchmark)
+    values = _evaluation_inputs(candidates, selected_benchmark, limit)
+    resource = load_benchmark(selected_benchmark, limit)
+    check_disclosure = _validate_check_surface(values, selected_benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
+    _record_compiled_evaluation(diagnostic, evaluation)
+    catalog = load_models()
+    _probe_missing_models_sync(evaluation, catalog.models, load_model_details)
+    preflight_sync(tuple(evaluation.candidates), load_model_details)
+    _record_validated_evaluation(diagnostic, evaluation)
+    return evaluation, check_disclosure
+
+
+async def _prepare_evaluation_async(
+    load_benchmark: _AsyncBenchmarkLoading,
+    load_models: _AsyncModelLoading,
+    load_model_details: _AsyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str | None,
+    limit: int | None,
+    on_event: object,
+    progress: object,
+    diagnostic: _EvaluationDiagnostic | None,
+) -> tuple[_Evaluation, str | None]:
+    from screamingface._evaluation.compilation import compile_evaluation
+
+    _evaluation_options(on_event, progress)
+    selected_benchmark = _benchmark_id(benchmark)
+    values = _evaluation_inputs(candidates, selected_benchmark, limit)
+    resource = await load_benchmark(selected_benchmark, limit)
+    check_disclosure = _validate_check_surface(values, selected_benchmark, resource)
+    evaluation = compile_evaluation(values, resource, limit)
+    _record_compiled_evaluation(diagnostic, evaluation)
     catalog = await load_models()
-    # The availability probe (OME-878): a details fetch for EVERY listing-missing
-    # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
-    # pre-spend), or answers a plain 404 that reads as today's refusal.
-    for model in _missing_required_models(evaluation, catalog.models):
+    await _probe_missing_models_async(evaluation, catalog.models, load_model_details)
+    await preflight_async(tuple(evaluation.candidates), load_model_details)
+    _record_validated_evaluation(diagnostic, evaluation)
+    return evaluation, check_disclosure
+
+
+def _probe_missing_models_sync(
+    evaluation: _Evaluation,
+    models: Sequence[ModelInfo],
+    load_model_details: _SyncModelDetailsLoading,
+) -> None:
+    from screamingface.errors import PlanningError
+
+    for model in _missing_required_models(evaluation, models):
+        try:
+            load_model_details(model)
+        except PlanningError as exc:
+            _reraise_probe_miss(model, exc)
+
+
+async def _probe_missing_models_async(
+    evaluation: _Evaluation,
+    models: Sequence[ModelInfo],
+    load_model_details: _AsyncModelDetailsLoading,
+) -> None:
+    from screamingface.errors import PlanningError
+
+    for model in _missing_required_models(evaluation, models):
         try:
             await load_model_details(model)
         except PlanningError as exc:
             _reraise_probe_miss(model, exc)
-    await preflight_async(tuple(evaluation.candidates), load_model_details)
-    observer = _async_event_observer(
-        on_event,
-        progress,
-        tuple(evaluation.candidates),
-        evaluation.case_count,
-        benchmark,
-        check_disclosure=check_disclosure,
-    )
-    try:
-        outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
-        report = report_from_outcomes(evaluation, outcomes)
-    except BaseException as exc:
-        _abort_event_observer(observer, exc)
-        raise
-    _reconcile_event_observer(observer, report)
-    return report
 
 
 def _evaluation_options(on_event: object, progress: object) -> None:
@@ -149,204 +254,6 @@ def _evaluation_options(on_event: object, progress: object) -> None:
         raise TypeError("on_event must be callable or None")
     if progress is not None and not isinstance(progress, bool):
         raise TypeError("progress must be True, False, or None")
-
-
-def _sync_event_observer(
-    callback: Callable[[Event], None] | None,
-    progress: bool | None,
-    candidates: tuple[Candidate, ...] = (),
-    case_count: int | None = None,
-    benchmark: str | None = None,
-    check_disclosure: str | None = None,
-) -> _SyncEventObserver | None:
-    from screamingface._evaluation.progress import _progress_observer
-
-    builtin = _progress_observer(
-        progress,
-        candidates=candidates,
-        case_count=case_count,
-        benchmark=benchmark,
-        check_disclosure=check_disclosure,
-    )
-    if builtin is None and callback is None:
-        return None
-    return _SyncEventObserver(builtin, callback)
-
-
-def _async_event_observer(
-    callback: Callable[[Event], None | Awaitable[None]] | None,
-    progress: bool | None,
-    candidates: tuple[Candidate, ...] = (),
-    case_count: int | None = None,
-    benchmark: str | None = None,
-    check_disclosure: str | None = None,
-) -> _AsyncEventObserver | None:
-    from screamingface._evaluation.progress import _progress_observer
-
-    builtin = _progress_observer(
-        progress,
-        candidates=candidates,
-        case_count=case_count,
-        benchmark=benchmark,
-        check_disclosure=check_disclosure,
-    )
-    if builtin is None and callback is None:
-        return None
-    return _AsyncEventObserver(builtin, callback)
-
-
-class _SyncEventObserver:
-    def __init__(
-        self,
-        builtin: object | None,
-        callback: Callable[[Event], None] | None,
-    ) -> None:
-        self._builtin = builtin
-        self._callback = callback
-        self._lock = Lock()
-
-    def begin(self, candidate: Candidate) -> None:
-        with self._lock:
-            if self._builtin is not None:
-                _begin_candidate_progress(self._builtin, candidate)
-
-    def bind(self, candidate: Candidate) -> Callable[[Event], None]:
-        def observe(event: Event) -> None:
-            with self._lock:
-                if self._builtin is not None:
-                    _observe_candidate_progress(self._builtin, candidate, event)
-                if self._callback is not None:
-                    self._callback(event)
-
-        return observe
-
-    def reconcile(self, report: Report) -> None:
-        _reconcile_progress(self._builtin, report)
-
-    def abort(self, exc: BaseException) -> None:
-        _abort_progress(self._builtin, exc)
-
-    def close(self) -> None:
-        _close_progress(self._builtin)
-
-
-class _AsyncEventObserver:
-    def __init__(
-        self,
-        builtin: object | None,
-        callback: Callable[[Event], None | Awaitable[None]] | None,
-    ) -> None:
-        self._builtin = builtin
-        self._callback = callback
-        self._lock = asyncio.Lock()
-
-    async def begin(self, candidate: Candidate) -> None:
-        async with self._lock:
-            if self._builtin is not None:
-                _begin_candidate_progress(self._builtin, candidate)
-
-    def bind(self, candidate: Candidate) -> Callable[[Event], Awaitable[None]]:
-        async def observe(event: Event) -> None:
-            async with self._lock:
-                if self._builtin is not None:
-                    _observe_candidate_progress(self._builtin, candidate, event)
-                if self._callback is not None:
-                    returned = self._callback(event)
-                    if inspect.isawaitable(returned):
-                        await returned
-
-        return observe
-
-    def reconcile(self, report: Report) -> None:
-        _reconcile_progress(self._builtin, report)
-
-    def abort(self, exc: BaseException) -> None:
-        _abort_progress(self._builtin, exc)
-
-    def close(self) -> None:
-        _close_progress(self._builtin)
-
-
-def _close_event_observer(observer: object) -> None:
-    if isinstance(observer, (_SyncEventObserver, _AsyncEventObserver)):
-        observer.close()
-
-
-def _reconcile_event_observer(observer: object, report: Report) -> None:
-    if isinstance(observer, (_SyncEventObserver, _AsyncEventObserver)):
-        observer.reconcile(report)
-
-
-def _abort_event_observer(observer: object, exc: BaseException) -> None:
-    if isinstance(observer, (_SyncEventObserver, _AsyncEventObserver)):
-        observer.abort(exc)
-
-
-def _close_progress(observer: object) -> None:
-    close = getattr(observer, "close", None)
-    if not callable(close):
-        return
-    try:
-        close()
-    except Exception:
-        _logger.exception("ScreamingFace progress cleanup failed")
-
-
-def _observe_candidate_progress(observer: object, candidate: Candidate, event: Event) -> None:
-    selected = getattr(observer, "observe", None)
-    if not callable(selected):
-        _logger.error("ScreamingFace progress observer has no Candidate observation method")
-        return
-    _observe_progress(selected, candidate, event)
-
-
-def _begin_candidate_progress(observer: object, candidate: Candidate) -> None:
-    begin = getattr(observer, "begin", None)
-    if not callable(begin):
-        _logger.error("ScreamingFace progress observer has no Candidate begin method")
-        return
-    _observe_progress(begin, candidate)
-
-
-def _reconcile_progress(observer: object | None, report: Report) -> None:
-    if observer is None:
-        return
-    reconcile = getattr(observer, "reconcile", None)
-    if not callable(reconcile):
-        return
-    try:
-        reconcile(report)
-    except Exception:
-        _logger.exception("ScreamingFace progress reconciliation failed")
-        _close_progress(observer)
-
-
-def _abort_progress(observer: object | None, exc: BaseException) -> None:
-    if observer is None:
-        return
-    abort = getattr(observer, "abort", None)
-    if not callable(abort):
-        _close_progress(observer)
-        return
-    try:
-        abort(exc)
-    except Exception:
-        _logger.exception("ScreamingFace progress finalization failed")
-        _close_progress(observer)
-
-
-def _observe_progress(observer: Callable[..., object], *values: object) -> None:
-    """Keep decorative progress output outside the Evaluation failure boundary."""
-
-    try:
-        observer(*values)
-    except (OSError, ValueError):
-        # Closed pipes and notebook streams must not cancel paid Engine work.
-        return
-    except Exception:
-        # Progress is decorative, so an unexpected renderer defect must not abort paid work.
-        # Log it rather than swallowing it: this path needs to remain diagnosable.
-        _logger.exception("ScreamingFace progress rendering failed")
 
 
 def _run_candidates_sync(
@@ -527,6 +434,16 @@ def _evaluation_inputs(
         raise ValueError("benchmark must name an explicit Benchmark, not 'default'")
     _validate_limit(limit)
     return values
+
+
+def _benchmark_id(value: object) -> str:
+    if value is None:
+        raise TypeError("benchmark is required when evaluating Recipes")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("benchmark must be a non-empty string")
+    if value == "default":
+        raise ValueError("benchmark must name an explicit Benchmark, not 'default'")
+    return value
 
 
 __all__: list[str] = []

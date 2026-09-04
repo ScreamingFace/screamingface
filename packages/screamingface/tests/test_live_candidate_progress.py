@@ -12,14 +12,13 @@ import pytest
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate, _compiled_candidate, _compiled_operation
-from screamingface._evaluation.runner import (
+from screamingface._evaluation.observers import (
     _abort_event_observer,
     _AsyncEventObserver,
     _reconcile_event_observer,
-    _run_candidates_async,
-    _run_candidates_sync,
     _SyncEventObserver,
 )
+from screamingface._evaluation.runner import _run_candidates_async, _run_candidates_sync
 from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.evaluation_view import _evaluation_fragments
 from screamingface._ui.style import _DARK, _LIGHT, FUSION_GRADIENT, STYLE

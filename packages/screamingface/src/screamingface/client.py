@@ -236,15 +236,15 @@ class Client:
 
         self._require_open()
         if isinstance(candidates, str):
-            _raw_url4_options(benchmark, limit)
             return evaluate_url4_sync(
                 self._transport,
                 candidates,
+                benchmark,
+                limit,
                 on_event,
                 progress,
+                engine_url=self._engine_url,
             )
-        if benchmark is None:
-            raise TypeError("benchmark is required when evaluating Recipes")
         return evaluate_sync(
             self._benchmark_resources.load,
             self._transport,
@@ -255,6 +255,7 @@ class Client:
             limit,
             on_event,
             progress,
+            engine_url=self._engine_url,
         )
 
     @overload
@@ -560,15 +561,15 @@ class AsyncClient:
 
         self._require_open()
         if isinstance(candidates, str):
-            _raw_url4_options(benchmark, limit)
             return await evaluate_url4_async(
                 self._transport,
                 candidates,
+                benchmark,
+                limit,
                 on_event,
                 progress,
+                engine_url=self._engine_url,
             )
-        if benchmark is None:
-            raise TypeError("benchmark is required when evaluating Recipes")
         return await evaluate_async(
             self._benchmark_resources.load,
             self._transport,
@@ -579,6 +580,7 @@ class AsyncClient:
             limit,
             on_event,
             progress,
+            engine_url=self._engine_url,
         )
 
     @overload
@@ -667,13 +669,6 @@ class AsyncClient:
             headers=headers,
             extensions={_REPLAY_SAFE: replay_safe},
         )
-
-
-def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
-    if benchmark is not None:
-        raise TypeError("benchmark must not be passed when evaluating a complete URL4")
-    if limit is not None:
-        raise TypeError("limit must not be passed when evaluating a complete URL4")
 
 
 def _engine_access_discovery_error(origin: str) -> BaseException:

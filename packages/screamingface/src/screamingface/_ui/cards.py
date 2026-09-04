@@ -6,8 +6,8 @@ from collections.abc import Mapping, Sequence
 from html import escape
 from typing import TYPE_CHECKING
 
+from screamingface._engine_origin import _is_hosted_engine
 from screamingface._ui.card_style import CARD_STYLE
-from screamingface._ui.engine_origin import _is_hosted_engine
 from screamingface.recipe import _recipe_kind
 
 if TYPE_CHECKING:

@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from html import escape
 from typing import TYPE_CHECKING, Any, Protocol, assert_never
 
+from screamingface._engine_origin import _is_screamingface_engine
 from screamingface._ui.connection_state import _ConnectionPanelState
-from screamingface._ui.engine_origin import _is_screamingface_engine
 from screamingface._ui.provider_icons import provider_icon_html
 from screamingface._ui.style import STYLE, _theme_rules
 

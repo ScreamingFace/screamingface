@@ -30,33 +30,55 @@ from screamingface.url4 import _validate_topology
 def evaluate_url4_sync(
     transport: SyncRunTransport,
     url4: str,
+    benchmark: str | None,
+    limit: int | None,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
+    *,
+    engine_url: str,
 ) -> Report:
     """Execute one already-linked evaluation expression unchanged."""
 
-    from screamingface._evaluation.runner import (
+    from screamingface._evaluation.observers import (
         _abort_event_observer,
-        _evaluation_options,
+        _evaluation_diagnostic,
         _reconcile_event_observer,
+        _record_compiled_candidate,
+        _stage_diagnostic,
         _sync_event_observer,
     )
+    from screamingface._evaluation.runner import _evaluation_options
 
-    _evaluation_options(on_event, progress)
-    candidate = _candidate_from_url4(url4)
-    observer = _sync_event_observer(
-        on_event,
-        progress,
-        (candidate,),
-        None,
-        "URL4 replay",
+    diagnostic = _evaluation_diagnostic(
+        engine_url=engine_url,
+        benchmark=None,
+        mode="url4_replay",
     )
+    observer = None
     try:
+        _raw_url4_options(benchmark, limit)
+        _evaluation_options(on_event, progress)
+        candidate = _candidate_from_url4(url4)
+        _record_compiled_candidate(diagnostic, candidate)
+        observer = _sync_event_observer(
+            on_event,
+            progress,
+            (candidate,),
+            None,
+            "URL4 replay",
+            diagnostic=diagnostic,
+        )
+        if observer is not None:
+            observer.begin(candidate)
         bound = None if observer is None else observer.bind(candidate)
         outcome = transport.run(candidate, bound)
         report = report_from_url4_outcome(candidate, outcome)
+    except (SystemExit, GeneratorExit) as exc:
+        _abort_event_observer(observer, exc)
+        raise
     except BaseException as exc:
         _abort_event_observer(observer, exc)
+        _stage_diagnostic(diagnostic, exc)
         raise
     _reconcile_event_observer(observer, report)
     return report
@@ -65,36 +87,65 @@ def evaluate_url4_sync(
 async def evaluate_url4_async(
     transport: AsyncRunTransport,
     url4: str,
+    benchmark: str | None,
+    limit: int | None,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
+    *,
+    engine_url: str,
 ) -> Report:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
-    from screamingface._evaluation.runner import (
+    from screamingface._evaluation.observers import (
         _abort_event_observer,
         _async_event_observer,
-        _evaluation_options,
+        _evaluation_diagnostic,
         _reconcile_event_observer,
+        _record_compiled_candidate,
+        _stage_diagnostic,
     )
+    from screamingface._evaluation.runner import _evaluation_options
 
-    _evaluation_options(on_event, progress)
-    candidate = _candidate_from_url4(url4)
-    observer = _async_event_observer(
-        on_event,
-        progress,
-        (candidate,),
-        None,
-        "URL4 replay",
+    diagnostic = _evaluation_diagnostic(
+        engine_url=engine_url,
+        benchmark=None,
+        mode="url4_replay",
     )
+    observer = None
     try:
+        _raw_url4_options(benchmark, limit)
+        _evaluation_options(on_event, progress)
+        candidate = _candidate_from_url4(url4)
+        _record_compiled_candidate(diagnostic, candidate)
+        observer = _async_event_observer(
+            on_event,
+            progress,
+            (candidate,),
+            None,
+            "URL4 replay",
+            diagnostic=diagnostic,
+        )
+        if observer is not None:
+            await observer.begin(candidate)
         bound = None if observer is None else observer.bind(candidate)
         outcome = await transport.run(candidate, bound)
         report = report_from_url4_outcome(candidate, outcome)
+    except (SystemExit, GeneratorExit) as exc:
+        _abort_event_observer(observer, exc)
+        raise
     except BaseException as exc:
         _abort_event_observer(observer, exc)
+        _stage_diagnostic(diagnostic, exc)
         raise
     _reconcile_event_observer(observer, report)
     return report
+
+
+def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
+    if benchmark is not None:
+        raise TypeError("benchmark must not be passed when evaluating a complete URL4")
+    if limit is not None:
+        raise TypeError("limit must not be passed when evaluating a complete URL4")
 
 
 def _candidate_from_url4(value: str) -> Candidate:
