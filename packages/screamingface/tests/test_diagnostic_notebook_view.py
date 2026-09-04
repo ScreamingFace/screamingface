@@ -179,6 +179,7 @@ def test_notebook_renderer_falls_back_to_the_existing_renderer(
 ) -> None:
     error = sf.ExecutionError("The Engine disconnected.", code="websocket_disconnected")
     expected = error._render_traceback_()
+    receipt = _receipt()
     monkeypatch.setattr(
         "screamingface._ui.diagnostic_view.running_in_notebook",
         lambda: True,
@@ -188,9 +189,58 @@ def test_notebook_renderer_falls_back_to_the_existing_renderer(
         lambda receipt: (_ for _ in ()).throw(RuntimeError("display unavailable")),
     )
 
-    _attach_notebook_renderer(error, _receipt())
+    _attach_notebook_renderer(error, receipt)
 
-    assert error._render_traceback_() == expected
+    rendered = error._render_traceback_()
+    assert rendered[: len(expected)] == expected
+    recovery = "".join(rendered[len(expected) :])
+    assert recovery.count(receipt.diagnostic_id) == 2
+    assert (
+        f'sf.diagnostics.get("{receipt.diagnostic_id}").export("screamingface-diagnostic.json")'
+    ) in recovery
+
+
+def test_failed_notebook_display_is_logged_without_receipt_and_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    error = TypeError("benchmark is required")
+    receipt = _receipt(diagnostic_id="diag_private_evidence")
+    attempts = 0
+
+    def fail_display(selected: DiagnosticReceipt) -> None:
+        nonlocal attempts
+        assert selected is receipt
+        attempts += 1
+        raise RuntimeError("display unavailable")
+
+    monkeypatch.setattr(
+        "screamingface._ui.diagnostic_view.running_in_notebook",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "screamingface._ui.diagnostic_view._display_notebook_diagnostic",
+        fail_display,
+    )
+
+    _attach_notebook_renderer(error, receipt)
+
+    first = getattr(error, "_render_traceback_")()
+    second = getattr(error, "_render_traceback_")()
+    assert second == first
+    assert attempts == 1
+    assert "".join(first).count("Diagnostic: ") == 1
+    assert (
+        len(
+            [
+                record
+                for record in caplog.records
+                if record.message == "ScreamingFace diagnostic presentation failed"
+            ]
+        )
+        == 1
+    )
+    assert receipt.to_json() not in caplog.text
 
 
 def test_notebook_renderer_preserves_existing_traceback_after_successful_display(

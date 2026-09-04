@@ -19,7 +19,7 @@ from screamingface._diagnostics.model import _new_receipt, _ReceiptEvidence
 from screamingface._diagnostics.store import _STORE
 from screamingface._environment import running_in_notebook
 from screamingface._evaluation.model import Candidate, _Evaluation
-from screamingface.diagnostic import DiagnosticReceipt
+from screamingface.diagnostic import DiagnosticReceipt, _export_guidance
 from screamingface.events import Event, Span, Terminated
 from screamingface.recipe import Recipe, _recipe_kind
 
@@ -232,14 +232,6 @@ def _relative_operation(event: Event) -> str | None:
     if not name.startswith("/") or len(name) > 256 or any(mark in name for mark in ("?", "#")):
         return None
     return name
-
-
-def _export_guidance(receipt: DiagnosticReceipt) -> str:
-    return (
-        f"Diagnostic: {receipt.diagnostic_id}. Export with "
-        f'sf.diagnostics.get("{receipt.diagnostic_id}").export('
-        '"screamingface-diagnostic.json")'
-    )
 
 
 def _trace_id(traceparent: str | None) -> str | None:

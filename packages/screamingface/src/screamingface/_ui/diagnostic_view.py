@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import traceback
 from collections.abc import Callable
 from html import escape
@@ -9,9 +10,10 @@ from typing import Any, cast
 
 from screamingface._environment import running_in_notebook
 from screamingface._ui.style import STYLE
-from screamingface.diagnostic import DiagnosticReceipt
+from screamingface.diagnostic import DiagnosticReceipt, _export_guidance
 
 _EXPORT_PATH = "screamingface-diagnostic.json"
+_logger = logging.getLogger(__name__)
 
 _STYLE = (
     STYLE
@@ -132,19 +134,24 @@ def _attach_notebook_renderer(error: BaseException, receipt: DiagnosticReceipt) 
     if getattr(error, "_screamingface_diagnostic_id", None) is not None:
         return
     fallback = _fallback_renderer(error)
-    shown = False
+    attempted = False
+    presentation_failed = False
 
     def render() -> list[str]:
-        nonlocal shown
-        if not shown:
+        nonlocal attempted, presentation_failed
+        if not attempted:
+            attempted = True
             try:
                 _display_notebook_diagnostic(receipt)
             except Exception:
-                # INVARIANT: optional presentation can never hide the operation's real traceback.
-                return fallback()
-            shown = True
+                presentation_failed = True
+                # INVARIANT: log adapter failure, never the retained receipt or its contents.
+                _logger.exception("ScreamingFace diagnostic presentation failed")
         # INVARIANT: the toolbar is additive; IPython uses these lines as the native traceback.
-        return fallback()
+        rendered = fallback()
+        if presentation_failed:
+            return [*rendered, f"\n{_export_guidance(receipt)}\n"]
+        return rendered
 
     # WHY: IPython asks the exception value for this protocol. An instance attachment also covers
     # raw TypeError/ValueError failures without wrapping them or intercepting unrelated cells.

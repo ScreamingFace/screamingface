@@ -61,6 +61,14 @@ class DiagnosticReceipt:
         return f"DiagnosticReceipt({self.diagnostic_id!r}, outcome={self.outcome!r})"
 
 
+def _export_guidance(receipt: DiagnosticReceipt) -> str:
+    return (
+        f"Diagnostic: {receipt.diagnostic_id}. Export with "
+        f'sf.diagnostics.get("{receipt.diagnostic_id}").export('
+        '"screamingface-diagnostic.json")'
+    )
+
+
 def _string_field(document: Mapping[str, object], name: str) -> str:
     value = document[name]
     if not isinstance(value, str):
