@@ -58,7 +58,9 @@ digest evidence and provide the exact destructive operation the existing runbook
   safety run: 26 passed. The final gate includes all 610 Python tests.
 - **Deviations:** the prior test asserting package semver was the rollback floor was corrected
   under the owner's explicit 2026-09-04 Confidence-Gate approval, so the append-only check was
-  skipped and documented. No database model or migration changed. Production Helm revision/image
-  evidence is intentionally not claimed: this machine has no Scoreboard cluster context, so
-  Linear remains In Progress after the code PR until an operator records that evidence and runs
-  the preflight in a production pod.
+  skipped and documented. The two direct-submission fixtures added here include a cost even though
+  it is optional on this branch, so the independently published OME-822 contract PR is safe to
+  merge before or after this one. No database model or migration changed. Production Helm
+  revision/image evidence is intentionally not claimed: this machine has no Scoreboard cluster
+  context, so Linear remains In Progress after the code PR until an operator records that evidence
+  and runs the preflight in a production pod.
