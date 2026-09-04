@@ -128,17 +128,26 @@ def _key_hash(body: _Description) -> str:
 def _cache_status_value(status: str, *, reason: str | None, key_hash: str | None) -> str:
     """The RFC 9211 ``Cache-Status`` member for this lane (spec §Interface).
 
-    hit    → ``aigateway; hit; key=<prefix>``
+    hit    → ``aigateway; hit; key="<prefix>"``
     miss   → ``aigateway; fwd=miss``
     bypass → ``aigateway; fwd=bypass; detail=<reason>``
 
-    The member name is the cache identity the Runner's parser selects, and every value
-    is an RFC 8941 Token (hex prefix, ``fwd``/``detail`` keywords, the published reason
-    vocabulary), so nothing needs quoting.
+    The member name is the cache identity the Runner's parser selects. Each parameter is
+    serialized at the type RFC 9211 assigns it, which is what decides the quoting:
+
+    * ``key`` is a **String** (§2.7), so it is quoted — always, whatever it contains.
+    * ``fwd`` is a **Token** (§2.2), so the forward reason is bare.
+    * ``detail`` is "either a String or a Token" (§2.8), so the published reason
+      vocabulary stays bare; every word in it is already token-safe.
+
+    AIDEV-NOTE: the quotes on ``key`` are its TYPE, not an escaping detail the hex prefix
+    happens not to need. Emitting it bare makes it a Token, which a strict RFC 8941 parser
+    reads as a type mismatch rather than as a key (PR #782 review). The prefix comes from a
+    hex digest, so no character in it can ever need an RFC 8941 escape.
     """
     if status == "hit":
         assert key_hash is not None  # INVARIANT: a hit always publishes its key prefix
-        return f"aigateway; hit; key={key_hash[:KEY_PREFIX_LENGTH]}"
+        return f'aigateway; hit; key="{key_hash[:KEY_PREFIX_LENGTH]}"'
     if status == "miss":
         return "aigateway; fwd=miss"
     if reason is not None:

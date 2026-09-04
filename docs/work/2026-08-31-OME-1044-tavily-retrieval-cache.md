@@ -124,3 +124,101 @@ RED first, in this order:
   `origin/main` before the PR (which rewrote both shas), and the repo squash-merges, so every
   pre-merge sha is ephemeral. The durable one is the squash commit on `main` — recorded in the
   Linear close-comment per the card's `close_template`, which is the right place for it.
+
+---
+
+## Review follow-up iteration — 2026-09-04 (RFC 9211 `key` quoting)
+
+Same ticket, same PR (#782), post-approval. Kept in this ledger rather than a second file,
+matching the earlier `fix(aigateway): address OME-1044 review findings` iteration.
+
+### Intent
+
+PR #782's approving review (HupBaHa, 2026-09-04) left one non-blocking nit: the
+`Cache-Status` `key` parameter is emitted bare (`key=a1b2c3d4e5f6`). RFC 9211 §2.7 types
+`key` as a **String** — "The value of 'key' is a String that conveys a representation of the
+cache key" — and an RFC 8941 String is quoted. A bare hex prefix serializes as a Token, so a
+strict consumer reads a type mismatch rather than a key.
+
+The nit is narrow and correct: `fwd` is a Token (§2.2) and `detail` is "either a String or a
+Token" (§2.8), so `fwd=miss` and `detail=cache_unavailable` are already conformant and do NOT
+change.
+
+### Planned changes
+
+- `apps/aigateway/src/aigateway/routes/tavily_retrieval_cache.py` — `_cache_status_value()`
+  emits `key="<prefix>"`. The docstring's rationale is wrong today ("every value is an RFC
+  8941 Token … so nothing needs quoting"): the RFC fixes `key`'s type regardless of whether
+  the content needs escaping. Replaced with the per-parameter citation.
+- `apps/aigateway/tests/unit/tavily_retrieval/test_tavily_retrieval_routes.py` — the prior
+  test `test_a_hit_publishes_the_rfc_9211_cache_status_header` asserts the bare form; it is
+  the test that encodes the defect. **Prior-test edit — see Deviations.**
+- `docs/spec/2026-08-31-OME-1043-tavily-retrieval-cache.md:101` — the spec's own example is
+  where the bare form came from. The code obeys the spec, so a code-only fix would leave the
+  defect in the source of truth.
+
+### Test plan
+
+RED first: change the route test to the quoted form and confirm it fails against the current
+emitter for exactly that reason (bare vs quoted), then GREEN with the one-line emitter change.
+Coverage of the surrounding contract is unchanged and stays green: `fwd=miss`,
+`fwd=bypass; detail=…`, and the 12-character prefix equality with `X-AIGW-Cache-Key`.
+
+No consumer change is needed. The Runner's parser (`runner/cache_readback.py::_unquote`)
+returns an undelimited value unchanged and already covers the quoted form at
+`tests/unit/test_cache_readback.py:240`, and the legacy `X-AIGW-Cache-Key` fallback is
+untouched. `Cache-Status` has no other producer or consumer in `apps/` or `packages/`.
+
+### Acceptance
+
+- A hit emits `Cache-Status: aigateway; hit; key="<12-hex prefix>"`.
+- `fwd=miss` / `fwd=bypass; detail=<reason>` are byte-identical to before.
+- The spec example and the code agree again.
+- aigateway gates green.
+
+### Outcome
+
+- **Actual files:** as planned, plus one sentence of spec prose so the quoting is a stated
+  contract rather than a detail readers must infer from an example.
+  - modified: `routes/tavily_retrieval_cache.py` (`_cache_status_value` emits
+    `key="<prefix>"`; the docstring now cites the per-parameter RFC type),
+    `tests/unit/tavily_retrieval/test_tavily_retrieval_routes.py`,
+    `docs/spec/2026-08-31-OME-1043-tavily-retrieval-cache.md`
+  - `fwd=miss` and `fwd=bypass; detail=<reason>` are byte-identical to before.
+
+- **RED → GREEN:** the route test failed on exactly the two quote characters
+  (`- key="fa76935da884"` / `+ key=fa76935da884`) and nothing else, then passed on the
+  one-line emitter change.
+
+- **Gates:** `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` →
+  **ALL GATES GREEN** (ruff check, ruff format --check, pyright, check_no_enterprise,
+  pytest `--cov=aigateway --cov-fail-under=80`).
+
+- **Blast radius — a wire contract changed, and it is safe:**
+  - The Runner's parser strips no delimiters it did not find: `_unquote`
+    (`apps/screamingface-engine/src/screamingface_engine/runner/cache_readback.py`) returns
+    an undelimited value unchanged, so it read the bare form and reads the quoted one. The
+    quoted form is already covered at `tests/unit/test_cache_readback.py:240`, which is the
+    evidence this is a no-op for the consumer.
+  - The legacy `X-AIGW-Cache-Key` fallback is untouched, so an older Runner is unaffected
+    either way.
+  - `Cache-Status` has no other producer or consumer in `apps/` or `packages/` — this lane is
+    the repo's only emitter. No engine-side change was needed and none was made.
+
+- **Deviations:**
+  1. **A prior test was edited** — `test_a_hit_publishes_the_rfc_9211_cache_status_header`.
+     Normally a Confidence-Gate stop (rule 5). Here the test IS the defect: it pinned the
+     non-conformant bare form, so no append-only path to the fix exists. The owner approved
+     this specific edit in-session, after the file and line were named. The edit strengthens
+     the assertion — it adds the quoting invariant and its RFC citation, and weakens nothing.
+     The sanctioned escape `--skip-append-only` was used; every other gate ran in full.
+  2. **The spec was corrected, not just the code.** `docs/spec/…-OME-1043-…md:101` is where
+     the bare form originated, so the implementation was spec-conformant and the defect lived
+     in the source of truth. A code-only fix would have left the two disagreeing.
+  3. **No RFC 8941 String serializer was added** (YAGNI). The value is a prefix of a hex
+     digest, so no character in it can ever need an escape; an `AIDEV-NOTE` records that
+     reasoning rather than a helper nobody else calls.
+  4. **`detail` deliberately stays bare.** RFC 9211 §2.8 types it "either a String or a
+     Token", so the reason vocabulary is already conformant. The review scoped the nit to
+     `key` and that scoping is correct — widening it would have changed a conformant header
+     for no reason.

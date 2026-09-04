@@ -169,14 +169,20 @@ def test_a_miss_publishes_the_rfc_9211_cache_status_header(cache_client: TestCli
 
 
 def test_a_hit_publishes_the_rfc_9211_cache_status_header(cache_client: TestClient) -> None:
-    # INVARIANT (spec §Interface): a hit is `hit; key=<prefix>`, and the prefix is the
+    # INVARIANT (spec §Interface): a hit is `hit; key="<prefix>"`, and the prefix is the
     # SAME 12-character prefix the legacy header carries — enough to correlate two
     # requests, never the whole digest.
+    #
+    # INVARIANT: the key is QUOTED. RFC 9211 §2.7 types `key` as a String, and an RFC 8941
+    # String is delimited — so the quotes are the parameter's TYPE, not an escaping detail
+    # the hex prefix happens not to need. A bare prefix serializes as a Token instead, which
+    # a strict consumer reads as a type mismatch rather than as a key (PR #782 review).
     cache_client.post(ENTRIES, json={**_SEARCH, "result": _RESULT})
     hit = cache_client.post(LOOKUP, json=_SEARCH)
     assert hit.status_code == 200, hit.text
-    assert hit.headers["Cache-Status"] == (f"aigateway; hit; key={hit.headers['X-AIGW-Cache-Key']}")
-    assert len(hit.headers["X-AIGW-Cache-Key"]) == 12
+    prefix = hit.headers["X-AIGW-Cache-Key"]
+    assert hit.headers["Cache-Status"] == f'aigateway; hit; key="{prefix}"'
+    assert len(prefix) == 12
 
 
 def test_the_exclusion_order_does_not_split_one_logical_set(cache_client: TestClient) -> None:

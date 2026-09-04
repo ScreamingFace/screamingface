@@ -98,7 +98,7 @@ POST /v1/retrieval/tavily/cache/lookup
 {"provider":"tavily","tool":"web_search","query":"…",
  "search_depth":"advanced","max_results":5,"excluded_domains":["arxiv.org"]}
 
-200  Cache-Status: aigateway; hit; key=a1b2c3d4
+200  Cache-Status: aigateway; hit; key="a1b2c3d4"
      Age: 3600
      {"status":"hit","result":"Title: …\nURL: …\nContent: …"}
 
@@ -108,6 +108,12 @@ POST /v1/retrieval/tavily/cache/lookup
 200  Cache-Status: aigateway; fwd=bypass; detail=disabled
      {"status":"bypass","reason":"disabled","result":null}
 ```
+
+Each parameter is serialized at the type RFC 9211 assigns it, so **`key` is quoted and the
+other two are not**: `key` is a String (§2.7), `fwd` is a Token (§2.2), and `detail` is
+"either a String or a Token" (§2.8), which lets the reason vocabulary stay bare. Quoting
+`key` is a matter of its type, not of its content — the value is a hex prefix that can never
+need an RFC 8941 escape.
 
 ```
 POST /v1/retrieval/tavily/cache/entries
