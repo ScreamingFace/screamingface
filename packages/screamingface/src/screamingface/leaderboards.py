@@ -29,12 +29,7 @@ def submit(
 ) -> LeaderboardScore:
     """Publish one evaluated Candidate Result to its registered Leaderboard."""
 
-    leaderboards = default_client().leaderboards
-    # INVARIANT (OME-1053): the no-authors lazy call remains the exact delegation it was before
-    # this keyword existed. Only an explicit credit line adds the new argument and wire field.
-    if authors is None:
-        return leaderboards.submit(candidate_result)
-    return leaderboards.submit(candidate_result, authors=authors)
+    return default_client().leaderboards.submit(candidate_result, authors=authors)
 
 
 def get_score(score_id: UUID | str) -> LeaderboardScore:

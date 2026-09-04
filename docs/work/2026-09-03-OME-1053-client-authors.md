@@ -123,3 +123,43 @@ the server promises.
   precheck was skipped for this authorized correction; all other package gates ran unchanged.
 - **Scope:** diagnostics findings raised during the follow-up were verified as absent from PR #830
   and were not mixed into this unit of work.
+
+## Lazy delegation cleanup — 2026-09-04
+
+### Intent
+
+Remove the behaviorally redundant `authors is None` branch from the lazy leaderboard facade so
+delegation has one explicit, maintainable path.
+
+### Planned changes
+
+- Update the lazy-client test double and assertions to require forwarding both omitted and explicit
+  author values.
+- Replace the conditional delegation and its compatibility comment with one call.
+
+### Test plan
+
+- RED: make the lazy-delegation test require `authors=None` to be forwarded and confirm the old
+  branch fails that assertion.
+- GREEN: run the focused lazy delegation test and the complete ScreamingFace gate runner.
+
+### Acceptance
+
+- The lazy facade always delegates exactly once with `authors=authors`.
+- Omitted authors still produce no `authors` field in the Scoreboard request body.
+- Existing and explicit-author delegation remain covered.
+
+### Outcome
+
+- **Actual files:** simplified `leaderboards.py`, strengthened its existing lazy-delegation test,
+  and recorded this follow-up in the OME-1053 ledger.
+- **RED/GREEN:** the strengthened test first failed because the old branch omitted the keyword;
+  after the one-call implementation, 22 focused author, conflict, and delegation tests passed.
+- **Gates:** the complete ScreamingFace gate runner passed ruff check and format, pyright, pytest
+  with the 95% coverage floor, notebook validation, wheel build, and distribution checks.
+- **Deviation:** the owner explicitly approved updating the prior fake-client test as part of
+  removing the branch. The append-only precheck was skipped for that authorized test correction;
+  every substantive package gate ran unchanged.
+- **Wisdom review:** this removes speculative compatibility logic without changing the public or
+  wire contract; `authors=None` is still omitted by the submission serializer. No schema,
+  dependency, security, or UI behavior changed.

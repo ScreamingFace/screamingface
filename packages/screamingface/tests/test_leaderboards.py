@@ -579,6 +579,8 @@ async def test_async_client_submits_and_gets_scores() -> None:
 
 
 def test_module_leaderboards_delegate_to_the_lazy_default_client(monkeypatch: Any) -> None:
+    omitted = object()
+
     class Leaderboards:
         def list(self) -> tuple[str, ...]:
             return ("draco",)
@@ -586,8 +588,13 @@ def test_module_leaderboards_delegate_to_the_lazy_default_client(monkeypatch: An
         def get(self, benchmark_id: str, *, top: int = 50) -> str:
             return f"{benchmark_id}:{top}"
 
-        def submit(self, candidate_result: object) -> tuple[str, object]:
-            return ("submitted", candidate_result)
+        def submit(
+            self,
+            candidate_result: object,
+            *,
+            authors: object = omitted,
+        ) -> tuple[str, object, object]:
+            return ("submitted", candidate_result, authors)
 
         def get_score(self, score_id: object) -> tuple[str, object]:
             return ("score", score_id)
@@ -600,7 +607,12 @@ def test_module_leaderboards_delegate_to_the_lazy_default_client(monkeypatch: An
     assert sf.leaderboards.list() == ("draco",)
     assert sf.leaderboards.get("draco", top=20) == "draco:20"
     candidate = _candidate_result()
-    assert sf.leaderboards.submit(candidate) == ("submitted", candidate)
+    assert sf.leaderboards.submit(candidate) == ("submitted", candidate, None)
+    assert sf.leaderboards.submit(candidate, authors=("alice@example.com",)) == (
+        "submitted",
+        candidate,
+        ("alice@example.com",),
+    )
     assert sf.leaderboards.get_score(SCORE_ID) == ("score", SCORE_ID)
 
     monkeypatch.setattr(_default_client, "_client", None)
