@@ -1,6 +1,6 @@
 [project]
 name = "aigateway"
-version = "0.2.1"
+version = "0.3.0"
 description = "LiteLLM-compatible AI gateway: unified OpenAI-shape API in front of Anthropic / OpenAI / Gemini / Ollama"
 requires-python = ">=3.12"
 dependencies = [
