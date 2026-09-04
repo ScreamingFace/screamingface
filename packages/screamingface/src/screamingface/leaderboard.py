@@ -307,13 +307,16 @@ def _names(values: object, label: str) -> tuple[str, ...]:
 def _authors(values: object, label: str) -> tuple[str, ...]:
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
         raise TypeError(f"{label} must be a sequence")
-    selected = tuple(_text(value, label) for value in values)
+    selected = tuple(values)
     if not selected:
         raise ValueError(f"{label} must not be empty")
-    if len(selected) > 10:
-        raise ValueError(f"{label} must contain at most 10 values")
+    if any(not isinstance(value, str) for value in selected):
+        raise TypeError(f"{label} values must be strings")
+    if any(not value.strip() for value in selected):
+        raise ValueError(f"{label} values must be non-blank")
     # INVARIANT (OME-1053): authorship is an ordered credit line. Unlike provider names,
-    # duplicates are preserved because the client must not rewrite the Scoreboard's public value.
+    # duplicates and surrounding whitespace are preserved because the client must not rewrite the
+    # Scoreboard's public value. The ten-address bound belongs only to the submission write seam.
     return selected
 
 

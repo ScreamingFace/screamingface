@@ -31,14 +31,17 @@ const configure = `sf.configure(
 const publish = `report = sf.evaluate(candidate, benchmark="ifeval", limit=3)
 
 # publish one candidate
-sf.leaderboards.submit(report.candidates.only)
+sf.leaderboards.submit(
+    report.candidates.only,
+    authors=["alice@example.com", "bob@example.org"],
+)
 
 # or publish every candidate in the report
 [sf.leaderboards.submit(c) for c in report.candidates]`
 
 const fetchScore = `score = sf.leaderboards.get_score("57cc25d7-00bf-44ec-bf9d-55d66cd1e003")
-score.score, score.total_questions, score.verified_by_screamingface`
-const fetchScoreOut = `(1.0, 1, False)`
+score.score, score.authors, score.verified_by_screamingface`
+const fetchScoreOut = `(1.0, ('alice', 'bob'), False)`
 
 const remix = `plan = score.url4.to_python()   # Model / Fusion / Pipeline, free
 sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
@@ -110,11 +113,11 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
           </td>
         </tr>
         <tr>
-          <td><code>sf.leaderboards.submit(candidate_result)</code></td>
+          <td><code>sf.leaderboards.submit(candidate_result, *, authors=None)</code></td>
           <td>
             Publishes one evaluated <code>CandidateResult</code>. The Client derives benchmark id,
-            spec id, url4, the benchmark-native score, providers, and the idempotency key from
-            that result.
+            spec id, url4, the benchmark-native score, providers, and the idempotency key from that
+            result. An optional author list supplies the exact credit line.
           </td>
         </tr>
         <tr>
@@ -136,9 +139,9 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
 
     <p>
       Ranking is best-per-spec: for each <code>spec_id</code> the leaderboard keeps the highest
-      score, and breaks ties by newest <code>submitted_at</code>. The table is then ordered by
-      score descending. Baselines are imported separately and sit beside community entries; they
-      are not the same as a submitted score.
+      score, and breaks ties by newest <code>submitted_at</code>. The table is then ordered by score
+      descending. Baselines are imported separately and sit beside community entries; they are not
+      the same as a submitted score.
     </p>
 
     <h2>How to</h2>
@@ -166,10 +169,11 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
     </div>
 
     <p>
-      Each entry carries <code>score</code>, <code>total_questions</code>, the providers used,
-      who submitted it when that is known, the <code>verified_by_screamingface</code> flag, and the
-      <code>url4</code> expression. Notebook displays render the board as an interactive widget; the
-      fields above are what each entry holds.
+      Each entry carries <code>score</code>, <code>total_questions</code>, the providers used, who
+      submitted it when that is known, its separate <code>authors</code> credit line, the
+      <code>verified_by_screamingface</code> flag, and the <code>url4</code> expression. Public
+      author values omit email domains. Notebook displays render the board as an interactive widget;
+      the fields above are what each entry holds.
     </p>
 
     <p>
@@ -204,23 +208,32 @@ sf.evaluate(score.url4)        # fresh paid replay; omit benchmark= and limit=`
       candidate, or iterate <code>report.candidates</code> to publish every candidate in the report.
     </p>
 
+    <p>
+      Pass <code>authors=[...]</code> to set the exact ordered credit line. It accepts one to ten
+      email addresses, preserves duplicates, and never adds the authenticated submitter for you.
+      Omit the argument to use the leaderboard's default credit line. Authorship grants credit, not
+      ownership or access to a private submission.
+    </p>
+
     <div class="not-prose">
       <NbCell :count="5" :code="publish" />
     </div>
 
     <p>
       The Client posts <code>score</code>, <code>total_questions</code>, the compiled
-      <code>url4_expression</code>, provider names, and client metadata. The
-      <code>Idempotency-Key</code> header is the candidate's <code>run_id</code>, so a retry of
-      the same run replays the original score instead of inserting a duplicate.
+      <code>url4_expression</code>, provider names, optional authors, and client metadata. The
+      <code>Idempotency-Key</code> header is the candidate's <code>run_id</code>, so a retry of the
+      same run reuses the original score instead of inserting a duplicate. A resubmission by the
+      same submitter can correct its author list. If another correction wins the same race, the
+      Client reports a retryable conflict; retry the submission.
     </p>
 
     <p>
       The score is benchmark-native: the Client submits <code>CandidateResult.score</code> exactly
-      as the benchmark's own grading produced it — fractional for DRACO's weighted rubrics,
-      negative for HealthBench worst-30 — and never derives a replacement from case grades,
-      normalizes, or bounds it. The only universal requirements are that a score exists and is a
-      finite number; unscored or non-finite results are rejected before HTTP.
+      as the benchmark's own grading produced it — fractional for DRACO's weighted rubrics, negative
+      for HealthBench worst-30 — and never derives a replacement from case grades, normalizes, or
+      bounds it. The only universal requirements are that a score exists and is a finite number;
+      unscored or non-finite results are rejected before HTTP.
     </p>
 
     <h3>5 · Fetch a published score</h3>

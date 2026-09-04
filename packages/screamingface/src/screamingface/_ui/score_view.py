@@ -34,15 +34,17 @@ def leaderboard_score_html(value: LeaderboardScore) -> str:
     identity = str(value.benchmark_id) + (f" · rev {revision}" if revision else "")
     questions = f"{value.total_questions} question" + ("" if value.total_questions == 1 else "s")
     receipt = " · ".join((questions, f"id {str(value.id)[:8]}…"))
+    authors = ", ".join(value.authors) if value.authors else "—"
     cells = [
         # INVARIANT (OME-866): the score renders as stored — plain number, no ×100,
         # no percent. _score_text is shared with the Report card so the same figure
         # never renders two ways in one notebook.
         _cell("score", _score_text(value.score), score=True),
         _cell("spec", str(value.spec_id)),
-        # "—" here is honest: the SDK never claims an author; identity is attached
-        # by the Scoreboard's auth layer (or stays empty on a local stack).
-        _cell("author", value.submitted_by or "—"),
+        # INVARIANT (OME-1053): ownership and credit are distinct. Keep both visible so the
+        # receipt never calls the authenticated submitter an author the caller did not credit.
+        _cell("submitter", value.submitted_by or "—"),
+        _cell("authors", authors, title=authors),
         _cell("submitted", _stamp(value.submitted_at)),
     ]
     return (

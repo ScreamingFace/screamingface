@@ -1,11 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Features
-
-* **screamingface:** submit and read leaderboard co-authors
-
 ## 0.1.1 (2026-08-13)
 
 Baseline-only release. `0.1.0` and `0.1.1` were both uploaded to PyPI by hand rather than by

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1053
 stack: screamingface
-status: done
+status: in_review
 started: 2026-09-03
-finished: 2026-09-03
+finished: 2026-09-04
 ---
 
 # OME-1053 — Add co-author emails to client submissions
@@ -69,3 +69,57 @@ and leaderboard values.
   skipped only for that authorized mechanical snapshot update. All test behavior was added
   append-only. Read support was included in this unit by owner decision so the SDK does not
   silently discard the Scoreboard's new response field.
+
+## Review follow-up — 2026-09-04
+
+### Intent
+
+Close the validated PR review findings before marking the client authorship change ready: keep
+write validation aligned with Scoreboard while making reads forward-compatible, present authorship
+honestly in the receipt and public docs, and classify Scoreboard conflicts with the retry remedy
+the server promises.
+
+### Planned changes
+
+- Add regression tests for accepted write boundaries, uncapped and exact read values, retryable
+  submission conflicts, and separate submitter/authors receipt fields.
+- Remove the write-only author cap and normalization from read models while retaining structural
+  response validation.
+- Render separate submitter and authors values in the notebook receipt.
+- Treat Scoreboard submission conflicts as retryable with a stable client error code and hint.
+- Remove the manual release-please changelog entry and update both public leaderboard docs pages.
+
+### Test plan
+
+- RED: run the new focused ScreamingFace tests and confirm each review regression fails for its
+  intended reason.
+- GREEN: run the full ScreamingFace gate runner.
+- Run the public-docs lint, typecheck, and production build gates.
+
+### Acceptance
+
+- Exactly ten authors and a 255-character address are accepted on writes; the existing rejected
+  boundaries remain rejected.
+- Reads accept more than ten nonblank authors and preserve each string byte-for-byte.
+- The receipt labels and displays both submitter and authors without changing SFDS styling.
+- Submission HTTP 409 raises a retryable `LeaderboardError` with a conflict-specific remedy.
+- Release automation owns the changelog entry and deployed public docs describe the new API.
+
+### Outcome
+
+- **Actual files:** updated the Scoreboard adapter, public leaderboard models, notebook receipt,
+  leaderboard tests, and both public-docs leaderboard pages; removed the hand-written changelog
+  entry so release-please remains the sole owner of release notes.
+- **RED/GREEN:** the focused review suite first failed in the four intended areas (conflict
+  classification, read cap, exact read text, and receipt fields), then passed with 21 tests.
+  The complete package suite passed with 1,334 tests and 22 skips.
+- **Package gates:** the canonical ScreamingFace gate runner passed ruff check and format, pyright,
+  pytest with the 95% coverage floor, notebook validation, wheel build, and distribution checks.
+- **Public-docs gates:** Prettier, oxlint, ESLint, Vue typechecking, and the production Vite build
+  passed.
+- **Deviation:** one test added by the original OME-1053 commit treated eleven returned authors as
+  malformed. The approved review correction removed that write-only limit from the read contract,
+  so that parameter was replaced with positive forward-compatibility coverage. The append-only
+  precheck was skipped for this authorized correction; all other package gates ran unchanged.
+- **Scope:** diagnostics findings raised during the follow-up were verified as absent from PR #830
+  and were not mixed into this unit of work.

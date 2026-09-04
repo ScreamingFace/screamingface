@@ -259,13 +259,19 @@ def _response_json(
     if not response.is_success:
         details = _error_details(response)
         suffix = f" ({details})" if isinstance(details, str) and details else ""
+        submission_conflict = response.status_code == 409 and operation == "submit a score to"
         raise LeaderboardError(
             f"Could not {operation} the Scoreboard: HTTP {response.status_code}{suffix}",
             scoreboard_url=scoreboard_url,
             code=_status_code(response.status_code, operation),
             status=response.status_code,
-            permanent=response.status_code < 500 and response.status_code != 429,
+            permanent=(
+                response.status_code < 500
+                and response.status_code != 429
+                and not submission_conflict
+            ),
             details=details,
+            hint="Retry the submission." if submission_conflict else None,
         )
     try:
         return response.json()
@@ -290,6 +296,7 @@ def _status_code(status: int, operation: str) -> str:
         400: "invalid_score_submission",
         401: "scoreboard_authentication_required",
         403: "score_submission_forbidden",
+        409: "score_submission_conflict",
         422: "invalid_score_submission",
     }.get(status, "scoreboard_contract_error")
 
@@ -563,11 +570,16 @@ def _decode_authors(value: object, label: str) -> tuple[str, ...] | None:
     selected = _array(value, label)
     if not selected:
         _invalid(f"{label} must not be empty")
-    if len(selected) > _MAX_AUTHORS:
-        _invalid(f"{label} must contain at most {_MAX_AUTHORS} values")
     # WHY no email validation: public Scoreboard JSON strips email domains before returning
-    # authors. These are public credit identifiers, while full email syntax belongs only to writes.
-    return tuple(_text(author, f"{label} item") for author in selected)
+    # authors. These are public credit identifiers, while full email syntax and the write-side cap
+    # belong only to submissions. Preserve every nonblank value exactly as the read contract says.
+    return tuple(_public_author(author, f"{label} item") for author in selected)
+
+
+def _public_author(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        _invalid(f"{label} must be non-blank text")
+    return value
 
 
 def _text(value: object, label: str) -> str:

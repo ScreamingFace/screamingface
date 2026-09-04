@@ -469,6 +469,23 @@ def test_submit_surfaces_the_live_closed_write_contract() -> None:
     assert exc_info.value.details == "score submission is not open yet"
 
 
+def test_submit_surfaces_a_scoreboard_conflict_as_retryable() -> None:
+    client = _sync_client(
+        lambda _: httpx.Response(
+            409,
+            json={"detail": "another request changed this submission; retry"},
+        )
+    )
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.submit(_candidate_result())
+
+    assert exc_info.value.code == "score_submission_conflict"
+    assert exc_info.value.status == 409
+    assert exc_info.value.retryable is True
+    assert exc_info.value.hint == "Retry the submission."
+
+
 def test_leaderboard_rich_display_uses_the_brand_board_with_only_real_fields() -> None:
     with _sync_client(lambda _: httpx.Response(200, json=_get_response())) as client:
         board = client.leaderboards.get("draco")
@@ -1394,6 +1411,14 @@ def test_submission_omits_unspecified_authors_and_preserves_an_explicit_list() -
     )["authors"] == ["alice@example.com", "bob@example.org", "alice@example.com"]
 
 
+def test_submission_accepts_the_author_count_and_length_boundaries() -> None:
+    boundary_address = "a" * 243 + "@example.com"
+    authors = (boundary_address,) * 10
+
+    assert len(boundary_address) == 255
+    assert _submission(_candidate_result(), authors=authors)["authors"] == list(authors)
+
+
 @pytest.mark.parametrize(
     ("authors", "error"),
     [
@@ -1496,7 +1521,44 @@ def test_leaderboard_entries_decode_public_authors_as_an_immutable_tuple() -> No
     assert isinstance(board.entries[0].authors, tuple)
 
 
-@pytest.mark.parametrize("authors", [[], "alice", [""], ["alice"] * 11])
+def test_score_response_does_not_apply_the_write_cap_to_public_authors() -> None:
+    response = _score_response()
+    response["authors"] = [f"author-{index}" for index in range(11)]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    assert score.authors == tuple(f"author-{index}" for index in range(11))
+
+
+def test_score_response_preserves_nonblank_public_author_text_exactly() -> None:
+    response = _score_response()
+    response["authors"] = [" alice "]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    assert score.authors == (" alice ",)
+
+
+def test_score_receipt_distinguishes_submitter_from_authors_and_escapes_them() -> None:
+    response = _score_response()
+    response["authors"] = ["alice<admin>", "bob"]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    html = cast(Any, score)._repr_html_()
+
+    assert ">submitter<" in html
+    assert ">authors<" in html
+    assert ">author<" not in html
+    assert "researcher@example.com" in html
+    assert "alice&lt;admin&gt;, bob" in html
+    assert "alice<admin>" not in html
+
+
+@pytest.mark.parametrize("authors", [[], "alice", [""]])
 def test_score_response_rejects_malformed_public_authors(authors: object) -> None:
     response = _score_response()
     response["authors"] = authors
