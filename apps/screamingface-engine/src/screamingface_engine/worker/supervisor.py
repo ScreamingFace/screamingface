@@ -80,6 +80,23 @@ DEADLINE_MARGIN_S = 30.0
 HEARTBEAT_INTERVAL_S = 20.0
 
 
+def _float_or_none(raw: str | float | None) -> float | None:
+    """A tolerant float: ``None`` when the value is absent OR not a number.
+
+    INVARIANT: never raises. Both callers treat an unreadable number exactly as they treat
+    an absent one, which is each one's own documented safe direction (not expired;
+    unbounded). An unguarded `float()` on a message field is the same pod-wide cascade an
+    undecodable body causes — reached through a value the codec always writes correctly but
+    a foreign publisher need not.
+    """
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def derived_heartbeat_interval_s(ack_wait_s: float) -> float:
     """The heartbeat cadence the worker runs for a queue with this `ack_wait`.
 
@@ -199,7 +216,9 @@ class RunSupervisor:
         unacked, so the broker redelivers it (up to ``max_deliver``) instead of losing
         the run.
         """
-        topic = topic_of_message(msg.data)
+        topic = await self._topic_or_settle(msg)
+        if topic is None:
+            return
         with run_scope(topic):
             if topic in self._topics_in_flight:
                 # A duplicate claim of a run THIS worker is already executing (redelivery
@@ -226,6 +245,46 @@ class RunSupervisor:
                 # no child yet — so every exit path clears it, not just `_release_child`.
                 self._cancelled.discard(topic)
                 self._topics_in_flight.discard(topic)
+
+    async def _topic_or_settle(self, msg: ClaimedMessage) -> str | None:
+        """This message's topic, or ``None`` after settling a body that cannot name one.
+
+        INVARIANT: a body this worker cannot decode must never reach the shared TaskGroup.
+        `topic_of_message` JSON-decodes the payload and indexes `job_env.TOPIC`, so a
+        foreign publisher, a stray `nats pub`, or a codec skew across a rolling deploy
+        raises right here — and an exception escaping one supervisor cancels every
+        co-located sibling, each of which SIGKILLs its live child on the way out. One
+        malformed message took down every healthy run on the pod, and because it was never
+        acked it redelivered and did it again until `max_deliver`.
+
+        WHY contained rather than propagated: a message body is DATA arriving from
+        off-process, and it can only ever spoil the one message carrying it. A defect in
+        the worker's own code is the opposite case — it would break every run — and must
+        keep crashing the worker loudly rather than being swallowed here.
+
+        WHY acked rather than left for redelivery: the run cannot be executed (there is no
+        env to execute) and cannot be reported (the topic naming its stream is precisely
+        the unreadable part), so every redelivery reproduces this exact failure. Settling
+        it is the only thing that ends the loop.
+
+        INVARIANT: this is the SINGLE decode gate for the claim path. Every later
+        `decode_message(msg.data)` on this path — `_capability_expired`, `_child_env` — is
+        safe only BECAUSE this one already succeeded on the same bytes; do not reorder them
+        ahead of it.
+        """
+        try:
+            return topic_of_message(msg.data)
+        except (ValueError, KeyError, TypeError):
+            # `ValueError` covers `json.JSONDecodeError` and `UnicodeDecodeError` (both
+            # subclasses); `KeyError` is a body that decoded but names no topic; `TypeError`
+            # a payload that is not bytes at all. The body is never logged — it is the
+            # caller's and may carry prompts.
+            logger.exception(
+                "undecodable run-queue message settled without executing; "
+                "a publisher is writing bodies this worker's codec cannot read"
+            )
+            await msg.ack()
+            return None
 
     async def _claim(self, msg: ClaimedMessage, topic: str) -> None:
         """The claim gates and the run, after the duplicate guard has admitted the topic."""
@@ -386,10 +445,12 @@ class RunSupervisor:
         published_at = self._published_at(msg)
         if published_at is None:
             return False
-        raw_deadline = decode_message(msg.data).get(job_env.JOB_DEADLINE_S)
-        if raw_deadline is None:
+        # An unreadable deadline reads as an ABSENT one — "treated as not expired, the safe
+        # direction" this docstring already states, now true of a malformed value too.
+        deadline_s = _float_or_none(decode_message(msg.data).get(job_env.JOB_DEADLINE_S))
+        if deadline_s is None:
             return False
-        return (datetime.now(UTC) - published_at).total_seconds() >= float(raw_deadline)
+        return (datetime.now(UTC) - published_at).total_seconds() >= deadline_s
 
     def _published_at(self, msg: ClaimedMessage) -> datetime | None:
         """The message's enqueue moment: the stamped header first, delivery time as fallback."""
@@ -453,11 +514,21 @@ class RunSupervisor:
         ``activeDeadlineSeconds``. A message with no deadline (the codec always writes
         one) is unbounded, mirroring the child's own reading.
         """
-        raw_deadline = env.get(job_env.JOB_DEADLINE_S)
-        if raw_deadline is None:
+        # An unreadable deadline reads as an absent one — unbounded, exactly as the
+        # docstring above says a message with no deadline is. Nothing is lost by deferring:
+        # the child re-reads the same value and `runner.main._deadline_from_env` REFUSES a
+        # malformed one, so such a run fails fast with its own terminal frame.
+        deadline_s = _float_or_none(env.get(job_env.JOB_DEADLINE_S))
+        if deadline_s is None:
             return None
-        grace_s = float(env.get(job_env.STREAM_GRACE_S, job_env.DEFAULT_STREAM_GRACE_S))
-        return float(raw_deadline) + grace_s + self._deadline_margin_s
+        # WHY the grace falls back to the DEFAULT rather than going unbounded like the
+        # deadline: it is an additive teardown allowance, so the shipped value keeps the
+        # wall meaningful, where dropping the wall entirely would leave a hung child
+        # unbounded over one malformed field the run never depends on.
+        grace_s = _float_or_none(env.get(job_env.STREAM_GRACE_S))
+        if grace_s is None:
+            grace_s = job_env.DEFAULT_STREAM_GRACE_S
+        return deadline_s + grace_s + self._deadline_margin_s
 
     async def _wait_for_child(self, proc: _ChildProcess, hard_wall_s: float | None) -> str:
         """Wait for the child to exit, bounded by the hard wall; return how it ended.
