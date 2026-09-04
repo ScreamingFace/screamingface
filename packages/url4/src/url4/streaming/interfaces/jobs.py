@@ -14,7 +14,16 @@ JobStatus = Literal[
     "not_found",
 ]
 """The run states (spec §3): ``scheduled → running → {succeeded|failed|stopped|timed_out}``, plus
-``not_found`` for an unknown/absent topic. Each adapter maps the substrate state it can observe."""
+``not_found`` for an unknown/absent topic. Each adapter maps the substrate state it can observe.
+
+``scheduled`` means the run is accepted but not yet started — i.e. queued. Do not add a
+``queued`` member: ``scheduled`` already covers it. Whether a substrate can OBSERVE the gap
+between acceptance and start is adapter-specific: one that starts a run the moment it accepts
+it — the in-process runner's tasks begin as soon as they are created — reports ``running`` from
+acceptance on, because that is the first state it can distinguish. Callers must not read
+``running`` as proof that execution has begun on such a substrate, nor wait for a
+``scheduled`` frame that its runner can never emit.
+"""
 
 
 class JobAlreadyExists(Exception):
@@ -28,9 +37,11 @@ class JobRunnerAtCapacity(Exception):
     help. This one is transient and carries no verdict about the request, so callers map it to a
     retry-after response rather than a conflict.
 
-    Only substrates that own a finite local resource raise it — an in-process runner shares one
-    event loop across every run it accepts, so admission is its own job. A cluster-backed runner
-    lets the scheduler absorb the load and never raises.
+    Any substrate with a finite declared ceiling raises it: an in-process runner shares one
+    event loop across every run it accepts, so admission is its own job; a queue-backed runner
+    raises it when its queue depth hits the ceiling; a cluster scheduler raises it when its
+    resource quota is exhausted. The port names the substrate SHAPES, not adapter classes — an
+    adapter is bound to this contract by its own tests, not by being enumerated here.
     """
 
     def __init__(self, active: int, limit: int) -> None:
