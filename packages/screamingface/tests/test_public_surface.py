@@ -62,6 +62,7 @@ PINNED_MODULES = (
     "screamingface",
     "screamingface.benchmarks",
     "screamingface.connections",
+    "screamingface.diagnostics",
     "screamingface.events",
     "screamingface.leaderboards",
     "screamingface.models",

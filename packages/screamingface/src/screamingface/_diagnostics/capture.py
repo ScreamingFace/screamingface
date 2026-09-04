@@ -13,6 +13,7 @@ from websockets.exceptions import ConnectionClosed
 
 from screamingface._engine_origin import _is_hosted_engine
 from screamingface._environment import running_in_notebook
+from screamingface._version import resolve_version
 from screamingface.errors import ScreamingFaceError
 
 _DEPENDENCIES = ("httpx", "websockets", "pydantic", "ipywidgets")
@@ -42,7 +43,7 @@ def _client_document() -> dict[str, object]:
     }
     return {
         "name": "screamingface-python",
-        "version": _package_version("screamingface") or "unknown",
+        "version": resolve_version(),
         "host": "notebook" if running_in_notebook() else "cli",
         "platform": sys.platform,
         "architecture": platform.machine() or "unknown",

@@ -9,6 +9,7 @@ import _evaluation_diagnostic_fixtures as _fixtures
 import pytest
 
 import screamingface as sf
+from screamingface._diagnostics.evaluation import _trace_id
 from screamingface._diagnostics.store import _STORE
 from screamingface._evaluation.model import Candidate
 from screamingface._evaluation.runner import evaluate_async, evaluate_sync
@@ -255,6 +256,20 @@ def test_malformed_trace_context_is_not_fabricated() -> None:
     receipt = sf.diagnostics.last()
     assert receipt is not None
     assert "trace_id" not in receipt.to_dict()["executions"][0]
+
+
+@pytest.mark.parametrize(
+    "traceparent",
+    [
+        f"FF-{_fixtures.TRACE_ID}-0123456789abcdef-01",
+        f"00-{_fixtures.TRACE_ID.upper()}-0123456789abcdef-01",
+        f"00-{_fixtures.TRACE_ID}-0123456789ABCDEF-01",
+        f"00-{_fixtures.TRACE_ID}-0123456789abcdef-0A",
+    ],
+)
+def test_trace_id_rejects_noncanonical_traceparent(traceparent: str) -> None:
+    # INVARIANT: receipts retain only the lowercase version-00 grammar the Client produces.
+    assert _trace_id(traceparent) is None
 
 
 def test_breadcrumb_retains_only_relative_route_span_names() -> None:

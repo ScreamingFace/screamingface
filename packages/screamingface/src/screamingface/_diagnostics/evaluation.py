@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -25,6 +26,7 @@ from screamingface.recipe import Recipe, _recipe_kind
 
 _SESSION_ID = f"session_{uuid4().hex}"
 _MAX_BREADCRUMBS = 20
+_TRACEPARENT = re.compile(r"^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$")
 _logger = logging.getLogger(__name__)
 
 
@@ -237,26 +239,11 @@ def _relative_operation(event: Event) -> str | None:
 def _trace_id(traceparent: str | None) -> str | None:
     if traceparent is None:
         return None
-    parts = traceparent.split("-")
-    if len(parts) == 4:
-        version, trace_id, parent_id, flags = parts
-        if (
-            _hex(version, 2)
-            and version != "ff"
-            and _hex(trace_id, 32)
-            and trace_id != "0" * 32
-            and _hex(parent_id, 16)
-            and parent_id != "0" * 16
-            and _hex(flags, 2)
-        ):
-            return trace_id.lower()
-    return None
-
-
-def _hex(value: str, length: int) -> bool:
-    return len(value) == length and all(
-        character in "0123456789abcdefABCDEF" for character in value
-    )
+    match = _TRACEPARENT.fullmatch(traceparent)
+    if match is None or match.group(1) == "0" * 32 or match.group(2) == "0" * 16:
+        return None
+    # INVARIANT: this is the exact lowercase version-00 grammar emitted by the Client.
+    return match.group(1)
 
 
 __all__ = ["_EvaluationDiagnostic"]

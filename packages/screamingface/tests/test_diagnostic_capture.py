@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from importlib.metadata import PackageNotFoundError
 from typing import cast
 
 import pytest
@@ -13,6 +14,7 @@ from screamingface._diagnostics.capture import (
     _engine_document,
     _error_document,
 )
+from screamingface._version import SOURCE_TREE_VERSION
 from screamingface.errors import ExecutionError
 
 
@@ -182,6 +184,16 @@ def test_client_capture_is_an_allowlist_not_an_environment_dump(monkeypatch) -> 
         "dependencies",
     }
     assert "must-never-leak" not in encoded
+
+
+def test_client_capture_uses_the_canonical_source_tree_version(monkeypatch) -> None:
+    def missing_distribution(_: str) -> str:
+        raise PackageNotFoundError
+
+    monkeypatch.setattr("screamingface._diagnostics.capture.version", missing_distribution)
+    monkeypatch.setattr("screamingface._version.distribution_version", missing_distribution)
+
+    assert _client_document()["version"] == SOURCE_TREE_VERSION
 
 
 def _raise_deep_failure(depth: int) -> None:

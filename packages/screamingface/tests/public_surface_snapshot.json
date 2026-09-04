@@ -814,6 +814,22 @@
       }
     }
   },
+  "screamingface.diagnostics": {
+    "__all__": [
+      "get",
+      "last"
+    ],
+    "exports": {
+      "get": {
+        "kind": "function",
+        "signature": "(diagnostic_id: 'str') -> 'DiagnosticReceipt | None'"
+      },
+      "last": {
+        "kind": "function",
+        "signature": "() -> 'DiagnosticReceipt | None'"
+      }
+    }
+  },
   "screamingface.events": {
     "__all__": [
       "Event",
