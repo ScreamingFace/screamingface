@@ -17,12 +17,17 @@ from __future__ import annotations
 from typing import Final
 
 from .global_keys import PARAMETER_CONTRACT_REVISION
+from .tavily_retrieval import TAVILY_RETRIEVAL_CONTRACT_REVISION
 
 _ADAPTER_REVISIONS: dict[str, str] = {}
 
 #: The key under which the parameter-contract constant is reported. Final because both the
 #: manifest (OME-954) and the seed generator write it verbatim.
 PARAMETER_CONTRACT_KEY: Final = "parameter_contract"
+
+#: The key under which the Tavily retrieval contract constant is reported. Final because
+#: the manifest writes it verbatim.
+TAVILY_RETRIEVAL_KEY: Final = "tavily_retrieval"
 
 
 def register_adapter_revision(name: str, revision: str) -> None:
@@ -36,5 +41,16 @@ def active_adapter_revisions() -> dict[str, str]:
 
 
 def active_cache_revisions() -> dict[str, str]:
-    """Every revision constant a snapshot's manifest must agree with, keyed by manifest name."""
-    return {PARAMETER_CONTRACT_KEY: PARAMETER_CONTRACT_REVISION, **_ADAPTER_REVISIONS}
+    """Every revision constant a snapshot's manifest must agree with, keyed by manifest name.
+
+    The Tavily retrieval contract is core's own, like the parameter contract, so it is
+    reported here directly rather than registered by a plugin. It must be: the revision
+    is inside the Tavily key hash, and snapshots move ``provider='tavily'`` rows, so a
+    manifest that does not cover it would let rows keyed under different constants load
+    cleanly and then never be served (OME-1044 review F3).
+    """
+    return {
+        PARAMETER_CONTRACT_KEY: PARAMETER_CONTRACT_REVISION,
+        TAVILY_RETRIEVAL_KEY: TAVILY_RETRIEVAL_CONTRACT_REVISION,
+        **_ADAPTER_REVISIONS,
+    }

@@ -30,19 +30,24 @@ AIDEV-NOTE: THIS module is the public surface. Which request facts participate
 lives in ``.global_eligibility`` and the caller's opt-out grammar lives in
 ``.global_controls``, both split out only to respect the repository's 450-line
 limit; every name they own is re-exported here.
+
+AIDEV-NOTE (OME-1044): the canonical FORM — the exact ``json.dumps`` options, the
+json-safety guard and ``CanonicalizationError`` — lives in ``.canonical``, which is
+split out for a different reason: the Tavily retrieval lane hashes through it too, and
+two spellings of that form would silently key the same request to two hashes. That
+module is a dependency-free leaf on purpose; ``CanonicalizationError`` is re-exported
+here so existing importers are unaffected.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
-import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass, GlobalCacheProjection
 from ..chat_parameters import ParameterProjectionRule
+from .canonical import CanonicalizationError, canonical_digest, canonical_material
 from .global_eligibility import (
     ABSENT,
     BYPASS_DECLARED,
@@ -113,14 +118,10 @@ PARAMETER_CONTRACT_REVISION: Final = "aigw-parameter-contract-2026-08b"
 
 BYPASS_CANONICALIZATION: Final = "canonicalization_failure"
 
-# Bounded recursion: a JSON body cannot be cyclic, but a provider projection is
-# ordinary Python and could hand back something self-referential. Cap the walk so
-# a buggy plugin costs a bypass instead of a recursion crash on the request path.
-_MAX_DEPTH: Final = 64
-
-
-class CanonicalizationError(ValueError):
-    """Key material cannot be canonicalized to one deterministic byte string."""
+# AIDEV-NOTE (OME-1044): the canonical form, its json-safety guard, the depth cap and
+# `CanonicalizationError` moved to `.canonical`, which the Tavily retrieval lane shares.
+# `CanonicalizationError` is re-exported here (see `__all__`) so every existing importer
+# and test keeps working unchanged. Do not re-inline the form — one spelling only.
 
 
 @dataclass(frozen=True)
@@ -166,20 +167,6 @@ class GlobalCacheKeyResult:
     model: str
 
 
-def _canonical_json(value: Any) -> str:
-    # INVARIANT: the exact canonical form (plan §2.5). ``sort_keys`` makes object
-    # key order irrelevant while arrays keep theirs; ``separators`` removes
-    # insignificant whitespace; ``ensure_ascii=False`` keeps prompt text byte-exact
-    # rather than escaping it; ``allow_nan=False`` refuses the non-JSON literals.
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    )
-
-
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
 def _system_member(system: Any) -> dict[str, Any]:
     # WHY a discriminated wrapper instead of omitting the member: a marker VALUE
     # could collide with a caller's real ``system`` string, and omitting the member
@@ -208,45 +195,13 @@ def _canonical_mapping(dto: GlobalChatCacheKey) -> dict[str, Any]:
     }
 
 
-def _require_json_safe(value: Any, *, depth: int) -> None:
-    """Reject anything ``json.dumps`` would coerce, reorder or refuse.
-
-    WHY this exists on top of ``allow_nan=False``: ``json.dumps`` silently COERCES
-    a non-string object key, so ``{1: "a"}`` and ``{"1": "a"}`` would canonicalize
-    to the same bytes and share one cache entry. A wrong hit is the one failure
-    mode this cache may never have, so anything ambiguous is refused instead.
-    """
-    if depth > _MAX_DEPTH:
-        raise CanonicalizationError("key material is nested too deeply")
-    if value is None or isinstance(value, (str, bool, int)):
-        return
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise CanonicalizationError("key material holds a non-finite number")
-        return
-    if isinstance(value, (list, tuple)):
-        for item in value:
-            _require_json_safe(item, depth=depth + 1)
-        return
-    if isinstance(value, Mapping):
-        for key, nested in value.items():
-            if not isinstance(key, str):
-                raise CanonicalizationError("key material holds a non-string object key")
-            _require_json_safe(nested, depth=depth + 1)
-        return
-    # Type NAME only — never the value, which could be prompt text or a secret.
-    raise CanonicalizationError(f"key material holds an unsupported type: {type(value).__name__}")
-
-
 def canonical_key_material(dto: GlobalChatCacheKey) -> str:
     """The exact byte string that is hashed.
 
     INVARIANT: in-memory only. Never logged, never persisted, never returned to a
     caller — it contains the prompt verbatim. Public for tests and diagnostics.
     """
-    mapping = _canonical_mapping(dto)
-    _require_json_safe(mapping, depth=0)
-    return _canonical_json(mapping)
+    return canonical_material(_canonical_mapping(dto))
 
 
 # WHY the cache writes the FULL-CALL digest into ``prompt_hash`` instead of a prompt-only
@@ -326,8 +281,7 @@ def build_global_cache_key(
     if isinstance(dto, CacheBypass):
         return dto
     try:
-        canonical = canonical_key_material(dto)
-        key_hash = _sha256(canonical)
+        key_hash = canonical_digest(_canonical_mapping(dto))
     except (CanonicalizationError, TypeError, ValueError):
         return CacheBypass(BYPASS_CANONICALIZATION)
     return GlobalCacheKeyResult(
