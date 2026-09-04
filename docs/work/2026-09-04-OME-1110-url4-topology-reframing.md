@@ -65,4 +65,6 @@ No code. Verification gates:
   the owner mid-grill after validation showed no such facility exists. (6) Q5/Q13 revised by the
   owner after review: delivery is negotiated in one request (`Upgrade: websocket` + `Accept`), the
   node picks WS → SSE → sync; sync is the only MUST, SSE/WS/async SHOULD; doc §6, the delivery
-  diagram and doctrine T1/T3 updated accordingly.
+  diagram and doctrine T1/T3 updated accordingly. (7) Owner added the typed-payloads research
+  (ComfyUI analogy): new §8, seventh diagram `url4-topology-payloads`, Appendix A delta for Part F
+  §25, doctrine N6; Engine and Deferred renumbered to §9/§10.

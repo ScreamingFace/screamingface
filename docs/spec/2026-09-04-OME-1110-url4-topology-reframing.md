@@ -22,14 +22,16 @@ Each section states a definition, says where the spec agrees or is silent, and s
 | 4 | `.well-known` or OPTIONS? | Both are documented in §5 with their trade-offs. The owner picks there. |
 | 5 | `/name` vs `url4://name`? | `/name` is a node mounted on the host that is evaluating. `url4://name` is host `name`'s default node `/`. Spec Part B §5.4 already says this. |
 | 6 | Where does an ensemble run? | Wherever an evaluator runs: the SDK on a laptop, or a host. A local host may mount remote nodes under local names (proxy mounts). |
-| 7 | Can I test a host first? | One fetch of the host's capabilities document, or one OPTIONS per node (§5). A separate "plan" concept is deferred (§9). |
+| 7 | Can I test a host first? | One fetch of the host's capabilities document, or one OPTIONS per node (§5). A separate "plan" concept is deferred (§10). |
 | 8 | Streaming fallback? | One GET asks for the richest mode; the node answers with the best it has: WebSocket, then SSE, then sync (§6). Sync is the only MUST. Async is a separate axis. |
+| 9 | Text in, text out? | A habit, not a rule. Every edge carries a **typed payload** (text, image, audio, video, embeddings) named by its media type. Text is the default. No grammar change (§8). |
 
 **What changes against today**
 
 - The Engine becomes a url4 **host**. Today no url4 node is reachable over HTTP; the SDK's node-to-node code is unused.
 - Every node speaks the same GET. The node picks the richest delivery it supports: **WebSocket → SSE → sync**, in one round trip. Sync is the only MUST.
 - Two spec words move: the spec's *Node* becomes our *Host*; the spec's *Endpoint* becomes our *Node*. Appendix A asks Kevin for the rename.
+- A node is a **universal inference processor**: image generation, speech, video and multimodal ensembles become ordinary expressions on the same engine, telemetry and cost accounting (§8).
 
 # 1. Terms
 
@@ -192,7 +194,50 @@ Three signals, one trace, as in the doctrine skill. What changes is where a one-
 
 This closes doctrine item F4. **Idempotency:** a url4 GET is idempotent in the HTTP sense (RFC 9110 §9.2.2): repeating it has no extra server-side effect. Results need not be identical; the spec's §33 conflates the two (Appendix A).
 
-# 8. The Engine as a host
+# 8. Typed payloads: a node is a universal inference processor
+
+We have treated a node as text in, text out. That is a habit, not a spec rule. The spec defines a source as "a URI, text, or nested expression" and an intent processor as whatever executes the intent on behalf of the node (Part A §1.4). Nothing says the payload is a string.
+
+![payloads](../diagrams/url4-topology-payloads.svg)
+
+**Proposal.** Every edge in an expression carries a **typed payload**, the way a ComfyUI edge carries an image, a latent or a mask. The type system is the media type: `text/plain`, `image/png`, `audio/wav`, `video/mp4`, `application/json` for embeddings and structured data. Text stays the default and the most common type. No grammar change.
+
+```
+(shot=/flux('a red fox at dawn')!'render';accept=image/png,
+ alt=/claude($shot)!'write alt text')!/tts
+```
+
+Edges: text → image → text → audio. Three nodes, three processors, one expression, one trace, one cost roll-up.
+
+**What the spec already gives us**
+
+- `;accept=<type>` is a source-level execution annotation (Part B §4.2) and `ct_mismatch` a defined parameter (Part B §8.1.2). The spec calls input negotiation out of scope and treats an unusable format as an intent-execution failure, not a source failure (v0.2 §32). That is the right split; we only add the rules Part F owes.
+- The SDK already carries a media type on every fetch (`FetchRequest.media_type`) and parses collections by declared type (Part B §5.3.7). The Engine already forks results by size: inline, spilled to a content-addressed artifact, or refused above a hard cap.
+
+**Three rules the spec does not yet give (Part F, §25)**
+
+1. **A source declares its type.** A URI source has the `Content-Type` it was fetched with. Inline text is `text/plain`. A nested expression has the type its node emitted. `;accept=<type>` says what the consumer wants; `ct_mismatch` says what to do when the two differ (fail, convert, or pass through).
+2. **A binary result travels inline when small, by reference when large.** Bare sync (`Accept: text/plain` and friends): the response body *is* the bytes, with its `Content-Type`. Envelope: `result.content` carries small payloads base64-encoded with `result.media_type`; large payloads become `result.artifact`, an `https://` URL that the next node fetches as plain data (Part B §3.5). The inline threshold is the node's, advertised in its capabilities. Over WebSocket a binary frame carries the bytes; over SSE a large payload always goes by reference.
+3. **A processor advertises what it accepts and emits.** Two lists of media types per node in the capabilities document or the OPTIONS answer. An evaluator can then type-check an expression before it spends anything: the one place the deferred "plan" idea (§10) would return.
+
+```json
+"/flux":   { "mount": "local",
+             "accepts": ["text/plain"],
+             "emits":   ["image/png"],
+             "inline_max_bytes": 262144 },
+"/claude": { "mount": "local",
+             "accepts": ["text/plain", "image/png", "image/jpeg"],
+             "emits":   ["text/plain"] },
+"/tts":    { "mount": "local",
+             "accepts": ["text/plain"],
+             "emits":   ["audio/wav"] }
+```
+
+**Why it matters.** Image generation, text-to-speech, speech-to-text, video evaluation and multimodal ensembles all become ordinary url4 expressions on the same engine, with the same telemetry, the same cost accounting and the same attribution. aigateway stays the provider boundary; it already fronts image and audio providers. The Engine's artifact store is rule 2 as built.
+
+**Open.** A media type for embeddings (`application/json` with a profile, or a vendor type); whether `fmt` (v0.2 §7.1) folds into `accept` for the *result* side; and how attribution weights apply to non-text sources (Part E).
+
+# 9. The Engine as a host
 
 ![engine](../diagrams/url4-topology-engine.svg)
 
@@ -208,7 +253,7 @@ This closes doctrine item F4. **Idempotency:** a url4 GET is idempotent in the H
 
 **Serverless posture.** A node is a function; it needs no origin of its own. Only the host needs one. The Runner is already function-shaped. The App is not: it holds an audience count in memory, runs two perpetual tasks, and gates runs on an attached WebSocket. Those belong to the product session, not to the node surface, and stay in the App.
 
-# 9. Deferred
+# 10. Deferred
 
 - **Plan / preflight** as a defined concept. Today the SDK's `Graph.validate()` checks syntax only and the Engine's preflight checks routes on one host. Deferred by owner decision; §5 answers the practical question.
 - **Swarm** as a protocol noun. Would need membership and trust rules that belong to the unwritten governance parts.
@@ -225,7 +270,8 @@ Each item names the anchor and the change. All are proposals.
 5. **v0.2 §33 (Part H in v0.5) — idempotency.** Replace "the protocol does not guarantee idempotency" with: GET is idempotent per RFC 9110 §9.2.2; results are not guaranteed deterministic.
 6. **v0.2 §34 (Part H in v0.5) — cancellation.** `DELETE` on the run handle (`Location`). Terminal state `cancelled`; SSE event `request.cancelled`; propagates to in-flight children.
 7. **Part D §13 — envelope for sync callers.** `Accept: text/plain` returns the bare answer; `Accept: application/json` returns the envelope, `meta=summary` by default. At `meta=full` the envelope carries a `telemetry` block (`logs[]`, `spans[]`, `cost`) that a node MAY redact per §14.4 (structure kept, `"redacted"` sentinel). `fmt` stays the answer's content format and is orthogonal.
-8. **Part G §27.2 — capabilities document.** Schema as drafted in §5: `nodes` keyed by path, `mount`, `target`, `delivery`, `features`; `holdings`. Optional binding: the same entry as an `OPTIONS` body with `Content-Type: application/url4-capabilities+json`.
+8. **Part F §25 — typed payloads.** The payload on every edge is a typed value named by its media type; text is the default. Rules: a source declares its type (fetched `Content-Type`, `text/plain`, or the emitting node's type); `;accept` states the consumer's need and `ct_mismatch` the policy; binary results travel inline (`result.content` + `result.media_type`) below a node-declared threshold and by reference (`result.artifact`, an `https://` data URL) above it; WebSocket binary frames MAY carry bytes, SSE goes by reference.
+9. **Part G §27.2 — capabilities document.** Schema as drafted in §5: `nodes` keyed by path, `mount`, `target`, `delivery`, `features`, and `accepts` / `emits` media-type lists with `inline_max_bytes` (§8); `holdings`. Optional binding: the same entry as an `OPTIONS` body with `Content-Type: application/url4-capabilities+json`.
 
 # Appendix B — follow-up work items
 
@@ -240,6 +286,8 @@ To file after owner review, one per landing.
 | url4-sdk | Capabilities document and/or OPTIONS responder, after the §5 decision; advertise `delivery` per node |
 | url4-sdk | `url4 serve` default path `/`; `Client` default path `/`; `/v1` alias |
 | url4-sdk | `proxy` mount kind in `url4.toml` |
+| url4-sdk | Typed payloads: bytes + media type through `IOLayer`/`FetchRequest`, `;accept`/`ct_mismatch` enforcement, `result.artifact` by-reference fetch |
+| screamingface-engine | Non-text processors over aigateway (image, speech); artifact store as the by-reference path; `accepts`/`emits` in capabilities |
 | url4-sdk | `Url4Node` → host naming retrofit with a deprecation alias |
 | repo | Doctrine skill synced in this unit (T1, N1, F2, F4, term table) |
 | Kevin | Review Appendix A |

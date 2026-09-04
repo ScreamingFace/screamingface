@@ -82,6 +82,10 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
   collection-fan-out failure mode (see `aigateway/core/concurrency.py`).
 - **N4 — A leaf may spawn local subprocesses** (e.g. a coding CLI). Subprocess stdio is
   telemetry like any other signal (O2) and forwards upstream (F).
+- **N6 — Typed payloads (OME-1110 §8).** A node is a universal inference processor: every
+  edge carries a typed value named by its media type (text is the default); binary results go
+  inline below a node-declared threshold and by reference (`result.artifact`, plain https data
+  URL) above it; nodes advertise `accepts`/`emits`. No grammar change.
 - **N5 — Core never imports backends.** Grammar/AST/resolver live in `packages/url4-python-sdk`
   (a port); backend routes (`/claude`, `/codex`, `/gemini`) register as adapters; wiring is
   registry-driven. *Same hexagonal law as the rest of the monorepo.*
