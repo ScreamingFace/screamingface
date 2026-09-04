@@ -135,6 +135,13 @@ spec:
             # declaration — a value reaching only one half fails whichever declares second.
             - name: URL4_CLOUD_RUN_QUEUE_REPLICAS
               value: {{ .Values.config.runQueueReplicas | quote }}
+            # INVARIANT: the SAME `config.runQueueBucketCount` the App's ConfigMap renders.
+            # The App publishes into ONE bucket and this half polls them ALL, so a count that
+            # reaches only one side does not fail — it strands runs in buckets nobody visits
+            # until they expire. The replica count above at least refuses to declare; this one
+            # is silent, which is why both are rendered from a single value.
+            - name: URL4_CLOUD_RUN_QUEUE_BUCKET_COUNT
+              value: {{ .Values.config.runQueueBucketCount | quote }}
             - name: URL4_CLOUD_WORKER_DRAIN_GRACE_S
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT

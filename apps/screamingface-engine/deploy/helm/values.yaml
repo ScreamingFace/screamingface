@@ -116,6 +116,19 @@ config:
   # NATS cluster; the per-run event streams are 1-replica regardless, so clustering both
   # stream families is OME-1093's scope.
   runQueueReplicas: 1
+  # How many bucket subjects the run queue is split into for per-caller fairness (OME-1091).
+  #
+  # INVARIANT: rendered to the App AND the runner pool from THIS one value. The App publishes
+  # into `bucket_subject()` and the worker polls `bucket_subjects()`, so the two must agree on
+  # the count — and unlike `runQueueReplicas` above, a disagreement does not fail: the run is
+  # accepted with a 202, lands in a bucket nobody polls, and expires silently at the queue's
+  # own max age. That is why it is a chart value at all rather than two env vars.
+  #
+  # More buckets mean fewer caller collisions (two callers sharing a bucket share its
+  # round-robin slot) at the cost of one `fetch` per bucket per pull — see the RPC-accounting
+  # note on `RunQueue.pull`. Changing it re-binds the durable consumers, so treat it as a
+  # cutover-sized change rather than a live tuning knob.
+  runQueueBucketCount: 16
   # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
   # image's own default. Must be one of the models that url4.toml declares.
   aigatewayModel: ""

@@ -60,6 +60,33 @@ after a refactor) and enforces the combinations that would otherwise fail only a
 startup — `runner.backend` against the `RunnerBackend` enum, `tavily.enabled` without a key
 source, `auth.create: false` without an `existingSecret`, `gateway.enabled` without a `parentRef`.
 
+### Upgrading from the Job-per-run chart — REQUIRED values edits (OME-1092)
+
+The worker-pool cutover retires the Job adapter, and with it three values this chart used to
+document. Because the schema is `additionalProperties: false`, they are now **rejected**, not
+ignored: an upgrade that still carries them fails before any template renders, with
+
+```
+Error: values don't meet the specifications of the schema(s) in the following chart(s):
+screamingface-engine:
+- at '': additional properties 'rbac' not allowed
+```
+
+(the exact wording varies with the Helm version; the key name in it is the one to delete)
+
+Delete these from your values file:
+
+| Removed | Why it is gone | Replacement |
+| --- | --- | --- |
+| `rbac.*` | The App no longer creates Jobs, so it needs no Role/RoleBinding at all — the pool pulls from the queue and `automountServiceAccountToken: false` | none; the RBAC objects are no longer rendered |
+| `runner.resources` | Per-run Pod sizing died with the per-run Pod | `runnerPool.perRunCharge` + `runnerPool.overhead`, which size the *worker* pod as `workerSlots × perRunCharge + overhead` |
+| `runner.jobTtlSeconds` | `ttlSecondsAfterFinished` was the Job's single-use replay guard; a claimed queue message is guarded by the durable consumer instead | none, and none needed — the queue's own max age (24 h, `run_queue_max_age_s`, not chart-exposed) bounds an unclaimed run |
+
+`runner.backend` and `runner.image` are **unchanged** and still required.
+
+The failure is loud and happens before anything is applied, so an upgrade that trips it has
+changed nothing in the cluster — fix the values file and re-run.
+
 ## The edge: Ingress or Gateway API — pick one
 
 The chart renders **exactly one** front door. Enabling both fails the render (two objects claiming

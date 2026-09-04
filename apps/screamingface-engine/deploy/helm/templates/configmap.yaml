@@ -31,6 +31,14 @@ data:
   # properties diverge from an existing one — so a value reaching only one half is a startup
   # failure for whichever half declares second, visible only on a clustered broker.
   URL4_CLOUD_RUN_QUEUE_REPLICAS: {{ .Values.config.runQueueReplicas | quote }}
+  # The queue's bucket count (OME-1091).
+  #
+  # INVARIANT: rendered here AND in the runner pool's env from the SAME value. This half
+  # PUBLISHES into one bucket (`bucket_subject`) and the worker POLLS them all
+  # (`bucket_subjects`), so a count reaching only one half is not a startup failure like the
+  # replica count above — it is silent: runs are accepted with a 202, land in buckets nobody
+  # polls, and expire at `run_queue_max_age_s` with nothing to say why.
+  URL4_CLOUD_RUN_QUEUE_BUCKET_COUNT: {{ .Values.config.runQueueBucketCount | quote }}
   {{- with .Values.config.aigatewayBaseUrl }}
   # Enables the App's own `GET /v1/models` catalog endpoint (OME-625), which reads aigateway
   # using the CALLER's forwarded credential — it needs no credential of its own. Unset =>
