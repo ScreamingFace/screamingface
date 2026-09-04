@@ -44,9 +44,10 @@ No code. Verification gates:
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned — `docs/spec/2026-09-04-OME-1110-url4-topology-reframing.{md,pdf}`
-  plus a dark-register `…reframing.dark.pdf` (owner request), six `docs/diagrams/url4-topology-*.{svg,png}`
-  plus their `-dark` variants (same generator, SFDS `[data-theme="dark"]` tokens), `.claude/skills/url4-engine/SKILL.md`,
+- **Actual files:** `docs/spec/2026-09-04-OME-1110-url4-topology-reframing.md` (source) and
+  `…reframing.dark.pdf` (the deliverable; owner chose dark only, light PDF removed), six
+  `docs/diagrams/url4-topology-*.{svg,png}` (light, embedded by the markdown) plus their `-dark`
+  variants (embedded by the PDF; same generator, SFDS `[data-theme="dark"]` tokens), `.claude/skills/url4-engine/SKILL.md`,
   `docs/tasks/2026-09-04-OME-1110-url4-topology-reframing.md`, this ledger.
 - **Commits:** see PR (squash).
 - **Gates:** PDF renders (WeasyPrint 69 via `uv run --with weasyprint`, `DYLD_LIBRARY_PATH=/opt/homebrew/lib`):
