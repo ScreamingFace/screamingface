@@ -6,7 +6,12 @@ import hashlib
 from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from screamingface_engine.benchmarks.definition import Benchmark, CheckSurface, candidate
+from screamingface_engine.benchmarks.definition import (
+    Benchmark,
+    BenchmarkDeclaration,
+    CheckSurface,
+    candidate,
+)
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
@@ -119,6 +124,14 @@ IFEVAL = Benchmark(
     # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
     revision=REVISION,
     case_count=CASE_COUNT,
+    # INVARIANT: the declared policy matches the code — this board reduces through the
+    # shared finalize_candidate_result, which scores exactly the gradeable subset and
+    # publishes coverage (coverage_declare). Declare `withhold` only if the aggregate
+    # actually withholds (OME-1039).
+    declaration=BenchmarkDeclaration(
+        failure_policy="coverage_declare",
+        interaction="single_shot",
+    ),
     build=_build,
     install=install_ifeval,
     # Free: the deterministic verifier costs no model call, so a corrective loop

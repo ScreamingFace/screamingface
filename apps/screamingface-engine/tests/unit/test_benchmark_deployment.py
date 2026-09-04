@@ -14,7 +14,7 @@ import pytest
 
 from screamingface_engine.benchmarks import prepare as prepare_module
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
-from screamingface_engine.benchmarks.definition import Benchmark
+from screamingface_engine.benchmarks.definition import Benchmark, BenchmarkDeclaration
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
     BenchmarkAssetPreparationError,
@@ -68,6 +68,10 @@ def _benchmark(benchmark_id: str) -> Benchmark:
         revision="revision-1",
         case_count=1,
         build=lambda _selected: Text("protocol"),
+        declaration=BenchmarkDeclaration(
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+        ),
     )
 
 

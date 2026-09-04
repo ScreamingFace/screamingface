@@ -3,6 +3,7 @@
 from screamingface_engine.benchmarks.definition import (
     CANDIDATE_REF,
     Benchmark,
+    BenchmarkDeclaration,
     BenchmarkInstaller,
     candidate,
     link_candidate,
@@ -20,6 +21,7 @@ __all__ = [
     "CANDIDATE_REF",
     "DEFAULT_BENCHMARK_ASSETS_ROOT",
     "Benchmark",
+    "BenchmarkDeclaration",
     "BenchmarkInstaller",
     "BenchmarkRegistry",
     "EMPTY_BENCHMARKS",

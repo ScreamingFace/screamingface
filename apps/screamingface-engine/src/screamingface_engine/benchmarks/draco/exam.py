@@ -29,7 +29,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from screamingface_engine.benchmarks.definition import Benchmark, CheckSurface, candidate
+from screamingface_engine.benchmarks.definition import (
+    Benchmark,
+    BenchmarkDeclaration,
+    CheckSurface,
+    candidate,
+)
 from screamingface_engine.benchmarks.draco.prompts import (
     JUDGE_INSTRUCTIONS,
     judge_context,
@@ -348,6 +353,14 @@ def draco_benchmark(
         description=description,
         revision=revision,
         case_count=CASE_COUNT,
+        # INVARIANT: the declared policy matches the code — every board reduces through
+        # the shared finalize_candidate_result, which scores exactly the gradeable subset
+        # and publishes coverage (coverage_declare). Declare `withhold` only if the
+        # aggregate actually withholds (OME-1039).
+        declaration=BenchmarkDeclaration(
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+        ),
         build=build,
         install=install,
         # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the

@@ -17,6 +17,27 @@ CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 type CheckCost = Literal["free", "paid"]
+# What a Case that never got a valid grade (model call errored, judge died, rubric asset
+# missing) does to the published score. Picture an exam of 157 questions where 33 answer
+# sheets got lost in the mail:
+#   "withhold"         — the lost sheets count against the candidate: score = earned / all
+#                        157. Coverage always reads 100%; failures are silently priced in,
+#                        so an infra outage makes the model look WORSE.
+#   "coverage_declare" — the lost sheets are excluded and the report says so: score =
+#                        earned / the 124 actually graded, published next to a visible
+#                        "scored 124 of 157" coverage figure. An outage makes the score
+#                        less COMPLETE, not lower; each excluded Case keeps a named
+#                        failure code.
+# Neither is wrong — but the two produce different numbers from identical model behavior,
+# which is why the choice must be declared per benchmark, never defaulted (OME-1039).
+type FailurePolicy = Literal["withhold", "coverage_declare"]
+# How the Candidate is exercised: "single_shot" = one prompt in, one reply out, graded —
+# no follow-up turns, no tool environment. The only value today; multi-turn/agentic
+# arrive later as NEW declared values (see BenchmarkDeclaration's AIDEV-NOTE).
+type InteractionType = Literal["single_shot"]
+
+_FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage_declare")
+_INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot",)
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a
@@ -68,6 +89,52 @@ class CheckSurface:
 
 
 @dataclass(frozen=True, slots=True)
+class BenchmarkDeclaration:
+    """The declared grading contract a Benchmark registers — public, typed, no defaults.
+
+    Think of it as the rules printed on the exam's cover sheet: before anyone sits the
+    exam, a reader can see how a failed paper counts. Two axes today:
+
+    ``failure_policy`` — what a Case that never got a valid grade does to the published
+    score. ``withhold``: the case counts against the candidate (all-or-nothing).
+    ``coverage_declare``: the case is excluded from the score and the report's coverage
+    figure drops, so a reader sees "scored 124 of 157".
+
+    ``interaction`` — how the Candidate is exercised. ``single_shot`` is the only value
+    today; any other value is refused by name before any paid request.
+
+    INVARIANT: both fields are REQUIRED with no defaults. A defaulted policy is a policy
+    nobody can see from the manifest, and a policy nobody can see is a policy nobody can
+    approve (OME-1039).
+    AIDEV-NOTE: this record is THE extension point for later declared axes — a
+    ``multi_turn`` interaction, or an ``environment`` declaration (image digest + setup +
+    verifier) lands as a new field/value HERE, never as a spine change. Do not add those
+    fields before a benchmark needs them (YAGNI).
+    """
+
+    failure_policy: FailurePolicy
+    interaction: InteractionType
+
+    def __post_init__(self) -> None:
+        if self.failure_policy not in _FAILURE_POLICIES:
+            raise ValueError(
+                f"BenchmarkDeclaration failure_policy must be one of {_FAILURE_POLICIES!r}, "
+                f"got {self.failure_policy!r}"
+            )
+        if self.interaction not in _INTERACTION_TYPES:
+            raise ValueError(
+                f"BenchmarkDeclaration interaction must be one of {_INTERACTION_TYPES!r}, "
+                f"got {self.interaction!r}"
+            )
+
+    def as_block(self) -> dict[str, str]:
+        return {
+            "failure_policy": self.failure_policy,
+            "interaction": self.interaction,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class Benchmark:
     """Immutable metadata plus one complete URL4 protocol builder.
 
@@ -82,6 +149,9 @@ class Benchmark:
     revision: str
     case_count: int
     build: Callable[[int], Node]
+    # INVARIANT: `declaration` is required with NO default — a benchmark that never
+    # declared its failure policy fails registration before any paid request (OME-1039).
+    declaration: BenchmarkDeclaration
     install: BenchmarkInstaller = _no_routes
     check_surface: CheckSurface | None = None
     # FEATURE: benchmark descriptions on the leaderboard (OME-904). `title`, `description`,
@@ -108,6 +178,8 @@ class Benchmark:
             or self.case_count < 1
         ):
             raise ValueError("Benchmark case_count must be a positive integer")
+        if not isinstance(self.declaration, BenchmarkDeclaration):
+            raise TypeError("Benchmark declaration must be a BenchmarkDeclaration")
 
     def _validate_display_metadata(self) -> None:
         """Refuse text the leaderboard could not show (OME-904)."""
@@ -140,6 +212,9 @@ class Benchmark:
             "description": self.description,
             "revision": self.revision,
             "case_count": self.case_count,
+            # WHY unconditionally: the declared policy is part of the benchmark's public
+            # contract — reviewers approve it by reading the manifest, never engine source.
+            **self.declaration.as_block(),
         }
         if self.focus is not None:
             metadata["focus"] = self.focus
@@ -245,8 +320,11 @@ def _as_text(value: Node | str) -> str:
 __all__ = [
     "CANDIDATE_REF",
     "Benchmark",
+    "BenchmarkDeclaration",
     "BenchmarkInstaller",
     "CheckSurface",
+    "FailurePolicy",
+    "InteractionType",
     "candidate",
     "link_candidate",
 ]
