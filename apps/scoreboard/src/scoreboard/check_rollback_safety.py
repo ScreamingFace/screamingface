@@ -42,11 +42,11 @@ class PrivateBoard:
 
 
 def running_version() -> str:
-    """The version doing the reporting — which is exactly the rollback floor.
+    """The package version doing the reporting, for diagnostics only.
 
-    WHY this is not a constant: the privacy-aware release did not exist when this was written, so
-    a hardcoded floor would have been a guess that then rotted. This code demonstrably reads
-    ``visibility``, therefore any release below the one shipping it demonstrably does not.
+    INVARIANT (OME-1027): this value is NOT a rollback floor. Both the base image that ignores
+    ``Benchmark.visibility`` and the privacy-aware release package scoreboard 0.1.1. Only the
+    recorded Helm revision plus the immutable runtime image digest identify a safe target.
     """
     try:
         return version("scoreboard")
@@ -76,8 +76,8 @@ def format_verdict(boards: Sequence[PrivateBoard], *, running_version: str) -> s
 
     noun = "benchmark" if len(boards) == 1 else "benchmarks"
     lines = [
-        f"REFUSED: {len(boards)} private {noun} would be published by rolling back below "
-        f"scoreboard {running_version}.",
+        f"REFUSED: {len(boards)} private {noun} would be published by a rollback to "
+        "privacy-blind code.",
         "",
     ]
     width = max(len(board.benchmark_id) for board in boards)
@@ -88,9 +88,12 @@ def format_verdict(boards: Sequence[PrivateBoard], *, running_version: str) -> s
         )
     lines += [
         "",
-        f"This code reads `Benchmark.visibility`; releases below {running_version} do not. A "
-        "rollback leaves `visibility=private` in the database and restores code that serves "
-        "every row unscoped.",
+        f"Package version: {running_version} (diagnostic only; not a rollback floor).",
+        "This code reads `Benchmark.visibility`, but package semver does not identify the release "
+        "that introduced that behavior. A rollback leaves `visibility=private` in the database "
+        "and may restore code that serves every row unscoped.",
+        "",
+        "Record and compare the Helm revision and immutable image digest before rollback.",
         "",
         f"Run the fail-closed procedure in {DEPLOYMENT_DOC} first.",
     ]

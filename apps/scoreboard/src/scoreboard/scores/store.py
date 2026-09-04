@@ -11,7 +11,7 @@ from uuid import UUID
 from pypika_tortoise.analytics import RowNumber
 from pypika_tortoise.enums import Order
 from pypika_tortoise.queries import Query, QueryBuilder
-from tortoise import Tortoise
+from tortoise import BaseDBAsyncClient, Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.expressions import Q
 from tortoise.query_api import execute_pypika
@@ -1214,13 +1214,20 @@ class ScoreStore:
             for row in rows
         ]
 
-    async def list_all_for_benchmark(self, benchmark_id: str) -> list[ScoreSchema]:
+    async def list_all_for_benchmark(
+        self,
+        benchmark_id: str,
+        *,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> list[ScoreSchema]:
         """Every Score row for a benchmark, chronologically — unlike `leaderboard()`
         (best-per-spec only), this is what OME-323's frontier trend needs: the full
         submission history across all specs, deliberately benchmark-wide (spec §6's
         frontier-scope resolution).
         """
-        rows = await Score.filter(benchmark_id=benchmark_id).order_by("submitted_at")
+        rows = await (
+            Score.filter(benchmark_id=benchmark_id).using_db(using_db).order_by("submitted_at")
+        )
         return [_score_to_schema(score) for score in rows]
 
     async def mark_verified(self, score_id: UUID | str) -> None:
