@@ -27,7 +27,11 @@ from typing import Any, Literal, Protocol
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.logs import run_scope
-from screamingface_engine.runner_queue import decode_message, topic_of_message
+from screamingface_engine.runner_queue import (
+    UNDECODABLE_BODY_ERRORS,
+    decode_message,
+    topic_of_message,
+)
 from screamingface_engine.subjects import ENQUEUED_AT_HEADER
 from url4.streaming.protocol import (
     ErrorInfo,
@@ -78,6 +82,23 @@ DEADLINE_MARGIN_S = 30.0
 # How often the worker extends a claimed message's ack_wait while its child runs. Far
 # below the queue's default ack_wait (60s), so a 16-hour run is never redelivered.
 HEARTBEAT_INTERVAL_S = 20.0
+
+
+def _float_or_none(raw: str | float | None) -> float | None:
+    """A tolerant float: ``None`` when the value is absent OR not a number.
+
+    INVARIANT: never raises. Both callers treat an unreadable number exactly as they treat
+    an absent one, which is each one's own documented safe direction (not expired;
+    unbounded). An unguarded `float()` on a message field is the same pod-wide cascade an
+    undecodable body causes — reached through a value the codec always writes correctly but
+    a foreign publisher need not.
+    """
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def derived_heartbeat_interval_s(ack_wait_s: float) -> float:
@@ -204,7 +225,9 @@ class RunSupervisor:
         unacked, so the broker redelivers it (up to ``max_deliver``) instead of losing
         the run.
         """
-        topic = topic_of_message(msg.data)
+        topic = await self._topic_or_settle(msg)
+        if topic is None:
+            return
         with run_scope(topic):
             if topic in self._topics_in_flight:
                 # A duplicate claim of a run THIS worker is already executing (redelivery
@@ -232,10 +255,93 @@ class RunSupervisor:
                 self._cancelled.discard(topic)
                 self._topics_in_flight.discard(topic)
 
+    async def _topic_or_settle(self, msg: ClaimedMessage) -> str | None:
+        """This message's topic, or ``None`` after settling a body that cannot name one.
+
+        INVARIANT: a body this worker cannot decode must never reach the shared TaskGroup.
+        `topic_of_message` JSON-decodes the payload and indexes `job_env.TOPIC`, so a
+        foreign publisher, a stray `nats pub`, or a codec skew across a rolling deploy
+        raises right here — and an exception escaping one supervisor cancels every
+        co-located sibling, each of which SIGKILLs its live child on the way out. One
+        malformed message took down every healthy run on the pod, and because it was never
+        acked it redelivered and did it again until `max_deliver`.
+
+        WHY contained rather than propagated: a message body is DATA arriving from
+        off-process, and it can only ever spoil the one message carrying it. A defect in
+        the worker's own code is the opposite case — it would break every run — and must
+        keep crashing the worker loudly rather than being swallowed here.
+
+        WHY acked rather than left for redelivery: the run cannot be executed (there is no
+        env to execute) and cannot be reported (the topic naming its stream is precisely
+        the unreadable part), so every redelivery reproduces this exact failure. Settling
+        it is the only thing that ends the loop.
+
+        INVARIANT: this is the SINGLE decode gate for the claim path. Every later
+        `decode_message(msg.data)` on this path — `_capability_expired`, `_child_env` — is
+        safe only BECAUSE this one already succeeded on the same bytes; do not reorder them
+        ahead of it.
+        """
+        try:
+            return topic_of_message(msg.data)
+        except UNDECODABLE_BODY_ERRORS:
+            # The body itself is never logged — it is the caller's and may carry prompts.
+            logger.exception(
+                "undecodable run-queue message settled without executing; "
+                "a publisher is writing bodies this worker's codec cannot read"
+            )
+            await msg.ack()
+            return None
+
     async def _claim(self, msg: ClaimedMessage, topic: str) -> None:
-        """The claim gates and the run, after the duplicate guard has admitted the topic."""
-        # One check for three cases: redelivery of a run that already finished, a
-        # cancel that landed before the claim, and a stale message whose run is over.
+        """The claim gates and the run, after the duplicate guard has admitted the topic.
+
+        AIDEV-NOTE: kept to ruff's `max-returns = 3` by delegating each gate. Add a new
+        gate as another `_settled_*` helper returning ``bool``, never as a fourth return.
+        """
+        if topic in self._cancelled:
+            await self._enact_accepted_cancel(msg, topic)
+            return
+        if await self._already_settled(msg, topic):
+            return
+        await self._run_child(msg, topic)
+
+    async def _enact_accepted_cancel(self, msg: ClaimedMessage, topic: str) -> None:
+        """Keep the promise made when the control loop accepted a cancel for this topic.
+
+        INVARIANT: an accepted cancel is a PROMISE, and this is where it is kept. The
+        control loop answers `ok` for a topic that is still starting, so
+        `QueueJobRunner.stop()` takes the "a worker owns it" branch and writes NO tombstone
+        — the client already holds a 204 and this worker owes the frame.
+
+        The promise used to live only in the in-memory `_cancelled` set, which
+        `supervise`'s `finally` discards on EVERY exit — including `_already_settled`'s
+        unreadable-tail path, which deliberately does not ack. The message then
+        redelivered, found no terminal frame anywhere (the App wrote none, the worker
+        published none), passed every gate and executed a run the caller was told was
+        stopped.
+
+        WHY this runs BEFORE the tail read rather than beside the other gates: that read is
+        the one step in the claim that can fail on a broker blip, and stranding the promise
+        is exactly what it did. Publishing first also makes the cancel durable for a
+        redelivery that lands on a DIFFERENT worker — the durable consumer is shared, so an
+        in-memory mark could never have covered that case at all.
+
+        WHY no child is spawned: the outcome is already promised, so starting the run only
+        to SIGTERM it would pay for a process, and a model call or two, to arrive back here.
+        """
+        await self._publish_terminal(
+            topic, "stopped", CANCELLED, "the run was cancelled by its owner"
+        )
+        await msg.ack()
+
+    async def _already_settled(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Whether this claim is finished without running: the run is over, or it expired.
+
+        ``True`` means the message has been dealt with — acked, or deliberately left for
+        redelivery — and the caller must not execute it. One read answers three cases: a
+        redelivery of a run that already finished, a cancel that landed before the claim,
+        and a stale message whose run is over.
+        """
         try:
             already_terminal = await self._terminal_frame_exists(topic)
         except QueueReadError:
@@ -246,17 +352,18 @@ class RunSupervisor:
             # the ack leaves the message for redelivery: the next attempt re-runs this check
             # and, once the broker is readable again, the dedupe answer is the real one.
             logger.warning("stream tail unreadable for %s; leaving the claim for redelivery", topic)
-            return
-        if already_terminal:
-            await msg.ack()
-            return
-        if self._capability_expired(msg):
+            return True
+        # Evaluated only when the run is not already over, exactly as the short-circuiting
+        # chain of early returns this replaced did.
+        expired = not already_terminal and self._capability_expired(msg)
+        if not already_terminal and not expired:
+            return False
+        if expired:
             await self._publish_terminal(
                 topic, "failed", QUEUE_EXPIRED, "the run's capability expired while queued"
             )
-            await msg.ack()
-            return
-        await self._run_child(msg, topic)
+        await msg.ack()
+        return True
 
     async def _run_child(self, msg: ClaimedMessage, topic: str) -> None:
         """Fork the run as a child, supervise it to its terminal frame, then ack.
@@ -423,10 +530,12 @@ class RunSupervisor:
         published_at = self._published_at(msg)
         if published_at is None:
             return False
-        raw_deadline = decode_message(msg.data).get(job_env.JOB_DEADLINE_S)
-        if raw_deadline is None:
+        # An unreadable deadline reads as an ABSENT one — "treated as not expired, the safe
+        # direction" this docstring already states, now true of a malformed value too.
+        deadline_s = _float_or_none(decode_message(msg.data).get(job_env.JOB_DEADLINE_S))
+        if deadline_s is None:
             return False
-        return (datetime.now(UTC) - published_at).total_seconds() >= float(raw_deadline)
+        return (datetime.now(UTC) - published_at).total_seconds() >= deadline_s
 
     def _published_at(self, msg: ClaimedMessage) -> datetime | None:
         """The message's enqueue moment: the stamped header first, delivery time as fallback."""
@@ -507,11 +616,21 @@ class RunSupervisor:
         ``activeDeadlineSeconds``. A message with no deadline (the codec always writes
         one) is unbounded, mirroring the child's own reading.
         """
-        raw_deadline = env.get(job_env.JOB_DEADLINE_S)
-        if raw_deadline is None:
+        # An unreadable deadline reads as an absent one — unbounded, exactly as the
+        # docstring above says a message with no deadline is. Nothing is lost by deferring:
+        # the child re-reads the same value and `runner.main._deadline_from_env` REFUSES a
+        # malformed one, so such a run fails fast with its own terminal frame.
+        deadline_s = _float_or_none(env.get(job_env.JOB_DEADLINE_S))
+        if deadline_s is None:
             return None
-        grace_s = float(env.get(job_env.STREAM_GRACE_S, job_env.DEFAULT_STREAM_GRACE_S))
-        return float(raw_deadline) + grace_s + self._deadline_margin_s
+        # WHY the grace falls back to the DEFAULT rather than going unbounded like the
+        # deadline: it is an additive teardown allowance, so the shipped value keeps the
+        # wall meaningful, where dropping the wall entirely would leave a hung child
+        # unbounded over one malformed field the run never depends on.
+        grace_s = _float_or_none(env.get(job_env.STREAM_GRACE_S))
+        if grace_s is None:
+            grace_s = job_env.DEFAULT_STREAM_GRACE_S
+        return deadline_s + grace_s + self._deadline_margin_s
 
     async def _wait_for_child(self, proc: _ChildProcess, hard_wall_s: float | None) -> str:
         """Wait for the child to exit, bounded by the hard wall; return how it ended.
