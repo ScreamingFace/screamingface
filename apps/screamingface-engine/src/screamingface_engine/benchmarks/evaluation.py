@@ -85,6 +85,47 @@ def case_evaluation_endpoint(
     return endpoint
 
 
+def attempt_records_endpoint(
+    *,
+    label: str,
+    item_name: str,
+    bind: CaseEvaluationBinder,
+    error_context_head: int | None = None,
+) -> Callable[[Request], str]:
+    """Adapt an ``attempt_1..attempt_N`` struct of evaluator records into a Case envelope.
+
+    WHY (OME-1126): the sibling ``case_evaluation_endpoint`` takes a JSON *array*,
+    which is what a rubric fan-out (``iterate``) naturally yields. A Board whose Case
+    holds a FIXED, named set of attempts renders ``struct({"attempt_1": ...})`` instead
+    — an object — so it needs this shape. Both funnel into the same ``bind`` contract.
+    """
+
+    def endpoint(request: Request) -> str:
+        try:
+            case_id = positive_case_id(request.intent)
+            payload = json_object(request.context, label)
+            expected = tuple(f"attempt_{index}" for index in range(1, len(payload) + 1))
+            if not expected or tuple(payload) != expected:
+                raise ValueError(f"{label} fields must be consecutive attempt_1..attempt_N")
+            items = []
+            for index, field in enumerate(expected, start=1):
+                decoded = json_object(payload[field], f"{item_name} {index}")
+                # WHY (OME-993, GH #740): mirrors case_evaluation_endpoint — a one-key
+                # {"error": ...} item is url4's `on_error=collect` capture of an UPSTREAM
+                # failure; re-raise that cause instead of rejecting its shape.
+                _raise_collected_failure(decoded, f"{item_name} {index}")
+                items.append(decoded)
+            result = bind(case_id, items)
+        except (OSError, TypeError, ValueError) as exc:
+            detail = str(exc)
+            if error_context_head is not None:
+                detail += f"; context head: {request.context[:error_context_head]!r}"
+            raise benchmark_unavailable(detail) from exc
+        return compact_json(result)
+
+    return endpoint
+
+
 def aggregate_endpoint(
     *,
     label: str,
@@ -221,6 +262,7 @@ def positive_count(value: object, label: str) -> int:
 __all__ = [
     "CandidateAnswer",
     "aggregate_endpoint",
+    "attempt_records_endpoint",
     "benchmark_unavailable",
     "candidate_answer",
     "case_evaluation_endpoint",

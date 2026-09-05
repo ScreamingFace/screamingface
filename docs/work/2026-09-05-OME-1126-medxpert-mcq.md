@@ -186,11 +186,33 @@ the issue.
   ranking, since temperature-0 sampling does not make the ordering stable.
 - Gates: ALL GATES GREEN on the `screamingface` stack.
 
+## First live run
+
+`limit=3` against `openrouter/google/gemini-3.1-pro-preview` on the local stack: **3/3 correct,
+`answered_rate` 1.0, coverage 1.0**. Both turns are visible in the transcript — the CoT turn, then
+the commit turn ending `Therefore, among A through J, the answer is (E)`, from which the
+answer-time parser took `E`. This is the first MedXpertQA question ever graded through the board.
+
+Two defects surfaced between registration and that run, both now fixed and pinned:
+
+1. **Wrong endpoint helper.** The board rendered `{attempt_1: ...}` — an object — but registered
+   the shared `case_evaluation_endpoint`, which decodes a JSON *array* (what a rubric `iterate`
+   yields). Every Case died with `Case evaluation must be a JSON array`. IFEval renders the same
+   object shape and had solved this with a private `_case_evaluation` clone; rather than copy that
+   clone a second time, the object-shaped variant now lives beside its sibling in `evaluation.py`
+   as `attempt_records_endpoint`, including the `_raise_collected_failure` handling IFEval's local
+   copy lacks. IFEval still carries its clone — collapsing it is a follow-up, not this ticket.
+2. **`Check.evidence` is required and `_scored` omitted it.** Every *scored* Case would have
+   raised `ValidationError` inside the reducer — invisible until a Case actually got a grade, which
+   is why registration looked healthy. `_match_evidence` now emits the exact-match verdict, with
+   the committed letter as `raw_output` (`""` when the reply named no choice).
+
 ## Still open at hand-off
 
-- **Nothing has been graded.** No model has answered a MedXpertQA question through this board. A
-  `limit=5` smoke run is the first real test; grading is free, so it costs only the two candidate
-  invocations per Case.
 - Khoa's review of the `multi_turn` contract change.
-- `test_medxpert_{case_evaluation,aggregate}.py` — the reducer deserves direct tests.
+- `error_context_head` is dead for decode failures in BOTH `case_evaluation_endpoint` and the new
+  `attempt_records_endpoint`: `json_object`/`json_array` raise `ResolutionError`, which the
+  handler's `except (OSError, TypeError, ValueError)` does not catch, so the context head is never
+  appended. Pinned by `test_route_rejects_a_context_that_is_not_json`. Fixing it changes error text
+  for gdpval/healthbench/draco too, so it is a shared-helper ticket, not this one.
 - A `py-screamingface` label on OME-1126, now that it spans two landings.

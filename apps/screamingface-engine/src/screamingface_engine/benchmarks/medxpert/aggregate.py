@@ -202,6 +202,7 @@ def _scored(selected: SelectedCase, row: Mapping[str, Any], label: str) -> CaseR
                 "id": "1",
                 "label": "committed choice matches the published key",
                 "outcome": "MET" if correct else "UNMET",
+                "evidence": [_match_evidence(committed, label, correct)],
                 "metadata": {"committed": committed, "expected": label},
             }
         ],
@@ -217,6 +218,25 @@ def _scored(selected: SelectedCase, row: Mapping[str, Any], label: str) -> CaseR
     if fields["status"] == "refused":
         return refused_case_result(refusal=fields["refusal"], **common)
     return scored_case_result(output=fields["output"], **common)
+
+
+def _match_evidence(committed: str, label: str, correct: bool) -> dict[str, Any]:
+    """The exact-match verdict, as the report schema's Evidence record.
+
+    WHY it exists at all for a one-check MCQ Board: `Check.evidence` is required, and a
+    reader must be able to see WHAT was compared without re-deriving it from the score.
+    `raw_output` carries the committed letter — "" when the reply named no choice.
+    """
+
+    return {
+        "sequence": 1,
+        "producer": {"type": "deterministic", "id": "medxpert/exact-match"},
+        "valid": True,
+        "outcome": "PASS" if correct else "FAIL",
+        "raw_output": committed,
+        "metadata": {"expected": label, "answered": bool(committed)},
+        "accounting": None,
+    }
 
 
 def _failed(

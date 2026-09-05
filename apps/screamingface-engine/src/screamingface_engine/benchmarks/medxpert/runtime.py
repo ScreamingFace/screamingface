@@ -22,8 +22,8 @@ from typing import Any
 
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
+    attempt_records_endpoint,
     candidate_answer,
-    case_evaluation_endpoint,
     compact_json,
     json_object,
     positive_case_id,
@@ -59,7 +59,7 @@ def install(node: Url4Node, root: Path) -> None:
         (CHECK_ROUTE, _check(root)),
         (
             CASE_EVALUATION_ROUTE,
-            case_evaluation_endpoint(
+            attempt_records_endpoint(
                 label="MedXpertQA Case evaluation",
                 item_name="Attempt",
                 bind=bind_case_evaluation,
