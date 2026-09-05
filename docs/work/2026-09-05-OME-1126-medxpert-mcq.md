@@ -167,6 +167,25 @@ declaration exists for.
   - Two of my own test expectations were wrong and were corrected (crossover essay phrasing; the
     bare-"I" hazard, now pinned as faithful official behaviour).
 
+## SDK surface (folded in, owner decision 2026-09-05)
+
+Following the OME-971 precedent, the CLI and example notebook land in this ticket rather than a
+sibling. OME-1126 therefore spans two landings — `url4-cloud` and `py-screamingface` — which
+CLAUDE.md §8 would normally split into an epic; the `py-screamingface` label should be added to
+the issue.
+
+- `_runtime/cli.py` — `"medxpert"` added to `_BENCHMARKS` (it is the `choices=` for `prepare`, so
+  the command fails at argument parsing without it), and `"medxpert": ("cases.json", "answers")`
+  to the required-files table. Not `rubrics`: this board's private asset is a one-letter key per
+  case, not a scored checklist.
+- `tests/test_runtime_cli.py` — the fingerprint parametrize extended to include `medxpert`.
+- `scripts/build_notebooks.py` — `_medxpert_e2e()` added and registered as `11_medxpert.ipynb`.
+  Its opening cell states both properties a reader must know before quoting a number: the board
+  calls a candidate TWICE per case, and for a fusion those turns wrap the ensemble rather than
+  each member. The closing cell says plainly that a `limit=N` run is a smoke test and not a
+  ranking, since temperature-0 sampling does not make the ordering stable.
+- Gates: ALL GATES GREEN on the `screamingface` stack.
+
 ## Still open at hand-off
 
 - **Nothing has been graded.** No model has answered a MedXpertQA question through this board. A
@@ -174,4 +193,4 @@ declaration exists for.
   invocations per Case.
 - Khoa's review of the `multi_turn` contract change.
 - `test_medxpert_{case_evaluation,aggregate}.py` — the reducer deserves direct tests.
-- SDK sibling (`py-screamingface`): CLI `prepare medxpert` + an example notebook.
+- A `py-screamingface` label on OME-1126, now that it spans two landings.

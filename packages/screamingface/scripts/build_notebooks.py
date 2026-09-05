@@ -51,6 +51,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "08_healthbench.ipynb": _healthbench_e2e(),
         "09_corrective_loops.ipynb": _corrective_loops(),
         "10_gdpval.ipynb": _gdpval_e2e(),
+        "11_medxpert.ipynb": _medxpert_e2e(),
     }
 
 
@@ -1149,6 +1150,114 @@ facts, and collapsing them would make a judge outage look like model weakness.""
         nbformat.v4.new_code_cell("""\
 for case in fusion_report.candidates.only.cases:
     print(case.case_id, case.status, case.grade.score if case.grade else None)"""),
+    )
+
+
+def _medxpert_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# MedXpertQA — expert medical multiple choice
+
+[MedXpertQA](https://arxiv.org/abs/2501.18362) is 2,450 expert-written medical questions, each
+with ten lettered choices and one correct answer. The model reasons step by step, then commits to
+a letter; grading is an exact string match against the published key.
+
+That makes it the cheapest board here to grade — **no judge, no grading tokens at all**. Cost is
+entirely answer generation.
+
+**Two things to know before reading a score.**
+
+- The exchange is **two turns**: the model reasons freely, then commits against a bare trigger
+  sent as its own turn. That layout is what makes the committed letter come first, which the
+  official parser depends on. It also means the board calls your candidate **twice per case**.
+- For a **fusion**, those two turns wrap the whole ensemble rather than each member. The Engine
+  invokes a candidate as an opaque recipe and cannot reach inside it, so these numbers are not
+  comparable to an implementation that runs two-turn per member and shows the synthesiser each
+  member's reasoning."""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+From a terminal:
+
+```bash
+screamingface prepare medxpert  # first run only: download pinned Benchmark assets
+screamingface up                # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
+```
+
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
+Stack management stays outside the notebook so **Run All** never starts or stops local
+services."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Run a few cases with one model
+
+`limit` keeps the rehearsal cheap. Grading is free, so what you pay for is two candidate calls
+per case — reason, then commit."""),
+        nbformat.v4.new_code_cell("""\
+PARAMS = {"max_tokens": 8192, "temperature": 0.0}
+
+gemini = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARAMS)
+report = sf.evaluate(gemini, benchmark="medxpert", limit=5)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+### Why `max_tokens` is 8192 and not lower
+
+Reasoning models exhaust a smaller budget before they commit and return nothing. That does not
+lower their score — it removes them from the comparison, because a model answering 77% of rows is
+being measured on a smaller, easier exam than one answering all of them. This board scores an
+unanswered case as **wrong** rather than skipping it, which is the official harness's verdict and
+keeps two systems on the same denominator."""),
+        nbformat.v4.new_code_cell("""\
+candidate = report.candidates.only
+print("score    :", candidate.score)
+print("metrics  :", candidate.metrics)"""),
+        nbformat.v4.new_markdown_cell("""\
+`answered_rate` is worth reading beside the score. A 40% built from 40% correct is a knowledge
+result; a 40% built from 90% correct on the half it answered is a formatting failure, and only
+the second is fixed by raising `max_tokens`."""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Compare a Fusion against the same model
+
+A fusion is welcome here and the board takes no view on whether it should win. Worth knowing what
+the mechanism can and cannot do: an MCQ answer is a single discrete choice, so a synthesiser has
+nothing to *merge* — it can only pick among the panel's votes. That is a different situation from
+a rubric benchmark, where each member contributes partial credit the others miss."""),
+        nbformat.v4.new_code_cell("""\
+qwen = sf.Model(model="openrouter/qwen/qwen3.8-2.4t-a95b", params=PARAMS)
+deepseek = sf.Model(model="openrouter/deepseek/deepseek-v4-pro", params=PARAMS)
+
+SYNTHESIS_PROMPT = (
+    "You are given several experts' step-by-step analyses of a multiple-choice medical "
+    "question. Weigh their reasoning and the evidence they cite — not merely how many chose "
+    "each option — and determine the single best choice."
+)
+kimi = sf.Model(model="openrouter/moonshotai/kimi-k3", params=PARAMS, prompt=SYNTHESIS_PROMPT)
+
+panel = sf.Fusion(members=[gemini, qwen, deepseek], name="medical_panel", synthesizer=kimi)"""),
+        nbformat.v4.new_code_cell("""\
+fusion_report = sf.evaluate(panel, benchmark="medxpert", limit=5)
+fusion_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Read the per-case outcomes
+
+Each case is one bit: the committed letter matched the key or it did not. The check row carries
+what the model committed and what was expected, so a wrong answer can be inspected rather than
+just counted."""),
+        nbformat.v4.new_code_cell("""\
+for case in fusion_report.candidates.only.cases:
+    grade = case.grade
+    print(case.case_id, case.status, grade.score if grade else None)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Before you scale up
+
+A `limit=N` run is a smoke test, not a ranking. On the full set, temperature-0 sampling does not
+make the leaderboard stable — small subsamples reshuffle it — so a difference of a point or two
+between two systems on a handful of cases is noise, not a result. Run the whole set before
+quoting a comparison."""),
     )
 
 
