@@ -142,9 +142,36 @@ declaration exists for.
   letter and hid the bug; and a bare "I" IS read as choice I at ten options, which is faithful
   official behaviour and is now pinned as a known hazard rather than silently diverged from.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** as planned, plus two not in the plan —
+  `benchmarks/definition.py` (InteractionType grew `multi_turn`) and
+  `tests/unit/test_benchmark_declaration.py` (both guards updated at full strength). The planned
+  `test_medxpert_{case_evaluation,aggregate}.py` were NOT written: the reducer is covered
+  indirectly and the stack's 80% gate passes at 91%, but that is thin for a scoring path and is
+  named as a gap rather than claimed as coverage.
+- **Commits:** `ed9f0351` — feat(screamingface-engine): serve MedXpertQA as an exact-match MCQ
+  board.
+- **Gates:** ALL GATES GREEN (`--skip-append-only`, see below) — ruff check, ruff format,
+  pyright, check_layering, pytest --cov-fail-under=80 at 91%. 2,379 passed, 6 skipped; 29 new
+  MedXpertQA tests across four files.
+- **Deviations:**
+  - `failure_policy` corrected from the spec's `withhold` to `coverage_declare` (see Deviations
+    above — wrong axis, caught by the declaration guard).
+  - Tasks 3-5 merged; plan amended in place.
+  - `InteractionType` extended with `multi_turn` on owner decision while OME-1039's owner is
+    away, pending his review. Both guard tests updated rather than removed, and the per-board
+    policy assertion is now stronger than it was.
+  - `--skip-append-only` used for the guard-test change. It is a Confidence-Gate decision the
+    owner took explicitly; recorded here so the PR reviewer sees it named rather than buried.
+  - Two of my own test expectations were wrong and were corrected (crossover essay phrasing; the
+    bare-"I" hazard, now pinned as faithful official behaviour).
+
+## Still open at hand-off
+
+- **Nothing has been graded.** No model has answered a MedXpertQA question through this board. A
+  `limit=5` smoke run is the first real test; grading is free, so it costs only the two candidate
+  invocations per Case.
+- Khoa's review of the `multi_turn` contract change.
+- `test_medxpert_{case_evaluation,aggregate}.py` — the reducer deserves direct tests.
+- SDK sibling (`py-screamingface`): CLI `prepare medxpert` + an example notebook.
