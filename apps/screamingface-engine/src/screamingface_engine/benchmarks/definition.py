@@ -31,13 +31,18 @@ type CheckCost = Literal["free", "paid"]
 # Neither is wrong — but the two produce different numbers from identical model behavior,
 # which is why the choice must be declared per benchmark, never defaulted (OME-1039).
 type FailurePolicy = Literal["withhold", "coverage_declare"]
-# How the Candidate is exercised: "single_shot" = one prompt in, one reply out, graded —
-# no follow-up turns, no tool environment. The only value today; multi-turn/agentic
-# arrive later as NEW declared values (see BenchmarkDeclaration's AIDEV-NOTE).
-type InteractionType = Literal["single_shot"]
+# How the Candidate is exercised.
+#   "single_shot" — one prompt in, one reply out, graded. No follow-up turns, no tool
+#                   environment.
+#   "multi_turn"  — the BOARD invokes the Candidate more than once per Case, feeding an earlier
+#                   reply into a later prompt. Declared because it changes both the cost shape
+#                   (N invocations per Case) and what a Fusion entrant is actually being asked
+#                   to do: the exchange wraps the whole ensemble, not each member (OME-1126).
+# Agentic/tool-environment interactions arrive later as further declared values.
+type InteractionType = Literal["single_shot", "multi_turn"]
 
 _FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage_declare")
-_INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot",)
+_INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot", "multi_turn")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a

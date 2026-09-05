@@ -58,13 +58,25 @@ def test_declaration_refuses_an_unknown_failure_policy_by_name() -> None:
 
 
 def test_declaration_refuses_an_unknown_interaction_by_name() -> None:
-    # WHY: multi_turn arrives later as a new declared value, never as a silent
-    # acceptance — the spine refuses the unknown value before any paid request.
+    # WHY: a new interaction shape arrives as a DECLARED value, never as a silent acceptance —
+    # the contract refuses the unknown one before any paid request.
+    #
+    # AIDEV-NOTE: this test used to name `multi_turn` as its unknown value. OME-1126 (MedXpertQA)
+    # added it as a real value: that board invokes the Candidate twice per Case (reason, then
+    # commit against a bare trigger), so it could not register while `single_shot` was the only
+    # option. The guard itself is unchanged in strength — it still proves an unknown value is
+    # refused by name. Agentic/tool-environment shapes remain unknown until a board needs them.
     with pytest.raises(ValueError, match="interaction"):
         BenchmarkDeclaration(
             failure_policy="withhold",
-            interaction="multi_turn",  # type: ignore[arg-type]
+            interaction="agentic_tool_use",  # type: ignore[arg-type]
         )
+
+
+def test_declaration_accepts_the_declared_multi_turn_shape() -> None:
+    # The positive half of the guard above: a value only becomes acceptable by being declared.
+    declaration = BenchmarkDeclaration(failure_policy="coverage_declare", interaction="multi_turn")
+    assert declaration.as_block()["interaction"] == "multi_turn"
 
 
 def test_declaration_requires_both_fields_with_no_defaults() -> None:
@@ -96,15 +108,34 @@ def test_resource_names_both_declared_values() -> None:
 
 
 def test_every_builtin_board_declares_its_actual_policy() -> None:
-    # INVARIANT: the declaration tells the truth about the code. Every board reduces
-    # through the shared `finalize_candidate_result`, which scores exactly the gradeable
-    # subset and publishes coverage — coverage_declare behavior. A board may only declare
-    # `withhold` once its aggregate actually withholds.
-    benchmarks = list(BUILTIN_BENCHMARKS)
-    assert len(benchmarks) == 6
-    for benchmark in benchmarks:
-        assert benchmark.declaration.failure_policy == "coverage_declare", benchmark.id
-        assert benchmark.declaration.interaction == "single_shot", benchmark.id
+    # INVARIANT: the declaration tells the truth about the code. Every board reduces through the
+    # shared `finalize_candidate_result`, which scores exactly the gradeable subset and publishes
+    # coverage — coverage_declare behavior. A board may only declare `withhold` once its aggregate
+    # actually withholds, and may only declare an interaction it actually performs.
+    #
+    # AIDEV-NOTE: an explicit per-board table rather than a blanket assertion. A new board must
+    # add its row deliberately, and a board that CHANGES its declaration trips here — which a
+    # loop over "all single_shot" could not catch once a second shape existed (OME-1126).
+    expected = {
+        "draco": ("coverage_declare", "single_shot"),
+        "draco-3pass": ("coverage_declare", "single_shot"),
+        "gdpval-text": ("coverage_declare", "single_shot"),
+        "healthbench-professional": ("coverage_declare", "single_shot"),
+        "healthbench-worst30": ("coverage_declare", "single_shot"),
+        "ifeval": ("coverage_declare", "single_shot"),
+        # MedXpertQA invokes the Candidate twice per Case: turn 1 reasons, turn 2 commits against
+        # a bare trigger. Its ungradeable Cases still go to the shared finalizer, hence
+        # coverage_declare.
+        "medxpert": ("coverage_declare", "multi_turn"),
+    }
+    actual = {
+        benchmark.id: (
+            benchmark.declaration.failure_policy,
+            benchmark.declaration.interaction,
+        )
+        for benchmark in BUILTIN_BENCHMARKS
+    }
+    assert actual == expected
 
 
 def test_each_board_aggregate_reduces_through_the_shared_finalizer() -> None:
