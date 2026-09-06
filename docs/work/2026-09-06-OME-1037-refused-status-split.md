@@ -111,8 +111,9 @@ review**; ledger stays `in_progress` until the PR merges and OME-1037 closes.
     (10), `packages/screamingface/tests/test_refusal_status_split.py` (10).
   - Scoreboard/portal/report-intake: swept — zero consumers of the `refused` case
     status (all grep hits were unrelated prose or the invocation-layer vocabulary).
-- **Commits:** single implementation commit on `OME-1037-refused-status-split`
-  (sha recorded in the follow-up ledger commit and the PR).
+- **Commits:**
+  - `fe1a8cff` — refactor(screamingface-engine): split provider refusal from
+    graded refusal in case status
 - **Gates:**
   - `run_gates.py screamingface-engine --skip-append-only`: ALL GATES GREEN
     (ruff check, ruff format, pyright, check_layering, pytest with coverage ≥80 —
