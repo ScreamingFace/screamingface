@@ -502,10 +502,11 @@ def _evidence_outcome(
 
 
 def _case_status(value: object) -> CaseStatus:
+    # WHY no `refused` branch (OME-1037): the value no longer exists on the wire —
+    # a graded refusal is `scored` with refusal text, an ungradeable one `failed`
+    # with a provider_refusal failure. An Engine still emitting it fails loudly.
     if value == "scored":
         return "scored"
-    if value == "refused":
-        return "refused"
     if value == "failed":
         return "failed"
     raise ExecutionError("Case Result status is unsupported")

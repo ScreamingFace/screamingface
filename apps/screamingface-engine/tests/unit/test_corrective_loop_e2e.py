@@ -206,7 +206,8 @@ async def test_a_selected_provider_refusal_is_graded_and_published_verbatim(
     )
     assert result["score"] == 1.0
     case = _first_case(result)
-    assert case["status"] == "refused"
+    # INVARIANT (OME-1037): a graded refusal publishes as an ordinary scored Case.
+    assert case["status"] == "scored"
     assert case["output"] is None
     assert case["refusal"] == _PASS_ANSWER
     assert case["finish_reason"] == "content_filter"

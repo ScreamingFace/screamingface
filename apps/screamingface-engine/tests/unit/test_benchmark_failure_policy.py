@@ -11,7 +11,7 @@ from screamingface_engine.benchmarks.aggregation import (
     CandidateScore,
     SelectedCase,
     finalize_candidate_result,
-    refused_case_result,
+    refusal_case_result,
 )
 from screamingface_engine.benchmarks.contract import (
     CandidateResult,
@@ -74,7 +74,7 @@ def test_refusal_is_normal_benchmark_input_and_can_carry_a_numeric_grade() -> No
     exact = "I cannot provide those instructions."
     answer = candidate_answer(encode_candidate_invocation("", "content_filter", exact))
     assert answer.refusal is not None
-    case = refused_case_result(
+    case = refusal_case_result(
         selected_case=SelectedCase(case_id=1, input="question", metadata={}),
         refusal=answer.refusal,
         finish_reason=answer.finish_reason,
@@ -84,7 +84,8 @@ def test_refusal_is_normal_benchmark_input_and_can_carry_a_numeric_grade() -> No
     assert answer.text == exact
     assert answer.output is None
     assert answer.refusal == exact
-    assert case.status == "refused"
+    # INVARIANT (OME-1037): a graded refusal is an ordinary scored Case.
+    assert case.status == "scored"
     assert case.refusal == exact
     assert case.output is None
     assert case.grade is not None and case.grade.score == 0.0
@@ -100,16 +101,19 @@ def test_refusal_retains_a_missing_grade_when_later_grading_fails() -> None:
         case_id=1,
         metadata={},
     )
-    case = refused_case_result(
+    case = refusal_case_result(
         selected_case=SelectedCase(case_id=1, input="question", metadata={}),
         refusal="I cannot answer.",
         grade=_grade(None),
         failures=[failure],
     )
 
-    assert case.status == "refused"
+    # INVARIANT (OME-1037): an ungradeable refusal is a FAILED Case led by the
+    # provider_refusal failure, with the grading failure retained after it.
+    assert case.status == "failed"
+    assert case.refusal == "I cannot answer."
     assert case.grade is not None and case.grade.score is None
-    assert case.failures == [failure]
+    assert [item.code for item in case.failures] == ["provider_refusal", "judge_unavailable"]
 
 
 def test_partial_candidate_scores_only_gradeable_cases_and_declares_coverage() -> None:

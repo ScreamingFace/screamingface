@@ -398,8 +398,8 @@ def test_existing_report_warnings_use_the_current_sfds_warning_palette() -> None
     assert "--sf-warning-bg:#130e0c" in html
 
 
-def refused_case(case_id: int = 154) -> CaseResult:
-    """A provider refusal is a scored zero outcome, not missing infrastructure."""
+def refusal_case(case_id: int = 154) -> CaseResult:
+    """A graded refusal is a scored zero outcome, not missing infrastructure (OME-1037)."""
 
     refusal = "I cannot provide an answer to that request."
     return CaseResult(
@@ -410,7 +410,7 @@ def refused_case(case_id: int = 154) -> CaseResult:
         grade=CaseGrade(method="rubric", score=0.0, metrics={}, checks=[]),
         failures=[],
         metadata={},
-        status="refused",
+        status="scored",
         refusal=refusal,
     )
 
@@ -459,14 +459,16 @@ def test_a_failed_case_pane_shows_the_failure_chain_not_nothing() -> None:
     assert "input unavailable" in html
 
 
-def test_a_refused_case_is_named_and_shows_the_exact_provider_refusal() -> None:
-    html = body(report_html(report(candidate("m", 0.0, cases=(refused_case(),)))))
+def test_a_graded_refusal_is_a_real_verdict_and_shows_the_exact_refusal() -> None:
+    # INVARIANT (OME-1037): a refusal the benchmark graded is a scored Case — its
+    # zero here is a real "incorrect" verdict, not a warning state, and the exact
+    # refusal text stays visible in the pane as the Case's answer-side evidence.
+    html = body(report_html(report(candidate("m", 0.0, cases=(refusal_case(),)))))
 
-    assert "refused" in html
-    assert "provider refusal" in html
+    assert "refusal" in html
     assert "I cannot provide an answer to that request." in html
-    assert "incorrect" not in html
-    assert "sf-badge--warn" in html
+    assert "incorrect" in html
+    assert "sf-badge--warn" not in html
 
 
 def test_a_corrective_case_names_why_and_when_the_loop_stopped() -> None:

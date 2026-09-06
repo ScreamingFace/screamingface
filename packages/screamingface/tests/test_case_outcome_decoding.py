@@ -1,9 +1,9 @@
 """The client decodes the explicit Case outcome the OME-802 Engine publishes.
 
 INVARIANT defended: the `screamingface.candidate-result.v1` Case Result carries
-`status` (scored | refused | failed) and `refusal` on every Case — the client
-decodes them strictly (unknown keys and unknown statuses still fail loudly) and
-exposes them unmodified, never recalculating Benchmark semantics client-side.
+`status` (scored | failed, since OME-1037) and `refusal` on every Case — the
+client decodes them strictly (unknown keys and unknown statuses still fail loudly)
+and exposes them unmodified, never recalculating Benchmark semantics client-side.
 """
 
 from __future__ import annotations
@@ -32,9 +32,11 @@ def _scored_payload() -> dict[str, Any]:
     }
 
 
-def _refused_payload() -> dict[str, Any]:
+def _refusal_payload() -> dict[str, Any]:
+    # OME-1037: a refusal the benchmark graded is an ordinary scored Case
+    # carrying the refusal text instead of an output.
     return {
-        "status": "refused",
+        "status": "scored",
         "case_id": 1,
         "input": "A clinical question",
         "output": None,
@@ -108,7 +110,7 @@ def _healthbench_payload() -> dict[str, Any]:
     ("payload", "status", "refusal"),
     [
         (_scored_payload(), "scored", None),
-        (_refused_payload(), "refused", "I can't help with that request."),
+        (_refusal_payload(), "scored", "I can't help with that request."),
         (_failed_payload(), "failed", None),
     ],
 )
@@ -122,9 +124,9 @@ def test_every_wire_status_decodes_and_is_exposed_unmodified(
 
 
 def test_decoded_outcome_survives_export() -> None:
-    exported = _case_result(_refused_payload()).to_dict()
+    exported = _case_result(_refusal_payload()).to_dict()
 
-    assert exported["status"] == "refused"
+    assert exported["status"] == "scored"
     assert exported["refusal"] == "I can't help with that request."
 
 
@@ -154,7 +156,7 @@ def test_malformed_corrective_execution_telemetry_fails_closed(
 
 
 def test_wire_text_and_string_identity_survive_without_normalization() -> None:
-    payload = _refused_payload()
+    payload = _refusal_payload()
     payload.update(
         {
             "case_id": " case-1 ",
@@ -287,7 +289,7 @@ def test_an_unsupported_status_is_rejected() -> None:
 
 def test_blank_refusal_text_is_rejected() -> None:
     with pytest.raises(sf.ExecutionError, match="refusal"):
-        _case_result({**_refused_payload(), "refusal": "   "})
+        _case_result({**_refusal_payload(), "refusal": "   "})
 
 
 def test_a_status_contradicting_the_grade_shape_is_rejected() -> None:
@@ -304,13 +306,16 @@ def test_a_status_contradicting_the_grade_shape_is_rejected() -> None:
         )
 
 
-def test_a_scored_case_cannot_carry_refusal_text() -> None:
-    with pytest.raises(ValueError, match="refusal"):
+def test_a_scored_case_cannot_carry_output_and_refusal_together() -> None:
+    # INVARIANT (OME-1037): mirrors contract.py _require_scored_case — a scored
+    # Case carries exactly one of output/refusal, so a locally built value can
+    # never round-trip into a contract-invalid payload.
+    with pytest.raises(ValueError, match="exactly one"):
         sf.CaseResult(
             status="scored",
             case_id=1,
             input="question",
-            output=None,
+            output="an answer the engine would reject",
             finish_reason="stop",
             refusal="I refuse.",
             grade=sf.CaseGrade(method="rubric", score=1.0, metrics={}, checks=()),
@@ -319,24 +324,10 @@ def test_a_scored_case_cannot_carry_refusal_text() -> None:
         )
 
 
-def test_a_refused_case_cannot_carry_output() -> None:
-    # INVARIANT: mirrors contract.py _enforce_status — a refused Case has no output,
-    # so a locally built value can never round-trip into a contract-invalid payload.
-    with pytest.raises(ValueError, match="refused"):
-        sf.CaseResult(
-            case_id=1,
-            input="question",
-            output="an answer the engine would reject",
-            finish_reason="stop",
-            refusal="I can't help with that request.",
-            grade=sf.CaseGrade(method="rubric", score=0.0, metrics={}, checks=()),
-            failures=(),
-            metadata={},
-        )
-
-
-def test_a_refused_case_requires_a_grade() -> None:
-    with pytest.raises(ValueError, match="refused"):
+def test_an_ungraded_refusal_requires_its_failures() -> None:
+    # OME-1037: a refusal with no grade derives `failed`, and a failed Case must
+    # name its failures — a bare ungraded refusal cannot be built.
+    with pytest.raises(ValueError, match="failures"):
         sf.CaseResult(
             case_id=1,
             input="question",
@@ -350,7 +341,9 @@ def test_a_refused_case_requires_a_grade() -> None:
 
 
 def test_a_locally_built_case_derives_status_without_weakening_wire_decoding() -> None:
-    refused = sf.CaseResult(
+    # OME-1037: a graded refusal derives `scored` — the refusal text is the
+    # answer-side of the Case, and the numeric grade is what classifies it.
+    graded_refusal = sf.CaseResult(
         case_id=1,
         input="question",
         output=None,
@@ -361,7 +354,7 @@ def test_a_locally_built_case_derives_status_without_weakening_wire_decoding() -
         metadata={},
     )
 
-    assert refused.status == "refused"
+    assert graded_refusal.status == "scored"
 
 
 # FEATURE: OME-843 member-output capture — the optional `operations` case key carries

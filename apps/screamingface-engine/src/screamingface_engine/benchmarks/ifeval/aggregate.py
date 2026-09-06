@@ -25,7 +25,7 @@ from screamingface_engine.benchmarks.aggregation import (
     finalize_candidate_result,
     grading_failure_case_result,
     public_error,
-    refused_case_result,
+    refusal_case_result,
     scored_case_result,
 )
 from screamingface_engine.benchmarks.case_execution import (
@@ -358,7 +358,7 @@ def _case_result(selected_case: SelectedCase, record: Mapping[str, Any]) -> Case
     }
     refusal = record.get("refusal")
     if record.get("status") == "refused":
-        return refused_case_result(
+        return refusal_case_result(
             selected_case=selected_case,
             refusal=refusal if isinstance(refusal, str) else None,
             finish_reason=record["finish_reason"],

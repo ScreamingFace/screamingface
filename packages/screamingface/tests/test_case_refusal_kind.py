@@ -1,4 +1,4 @@
-"""A refused Case states which side refused: the provider declined, or the model.
+"""A Case that represents a refusal states which side refused: provider or model.
 
 INVARIANT defended: the Engine's runner classifies a refused turn from two
 provider-verbatim signals it already publishes on every Case (OME-745,
@@ -6,7 +6,9 @@ provider-verbatim signals it already publishes on every Case (OME-745,
 filter terminated the call; a non-null `refusal` field carries the model's own
 refusal message. The client derives `refusal_kind` from exactly those wire fields —
 never from answer text, never serialized, and never guessed when neither signal is
-present (older payloads stay loadable with kind `None`).
+present. Since OME-1037 there is no `refused` case status: the kind is read off a
+scored Case carrying refusal text (the benchmark graded the decline) or a failed
+Case carrying a `provider_refusal` failure (it could not be graded).
 """
 
 from __future__ import annotations
@@ -19,9 +21,9 @@ import screamingface as sf
 from screamingface._evaluation.results import _case_result
 
 
-def _refused_payload(finish_reason: str | None, refusal: str | None) -> dict[str, Any]:
+def _graded_refusal_payload(finish_reason: str | None, refusal: str) -> dict[str, Any]:
     return {
-        "status": "refused",
+        "status": "scored",
         "case_id": 1,
         "input": "A clinical question",
         "output": None,
@@ -35,61 +37,78 @@ def _refused_payload(finish_reason: str | None, refusal: str | None) -> dict[str
     }
 
 
+def _ungradeable_refusal_payload(finish_reason: str | None, refusal: str | None) -> dict[str, Any]:
+    return {
+        "status": "failed",
+        "case_id": 1,
+        "input": "A clinical question",
+        "output": None,
+        "finish_reason": finish_reason,
+        "refusal": refusal,
+        "stop_reason": None,
+        "rounds_executed": None,
+        "grade": {"method": "rubric", "score": None, "metrics": {}, "checks": []},
+        "failures": [
+            {
+                "stage": "candidate",
+                "code": "provider_refusal",
+                "message": "provider refused the request",
+                "retryable": False,
+                "case_id": 1,
+                "metadata": {},
+            }
+        ],
+        "metadata": {},
+    }
+
+
 @pytest.mark.parametrize(
-    ("finish_reason", "refusal", "kind"),
+    ("payload", "kind"),
     [
         pytest.param(
-            "content_filter",
-            None,
+            _ungradeable_refusal_payload("content_filter", None),
             "provider_declined",
             id="content-filter-is-the-provider-declining",
         ),
         pytest.param(
-            "stop",
-            "I can't help with that request.",
+            _graded_refusal_payload("stop", "I can't help with that request."),
             "model_refusal",
             id="a-refusal-message-is-the-model-refusing",
         ),
         pytest.param(
-            None,
-            "I can't help with that request.",
+            _graded_refusal_payload(None, "I can't help with that request."),
             "model_refusal",
             id="the-message-alone-decides-without-a-finish-reason",
         ),
         pytest.param(
-            "content_filter",
-            "exact refusal",
+            _graded_refusal_payload("content_filter", "exact refusal"),
             "provider_declined",
             id="both-signals-present-the-provider-wins",
         ),
         pytest.param(
+            _ungradeable_refusal_payload(None, None),
             None,
-            None,
-            None,
-            id="a-pre-OME-745-payload-loads-with-unknown-kind",
+            id="a-refusal-with-neither-signal-loads-with-unknown-kind",
         ),
     ],
 )
 def test_the_kind_follows_the_engine_classifiers_signal_table(
-    finish_reason: str | None, refusal: str | None, kind: str | None
+    payload: dict[str, Any], kind: str | None
 ) -> None:
     # WHY: one row per line of the Engine classifier's own truth table
     # (`runner/model_response.py`, OME-745): `content_filter` means the provider's
     # filter terminated the call and is checked FIRST (so a filtered turn with
     # refusal text tagging along still reads as the provider declining); a
     # non-null `refusal` — the model's own refusal message — alone decides even
-    # without a finish reason (OME-745 captured the two independently); and a
-    # pre-OME-745 payload carrying neither signal still loads, with the kind
-    # unknown — never a crash and never a guess.
-    case = _case_result(_refused_payload(finish_reason, refusal))
-
-    assert case.status == "refused"
-    assert case.refusal_kind == kind
+    # without a finish reason; and a refusal payload carrying neither signal
+    # still loads, with the kind unknown — never a crash and never a guess.
+    assert _case_result(payload).refusal_kind == kind
 
 
 def test_a_provider_402_failure_is_no_kind_of_refusal() -> None:
-    # WHY: a provider that errors (e.g. a 402) produces a FAILED Case — it must not
-    # read as a model refusal, or as any refusal at all.
+    # WHY: a provider that errors (e.g. a 402) produces a FAILED Case without a
+    # provider_refusal failure — it must not read as a model refusal, or as any
+    # refusal at all.
     payload: dict[str, Any] = {
         "status": "failed",
         "case_id": 1,
@@ -116,11 +135,11 @@ def test_a_provider_402_failure_is_no_kind_of_refusal() -> None:
     assert _case_result(payload).refusal_kind is None
 
 
-def test_a_scored_case_has_no_refusal_kind() -> None:
-    # WHY: `content_filter` never reaches a scored Case in practice, but the kind
-    # is a reading of REFUSED Cases only — status semantics stay untouched.
-    payload = _refused_payload("stop", None)
-    payload.update(status="scored", output="Four.")
+def test_an_answered_scored_case_has_no_refusal_kind() -> None:
+    # WHY: the kind is a reading of Cases that REPRESENT a refusal only — an
+    # ordinary graded answer carries none, whatever its finish reason.
+    payload = _graded_refusal_payload("stop", "unused")
+    payload.update(output="Four.", refusal=None)
     payload["grade"] = {"method": "rubric", "score": 1.0, "metrics": {}, "checks": []}
 
     assert _case_result(payload).refusal_kind is None
@@ -129,7 +148,7 @@ def test_a_scored_case_has_no_refusal_kind() -> None:
 def test_the_derived_kind_is_never_serialized() -> None:
     # WHY: no wire change — `to_dict()` stays byte-identical to the payload, so
     # saved reports round-trip unchanged and old readers see nothing new.
-    payload = _refused_payload("content_filter", None)
+    payload = _ungradeable_refusal_payload("content_filter", None)
 
     exported = _case_result(payload).to_dict()
 
@@ -137,15 +156,16 @@ def test_the_derived_kind_is_never_serialized() -> None:
     assert "refusal_kind" not in exported
 
 
-def test_a_locally_built_refused_case_derives_the_same_kind() -> None:
+def test_a_locally_built_refusal_case_derives_the_same_kind() -> None:
     # WHY: the kind is a pure function of the Case fields, so a directly
     # constructed value and a wire-decoded one can never disagree.
     case = sf.CaseResult(
-        status="refused",
+        status="scored",
         case_id=1,
         input="A clinical question",
         output=None,
         finish_reason="content_filter",
+        refusal="I can't help with that request.",
         grade=sf.CaseGrade(method="rubric", score=0.0, metrics={}, checks=()),
         failures=(),
         metadata={},
@@ -155,20 +175,19 @@ def test_a_locally_built_refused_case_derives_the_same_kind() -> None:
 
 
 @pytest.mark.parametrize(
-    ("finish_reason", "refusal", "kind"),
+    ("payload", "kind"),
     [
-        ("content_filter", None, "provider_declined"),
-        ("stop", "I can't help with that request.", "model_refusal"),
+        (_ungradeable_refusal_payload("content_filter", None), "provider_declined"),
+        (
+            _graded_refusal_payload("stop", "I can't help with that request."),
+            "model_refusal",
+        ),
     ],
 )
-def test_the_kind_survives_a_save_and_reload_round_trip(
-    finish_reason: str | None, refusal: str | None, kind: str
-) -> None:
-    # WHY: the acceptance path — a refused Case round-tripping from the real
+def test_the_kind_survives_a_save_and_reload_round_trip(payload: dict[str, Any], kind: str) -> None:
+    # WHY: the acceptance path — a refusal Case round-tripping from the real
     # engine payload shape states which of the two kinds it was, on both sides
     # of a save/reload.
-    payload = _refused_payload(finish_reason, refusal)
-
     reloaded = _case_result(_case_result(payload).to_dict())
 
     assert reloaded.refusal_kind == kind

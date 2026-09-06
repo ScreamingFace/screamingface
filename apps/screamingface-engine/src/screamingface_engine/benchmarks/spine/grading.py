@@ -38,7 +38,7 @@ from screamingface_engine.benchmarks.aggregation import (
     SelectedCase,
     failed_case_result,
     public_error,
-    refused_case_result,
+    refusal_case_result,
     scored_case_result,
 )
 from screamingface_engine.benchmarks.contract import CaseResult
@@ -162,7 +162,9 @@ class CaseGrader:
             "operations": fields.get("operations"),
         }
         if fields["status"] == "refused":
-            scored = refused_case_result(refusal=fields["refusal"], **common)
+            # WHY (OME-1037): the builder decides scored-vs-failed — a graded
+            # refusal with text is scored; a textless provider decline is failed.
+            scored = refusal_case_result(refusal=fields["refusal"], **common)
         else:
             scored = scored_case_result(output=fields["output"], **common)
         return scored, score, len(verdicts), sum(verdicts.values()), invalid
@@ -202,7 +204,7 @@ class CaseGrader:
             "operations": fields.get("operations"),
         }
         if fields["status"] == "refused":
-            return refused_case_result(refusal=fields["refusal"], **common)
+            return refusal_case_result(refusal=fields["refusal"], **common)
         return failed_case_result(output=fields["output"], **common)
 
     def _failure(self, case_id: int, stage: str, code: str, **metadata: Any) -> dict[str, Any]:

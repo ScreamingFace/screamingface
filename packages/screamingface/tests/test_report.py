@@ -178,8 +178,9 @@ def test_candidate_cases_keep_order_and_use_explicit_identity_lookup() -> None:
 
 
 def test_report_json_and_export_preserve_refusal_and_failure_fields(tmp_path: Path) -> None:
+    # OME-1037: a graded refusal is an ordinary scored Case carrying refusal text.
     refused = sf.CaseResult(
-        status="refused",
+        status="scored",
         case_id="refusal-case",
         input="A request",
         output=None,
@@ -218,7 +219,7 @@ def test_report_json_and_export_preserve_refusal_and_failure_fields(tmp_path: Pa
     selected = value.export(tmp_path / "report.json")
     payload = json.loads(selected.read_text(encoding="utf-8"))
     exported_cases = payload["candidates"][0]["cases"]
-    assert exported_cases[0]["status"] == "refused"
+    assert exported_cases[0]["status"] == "scored"
     assert exported_cases[0]["refusal"] == "I cannot comply."
     assert exported_cases[0]["grade"]["score"] == 0.0
     assert exported_cases[0]["failures"] == []

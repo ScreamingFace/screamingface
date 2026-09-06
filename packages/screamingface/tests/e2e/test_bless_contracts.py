@@ -186,8 +186,10 @@ def test_author_golden_conforms_and_derives_counters() -> None:
         limit=None,
         rendered_url4="url4://example/expression",
         final_score=0.5,
-        case_statuses={"1": "scored", "2": "refused"},
-        case_failures={},
+        case_statuses={"1": "scored", "2": "failed"},
+        # OME-1037: `refused` is no longer a case status; the failed case names
+        # its reason — here an ungradeable provider refusal.
+        case_failures={"2": [{"stage": "candidate", "code": "provider_refusal"}]},
     )
     # ``load_golden`` must accept every blessed file — validate through the SAME
     # model the test lane loads with, counters derived, score canonicalized.

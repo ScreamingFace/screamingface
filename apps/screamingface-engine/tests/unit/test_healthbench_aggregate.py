@@ -409,7 +409,7 @@ def test_provider_refusals_are_mapped_by_case_and_preserved_exactly(tmp_path: Pa
 
     assert result["score"] == 0.5
     assert result["coverage"] == 1.0
-    assert [case["status"] for case in result["cases"]] == ["refused", "refused"]
+    assert [case["status"] for case in result["cases"]] == ["scored", "scored"]  # OME-1037
     assert [case["refusal"] for case in result["cases"]] == [first, second]
     assert [case["finish_reason"] for case in result["cases"]] == [
         "content_filter",
