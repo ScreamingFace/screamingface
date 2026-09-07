@@ -29,7 +29,6 @@ def test_every_route_carries_the_revision() -> None:
     for route in (
         board.CASES_ROUTE,
         board.CHECK_ROUTE,
-        board.CHECK_SURFACE_ROUTE,
         board.CASE_EVALUATION_ROUTE,
         board.AGGREGATE_ROUTE,
     ):
@@ -70,11 +69,12 @@ def test_changing_the_dataset_revision_changes_the_revision() -> None:
     assert board.compute_revision(dataset_revision="0" * 40) != board.REVISION
 
 
-def test_the_check_surface_is_free() -> None:
-    # WHY: grading is pure string comparison. A paid disclosure here would be a lie, and the SDK
-    # surfaces that cost to the user before any work starts.
-    assert board.MEDXPERT.check_surface is not None
-    assert board.MEDXPERT.check_surface.expected_check_cost == "free"
+def test_no_check_surface_is_declared_until_a_handler_serves_it() -> None:
+    # WHY None: a declared surface is a promise the SDK trusts BEFORE spend — with one present,
+    # a corrective-loop run passes the pre-spend gate, burns paid candidate turns, then dies on
+    # the unserved route. With none, the SDK refuses the loop up front (check_surface_missing).
+    # Declaring the surface again requires `runtime.install` to actually register its handler.
+    assert board.MEDXPERT.check_surface is None
 
 
 def test_the_description_names_the_fusion_deviation() -> None:

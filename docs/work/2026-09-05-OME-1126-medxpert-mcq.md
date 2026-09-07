@@ -207,8 +207,23 @@ Two defects surfaced between registration and that run, both now fixed and pinne
    is why registration looked healthy. `_match_evidence` now emits the exact-match verdict, with
    the committed letter as `raw_output` (`""` when the reply named no choice).
 
+## Review fix (2026-09-07, owner review)
+
+The board declared `check_surface` (free) but `runtime.install` never registered a handler for
+the route. The declaration is what the SDK trusts BEFORE spend: with it present, a
+corrective-loop run passes the pre-spend gate (`runner._validate_check_surface` fails closed
+only when the surface is ABSENT), burns paid candidate turns, then dies mid-run on the unserved
+route. Owner decision: drop the declaration until the handler exists. The SDK now refuses
+corrective loops on this board up front (`check_surface_missing`), pre-spend.
+`test_no_check_surface_is_declared_until_a_handler_serves_it` pins the choice. `grading.py`
+stays: it is the parser the future handler needs, and it carries the crossover regression test
+that pins the two extractors apart.
+
 ## Still open at hand-off
 
+- Implement the check-surface handler (IFEval `_check_surface` precedent, using
+  `grading.extract_letter`/`grade`), re-declare `check_surface` with it, and add a test that the
+  declared route actually resolves. Until then corrective loops are refused on this board.
 - Khoa's review of the `multi_turn` contract change.
 - `error_context_head` is dead for decode failures in BOTH `case_evaluation_endpoint` and the new
   `attempt_records_endpoint`: `json_object`/`json_array` raise `ResolutionError`, which the

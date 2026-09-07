@@ -32,7 +32,6 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
-    CheckSurface,
     candidate,
 )
 from screamingface_engine.benchmarks.medxpert.pins import (
@@ -100,7 +99,6 @@ REVISION = compute_revision()
 ROUTE_PREFIX = f"/benchmarks/{BENCHMARK_ID}/{REVISION}"
 CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 CHECK_ROUTE = f"{ROUTE_PREFIX}/check"
-CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface"
 CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
 
@@ -211,13 +209,11 @@ MEDXPERT = Benchmark(
         # asked to do (the exchange wraps the ensemble, not each member).
         interaction="multi_turn",
     ),
-    check_surface=CheckSurface(
-        check_route=CHECK_SURFACE_ROUTE,
-        feedback_intent="feedback",
-        # WHY free: grading is pure string comparison. Declaring it paid would be a lie the SDK
-        # repeats to the user before every run.
-        expected_check_cost="free",
-    ),
+    # AIDEV-NOTE: no check_surface — deliberately. The declaration is a promise the SDK trusts
+    # BEFORE spend: with one present, a corrective-loop run passes the pre-spend gate, burns paid
+    # candidate turns, then dies on a route `runtime.install` never serves. With none, the SDK
+    # refuses the loop up front (check_surface_missing). Declare it only together with the
+    # handler — `grading.extract_letter`/`grade` are the parsers it should use.
 )
 
 __all__ = [
@@ -228,7 +224,6 @@ __all__ = [
     "CASE_COUNT",
     "CASE_EVALUATION_ROUTE",
     "CHECK_ROUTE",
-    "CHECK_SURFACE_ROUTE",
     "MEDXPERT",
     "REVISION",
     "compute_revision",
