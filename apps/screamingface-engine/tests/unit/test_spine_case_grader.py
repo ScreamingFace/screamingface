@@ -155,7 +155,8 @@ def test_a_fully_judged_case_scores_without_failures() -> None:
     assert (judged, met, invalid) == (2, 1, 0)
 
 
-def test_a_refused_case_still_carries_its_numeric_grade() -> None:
+def test_a_graded_refusal_is_scored_and_still_carries_its_numeric_grade() -> None:
+    # INVARIANT (OME-1037): a refusal the board graded is an ordinary scored Case.
     row = {
         "verdicts": {1: False, 2: False},
         "status": "refused",
@@ -163,6 +164,6 @@ def test_a_refused_case_still_carries_its_numeric_grade() -> None:
         "finish_reason": "content_filter",
     }
     result, score, *_ = GRADER.case_result(CASE, row, [4, 4])
-    assert result.status == "refused"
+    assert result.status == "scored"
     assert result.refusal == "I cannot help with that."
     assert score == 0.0

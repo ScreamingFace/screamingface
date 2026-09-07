@@ -826,7 +826,7 @@ def test_candidate_result_decoder_retains_a_normally_graded_refusal() -> None:
                 "metrics": {},
                 "cases": [
                     {
-                        "status": "refused",
+                        "status": "scored",  # OME-1037: a graded refusal is scored
                         "case_id": 1,
                         "input": "Fixture question",
                         "output": None,
@@ -858,7 +858,7 @@ def test_candidate_result_decoder_retains_a_normally_graded_refusal() -> None:
     assert result.metrics == {}
     assert result.cases[0].grade is not None
     assert result.cases[0].grade.score == 0.0
-    assert result.cases[0].status == "refused"
+    assert result.cases[0].status == "scored"  # OME-1037
     assert result.cases[0].refusal == "provider refused the request"
     assert result.cases[0].failures == ()
 

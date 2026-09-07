@@ -278,7 +278,7 @@ def failed_case_result(
     )
 
 
-def refused_case_result(
+def refusal_case_result(
     *,
     selected_case: SelectedCase,
     refusal: str | None,
@@ -289,7 +289,25 @@ def refused_case_result(
     execution: CorrectiveExecution | Mapping[str, Any] | None = None,
     operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
-    """Construct a refused Case after normal Benchmark grading."""
+    """Classify one refused Candidate Invocation into its case-level outcome.
+
+    Mental model (OME-1037): the invocation layer says only "the Candidate did not
+    answer"; THIS is the one place that decides what that means for the Case. A
+    refusal the Benchmark graded (DRACO scoring a decline 1.0, another benchmark
+    0.0) is an ordinary scored Case carrying the `refusal` text; a refusal the
+    Benchmark could not grade is a failed Case led by a `provider_refusal` failure,
+    followed by the grading failures, with the refusal text kept as evidence.
+
+    Worked example: refusal="I won't help", grade.score=0.8, no failures → scored,
+    refusal carried. refusal="I won't help", grade.score=None, one
+    incomplete_verdicts failure → failed, failures=[provider_refusal,
+    incomplete_verdicts]. refusal=None, grade.score=0.0 → failed with the score
+    DROPPED: a textless refusal is exactly a content_filter provider decline
+    (`runner/model_response.py` fires on content_filter OR non-null refusal, and
+    content_filter turns normally carry null text), so the model never answered and
+    a judge score over the empty answer would publish an infrastructure failure as
+    a plausible grade. The grade's checks/metrics stay as audit evidence.
+    """
 
     typed_grade = grade if isinstance(grade, CaseGrade) else CaseGrade.model_validate(grade)
     typed_failures = [
@@ -297,9 +315,41 @@ def refused_case_result(
         for failure in failures
     ]
     stop_reason, rounds_executed = _execution_fields(execution)
-
+    if typed_grade.score is not None and refusal is not None and not typed_failures:
+        return CaseResult(
+            status="scored",
+            case_id=selected_case.case_id,
+            input=selected_case.input,
+            output=None,
+            finish_reason=finish_reason,
+            refusal=refusal,
+            stop_reason=stop_reason,
+            rounds_executed=rounds_executed,
+            grade=typed_grade,
+            failures=[],
+            metadata=_case_metadata(selected_case, metadata),
+            operations=_operation_outputs(operations),
+        )
+    if typed_grade.score is not None:
+        # WHY: a failed Case cannot publish a numeric grade — the score over an
+        # answer that never existed is dropped, the audit material retained.
+        typed_grade = CaseGrade(
+            method=typed_grade.method,
+            score=None,
+            metrics=typed_grade.metrics,
+            checks=typed_grade.checks,
+        )
+    provider_refusal = Failure(
+        stage="candidate",
+        code="provider_refusal",
+        # The runner's own classification message (`runner/model_response.py`).
+        message="provider refused the request",
+        retryable=False,
+        case_id=selected_case.case_id,
+        metadata={},
+    )
     return CaseResult(
-        status="refused",
+        status="failed",
         case_id=selected_case.case_id,
         input=selected_case.input,
         output=None,
@@ -308,7 +358,7 @@ def refused_case_result(
         stop_reason=stop_reason,
         rounds_executed=rounds_executed,
         grade=typed_grade,
-        failures=typed_failures,
+        failures=[provider_refusal, *typed_failures],
         metadata=_case_metadata(selected_case, metadata),
         operations=_operation_outputs(operations),
     )
@@ -343,7 +393,7 @@ def grading_failure_case_result(
     )
     grade = CaseGrade(method=method, score=None, metrics={}, checks=[])
     if candidate.status == "refused":
-        return refused_case_result(
+        return refusal_case_result(
             selected_case=selected_case,
             refusal=candidate.refusal,
             finish_reason=candidate.finish_reason,
@@ -405,6 +455,6 @@ __all__ = [
     "finalize_candidate_result",
     "grading_failure_case_result",
     "public_error",
-    "refused_case_result",
+    "refusal_case_result",
     "scored_case_result",
 ]

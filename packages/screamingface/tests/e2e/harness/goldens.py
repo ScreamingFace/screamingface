@@ -8,7 +8,7 @@ STAGED walk, and THE ORDER IS THE CONTRACT:
    recorded ``expression_sha``. A mismatch means the experiment itself changed, so every
    downstream number measures something else; the failure says "expression changed,
    goldens stale" and deliberately says nothing about scores.
-2. **cases** — the per-case status map (``scored`` / ``refused`` / ``failed``) must
+2. **cases** — the per-case status map (``scored`` / ``failed``, OME-1037) must
    match. Statuses drifting with the expression intact means the replay itself broke.
 3. **codes** — the per-case failure map (``stage`` + ``code`` for every case that
    carries a failure) must match (OME-1094). Five rubric failure reasons all spell

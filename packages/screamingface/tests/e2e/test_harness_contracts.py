@@ -79,7 +79,10 @@ def _golden_document(**overrides: object) -> dict[str, object]:
         "final_score": "0.5",
         "case_count": 2,
         "gradeable_count": 1,
-        "case_statuses": {"case_1": "scored", "case_2": "refused"},
+        # OME-1037: `refused` is no longer a case status — the default synthetic
+        # golden pins one scored case and one failed case with its named reason.
+        "case_statuses": {"case_1": "scored", "case_2": "failed"},
+        "case_failures": {"case_2": [{"stage": "grading", "code": "incomplete_verdicts"}]},
     }
     document.update(overrides)
     return document
@@ -200,7 +203,8 @@ def test_matching_outcome_passes() -> None:
     actual = ActualOutcome(
         rendered_url4="rendered expression",
         final_score=0.5,
-        case_statuses={"case_1": "scored", "case_2": "refused"},
+        case_statuses={"case_1": "scored", "case_2": "failed"},
+        case_failures={"case_2": (GoldenFailure(stage="grading", code="incomplete_verdicts"),)},
         coverage=0.5,
     )
 
@@ -212,7 +216,7 @@ def test_case_statuses_are_checked_before_the_score() -> None:
     actual = ActualOutcome(
         rendered_url4="rendered expression",
         final_score=0.0,  # wrong, but the status drift must be named first
-        case_statuses={"case_1": "failed", "case_2": "refused"},
+        case_statuses={"case_1": "failed", "case_2": "failed"},
         coverage=0.0,
     )
 
@@ -230,7 +234,8 @@ def test_a_coverage_figure_that_contradicts_the_statuses_is_caught() -> None:
     actual = ActualOutcome(
         rendered_url4="rendered expression",
         final_score=0.5,
-        case_statuses={"case_1": "scored", "case_2": "refused"},
+        case_statuses={"case_1": "scored", "case_2": "failed"},
+        case_failures={"case_2": (GoldenFailure(stage="grading", code="incomplete_verdicts"),)},
         coverage=1.0,  # the report claims full coverage; its statuses say half
     )
 
@@ -245,7 +250,8 @@ def test_a_score_drift_is_reported_as_decimal_strings() -> None:
     actual = ActualOutcome(
         rendered_url4="rendered expression",
         final_score=0.75,
-        case_statuses={"case_1": "scored", "case_2": "refused"},
+        case_statuses={"case_1": "scored", "case_2": "failed"},
+        case_failures={"case_2": (GoldenFailure(stage="grading", code="incomplete_verdicts"),)},
         coverage=0.5,
     )
 
@@ -287,10 +293,19 @@ def test_counters_must_agree_with_the_statuses(tmp_path) -> None:
         load_golden(path)
 
 
-def test_an_unknown_case_status_is_refused(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "status",
+    [
+        pytest.param("maybe", id="a-made-up-word"),
+        # OME-1037: the pre-split vocabulary — a golden still pinning `refused`
+        # must be re-blessed, never silently reinterpreted.
+        pytest.param("refused", id="the-retired-refused-status"),
+    ],
+)
+def test_an_unknown_case_status_is_refused(tmp_path, status: str) -> None:
     path = tmp_path / "synthetic.golden.json"
     path.write_text(
-        json.dumps(_golden_document(case_statuses={"case_1": "scored", "case_2": "maybe"}))
+        json.dumps(_golden_document(case_statuses={"case_1": "scored", "case_2": status}))
     )
 
     with pytest.raises(ValueError):
@@ -394,7 +409,9 @@ def test_a_scored_case_with_a_failure_entry_is_refused_at_load() -> None:
 def test_a_failed_case_without_a_failure_entry_is_refused_at_load() -> None:
     # The pre-OME-1094 golden shape: a failed case pinned by status alone. Refusing
     # it at load is what forces the re-bless instead of leaving the hole open.
-    document = _golden_document(case_statuses={"case_1": "scored", "case_2": "failed"})
+    document = _golden_document(
+        case_statuses={"case_1": "scored", "case_2": "failed"}, case_failures={}
+    )
 
     with pytest.raises(Exception, match="case_2"):
         GoldenReport.model_validate(document)
@@ -409,22 +426,34 @@ def test_a_failure_entry_for_an_unknown_case_is_refused_at_load() -> None:
         GoldenReport.model_validate(document)
 
 
-def test_an_ungraded_refused_case_may_carry_grading_failures() -> None:
-    # The SDK contract: an ungraded refused Case carries only grading failures, so
-    # the golden must be able to pin them — refused is neither scored nor failed.
+def test_a_failed_refusal_pins_its_provider_refusal_and_grading_codes() -> None:
+    # The SDK contract (OME-1037): an ungradeable refusal is a failed Case whose
+    # failures lead with provider_refusal — the golden pins both codes in order.
     document = _golden_document(
-        case_failures={"case_2": [{"stage": "grading", "code": "incomplete_verdicts"}]},
+        case_failures={
+            "case_2": [
+                {"stage": "candidate", "code": "provider_refusal"},
+                {"stage": "grading", "code": "incomplete_verdicts"},
+            ]
+        },
     )
 
     report = GoldenReport.model_validate(document)
 
-    assert report.case_failures == {"case_2": (_INCOMPLETE,)}
+    assert report.case_failures == {
+        "case_2": (GoldenFailure(stage="candidate", code="provider_refusal"), _INCOMPLETE)
+    }
 
 
 def test_goldens_blessed_before_the_codes_rung_still_load_when_nothing_failed() -> None:
     # draco-3pass shape: no ``case_failures`` key and no failed case — loads as an
     # empty map, so an all-scored golden never needs a replay to be re-blessed.
-    report = GoldenReport.model_validate(_golden_document())
+    document = _golden_document(
+        case_statuses={"case_1": "scored", "case_2": "scored"}, gradeable_count=2
+    )
+    del document["case_failures"]
+
+    report = GoldenReport.model_validate(document)
 
     assert report.case_failures == {}
 

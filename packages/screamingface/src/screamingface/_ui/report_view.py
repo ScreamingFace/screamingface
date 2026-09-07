@@ -334,13 +334,13 @@ def _coverage_notice_html(candidate: CandidateResult) -> str:
     else:
         heading = "score unavailable"
         states = tuple(_case_state(case) for case in candidate.cases)
-        incomplete = tuple(state for state in states if state in {"refused", "failed", "unscored"})
+        incomplete = tuple(state for state in states if state in {"failed", "unscored"})
         message = ""
         if incomplete:
             total = len(candidate.cases)
             parts = tuple(
                 f"{incomplete.count(state)} {state}"
-                for state in ("refused", "failed", "unscored")
+                for state in ("failed", "unscored")
                 if state in incomplete
             )
             message = (
@@ -630,7 +630,6 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
         + {
             "passed": "",
             "incorrect": " sf-mark--bad",
-            "refused": " sf-mark--warn",
             "failed": " sf-mark--warn",
             "unscored": " sf-mark--warn",
         }[state]
@@ -638,7 +637,6 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
     glyph = {
         "passed": "&check;",
         "incorrect": "&times;",
-        "refused": "!",
         "failed": "!",
         "unscored": "?",
     }[state]
@@ -656,7 +654,7 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
     state = _case_state(case)
     # WHY (OME-793): tri-state verdict — "failed" (warning) is neither correct nor
     # incorrect; the case was never graded, and the badge must say so.
-    if state in {"refused", "failed", "unscored"}:
+    if state in {"failed", "unscored"}:
         verdict = _badge(state, good=False, warn=True)
     else:
         verdict = _badge("correct" if state == "passed" else "incorrect", good=state == "passed")
@@ -673,8 +671,10 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
         if answer
         else ""
     )
+    # WHY the neutral label (OME-1037): the text may be the model's own graded
+    # decline (a scored Case) or provider-refusal evidence on a failed Case.
     refusal_html = (
-        "<div class='sf-detail__k'>provider refusal</div>"
+        "<div class='sf-detail__k'>refusal</div>"
         f"<pre class='sf-report__pre'>{escape(case.refusal)}</pre>"
         if case.refusal is not None
         else ""
@@ -756,10 +756,13 @@ def _case_passed(case: CaseResult) -> bool:
 
 
 def _case_state(case: CaseResult) -> str:
-    """Present the Engine outcome without re-deriving it from Benchmark semantics."""
+    """Present the Engine outcome without re-deriving it from Benchmark semantics.
 
-    if case.status == "refused":
-        return "refused"
+    WHY no `refused` state (OME-1037): a refusal the benchmark graded is a scored
+    Case (its verdict is real — DRACO grades a decline as passed), and an
+    ungradeable one is a failed Case carrying a provider_refusal failure.
+    """
+
     if case.status == "failed":
         return "unscored" if case.grade is not None else "failed"
     return "passed" if _case_passed(case) else "incorrect"

@@ -12,7 +12,7 @@ from screamingface_engine.benchmarks.aggregation import (
     failed_case_result as build_failed_case_result,
 )
 from screamingface_engine.benchmarks.aggregation import (
-    refused_case_result as build_refused_case_result,
+    refusal_case_result as build_refusal_case_result,
 )
 from screamingface_engine.benchmarks.aggregation import (
     scored_case_result as build_scored_case_result,
@@ -162,7 +162,7 @@ def ungraded_case_result(case_record: Mapping[str, Any], failure: Mapping[str, A
     selected = _selected_case(case_record, id_key="case_id")
     refusal = case_record.get("refusal")
     if case_record.get("status") == "refused":
-        return build_refused_case_result(
+        return build_refusal_case_result(
             selected_case=selected,
             refusal=refusal if isinstance(refusal, str) else None,
             finish_reason=_finish_reason(case_record.get("finish_reason")),
@@ -210,7 +210,7 @@ def _case_result(
         "checks": [dict(check) for check in checks],
     }
     if case_record.get("status") == "refused":
-        return build_refused_case_result(
+        return build_refusal_case_result(
             selected_case=selected,
             refusal=refusal if isinstance(refusal, str) else None,
             finish_reason=finish_reason,
