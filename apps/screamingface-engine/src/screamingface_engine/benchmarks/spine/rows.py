@@ -20,7 +20,7 @@ task per rubric item"). This module reads the OUTERMOST one and only that:
                         inside the row as `rubric_evaluations`
 
 So by the time a row reaches this module the marking has happened and is stapled inside
-the script. `rubric_evaluations` is never read here; `CaseGrader`'s board hooks read it.
+the script. `rubric_evaluations` is never read here; the board's `grade_case` reads it.
 
 FEATURE: one grading spine per benchmark (OME-1024); this module is the second extraction
 (OME-1039 took the failure ladder) — the row reader gdpval and healthbench duplicated
@@ -67,8 +67,10 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.aggregation import SelectedCase
 from screamingface_engine.benchmarks.case_execution import (
     CaseExecutionOutcome,
     case_execution_matches,
@@ -229,4 +231,41 @@ class RowReader:
         return True
 
 
-__all__ = ["RowIndex", "RowReader"]
+def read_selected_cases(
+    root: Path,
+    case_ids: tuple[int, ...],
+    *,
+    benchmark_label: str,
+    error_type: type[Exception],
+) -> list[SelectedCase]:
+    """Read the roll call from the baked ``cases.json``, in selected order.
+
+    The same board-varying bits as `RowReader` are injected — the label for error
+    wording and the board's own error class (OME-1097 moved this reader in from the
+    per-board aggregates).
+    """
+
+    try:
+        decoded = json.loads((root / "cases.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise error_type(f"{benchmark_label} cases are unavailable: {exc}") from None
+    if not isinstance(decoded, list):
+        raise error_type(f"{benchmark_label} cases must be a JSON array")
+    by_id = {
+        row.get("id"): row
+        for row in decoded
+        if isinstance(row, Mapping)
+        and isinstance(row.get("id"), int)
+        and not isinstance(row.get("id"), bool)
+    }
+    selected: list[SelectedCase] = []
+    for case_id in case_ids:
+        row = by_id.get(case_id)
+        input_value = row.get("input") if isinstance(row, Mapping) else None
+        if not isinstance(input_value, str) or not input_value.strip():
+            raise error_type(f"{benchmark_label} Case {case_id} has no public input")
+        selected.append(SelectedCase(case_id=case_id, input=input_value, metadata={}))
+    return selected
+
+
+__all__ = ["RowIndex", "RowReader", "read_selected_cases"]

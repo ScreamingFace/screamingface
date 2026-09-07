@@ -12,7 +12,7 @@ import pytest
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco.aggregate import aggregate as aggregate_draco
-from screamingface_engine.benchmarks.healthbench.aggregate import aggregate as aggregate_healthbench
+from screamingface_engine.benchmarks.healthbench.grade import aggregate as aggregate_healthbench
 from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
 from screamingface_engine.benchmarks.ifeval.aggregate import aggregate as aggregate_ifeval
 

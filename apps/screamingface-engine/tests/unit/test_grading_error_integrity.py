@@ -39,7 +39,7 @@ from screamingface_engine.benchmarks.draco.exam import (
 from screamingface_engine.benchmarks.draco.exam import (
     Routes as DracoRoutes,
 )
-from screamingface_engine.benchmarks.healthbench import aggregate as healthbench_agg
+from screamingface_engine.benchmarks.healthbench import grade as healthbench_agg
 from screamingface_engine.benchmarks.healthbench.exam import (
     Routes as HealthRoutes,
 )

@@ -10,14 +10,14 @@ import pytest
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.healthbench.aggregate import (
-    AggregateError,
-    aggregate,
-    load_rubric_points,
-)
 from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
     RUBRIC_EVALUATION_SCHEMA,
+)
+from screamingface_engine.benchmarks.healthbench.grade import (
+    AggregateError,
+    aggregate,
+    load_rubric_points,
 )
 from screamingface_engine.benchmarks.healthbench.records import CASE_SCHEMA, RUBRIC_SCHEMA
 from screamingface_engine.benchmarks.healthbench.scoring import clipped_mean, unclipped_mean

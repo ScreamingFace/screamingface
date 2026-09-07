@@ -19,11 +19,13 @@ from screamingface_engine.benchmarks.healthbench.prompts import (
 from screamingface_engine.benchmarks.healthbench.scoring import (
     case_score,
     clipped_mean,
-    sample_stdev,
     unclipped_mean,
-    verdict_coverage,
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
+
+# WHY the spine import: sample_stdev / verdict_coverage moved into the shared exam
+# scorer (OME-1097) — the tests follow the production location of the code they pin.
+from screamingface_engine.benchmarks.spine.exam import sample_stdev, verdict_coverage
 
 # --- prompts -------------------------------------------------------------------------
 

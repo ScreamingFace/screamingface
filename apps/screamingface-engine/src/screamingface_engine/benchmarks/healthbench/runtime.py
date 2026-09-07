@@ -34,7 +34,7 @@ from screamingface_engine.benchmarks.evaluation import (
     positive_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.healthbench import aggregate as reducing
+from screamingface_engine.benchmarks.healthbench import grade as reducing
 from screamingface_engine.benchmarks.healthbench import records
 from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     bind_case_evaluation,
