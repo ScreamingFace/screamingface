@@ -207,3 +207,54 @@ def test_selected_cases_preserves_the_requested_order(tmp_path: Path) -> None:
     chosen = selected_cases(_root(tmp_path), (2, 1))
 
     assert [case.case_id for case in chosen] == [2, 1]
+
+
+def _refused_record(case_id: int, refusal: str | None) -> dict[str, object]:
+    record = _record(case_id, "")
+    record["status"] = "refused"
+    record["refusal"] = refusal
+    record["commit_output"] = ""
+    return record
+
+
+def test_a_text_refusal_is_a_graded_wrong_answer_not_a_failure(tmp_path: Path) -> None:
+    """INVARIANT (OME-1037): a model that DECLINED in words committed no letter — that is an
+    answer graded 0.0 on the official verdict, kept in the denominator with the refusal text
+    carried, never a case failure that would shrink the exam."""
+
+    rows = json.dumps(
+        [
+            _case_execution(1, bind_case_evaluation(1, [_record(1, "C")])),
+            _case_execution(2, bind_case_evaluation(2, [_refused_record(2, "I cannot advise.")])),
+        ]
+    )
+
+    result = _aggregate(_root(tmp_path), rows)
+
+    refused = result["cases"][1]
+    assert refused["status"] == "scored"
+    assert refused["grade"]["score"] == 0.0
+    assert refused["refusal"] == "I cannot advise."
+    assert refused["failures"] == []
+    assert result["metrics"]["scored_cases"] == 2
+
+
+def test_a_textless_refusal_is_a_provider_failure_not_a_grade(tmp_path: Path) -> None:
+    """INVARIANT (OME-1037): a textless refusal is a content_filter provider decline — the
+    model never answered, so publishing a 0.0 would present infrastructure as weakness. The
+    score is dropped and the case fails as provider_refusal."""
+
+    rows = json.dumps(
+        [
+            _case_execution(1, bind_case_evaluation(1, [_record(1, "C")])),
+            _case_execution(2, bind_case_evaluation(2, [_refused_record(2, None)])),
+        ]
+    )
+
+    result = _aggregate(_root(tmp_path), rows)
+
+    refused = result["cases"][1]
+    assert refused["status"] == "failed"
+    assert refused["grade"]["score"] is None
+    assert refused["failures"][0]["code"] == "provider_refusal"
+    assert result["metrics"]["scored_cases"] == 1

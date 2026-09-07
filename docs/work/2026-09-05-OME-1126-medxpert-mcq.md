@@ -219,6 +219,19 @@ corrective loops on this board up front (`check_surface_missing`), pre-spend.
 stays: it is the parser the future handler needs, and it carries the crossover regression test
 that pins the two extractors apart.
 
+## CI fix (2026-09-07) — OME-1037 landed on main under this branch
+
+The branch forked before OME-1037's refusal split; main renamed
+`aggregation.refused_case_result` → `refusal_case_result` and gave it the classifying
+semantics (graded refusal → scored Case carrying the refusal; textless/ungradable refusal →
+failed Case led by `provider_refusal`, score dropped). The stale import made the ENGINE fail at
+builtins import, so every board's e2e run died with `cannot import name 'refused_case_result'`
+— not just MedXpertQA. Fixed by merging main and renaming the two call sites; the new
+semantics are exactly right for this board (a worded decline is a 0.0 answer on the official
+verdict; a content_filter decline is infrastructure) and are now pinned by
+`test_a_text_refusal_is_a_graded_wrong_answer_not_a_failure` and
+`test_a_textless_refusal_is_a_provider_failure_not_a_grade`.
+
 ## Still open at hand-off
 
 - Implement the check-surface handler (IFEval `_check_surface` precedent, using

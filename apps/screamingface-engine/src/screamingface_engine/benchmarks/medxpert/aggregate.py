@@ -37,7 +37,7 @@ from screamingface_engine.benchmarks.aggregation import (
     finalize_candidate_result,
     grading_failure_case_result,
     public_error,
-    refused_case_result,
+    refusal_case_result,
     scored_case_result,
 )
 from screamingface_engine.benchmarks.contract import CaseResult
@@ -216,7 +216,11 @@ def _scored(selected: SelectedCase, row: Mapping[str, Any], label: str) -> CaseR
         "operations": fields.get("operations"),
     }
     if fields["status"] == "refused":
-        return refused_case_result(refusal=fields["refusal"], **common)
+        # OME-1037: a refusal WITH text is graded — 0.0 here, no letter was committed — and
+        # stays a scored Case carrying the refusal. A TEXTLESS refusal is a content_filter
+        # provider decline: the classifier drops the score and fails the Case as
+        # `provider_refusal`, so infrastructure never publishes as a plausible grade.
+        return refusal_case_result(refusal=fields["refusal"], **common)
     return scored_case_result(output=fields["output"], **common)
 
 
@@ -254,7 +258,7 @@ def _failed(
         "operations": fields.get("operations"),
     }
     if fields["status"] == "refused":
-        return refused_case_result(refusal=fields["refusal"], **common)
+        return refusal_case_result(refusal=fields["refusal"], **common)
     return failed_case_result(output=fields["output"], **common)
 
 
