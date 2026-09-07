@@ -272,10 +272,34 @@ revision's hooks (`execHook(targetRelease, release.HookPreRollback, ...)` in Hel
 stored manifest has no such hook, so nothing added to this chart can run in the dangerous
 direction.
 
-Before **any** `helm rollback`, run the preflight in a pod on the current release:
+Package version is not a release identity here: both the privacy-blind base and the
+privacy-aware release package `scoreboard 0.1.1`. For every known-safe deployment, record the Helm
+revision, rendered image reference, and runtime `imageID` digest together in the deployment record:
 
 ```bash
-kubectl -n scoreboard exec deploy/scoreboard-scoreboard -- \
+NAMESPACE=scoreboard
+RELEASE=scoreboard
+DEPLOYMENT=scoreboard-scoreboard
+SELECTOR='app.kubernetes.io/instance=scoreboard,app.kubernetes.io/name=scoreboard'
+
+helm list --namespace "$NAMESPACE" --filter "^${RELEASE}$"
+helm history "$RELEASE" --namespace "$NAMESPACE"
+kubectl -n "$NAMESPACE" get deploy "$DEPLOYMENT" \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="scoreboard")].image}{"\n"}'
+kubectl -n "$NAMESPACE" get pods -l "$SELECTOR" \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.containerStatuses[?(@.name=="scoreboard")].imageID}{"\n"}{end}'
+```
+
+Every serving pod must report the same immutable digest. Record it while the known-safe release is
+live; a mutable image tag in old Helm values cannot reconstruct this evidence later. Before **any**
+rollback, compare the requested target revision and image with that deployment record, then run the
+database preflight in a pod on the current release:
+
+```bash
+TARGET_REVISION=<revision-from-helm-history>
+helm get manifest "$RELEASE" --namespace "$NAMESPACE" --revision "$TARGET_REVISION" \
+  | grep 'image:'
+kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- \
   python -m scoreboard.check_rollback_safety
 ```
 
@@ -283,17 +307,72 @@ It exits `0` when no benchmark is private, and non-zero — listing each private
 submission count — when one is. It is read-only and has no override flag: clearing the refusal by
 flipping a board to public *is* the leak, performed deliberately.
 
-If it refuses and you still must roll back below the floor it names, use the fail-closed
-procedure:
+If the target has recorded evidence that it is privacy-aware, a refusal is expected and the normal
+rollback is safe. If that evidence is absent, treat the target as privacy-blind. Postpone the
+rollback, or use this destructive fallback for **each** board listed by the preflight.
 
-1. `kubectl -n scoreboard scale deploy/scoreboard-scoreboard --replicas=0` — stop serving before
-   anything else. Every later step is safe only while nothing answers requests.
-2. `python -m scoreboard.export_private_submissions --benchmark <id>` for each board the preflight
-   listed, keeping the output somewhere staff-only. This is the participants' data and the next
-   step destroys it.
-3. Delete the exported rows and the private benchmarks, so the restored code has nothing private
-   left to serve.
-4. `helm rollback`, then scale back up.
+First, export through the still-privacy-aware pod to a staff-only file on the operator's machine.
+The local shell performs the redirection; the file is not left in the pod:
+
+```bash
+BENCHMARK=healthbench-worst30
+BACKUP_DIR=<absolute-path-to-staff-only-storage>
+umask 077
+kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- \
+  python -m scoreboard.export_private_submissions --benchmark "$BENCHMARK" \
+  > "$BACKUP_DIR/$BENCHMARK.jsonl"
+shasum -a 256 "$BACKUP_DIR/$BENCHMARK.jsonl"
+EXPORT_SHA256=<64-hex-digest-printed-above>
+```
+
+Then make the application compare the database's current canonical export with that exact digest.
+The first command is a dry run. Read its benchmark id, row count, and digest before repeating with
+`--yes`:
+
+```bash
+kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- \
+  python -m scoreboard.purge_private_benchmark \
+    --benchmark "$BENCHMARK" \
+    --expected-export-sha256 "$EXPORT_SHA256"
+
+kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- \
+  python -m scoreboard.purge_private_benchmark \
+    --benchmark "$BENCHMARK" \
+    --expected-export-sha256 "$EXPORT_SHA256" \
+    --yes
+```
+
+The purge locks that exact benchmark, re-reads every submission, and deletes its scores,
+idempotency mappings, and benchmark in one transaction. A new submission changes the digest and
+refuses the purge without deleting anything. It also refuses an unknown/public board or one with a
+baseline. Preserve the export; it contains participant identities and there is no automatic
+re-import.
+
+Repeat export and purge for every private board, then require the preflight to say `SAFE`. Only now
+remove all serving endpoints and start the rollback:
+
+```bash
+kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- \
+  python -m scoreboard.check_rollback_safety
+
+REPLICAS=$(kubectl -n "$NAMESPACE" get deploy "$DEPLOYMENT" \
+  -o jsonpath='{.spec.replicas}')
+kubectl -n "$NAMESPACE" scale deploy "$DEPLOYMENT" --replicas=0
+kubectl -n "$NAMESPACE" wait --for=delete pod -l "$SELECTOR" --timeout=5m
+
+SERVICE=scoreboard-scoreboard
+test -z "$(kubectl -n "$NAMESPACE" get endpoints "$SERVICE" \
+  -o jsonpath='{.subsets[*].addresses[*].ip}')"
+
+helm rollback "$RELEASE" "$TARGET_REVISION" --namespace "$NAMESPACE" --wait
+kubectl -n "$NAMESPACE" scale deploy "$DEPLOYMENT" --replicas="$REPLICAS"
+kubectl -n "$NAMESPACE" rollout status deploy "$DEPLOYMENT" --timeout=5m
+```
+
+Do not continue unless the preflight exits `0`, the pod wait succeeds, and the endpoint assertion
+is empty. `helm rollback` applies the target's stored replica count, so its pods can begin starting
+during that command; the private rows must already be gone before it runs. The explicit final scale
+restores the replica count recorded from the current release.
 
 Re-importing after rolling forward again is manual; there is no tooling for it. That asymmetry is
 deliberate — it should be easier to postpone a rollback than to destroy a challenge in progress.
