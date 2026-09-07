@@ -40,6 +40,43 @@ Added after the owner's 2026-09-04 answers (D9/D10):
   submission to a **private** benchmark, via `BackgroundTasks`, never inline
 - a small per-benchmark debounce so a burst coalesces into one export
 
+## Split into two units — 2026-09-07
+
+**This is a named Fusion Monsters launch item**, and the launch is today. Irina's 2026-08-31
+`#scream-updates` post lists "provide a path to the FM program team to view the submission to
+the entry challenge" among the last prod/eng elements. That connection was not made when this
+ticket was written, and it changes the shape of the work.
+
+Owner decision today: **separate the need from the machinery.**
+
+1. **Today, manually.** `export_private_submissions.py` already works, with four passing
+   tests. Run it per private benchmark, hand the file to the FM team. The launch item is then
+   satisfied — the team can see every submission and decide who is upgraded.
+2. **After the launch, automated on Azure Blob** — not Garage. §4.6 of the spec records why.
+
+**The Garage choice was wrong, and it took reading the engine's chart to see it.** Its own
+values file calls it "a single-consumer hand-off store for objects that live <48h, not a
+durability tier" — one replica, 10Gi RWO. This ticket parks timestamped exports there
+permanently. Worse, Garage belongs to the *engine's* chart and holds the engine's artifact
+spill store, so filling that volume degrades benchmark runs. The scoreboard chart has no
+object storage at all, so "reuse the existing store" meant reaching across an app boundary
+into a scratch disk.
+
+**A silver lining worth naming:** Azure Blob supports Entra ID, so access by email address —
+what the owner asked for on 2026-09-04 and what D10 traded away for pre-signed URLs — comes
+back. D10's compromise existed only because Garage credentials are S3 keys, not identities.
+
+**Cost of the reversal:** D8's SigV4 helper reuse is void, since Azure Blob does not speak the
+S3 API. A storage account and credential must be provisioned. The `{benchmark_id}/` key layout
+survives unchanged.
+
+### Recommended before the handover today
+
+The script emits JSONL with full email addresses. That is right for a machine and wrong for
+the FM program team, who need to read names and scores to make upgrade decisions and cannot
+open JSONL in a spreadsheet. A `--format csv` flag is small and contained, and is what makes
+the manual path usable by the people it is for. Not blocking; worth doing.
+
 ## Owner answers — 2026-09-04
 
 The three §7 questions are answered; the spec is updated and the decisions table now carries

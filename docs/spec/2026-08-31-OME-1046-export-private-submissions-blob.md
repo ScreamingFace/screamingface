@@ -47,15 +47,15 @@ posture than a Job already running inside the cluster with the access the app al
 | # | Decision | Source |
 |---|---|---|
 | D1 | ~~The runner is a Kubernetes `CronJob`~~ — **superseded by D9.** A CronJob still exists, but as the safety net behind the event trigger, not the primary mechanism | F4, F6, F7; revised by owner 2026-09-04 |
-| D2 | Reuse the existing self-hosted Garage-compatible object store; no new cloud account. **A new bucket**, not a prefix in an existing one | user, this session ("perhaps... blob storage") + F4; bucket confirmed by owner 2026-09-04 |
+| D2 | ~~Reuse the existing Garage store~~ — **superseded by §4.6 (2026-09-07): Azure Blob instead.** A new container, not a prefix in an existing one | user, this session ("perhaps... blob storage") + F4; bucket confirmed by owner 2026-09-04 |
 | D3 | No new HTTP/query surface of any kind — this stays a batch write, keeping OME-894 D6 intact | user, this session ("don't want an admin API") |
 | D4 | The bucket is private; nothing here makes it network-reachable outside the export job's own upload | ticket scope |
 | D5 | ~~Export cadence: hourly~~ — **superseded by D9** | revised by owner 2026-09-04 |
 | D6 | One run exports **every** private benchmark, one object per benchmark, not one object per submission | keeps the object count bounded and the script's existing per-benchmark shape (F1) |
 | D7 | Object key includes an export timestamp; the job does not overwrite in place | lets a bad run be diffed against the previous one before anything downstream reads it |
-| D8 | Reuse the engine's S3 **request plumbing** (`_signed_headers`, `_request`, `_url_path`), **not** its `write_text`/`write_bytes` API | `s3.py:120` keys every object by `sha256(content)`. That store is content-addressed by design, which cannot express the `{benchmark_id}/` layout D2 and §4.2 require. Discovered 2026-09-04 |
+| D8 | ~~Reuse the engine's S3 request plumbing~~ — **void under §4.6:** Azure Blob does not speak S3, so SigV4 signing does not apply. Kept because the finding still explains why the original plan was unsound. Reuse the engine's S3 **request plumbing** (`_signed_headers`, `_request`, `_url_path`), **not** its `write_text`/`write_bytes` API | `s3.py:120` keys every object by `sha256(content)`. That store is content-addressed by design, which cannot express the `{benchmark_id}/` layout D2 and §4.2 require. Discovered 2026-09-04 |
 | D9 | **Export is triggered by the submission itself, debounced, with a daily CronJob as the safety net** | owner 2026-09-04 ("can't it be instant after submission instead of polling?"). See §4.4 for why it is not purely event-driven |
-| D10 | Read access is by **time-limited pre-signed URL**, not an identity check | owner 2026-09-04. Explicitly chosen over a Cloudflare Access email allowlist; the trade is recorded in §4.5 |
+| D10 | ~~Pre-signed URLs~~ — **superseded by §4.6.** Azure Blob + Entra ID restores access by email, which is what was asked for | owner 2026-09-04. Explicitly chosen over a Cloudflare Access email allowlist; the trade is recorded in §4.5 |
 
 ## 4. Design
 
@@ -227,6 +227,60 @@ The viewer UI/portal integration (separate ticket — user: "focus on dumping th
 lifecycle policy on old export objects (left to the bucket's own lifecycle rule, per the
 same reasoning `s3.py`'s AIDEV-NOTE already gives for artifact objects) · alerting on a
 failed CronJob run.
+
+## 0. Status — 2026-09-07: split into a manual step now, the automation after
+
+**This ticket is a named Fusion Monsters launch item.** Irina's 2026-08-31 `#scream-updates`
+post lists "provide a path to the FM program team to view the submission to the entry
+challenge to validate how participants are *upgraded* through the program" among the last
+prod/eng elements, with the launch set for **today**.
+
+The owner decided on 2026-09-07 to **separate the need from the machinery**:
+
+1. **Today — manual.** `export_private_submissions.py` already works and is covered by four
+   tests. Someone with cluster access runs it per private benchmark and hands the file to the
+   FM team. This satisfies the launch item in full: the team can see every submission.
+2. **After the launch — automated, on Azure Blob.** Not Garage. See §4.6 for why the original
+   D2 choice was wrong, and note this restores the **email-based access** the owner asked for
+   before D10 traded it away.
+
+Everything in §§3–5 below describes the automated design and stays valid, except D2 (storage
+target) and D10 (access model), both superseded by §4.6. The spec is deliberately not rewritten
+in place — the Garage reasoning is kept so the reversal is legible rather than silently edited
+out.
+
+### Blocking nothing, but worth doing today
+
+The script prints **JSONL**, one JSON object per line, with full email addresses. That is the
+right format for a machine and the wrong one for the FM program team, who need to read names
+and scores to make upgrade decisions. A `--format csv` flag is a small, contained addition and
+is what makes the manual handover actually usable by its intended audience.
+
+## 4.6 Why Azure Blob, not Garage (supersedes D2 and D10)
+
+D2 said "reuse the existing self-hosted Garage store; no new cloud account." Reading the
+engine's chart afterwards showed that is the wrong home for this data, for two independent
+reasons:
+
+1. **Wrong durability class.** `deploy/helm/values.yaml` describes Garage in its own words as
+   "a single-consumer hand-off store for objects that live <48h, **not a durability tier**" —
+   one replica, a 10Gi ReadWriteOnce volume. This ticket parks timestamped exports there
+   permanently (D7) with retention deferred to a lifecycle rule (§6). That is an ever-growing
+   pile on a volume sized for objects that disappear within two days.
+2. **Wrong owner.** Garage is bundled into the **engine's** chart and holds the engine's
+   artifact spill store. The scoreboard chart has no object storage at all. Filling that
+   volume degrades benchmark runs, not just exports — a failure in one app caused by another.
+
+Azure Blob resolves both, and one more: **Entra ID gives access by email address**, which is
+what the owner asked for on 2026-09-04 ("should be openmined team people, but some sort of
+whitelisting by email") and which Garage cannot express, since its credentials are S3 access
+keys rather than identities. D10's pre-signed-URL compromise existed only because Garage
+forced it. On Azure it is unnecessary.
+
+Cost of the change, stated plainly: a storage account to provision, a new credential type, and
+**D8's SigV4 helper reuse no longer applies** — Azure Blob does not speak the S3 API, so
+`s3.py`'s signing is not reusable against it. The `{benchmark_id}/` layout carries over
+unchanged.
 
 ## 7. Owner answers (2026-09-04) and what is still open
 

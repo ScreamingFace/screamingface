@@ -69,3 +69,29 @@ reusable; its write API is not.
 
 Implementation still needs the plain-words go-ahead, plus the Garage bucket and a scoped
 credential — owner/platform actions this spec does not provision.
+
+## Split into two units — 2026-09-07
+
+This is a named **Fusion Monsters launch item** (Irina, `#scream-updates`, 2026-08-31: "provide
+a path to the FM program team to view the submission to the entry challenge"). The connection
+was not made when this ticket was filed.
+
+Owner decision: separate the need from the machinery.
+
+1. **Today, manually.** `export_private_submissions.py` already works and is tested. Run it per
+   private benchmark and hand the file to the FM team — the launch item is satisfied.
+2. **After the launch, automated on Azure Blob**, not Garage.
+
+**Why not Garage.** Its own values file calls it "a single-consumer hand-off store for objects
+that live <48h, not a durability tier" — one replica, 10Gi RWO — and it belongs to the
+*engine's* chart, holding the engine's artifact spill store. Parking permanent exports there
+risks degrading benchmark runs. The scoreboard chart has no object storage of its own.
+
+**Upside of the move.** Azure Blob + Entra ID restores access **by email address**, which is
+what was asked for originally and what the pre-signed-URL compromise (D10) traded away.
+
+**Cost.** D8's SigV4 helper reuse is void — Azure Blob does not speak S3. A storage account and
+credential need provisioning.
+
+**Recommended today:** add `--format csv`. The script emits JSONL, which the FM program team
+cannot open in a spreadsheet, and reading names and scores is the whole point of the handover.
