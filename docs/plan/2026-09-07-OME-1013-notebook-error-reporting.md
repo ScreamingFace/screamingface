@@ -42,3 +42,15 @@ claim PR #756 already implements it.
 - OME-416: retain version provenance; reporting acceptance moves to OME-1013 under OME-1003.
 - Service closeout (OME-1005–1012), OME-976's deployment decision, OME-1072's evaluation semantics,
   OME-979's failure attribution and OME-1124's analytics remain separate; no automatic closure.
+
+## Integration evidence — 2026-09-07
+
+The live Engine and internal reporting route advertise the same Access audience. All 79 existing
+Client authentication tests pass, including sharing one login for matching audiences. Report
+authentication should use the existing per-Client token store; no separate global token store is
+needed. This is feasibility evidence, not an accepted live report.
+
+Real notebook verification awaits a working browser connection, the reporting Turnstile public
+site key/allowed origin and notebook selection. Backend verification also needs deployment access
+(no kubectl context is configured). Full evidence and the browser bootstrap failure are recorded
+in [the integration ledger](../work/2026-09-07-OME-1013-report-auth-integration.md).
