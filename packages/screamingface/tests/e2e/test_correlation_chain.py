@@ -41,7 +41,15 @@ from harness.stack import EngineProcess, replay_stack
 from harness.tape import load_tape
 
 BOARD = "draco"
-CANDIDATE_MODEL = "openrouter/anthropic/claude-haiku-4.5"
+CANDIDATE_MODEL = "openrouter/openai/gpt-5.5"
+"""A model the synthetic tape actually carries.
+
+WHY this matters more than it looks (OME-1121): the first version named a model absent from
+the tape's catalog projection, so `evaluate` raised `PlanningError` at the availability probe
+(`runner.py`'s `_missing_required_models`) — BEFORE the transport ran. No transport means no
+trace context, so every rung read an empty id set and rung 1 could never pass. The failure
+looked like a missing feature and was a wrong fixture.
+"""
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
 
 TRACEPARENT = re.compile(r"^00-(?!0{32}$)([0-9a-f]{32})-(?!0{16}$)([0-9a-f]{16})-[0-9a-f]{2}$")
@@ -83,6 +91,35 @@ def _trace_ids(values: Iterator[str] | list[str]) -> set[str]:
 # --- rungs 1-2: the wire, observed at an in-process gateway --------------------------------
 
 
+def _one_run(engine_url: str) -> tuple[set[str], list[str]]:
+    """Drive one real run and return (trace ids the PUBLIC surface gave us, frame values).
+
+    Both outcomes are evidence. A completed run yields ids through
+    `CandidateResult.trace_id` (OME-1121) — the path that matters, because a board run
+    collects case errors into rows rather than raising, so the user with bad results reaches
+    here. A run that fails outright yields the id on the error (OME-967), which covers the
+    pre-first-frame classes.
+    """
+    import screamingface as sf
+
+    seen: list[str] = []
+    ids: set[str] = set()
+    with sf.Client(engine_url=engine_url) as client:
+        try:
+            report = client.evaluate(
+                sf.Model(CANDIDATE_MODEL),
+                benchmark=BOARD,
+                limit=1,
+                progress=False,
+                on_event=lambda event: seen.append(getattr(event, "traceparent", "") or ""),
+            )
+            ids |= {c.trace_id for c in report.candidates if c.trace_id}
+        except sf.ScreamingFaceError as exc:
+            if exc.trace_id:
+                ids.add(exc.trace_id)
+    return ids | _trace_ids([v for v in seen if v]), [v for v in seen if v]
+
+
 @pytest.fixture(scope="module")
 def wire_run(tmp_path_factory: pytest.TempPathFactory):
     """One real run against `FakeGateway`, keeping the frames and the inbound headers.
@@ -93,39 +130,16 @@ def wire_run(tmp_path_factory: pytest.TempPathFactory):
     require_e2e_stack()
     assets = _require_draco_assets()
 
-    import screamingface as sf
-
     work_dir = tmp_path_factory.mktemp("correlation-wire")
     fake = FakeGateway(load_tape(SNAPSHOTS_DIR / "synthetic.tape.json"))
     engine = EngineProcess(work_dir=work_dir, assets_dir=assets)
-    seen: list[str] = []
-    error_trace_id: str | None = None
 
     base_url = fake.start_sync()
     try:
-        engine_url = engine.start(base_url)
-        with sf.Client(engine_url=engine_url) as client:
-            try:
-                client.evaluate(
-                    sf.Model(CANDIDATE_MODEL),
-                    benchmark=BOARD,
-                    limit=1,
-                    progress=False,
-                    on_event=lambda event: seen.append(getattr(event, "traceparent", "") or ""),
-                )
-            except sf.ScreamingFaceError as exc:
-                # A failed run is the BETTER evidence here. The synthetic tape is not
-                # authored for draco, so this run is expected to fail — and OME-967 put the
-                # client's own trace id on the error, which is the only PUBLIC surface that
-                # carries it (`Report` has no trace field). Frames are kept as a secondary
-                # source for the case where a run does complete.
-                error_trace_id = exc.trace_id
-        client_ids = _trace_ids([v for v in seen if v])
-        if error_trace_id:
-            client_ids.add(error_trace_id)
+        client_ids, frames = _one_run(engine.start(base_url))
         yield {
             "client_ids": client_ids,
-            "frames": [v for v in seen if v],
+            "frames": frames,
             "gateway": fake,
             "engine_log": work_dir / "engine.log",
         }
@@ -135,27 +149,19 @@ def wire_run(tmp_path_factory: pytest.TempPathFactory):
 
 
 @pytest.mark.e2e
-@pytest.mark.xfail(
-    strict=True,
-    reason="rung 1: no PUBLIC read site for a completed run's trace id — see the docstring",
-)
 def test_rung1_one_coherent_trace_id_spans_the_run(wire_run) -> None:
-    """RUNG 1 (`OME-967` is merged, yet this cannot observe it — strict xfail).
+    """RUNG 1 (`OME-967` + `OME-1121` — must PASS).
 
-    **This failing is a finding, not a gap in `OME-967`.** That change is real and is pinned
-    by `tests/test_client_protocol.py`, which watches the wire directly and asserts the client
-    sends a traceparent on all three legs. What this rung proves is different and worse: from
-    the PUBLIC SDK surface there is no way to read a completed run's trace id at all.
+    The run surfaces exactly one well-formed trace id through the PUBLIC surface.
 
-    `trace_id` reaches only the error hierarchy (`ScreamingFaceError.trace_id`). `Report`
-    carries no trace field, and a board run does not raise — DRACO *collects* case errors into
-    rows (`on_error="collect"`), so a run whose every model call failed still returns a Report
-    and never surfaces an exception to read the id from. The frame stream does not fill the
-    gap either: no event reaching `on_event` carried a traceparent here.
+    This was a strict xfail until `OME-1121`. The reason is worth keeping: `OME-967` put the
+    id only on the error hierarchy, and a board run does not raise — DRACO *collects* case
+    errors into rows (`on_error="collect"`), so a run whose every model call failed still
+    returned a Report carrying no id anywhere. The user most needing to quote an id could not
+    obtain one. `CandidateResult.trace_id` closed that.
 
-    So the user who most needs to quote an id — someone whose run produced bad results rather
-    than an exception — currently cannot get one. Closing this rung means giving `Report` a
-    trace id; it is not a retrofit of `OME-967`.
+    Scope note: this asserts COHERENCE and REACHABILITY, not origination. Origination is
+    pinned where it is observable — `tests/test_client_protocol.py`, against the wire.
     """
     client_ids = wire_run["client_ids"]
     assert client_ids, "the run surfaced no trace id — neither on an error nor on any frame"
