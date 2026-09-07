@@ -82,7 +82,8 @@ All paths relative to `apps/screamingface-engine/`.
   reading is that module's turf). `spine/grading.py` (`CaseGrader`) deleted — the hook
   seam subsumes it; its 8 ladder tests rewired through `ScoredPath` with every
   behavioral assertion preserved.
-- **Commits:** <pending>
+- **Commits:** eac8acde — refactor(screamingface-engine): share the rubric scored path
+  behind a grade_case hook (PR #847)
 - **Gates:** run_gates.py screamingface-engine ALL GREEN (append-only check:
   owner-approved modifications listed under Deviations, run with --skip-append-only);
   unit suite 2352 passed / 5 skipped; e2e golden replays healthbench-worst30 and
