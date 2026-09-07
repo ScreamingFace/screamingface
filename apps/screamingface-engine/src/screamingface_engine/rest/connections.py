@@ -22,6 +22,7 @@ from screamingface_engine.connections.port import (
     ConnectionStatus,
     OAuthAuthorization,
 )
+from url4.streaming.trace import valid_traceparent
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,17 @@ def _serialize_oauth(authorization: OAuthAuthorization) -> OAuthAuthorizationRes
 
 
 def _caller(request: Request) -> Caller:
-    return Caller(job_env.identity_from_headers(request.headers))
+    # WHY `valid_traceparent` and not the raw header (OME-1119): this value is forwarded to
+    # aigateway, and a malformed one is worse than none — it would be rejected or, worse,
+    # parsed into a trace joining nothing. Same rule the run path applies at
+    # `adapters/k8s.py:591`, so a caller cannot get a different answer depending on which
+    # Engine surface they entered through. Invalid degrades to absent, never to an error:
+    # a bad trace header must not fail an otherwise valid connections request.
+    return Caller(
+        job_env.identity_from_headers(request.headers),
+        traceparent=valid_traceparent(request.headers.get("traceparent")),
+        profile=request.headers.get("X-Profile"),
+    )
 
 
 def _service(request: Request) -> Connections:

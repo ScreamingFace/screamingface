@@ -198,6 +198,18 @@ def _headers(credential: Credential) -> dict[str, str]:
 
     No ``Authorization``: a deployed aigateway (``cloudflare_headers``) reads only the identity
     header, and a local one (``disabled``) reads nothing at all.
+
+    WHY no ``traceparent`` here, unlike the other two aigateway clients (OME-1119): this call is
+    NOT one-to-one with a caller. ``CachedCatalog`` coalesces concurrent misses for one
+    credential onto a single upstream fetch (``cache.py``'s ``_inflight``), and serves the result
+    to every waiter — so a catalog fetch is caused by whichever caller happened to lead the
+    refresh and is consumed by N others. Stamping the leader's trace would put a call in their
+    trace that also served people they never heard of, and leave the other N-1 with a gap where
+    a catalog read should be. Both readings are wrong, and the wrong one looks right.
+
+    Sending nothing is the honest answer for Phase 1, whose payoff is grepping ONE id across
+    services for ONE run. Representing a coalesced fetch properly needs an OTel span Link (one
+    span, many causes), which is Phase 2 — see ``OME-1130``.
     """
     headers = dict(credential.identity)
     if credential.profile is not None:
