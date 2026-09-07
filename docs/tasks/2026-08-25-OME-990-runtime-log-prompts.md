@@ -1,12 +1,12 @@
 ---
 id: OME-990
 linear_url: https://linear.app/openmined/issue/OME-990/runtimelog-records-user-prompts-in-cleartext
-status: in_progress
+status: done
 type: null
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-25
-closed:
+closed: 2026-09-02
 ---
 
 # runtime.log records user prompts in cleartext

@@ -2,8 +2,8 @@
 ticket: OME-1121
 stack: screamingface
 started: 2026-09-04
-status: in_progress
-finished:
+status: done
+finished: 2026-09-07
 ---
 
 # OME-1121 — Surface the run's `trace_id` on the public result

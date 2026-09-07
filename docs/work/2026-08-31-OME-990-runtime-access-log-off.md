@@ -1,9 +1,9 @@
 ---
 ticket: OME-990
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-08-31
-finished:
+finished: 2026-09-02
 ---
 
 # OME-990 — Stop writing prompt-bearing query strings into `runtime.log`
