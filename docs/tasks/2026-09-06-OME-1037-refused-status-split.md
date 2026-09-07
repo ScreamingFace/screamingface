@@ -1,7 +1,7 @@
 ---
 id: OME-1037
 linear_url: https://linear.app/openmined/issue/OME-1037/refused-means-a-provider-failure-in-one-benchmark-and-correct-behavior
-status: in_progress
+status: done
 type:
 priority: medium
 labels:
@@ -9,7 +9,7 @@ labels:
   - agentic
   - autonomous
 created: 2026-09-06
-closed:
+closed: 2026-09-07
 ---
 
 # "Refused" means a provider failure in one benchmark and correct behavior in another

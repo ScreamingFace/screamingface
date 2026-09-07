@@ -1,9 +1,9 @@
 ---
 ticket: OME-1037
 stack: screamingface-engine + screamingface
-status: in_progress
+status: done
 started: 2026-09-06
-finished:
+finished: 2026-09-07
 ---
 
 # OME-1037 — split provider refusal from graded refusal in the case status
@@ -95,8 +95,8 @@ grade retained with `score=None` (checks kept as audit evidence).
 
 ## Outcome (fill at the end — required before COMMIT)
 
-Status note: implementation complete, gates green, draft PR open — **awaiting
-review**; ledger stays `in_progress` until the PR merges and OME-1037 closes.
+Status note: merged via PR #844 (merge commit `a9b5da2d`) on 2026-09-07; OME-1037
+closed.
 
 - **Actual files:** exactly as planned, plus the consumer sweep found three more
   surfaces (all updated in this unit):
