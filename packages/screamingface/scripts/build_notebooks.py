@@ -1175,6 +1175,11 @@ entirely answer generation.
   comparable to an implementation that runs two-turn per member and shows the synthesiser each
   member's reasoning."""),
         nbformat.v4.new_markdown_cell("""\
+<img src="assets/medxpert-benchmark.svg" width="900"
+  alt="MedXpertQA at a glance: 2,450 expert medical MCQs with ten choices, a two-turn
+  reason-then-commit exchange, free exact-match grading, score = matching cases / cases run
+  with answered_rate reported beside it"/>"""),
+        nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
 From a terminal:
