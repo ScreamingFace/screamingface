@@ -104,6 +104,34 @@ call site, and cannot be forgotten by the next caller.
      lacked the optional `notebook` extra, so pyright could not resolve `ipywidgets` in files
      this unit never touched; `uv sync --all-extras` fixed it.
 
+## Follow-up — coverage gate (2026-09-07)
+
+PR #835 review (`keelancj`) requested changes: package-wide coverage sat at 94.9% against the
+95% gate, and `_core/retry.py` itself was 88%. The two gaps named in review — the HTTP-date
+form of `Retry-After`, and the `attempts < 1` guard — were both real: neither had a test, even
+though the code for both already existed and was correct.
+
+- **Added to `tests/test_transient_retry.py`** (append-only, no prior test touched):
+  - `test_retry_after_http_date_is_honoured` / `test_retry_after_naive_http_date_is_treated_as_utc`
+    — the HTTP-date `Retry-After` form (RFC 9110 §10.2.3), both timezone-aware and naive
+    (`_http_date` documents normalising to UTC — the naive case is that promise, not a detail).
+  - `test_an_unparsable_retry_after_falls_back_to_backoff` — a `Retry-After` that is neither
+    delta-seconds nor an HTTP-date must fall back to normal backoff, not crash the loop.
+  - `test_the_async_transport_also_stops_rather_than_sleeping_beyond_the_cap` — the async twin
+    of the existing sync `Retry-After`-beyond-cap test; the sync version existed, the async one
+    did not.
+  - `test_zero_attempts_is_rejected` / `test_negative_attempts_is_rejected` — the
+    `attempts < 1` guard in the shared `_RetryPlan`, exercised through both `RetryingTransport`
+    and `RetryingAsyncTransport`.
+- **No production code changed** — every gap was a missing test for already-correct behavior.
+- **Gates:** `run_gates.py screamingface` — ALL GATES GREEN, including
+  `pytest --cov=screamingface --cov-fail-under=95` (package coverage; `_core/retry.py` alone
+  moved 88% → 94%, remaining misses are two provably unreachable `AssertionError` guards
+  the loop can never reach, not left uncovered by omission).
+- **Deviation:** left the two unreachable-`AssertionError` lines uncovered rather than adding a
+  `# pragma: no cover` — closing them wasn't needed to clear the gate, and marking dead code is
+  a separate, out-of-scope judgment call from the review's actual ask.
+
 ## Scope explicitly NOT covered
 
 - **The in-flight reservation leak.** Run start is not replay-safe, so a refused `GET /?q=` is

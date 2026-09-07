@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 
 import httpx
 import pytest
@@ -258,3 +260,73 @@ def test_a_problem_json_detail_is_still_preferred() -> None:
     with pytest.raises(ExecutionError) as raised:
         _require_success(response, "start the SF Engine Run")
     assert "the runner is at capacity" in str(raised.value)
+
+
+# ── Retry-After: the HTTP-date wire form ─────────────────────────────────────────────────
+
+
+def test_retry_after_http_date_is_honoured() -> None:
+    """A server may send `Retry-After` as an HTTP-date instead of delta-seconds (RFC 9110
+    §10.2.3) — both forms are the same server-named number, just spelled differently, and
+    second-guessing either is how a thundering herd starts."""
+    target = format_datetime(datetime.now(UTC) + timedelta(seconds=5), usegmt=True)
+    handler = _Recorder((503, {"Retry-After": target}), 200)
+    rig = _rig(handler)
+    with rig.client as client:
+        response = client.post("/token", extensions={_REPLAY_SAFE: True})
+    assert response.status_code == 200
+    assert rig.slept == pytest.approx([5.0], abs=1.0)
+
+
+def test_retry_after_naive_http_date_is_treated_as_utc() -> None:
+    """`_http_date` documents that it normalises to UTC — an HTTP-date with no zone info is
+    the case that promise exists for, not merely a parse detail."""
+    naive = (datetime.now(UTC) + timedelta(seconds=5)).strftime("%a, %d %b %Y %H:%M:%S")
+    handler = _Recorder((503, {"Retry-After": naive}), 200)
+    rig = _rig(handler)
+    with rig.client as client:
+        response = client.post("/token", extensions={_REPLAY_SAFE: True})
+    assert response.status_code == 200
+    assert rig.slept == pytest.approx([5.0], abs=1.0)
+
+
+def test_an_unparsable_retry_after_falls_back_to_backoff() -> None:
+    """A `Retry-After` that is neither delta-seconds nor an HTTP-date must not crash the
+    retry loop — it is treated as though the header were absent."""
+    handler = _Recorder((503, {"Retry-After": "whenever"}), 200)
+    rig = _rig(handler, base_delay=0.5)
+    with rig.client as client:
+        response = client.post("/token", extensions={_REPLAY_SAFE: True})
+    assert response.status_code == 200
+    assert rig.slept == pytest.approx([0.5])
+
+
+@pytest.mark.asyncio
+async def test_the_async_transport_also_stops_rather_than_sleeping_beyond_the_cap() -> None:
+    """The async twin of the delta-seconds cap test: obeying an hour-long `Retry-After` is
+    indistinguishable from a hang there too."""
+    handler = _Recorder((503, {"Retry-After": "3600"}), 200)
+    async with _async_client(handler) as client:
+        response = await client.post("/token", extensions={_REPLAY_SAFE: True})
+    assert response.status_code == 503
+    assert handler.attempts == 1
+
+
+# ── construction guards ──────────────────────────────────────────────────────────────────
+
+
+def test_zero_attempts_is_rejected() -> None:
+    """The attempt budget is a promise the loop makes to itself: at least one send always
+    happens. Zero would silently short-circuit every replay-safe request without ever
+    asking the network."""
+    with pytest.raises(ValueError, match="attempts must be >= 1, got 0"):
+        RetryingTransport(httpx.MockTransport(lambda _request: httpx.Response(200)), attempts=0)
+
+
+def test_negative_attempts_is_rejected() -> None:
+    """The async twin's guard is the same shared `_RetryPlan` — a negative budget is just as
+    nonsensical as zero."""
+    with pytest.raises(ValueError, match="attempts must be >= 1, got -1"):
+        RetryingAsyncTransport(
+            httpx.MockTransport(lambda _request: httpx.Response(200)), attempts=-1
+        )
