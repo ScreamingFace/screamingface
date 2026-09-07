@@ -8,6 +8,7 @@ must leave the benchmark and every dependent row untouched.
 from __future__ import annotations
 
 import hashlib
+from decimal import Decimal
 
 import pytest
 
@@ -38,7 +39,7 @@ def _submission(spec_id: str) -> ScoreSubmission:
         total_questions=100,
         correct_questions=80,
         ran_with_providers=["openai"],
-        run_cost_usd="1.000000",
+        run_cost_usd=Decimal("1.000000"),
     )
 
 

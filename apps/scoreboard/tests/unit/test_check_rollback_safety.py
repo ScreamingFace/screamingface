@@ -14,6 +14,8 @@ keeps it honest (review of PR #719).
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from scoreboard.check_rollback_safety import PrivateBoard, format_verdict, private_boards
@@ -33,7 +35,7 @@ def _submission(benchmark_id: str, spec_id: str) -> ScoreSubmission:
         total_questions=100,
         correct_questions=50,
         ran_with_providers=["openai"],
-        run_cost_usd="1.000000",
+        run_cost_usd=Decimal("1.000000"),
     )
 
 
