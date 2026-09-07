@@ -34,7 +34,12 @@ CANDIDATE_MESSAGE_ROLES = frozenset({"system", "developer", "user", "assistant"}
 CaseId = StrictInt | StrictStr
 Outcome = Literal["MET", "UNMET", "PASS", "FAIL"]
 FailureStage = Literal["candidate", "grading", "aggregation"]
-CaseStatus = Literal["scored", "refused", "failed"]
+# WHY only two values (OME-1037): `refused` meant "provider declined" in most
+# benchmarks and "correct answer" in DRACO — a graded refusal is an ordinary scored
+# Case carrying `refusal` text, and an ungradeable one is a failed Case whose
+# failures include the `provider_refusal` code. The invocation-layer `refused`
+# (CandidateInvocationStatus) stays: there it unambiguously means "did not answer".
+CaseStatus = Literal["scored", "failed"]
 CandidateInvocationStatus = Literal["completed", "refused"]
 
 
@@ -133,7 +138,7 @@ class Failure(_StrictWireModel):
 
 
 class CaseResult(_StrictWireModel):
-    """One selected Case with an explicit scored, refused, or failed outcome."""
+    """One selected Case with an explicit scored or failed outcome."""
 
     status: CaseStatus
     case_id: CaseId
@@ -179,8 +184,6 @@ class CaseResult(_StrictWireModel):
             raise ValueError("every Case Failure must reference its own case_id")
         if self.status == "scored":
             _require_scored_case(self)
-        elif self.status == "refused":
-            _require_refused_case(self)
         else:
             _require_failed_case(self)
         return self
@@ -278,42 +281,29 @@ def validate_corrective_execution(value: object) -> CorrectiveExecution:
 
 
 def _require_scored_case(case: CaseResult) -> None:
+    # INVARIANT (OME-1037): a scored Case is either an answer that was graded or a
+    # refusal that was graded — exactly one of output/refusal, never both or neither.
     if (
         case.grade is None
         or case.grade.score is None
-        or case.output is None
-        or case.refusal is not None
+        or (case.output is None) == (case.refusal is None)
         or case.failures
     ):
         raise ValueError(
-            "a scored Case requires output and a numeric grade and cannot carry refusal or failures"
+            "a scored Case requires a numeric grade and exactly one of output and refusal, "
+            "and cannot carry failures"
         )
 
 
-def _require_refused_case(case: CaseResult) -> None:
-    if case.output is not None or case.grade is None:
-        raise ValueError("a refused Case requires no output and a Benchmark grade")
-    if case.grade.score is not None and case.failures:
-        raise ValueError("a graded refused Case cannot carry failures")
-    if case.grade.score is None and (
-        not case.failures or any(failure.stage != "grading" for failure in case.failures)
-    ):
-        raise ValueError("an ungraded refused Case requires one or more grading failures")
-
-
 def _require_failed_case(case: CaseResult) -> None:
-    # WHY no provider_refusal Failure-code check: no producer can emit one. The Candidate
-    # adapter converts the runner's provider_refusal error into an ordinary refused
-    # invocation before it can become a Failure, and url4's on_error=collect envelope
-    # carries only kind+message — collected error codes always fall back to the
-    # aggregate defaults. Refusals reach this contract only through `case.refusal`.
-    if (
-        not case.failures
-        or case.refusal is not None
-        or case.grade is not None
-        and case.grade.score is not None
+    if not case.failures or case.grade is not None and case.grade.score is not None:
+        raise ValueError("a failed Case requires failures and no numeric grade")
+    # INVARIANT (OME-1037): refusal text on a failed Case is evidence for its
+    # provider_refusal failure; every other failed Case stays refusal-free.
+    if case.refusal is not None and all(
+        failure.code != "provider_refusal" for failure in case.failures
     ):
-        raise ValueError("a failed Case requires failures, no refusal, and no numeric grade")
+        raise ValueError("a failed Case carries refusal text only with a provider_refusal failure")
 
 
 class CandidateResult(_StrictWireModel):

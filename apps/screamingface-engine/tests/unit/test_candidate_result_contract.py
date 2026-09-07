@@ -271,10 +271,12 @@ def test_open_wire_fields_accept_only_json_values() -> None:
             build()
 
 
-def test_refused_case_preserves_exact_refusal_and_normal_grade() -> None:
+def test_a_graded_refusal_is_a_scored_case_with_exact_refusal_text() -> None:
+    # INVARIANT (OME-1037): a refusal the Benchmark graded is an ordinary scored
+    # Case carrying exactly one of output/refusal — the `refused` status is gone.
     refusal = "I can’t provide that dosage."
     case = CaseResult(
-        status="refused",
+        status="scored",
         case_id=7,
         input="Recommend a dosage.",
         output=None,
@@ -285,12 +287,12 @@ def test_refused_case_preserves_exact_refusal_and_normal_grade() -> None:
         metadata={},
     )
 
+    assert case.status == "scored"
     assert case.refusal == refusal
     assert case.grade is not None and case.grade.score == 0.0
     assert case.failures == []
-    no_text = CaseResult(**{**case.model_dump(), "refusal": None})
-    assert no_text.status == "refused"
-    assert no_text.refusal is None
+    with pytest.raises(ValidationError, match="exactly one"):
+        CaseResult(**{**case.model_dump(), "refusal": None})
 
 
 def test_failed_case_requires_a_typed_failure_and_cannot_carry_a_score() -> None:

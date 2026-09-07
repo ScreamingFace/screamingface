@@ -174,7 +174,7 @@ def test_provider_refusal_is_retained_exactly_and_graded_normally() -> None:
     case = result["cases"][0]
     assert result["score"] == 1.0
     assert result["coverage"] == 1.0
-    assert case["status"] == "refused"
+    assert case["status"] == "scored"  # OME-1037: a graded refusal is scored
     assert case["refusal"] == exact
     assert case["finish_reason"] == "content_filter"
     assert case["grade"]["score"] == 1.0

@@ -88,12 +88,17 @@ def test_refusal_survives_a_later_grading_failure_across_benchmarks(
     assert result["coverage"] == 0.0
     assert result["metrics"] == {}
     case = result["cases"][0]
-    assert case["status"] == "refused"
+    # INVARIANT (OME-1037): an ungradeable refusal is a FAILED Case led by a
+    # provider_refusal failure, the grading failure retained after it, and the
+    # refusal text preserved verbatim as evidence (None stays None).
+    assert case["status"] == "failed"
     assert case["output"] is None
     assert case["refusal"] == refusal
     assert case["grade"]["score"] is None
-    assert case["failures"][0]["stage"] == "grading"
-    assert case["failures"][0]["code"] == "judge_unavailable"
+    assert [(item["stage"], item["code"]) for item in case["failures"]] == [
+        ("candidate", "provider_refusal"),
+        ("grading", "judge_unavailable"),
+    ]
 
 
 @pytest.mark.parametrize("aggregate", (_ifeval, _draco, _healthbench))

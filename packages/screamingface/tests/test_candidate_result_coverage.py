@@ -104,8 +104,9 @@ def test_a_scored_candidate_can_retain_a_safe_candidate_failure() -> None:
 
 
 def test_a_refusal_is_normally_graded_without_a_synthetic_failure() -> None:
+    # OME-1037: a graded refusal is an ordinary scored Case carrying refusal text.
     payload = {
-        "status": "refused",
+        "status": "scored",
         "case_id": 1,
         "input": "A clinical question",
         "output": None,
@@ -125,16 +126,19 @@ def test_a_refusal_is_normally_graded_without_a_synthetic_failure() -> None:
 
     case = _case_result(payload)
 
-    assert case.status == "refused"
+    assert case.status == "scored"
     assert case.grade is not None
     assert case.grade.score == 0.0
     assert case.failures == ()
     assert case.to_dict() == payload
 
 
-def test_a_refusal_whose_grading_failed_retains_only_grading_failures() -> None:
+def test_a_refusal_whose_grading_failed_is_failed_with_provider_refusal_evidence() -> None:
+    # INVARIANT (OME-1037): an ungradeable refusal is a failed Case led by the
+    # provider_refusal failure, the grading failures retained after it and the
+    # refusal text preserved as evidence.
     payload = {
-        "status": "refused",
+        "status": "failed",
         "case_id": 1,
         "input": "A clinical question",
         "output": None,
@@ -150,21 +154,30 @@ def test_a_refusal_whose_grading_failed_retains_only_grading_failures() -> None:
         },
         "failures": [
             {
+                "stage": "candidate",
+                "code": "provider_refusal",
+                "message": "provider refused the request",
+                "retryable": False,
+                "case_id": 1,
+                "metadata": {},
+            },
+            {
                 "stage": "grading",
                 "code": "checker_failed",
                 "message": "the checker failed",
                 "retryable": False,
                 "case_id": 1,
                 "metadata": {},
-            }
+            },
         ],
         "metadata": {},
     }
 
     case = _case_result(payload)
 
-    assert case.status == "refused"
+    assert case.status == "failed"
+    assert case.refusal == "I cannot answer that request."
     assert case.grade is not None
     assert case.grade.score is None
-    assert tuple(failure.stage for failure in case.failures) == ("grading",)
+    assert tuple(failure.stage for failure in case.failures) == ("candidate", "grading")
     assert case.to_dict() == payload
