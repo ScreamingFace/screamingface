@@ -13,7 +13,7 @@ from decimal import Decimal
 import pytest
 
 from scoreboard import purge_private_benchmark as purge_module
-from scoreboard.export_private_submissions import collect_submissions, format_jsonl
+from scoreboard.export_private_submissions import collect_submissions, format_jsonl_bytes
 from scoreboard.purge_private_benchmark import (
     PurgeRefused,
     export_sha256,
@@ -66,9 +66,17 @@ async def test_export_digest_matches_the_exact_cli_bytes(tortoise_db: None) -> N
     await _seed_private(submissions=1)
     rows = await collect_submissions(BENCHMARK)
 
-    cli_bytes = f"{format_jsonl(rows)}\n".encode()
+    cli_bytes = format_jsonl_bytes(rows)
 
+    assert cli_bytes.endswith(b"\n")
     assert export_sha256(rows) == hashlib.sha256(cli_bytes).hexdigest()
+
+
+async def test_an_empty_export_digest_matches_empty_cli_output() -> None:
+    cli_bytes = format_jsonl_bytes([])
+
+    assert cli_bytes == b""
+    assert export_sha256([]) == hashlib.sha256(cli_bytes).hexdigest()
 
 
 async def test_dry_run_preserves_a_matching_private_export(tortoise_db: None) -> None:

@@ -16,11 +16,12 @@ import re
 from collections.abc import Sequence
 
 from tortoise import BaseDBAsyncClient
+from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
 from .config import Settings
 from .db import close_db, init_db
-from .export_private_submissions import format_jsonl
+from .export_private_submissions import format_jsonl_bytes
 from .scores.models import Baseline, Benchmark, Score
 from .scores.schemas import ScoreSchema
 from .scores.store import ScoreStore
@@ -33,14 +34,8 @@ class PurgeRefused(RuntimeError):
 
 
 def export_sha256(rows: Sequence[ScoreSchema]) -> str:
-    """SHA-256 of the exact bytes emitted by ``export_private_submissions``.
-
-    The exporter uses ``print`` for a non-empty result, which adds one trailing newline. An empty
-    export prints nothing and therefore hashes as zero bytes.
-    """
-    output = format_jsonl(rows)
-    payload = f"{output}\n".encode() if output else b""
-    return hashlib.sha256(payload).hexdigest()
+    """SHA-256 of the exact bytes emitted by ``export_private_submissions``."""
+    return hashlib.sha256(format_jsonl_bytes(rows)).hexdigest()
 
 
 def _validated_digest(value: str) -> str:
@@ -61,14 +56,21 @@ async def _delete_benchmark(connection: BaseDBAsyncClient, benchmark_id: str) ->
         raise PurgeRefused(f"benchmark {benchmark_id!r} still exists after deletion")
 
 
+def _purge_visibility_query(
+    connection: BaseDBAsyncClient,
+    benchmark_id: str,
+) -> QuerySet[Benchmark]:
+    """The exact locking query used by the purge, exposed for asyncpg SQL rendering."""
+    # INVARIANT: share the already-guarded model projection; a values projection drops FOR UPDATE.
+    return ScoreStore().visibility_query(benchmark_id, connection=connection, lock=True)
+
+
 async def _revalidate_visibility_for_purge(
     connection: BaseDBAsyncClient,
     benchmark_id: str,
 ) -> None:
     """Lock the named board and prove it is private immediately before digesting it."""
-    benchmark = await (
-        Benchmark.filter(id=benchmark_id).using_db(connection).select_for_update().first()
-    )
+    benchmark = await _purge_visibility_query(connection, benchmark_id).first()
     if benchmark is None:
         raise LookupError(f"unknown benchmark_id: {benchmark_id!r}")
     if benchmark.visibility != "private":
