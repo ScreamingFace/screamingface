@@ -27,11 +27,22 @@ PREPARER_REVISION = "cuad-test-v1"
 # WHY: the exchange itself — single-shot verbatim extraction with an explicit abstain string.
 PROTOCOL_REVISION = "single-shot-extract-v1"
 
+# AIDEV-NOTE: the two constants below are ADVISORY — they are not applied by this board and are
+# not in `compute_revision`. Sampling parameters reach a model from the SDK caller's
+# `sf.Model(params=...)`, so these record what the reference used, for whoever writes a notebook
+# or a run script. (MedXpertQA carries them the same way.) Do not "wire them up" without deciding
+# what it means for a Fusion, whose members may each need different parameters.
+#
 # WHY 4096 and not the 100k the reference passes: the task is to QUOTE sentences from a contract,
 # and the longest gold answer is a few hundred tokens. A large budget buys nothing here and lets
 # a rambling model burn cost on a task whose correct output is short.
 MAX_TOKENS = 4096
 # The reference calls every model at temperature 0 (proprietary_model.py line 88).
+#
+# AIDEV-NOTE: do NOT blindly pass this to every model. Several current reasoning models REJECT
+# `temperature` outright — via OpenRouter, `openai/gpt-5.5` answers 404 for any value and
+# `anthropic/claude-opus-4.8` answers 400, while `gemini-3.1-pro-preview` and `qwen3.7-flash`
+# accept it. The shipped notebook therefore omits temperature rather than pinning it.
 TEMPERATURE = "0"
 
 # WHY a guard and not a truncation budget: measured over all 4,182 rows with `tiktoken`

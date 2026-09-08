@@ -46,6 +46,10 @@ _FAILURE_MESSAGES = {
     "missing_answer_asset": "the baked answer record for this Case is missing or invalid",
     "missing_case_row": "no evaluation row for this Case reached the aggregate",
     "case_error": "the Case pipeline collected an error instead of an evaluation",
+    "polarity_mismatch": (
+        "the checked attempt disagrees with the baked answer key about whether this Case has a "
+        "clause — the assets and the run are out of step"
+    ),
 }
 
 
@@ -172,9 +176,23 @@ def _terminal_failure(
         # symptom and hides the cause.
         extra = {"collected_errors": orphan_errors[:3]} if orphan_errors else {}
         return _failure(case_id, "candidate", "missing_case_row", **extra)
-    return (
-        _failure(case_id, "candidate", "case_error", error=row["error"]) if "error" in row else None
-    )
+    return _row_failure(case_id, row, answer)
+
+
+def _row_failure(
+    case_id: int, row: Mapping[str, Any], answer: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """The failures only a PRESENT row can carry — or ``None`` when the Case can be scored."""
+
+    if "error" in row:
+        return _failure(case_id, "candidate", "case_error", error=row["error"])
+    # INVARIANT: the baked key is the authority on polarity; the check record carries its own
+    # copy. Disagreement means the assets and the run are out of step, and silently trusting
+    # either one files the Case in the WRONG confusion-matrix cell.
+    attempt = _attempt(row)
+    if bool(attempt.get("is_positive")) != bool(answer.get("is_positive")):
+        return _failure(case_id, "grading", "polarity_mismatch")
+    return None
 
 
 def _scored(
@@ -243,9 +261,13 @@ def _containment_evidence(
         "producer": {"type": "deterministic", "id": "contracteval/containment"},
         "valid": True,
         "outcome": "PASS" if correct else "FAIL",
-        "raw_output": bool(attempt.get("abstained")),
+        # WHY the verdict and not the reply text: this producer is the containment check, so its
+        # OUTPUT is the boolean it computed — the same shape IFEval's verifier evidence carries.
+        # The reply itself is already on the Case as `output`.
+        "raw_output": correct,
         "metadata": {
             "gold_span_count": len(spans) if isinstance(spans, list) else 0,
+            "abstained": bool(attempt.get("abstained")),
             "jaccard": _ratio(attempt.get("jaccard")),
         },
         "accounting": None,

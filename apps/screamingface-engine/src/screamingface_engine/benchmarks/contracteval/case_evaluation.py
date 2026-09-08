@@ -10,6 +10,13 @@ CASE_EVALUATION_SCHEMA = "screamingface.contracteval-case-evaluation.v1"
 
 _CASE_EVALUATION_FIELDS = frozenset({"schema", "case_id", "attempts"})
 
+# INVARIANT: every field the reducer reads to place a Case in the confusion matrix is validated
+# HERE, on the way in. On a board whose score is a mean, a missing field costs one score. On this
+# board `bool(None)` is False, which is not "no score" — it silently becomes a FALSE NEGATIVE on a
+# positive row or a FALSE POSITIVE on a negative one, depressing precision and recall with no
+# failure reported anywhere. That is exactly the "no inference" promise this module makes.
+_VERDICT_BOOLS = ("correct", "is_positive", "abstained")
+
 
 def bind_case_evaluation(
     case_id: int,
@@ -28,6 +35,7 @@ def bind_case_evaluation(
             raise ValueError(f"attempt {index} must carry schema {CHECK_SCHEMA}")
         if attempt.get("case_id") != selected:
             raise ValueError(f"attempt {index} belongs to another Case")
+        _require_verdict(attempt, f"attempt {index}")
         bound.append(dict(attempt))
     return {"schema": CASE_EVALUATION_SCHEMA, "case_id": selected, "attempts": bound}
 
@@ -61,7 +69,21 @@ def _decoded_attempt(attempt: object, index: int, case_id: int) -> dict[str, Any
     if not isinstance(attempt, Mapping):
         raise ValueError(f"attempt {index} must be an object")
     _require(attempt, CHECK_SCHEMA, case_id, f"attempt {index}")
+    _require_verdict(attempt, f"attempt {index}")
     return dict(attempt)
+
+
+def _require_verdict(attempt: Mapping[str, Any], label: str) -> None:
+    """Every field the confusion matrix reads must be present and well-typed."""
+
+    for field in _VERDICT_BOOLS:
+        if not isinstance(attempt.get(field), bool):
+            raise ValueError(f"{label} must carry a boolean {field}")
+    score = attempt.get("jaccard")
+    if isinstance(score, bool) or not isinstance(score, int | float):
+        raise ValueError(f"{label} must carry a numeric jaccard")
+    if not 0.0 <= float(score) <= 1.0:
+        raise ValueError(f"{label} jaccard must lie in [0, 1]")
 
 
 def _require(value: Mapping[str, Any], schema: str, case_id: int, label: str) -> None:

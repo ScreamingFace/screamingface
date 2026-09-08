@@ -256,3 +256,47 @@ class TestInputGuards:
         chosen = selected_cases(_root(tmp_path, {1: True, 2: False}), (2, 1))
 
         assert [c.case_id for c in chosen] == [2, 1]
+
+
+class TestPolarityAgreement:
+    def test_a_check_record_disagreeing_with_the_answer_key_fails_the_case(
+        self, tmp_path: Path
+    ) -> None:
+        """INVARIANT: the baked answer key is the authority on a Case's polarity, and the check
+        record carries its own copy. If the two disagree the assets and the run are out of step
+        — a wrong revision, or a stale bundle — and silently trusting either one puts the Case
+        in the WRONG confusion-matrix cell. Fail it loudly instead.
+        """
+
+        root = _root(tmp_path, {1: True})
+        rows = _rows(_record(1, correct=True, is_positive=False, abstained=True))
+
+        result = _aggregate(root, rows, (1,))
+
+        assert result["cases"][0]["grade"]["score"] is None
+        assert result["cases"][0]["failures"][0]["code"] == "polarity_mismatch"
+
+    def test_agreement_scores_normally(self, tmp_path: Path) -> None:
+        root = _root(tmp_path, {1: True})
+        rows = _rows(_record(1, correct=True, is_positive=True, abstained=False))
+
+        result = _aggregate(root, rows, (1,))
+
+        assert result["cases"][0]["grade"]["score"] == 1.0
+
+
+class TestEvidence:
+    def test_raw_output_is_the_verdict_not_the_abstention_flag(self, tmp_path: Path) -> None:
+        """`raw_output` is the deterministic producer's OUTPUT — here the containment verdict,
+        matching IFEval's verifier evidence. Whether the model abstained is context, and lives
+        in metadata beside the gold-span count."""
+
+        root = _root(tmp_path, {1: True})
+        rows = _rows(_record(1, correct=True, is_positive=True, abstained=False))
+
+        evidence = _aggregate(root, rows, (1,))["cases"][0]["grade"]["checks"][0]["evidence"][0]
+
+        assert evidence["raw_output"] is True
+        assert evidence["outcome"] == "PASS"
+        assert evidence["metadata"]["abstained"] is False
+        assert evidence["metadata"]["gold_span_count"] == 1

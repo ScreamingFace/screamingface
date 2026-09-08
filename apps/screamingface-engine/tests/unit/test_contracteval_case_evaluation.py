@@ -93,3 +93,41 @@ def test_decode_rejects_an_envelope_for_another_case() -> None:
 
     with pytest.raises(ValueError, match="belongs to another Case"):
         decode_case_evaluation(bound, 2)
+
+
+class TestVerdictFieldsAreValidated:
+    """The envelope promises "no inference" — a record missing its verdict must FAIL here.
+
+    WHY this matters more on this board than on a scored-mean one: `aggregate` reads `correct`
+    and `abstained` to place the Case in the confusion matrix. A missing field read as `False`
+    is not a missing score — it silently becomes a FALSE NEGATIVE on a positive row, or a FALSE
+    POSITIVE on a negative one, and depresses precision/recall with no failure anywhere.
+    """
+
+    @pytest.mark.parametrize("missing", ["correct", "is_positive", "abstained", "jaccard"])
+    def test_bind_rejects_a_record_missing_a_verdict_field(self, missing: str) -> None:
+        record = _record()
+        del record[missing]
+
+        with pytest.raises(ValueError, match=missing):
+            bind_case_evaluation(1, [record])
+
+    @pytest.mark.parametrize("missing", ["correct", "is_positive", "abstained", "jaccard"])
+    def test_decode_rejects_a_record_missing_a_verdict_field(self, missing: str) -> None:
+        bound = bind_case_evaluation(1, [_record()])
+        del bound["attempts"][0][missing]
+
+        with pytest.raises(ValueError, match=missing):
+            decode_case_evaluation(bound, 1)
+
+    def test_a_non_boolean_verdict_is_refused(self) -> None:
+        record = _record() | {"correct": "yes"}
+
+        with pytest.raises(ValueError, match="correct"):
+            bind_case_evaluation(1, [record])
+
+    def test_a_jaccard_outside_zero_to_one_is_refused(self) -> None:
+        record = _record() | {"jaccard": 1.5}
+
+        with pytest.raises(ValueError, match="jaccard"):
+            bind_case_evaluation(1, [record])

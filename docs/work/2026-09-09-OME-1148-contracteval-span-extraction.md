@@ -140,6 +140,39 @@ secondary metric rather than the score.
   4. Tasks 2 and 3 landed in one commit: the OME-1095 family guard requires a preparer's board
      to be registered in the same landing.
 
+## Post-implementation audit (2026-09-09)
+
+Asked to re-check the board for deviations, bugs and misnomers. A differential test of
+`grading.py` against the reference's transcribed functions over **2,970 (output, gold) pairs on
+400 real CUAD rows** found **zero** mismatches in verdict, abstention and Jaccard — the grading
+core is bit-exact. It also confirmed the reference's own inconsistency (`startswith` vs `in`
+disagree on both probes), and that we follow the `in` form, which is what `Evaluation.py` uses
+for the published numbers.
+
+Three real bugs in the code AROUND that core, all fixed:
+
+1. **The envelope's own INVARIANT was unenforced.** `case_evaluation.py` promises "no inference —
+   a malformed row fails here rather than becoming a silently missing score", but validated only
+   `schema` and `case_id`. A record missing `correct` passed, and `bool(None)` is `False` in the
+   reducer — which is NOT a missing score: it silently becomes a false negative on a positive row
+   or a false positive on a negative one, depressing precision and recall with nothing reported.
+   Every verdict field is now type- and range-checked on the way in.
+2. **`is_positive` had two sources and no cross-check** — the baked key and the check record. A
+   disagreement (stale bundle, wrong revision) filed the Case in the wrong matrix cell silently.
+   Now fails as `polarity_mismatch`.
+3. **The notebook sent `temperature`, which two of its three models reject.** OpenRouter answers
+   `openai/gpt-5.5` with 404 for ANY temperature and `anthropic/claude-opus-4.8` with 400, while
+   `gemini-3.1-pro-preview` and `qwen3.7-flash` accept it. The first pilot used gemini and so
+   never hit it. The notebook now ships `{"max_tokens": 4096}` and names the failure modes.
+
+One misnomer fixed: evidence `raw_output` carried the abstention flag rather than the producer's
+output; it is now the containment verdict, matching IFEval's verifier evidence, with `abstained`
+moved to metadata.
+
+AIDEV-NOTE for future boards: `pins.TEMPERATURE` and `pins.MAX_TOKENS` are ADVISORY in every
+board that has them — never applied, never hashed. Sampling reaches a model only from the SDK
+caller's `sf.Model(params=...)`. Verified for both ContractEval and MedXpertQA.
+
 ## Still open at hand-off
 
 - **Push and open the PR.** Not yet pushed.
@@ -154,5 +187,15 @@ secondary metric rather than the score.
 - **`error_context_head` is still dead for decode failures** in both `case_evaluation_endpoint`
   and `attempt_records_endpoint` (carried over from OME-1126) — `json_object` raises
   `ResolutionError`, which the handlers do not catch.
+- **The name "span-extraction" is wrong** and survives in the Linear title and these four doc
+  filenames. ContractEval has no span overlap — the verdict is all-or-nothing containment (F-1).
+  The code never says it (`method: "containment"`, focus "Legal clause extraction"), and the spec
+  title already reads "clause-extraction". Renaming the Linear issue is an owner action; the doc
+  files should follow it in one move rather than drifting apart.
+- **The system prompt is sent as user text, not a system message.** The reference uses
+  `role: "system"` for its instructions; `candidate()` accepts a single `input` string and gives
+  boards no system-role channel, so `render_case_input` concatenates. MedXpertQA hits the same
+  wall and handles it WORSE — it defines `ANSWER_SYSTEM` and never uses it, silently dropping the
+  official system prompt. Worth one shared ticket rather than two per-board workarounds.
 - **No full-scale run.** 8 of 4,182 Cases have been graded. A full pass is ~$1.2-3.3k for a
   panel; the notebook says plainly that a small `limit` gives a real but very coarse F1.
