@@ -7,7 +7,7 @@ description: >-
   cost.usage taxonomy forward upstream. PROPOSED design-stage invariants (engine currently
   legacy-tag-only, reviving as packages/url4-python-sdk): url4-expression-as-address,
   node-selects-transport, one trace_id per tree, cost.usage as a separate event, hybrid
-  relay ↑ + OTLP durable export, run handle (Location / Link rel=self) for async fetch. Companion to
+  relay ↑ + OTLP durable export, `poll_url` run handle for async fetch. Companion to
   sdlc-python (build loop) and working-in-this-repo (routing).
 ---
 
@@ -99,16 +99,16 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
   sends `GET <node>?delivery=stream&q=…` with `Upgrade: websocket` and `Accept:
   text/event-stream, application/json`. The node answers `101` (WebSocket frames), or `200
   text/event-stream` (SSE, spec v0.2 §11.2), or `200 application/json` (sync), or `202 +
-  Location` (async). Live events — log records, OTel spans, `cost.usage` (O2), then `result`,
+  poll_url` (async, `delivery=async`). Live events — log records, OTel spans, `cost.usage` (O2), then `result`,
   then `envelope` — carry the same names over WS and SSE. **sync is the only MUST**; SSE, WS
   and async are SHOULD, advertised per node in the capabilities document.
-- **T2 — HTTP GET = transactional.** Sync: `Accept: text/plain` (default) returns the bare
-  answer with no telemetry; `Accept: application/json` returns the envelope (`meta=summary`
+- **T2 — HTTP GET = transactional.** Sync: `Accept: application/url4-envelope+json` returns the
+  envelope; any other `Accept` returns the bare result in its negotiated type with no telemetry (`meta=summary`
   by default; `meta=full` adds a `telemetry` block with logs and spans, redactable per node
   policy, v0.2 §14.4). `fmt` is the answer's content format and is orthogonal.
-  Async (`Prefer: respond-async`): `202 Accepted` + `Location` run handle (also as
-  **RFC 8288 `Link rel=self`**) so the caller can poll status, read the durable record, or
-  `DELETE` to cancel (F3).
+  Async (`delivery=async`, spec Part C §9.1): `202 Accepted` with `poll_url` in the body (a
+  `Location` header may mirror it) so the caller can poll status, read the durable record, or
+  `DELETE <poll_url>` to cancel (F3).
 - **T3 — Either edge may be either mode.** Client→node and node→node edges independently
   land on WS, SSE, sync or async. In **all** cases the three signals forward upstream (F) —
   mode changes the *delivery channel*, never *whether* telemetry propagates. Ladder:
@@ -148,8 +148,7 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
   drops its subtree's live events); the backend reconciles. (The design-only "Enclave store"
   is superseded; see `docs/observability-state-of-play.md`.)
 - **F3 — The run handle resolves to the durable record.** An async caller reads status and
-  the durable record via the `Location` / `Link rel=self` handle (T2), and cancels with
-  `DELETE` on it.
+  the durable record via the `poll_url` handle (T2), and cancels with `DELETE` on it.
 - **F4 — RESOLVED (OME-1110 §7).** A one-shot `GET` returns its telemetry **in the body**:
   the envelope's `meta` (`none | summary | full`, v0.2 §13.2), with child envelopes nested at
   `meta=full` (v0.2 §13.3). Stream mode returns it as SSE events; OTLP is the durable copy.

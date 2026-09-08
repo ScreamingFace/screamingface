@@ -44,6 +44,6 @@
 <text x="530" y="335.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">+ works for a standalone function with no host document</text>
 <text x="530" y="349.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">− one round-trip per node; browsers and CORS middleware also use</text>
 <text x="530" y="364.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">   OPTIONS (preflight); CDNs do not cache it; some gateways drop it</text>
-<text x="24" y="492" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">They can coexist: the host document indexes, OPTIONS answers for one node. Section 5 leaves the choice to the owner.</text>
-<text x="24" y="510" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">Neither exists yet: the spec names the document (Part A §1.4) but its schema is in the unwritten Part G; OPTIONS appears nowhere.</text>
+<text x="24" y="492" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">A third mechanism in the draft: a Capabilities response header pointing at the document (Part G §27.1). Section 5 leaves the choice to the owner.</text>
+<text x="24" y="510" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">The document is Part G §27.2 (draft, SHOULD); the header is MAY; OPTIONS appears nowhere in the spec.</text>
 </svg>

@@ -76,3 +76,16 @@ No code. Verification gates:
   sidecar; recommendation A for nodes, B between hosts) with the eighth diagram
   `url4-topology-auth-network` (light + dark). (11) Owner reopened plan/preflight as a question
   (§10): a host dry run via `Prefer: dry-run`, envelope-only answer; five sub-questions; removed from Deferred.
+  (12) 2026-09-08: owner asked to reconcile with the `url4-refactor` branch of
+  `OpenMined/screamingface-design`, which carries draft Parts C–I (2026-04-28, v0.4 text, unreviewed)
+  and a v0.4 monolith that renumbers §21+. Three parallel readers compared the drafts against the
+  document. Every `v0.2 §N` citation re-anchored to Part numbering (crosswalk by heading title;
+  242 citations resolve); new §12 alignment table (18 rows); in-place corrections: capabilities
+  document exists (Part G §27.2) and sub-paths are collections, `Capabilities` header as a third
+  discovery mechanism (recommendation now A + C), mounts mapped onto intent-processor types,
+  `delivery=async` + `poll_url` instead of `Prefer`/`Location`, dedicated
+  `application/url4-envelope+json` wrapper type instead of overloading `Accept`, `;accept` short
+  aliases, data-URI binary with `result.content_type`, four-value `ct_mismatch`, statelessness
+  narrowed for agent sessions, host forwards (never mints) inter-host tokens per Part H §31,
+  flow-constraint cautions, root/version tensions. Appendix A re-anchored and extended to 12 deltas.
+  Doctrine skill T2/F3 corrected. Dark PDF 20 pages.

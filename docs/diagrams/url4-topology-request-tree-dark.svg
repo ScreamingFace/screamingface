@@ -31,6 +31,6 @@
 <path d="M 450,244 L 450,330" fill="none" stroke="#c8ccd2" stroke-width="1.2" marker-end="url(#h-c8ccd2)"/>
 <rect x="395.7" y="280.25" width="108.6" height="19.5" fill="#05070b" stroke="#44484d" stroke-width="1"/>
 <text x="450.0" y="294.025" font-family="'IBM Plex Mono', Menlo, monospace" font-size="11.5" font-weight="400" fill="#e0e5eb" text-anchor="middle">3  merge $a $b</text>
-<text x="60" y="508" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">The hosts an expression touches form its request tree (spec v0.2 §16.1: strict trees). There is no plan object and no swarm noun.</text>
-<text x="60" y="526" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">1 and 2 run in parallel; 3 runs once both are terminal (quorum and triggers, spec v0.2 §12).</text>
+<text x="60" y="508" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">The hosts an expression touches form its request tree (Part H §29.1: strict trees). There is no plan object and no swarm noun.</text>
+<text x="60" y="526" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">1 and 2 run in parallel; 3 runs once both are terminal (quorum and triggers, Part C §12).</text>
 </svg>

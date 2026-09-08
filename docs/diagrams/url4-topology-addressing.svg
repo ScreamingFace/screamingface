@@ -41,5 +41,5 @@
 <text x="166.79999999999998" y="491.2" font-family="'IBM Plex Mono', Menlo, monospace" font-size="12" font-weight="400" fill="#3b3c3e" text-anchor="middle">pg://warehouse/analytics.monthly_sales</text>
 <path d="M 317.59999999999997,490 L 560,490" fill="none" stroke="#616265" stroke-width="1.2" marker-end="url(#h-616265)"/>
 <text x="325.59999999999997" y="482" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#616265" text-anchor="start">other scheme → host adapter</text>
-<text x="24" y="558" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#616265" text-anchor="start">Rule (spec §5.4, §3.5): /path resolves on the evaluating host; url4:// names another host; every other scheme is data read by an adapter.</text>
+<text x="24" y="558" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#616265" text-anchor="start">Rule (Part B §5.4, §3.5): /path resolves on the evaluating host; url4:// names another host; every other scheme is data read by an adapter.</text>
 </svg>

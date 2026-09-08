@@ -17,9 +17,9 @@
 <text x="474" y="225.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">holds S only · no credentials</text>
 <rect x="216" y="290" width="472" height="118" fill="#0d0f13" stroke="#3c485b" stroke-width="1"/>
 <text x="226" y="308" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">egress · acts on behalf of the host</text>
-<text x="226" y="325.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">policy registry + consumer disclosure (v0.2 §16.2.2) · cache (§16.3)</text>
-<text x="226" y="339.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">budgets (§20) · rate limits (§31) · host credentials for s3:// pg://</text>
-<text x="226" y="354.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">mints destination-bound tokens T(B), T(C) on behalf of the requestor (§22.2)</text>
+<text x="226" y="325.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">policy registry + consumer disclosure (Part H §29.2.1) · cache (§29.3)</text>
+<text x="226" y="339.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">budgets (Part E §24) · rate limits (Part C §14) · host credentials for s3:// pg://</text>
+<text x="226" y="354.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">forwards the requestor&#x27;s tokens T(B), T(C), encrypted to their hosts (Part H §31.2, §31.5)</text>
 <rect x="216" y="450" width="472" height="54" fill="#15181c" stroke="#585c61" stroke-width="1"/>
 <text x="226" y="468" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">telemetry relay</text>
 <text x="226" y="485.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">merges child envelopes and events into the run&#x27;s one trace</text>
