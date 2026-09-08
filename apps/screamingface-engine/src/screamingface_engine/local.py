@@ -55,6 +55,29 @@ capability token for any topic. The bind address is what keeps that from being r
 reachable, and it is not configurable for that reason."""
 
 
+class _EngineRuntimeLogHandler(logging.StreamHandler):
+    """Marker subclass so repeated `create_local_app` calls stay idempotent."""
+
+
+def _configure_engine_logging() -> None:
+    """Route the engine's own INFO logs to stderr so they reach the runtime log.
+
+    WHY here, in the LOCAL composition root: uvicorn's config routes only its own
+    loggers, and Python's last-resort handler drops INFO — so the connector's
+    model-call lifecycle lines (OME-1126) would vanish. The handler is created after
+    `capture_runtime_log` has replaced stderr, so the lines land in `runtime.log`
+    tagged with the serving service. The deployed App path is untouched — its log
+    routing is the deployment's concern.
+    """
+    package_logger = logging.getLogger("screamingface_engine")
+    if any(isinstance(handler, _EngineRuntimeLogHandler) for handler in package_logger.handlers):
+        return
+    handler = _EngineRuntimeLogHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s %(message)s"))
+    package_logger.addHandler(handler)
+    package_logger.setLevel(logging.INFO)
+
+
 def _warn_if_insecure(settings: Settings) -> None:
     """Say plainly that auth is open when the dev default secret is in play.
 
@@ -137,6 +160,7 @@ def create_local_app(
     """
     settings = settings or Settings()
     _warn_if_insecure(settings)
+    _configure_engine_logging()
 
     # ONE object, handed to both sides — it is an `EventStream`, so it satisfies the App's
     # `EventConsumer` and the runner's `EventPublisher` at once. That shared instance IS the bus.

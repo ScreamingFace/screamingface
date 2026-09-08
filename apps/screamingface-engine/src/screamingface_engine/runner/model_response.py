@@ -16,6 +16,10 @@ class Choice:
     tool_calls: list[dict] | None
     finish_reason: str | None
     refusal: str | None
+    # WHY captured: reasoning models can finish a turn with ALL text in the reasoning
+    # channel and `content: null`. Distinguishing that from a truly empty message is what
+    # separates "the model wrote no answer" from "the gateway sent garbage" (OME-1126).
+    has_reasoning: bool = False
 
 
 def parse_choice(data: dict) -> Choice:
@@ -27,6 +31,7 @@ def parse_choice(data: dict) -> Choice:
         tool_calls = message.get("tool_calls")
         finish_reason = choice.get("finish_reason")
         refusal = message.get("refusal")
+        reasoning = message.get("reasoning_content") or message.get("reasoning")
     except (KeyError, IndexError, TypeError) as exc:
         raise RunnerRequestError(
             "malformed aigateway response", code="aigateway_bad_response", permanent=True
@@ -36,6 +41,7 @@ def parse_choice(data: dict) -> Choice:
         tool_calls=tool_calls,
         finish_reason=finish_reason if isinstance(finish_reason, str) else None,
         refusal=refusal if isinstance(refusal, str) and refusal.strip() else None,
+        has_reasoning=isinstance(reasoning, str) and bool(reasoning.strip()),
     )
 
 
@@ -69,6 +75,20 @@ def raise_if_unusable(choice: Choice, *, max_tokens: object | None = None) -> No
             f"{budget} was fully consumed — for reasoning models thinking counts against it). "
             "Raise max_tokens on this call.",
             code="model_token_cap",
+            permanent=True,
+            outcome=ModelOutcome(choice.finish_reason, choice.refusal),
+        )
+    # INVARIANT: a complete turn whose only text sits in the reasoning channel is the
+    # MODEL's behavior, never a gateway fault — a live run misfiled exactly this shape as
+    # `aigateway_bad_response` and sent the operator debugging a healthy gateway
+    # (OME-1126). The message is written sanitizer-safe (no path-like tokens, under the
+    # 200-char public cap) so `public_error` publishes it verbatim.
+    if not choice.tool_calls and choice.content is None and choice.has_reasoning:
+        raise RunnerRequestError(
+            "model returned no message content — its reply carried only reasoning text "
+            f"(finish_reason={choice.finish_reason}). The model, not the gateway, "
+            "produced an empty answer.",
+            code="model_empty_content",
             permanent=True,
             outcome=ModelOutcome(choice.finish_reason, choice.refusal),
         )

@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import random
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -82,6 +83,88 @@ _TRANSPORT_RETRIES = 1  # one retry → two attempts; url4's retry= adds more if
 _TRANSPORT_BACKOFF_BASE_S = 0.5
 _TRANSPORT_BACKOFF_MAX_S = 8.0
 _TRANSPORT_BACKOFF_JITTER_S = 0.25
+
+# How long a gateway round trip may sit quiet before the log says so (OME-1126). Long
+# enough that ordinary reasoning turns stay silent; short enough that a stalled provider
+# endpoint is visible while it stalls rather than only after the run dies. Each later
+# beat waits twice as long (capped) so a 20-minute reasoning marathon costs ~5 lines,
+# not 20 — the log stays legible while still proving the call is alive.
+_IN_FLIGHT_HEARTBEAT_S = 60.0
+_IN_FLIGHT_HEARTBEAT_MAX_S = 600.0
+
+
+async def _in_flight_heartbeat(model_id: str, started: float) -> None:
+    """Announce a still-running round trip until the caller cancels this task."""
+    wait = _IN_FLIGHT_HEARTBEAT_S
+    while True:
+        await asyncio.sleep(wait)
+        logger.info(
+            "model call in flight model=%s elapsed=%.0fs",
+            model_id,
+            time.monotonic() - started,
+        )
+        wait = min(wait * 2, _IN_FLIGHT_HEARTBEAT_MAX_S)
+
+
+async def _logged_round_trip(
+    http_client: httpx.AsyncClient,
+    *,
+    real_model_id: str,
+    headers: dict[str, str],
+    body: dict[str, object],
+    cache: CachePolicy,
+    max_tokens: object | None,
+    operation_accounting: list[OperationAccounting | None],
+) -> Choice:
+    """One gateway round trip with its lifecycle in the log.
+
+    FEATURE: model-call lifecycle observability (OME-1126). One line per round trip's
+    terminal outcome and a heartbeat while it is in flight, so the runtime log can tell
+    "still thinking" from "dead" — model id, duration, and finish_reason/error code
+    ONLY, never prompt or response text (OME-990).
+    """
+    started = time.monotonic()
+    heartbeat = asyncio.create_task(_in_flight_heartbeat(real_model_id, started))
+    try:
+        resp, outcome = await _fetch_completion(
+            http_client, headers=headers, body=body, cache=cache
+        )
+        data = _json_or_raise(resp)
+        _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
+        retained = _retained_operation_accounting(
+            request_model=real_model_id,
+            usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
+            aigw=data.get("_aigw"),
+            cache=outcome,
+        )
+        operation_accounting.append(retained)
+        choice = parse_choice(data)
+        # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
+        # needs to audit, and raising first would lose exactly the event OME-679 exists to
+        # capture.
+        _report_response(choice, outcome)
+        _raise_if_unusable_with_accounting(
+            choice,
+            max_tokens=max_tokens,
+            accounting=operation_accounting,
+        )
+    except (RunnerRequestError, ResolutionError) as exc:
+        logger.warning(
+            "model call failed model=%s duration=%.1fs code=%s",
+            real_model_id,
+            time.monotonic() - started,
+            exc.code,
+        )
+        raise
+    finally:
+        heartbeat.cancel()
+    logger.info(
+        "model call completed model=%s duration=%.1fs finish_reason=%s",
+        real_model_id,
+        time.monotonic() - started,
+        choice.finish_reason,
+    )
+    return choice
 
 
 @dataclass(frozen=True)
@@ -591,26 +674,14 @@ async def _chat_completion_loop(
     operation_accounting: list[OperationAccounting | None] = []
     for _ in range(cfg.web_tool_max_iterations):
         body = {"model": real_model_id, "messages": messages, **sampling, **extra}
-        resp, outcome = await _fetch_completion(
-            http_client, headers=headers, body=body, cache=cache
-        )
-        data = _json_or_raise(resp)
-        _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
-        retained = _retained_operation_accounting(
-            request_model=real_model_id,
-            usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
-            aigw=data.get("_aigw"),
-            cache=outcome,
-        )
-        operation_accounting.append(retained)
-        choice = parse_choice(data)
-        # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most needs
-        # to audit, and raising first would lose exactly the event OME-679 exists to capture.
-        _report_response(choice, outcome)
-        _raise_if_unusable_with_accounting(
-            choice,
+        choice = await _logged_round_trip(
+            http_client,
+            real_model_id=real_model_id,
+            headers=headers,
+            body=body,
+            cache=cache,
             max_tokens=sampling.get("max_tokens"),
-            accounting=operation_accounting,
+            operation_accounting=operation_accounting,
         )
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:

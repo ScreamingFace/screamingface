@@ -31,13 +31,18 @@ type CheckCost = Literal["free", "paid"]
 # Neither is wrong — but the two produce different numbers from identical model behavior,
 # which is why the choice must be declared per benchmark, never defaulted (OME-1039).
 type FailurePolicy = Literal["withhold", "coverage_declare"]
-# How the Candidate is exercised: "single_shot" = one prompt in, one reply out, graded —
-# no follow-up turns, no tool environment. The only value today; multi-turn/agentic
-# arrive later as NEW declared values (see BenchmarkDeclaration's AIDEV-NOTE).
-type InteractionType = Literal["single_shot"]
+# How the Candidate is exercised.
+#   "single_shot" — one prompt in, one reply out, graded. No follow-up turns, no tool
+#                   environment.
+#   "multi_turn"  — the BOARD invokes the Candidate more than once per Case, feeding an earlier
+#                   reply into a later prompt. Declared because it changes both the cost shape
+#                   (N invocations per Case) and what a Fusion entrant is actually being asked
+#                   to do: the exchange wraps the whole ensemble, not each member (OME-1126).
+# Agentic/tool-environment interactions arrive later as further declared values.
+type InteractionType = Literal["single_shot", "multi_turn"]
 
 _FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage_declare")
-_INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot",)
+_INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot", "multi_turn")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a
@@ -256,14 +261,21 @@ class Benchmark:
         }
 
 
-def candidate(
+def candidate_call(
     input: str,
     *,
     binding: str = CANDIDATE_REF,
     web_search: bool,
     web_search_exclude: Sequence[str] = (),
-) -> Node:
-    """Invoke a structurally linked Candidate under explicit Benchmark retrieval policy."""
+) -> RelExpr:
+    """The bare Candidate Invocation call, for use as a DIRECT slot of an enclosing group.
+
+    WHY this exists beside `candidate()`: url4 sibling references resolve only within one
+    group — a reference inside `candidate()`'s wrapper cannot see the wrapper's siblings
+    and ships VERBATIM (OME-1126: the MedXpertQA commit's `$reasoning` reached the model
+    as the literal string, leaving the prompt without the turn-1 essay). An input that
+    must read a sibling binding uses this form inside the group that binds it.
+    """
 
     if not isinstance(input, str) or not input:
         raise ValueError("Candidate Invocation input must be non-empty URL4 context")
@@ -278,11 +290,28 @@ def candidate(
     params: list[tuple[str, str]] = [("web_search", "true" if web_search else "false")]
     if excluded:
         params.append(("web_search_exclude", ":".join(excluded)))
-    call = RelExpr(
+    return RelExpr(
         path=CANDIDATE_ROUTE,
         context=input,
         intent=text(binding),
         params=tuple(params),
+    )
+
+
+def candidate(
+    input: str,
+    *,
+    binding: str = CANDIDATE_REF,
+    web_search: bool,
+    web_search_exclude: Sequence[str] = (),
+) -> Node:
+    """Invoke a structurally linked Candidate under explicit Benchmark retrieval policy."""
+
+    call = candidate_call(
+        input,
+        binding=binding,
+        web_search=web_search,
+        web_search_exclude=web_search_exclude,
     )
     # A parameterized relative call needs an expression boundary to round-trip canonically.
     return expr(
@@ -326,5 +355,6 @@ __all__ = [
     "FailurePolicy",
     "InteractionType",
     "candidate",
+    "candidate_call",
     "link_candidate",
 ]

@@ -1,0 +1,265 @@
+---
+ticket: OME-1126
+stack: screamingface-engine
+status: in_progress
+started: 2026-09-05
+finished:
+---
+
+# OME-1126 — MedXpertQA (Text) as an exact-match MCQ benchmark
+
+## Intent
+
+A prestige medical benchmark with real frontier headroom, MIT-licensed, and the first board whose
+grading spends NO judge tokens — an exact string match on a choice letter. It exercises a grading
+path none of the five existing boards use, and it is treated as a neutral leaderboard target:
+entrants rank, fusions are welcome, and no claim is made about which candidate shape should win.
+
+## Established facts (verified 2026-09-05, none assumed)
+
+- **Dataset.** `TsinghuaC3I/MedXpertQA`, config `Text`, split `test` = **2,450 rows** (`dev` is 5
+  demo rows). Features: `id, question, options, label, medical_task, body_system, question_type`.
+  Licence MIT. Current sha `7e7c465a68eb2b866926bfa59c8c9d17a8daba65`.
+- **The `MM` config is out of scope** — 2,000 rows requiring images.
+- **Prior experimental run** (LiveTruth_leaderboard_work, 2026-07-18): full 2,450 rows across 15
+  systems, $1,764. Best system was a SOLO (`gemini-3.1-pro`, 72.4%); 0 of 7 fusions beat their
+  own best panelist. A follow-up experiment with typed per-choice confidence also failed
+  (AUROC <= 0.525; showing the synthesiser the numbers changed accuracy by +0.0%).
+  **Owner decision: onboard neutrally anyway.** The board makes no claim about fusion; it is a
+  benchmark, not an argument.
+
+## Protocol constants that must be reproduced exactly
+
+Ported from the official harness via the experimental implementation. Each is load-bearing.
+
+- **Two-turn zero-shot CoT.** Turn 1 user content is `"Q: {question}\nA: Let's think step by
+  step."`; the model's reasoning becomes an assistant turn; turn 2 sends ONLY the trigger
+  `"Therefore, among A through {end}, the answer is"`. `{end}` spans this row's actual option
+  count.
+- **The message layout is what makes extraction correct**, not any instruction. Because turn 2 is
+  a bare sentence-completion, the committed letter comes FIRST. Gluing the trigger onto a
+  one-shot prompt produced letter-LAST essays and a measured **-35 point** misread.
+- **Two different parsers, deliberately.** At answer time: FIRST match, restricted to the row's
+  option range, after cutting any echoed trigger — verbatim-official. At grading time: LAST match
+  with guards, because prose concludes at the end. Conflating them is the bug above.
+- **No parseable letter -> empty answer -> graded wrong.** The raw completion must never reach the
+  grader; its lenient prose net would rescue rows the official harness kills and inflate scores.
+- `max_tokens: 8192` — 2,048 starves reasoning models into empty answers. `temperature: 0`.
+- Preserve `question_type`, `medical_task`, `body_system` for leaderboard-comparable sub-scores.
+
+## Architectural finding — the load-bearing unknown
+
+Every existing board invokes `$candidate` exactly ONCE. `ensemble/policy.py` states the rule:
+the client compiles the whole candidate expression (fan-out, rounds, gates) and the Engine
+"contributes generic invocation" — a board never owns the candidate's internals.
+
+MedXpertQA's two-turn CoT is the BENCHMARK's protocol, not the candidate's: every entrant is
+evaluated under it, and it is what makes published numbers comparable. So the board must impose a
+two-call exchange while `preserve_candidate_outcome` binds exactly one `candidate_invocation`.
+
+Resolving that is the spec's central decision, not an implementation detail.
+
+## Precedent to follow
+
+IFEval is the closest board — deterministic, no judge, one asset bundle, flat module constants
+rather than the multi-board `exam.py` template (MedXpert serves one board, so flat is right).
+Its route set is five, not seven: `cases`, `check`, `check-surface`, `case-evaluation`,
+`aggregate`.
+
+The `spine` package (OME-1024) now owns `CaseGrader` and `RowReader`; both HealthBench and GDPval
+were migrated onto it. MedXpert builds on `spine` from the start — no third clone of the reducer.
+INVARIANT from `spine/__init__.py`: a spine consumer must NOT edit `benchmarks/aggregation.py` or
+`benchmarks/contract.py`; live-progress branches own those.
+
+## Planned changes
+
+All written. `benchmarks/medxpert/{__init__,pins,prompts,answering,grading,prepare,
+case_evaluation,aggregate,runtime,definition}.py`, registered in `benchmarks/builtins.py`, with
+`tests/unit/test_medxpert_{answering,grading,prepare,definition}.py`.
+
+## Test plan
+
+Written and passing except where blocked below: 29 tests across four files, including the
+crossover regression that pins the two extractors apart.
+
+## Acceptance
+
+- `medxpert` registered and served with `case_count = 2450` and a pinned revision hash.
+- `sf.evaluate(model, benchmark="medxpert")` returns per-case correctness.
+- The answer-time and grading-time extractors are separately tested, including the
+  trigger-completion vs prose distinction that caused the -35 point regression.
+- An unparseable completion scores wrong rather than being rescued by the grading-time parser.
+- Gates green: `ruff check`, `ruff format --check`, `pyright`, `check_layering.py`,
+  `pytest --cov=screamingface_engine --cov=url4.streaming --cov-fail-under=80`.
+
+## The OME-1039 contract change — PROCEEDING ON OWNER DECISION, PENDING KHOA'S REVIEW
+
+Khoa (OME-1039's owner) is away. Owner decision 2026-09-05: proceed and incorporate his feedback
+when it arrives. Nothing here depends on the NAME `multi_turn` — only on the declaration being
+able to state the truth, so a different axis, value, or per-board escape can replace it cheaply.
+
+Two guard tests were changed. Both were kept at full strength rather than loosened:
+
+- `test_declaration_refuses_an_unknown_interaction_by_name` named `multi_turn` as its unknown
+  value. It now names `agentic_tool_use` — still genuinely unknown — so the guard still proves an
+  unknown interaction is refused by name. A companion test was ADDED asserting `multi_turn` is
+  accepted, so the value's acceptance is itself pinned rather than merely un-refused.
+- `test_every_builtin_board_declares_its_actual_policy` looped over all boards asserting
+  `single_shot`. It is now an explicit per-board table. That is STRONGER: a board changing its
+  declaration now trips, which a blanket "all single_shot" loop could not detect once a second
+  shape existed.
+
+Not taken: declaring `single_shot` and treating the two-turn exchange as internal. The board
+genuinely invokes `$candidate` twice, and a manifest that says otherwise defeats the purpose the
+declaration exists for.
+
+## Deviations found while building
+
+- **`failure_policy` was wrong in the spec and is corrected to `coverage_declare`.** The spec
+  reasoned that the official harness scores an empty prediction wrong, so the board should declare
+  `withhold`. That conflated two different things. This axis governs a Case that never got a valid
+  grade — an infrastructure failure — and those go to the shared `finalize_candidate_result`,
+  which scores the gradeable subset and publishes coverage. An empty ANSWER does get a grade, of
+  0.0, in `aggregate._scored`. `test_every_builtin_board_declares_its_actual_policy` caught the
+  mismatch, which is exactly its stated job: "the declaration tells the truth about the code".
+- **`spine.CaseGrader` is NOT used; `spine.RowReader` is.** The grader is rubric-shaped —
+  `points: list[int]` with verdicts-by-position — and emits hardcoded failure codes
+  (`missing_rubric_asset`, `incomplete_verdicts`, `no_positive_points`) that a board may reword
+  via `failure_messages` but cannot rename. An MCQ board publishing `code:
+  "missing_rubric_asset"` would contradict its own message, and `code` is the machine-readable
+  field a consumer filters on. MedXpert therefore owns a thin MCQ-native grading path. Row
+  indexing is genuinely board-independent and is shared. If a second non-rubric board arrives,
+  generalising `CaseGrader` becomes a spine ticket with two data points — per
+  `spine/__init__.py`, extraction happens one ticket at a time and never from a consumer.
+- **`failure_policy` is declared by every board but consumed nowhere in the scoring path** — it
+  reaches `as_block()` and the published manifest only. Not this ticket's to change, but a
+  manifest reader could mistake it for a platform guarantee. Raised with Khoa as an FYI.
+- **Tasks 3-5 merged** (see the plan amendment): the family guard derives its package set from
+  disk and asserts it equals the registered families, so a `prepare.py` without a registration is
+  an incomplete state by the repo's own definition.
+- **Two of my own test expectations were wrong, not the code.** The crossover essay contained
+  " answer is ", which the official parser's own fallback splits on, so it recovered the right
+  letter and hid the bug; and a bare "I" IS read as choice I at ten options, which is faithful
+  official behaviour and is now pinned as a known hazard rather than silently diverged from.
+
+## Outcome
+
+- **Actual files:** as planned, plus two not in the plan —
+  `benchmarks/definition.py` (InteractionType grew `multi_turn`) and
+  `tests/unit/test_benchmark_declaration.py` (both guards updated at full strength). The planned
+  `test_medxpert_{case_evaluation,aggregate}.py` were NOT written: the reducer is covered
+  indirectly and the stack's 80% gate passes at 91%, but that is thin for a scoring path and is
+  named as a gap rather than claimed as coverage.
+- **Commits:** `ed9f0351` — feat(screamingface-engine): serve MedXpertQA as an exact-match MCQ
+  board.
+- **Gates:** ALL GATES GREEN (`--skip-append-only`, see below) — ruff check, ruff format,
+  pyright, check_layering, pytest --cov-fail-under=80 at 91%. 2,379 passed, 6 skipped; 29 new
+  MedXpertQA tests across four files.
+- **Deviations:**
+  - `failure_policy` corrected from the spec's `withhold` to `coverage_declare` (see Deviations
+    above — wrong axis, caught by the declaration guard).
+  - Tasks 3-5 merged; plan amended in place.
+  - `InteractionType` extended with `multi_turn` on owner decision while OME-1039's owner is
+    away, pending his review. Both guard tests updated rather than removed, and the per-board
+    policy assertion is now stronger than it was.
+  - `--skip-append-only` used for the guard-test change. It is a Confidence-Gate decision the
+    owner took explicitly; recorded here so the PR reviewer sees it named rather than buried.
+  - Two of my own test expectations were wrong and were corrected (crossover essay phrasing; the
+    bare-"I" hazard, now pinned as faithful official behaviour).
+
+## SDK surface (folded in, owner decision 2026-09-05)
+
+Following the OME-971 precedent, the CLI and example notebook land in this ticket rather than a
+sibling. OME-1126 therefore spans two landings — `url4-cloud` and `py-screamingface` — which
+CLAUDE.md §8 would normally split into an epic; the `py-screamingface` label should be added to
+the issue.
+
+- `_runtime/cli.py` — `"medxpert"` added to `_BENCHMARKS` (it is the `choices=` for `prepare`, so
+  the command fails at argument parsing without it), and `"medxpert": ("cases.json", "answers")`
+  to the required-files table. Not `rubrics`: this board's private asset is a one-letter key per
+  case, not a scored checklist.
+- `tests/test_runtime_cli.py` — the fingerprint parametrize extended to include `medxpert`.
+- `scripts/build_notebooks.py` — `_medxpert_e2e()` added and registered as `11_medxpert.ipynb`.
+  Its opening cell states both properties a reader must know before quoting a number: the board
+  calls a candidate TWICE per case, and for a fusion those turns wrap the ensemble rather than
+  each member. The closing cell says plainly that a `limit=N` run is a smoke test and not a
+  ranking, since temperature-0 sampling does not make the ordering stable.
+- Gates: ALL GATES GREEN on the `screamingface` stack.
+
+## First live run
+
+`limit=3` against `openrouter/google/gemini-3.1-pro-preview` on the local stack: **3/3 correct,
+`answered_rate` 1.0, coverage 1.0**. Both turns are visible in the transcript — the CoT turn, then
+the commit turn ending `Therefore, among A through J, the answer is (E)`, from which the
+answer-time parser took `E`. This is the first MedXpertQA question ever graded through the board.
+
+Two defects surfaced between registration and that run, both now fixed and pinned:
+
+1. **Wrong endpoint helper.** The board rendered `{attempt_1: ...}` — an object — but registered
+   the shared `case_evaluation_endpoint`, which decodes a JSON *array* (what a rubric `iterate`
+   yields). Every Case died with `Case evaluation must be a JSON array`. IFEval renders the same
+   object shape and had solved this with a private `_case_evaluation` clone; rather than copy that
+   clone a second time, the object-shaped variant now lives beside its sibling in `evaluation.py`
+   as `attempt_records_endpoint`, including the `_raise_collected_failure` handling IFEval's local
+   copy lacks. IFEval still carries its clone — collapsing it is a follow-up, not this ticket.
+2. **`Check.evidence` is required and `_scored` omitted it.** Every *scored* Case would have
+   raised `ValidationError` inside the reducer — invisible until a Case actually got a grade, which
+   is why registration looked healthy. `_match_evidence` now emits the exact-match verdict, with
+   the committed letter as `raw_output` (`""` when the reply named no choice).
+
+## Review fix (2026-09-07, owner review)
+
+The board declared `check_surface` (free) but `runtime.install` never registered a handler for
+the route. The declaration is what the SDK trusts BEFORE spend: with it present, a
+corrective-loop run passes the pre-spend gate (`runner._validate_check_surface` fails closed
+only when the surface is ABSENT), burns paid candidate turns, then dies mid-run on the unserved
+route. Owner decision: drop the declaration until the handler exists. The SDK now refuses
+corrective loops on this board up front (`check_surface_missing`), pre-spend.
+`test_no_check_surface_is_declared_until_a_handler_serves_it` pins the choice. `grading.py`
+stays: it is the parser the future handler needs, and it carries the crossover regression test
+that pins the two extractors apart.
+
+## CI fix (2026-09-07) — OME-1037 landed on main under this branch
+
+The branch forked before OME-1037's refusal split; main renamed
+`aggregation.refused_case_result` → `refusal_case_result` and gave it the classifying
+semantics (graded refusal → scored Case carrying the refusal; textless/ungradable refusal →
+failed Case led by `provider_refusal`, score dropped). The stale import made the ENGINE fail at
+builtins import, so every board's e2e run died with `cannot import name 'refused_case_result'`
+— not just MedXpertQA. Fixed by merging main and renaming the two call sites; the new
+semantics are exactly right for this board (a worded decline is a 0.0 answer on the official
+verdict; a content_filter decline is infrastructure) and are now pinned by
+`test_a_text_refusal_is_a_graded_wrong_answer_not_a_failure` and
+`test_a_textless_refusal_is_a_provider_failure_not_a_grade`.
+
+## Review fix (2026-09-08) — the D8 reasoning was dropped at the reducer
+
+An owner run showed no `reasoning` key anywhere in a scored case. The check envelope carried
+turn 1's essay (D8), `bind_case_evaluation` preserved it, and `aggregate._candidate_fields`
+then silently discarded it — the spec's "a letter with no reasoning is unauditable" promise was
+kept in the envelope and broken in the reduction. Fixed: the attempt's reasoning now rides the
+case `metadata` for scored AND failed cases, pinned by
+`test_the_turn_one_reasoning_reaches_the_scored_case` and
+`test_a_failed_case_keeps_its_reasoning_for_the_post_mortem`.
+
+## Review fix (2026-09-08) — the D6 slice tags now ride the report
+
+`question_type` / `medical_task` / `body_system` were baked into the private answer records
+(D6) but never crossed into `report.json` — a researcher could not cut sub-scores by the
+official leaderboard's own axes without re-joining the raw dataset. `aggregate._slice_metadata`
+now copies exactly those three public columns onto every case's metadata (scored and failed),
+sourced from `prepare.METADATA_COLUMNS` so the two ends cannot drift. Pinned by three tests,
+including the guard that `label`/`source_id` can never ride along.
+
+## Still open at hand-off
+
+- Implement the check-surface handler (IFEval `_check_surface` precedent, using
+  `grading.extract_letter`/`grade`), re-declare `check_surface` with it, and add a test that the
+  declared route actually resolves. Until then corrective loops are refused on this board.
+- Khoa's review of the `multi_turn` contract change.
+- `error_context_head` is dead for decode failures in BOTH `case_evaluation_endpoint` and the new
+  `attempt_records_endpoint`: `json_object`/`json_array` raise `ResolutionError`, which the
+  handler's `except (OSError, TypeError, ValueError)` does not catch, so the context head is never
+  appended. Pinned by `test_route_rejects_a_context_that_is_not_json`. Fixing it changes error text
+  for gdpval/healthbench/draco too, so it is a shared-helper ticket, not this one.
+- A `py-screamingface` label on OME-1126, now that it spans two landings.
