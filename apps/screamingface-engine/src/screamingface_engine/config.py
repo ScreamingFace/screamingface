@@ -22,6 +22,10 @@ ArtifactStoreBackend = Literal["filesystem", "s3"]
 and bridges NATS but schedules nothing.
 """
 
+# The worker's per-run address-space cap (OME-1089). 2 GiB — see the field's comment for why it
+# sits above the old 1 GiB k8s cgroup limit.
+DEFAULT_WORKER_MEMORY_BUDGET_BYTES = 2 * 1024**3
+
 # WHY a named module constant (not a bare literal) for the insecure default: the prod guard in
 # app.py (_require_prod_secret) compares against this same sentinel so the two never drift. If the
 # default changes and the guard isn't updated, a prod boot would silently proceed on the weak
@@ -301,6 +305,36 @@ class Settings(BaseSettings):
     # only declares the setting; the admission decision lands with the cutover (OME-1086).
     run_queue_depth_ceiling: int = runner_queue.DEFAULT_DEPTH_CEILING
 
+    # --- worker (OME-1089) -----------------------------------------------------------------
+    # WHY a worker at all: OME-1086 replaces one-Job-per-run scheduling with a fixed pool of
+    # worker Pods pulling from the durable run queue. THIS unit adds the worker mode itself: a
+    # slot pool that claims runs from the queue and forks the run entrypoint as a supervised
+    # child process, so the crash domain stays one run.
+    #
+    # INVARIANT: the worker's slot count is `run_queue_worker_slots` (above) — the same value
+    # the queue settings derive `max_ack_pending` from — so the worker's concurrency and the
+    # queue's ack-pending bound cannot disagree. There is deliberately no second `worker_slots`
+    # field for the same number.
+    #
+    # WHY a grace at all: on SIGTERM the worker stops pulling but keeps its in-flight children
+    # alive, still heartbeating, so a run that is about to finish is not killed for nothing.
+    # After the grace the remaining children are SIGTERM'd and each publishes
+    # `Terminated(stopped)` with a `worker_draining` reason.
+    worker_drain_grace_s: float = 30.0
+    # WHY a per-run budget and not a shared gate: the fair-share gate is in-process only, and
+    # subprocess isolation means it cannot span runs — each child is its own process. The
+    # budget therefore travels by env: the worker writes it onto every child as
+    # `URL4_CLOUD_IO_CONCURRENCY`, overriding whatever the message carried, so the worker is
+    # the authority on how wide a run may fan out at the gateway.
+    worker_io_capacity: int = Field(default=4, ge=1)
+    # WHY a per-run address-space cap at all: an over-allocating run must fail ALONE. Each
+    # child is spawned under its own `RLIMIT_AS` (via the exec wrapper, never `preexec_fn`),
+    # so a run that blows its budget dies with a MemoryError instead of triggering a Pod OOM
+    # that kills its co-tenants. 2 GiB is deliberately above the old 1 GiB k8s cgroup limit:
+    # `RLIMIT_AS` bounds VIRTUAL address space (heap + mapped libraries), which is larger than
+    # the RSS a cgroup limit measures.
+    worker_memory_budget_bytes: int = Field(default=DEFAULT_WORKER_MEMORY_BUDGET_BYTES, ge=1)
+
     @property
     def effective_job_ttl_s(self) -> int:
         """Seconds a finished Runner Job is retained before k8s reclaims it.
@@ -373,5 +407,22 @@ class Settings(BaseSettings):
                 f"job_ttl_s={self.job_ttl_s} is below the replay floor {self.iat_window_s} "
                 f"(iat_window_s, the token's own lifetime) — a Job reclaimed while its token is "
                 f"still valid re-opens replay"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _enforce_ack_wait_floor(self) -> Self:
+        """INVARIANT: the worker's heartbeat cadence is derived as ``ack_wait / 3`` (capped
+        at 20s), and it must never collapse below ~1s or the in-progress cadence hammers the
+        broker — and must always stay well under ``ack_wait``, or JetStream redelivers a
+        STILL-RUNNING run to a second worker and it executes twice. The derivation guarantees
+        the ratio for every legal value; this floor bounds the legal range so the derived
+        cadence stays sane. Refused at startup rather than as a mid-flight double execution.
+        """
+        if self.run_queue_ack_wait_s < 3.0:
+            raise ValueError(
+                f"run_queue_ack_wait_s={self.run_queue_ack_wait_s} is below the floor of 3s — "
+                f"the worker derives its heartbeat as ack_wait/3 and refuses to run one that "
+                f"would hammer the broker or fall behind the redelivery clock"
             )
         return self

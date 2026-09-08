@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 import nats
 from nats.aio.client import Client
+from nats.errors import Error as NatsError
 from nats.js import JetStreamContext, api
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, DiscardPolicy, StreamInfo
 from nats.js.errors import APIError, BadRequestError, NotFoundError
@@ -45,6 +46,18 @@ class DeferredPublishError(RuntimeError):
     error. Wrapped rather than re-raised bare so the message says WHERE it surfaced: the
     frame that caused it is long gone by then, and a naked APIError at a later sequence
     number reads as a failure of the wrong frame.
+    """
+
+
+class QueueReadError(RuntimeError):
+    """The stream tail could not be read — a TRANSIENT broker failure, not an answer.
+
+    Distinct from "no frame" (which `last_frame` returns as `None`): this says the read
+    itself failed — a `nats.errors.Error` that is not a JetStream `APIError` (a request
+    timeout, a closed connection, a reconnect in flight). Callers that must not mistake
+    "unreadable" for "empty" — the worker's claim-time dedupe gate — catch this and skip
+    the claim, leaving the message for redelivery, instead of either acting on a phantom
+    `None` or letting the error escape into a shared task group.
     """
 
 
@@ -313,6 +326,44 @@ class _JetStreamConnection:
         ended = frame.time if frame.time.tzinfo is not None else frame.time.replace(tzinfo=UTC)
         return (datetime.now(UTC) - ended).total_seconds() > self._orphan_grace_s
 
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The run's last published frame, or None when the stream is missing or empty.
+
+        WHY this exists: the worker's dedupe check (a terminal frame already on the stream
+        means the run is over — redelivery, cancel-before-claim, or stale) and its
+        post-exit check (did the child publish its own terminal frame?) both need to read
+        the stream's tail without subscribing. A missing stream, an empty stream, or an
+        unreadable frame all read as None — the conservative direction for both checks.
+        """
+        try:
+            js = await self._jetstream()
+        except NatsError as exc:
+            # The connect/declare path sits OUTSIDE the fetch's try below, so a dropped
+            # broker — a failed reconnect raising a bare transport error — used to escape
+            # `last_frame` unwrapped, bypassing every `except QueueReadError` guard the
+            # callers rely on (review follow-up V-7 / pass-1 #11): unreadable is unreadable
+            # however it was reached, so it gets the same typed translation. A JetStream
+            # API verdict from the connect-time declare is translated the same way — it is
+            # a config failure, and the retry-and-log shape it produces is both visible
+            # and non-cascading.
+            raise QueueReadError(f"queue backend unreachable for {topic}: {exc!r}") from exc
+        try:
+            raw = await js.get_last_msg(stream_for(topic), subject_for(topic))
+        except APIError:
+            # A missing stream or an empty one: a REAL answer — there is no last frame.
+            return None
+        except NatsError as exc:
+            # Transport-level (not a JetStream API verdict): a request timeout, a closed
+            # connection, a reconnect in flight. That is NOT "no frame" — translating it to
+            # None would let the claim gate mistake an unreadable tail for "no terminal
+            # frame" and execute a finished run a second time. Raise the typed error; the
+            # callers that can safely wait catch it.
+            raise QueueReadError(f"stream tail unreadable for {topic}: {exc!r}") from exc
+        try:
+            return decode(raw.data or b"")
+        except ValidationError:
+            return None
+
     async def delete_stream(self, topic: str) -> None:
         """Drop a run's stream entirely, tolerating one that is already gone.
 
@@ -490,4 +541,4 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
             ) from exc
 
 
-__all__ = ["DeferredPublishError", "JetStreamConsumer", "JetStreamPublisher"]
+__all__ = ["DeferredPublishError", "JetStreamConsumer", "JetStreamPublisher", "QueueReadError"]

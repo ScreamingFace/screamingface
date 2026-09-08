@@ -1,14 +1,16 @@
-"""``screamingface-engine`` console entrypoint — one image, two modes.
+"""``screamingface-engine`` console entrypoint — one image, three modes.
 
-    screamingface-engine serve   # the control plane: mint tokens, bridge WS, schedule Runner Jobs
-    screamingface-engine run     # one url4 evaluation, streamed to NATS, then exit
+    screamingface-engine serve    # the control plane: mint tokens, bridge WS, schedule Runner Jobs
+    screamingface-engine run      # one url4 evaluation, streamed to NATS, then exit
+    screamingface-engine worker   # claim runs from the durable queue, supervise each as a child
 
 WHY one artifact with a mode argument rather than two images: the two halves already shared
 their whole wire vocabulary (`job_env`, `subjects`, the JetStream binding), and keeping them in
 separate distributions meant maintaining hand-synced duplicates of all three plus contract tests
 whose only job was to catch the copies drifting. The run mode's dependencies are a strict subset
 of the serving mode's, so merging cost no new dependency — only the serving-side packages now
-sitting unused on a Job's disk.
+sitting unused on a Job's disk. The worker mode (OME-1089) is the third mode: it imports the
+serving half and the queue, and spawns the run as a child process rather than importing it.
 
 INVARIANT: the mode is chosen by ARGV, never sniffed from the environment.
 `K8sJobRunner` schedules `["screamingface-engine", "run"]` explicitly, so a Job that
@@ -81,6 +83,15 @@ def _run() -> None:
     run_main()
 
 
+def _worker() -> None:
+    """Claim runs from the durable queue and supervise each as a child process."""
+    # WHY: lazy, like the other modes — the worker's import graph is the serving half's plus
+    # the queue, and a mode that is not running must not pay for it.
+    from screamingface_engine.worker.loop import run_worker
+
+    run_worker()
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="screamingface-engine",
@@ -105,13 +116,22 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     sub.add_parser("run", help="execute one url4 expression from the environment, then exit")
+    sub.add_parser(
+        "worker",
+        help=(
+            "claim runs from the durable run queue and supervise each as a child process "
+            "(the fixed worker pool of OME-1086)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     # BEFORE dispatch, and for every mode: a Job's logs are as load-bearing as the control
     # plane's, and neither `uvicorn.run` nor `run_main` configures anything for this package.
     configure_logging()
 
-    if args.mode == "run":
+    if args.mode == "worker":
+        _worker()
+    elif args.mode == "run":
         _run()
     elif args.local:
         _serve_local()
