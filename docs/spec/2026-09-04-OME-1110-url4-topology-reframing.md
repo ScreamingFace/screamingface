@@ -425,3 +425,72 @@ To file after owner review, one per landing.
 - Parts C–I: draft markdown on the **`url4-refactor` branch** of `OpenMined/screamingface-design`, `kevin-mcdonough/docs/adrs/refactor/URL4-Spec-{C…I}.md`, cut 2026-04-28 from the v0.4 text, not yet reviewed, never merged to `main` (where the site shows "Not yet written" stubs). Cited here as "Part X §N". The same branch holds the v0.4 monolith (commit `f28608a`); the v0.2 monolith this document was first written from is `8a052dc`, and its numbering diverges from §21 on.
 - Public docs: `public-docs/src/pages/learn/Url4Page.vue`. They use "fusion" and "typed DAG"; the spec uses neither.
 - Doctrine: `.claude/skills/url4-engine/SKILL.md`, updated with this document.
+
+# Appendix D — Vocabulary
+
+One line each: what it is, why it matters, where the spec grounds it. Terms marked *ours* are proposals in this document.
+
+**Language**
+
+| Term | Definition | Anchor |
+|---|---|---|
+| **Expression** | `(sources)!intent`: given this data, do this. The atomic unit of work and the whole composition; sources may be expressions, so expressions nest into a tree. | Part A §1.4, Part B §2 |
+| **Source** | One input: inline text, a URI, or a nested expression. Carries attribution annotations (`name:weight:budget`) and execution annotations (`;t`, `;retry`, `;accept`). | Part B §4 |
+| **Intent** | The right side of `!`: a prompt, a code pointer, a relative or remote URI, or a computed expression. | Part B §6 |
+| **Intent processor** | What turns resolved context plus intent into a result: a model call, a script, a command, or a delegate on another host. | Part A §1.4, Part G §27.3 |
+| **Holdings, `@`** | The node's own data via the self-reference token; `@alice` names a principal's data under access control and consent. | Part B §5.6 |
+| **Collection** | A source that parses into rows; `*` iterates it. A sub-path after a node also selects a collection. | Part B §5.3, Part G §27.4 |
+
+**Topology**
+
+| Term | Definition | Anchor |
+|---|---|---|
+| **Node** | A stateless function at a path. Answers `GET <path>?q=<expr>`, evaluates it, returns a result. One grade: every node evaluates url4. The spec's *Endpoint*. | §3; Appendix A delta 1 |
+| **Host** | The origin that mounts nodes at paths, serves `/` as the default node, publishes discovery, owns credentials. The spec's *Node*. | §4 |
+| **Mount** | The binding of a path to a node implementation: `local`, `command`, `proxy`. The spec's processor types `internal`/`function`, `code`, `abc_delegate`. | §4, Part G §27.3 |
+| **Evaluator** | The code that runs an expression: resolves sources, fans out, reduces, runs the intent. Every node contains one. | §1 |
+| **Requestor** | Whoever submits an expression. | Part A §1.4 |
+| **Request tree** | The hosts and nodes one expression touches; strictly a tree. No plan object, no swarm. | Part H §29.1 |
+| **Capabilities document** | JSON a host publishes at `/.well-known/url4-capabilities`: processors, collections, delivery modes, schemes. A `Capabilities` header may point to it. | Part G §27.1, §27.2 |
+| **Scheme adapter** (*ours*) | A host-mounted reader for a non-url4 scheme (`s3://`, `pg://`, `sqlite://`) with the host's own credentials, typing its result, advertised in capabilities. | §2, Part B §3.5 |
+
+**Transport**
+
+| Term | Definition | Anchor |
+|---|---|---|
+| **Delivery mode** | How the answer returns: `sync`, `stream` (SSE on the same GET), `async` (202 + `poll_url`), and our WebSocket rung (`101` on the same GET). Sync is the only MUST. | §6, Part C §11 |
+| **Ladder** (*ours*) | The node answers with the richest mode it supports, WebSocket → SSE → sync, in one round trip; answering below the ask is a reported degradation. | §6, Part C §10.2 |
+| **Envelope** | The JSON wrapper: `result`, `status`, `delivery`, `sources[]`, `meta`. Requested with `Accept: application/url4-envelope+json`; otherwise the bare result. | Part D §17 |
+| **`meta`** | Envelope depth: `none`, `summary` (counts, latency, cost), `full` (per-source detail, nested envelopes, telemetry). | Part D §17.2 |
+| **Run handle, `poll_url`** | The address of an async run: `GET` for status, `DELETE` to cancel. | Part C §12.5, §16 |
+| **`rid`** | The request id; fresh per child request, recorded by the parent, bound into tokens. | Part C §9.1 |
+| **Telemetry signals** | Logs, spans (tokens live here), and `cost.usage` events (money lives here). In-band in every mode; OTLP is the durable copy. | §7 |
+
+**Data**
+
+| Term | Definition | Anchor |
+|---|---|---|
+| **Typed payload** (*ours*) | Every edge carries a value named by its media type; text is the default. Sources declare by `Content-Type`, results by `result.content_type`. | §8 |
+| **Artifact** (*ours*) | A large result returned as an `https://` URL the next node fetches as data, above a node-declared `inline_max_bytes`; inherits flow constraints. | §8 |
+| **`;accept`, `ct_mismatch`** | A source's wanted format, as a short alias, and what to do when the fetched type differs: `fail`, `ignore`, `transform_ignore`, `transform_fail`. | Part F §25.6, Part G §26.3 |
+
+**Trust**
+
+| Term | Definition | Anchor |
+|---|---|---|
+| **Run session** (*ours*) | A host-issued capability scoped to one run (`rid`, tree, purpose, expiry, identity) that nodes carry instead of credentials. | §10, §11 |
+| **Inter-host token** | The requestor's credential for one host, encrypted to that host's key, bound to `rid`, a timestamp (≤ 300 s) and the destination; intermediaries forward what they cannot decrypt. | Part H §31 |
+| **Egress** (*ours*) | The host component that performs every outbound request for its nodes: policy, disclosure, cache, budgets, credentials, token forwarding. | §11 |
+| **Policy registry** | The out-of-band service a source exposes to state its terms; consulted before resolution. | Part H §30 |
+| **Flow constraints** | A source's limits on where its output may travel: permitted or denied consumers, redistribution depth. | Part H §29.2.2 |
+| **Attribution** | The per-source influence score the envelope reports; weights and budgets shape it. | Part E |
+
+**Execution**
+
+| Term | Definition | Anchor |
+|---|---|---|
+| **Quorum, trigger** | Quorum: how many sources must succeed before the intent may run. Trigger: the terminal-source count at which the node decides whether to produce a result. | Part C §12 |
+| **Degradation** | A node must fall back rather than fail when it cannot honour a request, and must report it. | Part C §10.2 |
+| **Agent session** | A multi-turn interaction among `mode=agent` sources coordinated by the resolving node, which holds the transcript; `coord=` selects the mode. | Part G §28 |
+| **Plan, dry run** (*ours*) | A host endpoint that resolves and type-checks an expression, consults policy and budgets, and returns the envelope with no result. Open question. | §10 |
+| **Idempotent** | A url4 GET has no extra server-side effect on repeat (RFC 9110); results need not be identical. Disputed wording in the spec. | Part C §15 |
