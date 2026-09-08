@@ -232,6 +232,16 @@ verdict; a content_filter decline is infrastructure) and are now pinned by
 `test_a_text_refusal_is_a_graded_wrong_answer_not_a_failure` and
 `test_a_textless_refusal_is_a_provider_failure_not_a_grade`.
 
+## Review fix (2026-09-08) — the D8 reasoning was dropped at the reducer
+
+An owner run showed no `reasoning` key anywhere in a scored case. The check envelope carried
+turn 1's essay (D8), `bind_case_evaluation` preserved it, and `aggregate._candidate_fields`
+then silently discarded it — the spec's "a letter with no reasoning is unauditable" promise was
+kept in the envelope and broken in the reduction. Fixed: the attempt's reasoning now rides the
+case `metadata` for scored AND failed cases, pinned by
+`test_the_turn_one_reasoning_reaches_the_scored_case` and
+`test_a_failed_case_keeps_its_reasoning_for_the_post_mortem`.
+
 ## Still open at hand-off
 
 - Implement the check-surface handler (IFEval `_check_surface` precedent, using

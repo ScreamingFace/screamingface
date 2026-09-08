@@ -273,6 +273,12 @@ def _candidate_fields(attempt: Mapping[str, Any]) -> dict[str, Any]:
     finish_reason = attempt.get("finish_reason")
     refusal = attempt.get("refusal")
     metadata = attempt.get("metadata")
+    fields = dict(metadata) if isinstance(metadata, Mapping) else {}
+    # D8: turn 1's essay rides the check envelope into the report — a letter with no
+    # reasoning is unauditable, and the audit matters most on the cases that went wrong.
+    reasoning = attempt.get("reasoning")
+    if isinstance(reasoning, str) and reasoning:
+        fields["reasoning"] = reasoning
     return {
         "status": attempt.get("status"),
         "output": output if isinstance(output, str) else None,
@@ -280,7 +286,7 @@ def _candidate_fields(attempt: Mapping[str, Any]) -> dict[str, Any]:
         "refusal": refusal if isinstance(refusal, str) and refusal.strip() else None,
         "execution": attempt.get("execution"),
         "operations": attempt.get("operations"),
-        "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
+        "metadata": fields,
     }
 
 

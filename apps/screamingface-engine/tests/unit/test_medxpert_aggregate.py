@@ -258,3 +258,31 @@ def test_a_textless_refusal_is_a_provider_failure_not_a_grade(tmp_path: Path) ->
     assert refused["grade"]["score"] is None
     assert refused["failures"][0]["code"] == "provider_refusal"
     assert result["metrics"]["scored_cases"] == 1
+
+
+def test_the_turn_one_reasoning_reaches_the_scored_case(tmp_path: Path) -> None:
+    """INVARIANT (spec D8): a letter with no reasoning is unauditable. The check envelope
+    carries turn 1's essay precisely so the report can show WHY a model committed; dropping
+    it in the reducer would keep the two-turn protocol's cost while discarding its product."""
+
+    result = _aggregate(_root(tmp_path), _rows((1, "C"), (2, "A")))
+
+    for case in result["cases"]:
+        assert case["metadata"]["reasoning"] == "step by step"
+
+
+def test_a_failed_case_keeps_its_reasoning_for_the_post_mortem(tmp_path: Path) -> None:
+    """The audit matters MOST when a case went wrong — a refused commit still shows what
+    the model reasoned before it declined."""
+
+    rows = json.dumps(
+        [
+            _case_execution(1, bind_case_evaluation(1, [_record(1, "C")])),
+            _case_execution(2, bind_case_evaluation(2, [_refused_record(2, None)])),
+        ]
+    )
+
+    result = _aggregate(_root(tmp_path), rows)
+
+    assert result["cases"][1]["status"] == "failed"
+    assert result["cases"][1]["metadata"]["reasoning"] == "step by step"
