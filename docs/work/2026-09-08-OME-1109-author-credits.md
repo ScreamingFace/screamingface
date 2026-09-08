@@ -53,12 +53,11 @@ the privacy form of any non-colliding address.
   changed.
 - **Commits:** one conventional Scoreboard feature commit on `OME-1109-author-credits`; the
   immutable commit and eventual squash sha are recorded in the PR/Linear close record.
-- **Gates:** focused multiple-author suite 24 passed; full Scoreboard pytest 620 passed / 3
+- **Gates:** focused multiple-author suite 24 passed; full Scoreboard pytest 621 passed / 3
   skipped / 3 deselected; `run_gates.py scoreboard --base origin/main` ALL GREEN — append-only,
   Ruff check, Ruff format, Pyright, full pytest coverage ≥80%, and all three portal test files.
 - **Deviations:** the wisdom pass added a separate 4 KiB serialized author-list cap. Without it,
   changing the ten-entry limit to ten distinct people would make repeated entries an unbounded
   public write. The Client's `_submission_authors` still limits raw entries to ten, so it rejects
-  the accepted 11-entry/10-person boundary before HTTP; that belongs to a separate
-  `py-screamingface` work item under the repository's cross-landing rule and was not hidden inside
-  this Scoreboard change.
+  the accepted 11-entry/10-person boundary before HTTP; that is tracked separately as OME-1139
+  under the repository's cross-landing rule and was not hidden inside this Scoreboard change.
