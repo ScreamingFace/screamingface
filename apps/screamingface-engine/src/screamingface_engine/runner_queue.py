@@ -180,6 +180,21 @@ def topic_of_message(payload: bytes) -> str:
     return decode_message(payload)[job_env.TOPIC]
 
 
+UNDECODABLE_BODY_ERRORS: tuple[type[Exception], ...] = (ValueError, KeyError, TypeError)
+"""What `decode_message`/`topic_of_message` raise on a body this codec cannot read.
+
+`ValueError` covers `json.JSONDecodeError` and `UnicodeDecodeError` (both subclasses);
+`KeyError` is a body that decoded but names no topic; `TypeError` a payload that is not
+bytes at all.
+
+INVARIANT: every caller that decodes a body OFF the settled path — the worker's claim loop
+and its supervisor — catches exactly this tuple. A body arrives from off-process, so a
+foreign publisher or a codec skew across a rolling deploy can produce one at any time; left
+uncaught in either place it escapes into the worker's shared TaskGroup and cancels every
+co-located supervisor, each of which SIGKILLs its live child. Named once here so the two
+call sites cannot drift apart."""
+
+
 STREAM_NAME_IN_USE = 10058
 """JetStream's err_code for "stream name already in use" — the ONE `BadRequestError` the
 queue treats as benign. The type alone cannot say: the server answers a real configuration

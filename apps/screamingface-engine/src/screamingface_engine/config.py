@@ -14,12 +14,14 @@ from screamingface_engine import job_env, runner_queue, subjects
 # in-cluster skew and still ~500x cheaper than the old job_deadline_s-based floor.
 _TTL_SKEW_MARGIN_S = 60
 
-RunnerBackend = Literal["none", "k8s"]
+RunnerBackend = Literal["none", "k8s", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
 """Which ``JobRunner`` substrate the deployed App schedules runs on (spec §9).
 
-``k8s`` is prod (namespace-scoped batch/v1 Jobs) and ``none`` a stream-only App that mints tokens
-and bridges NATS but schedules nothing.
+``k8s`` is prod (namespace-scoped batch/v1 Jobs), ``queue`` is the OME-1086 substrate
+(one durable run queue + a fixed worker pool; the adapter exists and is selectable since
+OME-1090, the cutover is OME-1092), and ``none`` a stream-only App that mints tokens and
+bridges NATS but schedules nothing.
 """
 
 # The worker's per-run address-space cap (OME-1089). 2 GiB — see the field's comment for why it

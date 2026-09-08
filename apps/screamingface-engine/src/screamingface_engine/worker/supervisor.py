@@ -27,7 +27,11 @@ from typing import Any, Literal, Protocol
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.logs import run_scope
-from screamingface_engine.runner_queue import decode_message, topic_of_message
+from screamingface_engine.runner_queue import (
+    UNDECODABLE_BODY_ERRORS,
+    decode_message,
+    topic_of_message,
+)
 from screamingface_engine.subjects import ENQUEUED_AT_HEADER
 from url4.streaming.protocol import (
     ErrorInfo,
@@ -49,6 +53,12 @@ QUEUE_EXPIRED = "queue_expired"
 """The run's capability expired while it sat in the queue; it was dropped unexecuted."""
 WORKER_DRAINING = "worker_draining"
 """The worker is draining and stopped the run before it finished."""
+CANCELLED = "cancelled"
+"""The run was cancelled by its owner over the control subject (OME-1090).
+
+The App's queued-cancel tombstone uses the same code (``adapters.queue_runner``), so a
+client sees one reason whether the cancel landed before or after the claim.
+"""
 DEADLINE_EXCEEDED = "deadline_exceeded"
 """The child hung past the hard wall and was SIGTERM'd, then SIGKILL'd."""
 OOM_KILLED = "oom_killed"
@@ -167,6 +177,9 @@ class RunSupervisor:
         draining: asyncio.Event,
         terminating: asyncio.Event,
         children: set[_ChildProcess],
+        children_by_topic: dict[str, _ChildProcess],
+        cancelled: set[str],
+        starting: set[str] | None = None,
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
         deadline_margin_s: float = DEADLINE_MARGIN_S,
         kill_grace_s: float = KILL_GRACE_S,
@@ -185,6 +198,16 @@ class RunSupervisor:
         # the check-and-add below has no await between it, so on the single event loop it is
         # atomic against every other claim.
         self._topics_in_flight: set[str] = set()
+        # The topic → child index (OME-1090): the worker's control loop reads it to find
+        # the owner of a run, and the supervisor maintains it alongside `_children`.
+        self._children_by_topic = children_by_topic
+        # Topics a control request has cancelled (OME-1090): the worker adds a topic before
+        # SIGTERMing its child, and `_classify` reads it to name the death a cancel rather
+        # than a kill.
+        self._cancelled = cancelled
+        # Runs claimed but not yet spawned (OME-1090): the control loop answers from here
+        # during the spawn window. `None` keeps direct construction (older tests) working.
+        self._starting = starting if starting is not None else set()
         self._heartbeat_interval_s = heartbeat_interval_s
         self._deadline_margin_s = deadline_margin_s
         self._kill_grace_s = kill_grace_s
@@ -213,9 +236,18 @@ class RunSupervisor:
                 await msg.ack()
                 return
             self._topics_in_flight.add(topic)
+            # Registered as STARTING from here until the child registers (or fails to):
+            # a cancel that lands in the spawn window is answered from this set, so it is
+            # acknowledged — not ignored while the child runs to a second terminal frame.
+            self._starting.add(topic)
             try:
                 await self._claim(msg, topic)
             finally:
+                self._starting.discard(topic)
+                # The cancel mark is per-run (a stale entry would misclassify a LATER run
+                # of the same topic), and the control loop can now set it for a run with
+                # no child yet — so every exit path clears it, not just `_release_child`.
+                self._cancelled.discard(topic)
                 self._topics_in_flight.discard(topic)
 
     async def _topic_or_settle(self, msg: ClaimedMessage) -> str | None:
@@ -246,11 +278,8 @@ class RunSupervisor:
         """
         try:
             return topic_of_message(msg.data)
-        except (ValueError, KeyError, TypeError):
-            # `ValueError` covers `json.JSONDecodeError` and `UnicodeDecodeError` (both
-            # subclasses); `KeyError` is a body that decoded but names no topic; `TypeError`
-            # a payload that is not bytes at all. The body is never logged — it is the
-            # caller's and may carry prompts.
+        except UNDECODABLE_BODY_ERRORS:
+            # The body itself is never logged — it is the caller's and may carry prompts.
             logger.exception(
                 "undecodable run-queue message settled without executing; "
                 "a publisher is writing bodies this worker's codec cannot read"
@@ -259,9 +288,55 @@ class RunSupervisor:
             return None
 
     async def _claim(self, msg: ClaimedMessage, topic: str) -> None:
-        """The claim gates and the run, after the duplicate guard has admitted the topic."""
-        # One check for three cases: redelivery of a run that already finished, a
-        # cancel that landed before the claim, and a stale message whose run is over.
+        """The claim gates and the run, after the duplicate guard has admitted the topic.
+
+        AIDEV-NOTE: kept to ruff's `max-returns = 3` by delegating each gate. Add a new
+        gate as another `_settled_*` helper returning ``bool``, never as a fourth return.
+        """
+        if topic in self._cancelled:
+            await self._enact_accepted_cancel(msg, topic)
+            return
+        if await self._already_settled(msg, topic):
+            return
+        await self._run_child(msg, topic)
+
+    async def _enact_accepted_cancel(self, msg: ClaimedMessage, topic: str) -> None:
+        """Keep the promise made when the control loop accepted a cancel for this topic.
+
+        INVARIANT: an accepted cancel is a PROMISE, and this is where it is kept. The
+        control loop answers `ok` for a topic that is still starting, so
+        `QueueJobRunner.stop()` takes the "a worker owns it" branch and writes NO tombstone
+        — the client already holds a 204 and this worker owes the frame.
+
+        The promise used to live only in the in-memory `_cancelled` set, which
+        `supervise`'s `finally` discards on EVERY exit — including `_already_settled`'s
+        unreadable-tail path, which deliberately does not ack. The message then
+        redelivered, found no terminal frame anywhere (the App wrote none, the worker
+        published none), passed every gate and executed a run the caller was told was
+        stopped.
+
+        WHY this runs BEFORE the tail read rather than beside the other gates: that read is
+        the one step in the claim that can fail on a broker blip, and stranding the promise
+        is exactly what it did. Publishing first also makes the cancel durable for a
+        redelivery that lands on a DIFFERENT worker — the durable consumer is shared, so an
+        in-memory mark could never have covered that case at all.
+
+        WHY no child is spawned: the outcome is already promised, so starting the run only
+        to SIGTERM it would pay for a process, and a model call or two, to arrive back here.
+        """
+        await self._publish_terminal(
+            topic, "stopped", CANCELLED, "the run was cancelled by its owner"
+        )
+        await msg.ack()
+
+    async def _already_settled(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Whether this claim is finished without running: the run is over, or it expired.
+
+        ``True`` means the message has been dealt with — acked, or deliberately left for
+        redelivery — and the caller must not execute it. One read answers three cases: a
+        redelivery of a run that already finished, a cancel that landed before the claim,
+        and a stale message whose run is over.
+        """
         try:
             already_terminal = await self._terminal_frame_exists(topic)
         except QueueReadError:
@@ -272,17 +347,18 @@ class RunSupervisor:
             # the ack leaves the message for redelivery: the next attempt re-runs this check
             # and, once the broker is readable again, the dedupe answer is the real one.
             logger.warning("stream tail unreadable for %s; leaving the claim for redelivery", topic)
-            return
-        if already_terminal:
-            await msg.ack()
-            return
-        if self._capability_expired(msg):
+            return True
+        # Evaluated only when the run is not already over, exactly as the short-circuiting
+        # chain of early returns this replaced did.
+        expired = not already_terminal and self._capability_expired(msg)
+        if not already_terminal and not expired:
+            return False
+        if expired:
             await self._publish_terminal(
                 topic, "failed", QUEUE_EXPIRED, "the run's capability expired while queued"
             )
-            await msg.ack()
-            return
-        await self._run_child(msg, topic)
+        await msg.ack()
+        return True
 
     async def _run_child(self, msg: ClaimedMessage, topic: str) -> None:
         """Fork the run as a child, supervise it to its terminal frame, then ack."""
@@ -296,11 +372,16 @@ class RunSupervisor:
             await msg.ack()
             return
         self._children.add(proc)
+        self._children_by_topic[topic] = proc
+        if topic in self._cancelled:
+            # A cancel was ACKNOWLEDGED while this child was starting (the control loop
+            # replied from the starting registry): enact it the moment the child exists.
+            proc.terminate()
         heartbeat = asyncio.create_task(self._heartbeat(msg, topic))
         output = asyncio.create_task(self._forward_output(proc, topic))
         try:
             outcome = await self._wait_for_child(proc, self._hard_wall_s(env))
-            await self._publish_if_needed(topic, self._classify(outcome, proc.returncode))
+            await self._publish_if_needed(topic, self._classify(outcome, proc.returncode, topic))
             await msg.ack()
         finally:
             heartbeat.cancel()
@@ -309,18 +390,28 @@ class RunSupervisor:
             # FAILED (not cancelled) re-raises its own exception on await, and `cancel()` is a
             # no-op on it — so `await heartbeat` would blow the finally block open and skip
             # every line below it (the child stays in `self._children`, a live child is never
-            # killed). `return_exceptions=True` makes the gather itself unraisable; the two
-            # cleanup lines after it are therefore unconditional.
+            # killed). `return_exceptions=True` makes the gather itself unraisable; the
+            # cleanup after it is therefore unconditional.
             for result in await asyncio.gather(heartbeat, output, return_exceptions=True):
                 if isinstance(result, BaseException) and not isinstance(
                     result, asyncio.CancelledError
                 ):
                     logger.warning("run supervision task failed during cleanup: %r", result)
-            self._children.discard(proc)
+            self._release_child(proc, topic)
             if proc.returncode is None:
                 # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
                 # must not orphan its child.
                 proc.kill()
+
+    def _release_child(self, proc: _ChildProcess, topic: str) -> None:
+        """Drop a finished child from every registry the worker shares.
+
+        The cancel mark is per-run: a stale entry would misclassify a LATER run of the
+        same topic whose child died from a signal that was not a cancel.
+        """
+        self._children.discard(proc)
+        self._children_by_topic.pop(topic, None)
+        self._cancelled.discard(topic)
 
     async def _publish_if_needed(
         self, topic: str, classification: tuple[TerminalStatus, str, str] | None
@@ -549,7 +640,7 @@ class RunSupervisor:
             await proc.wait()
 
     def _classify(
-        self, outcome: str, returncode: int | None
+        self, outcome: str, returncode: int | None, topic: str
     ) -> tuple[TerminalStatus, str, str] | None:
         """The named terminal frame the worker must publish for a child that published none.
 
@@ -576,6 +667,15 @@ class RunSupervisor:
                 "stopped",
                 WORKER_DRAINING,
                 "the worker is draining; the run was stopped",
+            )
+        elif topic in self._cancelled and returncode is not None and returncode < 0:
+            # A control request SIGTERM'd this child (OME-1090): the death is a cancel, not
+            # a kill. A child that exited 0 on its own before the request landed is NOT
+            # classified here — its own terminal frame stands.
+            status, code, message = (
+                "stopped",
+                CANCELLED,
+                "the run was cancelled by its owner",
             )
         elif returncode == 0:
             return None
@@ -676,6 +776,7 @@ class RunSupervisor:
 
 
 __all__ = [
+    "CANCELLED",
     "CHILD_EXITED",
     "DEADLINE_EXCEEDED",
     "DEADLINE_MARGIN_S",
