@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="980" height="640" viewBox="0 0 980 640" role="img" aria-label="url4 topology — the Engine today and as a url4 host"><title>url4 topology — the Engine today and as a url4 host</title><defs><marker id="h-75affe" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#75affe"/></marker><marker id="h-c8ccd2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#c8ccd2"/></marker><marker id="h-e2a35b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#e2a35b"/></marker></defs>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="640" viewBox="0 0 980 640" role="img" aria-label="url4 topology — the Engine today and as a url4 node"><title>url4 topology — the Engine today and as a url4 node</title><defs><marker id="h-75affe" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#75affe"/></marker><marker id="h-c8ccd2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#c8ccd2"/></marker><marker id="h-e2a35b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 z" fill="#e2a35b"/></marker></defs>
 <rect x="0" y="0" width="980" height="640" fill="#05070b"/>
-<text x="24" y="34" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="15" font-weight="600" fill="#e0e5eb" text-anchor="start">url4 topology — the Engine today and as a url4 host</text>
+<text x="24" y="34" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="15" font-weight="600" fill="#e0e5eb" text-anchor="start">url4 topology — the Engine today and as a url4 node</text>
 <rect x="24" y="60" width="456" height="520" fill="#05070b" stroke="#44484d" stroke-width="1"/>
 <rect x="500" y="60" width="456" height="520" fill="#05070b" stroke="#44484d" stroke-width="1"/>
 <text x="40" y="84" font-family="'IBM Plex Mono', Menlo, monospace" font-size="10.5" font-weight="500" fill="#c8ccd2" text-anchor="start" letter-spacing="1.2">TODAY</text>
@@ -10,8 +10,8 @@
 <rect x="44" y="196" width="412" height="90" fill="#15181c" stroke="#585c61" stroke-width="1"/>
 <text x="54" y="214" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">Engine App · control plane</text>
 <text x="54" y="231.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">POST /token · GET /?q= · DELETE · /ws (NATS→WS)</text>
-<text x="54" y="245.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">not a url4 host: no node is reachable over HTTP</text>
-<rect x="44" y="334" width="412" height="90" fill="#05070b" stroke="#e0e5eb" stroke-width="1"/>
+<text x="54" y="245.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">not a url4 node: no endpoint is reachable over HTTP</text>
+<rect x="44" y="334" width="412" height="90" fill="#0c0f13" stroke="#44484d" stroke-width="1"/>
 <text x="54" y="352" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">Runner (k8s Job)</text>
 <text x="54" y="369.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">one in-process Url4Node per run</text>
 <text x="54" y="383.5" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">/anthropic/&lt;model&gt; = in-process handlers only</text>
@@ -30,11 +30,11 @@
 <rect x="520" y="104" width="412" height="44" fill="#15181c" stroke="#585c61" stroke-width="1"/>
 <text x="530" y="130.0" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">Product client</text>
 <rect x="520" y="196" width="412" height="228" fill="#0c0f13" stroke="#44484d" stroke-width="1"/>
-<text x="530" y="214" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">Engine Host  url4://engine.screamingface.ai</text>
-<rect x="536" y="226" width="380" height="40" fill="#05070b" stroke="#e0e5eb" stroke-width="1"/>
-<text x="546" y="250.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">/  evaluator node · GET ?q= · SSE · DELETE</text>
-<rect x="536" y="274" width="380" height="40" fill="#05070b" stroke="#e0e5eb" stroke-width="1"/>
-<text x="546" y="298.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">/anthropic/&lt;model&gt;  reachable over HTTP</text>
+<text x="530" y="214" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">Engine Node  url4://engine.screamingface.ai</text>
+<rect x="536" y="226" width="380" height="40" fill="#0c0f13" stroke="#44484d" stroke-width="1"/>
+<text x="546" y="244" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">/  evaluator endpoint · GET ?q= · SSE · DELETE</text>
+<rect x="536" y="274" width="380" height="40" fill="#0c0f13" stroke="#44484d" stroke-width="1"/>
+<text x="546" y="292" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">/anthropic/&lt;model&gt;  reachable over HTTP</text>
 <rect x="536" y="322" width="380" height="40" fill="#0d0f13" stroke="#3c485b" stroke-width="1"/>
 <text x="546" y="346.0" font-family="'IBM Plex Mono', Menlo, monospace" font-size="13" font-weight="500" fill="#e0e5eb" text-anchor="start">/.well-known/url4-capabilities</text>
 <rect x="536" y="370" width="380" height="40" fill="#15181c" stroke="#585c61" stroke-width="1"/>
@@ -53,6 +53,6 @@
 <rect x="557.7" y="438.5" width="84.6" height="19" fill="#05070b" stroke="#e2a35b" stroke-width="1"/>
 <text x="600.0" y="451.85" font-family="'IBM Plex Mono', Menlo, monospace" font-size="11" font-weight="400" fill="#e2a35b" text-anchor="middle">proxy mount</text>
 <path d="M 716,502 L 736,502" fill="none" stroke="#c8ccd2" stroke-width="1.2" marker-end="url(#h-c8ccd2)"/>
-<text x="24" y="606" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">The Runner becomes the evaluator process the / node spawns per run. The App keeps /ws for the product client and gains the node surface.</text>
-<text x="24" y="624" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">Serverless posture: nodes are functions; the host is the only thing that needs an origin.</text>
+<text x="24" y="606" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">The Runner becomes the evaluator process the / endpoint spawns per run. The App keeps /ws for the product client and gains the endpoint surface.</text>
+<text x="24" y="624" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">Serverless posture: endpoints are functions; the node is the only thing that needs an origin.</text>
 </svg>

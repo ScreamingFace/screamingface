@@ -25,17 +25,17 @@ ensemble execution protocol."
 > `docs/spec/2026-09-04-OME-1110-url4-topology-reframing.md` — it defines the words used here
 > and supersedes this skill where they disagree. F4 is **resolved** there (§7).
 
-## Terms (OME-1110, locked)
+## Terms (OME-1110, locked; realigned to the spec 2026-09-08)
 
-| Word | Meaning | Spec word (Part A §1.4) |
+| Word | Meaning | Spec (Part A §1.4) |
 |---|---|---|
-| **Node** | a stateless function at a path; `GET <path>?q=<expr>`; every node evaluates url4 | *Endpoint* |
-| **Host** | an origin that mounts nodes at paths; `/` is its default node; answers discovery | *Node* |
-| **Mount** | `local` (in-process) · `command` (subprocess, N4) · `proxy` (declared target) | — |
-| **Evaluator** | whatever runs an expression; every node contains one | "the node executes" |
-| **Request tree** | the hosts and nodes one expression touches (strict tree, v0.2 §16.1) | request/call tree |
+| **Endpoint** | a stateless function at a path (`/claude`); `GET <path>?q=<expr>`; every endpoint evaluates url4 | *Endpoint*, same word |
+| **Node** | an origin that serves a set of endpoints; `/` is its default; owns discovery, credentials, outbound traffic; every evaluating requester is one | *Node*, same word |
+| **Mount** | how a path binds to an endpoint: `local` (in-process) · `command` (subprocess, N4) · `proxy` (declared target) = spec processor types `internal`/`function`, `code`, `abc_delegate` | Part G §27.3 |
+| **Evaluator** | whatever runs an expression; every endpoint contains one | "the node executes" |
+| **Request tree** | the nodes and endpoints one expression touches (strict tree, Part H §29.1) | request/call tree |
 
-Not protocol words: ensembler, orchestrator, swarm, composition, plan, fusion.
+Not protocol words: host, ensembler, orchestrator, swarm, composition, plan, fusion.
 
 This doctrine is the CLAUDE.md hexagonal mandate applied to a *recursive network of
 processes*: the url4 grammar/AST/resolver is a **port** (the SDK); the engine wires backends
@@ -167,4 +167,4 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
 | "Point the `Link` header at the node's own ephemeral buffer." | STOP (F3). It resolves to the durable record. |
 | "Probe WS, then SSE, then sync with three requests." | STOP (T1). One GET with `Upgrade` + `Accept`; the node picks. |
 | "Make WS or async a MUST for every node." | STOP (T1). Only sync is a MUST; a serverless function offering sync + SSE is conformant. |
-| "Call the server a node and the path an endpoint." | STOP (Terms). Host = origin; Node = the function at a path. |
+| "Call the function at a path a node, or the origin a host." | STOP (Terms). Node = origin serving endpoints; Endpoint = the function at a path (spec words). |

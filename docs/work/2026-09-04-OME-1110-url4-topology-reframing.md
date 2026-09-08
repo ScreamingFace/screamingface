@@ -89,3 +89,9 @@ No code. Verification gates:
   narrowed for agent sessions, host forwards (never mints) inter-host tokens per Part H §31,
   flow-constraint cautions, root/version tensions. Appendix A re-anchored and extended to 12 deltas.
   Doctrine skill T2/F3 corrected. Dark PDF 20 pages.
+  (13) 2026-09-08, owner: vocabulary realigned to the spec's own words — **node** = origin serving a
+  set of **endpoints** (`/claude`, `/codex`); "host" dropped; Appendix A delta 1 becomes "endpoint
+  kinds" instead of a rename; diagrams, glossary and doctrine skill renamed. Document split into two
+  renders from one source: core (§0–§9 + Appendix C/D, 16 pages) and open-work (§10–§13 +
+  Appendix A/B, 10 pages). New §13: url4 as a network protocol (submit, not call; peer-to-peer
+  resolution) recorded as a question with what the spec already gives it and what is new.
