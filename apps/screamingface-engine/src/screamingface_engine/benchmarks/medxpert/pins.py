@@ -23,7 +23,7 @@ DATASET_REVISION = "7e7c465a68eb2b866926bfa59c8c9d17a8daba65"
 # WHY: prepare's emission rules are part of the answer key; bump when they change.
 PREPARER_REVISION = "text-test-v1"
 # WHY: the exchange itself — two-turn zero-shot CoT, first-match commit extraction.
-PROTOCOL_REVISION = "two-turn-cot-v2"
+PROTOCOL_REVISION = "two-turn-cot-v1"
 
 # WHY 8192 and not the official harness's smaller default: reasoning models exhaust a 2,048
 # budget before committing and return empty content, which does not lower their score — it
