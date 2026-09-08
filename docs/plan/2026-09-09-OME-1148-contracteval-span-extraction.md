@@ -151,3 +151,36 @@ Deviations from the plan:
 
 Note for Task 3: `jaccard` deliberately does NOT know that it applies to positive rows only —
 that population rule (spec F-5) belongs to `aggregate.py`, and a test there must pin it.
+
+### Tasks 2+3 — pins, prompts, prepare, board, runtime, aggregate (2026-09-09)
+
+Forced into one landing: `test_the_family_guard_covers_every_family_preparer_package` (OME-1095)
+asserts that the preparer packages on disk are exactly the families the registered boards deploy
+from, so `prepare.py` cannot exist for a commit without its `builtins.py` registration. Same
+merge MedXpertQA's plan made for its Tasks 3+4+5.
+
+Files: `pins.py` `prompts.py` `prepare.py` `case_evaluation.py` `definition.py` `aggregate.py`
+`runtime.py`, `builtins.py` (registration), and four test modules (12 + 8 + 13 tests).
+Revision: `f9a076a10a6ae4c6`. Gates: ALL GREEN (2,654 tests).
+
+Deviations and findings:
+
+1. **The public/private boundary is NOT what it is on MedXpertQA.** A first-draft test asserted
+   no gold span may appear in `cases.json`; that is impossible here and the test was wrong. A
+   CUAD gold span is by construction a quotation FROM the contract, so its text is unavoidably
+   inside the public input — that is the task. What must stay private is WHICH sentences are the
+   answer, so the assertion is now that the public Case exposes exactly `{id, input}` and no
+   `gold_spans`/`answer_start`/`is_positive` marker.
+2. **The reference's F1 has no zero guard.** `2PR/(P+R)` raises `ZeroDivisionError` for a model
+   that never scores a true positive. With 70.3% of rows negative, an always-abstaining model is
+   realistic rather than hypothetical, so the reducer returns the limit 0.0. Named deviation,
+   pinned by `test_an_always_abstaining_model_scores_zero_instead_of_dividing_by_zero`.
+3. **`refused_case_result` no longer exists** on `main` — it is `refusal_case_result` (OME-1037),
+   which also changed the semantics: a refusal WITH text is graded 0.0 and keeps its cell in the
+   confusion matrix; a textless refusal fails the Case. Adopted as-is.
+4. **Prior-test edit, approved by the owner.** One row added to the `expected` table in
+   `test_every_builtin_board_declares_its_actual_policy`. Purely additive; the test's own note
+   requires each new board to add its row. Committed with `--skip-append-only`.
+5. **The pinned parquet revision was verified end to end** before being written into `pins.py`:
+   `load_dataset("theatticusproject/cuad-qa", revision="d9c4ee02…", split="test")` on
+   `datasets 5.0.1` returns 4,182 rows with the expected columns.

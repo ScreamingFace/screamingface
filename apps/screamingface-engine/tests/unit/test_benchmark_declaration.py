@@ -117,6 +117,10 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
     # add its row deliberately, and a board that CHANGES its declaration trips here — which a
     # loop over "all single_shot" could not catch once a second shape existed (OME-1126).
     expected = {
+        # ContractEval answers each Case once; a reply that quotes the wrong sentences is GRADED
+        # (0.0, and it keeps its cell in the confusion matrix), so only never-graded Cases reach
+        # the shared finalizer — coverage_declare.
+        "contracteval": ("coverage_declare", "single_shot"),
         "draco": ("coverage_declare", "single_shot"),
         "draco-3pass": ("coverage_declare", "single_shot"),
         "gdpval-text": ("coverage_declare", "single_shot"),
