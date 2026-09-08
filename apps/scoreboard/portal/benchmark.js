@@ -14,16 +14,13 @@
   // direction applied the first time a column is selected.
   var COLUMNS = [
     { key: "rank", label: "Rank", sort: "number", dir: "asc", cls: "num" },
-    // The mark slot as its own column rather than a span inside the spec cell.
-    // OME-769 words it as "a spacer for non-SOTA rows so names stay aligned"; a
-    // column satisfies that goal structurally rather than by hand-tuned widths,
+    // The mark slot is its own column rather than a span inside the spec cell.
+    // A column keeps marked and unmarked spec names aligned without hand-tuned widths,
     // which measurably failed (an in-cell slot sized to the badge text grew when
     // the badge was enhanced, shifting that row's name ~64px right of the rest,
     // and it stole width from `.cell-wrap`'s 192px cap, wrapping long spec names).
-    // Currently renders empty — see renderMarkSlot. OME-770/771 populate it.
     { key: "__mark", label: "", sort: null, cls: "col-mark" },
-    // OME-769 asks for a "Name" column, but nothing in the payload names a
-    // fusion — `spec_id` is the only identifier (the gap catalogued in OME-772).
+    // Nothing in the payload names a fusion; `spec_id` is the available identifier.
     // The header stays "Spec" so it describes what the cell actually holds; the
     // SOTA mark slot leads this cell, which is the "mark leads the name" part.
     { key: "spec_id", label: "Spec", sort: "string", dir: "asc" },
@@ -34,14 +31,9 @@
     { key: "submitted_by", label: "Submitter", sort: "string", dir: "asc" },
     { key: "authors", label: "Authors", sort: "string", dir: "asc" },
     { key: "score", label: "Score", sort: "number", dir: "desc", cls: "num" },
-    // WHY Questions is gone: OME-769's column list is #, Name, Models, Author,
-    // Accuracy, Submitted, Run locally — Questions is not in it. Adding Author
-    // and the mark column pushed the table past its container (1205px into
-    // 958px), which put "Run Locally" — the url4 copy, the board's primary
-    // action — behind a horizontal scroll. `total_questions` is still shown on
-    // each spec's detail page, so no data is lost from the portal.
-    // OME-770 pass 2, delivered with OME-923 part B. `sort: "cost"` is NOT the generic
-    // "number": the value arrives as a fixed-6dp STRING and an absent cost must sort last
+    // WHY: total_questions remains on each spec's detail page rather than widening this table
+    // and pushing the primary "Run Locally" action farther off-screen. Cost does not use the
+    // generic numeric sort: it arrives as a fixed-precision string, and absent cost sorts last
     // rather than as zero. See compare() and leaderboard-logic.js.
     { key: "run_cost_usd", label: "Cost", sort: "cost", dir: "asc", cls: "num" },
     { key: "submitted_at", label: "Submitted", sort: "date", dir: "desc" },
@@ -51,7 +43,7 @@
   var state = { entries: [], benchmarkId: null, sortKey: "score", sortDir: "desc" };
 
   function compare(a, b, key, type, dir) {
-    // INVARIANT: cost never reaches the generic numeric branch below. That branch is
+    // Cost never reaches the generic numeric branch below. That branch is
     // `(av || 0) - (bv || 0)`, which coerces a null cost to 0 and would sort an unpriced row
     // as the cheapest on the board — the "a null cost never reads as zero" rule the whole
     // frontier rests on. compareCost also converts the fixed-6dp string before comparing, and
@@ -121,32 +113,16 @@
     return Math.max.apply(null, entries.map(function (e) { return e.score; }));
   }
 
-  // The bar origin: scores are benchmark-native (OME-866), so a negative board
+  // Scores are benchmark-native, so a board with negative values needs its own bar origin;
   // needs its own floor — barWidth shifts the origin to min(0, lowest).
   function lowestScore(entries) {
     if (!entries.length) return null;
     return Math.min.apply(null, entries.map(function (e) { return e.score; }));
   }
 
-  // The mark cell. Rendered on EVERY row so the column exists structurally;
-  // currently always empty.
-  //
-  // WHY empty: the SOTA medal was descoped from OME-769 in review. The medal has
-  // to name the best *reproduced* run, but `/v1/leaderboard` returns one row per
-  // spec chosen by score alone (`RowNumber().over(spec_id).orderby(score)`),
-  // so a spec whose top run is unverified hides its own verified run entirely.
-  // A verified 0.80 for spec A is invisible when A also has an unverified 0.90 —
-  // no client-side logic can recover it, and badging A's displayed 0.90 row as
-  // "independently reproduced" would state a different falsehood.
-  //
-  // AIDEV-NOTE: OME-771 fixes this properly by filtering the pool in the QUERY
-  // (?pool=verified), which makes the verified run a real row that can be badged
-  // truthfully; the medal lands there. OME-770's frontier mark also belongs in
-  // this cell. Until one of them ships, this column is intentionally blank.
-  // FEATURE: OME-923 part B. The slot OME-769 reserved and left empty; the server decides
-  // membership (scores/pareto.py) and this only renders the answer.
-  //
-  // INVARIANT: colour is never the only carrier. The diamond shows the mark and the
+  // Render the mark cell on every row so the column exists structurally. The server decides
+  // frontier membership; this function only renders that answer. Colour is never the only
+  // carrier: the diamond shows the mark and the
   // sr-only text names it. The gold row background stays the SEPARATE highest-score
   // signal, so a row can carry one, both or neither.
   function renderMarkSlot(entry) {
@@ -168,7 +144,7 @@
   // The track is decoration — the adjacent number is the accessible value, so it
   // carries aria-hidden rather than duplicating the figure to a screen reader.
   //
-  // AIDEV-NOTE: the `.grad` fill variant animates; it is reserved for the single
+  // The `.grad` fill variant animates and is reserved for the single
   // hero win in the design system, so plain `.score-fill` is used per row here.
   function renderScoreCell(score, barMin, barMax) {
     var td = P.el("td", "num");
@@ -190,13 +166,8 @@
     var barMin = lowestScore(state.entries);
     sortedEntries().forEach(function (entry) {
       var tr = document.createElement("tr");
-      // INVARIANT: this marks the row with the highest score on screen — a
-      // "leading" signal, NOT a reproduction claim. SFDS defines gain as the
-      // leading-row/SOTA colour, so gold here is sanctioned, but the accessible
-      // text below must not promise reproduction. Nothing here is reproduced:
-      // no service re-runs submissions (OME-414) and the verification UI was
-      // withdrawn in OME-820, so there is no per-row signal to point at. The
-      // medal that *would* assert reproduction is descoped to OME-771.
+      // Gold marks the row with the highest score on screen, not a reproduction claim. The
+      // accessible text below uses the same precise wording rather than promising verification.
       var isLeader = barMax !== null && entry.score === barMax;
       if (isLeader) tr.className = "sota";
 
@@ -218,7 +189,7 @@
       // WHY the title: the cell rounds to cents, but the frontier compares the full stored
       // Decimal — so two rows inside one cent render identically while only one is marked. The
       // exact figure has to be recoverable, or the board contradicts itself with nothing on the
-      // page to explain it (found in review, 2026-08-31).
+      // page to explain it.
       var costTd = P.el("td", "num", L.formatCost(entry));
       if (L.costNumber(entry) !== null) costTd.title = "$" + entry.run_cost_usd;
       tr.appendChild(costTd);
@@ -248,23 +219,14 @@
     }
 
     var best = bestScore(entries);
-    // OME-820: the "Verified rows" stat is gone, not relabelled. verified_by_screamingface
-    // now carries no trustworthy verification semantics — nothing re-runs submissions
-    // and nothing attests where a run executed — so counting it measures nothing.
-    //
-    // Note it is NOT literally uniform: rows created before OME-820 keep false, since
-    // D5 forbids a backfill. That makes a count WORSE than useless rather than merely
-    // useless — it would partition rows by whether they predate the default change,
-    // reading as a verification tally while actually tracking submission date. Same
-    // argument retires the pool filter. Both return with OME-821 (review of #588).
     // Bare numbers: the .stats cell labels ("Specs shown") already carry the words.
     document.getElementById("summary-best").textContent = P.formatScore(best);
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
     summaryNode.hidden = false;
   }
 
-  // OME-323: how much of this benchmark's score frontier is held by
-  // open-reproducible stacks vs. proprietary ones. Fetched and rendered
+  // Show how much of this benchmark's score frontier is held by open-reproducible stacks
+  // versus proprietary ones. Fetched and rendered
   // independently of the main leaderboard call — a failure here must not
   // block or error out the leaderboard itself, it's a supplementary stat.
   function renderFrontier(data) {
@@ -275,8 +237,7 @@
     // imported Baselines but zero Score submissions yet has a real, meaningful
     // open_share (Baselines count toward the split) even though current is null
     // (Baselines never become the trend holder — see frontier.py). Gating on
-    // current alone silently hid the stat for every baseline-only benchmark
-    // (found in review).
+    // current alone would silently hide the stat for every baseline-only benchmark.
     var total = (data.open_count || 0) + (data.closed_count || 0);
     if (total === 0) return;
     var pct = Math.round((data.open_share || 0) * 100);
@@ -285,8 +246,8 @@
       ? "Frontier currently held by a " + data.current.openness +
         " entry (" + data.current.label + ")"
       : "";
-    // OME-820 + OME-323 interaction: `.stats--two` re-columns the strip for the two
-    // cards left when the Verified counter was withdrawn. This card is the third, so
+    // `.stats--two` lays out the two cards that are always visible. This optional card is the
+    // third, so
     // the modifier must come off the moment it is shown, or the strip wraps it onto
     // its own row at >=621px. Removing it restores the vendored three-column layout;
     // the strip keeps two columns for as long as this card stays hidden.
@@ -301,8 +262,7 @@
   //
   // The fill keys off the shared barWidth normalization, matching the table's
   // score cells — both mean "leading", neither claims reproduction. Raw
-  // score*100 widths died with the binary contract: a negative HealthBench
-  // score would render a negative CSS width (OME-866).
+  // multiplying score by 100 would give negative boards an invalid CSS width.
   function renderClimb(entries) {
     var section = document.getElementById("leaderboard-climb-section");
     var node = document.getElementById("leaderboard-climb");
@@ -328,7 +288,7 @@
       });
     section.hidden = false;
   }
-  // FEATURE: OME-923 Part C. The chart module owns modelling and SVG; this page owns only
+  // The chart module owns modelling and SVG; this page owns only
   // lifecycle wiring. Keeping it separate holds benchmark.js below the repo's focused-file limit.
   function renderParetoChart(entries) {
     var section = document.getElementById("pareto-chart-section");
@@ -356,7 +316,7 @@
     );
   }
 
-  // D9: an unknown/missing benchmark id must not be a dead end — the status
+  // An unknown or missing benchmark id must not be a dead end: the status
   // region gets a real link back to the catalog, not just text.
   function showNotFound(statusNode, message) {
     P.setStatus(statusNode, "error", "");
@@ -397,10 +357,8 @@
         }
         state.entries = (data && data.entries) || [];
         if (state.entries.length === 0) {
-          // OME-768 asks this page for an "empty table structure", so the shell
-          // has to render on the zero-entry path too — previously this returned
-          // early with `wrap` still hidden, so a benchmark with no submissions
-          // showed the message and no table at all. renderSummary/renderClimb
+          // The table shell renders on the zero-entry path too, so a benchmark with no
+          // submissions still shows the column structure. renderSummary/renderClimb
           // hide themselves when passed an empty list, so the reader gets the
           // column headers plus the empty-state line and nothing misleading.
           renderSummary(state.entries);
@@ -421,8 +379,8 @@
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);
         wrap.hidden = false;
-        // INVARIANT: the frontier key appears only when a row actually carries the mark.
-        // On a board the D12 gate closed, or one where every cost is null, nothing is
+        // The frontier key appears only when a row actually carries the mark. If frontier
+        // publication is unavailable, or every cost is null, nothing is
         // marked — and a key for a symbol that appears nowhere reads as 'no submission
         // here is good value', which is the opposite of what the gate is saying.
         legendPareto.hidden = !state.entries.some(L.isParetoMarked);

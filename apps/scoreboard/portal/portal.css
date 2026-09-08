@@ -117,23 +117,21 @@ table .btn { white-space: nowrap; }
   .col-run { display: none; }
 }
 
-/* ---- mark column (OME-769) ------------------------------------------- */
+/* ---- mark column ----------------------------------------------------- */
 /* A column rather than a span inside the spec cell, so the browser handles the
    alignment — see the WHY in benchmark.js's COLUMNS. Narrow and never wrapping:
-   it holds one mark or nothing, and currently always nothing (the SOTA medal is
-   descoped to OME-771, the frontier mark comes with OME-770). */
+   it holds one mark or nothing. */
 .col-mark {
   width: 1%;
   white-space: nowrap;
 }
 
-/* OME-923 part B: the Pareto-frontier mark — no row is no-worse on both axes and better on one.
+/* The Pareto-frontier mark identifies a row that is no worse on both axes and better on one.
    Drawn in CSS rather than set as a glyph: IBM Plex Mono is not guaranteed to carry
    U+25C6, and a font fallback would render this mark differently machine to machine.
    Colour is --info, deliberately NOT --gain: gold is rationed to the win and the
    highest-score row already holds it, so a gold mark here would collapse two separate
-   claims into one look. Not --success either, because green means verified and OME-820
-   withdrew that signal. */
+   claims into one look. Green is also reserved for verified states. */
 .pareto-mark {
   display: inline-block;
   width: 8px;
@@ -168,10 +166,8 @@ table .btn { white-space: nowrap; }
    and over benchmark.html's rightmost table cells at ~1000px viewports.
    Restoring `sticky` keeps the rail under the fixed toggle at all scroll
    offsets, which is the behavior this portal had before the v2 migration.
-   AIDEV-NOTE: this knowingly breaks the "extends — never overrides" rule at the
-   top of this file. The system-faithful fix is to implement the `.stuck` toggle
-   + spacer in JS; that is new untested behavior, so it is tracked separately
-   rather than folded into OME-768. Drop this block when that lands. */
+   This local override keeps the rail under the fixed toggle without adding a
+   second JavaScript-controlled sticky state. */
 .rail { position: sticky; top: 0; }
 
 /* WHY: the byte-matched style.css gives .badge-verified a ::before glyph masked
@@ -179,28 +175,27 @@ table .btn { white-space: nowrap; }
    vendor — so every verified badge fired a 404. createVerifiedBadge() already
    renders a literal "✓ verified", so the pseudo-element is redundant here as
    well as broken; suppress it rather than vendoring an icon set for one glyph.
-   AIDEV-NOTE: `content: none` alone does NOT stop the fetch — Chrome still
+   `content: none` alone does not stop the fetch — Chrome still
    resolves the mask URL and fires the 404 (verified in DevTools). The mask
    itself has to be cleared, so keep all three declarations. If this portal ever
-   vendors the remix icons, drop this block instead of leaving two checkmarks.
-   Found in review of PR #558. */
+   vendors the remix icons, drop this block instead of leaving two checkmarks. */
 .badge-verified::before {
   content: none;
   -webkit-mask: none;
   mask: none;
 }
 
-/* ---- fragment targets clear the rail (OME-839) --------------------- */
+/* ---- fragment targets clear the rail ------------------------------- */
 /* WHY: the rail is sticky at top:0 and its JS re-pins it as `fixed` once scrolled
    past (style.css:44), so a bare fragment jump parks the target under it. Measured
    in Chrome on `index.html#benchmarks`: the heading landed at y=7 with the rail's
    bottom at y=44 — 37px of a 57px heading hidden. Nothing in the vendored CSS sets
-   scroll-padding, so this is additive, and it fixes every future in-page anchor
-   rather than the one this ticket adds. --rail-h is the same token the rail's own
+   scroll-padding, so this is additive and fixes every in-page anchor. --rail-h is
+   the same token the rail's own
    height uses, so the two cannot drift. */
 html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 
-/* ---- masthead nav links (OME-839) ---------------------------------- */
+/* ---- masthead nav links -------------------------------------------- */
 /* Adopted from the leaderboard-mvp design, which defines these in its own board.css —
    they are NOT in the vendored style.css, so they belong here.
    WHY the group is a container and not three bare anchors: the theme toggle is
@@ -219,7 +214,7 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 @media (max-width: 620px) {
   .rail .rail-nav { flex: 0 0 100%; margin-right: 0; gap: var(--space-3); }
 }
-/* ---- two-card summary strip (OME-820) ------------------------------ */
+/* ---- two-card summary strip ---------------------------------------- */
 /* style.css sets `.stats { grid-template-columns: repeat(3,1fr) }` and is vendored,
    so it is not edited. The leaderboard summary lost its third metric ("Verified
    rows") when the verification UI was withdrawn — verified_by_screamingface became
@@ -227,9 +222,8 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
    bordered strip
    renders two cards across two thirds of its width, leaving an empty third.
    Scoped to a new class so every other three-card `.stats` strip is untouched.
-   OME-821 restores the third metric and this class comes off with it.
 
-   INVARIANT: this MUST stay inside a min-width query. style.css collapses `.stats`
+   This must stay inside a min-width query. style.css collapses `.stats`
    to one column at max-width 620px, but a media query adds NO specificity — both
    rules are a single class, and portal.css loads after style.css, so an
    unconditional `.stats--two` wins at every viewport and phones get two cramped
@@ -269,7 +263,7 @@ td.col-open { white-space: nowrap; }
   align-items: center;
   gap: var(--space-2);
 }
-/* INVARIANT: `:not([hidden])` on BOTH sides. `display: none` does not remove an element from
+/* Keep `:not([hidden])` on both sides. `display: none` does not remove an element from
    the sibling chain, so a bare `+`/`~` still matches a hidden predecessor — with the frontier
    item hidden, the legend rendered a LEADING middot (verified in Chrome, 2026-09-01). The
    general sibling combinator is deliberate: it stays correct if more than one item ever hides. */
@@ -289,7 +283,7 @@ td.col-open { white-space: nowrap; }
   outline-offset: 2px;
 }
 
-/* ---- score/cost Pareto chart (OME-923 part C) ----------------------- */
+/* ---- score/cost Pareto chart --------------------------------------- */
 .pareto-chart-section { margin-top: var(--space-7); }
 .pareto-chart-figure { background: var(--bg); }
 .pareto-chart__svg { min-width: 560px; }

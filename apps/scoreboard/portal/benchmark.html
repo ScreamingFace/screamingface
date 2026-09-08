@@ -88,11 +88,9 @@
       </figure>
     </section>
 
-    <!-- OME-923: the Cost column pushes this table's min-content past the container between
-         roughly 700px and 1010px of viewport, so it scrolls horizontally there. Keeping the
-         scroll rather than dropping a column is an owner decision (2026-08-31); the columns
-         stay for now.
-         A scrollable region MUST be focusable or a keyboard-only user cannot reach what is
+    <!-- The Cost column pushes this table's min-content past the container at intermediate
+         viewport widths, so the complete column set scrolls horizontally there.
+         A scrollable region must be focusable or a keyboard-only user cannot reach what is
          off-screen — here that is the whole "Run Locally" Copy button (WCAG 2.1.1). tabindex
          makes it arrow-scrollable; role+aria-label give the now-focusable region a name, which
          a focusable region requires. -->
@@ -110,10 +108,9 @@
       </table>
     </div>
 
-    <!-- OME-923 part B: the marks are unreadable without a key — the mark column header is
-         deliberately empty and the per-row label is sr-only, so a sighted reader had nothing.
-         The provenance line is OME-770 D11: the frontier is computed over self-reported costs
-         and the UI must say so rather than present them as verified. -->
+    <!-- The mark column header is deliberately empty and its per-row label is screen-reader-only,
+         so the visible legend names each mark. It also states that frontier membership uses
+         self-reported costs rather than presenting those figures as verified. -->
     <p id="leaderboard-legend" class="meta legend" hidden>
       <span id="legend-pareto" class="legend-item" hidden>
         <span class="pareto-mark" aria-hidden="true"></span>
