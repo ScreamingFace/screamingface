@@ -283,10 +283,9 @@ window.ScorePortal = (function () {
     return tr;
   }
 
-  // No aggregate submission-count endpoint exists. One extra fetch per benchmark is
-  // acceptable at today's benchmark count
-  // (a handful) — revisit if the catalog grows past that. `/v1/leaderboard`
-  // returns best-per-spec entries (not every raw submission), so this reads
+  // No aggregate submission-count endpoint exists, so this makes one leaderboard request per
+  // benchmark. `/v1/leaderboard` returns best-per-spec entries (not every raw submission), so this
+  // reads
   // as a fusion/spec count, the closest honest proxy for "# submissions" without a
   // dedicated endpoint.
   // top=200 is the route's own MAX_LEADERBOARD_TOP — the true ceiling, not a
