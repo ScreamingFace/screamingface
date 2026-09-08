@@ -12,8 +12,13 @@ document is the ORDER of work and the exact files each step touches.
 
 - **RED before GREEN.** Every task writes its failing tests first. The append-only test check
   (`run_gates.py`) will reject a deletion, so tests land in the shape they keep.
-- **Mirror, do not reinvent** (D-4). `.refs/contracteval/` holds `Evaluation.py` and
-  `proprietary_model.py` verbatim; every metric function cites the reference line it reproduces.
+- **Mirror, do not reinvent** (D-4) — by CITATION, not by vendoring. AMENDED 2026-09-09: the
+  plan said `.refs/contracteval/`, but that directory is not a repo convention (I invented it)
+  and nothing excludes it from ruff/pyright, so the paper's matplotlib-importing analysis script
+  would fail this stack's gates. The house rule is `benchmarks/<board>/vendor/`, and ifeval uses
+  it because it EXECUTES those verifiers. We execute nothing from ContractEval — we reproduce
+  four small functions. So each function carries the reference's file + line range and the exact
+  quoted snippet in its `WHY:` anchor, and the spec §2 holds the full transcription.
 - **ruff limits** the Engine enforces: `PLR0911` max 3 returns, `PLR0912` max 7 branches,
   `C901` complexity 8, line length 100.
 - **Never** edit `benchmarks/aggregation.py` or `benchmarks/contract.py` — OME-932/OME-934 own
@@ -26,8 +31,6 @@ document is the ORDER of work and the exact files each step touches.
 
 ```
 apps/screamingface-engine/
-  .refs/contracteval/Evaluation.py            (vendored, unmodified)
-  .refs/contracteval/proprietary_model.py     (vendored, unmodified)
   src/screamingface_engine/benchmarks/contracteval/
     __init__.py  pins.py  prompts.py  answering.py  grading.py
     prepare.py  case_evaluation.py  definition.py  runtime.py  aggregate.py
@@ -130,3 +133,21 @@ close-comment (commits · gates · ledger · deviations) on OME-1148.
 - Any partial-credit grader — the protocol has none (F-1).
 
 ## Execution record (filled during implementation)
+
+### Task 1 — grading core (2026-09-09)
+
+Files: `contracteval/__init__.py`, `contracteval/grading.py`,
+`tests/unit/test_contracteval_grading.py` (20 tests). Gates: ALL GREEN.
+
+Deviations from the plan:
+
+1. **No `answering.py`.** The plan split normalisation into its own module; it is one function
+   (`normalized`) used only by `grading`, so splitting it would be structure for its own sake.
+   Folded into `grading.py`. If the check endpoint later needs answer-time parsing that is not
+   grading, that is when the module earns its existence.
+2. **The reference is cited, not vendored** (see Global constraints, amended). `.refs/` was not
+   a repo convention and nothing excludes it from ruff/pyright, so the paper's
+   matplotlib-importing analysis script would have failed this stack's gates.
+
+Note for Task 3: `jaccard` deliberately does NOT know that it applies to positive rows only —
+that population rule (spec F-5) belongs to `aggregate.py`, and a test there must pin it.
