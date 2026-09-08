@@ -264,3 +264,54 @@ def test_portal_leaderboard_table_has_no_submitter_column() -> None:
     assert "P.formatSubmitter(entry.submitted_by)" not in benchmark_js
     assert "P.formatAuthors(entry.authors)" in benchmark_js
     assert "P.formatSubmitter(s.submitted_by)" in (portal / "spec.js").read_text()
+
+
+def test_submission_author_cap_counts_case_insensitive_distinct_people() -> None:
+    authors = [f"author-{index}@example.test" for index in range(10)]
+    authors.append("AUTHOR-0@example.test")
+
+    submission = _submission(authors=authors)
+
+    # INVARIANT: validation counts people without rewriting audit data. The repeated
+    # spelling survives in the input DTO and is collapsed only at publication.
+    assert submission.authors == authors
+
+
+@pytest.mark.asyncio
+async def test_public_authors_collapse_duplicates_and_disambiguate_local_collisions(
+    tortoise_db: None,
+) -> None:
+    authors = [
+        "Irina@OpenMined.org",
+        "BOB@example.test",
+        "irina@openmined.org",
+        "irina@partner.com",
+    ]
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    score, _ = await store.submit(_submission(authors=authors))
+    stored = await Score.get(id=score.id)
+    leaderboard = await store.leaderboard("hle")
+    history = await store.list_for_spec("hle", "spec-1")
+    expected_public = ["Irina@OpenMined.org", "BOB", "irina@partner.com"]
+
+    # INVARIANT: every public DTO uses the same publication transform. A duplicate
+    # keeps its first spelling and position; only the colliding identities expose
+    # domains, while a unique local part retains OME-834's redacted form.
+    for public_row in (score, leaderboard[0], history[0]):
+        assert json.loads(public_row.model_dump_json())["authors"] == expected_public
+
+    # INVARIANT: publication cannot rewrite the audit trail. Staff see exactly what
+    # was submitted, including duplicate spelling, casing, and order.
+    assert stored.authors == authors
+    assert json.loads(format_jsonl([score]))["authors"] == authors
+
+
+def test_submission_rejects_an_unbounded_repeated_author_payload() -> None:
+    repeated = f"{'a' * 240}@example.test"
+
+    # One distinct person must not turn the public write path into an unbounded
+    # JSON field merely because duplicate entries do not consume the credit cap.
+    with pytest.raises(ValidationError, match="authors must serialize to at most 4096 bytes"):
+        _submission(authors=[repeated] * 20)
