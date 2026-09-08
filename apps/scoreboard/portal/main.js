@@ -150,7 +150,7 @@ window.ScorePortal = (function () {
     if (typeof value !== "number" || isNaN(value)) return EM_DASH;
     return (value * 100).toFixed(1) + "%";
   }
-  // INVARIANT (OME-866): a benchmark score is benchmark-native — fractional for
+  // A benchmark score is benchmark-native: fractional for
   // DRACO, negative for HealthBench — so it renders as a plain number, never as a
   // percentage. formatPercent stays for genuine shares (e.g. the frontier's
   // open_share); do not point it at a score again.
@@ -198,13 +198,6 @@ window.ScorePortal = (function () {
   // verified_by_screamingface === true; otherwise an em dash (no badge —
   // absence means unverified).
   //
-  // AIDEV-NOTE: NOTHING CALLS THIS as of OME-820. verified_by_screamingface now carries no
-  // trustworthy verification semantics whatever its value — no service re-runs
-  // submissions (OME-414) and nothing attests where a run executed. A badge driven by a
-  // signal that means nothing is not a trust signal, so the benchmark board, the spec
-  // history and the "Verified rows" stat all dropped it rather than relabel it. Kept, unused and
-  // deliberately untouched, because OME-821 restores the distinction and will want this
-  // back. Do not re-wire it before then.
   function createVerifiedBadge(isVerified) {
     if (isVerified === true) return el("span", "badge-verified", "✓ verified");
     return document.createTextNode(EM_DASH);
@@ -237,8 +230,7 @@ window.ScorePortal = (function () {
   }
 
   /* ---- benchmark tab strip (shared by benchmark.html) ------------------ */
-  // Renders whatever the catalog actually returns — never hardcodes specific
-  // benchmark ids (spec OME-768 D6).
+  // Render whatever the catalog actually returns; never hardcode benchmark ids.
   function renderTabStrip(container, benchmarks, activeId) {
     if (!container) return;
     clear(container);
@@ -259,9 +251,7 @@ window.ScorePortal = (function () {
   }
 
   /* ---- index page ------------------------------------------------------ */
-  // "Subtitle" isn't an explicit field on Benchmark — using `description`
-  // provisionally (flagged to Irina on OME-768; easy to swap if she says
-  // otherwise, this is the one place it's read).
+  // "Subtitle" is not an explicit Benchmark field, so description is its single source here.
   function benchmarkSubtitle(b) {
     return b.description || null;
   }
@@ -293,12 +283,12 @@ window.ScorePortal = (function () {
     return tr;
   }
 
-  // D11: no aggregate "submission count" endpoint exists yet (OME-772). One
-  // extra fetch per benchmark is an acceptable N+1 at today's benchmark count
+  // No aggregate submission-count endpoint exists. One extra fetch per benchmark is
+  // acceptable at today's benchmark count
   // (a handful) — revisit if the catalog grows past that. `/v1/leaderboard`
   // returns best-per-spec entries (not every raw submission), so this reads
-  // as a fusion/spec count, matching OME-769's own "fusion count" term — the
-  // closest honest proxy for "# submissions" without a dedicated endpoint.
+  // as a fusion/spec count, the closest honest proxy for "# submissions" without a
+  // dedicated endpoint.
   // top=200 is the route's own MAX_LEADERBOARD_TOP — the true ceiling, not a
   // number picked here.
   //

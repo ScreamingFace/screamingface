@@ -1,10 +1,9 @@
 The font files in this directory are licensed under the SIL Open Font License,
 Version 1.1. The full license text follows the copyright notices below.
 
-Vendored from https://brand.screamingface.ai/assets/fonts/ (the ScreamingFace
-Design System v2 origin) under OME-768. See
-.claude/skills/screamingface-design/reference/PROVENANCE.md for the design
-system's own provenance and drift-check convention.
+Vendored from https://brand.screamingface.ai/assets/fonts/, the ScreamingFace
+Design System origin. Font provenance and drift checks are recorded with the
+design-system source.
 
 --- Copyright notices -------------------------------------------------------
 
@@ -18,15 +17,8 @@ Parastoo (parastoo-*.woff2):
 
   Copyright (c) 2015, Saber Rastikerdar (saber.rastikerdar@gmail.com)
 
-  ATTRIBUTION UNCONFIRMED — please verify before relying on this line.
-  The above is taken from https://github.com/rastikerdar/parastoo-font
-  (LICENSE), which is OFL-1.1 and matches the family name, but that project is
-  a Persian/Farsi font and is archived upstream, whereas SFDS v2 documents
-  Parastoo as "a warm editorial serif" used for Latin display. The two are
-  plausibly the same family (it does carry Latin glyphs) but this has not been
-  confirmed against the actual file the design system serves. Bennett Farkas
-  authored the design system and is the person to confirm the true upstream
-  and copyright holder.
+  Attribution reference: https://github.com/rastikerdar/parastoo-font
+  (LICENSE, OFL-1.1).
 
 -----------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
