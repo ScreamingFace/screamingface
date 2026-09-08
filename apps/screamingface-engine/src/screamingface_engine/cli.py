@@ -13,9 +13,9 @@ sitting unused on a Job's disk. The worker mode (OME-1089) is the third mode: it
 serving half and the queue, and spawns the run as a child process rather than importing it.
 
 INVARIANT: the mode is chosen by ARGV, never sniffed from the environment.
-`K8sJobRunner` schedules `["screamingface-engine", "run"]` explicitly, so a Job that
-is missing its env fails loudly at boot instead of silently booting a web server that
-nothing will ever dial.
+The worker pool's Deployment pins `["screamingface-engine", "worker"]` and the run
+mode is entered by the worker's child processes, so a pod that is missing its env fails
+loudly at boot instead of silently booting a web server that nothing will ever dial.
 
 ``serve`` is the default when no subcommand is given, which is what keeps the
 image's ``CMD ["screamingface-engine"]`` and the chart's

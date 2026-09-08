@@ -67,6 +67,16 @@
           "minimum": 1,
           "description": "Per-run downstream in-flight budget written onto every Runner Job as URL4_CLOUD_IO_CONCURRENCY (OME-908). 4 matches the gateway's per-provider admission ceiling so a run saturates its provider without piling a backlog behind it; 32 restores the pre-OME-908 width. Local mode ignores this value (its runs share the process fair-share gate)."
         },
+        "runQueueReplicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The queue stream's replica count (OME-1088), rendered to both the App and the worker pool — they declare the same singleton stream and ensure_stream refuses a divergent declaration, so a one-sided value is a startup failure for whichever half declares second. Defaults to 1 because this chart bundles a SINGLE-NODE NATS subchart, and a single-node broker refuses replicas > 1 outright (ServerError 10074). Raise it only against a real NATS cluster."
+        },
+        "runQueueBucketCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many bucket subjects the run queue is split into for per-caller fairness (OME-1091), rendered to both the App and the worker pool. The App publishes into one bucket and the worker polls them all, so a one-sided value is NOT a startup failure — the run is accepted, lands in a bucket nobody polls, and expires silently. Zero is the modulus of the bucket hash, so it is refused here before any template renders."
+        },
         "aigatewayBaseUrl": {
           "type": "string"
         },
@@ -84,9 +94,9 @@
         "backend": {
           "enum": [
             "none",
-            "k8s"
+            "queue"
           ],
-          "description": "Mirrors screamingface_engine.config.RunnerBackend. `none` deploys an App that cannot schedule and answers 503 to every run."
+          "description": "Mirrors screamingface_engine.config.RunnerBackend. `queue` deploys the App onto the durable run queue + worker pool; `none` deploys an App that cannot schedule and answers 503 to every run."
         },
         "image": {
           "type": "object",
@@ -101,20 +111,98 @@
             }
           },
           "additionalProperties": false
-        },
-        "resources": {
-          "type": "object"
-        },
-        "jobTtlSeconds": {
-          "type": [
-            "integer",
-            "string"
-          ],
-          "description": "Empty string = derive iatWindowS + a 60s clock-skew margin. A value below iatWindowS is refused by Settings at startup: reclaiming a Job while its token is still within `exp` deletes the name that is the single-use replay guard. It deliberately does NOT include jobDeadlineS — ttlSecondsAfterFinished counts from completion, so the guard must outlive the token, not the run."
         }
       },
       "required": [
         "backend"
+      ],
+      "additionalProperties": false
+    },
+    "runnerPool": {
+      "type": "object",
+      "description": "The fixed worker pool (OME-1092): a Deployment of `replicas` pods, each running `screamingface-engine worker` with `workerSlots` run slots. Declared concurrency is `replicas × workerSlots`.",
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "workerSlots": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Run slots per worker pod. MUST match `run_queue_worker_slots` — the queue's `max_ack_pending` is `QUEUE_REPLICAS × this`."
+        },
+        "drainGraceS": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Seconds a draining worker keeps its in-flight children alive after SIGTERM (`worker_drain_grace_s`)."
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "INVARIANT: must stay at or above `drainGraceS` + 10s (kill grace) + 15s (terminal-publish budget) — the kubelet SIGKILLs the pod at this deadline, and a drain cut short interrupts every in-flight run. The chart enforces this with a `fail` at render time; a JSON Schema description alone enforces nothing."
+        },
+        "perRunCharge": {
+          "type": "object",
+          "description": "The per-slot charge: what one run may consume (the old Runner Job's numbers).",
+          "properties": {
+            "cpuMillicores": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "memoryMi": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "memoryLimitMi": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "cpuMillicores",
+            "memoryMi",
+            "memoryLimitMi"
+          ],
+          "additionalProperties": false
+        },
+        "overhead": {
+          "type": "object",
+          "description": "The worker process's own footprint, added to the per-slot charge.",
+          "properties": {
+            "cpuMillicores": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "memoryMi": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "memoryLimitMi": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "cpuMillicores",
+            "memoryMi",
+            "memoryLimitMi"
+          ],
+          "additionalProperties": false
+        },
+        "metricsPort": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The worker's Prometheus /metrics port (prometheus_client.start_http_server)."
+        }
+      },
+      "required": [
+        "replicas",
+        "workerSlots",
+        "drainGraceS",
+        "terminationGracePeriodSeconds",
+        "perRunCharge",
+        "overhead",
+        "metricsPort"
       ],
       "additionalProperties": false
     },
@@ -412,9 +500,6 @@
       "type": "object"
     },
     "serviceAccount": {
-      "type": "object"
-    },
-    "rbac": {
       "type": "object"
     },
     "service": {

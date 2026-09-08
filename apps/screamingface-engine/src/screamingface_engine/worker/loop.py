@@ -15,8 +15,10 @@ import asyncio
 import contextlib
 import logging
 import signal
+import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import nats
 
@@ -28,11 +30,13 @@ if (
     from screamingface_engine.adapters.jetstream import JetStreamPublisher
     from screamingface_engine.runner_queue import RunQueue
 from screamingface_engine.runner_queue import UNDECODABLE_BODY_ERRORS, topic_of_message
-from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX
+from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX, OWNERSHIP_SUBJECT_PREFIX
+from screamingface_engine.worker.metrics import WorkerMetrics, build_worker_metrics
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
     HEARTBEAT_INTERVAL_S,
     KILL_GRACE_S,
+    OWNERSHIP_PROBE_TIMEOUT_S,
     ClaimedMessage,
     RunSupervisor,
     _ChildProcess,
@@ -79,9 +83,19 @@ class _ControlSubscription(Protocol):
 
 
 class _Control(Protocol):
-    """The slice of a core NATS client the control loop uses."""
+    """The slice of a core NATS client the worker's control channels use.
+
+    ``request`` is the CLIENT side of the cross-pod ownership probe (OME-1089): the
+    supervisor asks `url4.runown.<topic>` whether another pod is executing a redelivered
+    run. Declared here rather than on a second injected client because the worker already
+    holds exactly one core-NATS connection for `url4.runctl.*` and both channels are the
+    same connection's business — see `adapters.queue_runner._ControlClient` for the App's
+    identical slice of the same client.
+    """
 
     async def subscribe(self, subject: str) -> _ControlSubscription: ...
+
+    async def request(self, subject: str, payload: bytes, *, timeout: float) -> Any: ...
 
 
 class Worker:
@@ -108,6 +122,8 @@ class Worker:
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
         deadline_margin_s: float = DEADLINE_MARGIN_S,
         kill_grace_s: float = KILL_GRACE_S,
+        ownership_probe_timeout_s: float = OWNERSHIP_PROBE_TIMEOUT_S,
+        metrics: WorkerMetrics | None = None,
     ) -> None:
         if slots < 1:
             raise ValueError(f"worker slots must be >= 1, got {slots}")
@@ -116,10 +132,24 @@ class Worker:
         self._slots = slots
         self._drain_grace_s = drain_grace_s
         self._pull_timeout_s = pull_timeout_s
+        # The worker's Prometheus metrics (OME-1092). `None` (tests, or a worker built
+        # without the composition root) builds a fresh instance on its own registry, so
+        # nothing here ever touches a shared registry.
+        self._metrics = metrics if metrics is not None else build_worker_metrics()
+        self._metrics.slots_total.set(slots)
         # The run-control channel (OME-1090): a core NATS client subscribed to
-        # `url4.runctl.*`. `None` disables the control loop (tests that do not exercise
-        # cancellation).
+        # `url4.runctl.*` — and, since OME-1089, to `url4.runown.*` as well. `None` disables
+        # both loops AND the ownership probe (tests that do not exercise cancellation).
         self._control = control
+        # This worker POD's identity (OME-1089), minted per process and sent as the payload
+        # of every ownership probe.
+        #
+        # WHY it exists: this worker is itself subscribed to `url4.runown.*`, and a claim
+        # registers its topic in `_starting` BEFORE the probe goes out — so without an id on
+        # the wire a pod would answer its OWN probe, veto its own claim, and the run would
+        # never execute anywhere (a redelivery-after-crash deadlock). `_handle_ownership`
+        # drops any probe carrying this id.
+        self._worker_id = uuid.uuid4().hex
         # The drain signal: set by SIGTERM/SIGINT (or by a test). The claim loop stops
         # pulling once it is set; the supervisors read it to classify a drain termination.
         self._draining = asyncio.Event()
@@ -162,9 +192,13 @@ class Worker:
             children_by_topic=self._children_by_topic,
             cancelled=self._cancelled,
             starting=self._starting,
+            control=control,
+            worker_id=self._worker_id,
             heartbeat_interval_s=heartbeat_interval_s,
             deadline_margin_s=deadline_margin_s,
             kill_grace_s=kill_grace_s,
+            ownership_probe_timeout_s=ownership_probe_timeout_s,
+            metrics=self._metrics,
         )
 
     async def run(self) -> None:
@@ -182,6 +216,7 @@ class Worker:
                 tg.create_task(self._claim_loop(tg))
                 if self._control is not None:
                     tg.create_task(self._control_loop(tg))
+                    tg.create_task(self._ownership_loop())
         finally:
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.remove_signal_handler(sig)
@@ -199,19 +234,14 @@ class Worker:
             free = self._slots - len(self._active)
             if free <= 0:
                 if self._active:
-                    # Wait for a slot — or the drain signal, so a full pool cannot
-                    # deadlock the drain (the supervisors would never finish on their
-                    # own, and the drain handler runs only after this loop exits).
-                    drain_task = asyncio.create_task(self._draining.wait())
-                    done, _ = await asyncio.wait(
-                        {*self._active, drain_task}, return_when=asyncio.FIRST_COMPLETED
-                    )
-                    drain_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await drain_task
-                    for task in done:
-                        self._active.discard(task)
+                    await self._await_free_slot()
                 continue
+            pull_started = time.monotonic()
+            # The loop-liveness signal: stamped on every pull ATTEMPT, before the await —
+            # a loop wedged inside a pull (or never reaching one) stops advancing this
+            # gauge while the scrape thread stays healthy. See the gauge's docstring for
+            # the alert shape.
+            self._metrics.last_claim_attempt.set(time.time())
             try:
                 msgs = await self._queue.pull(free, timeout_s=self._pull_timeout_s)
             except Exception as exc:
@@ -225,8 +255,14 @@ class Worker:
                 # alert fires. `CancelledError` is a `BaseException` and passes through,
                 # so a shutdown still lands.
                 logger.warning("queue pull failed with %r; retrying in %.1fs", exc, _PULL_RETRY_S)
+                # V-5: the failure counter is the alert lever the liveness stamp cannot
+                # be — the stamp advances on every ATTEMPT, so a pull that keeps failing
+                # (or silently returning nothing) still looks alive. A rising counter is
+                # the operator's signal that the worker's broker path needs attention.
+                self._metrics.pull_failures_total.inc()
                 await asyncio.sleep(_PULL_RETRY_S)
                 continue
+            self._metrics.claim_latency_s.observe(time.monotonic() - pull_started)
             for msg in msgs:
                 # Register the run as STARTING before the supervisor task exists: a cancel
                 # that arrives while the claim loop is between pulls must find the topic,
@@ -243,8 +279,39 @@ class Worker:
                     self._starting.add(topic_of_message(msg.data))
                 task = tg.create_task(self._supervisor.supervise(msg))
                 self._active.add(task)
-                task.add_done_callback(self._active.discard)
+                task.add_done_callback(self._on_task_done)
+            # WHY the busy-slot gauge is set AFTER the add loop, not before (review
+            # follow-up): the old order reported the pre-claim count in the window between
+            # the pull returning and the tasks registering — a scrape landing there during a
+            # bursty claim under-reported utilization by the just-claimed batch, biasing
+            # capacity dashboards LOW at the moments of highest throughput.
+            self._metrics.slots_busy.set(len(self._active))
         await self._drain()
+
+    async def _await_free_slot(self) -> None:
+        """Block until a supervisor finishes or the drain signal fires.
+
+        The drain signal is in the race so a FULL pool cannot deadlock the drain: the
+        supervisors would never finish on their own, and the drain handler runs only
+        after this loop exits. Any tasks that completed alongside the winner are
+        reaped here — `_on_task_done` will also fire for them, and `discard` is
+        idempotent."""
+        drain_task = asyncio.create_task(self._draining.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {*self._active, drain_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            drain_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await drain_task
+        for task in done:
+            self._active.discard(task)
+
+    def _on_task_done(self, task: asyncio.Task[None]) -> None:
+        """Drop a finished supervisor task and refresh the busy-slot gauge."""
+        self._active.discard(task)
+        self._metrics.slots_busy.set(len(self._active))
 
     async def _control_loop(self, tg: asyncio.TaskGroup) -> None:
         """Serve run-control requests: only the owner of a run replies, and it SIGTERMs
@@ -270,10 +337,37 @@ class Worker:
         done and the pool is empty) keeps cancels answerable through the window, and the
         abandon-on-timeout shape below still ends the TaskGroup.
         """
+        await self._serve_subject(f"{CONTROL_SUBJECT_PREFIX}.*", self._handle_control)
+
+    async def _ownership_loop(self) -> None:
+        """Answer cross-pod ownership probes: only a worker executing the run replies
+        (OME-1089).
+
+        A SECOND subscription rather than a payload on `url4.runctl.*` — see
+        `subjects.OWNERSHIP_SUBJECT_PREFIX` for the version-skew hazard that forces it: the
+        control handler SIGTERMs the child that owns the topic, so an old worker mid rolling
+        deploy would read a probe as a cancel and kill a healthy run. On a new subject an old
+        worker simply never subscribes, never replies, and the prober fails open.
+
+        It shares `_serve_subject`'s `_drained`-based exit with the control loop, so this
+        subscription cannot keep the `TaskGroup` — and the rolling deploy behind it — alive
+        past the drain (review follow-up P2-12).
+        """
+        await self._serve_subject(f"{OWNERSHIP_SUBJECT_PREFIX}.*", self._handle_ownership)
+
+    async def _serve_subject(
+        self, subject: str, handle: Callable[[_ControlMessage], Awaitable[None]]
+    ) -> None:
+        """Serve one core-NATS subscription until the drain phase has COMPLETED.
+
+        The `_drained` exit condition (not the drain SIGNAL) is the P2-12 invariant, and it
+        belongs to every subscription the worker serves — see `_control_loop`'s docstring for
+        why both halves of it are load-bearing.
+        """
         control = self._control
         if control is None:
             return
-        sub = await control.subscribe(f"{CONTROL_SUBJECT_PREFIX}.*")
+        sub = await control.subscribe(subject)
         messages = sub.messages.__aiter__()
         while True:
             msg_task = asyncio.ensure_future(messages.__anext__())
@@ -292,7 +386,36 @@ class Worker:
                 with contextlib.suppress(asyncio.CancelledError):
                     await msg_task
                 return
-            await self._handle_control(msg_task.result())
+            await handle(msg_task.result())
+
+    async def _handle_ownership(self, msg: _ControlMessage) -> None:
+        """Answer one ownership probe: reply IFF this worker is executing the run, and NEVER
+        to our own probe (OME-1089).
+
+        INVARIANT — NO SIDE EFFECTS. This handler must never touch a child. It is the whole
+        reason the probe is a separate subject from `url4.runctl.*`, whose handler kills.
+
+        INVARIANT — silence is the negative answer. A worker that does not own the topic
+        sends NO reply, so the prober's request times out rather than receiving a "no". That
+        makes an old worker (which does not subscribe at all) and a new non-owner
+        indistinguishable, which is what lets the prober fail open in both cases.
+
+        The reply payload is this worker's own id, so the prober's warning names the pod that
+        actually owns the run.
+
+        WHY `_starting` counts as ownership, not just `_children_by_topic`: a run is claimed
+        and registered as starting BEFORE its child exists, and a probe landing in that spawn
+        window must still answer "mine" — answering from the child index alone would declare
+        the run unowned for the length of a fork/exec and reopen the very race this closes.
+        And WHY the self-id check rather than narrowing to `_children_by_topic`: the probing
+        pod is subscribed here too, and its own claim is in `_starting` when it probes, so
+        without the id it would veto its own claim and the run would execute NOWHERE.
+        """
+        if msg.data == self._worker_id.encode():
+            return
+        topic = msg.subject.removeprefix(f"{OWNERSHIP_SUBJECT_PREFIX}.")
+        if topic in self._children_by_topic or topic in self._starting:
+            await msg.respond(self._worker_id.encode())
 
     async def _handle_control(self, msg: _ControlMessage) -> None:
         """Answer one control request: SIGTERM the child that owns the topic, or reply to a
@@ -338,6 +461,7 @@ class Worker:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._drain_grace_s
 
+        self._metrics.drains.inc()
         # Phase 1 — the grace window: let in-flight runs finish naturally. WHY the ACTIVE
         # supervisor tasks and not the CHILDREN (review follow-up P2-6): a task is
         # registered the moment its run is claimed, while its child only registers once
@@ -419,6 +543,15 @@ def run_worker(settings: Settings | None = None) -> None:
     """
     settings = settings if settings is not None else Settings()
     queue, publisher = worker_composition(settings)
+    metrics = build_worker_metrics()
+    metrics.started.inc()
+    if settings.worker_metrics_port > 0:
+        # The worker's own scrape endpoint (OME-1092): the chart exposes this port on the
+        # runner pool Deployment. The stdlib-backed server is the prometheus_client
+        # convention for a process that serves nothing else.
+        from prometheus_client import start_http_server
+
+        start_http_server(settings.worker_metrics_port, registry=metrics.registry)
 
     async def _main() -> None:
         # The control channel is a core NATS client of its own, like the queue's and the
@@ -442,6 +575,7 @@ def run_worker(settings: Settings | None = None) -> None:
                 # running run to a second worker (double execution). `derived_heartbeat_interval_s`
                 # keeps `heartbeat <= ack_wait / 3` for every legal configuration.
                 heartbeat_interval_s=derived_heartbeat_interval_s(settings.run_queue_ack_wait_s),
+                metrics=metrics,
             )
             await worker.run()
         finally:

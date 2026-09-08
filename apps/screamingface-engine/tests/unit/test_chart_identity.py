@@ -138,7 +138,10 @@ def test_the_rendered_objects_keep_the_pinned_identity() -> None:
         r"^\s+app\.kubernetes\.io/name:\s*(\S+)\s*$", rendered, re.MULTILINE
     )
     assert selector_names, "the chart rendered no `app.kubernetes.io/name` labels"
-    assert set(selector_names) == {_PINNED_IDENTITY}, (
+    # The runner pool is the one deliberate exception: aigateway's NetworkPolicy admits the run
+    # workload by `app.kubernetes.io/name: url4-runner` (the old Job labels), and the pool
+    # replaces the Jobs — so its pods must carry that label or they are denied at the CNI.
+    assert set(selector_names) == {_PINNED_IDENTITY, "url4-runner"}, (
         f"`app.kubernetes.io/name` moved to {set(selector_names)}; this breaks the Deployment "
         f"selector and aigateway's NetworkPolicy allowlist"
     )

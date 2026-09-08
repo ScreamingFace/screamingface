@@ -51,25 +51,9 @@ def warn(topic: str, clock: Clock, message: str, attributes: LogAttributes) -> L
     )
 
 
-def info(topic: str, clock: Clock, message: str, attributes: LogAttributes) -> LogEvent:
-    """Build an ``info`` ``LogEvent`` for ``topic``'s attached client — advisory, never a nack.
-
-    The informational counterpart of :func:`warn`: the queue-position notice (OME-1090)
-    reports a normal, expected wait, not something the caller stated being dropped, so it
-    is INFO rather than WARN.
-    """
-    return LogEvent(
-        id=uuid4().hex,
-        source=source_for(topic),
-        subject=topic,
-        time=clock(),
-        data=LogData.at("INFO", message, attributes),
-    )
-
-
 def rendered(policy: CachePolicy | None) -> str:
     """A cache intent as a log-attribute value; :data:`NOT_STATED` when there is none."""
     return NOT_STATED if policy is None else policy.model_dump_json(exclude_none=True)
 
 
-__all__ = ["NOT_STATED", "Clock", "LogAttributes", "info", "rendered", "warn"]
+__all__ = ["NOT_STATED", "Clock", "LogAttributes", "rendered", "warn"]

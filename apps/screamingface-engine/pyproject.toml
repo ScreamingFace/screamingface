@@ -21,7 +21,6 @@ dependencies = [
     "fastapi>=0.141.1",
     "uvicorn[standard]>=0.52.1",
     "pyjwt>=2.10.1",
-    "kubernetes>=31.0.0",
     "prometheus-client>=0.21.0",
     "pydantic-settings>=2.14.1",
     # --- both modes ---
@@ -46,15 +45,13 @@ dependencies = [
 [project.scripts]
 screamingface-engine = "screamingface_engine.cli:main"
 screamingface-engine-runner = "screamingface_engine.runner.main:main"
-# COMPATIBILITY ALIASES — the app's previous name (OME-876). `K8sJobRunner` still schedules
-# `["url4-cloud", "run"]` deliberately: during a rolling upgrade an App pod running one release
-# schedules an image built from the other, because the image reference comes from the ConfigMap
-# while the command comes from Python, so the two change at different moments. Keeping these
-# names resolvable makes that window survivable in BOTH directions.
+# COMPATIBILITY ALIASES — the app's previous name (OME-876). The worker pool's children exec
+# `screamingface-engine run` (worker/exec_wrapper.py), so the aliases are no longer load-bearing
+# for scheduling — they exist for anything that still invokes the old names (compose files,
+# ad-hoc pods, operator muscle memory). OME-877 carries their removal.
 #
-# AIDEV-NOTE: these two and the `K8sJobRunner` command move together, one release later, or not
-# at all — flipping the command while dropping the aliases is the one combination that breaks.
-# OME-877 carries that change.
+# AIDEV-NOTE: these two move together, one release later, or not at all — dropping one while
+# keeping the other breaks whatever still calls the dropped name.
 url4-cloud = "screamingface_engine.cli:main"
 url4-cloud-runner = "screamingface_engine.runner.main:main"
 
@@ -108,6 +105,7 @@ omit = ["src/screamingface_engine/benchmarks/ifeval/vendor/*"]
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "pyyaml>=6.0",
     "pyright>=1.1.409",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3,<2",

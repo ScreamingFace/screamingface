@@ -22,9 +22,11 @@ the environment:
 - **`screamingface-engine serve`** — the stateless control-plane App (REST + WebSocket). The **default** when
   no subcommand is given, which is what keeps the image's `CMD ["screamingface-engine"]` and the chart's
   Deployment command working.
-- **`screamingface-engine run`** — the one-shot Job mode (`screamingface_engine/runner/`) that executes one url4
-  expression, publishes telemetry to NATS and exits. `K8sJobRunner` schedules the App's **own**
-  image with `command: ["screamingface-engine", "run"]`.
+- **`screamingface-engine run`** — the one-shot run mode (`screamingface_engine/runner/`) that executes one url4
+  expression, publishes telemetry to NATS and exits. The worker pool's children enter it
+  (`worker/exec_wrapper.py` execs `screamingface-engine run`).
+- **`screamingface-engine worker`** — the fixed worker pool (OME-1089): claims runs from the durable
+  queue and forks each as a supervised child process.
 - **`screamingface-engine serve --local`** — both halves fused in one process, for development. Runs execute
   as `asyncio` tasks (`InProcessJobRunner`) and frames travel an in-memory log
   (`InMemoryEventStream`) instead of JetStream, so neither Kubernetes nor NATS is needed.
@@ -54,7 +56,7 @@ concrete lives there.
 | the wire protocol | `url4.streaming.protocol` | the CloudEvents frame models |
 | abstract classes | `url4.streaming` | `EventPublisher`/`EventConsumer`, `Executor`, `JobRunner` |
 | pure logic over them | `url4.streaming` | the run lifecycle, the frame codec, `job_name`, `parse_traceparent` |
-| every implementation | the half that runs it | `K8sJobRunner`, the model catalog (serve) · `Url4Executor`, the aigateway connector (run) · the JetStream adapter (a shared leaf) |
+| every implementation | the half that runs it | the queue-backed runner + the worker pool (serve) · `Url4Executor`, the aigateway connector (run) · the JetStream adapter (a shared leaf) |
 
 The rule that decides it: **if it names a broker, a scheduler or a framework, it is not a concept** —
 it belongs to whichever half runs it. `url4.streaming` therefore has no NATS client, no
@@ -70,13 +72,13 @@ that property was given up when the contract moved here, and nothing enforces it
 > image prove nothing, so `.claude/scripts/check_layering.py` proves it instead, as an
 > intra-package rule with the same doctrine. `screamingface_engine.runner.*` must not import the control
 > plane (`app`, `rest`, `ws`, `auth`, `catalog`, `config`, `metrics`, `ops`, `schemas`,
-> `adapters.k8s`, `adapters.factory`), and the control plane must not import `screamingface_engine.runner.*`.
+> `adapters.factory`), and the control plane must not import `screamingface_engine.runner.*`.
 > They share exactly three leaves: **`job_env`, `subjects`, `adapters.jetstream`**. `cli.py` is
 > exempt — dispatching to both is its entire job, and it imports each lazily inside the branch that
 > runs it.
 >
 > What that buys, verified empirically: importing `screamingface_engine.runner.main` loads **none** of
-> fastapi, uvicorn, starlette, kubernetes, jwt or prometheus_client. A Job's cold start stays the
+> fastapi, uvicorn, starlette, kubernetes, jwt or prometheus_client. A run's cold start stays the
 > engine plus httpx plus nats-py — the cost the separate slim image used to buy structurally.
 
 In a **deployed** App the serving half is the control plane and executes nothing: it mints tokens,
@@ -120,10 +122,10 @@ What differs from a deployed App — and nothing else does:
 
 | Concern | Deployed | `--local` |
 | --- | --- | --- |
-| Run substrate | `K8sJobRunner` (one batch/v1 Job per run) | `InProcessJobRunner` (one `asyncio.Task`) |
+| Run substrate | the durable queue + worker pool (OME-1092) | `InProcessJobRunner` (one `asyncio.Task`) |
 | Event stream | JetStream | `InMemoryEventStream` |
 | Caller identity | the verified `X-User-Email` Envoy injects | none — aigateway is anonymous |
-| Admission | the cluster queues surplus Jobs | `local_max_concurrent_runs`, else `503` + `Retry-After` |
+| Admission | queue depth + per-caller in-flight cap (OME-1091) | `local_max_concurrent_runs`, else `503` + `Retry-After` |
 | JWT secret | `_require_prod_secret` refuses the dev default | dev default allowed, so the bind is loopback-only |
 
 Runs still require an attached WebSocket subscriber first — the `428` gate is protocol discipline
