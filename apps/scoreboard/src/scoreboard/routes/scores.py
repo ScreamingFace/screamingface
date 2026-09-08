@@ -37,6 +37,7 @@ from scoreboard.scores.schemas import (
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
+    ScoreRankingNotice,
     ScoreSchema,
     ScoreSubmission,
 )
@@ -158,9 +159,25 @@ def _field_error_detail(field: str, message: str) -> dict[str, str]:
     return FieldErrorDetail(field=field, message=message).model_dump()
 
 
+def _submission_response(score: ScoreSchema, registered_revision: str | None) -> ScoreSchema:
+    submitted_revision = score.benchmark_revision
+    if registered_revision is None or submitted_revision == registered_revision:
+        return score
+    return score.model_copy(
+        update={
+            "ranking_notice": ScoreRankingNotice(
+                code="benchmark_revision_mismatch",
+                submitted_benchmark_revision=submitted_revision,
+                registered_benchmark_revision=registered_revision,
+            )
+        }
+    )
+
+
 @router.post(
     "/scores",
     response_model=ScoreSchema,
+    response_model_exclude_unset=True,
     status_code=status.HTTP_201_CREATED,
     responses=SUBMIT_SCORE_RESPONSES,
 )
@@ -197,6 +214,13 @@ async def submit_score(
                     f"unknown benchmark_id: {submission.benchmark_id!r}",
                 ),
             )
+
+        # FEATURE (OME-909): snapshot before the write, inside the same unavailable-store
+        # boundary. A read after a successful insert could fail and hide the persisted id from
+        # the caller. Keep `exists()` above as the established 404/503 seam; this narrow second
+        # read supplies only the submit-time comparability fact.
+        benchmark = await Benchmark.filter(id=submission.benchmark_id).only("revision").first()
+        registered_revision = None if benchmark is None else benchmark.revision
 
         # INVARIANT (OME-894): a private board cannot take a write without a VERIFIED submitter.
         # In `disabled` mode `_resolve_submitter` trusts the body's `submitted_by`, and combined
@@ -252,7 +276,7 @@ async def submit_score(
             # happened, including under a concurrent-duplicate race (found in PR
             # review, OME-391 / C28).
             response.status_code = status.HTTP_200_OK
-        return outcome.score
+        return _submission_response(outcome.score, registered_revision)
     except OperationalError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -35,6 +35,7 @@ def leaderboard_score_html(value: LeaderboardScore) -> str:
     questions = f"{value.total_questions} question" + ("" if value.total_questions == 1 else "s")
     receipt = " · ".join((questions, f"id {str(value.id)[:8]}…"))
     authors = ", ".join(value.authors) if value.authors else "—"
+    ranking_notice = _ranking_notice_html(value)
     cells = [
         # INVARIANT (OME-866): the score renders as stored — plain number, no ×100,
         # no percent. _score_text is shared with the Report card so the same figure
@@ -59,10 +60,25 @@ def leaderboard_score_html(value: LeaderboardScore) -> str:
         f"<span class='sf-report__strip-when'>{escape(_stamp(value.submitted_at))}</span>"
         f"<span class='sf-report__receipt'>{escape(receipt)}</span></div>"
         "<div class='sf-report__card'>"
+        f"{ranking_notice}"
         f"<div class='sf-report__grid'>{''.join(cells)}</div>"
         "<details class='sf-report__det'><summary>URL4</summary>"
         f"<pre class='sf-report__pre'>{escape(_clip(str(value.url4), 1200))}</pre>"
         "</details></div></div>"
+    )
+
+
+def _ranking_notice_html(value: LeaderboardScore) -> str:
+    notice = value.ranking_notice
+    if notice is None:
+        return ""
+    submitted = notice.submitted_benchmark_revision or "none reported"
+    return (
+        "<div class='sf-report__warn' role='alert'>"
+        "<strong>Not ranked · benchmark revision mismatch.</strong> "
+        f"This run used revision {escape(submitted)}; "
+        f"the board ranks revision {escape(notice.registered_benchmark_revision)}."
+        "</div>"
     )
 
 
@@ -90,6 +106,11 @@ def _board_link_html(value: LeaderboardScore) -> str:
 
 
 def _revision(value: LeaderboardScore) -> str | None:
+    # INVARIANT (OME-909): the mismatch notice carries the store-resolved revision. Prefer it to
+    # legacy free-form metadata, which can disagree with the typed submission field and otherwise
+    # make one receipt name two different submitted revisions.
+    if value.ranking_notice is not None:
+        return value.ranking_notice.submitted_benchmark_revision
     if value.metadata is None:
         return None
     candidate = value.metadata.get("benchmark_revision")

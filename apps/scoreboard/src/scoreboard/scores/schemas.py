@@ -421,8 +421,18 @@ class BenchmarkSchema(BaseModel):
     created_at: datetime
 
 
+class ScoreRankingNotice(BaseModel):
+    """Why a successfully persisted score will not enter the current ranking."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["benchmark_revision_mismatch"]
+    submitted_benchmark_revision: str | None
+    registered_benchmark_revision: str
+
+
 class ScoreSchema(BaseModel):
-    """Read DTO for a score."""
+    """Read DTO for a score and the successful submission receipt."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -453,6 +463,13 @@ class ScoreSchema(BaseModel):
     # classification registry. Operator-only, never set via ScoreSubmission.
     openness_override: Literal["open", "closed"] | None = None
     run_cost_usd: RunCostUsd
+    # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
+    # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
+    # mismatch supplied by POST remains visible and documented in the shared schema.
+    ranking_notice: ScoreRankingNotice | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
 
 class LeaderboardEntry(BaseModel):

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* **screamingface:** expose and render why a published score will not rank
+
 ## 0.1.1 (2026-08-13)
 
 Baseline-only release. `0.1.0` and `0.1.1` were both uploaded to PyPI by hand rather than by
