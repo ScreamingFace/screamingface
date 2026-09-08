@@ -213,18 +213,26 @@ def test_pareto_chart_dark_theme_uses_the_right_paint_property_for_each_element(
     assert "background: var(--info-solid)" in key.group(1)
 
 
-def test_every_served_text_asset_carries_no_internal_references(tmp_path: Path) -> None:
+def test_every_served_asset_carries_no_internal_references(tmp_path: Path) -> None:
     """The mounted portal tree is a public response surface, including source comments."""
     portal = Path(__file__).resolve().parents[2] / "portal"
     files = sorted(path for path in portal.rglob("*") if path.is_file())
     assert files, "expected files under portal/"
 
     forbidden = {
-        "internal ticket prefix": re.compile(r"OME-"),
-        "agent-only note": re.compile(r"AIDEV-NOTE"),
-        "internal invariant anchor": re.compile(r"INVARIANT"),
-        "agent configuration path": re.compile(r"\.claude/"),
-        "agent worktree path": re.compile(r"worktrees/"),
+        "internal ticket prefix": re.compile(rb"\bOME-", re.IGNORECASE),
+        "agent-only note": re.compile(rb"\bAIDEV-NOTE\b", re.IGNORECASE),
+        "agent-only feature anchor": re.compile(rb"\bFEATURE:", re.IGNORECASE),
+        "internal invariant anchor": re.compile(rb"\bINVARIANT\b", re.IGNORECASE),
+        "hidden repository path": re.compile(rb"\.(?:agents|claude|git|github)/", re.IGNORECASE),
+        "agent worktree path": re.compile(rb"\bworktrees/", re.IGNORECASE),
+        "repository source path": re.compile(
+            rb"\b(?:apps|packages|tests)/|\bdocs/(?:plan|spec|tasks|work)/",
+            re.IGNORECASE,
+        ),
+        "Python source path": re.compile(
+            rb"\b(?:[A-Za-z_][\w.-]*/)*[A-Za-z_][\w.-]*\.py(?:::[A-Za-z_]\w*)?\b"
+        ),
     }
 
     with TestClient(create_app(_settings(tmp_path))) as client:
@@ -233,15 +241,9 @@ def test_every_served_text_asset_carries_no_internal_references(tmp_path: Path) 
             response = client.get(route)
             assert response.status_code == 200, route
 
-            media_type = response.headers["content-type"].split(";", maxsplit=1)[0]
-            is_text = (
-                media_type.startswith("text/")
-                or media_type in {"application/javascript", "application/json", "image/svg+xml"}
-                or media_type.endswith("+json")
-                or media_type.endswith("+xml")
-            )
-            if not is_text:
-                continue
-
-            leaks = [name for name, pattern in forbidden.items() if pattern.search(response.text)]
+            # Search raw response bytes so an unknown or generic MIME type cannot bypass the
+            # public boundary. These ASCII-only markers are safe to match in binary assets too.
+            leaks = [
+                name for name, pattern in forbidden.items() if pattern.search(response.content)
+            ]
             assert not leaks, f"{route} publicly exposes {', '.join(leaks)}"

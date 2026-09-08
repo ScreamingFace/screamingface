@@ -13,7 +13,7 @@ closed:
 
 Keep the dependency-free portal source safe to serve verbatim: remove internal ticket history,
 agent-only anchors, and repository-internal paths while preserving useful technical rationale in
-the repository and enforcing the boundary across every served text asset.
+the repository and enforcing the boundary across every served asset.
 
 ## Artifacts
 

@@ -15,7 +15,7 @@ the portal dependency-free, its behavior unchanged, and its useful maintenance r
 
 ## Planned changes
 
-- `apps/scoreboard/tests/unit/test_portal_static.py` — append the served-text boundary guard.
+- `apps/scoreboard/tests/unit/test_portal_static.py` — append the served-asset boundary guard.
 - `apps/scoreboard/portal/**/*.{html,js,css,md,txt}` — remove or rewrite forbidden internal
   commentary without changing executable or rendered content.
 - `docs/tasks/2026-08-18-OME-885-portal-source-hygiene.md` — repair the missing task mirror.
@@ -26,16 +26,16 @@ the portal dependency-free, its behavior unchanged, and its useful maintenance r
 
 ## Test plan
 
-- RED: every file below `portal/` is reachable through its corresponding public path; each textual
+- RED: every file below `portal/` is reachable through its corresponding public path; each raw
   response rejects ticket identifiers, agent-only anchors, and internal repository paths.
-- Boundary: binary font and image responses remain fetchable but are not decoded as text.
+- Boundary: binary font and image responses remain fetchable and are scanned without text decoding.
 - Regression: the existing Markdown-only guard and all portal behavior tests remain unchanged and
   green.
 
 ## Acceptance
 
-- The entire served text tree is free of `OME-<number>`, `AIDEV-NOTE`, `INVARIANT`, `.claude/`,
-  and `worktrees/`.
+- The entire served tree is free of `OME-<number>`, agent-only note anchors, internal invariant
+  anchors, agent paths, worktree paths, repository source paths, and Python source-file references.
 - Removed internal reasoning is summarized below rather than discarded.
 - No runtime dependency, portal build step, or user-visible behavior is introduced.
 - Full Scoreboard gates pass.
@@ -98,6 +98,9 @@ from them is preserved here:
   `portal.css`, `assets/fonts/OFL.txt`, and `assets/mark/PROVENANCE.md`; the repaired task mirror,
   spec, plan, and this ledger. No executable JavaScript, HTML structure, CSS declaration, route,
   dependency, or build step changed.
+- **Self-review:** widened the guard from known text media types to raw response bytes so a generic
+  MIME type cannot evade it; removed three remaining source-file paths; and corrected the font note
+  to retain its concise attribution uncertainty rather than accidentally presenting it as verified.
 - **Commits:** this commit — `chore(scoreboard): keep served portal source public-safe`.
 - **Gates:** RED confirmed on `/assets/fonts/OFL.txt`; focused public-response guard 1 passed;
   `test_portal_static.py` 16 passed; full Scoreboard pytest 619 passed / 3 skipped / 3 deselected;

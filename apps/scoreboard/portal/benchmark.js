@@ -113,8 +113,8 @@
     return Math.max.apply(null, entries.map(function (e) { return e.score; }));
   }
 
-  // Scores are benchmark-native, so a board with negative values needs its own bar origin;
-  // needs its own floor — barWidth shifts the origin to min(0, lowest).
+  // Scores are benchmark-native, so a board with negative values needs its own floor;
+  // barWidth shifts the origin to min(0, lowest).
   function lowestScore(entries) {
     if (!entries.length) return null;
     return Math.min.apply(null, entries.map(function (e) { return e.score; }));
@@ -236,7 +236,7 @@
     // WHY count on open_count/closed_count, not data.current: a benchmark with
     // imported Baselines but zero Score submissions yet has a real, meaningful
     // open_share (Baselines count toward the split) even though current is null
-    // (Baselines never become the trend holder — see frontier.py). Gating on
+    // (Baselines never become the server-side trend holder). Gating on
     // current alone would silently hide the stat for every baseline-only benchmark.
     var total = (data.open_count || 0) + (data.closed_count || 0);
     if (total === 0) return;

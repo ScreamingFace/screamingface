@@ -154,9 +154,9 @@ window.ScorePortal = (function () {
   // DRACO, negative for HealthBench — so it renders as a plain number, never as a
   // percentage. formatPercent stays for genuine shares (e.g. the frontier's
   // open_share); do not point it at a score again.
-  // Up to 6 significant digits, mirroring the SDK's one score formatter
-  // (_ui/report_view.py::_score_text) so a tester sees the same figure in the
-  // notebook report, the submit receipt, the board widget and this portal.
+  // Up to 6 significant digits, mirroring the SDK's score formatter so a tester
+  // sees the same figure in the notebook report, the submit receipt, the board
+  // widget and this portal.
   function formatScore(value) {
     if (typeof value !== "number" || isNaN(value)) return EM_DASH;
     return String(parseFloat(value.toPrecision(6)));

@@ -1,13 +1,13 @@
 /* Pure ranking and SOTA decisions for the leaderboard board.
  *
- * FEATURE: the per-benchmark submissions board — ranked rows, score bars, and
- * the SOTA medal on the best reproducible result.
+ * Covers the per-benchmark submissions board: ranked rows, score bars, and the
+ * SOTA medal on the best reproducible result.
  *
  * WHY this file exists separately from benchmark.js: these three functions decide
  * what the public board *claims* — which row (if any) is presented as
  * state-of-the-art, and how long each score bar reads. Keeping them free of
- * the DOM makes them assertable in `tests/portal/leaderboard-logic.test.js`
- * without a browser, which the rest of the portal's rendering is not.
+ * the DOM makes them assertable without a browser, which the rest of the
+ * portal's rendering is not.
  *
  * Loaded as a plain <script> in the browser (exposing window.SFLeaderboardLogic)
  * and via require() in tests. No build step, matching the rest of the portal.
