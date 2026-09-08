@@ -1320,7 +1320,13 @@ Contracts are long — the median case is about 5,400 input tokens and the large
 `limit` matters more here than on most boards. The answer itself is short: a few quoted
 sentences, or the refusal string."""),
         nbformat.v4.new_code_cell("""\
-PARAMS = {"max_tokens": 4096, "temperature": 0.0}
+# No `temperature` here on purpose: several current reasoning models reject the parameter
+# outright — OpenRouter answers `openai/gpt-5.5` with a 404 for ANY temperature value, and
+# `anthropic/claude-opus-4.8` with a 400 — while `gemini-3.1-pro-preview` and
+# `qwen/qwen3.7-flash` accept it. The reference harness calls at temperature 0; omitting it
+# leaves each provider on its own default, which is the only setting that works across a
+# mixed panel. Add `"temperature": 0.0` back for a model you know accepts it.
+PARAMS = {"max_tokens": 4096}
 
 solo = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
 report = sf.evaluate(solo, benchmark="contracteval", limit=5)
