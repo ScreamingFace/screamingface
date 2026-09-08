@@ -117,7 +117,8 @@ jobs:
           uv run pytest -v \
             tests/unit/test_stream_contract.py \
             tests/unit/test_attach_from_sequence_bounds.py \
-            tests/unit/test_jetstream_subscribe_ensures_stream.py
+            tests/unit/test_jetstream_subscribe_ensures_stream.py \
+            tests/integration/test_run_queue_roundtrip.py
       # A skip here means the probe did not find the broker and the job proved nothing.
       - name: Fail if the real-broker parameters were skipped
         run: |

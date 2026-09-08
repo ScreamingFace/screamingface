@@ -6,7 +6,7 @@ from typing import Literal, Self
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from screamingface_engine import job_env
+from screamingface_engine import job_env, runner_queue, subjects
 
 # WHY a margin at all: the App decides a token is expired from its own clock, while the k8s TTL
 # controller deletes the Job from the control plane's. Without slack a skewed pair could reclaim
@@ -252,6 +252,55 @@ class Settings(BaseSettings):
     # See `effective_job_ttl_s` and `_reject_replayable_job_ttl`. None => derive the floor.
     job_ttl_s: int | None = None
 
+    # --- durable run queue (OME-1088) -------------------------------------------------------
+    # WHY a queue at all: OME-1086 replaces one-Job-per-run scheduling with a fixed worker pool
+    # pulling from a durable work queue. THIS unit adds the queue substrate only — no worker,
+    # no cutover — so these settings are the substrate's knobs, not the worker's.
+    #
+    # INVARIANT: the stream name must NOT begin with `url4-cloud_` — `_sweep_orphans` deletes
+    # any stream `owns_stream()` accepts, and the queue is the one stream an accepted run may
+    # not be lost from. `subjects.owns_stream` excludes it explicitly; the default here is the
+    # same constant, so the two cannot drift. The invariant is ENFORCED below by
+    # `_reject_sweepable_run_queue_stream` (review follow-up V-8): a comment could not stop an
+    # operator or a composition root from naming the queue into the sweepable prefix, and the
+    # exclusion in `owns_stream` only holds where the CONFIGURED name actually reaches it.
+    run_queue_stream: str = subjects.RUN_QUEUE_STREAM
+    run_queue_subject_prefix: str = subjects.RUN_QUEUE_SUBJECT_PREFIX
+    # WHY a window at all: a retried submission (a client retrying a timed-out request) must
+    # not become a second run. The broker deduplicates `Nats-Msg-Id` within this window; 120s
+    # is far beyond any retry interval and far below the queue's own lifetime.
+    run_queue_duplicate_window_s: float = runner_queue.DEFAULT_DUPLICATE_WINDOW_S
+    # WHY a backstop and not a correctness mechanism: `max_age` is the storage backstop for a
+    # run nobody ever pulled (a worker outage). It must be GENEROUS — an accepted run may not
+    # be lost, and the queue is the only record of it.
+    run_queue_max_age_s: float = runner_queue.DEFAULT_QUEUE_MAX_AGE_S
+    # WHY a setting and not the constant alone: the replica count is a property of the BROKER's
+    # topology, which this code cannot see. A single-node broker refuses `replicas > 1` outright
+    # with `ServerError 10074` — and that is not a `BadRequestError`, so `ensure_stream` does not
+    # tolerate it: it escapes into the worker's claim loop, which logs and retries forever while
+    # every run is refused. The seam existed from the start; without this field nothing could
+    # reach it, so the constraint was expressible only in tests.
+    #
+    # INVARIANT: the default IS `QUEUE_REPLICAS`, so a deployment that states nothing gets
+    # exactly what `RunQueue` would have used on its own — the two cannot drift.
+    run_queue_replicas: int = Field(default=runner_queue.QUEUE_REPLICAS, ge=1)
+    run_queue_ack_wait_s: float = runner_queue.DEFAULT_ACK_WAIT_S
+    run_queue_max_deliver: int = runner_queue.DEFAULT_MAX_DELIVER
+    # WHY replicas × worker_slots: `max_ack_pending` bounds how many unacked messages one
+    # worker may hold; with `QUEUE_REPLICAS` replicas of the stream and `worker_slots` runs per
+    # worker, that is the most a single worker can legitimately have in flight.
+    run_queue_worker_slots: int = runner_queue.DEFAULT_WORKER_SLOTS
+    # WHY fleet-sized: `max_ack_pending` is a WHOLE-CONSUMER bound — the total unacked
+    # messages the queue's durable consumer may hand out across EVERY worker in the fleet,
+    # not a per-worker limit. Size it to the deployment's true fleet concurrency
+    # (worker pods × slots); note the value binds at consumer CREATION, so changing it on a
+    # running queue means deleting and recreating the consumer.
+    run_queue_max_ack_pending: int = runner_queue.DEFAULT_MAX_ACK_PENDING
+    # WHY a ceiling at all: the serving half must stop accepting when the queue is deeper than
+    # the fleet can drain in a reasonable time, rather than piling up unbounded work. THIS unit
+    # only declares the setting; the admission decision lands with the cutover (OME-1086).
+    run_queue_depth_ceiling: int = runner_queue.DEFAULT_DEPTH_CEILING
+
     @property
     def effective_job_ttl_s(self) -> int:
         """Seconds a finished Runner Job is retained before k8s reclaims it.
@@ -273,6 +322,26 @@ class Settings(BaseSettings):
         if self.job_ttl_s is not None:
             return self.job_ttl_s
         return self.iat_window_s + _TTL_SKEW_MARGIN_S
+
+    @field_validator("run_queue_stream")
+    @classmethod
+    def _reject_sweepable_run_queue_stream(cls, value: str) -> str:
+        """Refuse a queue stream named under the per-run `url4-cloud_` prefix.
+
+        The reclamation sweep deletes every stream `owns_stream()` accepts; a queue so
+        named is one rejected publish away from being deleted with an accepted run on it.
+        The exact-name exclusion in `owns_stream` guards the sites that RECEIVE the
+        configured name; this validator makes the hazard impossible at its source, so a
+        wiring gap (a site built from the default constant) can only ever produce a
+        split — loud — never a swept queue.
+        """
+        if value.startswith(f"{subjects.PREFIX}_"):
+            raise ValueError(
+                "run_queue_stream must not live under the per-run prefix 'url4-cloud_': "
+                "the orphan sweep deletes any stream it owns, and the queue is the one "
+                "stream an accepted run may not be lost from"
+            )
+        return value
 
     @field_validator("artifacts_dir", mode="before")
     @classmethod
