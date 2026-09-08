@@ -159,9 +159,13 @@ def test_the_pool_renders_its_own_settings_into_the_worker_env() -> None:
     assert env["URL4_CLOUD_RUN_QUEUE_WORKER_SLOTS"] == "8"
     assert env["URL4_CLOUD_WORKER_DRAIN_GRACE_S"] == "17"
     assert env["URL4_CLOUD_WORKER_METRICS_PORT"] == "9199"
-    # The fleet's `max_ack_pending` is rendered from the pool's OWN sizing (replicas ×
-    # slots) — the whole-consumer bound the queue's durable consumer hands out across the
-    # fleet, which the code default can only approximate.
+    # With `runnerPool.maxAckPending` unset (this test does not set it), the chart still
+    # derives the value from the pool's own sizing — replicas × slots.
+    # AIDEV-NOTE (OME-1142): the derived product is a FALLBACK, not the contract. The value is
+    # applied to every bucket consumer and a caller hashes to one bucket, so it caps ONE
+    # CALLER's unacked runs — it is NOT the fleet-wide bound an earlier comment here claimed.
+    # A deployment running more than one replica should pin it; see
+    # `test_an_explicit_max_ack_pending_overrides_the_derived_product`.
     assert env["URL4_CLOUD_RUN_QUEUE_MAX_ACK_PENDING"] == "16"  # 2 replicas × 8 slots
     # The metrics port and the containerPort are the same knob — they must agree.
     port = next(p for p in container["ports"] if p["name"] == "metrics")
@@ -368,6 +372,66 @@ def test_the_default_termination_grace_covers_the_full_drain_with_headroom() -> 
     assert pool["terminationGracePeriodSeconds"] > pool["drainGraceS"] + kill_grace_s + (
         publish_budget_s
     ), "the default must leave real publish headroom PAST the enforced minimum"
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_an_explicit_max_ack_pending_overrides_the_derived_product() -> None:
+    """OME-1142: `max_ack_pending` is applied to EVERY bucket consumer, and a caller hashes to
+    exactly one bucket, so it is a PER-CALLER allowance — not the fleet bound the old comment
+    claimed. Deriving it from `replicas × workerSlots` therefore set each caller's personal cap
+    to the whole fleet's slot count, letting one caller saturate the pool at any replica count.
+
+    INVARIANT: raising the pool's replica count increases how many CALLERS can run at once; it
+    must not increase how many runs any SINGLE caller may hold. An operator pins the per-caller
+    allowance here, independently of pool sizing.
+    """
+    docs = _render_with_overrides(
+        **{
+            "runnerPool.replicas": "2",
+            "runnerPool.workerSlots": "4",
+            "runnerPool.maxAckPending": "4",
+        }
+    )
+    pool = _find(docs, "Deployment", f"{_RELEASE}-{_RELEASE}-runner")
+    container = pool["spec"]["template"]["spec"]["containers"][0]
+    env = {entry["name"]: entry["value"] for entry in container["env"]}
+
+    # The derived product would be 8 (2 replicas × 4 slots); the explicit value wins.
+    assert env["URL4_CLOUD_RUN_QUEUE_MAX_ACK_PENDING"] == "4"
+    # The pool still SIZES for 2 pods — pinning the per-caller cap must not shrink the fleet.
+    assert pool["spec"]["replicas"] == 2
+    assert env["URL4_CLOUD_RUN_QUEUE_WORKER_SLOTS"] == "4"
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_an_unset_max_ack_pending_still_derives_from_the_fleet() -> None:
+    """OME-1142 D3: the key is OPTIONAL — unset renders the historical derived product, so an
+    upgrade changes no running deployment and no operator is forced to pick a number.
+
+    AIDEV-NOTE: this guards the fallback against a future edit that drops the `default`. Helm's
+    `default` treats 0 as empty just like null, which is why the schema pins `minimum: 1` — a
+    meaningless 0 must fail the render rather than silently derive.
+    """
+    docs = _render_with_overrides(
+        **{
+            "runnerPool.replicas": "2",
+            "runnerPool.workerSlots": "4",
+        }
+    )
+    pool = _find(docs, "Deployment", f"{_RELEASE}-{_RELEASE}-runner")
+    container = pool["spec"]["template"]["spec"]["containers"][0]
+    env = {entry["name"]: entry["value"] for entry in container["env"]}
+
+    assert env["URL4_CLOUD_RUN_QUEUE_MAX_ACK_PENDING"] == "8"  # 2 replicas × 4 slots
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_a_zero_max_ack_pending_fails_the_render_instead_of_deriving() -> None:
+    """The boundary the `minimum: 1` schema constraint exists for: `default` in Helm treats 0
+    as empty, so a `maxAckPending: 0` would silently fall back to the derived product instead
+    of failing — an operator asking for "no runs" would get the fleet's full allowance."""
+    with pytest.raises(subprocess.CalledProcessError):
+        _render_with_overrides(**{"runnerPool.maxAckPending": "0"})
 
 
 def test_the_charts_kill_grace_literal_matches_the_workers_constant() -> None:

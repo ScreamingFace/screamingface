@@ -129,7 +129,12 @@
         "workerSlots": {
           "type": "integer",
           "minimum": 1,
-          "description": "Run slots per worker pod. MUST match `run_queue_worker_slots` — the queue's `max_ack_pending` is `QUEUE_REPLICAS × this`."
+          "description": "Run slots per worker pod. MUST match `run_queue_worker_slots`. One slot is one supervised child process, so `replicas × workerSlots` is what bounds fleet execution."
+        },
+        "maxAckPending": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "The queue's PER-CALLER allowance: applied to every bucket consumer, and a caller hashes to one bucket, so it caps one caller's unacked runs (not the fleet — that is `runQueueBucketCount × this`). Null/absent derives `replicas × workerSlots`, which hands each caller the whole fleet's width; pin it whenever `replicas > 1`. Binds at consumer creation, so changing it does not re-cap a live queue."
         },
         "drainGraceS": {
           "type": "number",
