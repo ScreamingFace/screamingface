@@ -1,7 +1,7 @@
 ---
 id: OME-1148
 linear_url: https://linear.app/openmined/issue/OME-1148/onboard-contracteval-as-a-deterministic-span-extraction-benchmark
-status: in_progress
+status: in_review
 type: feature
 priority: medium
 labels: [screamingface-engine, agentic, autonomous]

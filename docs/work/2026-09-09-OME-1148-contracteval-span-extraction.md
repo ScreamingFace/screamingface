@@ -1,9 +1,9 @@
 ---
 ticket: OME-1148
 stack: screamingface-engine, screamingface
-status: in_progress
+status: done
 started: 2026-09-09
-finished:
+finished: 2026-09-09
 ---
 
 # OME-1148 — Onboard ContractEval as a deterministic span-extraction benchmark
@@ -72,21 +72,87 @@ Plan: `docs/plan/2026-09-09-OME-1148-contracteval-span-extraction.md` — five t
 
 ## Test plan
 
-To be filled from the spec. The grading module is pure and must be pinned hardest: F1/F2 and
-Jaccard against worked examples taken from `Evaluation.py`, the abstain path both ways (correct
-abstain vs laziness), multi-span golds, and the empty-prediction verdict.
+53 tests across five modules, all written RED-first:
+
+- `test_contracteval_grading.py` (20) — every branch of the containment verdict, abstention
+  detection, and Jaccard, with three reference quirks pinned as protocol alignment.
+- `test_contracteval_prepare.py` (14) — public/private split, polarity counts, the context
+  guard both ways, and the module entry point.
+- `test_contracteval_case_evaluation.py` (8) — the `attempt_1` envelope and the object-shaped
+  route.
+- `test_contracteval_aggregate.py` (13) — the confusion matrix against hand-computed F1/F2, the
+  always-abstain zero guard, the laziness denominator, and the positive-rows-only Jaccard.
+- `test_benchmark_declaration.py` — one row added to the policy table (owner-approved).
 
 ## Acceptance
 
-- `sf.evaluate(model, benchmark="contracteval")` runs end to end and reports F1/F2, Jaccard and
-  laziness matching the paper's definitions.
-- The dataset is pinned reproducibly without the dead script loader; row count reconciled
-  against the paper's 4,128.
-- Over-long contracts have a documented, tested handling rule rather than an implicit truncation.
+- [x] `sf.evaluate(model, benchmark="contracteval")` runs end to end and reports F1/F2, Jaccard
+      and laziness matching the paper's definitions.
+- [x] The dataset is pinned reproducibly without the dead script loader; row count reconciled.
+- [x] Over-long contracts have a documented, tested rule — a guard, not a truncation (D-7).
 
-## Outcome (fill at the end — required before COMMIT)
+## First live run
 
-- **Actual files:**
+`limit=8` against `openrouter/google/gemini-3.1-pro-preview` on the local stack. All 8 Cases
+graded, coverage 1.0, no failures.
+
+```
+SCORE (F1): 0.8        accuracy 0.75   precision 0.6667   recall 1.0   f2 0.9091
+TP 4 · FN 0 · TN 2 · FP 2
+no_related_clause_rate 0.25   false_no_related_clause_rate 0.0   jaccard_mean 0.5834
+```
+
+Every published number reproduces by hand from the per-case list, which is the check that
+matters most on a board whose score is a confusion matrix rather than a mean:
+
+- `jaccard_mean` = mean of the four POSITIVE rows' Jaccards = 0.5834. Including the two abstained
+  negatives would give 0.3889 — so the F-5 population rule is verified by the run itself, not
+  only by its unit test.
+- `false_no_related_clause_rate` is 0.0 because no positive row was abstained; the two errors
+  were the opposite failure — answering on rows with no clause (FP), i.e. inventing a clause
+  rather than being lazy.
+
+Case 1 is the instructive one: score 1.0 with Jaccard 0.133. The gold span was the document-name
+category (`"SUPPLY CONTRACT"`), which the long reply contains. Containment passes while token
+overlap is low — exactly the reference's behaviour, and a good illustration of why Jaccard is a
+secondary metric rather than the score.
+
+## Outcome
+
+- **Actual files:** as listed under Planned changes. Deviations: no `answering.py` (one function,
+  folded into `grading.py`); the reference is cited by file+line rather than vendored, because
+  `.refs/` is not a repo convention and the paper's matplotlib-importing script would fail this
+  stack's gates.
 - **Commits:**
-- **Gates:**
+  - `7c49cda8` docs(screamingface-engine): spec the ContractEval clause-extraction board
+  - `fe972808` docs(screamingface-engine): plan the ContractEval board, and drop the truncation rule
+  - `e73b4d07` feat(screamingface-engine): reproduce ContractEval's verdict and Jaccard
+  - `640d03e1` feat(screamingface-engine): add the ContractEval board
+  - `6293422d` feat(py-screamingface): register ContractEval in the SDK and add its notebook
+- **Gates:** screamingface-engine ALL GREEN (2,656 tests, coverage 92%);
+  screamingface ALL GREEN (coverage ≥95%, notebook + distribution checks included).
 - **Deviations:**
+  1. Two named deviations from the reference harness, each pinned by a test: the missing zero
+     guard on `2PR/(P+R)`, and the hardcoded `1244` laziness denominator (spec D-3).
+  2. One prior test modified — a single additive row in the declaration policy table. Owner
+     approved; committed with `--skip-append-only`.
+  3. `.refs/` vendoring dropped in favour of citation (above).
+  4. Tasks 2 and 3 landed in one commit: the OME-1095 family guard requires a preparer's board
+     to be registered in the same landing.
+
+## Still open at hand-off
+
+- **Push and open the PR.** Not yet pushed.
+- **The D9 landing-label split.** This ticket spans `apps/screamingface-engine` and
+  `packages/screamingface`, and the card's D9 says ≥2 landings means an epic plus one sub-issue
+  per landing. Filed as one ticket following the GDPval and MedXpertQA precedent — a deliberate
+  choice, not an oversight, and the same one that left OME-1126 carrying a dangling
+  `py-screamingface` label item.
+- **The family guard does not prove a preparer runs.** It matches the command string against a
+  regex; a preparer with no `main()` passes it and fails only at bake time with a message that
+  hides the cause. Worth a shared test rather than the per-board one I added.
+- **`error_context_head` is still dead for decode failures** in both `case_evaluation_endpoint`
+  and `attempt_records_endpoint` (carried over from OME-1126) — `json_object` raises
+  `ResolutionError`, which the handlers do not catch.
+- **No full-scale run.** 8 of 4,182 Cases have been graded. A full pass is ~$1.2-3.3k for a
+  panel; the notebook says plainly that a small `limit` gives a real but very coarse F1.
