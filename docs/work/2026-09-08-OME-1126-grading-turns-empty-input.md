@@ -62,7 +62,7 @@ grading scope stops re-invoking the candidate.
   — the bare invocation for direct-sibling scope) and `medxpert/pins.py`
   (`PROTOCOL_REVISION` two-turn-cot-v1 → v2: the expression changed, so the exam
   re-addresses).
-- **Commits:** (filled by the commit step)
+- **Commits:** 4f8a4f5e — fix(screamingface-engine): deliver real inputs to both MedXpertQA turns
 - **Gates:** run_gates.py screamingface-engine — ALL GATES GREEN (2423 passed, 5 skipped;
   ruff, pyright, layering, coverage).
 - **Deviations:** the planned fix assumed `bindings=` alone would suffice; url4 scoping

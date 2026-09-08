@@ -47,7 +47,7 @@ complete-response, reasoning-only shape.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned.
-- **Commits:** (filled by the commit step)
+- **Commits:** 7c22441a — fix(screamingface-engine): name the model, not the gateway, for a reasoning-only reply
 - **Gates:** run_gates.py screamingface-engine — ALL GATES GREEN (2428 passed, 5
   skipped).
 - **Deviations:** none. The transport-death misclassification and failure-metadata
