@@ -91,8 +91,10 @@ different answer key — the laziness denominator matches the full split exactly
 most likely rows that failed to produce a usable output in the paper's own runs, not rows
 excluded from the benchmark.
 
-**F-10 · Context sizes, measured.** min 645 chars · median 25,657 (~6.4k tokens) · max 300,768
-(~75k tokens). The median drives cost; only a thin tail approaches the truncation rule.
+**F-10 · Context sizes, tokenized.** Measured with `tiktoken cl100k_base` over all 4,182 rows:
+min 185 · **p50 5,357** · p90 22,688 · p99 54,172 · **max 63,389** tokens. 246 rows (5.88%, from
+6 of the 102 contracts) exceed 32k; **zero rows exceed 64k**. The p50 independently reproduces
+the ~5,500 tok/call figure the cost model back-solved from the paper's own $50 GPT-4.1 total.
 
 ## 3. Decisions
 
@@ -124,10 +126,14 @@ a model that emits nothing usable has answered badly, not failed to run. `failur
 The paper does not say which rows it dropped, so any reconstruction would be a guess. We publish
 our own row count in the audit summary; `case_count` is what we bake.
 
-**D-7 · Over-long contracts are truncated by an explicit, pinned rule.** Max context ≈ 301k chars
-≈ 75k tokens. Truncation is head-anchored on the contract body with a recorded
-`truncated: true` flag per case, so a score is never quietly computed against a document the
-model could not see. The exact budget is a pin in `pins.py`.
+**D-7 · No truncation. A prepare-time context guard instead.** The spec originally assumed a
+head-anchored truncation rule; the measurement in F-10 removes the need. The largest contract is
+63,389 tokens and every panel model carries ≥128k, so a truncation path would be dead code that
+could only ever degrade comparability. `pins.py` instead pins `MAX_CONTEXT_TOKENS = 120_000` as a
+**guard**: `prepare.py` raises `BenchmarkAssetPreparationError` if any row exceeds it, matching
+HealthBench's "refuse to bake a different answer key" idiom. On the pinned revision it never
+fires; if a future revision grows a document past the budget, the build fails loudly instead of
+silently scoring a model against text it never saw.
 
 **D-8 · `interaction="single_shot"`, `expected_check_cost="free"`.** One Candidate call per case;
 the check is pure string work.
@@ -171,8 +177,8 @@ scorer to build TP/TN/FP/FN. That triple rides in the case grade's `metrics`.
 
 - First board publishing a dataset-level F1. The scoreboard shows `score`; readers comparing to
   the paper get the same number.
-- First board with a truncation rule. If truncation ever fires on a material fraction of cases,
-  the board's comparability to the paper degrades — hence the per-case flag and an audit count.
+- No truncation path exists, so no case can be scored against text the model could not see; the
+  context guard converts that risk into a build failure (D-7).
 - Laziness is a refusal signal and may favour panels. Neutral board: we publish it because the
   paper does, not as a fusion-win argument.
 
@@ -185,7 +191,8 @@ scorer to build TP/TN/FP/FN. That triple rides in the case grade's `metrics`.
 - `aggregate.py`: confusion matrix over a mixed set; F1/F2 arithmetic against hand-computed
   values; laziness denominator = selected positives (D-3); Jaccard mean skips negatives.
 - Unanswered case scores 0.0 and stays in the denominator (D-5); errored case scores `None`.
-- `prepare.py`: parquet pin, public/private split, gold-span list validation, truncation flag.
+- `prepare.py`: parquet pin, public/private split, gold-span list validation, and the context
+  guard both ways — passes on the pinned revision, raises on a synthetic over-budget row.
 - Declaration guard tests updated for the new board (both are full-strength tables).
 
 ## 8. Out of scope

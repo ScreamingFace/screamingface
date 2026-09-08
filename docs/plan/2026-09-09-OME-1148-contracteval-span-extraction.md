@@ -1,0 +1,132 @@
+# OME-1148 — ContractEval implementation plan
+
+**Ticket:** [OME-1148](https://linear.app/openmined/issue/OME-1148/onboard-contracteval-as-a-deterministic-span-extraction-benchmark)
+· **Spec:** `docs/spec/2026-09-09-OME-1148-contracteval-span-extraction.md`
+· **Ledger:** `docs/work/2026-09-09-OME-1148-contracteval-span-extraction.md`
+· **Stack:** screamingface-engine, screamingface · **Date:** 2026-09-09
+
+The spec's facts (F-1…F-10) and decisions (D-1…D-8) are binding here and not restated. This
+document is the ORDER of work and the exact files each step touches.
+
+## Global constraints
+
+- **RED before GREEN.** Every task writes its failing tests first. The append-only test check
+  (`run_gates.py`) will reject a deletion, so tests land in the shape they keep.
+- **Mirror, do not reinvent** (D-4). `.refs/contracteval/` holds `Evaluation.py` and
+  `proprietary_model.py` verbatim; every metric function cites the reference line it reproduces.
+- **ruff limits** the Engine enforces: `PLR0911` max 3 returns, `PLR0912` max 7 branches,
+  `C901` complexity 8, line length 100.
+- **Never** edit `benchmarks/aggregation.py` or `benchmarks/contract.py` — OME-932/OME-934 own
+  them (the `spine/__init__.py` INVARIANT).
+- **No `spine.CaseGrader`** — it is rubric-shaped (`points: list[int]`). Use `spine.RowReader`
+  only, exactly as `medxpert/aggregate.py` does.
+- Gates green per stack before each commit: `uv run .claude/scripts/run_gates.py <stack>`.
+
+## File structure
+
+```
+apps/screamingface-engine/
+  .refs/contracteval/Evaluation.py            (vendored, unmodified)
+  .refs/contracteval/proprietary_model.py     (vendored, unmodified)
+  src/screamingface_engine/benchmarks/contracteval/
+    __init__.py  pins.py  prompts.py  answering.py  grading.py
+    prepare.py  case_evaluation.py  definition.py  runtime.py  aggregate.py
+  src/screamingface_engine/benchmarks/builtins.py            (edit: register)
+  Dockerfile.benchmark                                        (edit only if a dep is needed)
+  tests/unit/test_contracteval_grading.py
+  tests/unit/test_contracteval_prepare.py
+  tests/unit/test_contracteval_case_evaluation.py
+  tests/unit/test_contracteval_aggregate.py
+  tests/unit/test_contracteval_definition.py
+  tests/unit/test_benchmark_declaration.py                    (edit: both guard tables)
+packages/screamingface/
+  src/screamingface/_runtime/cli.py                           (edit: _BENCHMARKS + manifest)
+  scripts/build_notebooks.py                                  (edit: _contracteval_e2e)
+  examples/12_contracteval.ipynb                              (generated)
+```
+
+## Task 1 — the grading core (pure, no I/O)
+
+`answering.py`, `grading.py` + `test_contracteval_grading.py`.
+
+- `normalized(text) -> str` — the reference's `.strip(" \n`")`, used on BOTH sides everywhere.
+- `is_abstention(output) -> bool` — `"no related clause" in normalized(output).casefold()`.
+  A test names F-3 explicitly: substring, **not** `startswith`, because `Evaluation.py` ignores
+  `classification` on negative rows and recomputes with `in`.
+- `verdict(output, gold_spans) -> bool` — empty gold → `is_abstention`; else
+  `all(normalized(span) in normalized(output) for span in gold_spans)`.
+- `jaccard(gold_spans, output) -> float` — reproduces `get_jaccard` byte-for-byte: remove
+  `. , ; :`, casefold, `/`→space, `split(" ")` into a set (empty tokens included — the union
+  inflation is the reference's behaviour and a test asserts it), over `" ".join(gold_spans)`.
+
+Deliberately NOT here: any F1. F1 is aggregate-level (F-2).
+
+## Task 2 — pins, prompts, prepare
+
+`pins.py`, `prompts.py`, `prepare.py` + `test_contracteval_prepare.py`.
+
+- `pins.py`: `DATASET = "theatticusproject/cuad-qa"`, `DATASET_REVISION =
+  "d9c4ee0250ae2eb97bdb5b50773ab14ea62d0631"` (the `refs/convert/parquet` commit),
+  `DATASET_SPLIT = "test"`, `PREPARER_REVISION`, `PROTOCOL_REVISION`, `MAX_TOKENS`,
+  `TEMPERATURE = "0"`, `MAX_CONTEXT_TOKENS = 120_000` (D-7 guard).
+- `prompts.py`: the system prompt and user template verbatim from `proprietary_model.py`
+  (F-8), with the reference file+lines cited.
+- `prepare.py`: load the pinned parquet (NOT the dead script loader — F-6); validate each row's
+  `answers.text` is a list of strings; emit
+  - public `cases.json` — `[{"id", "input"}]`, `input` = the rendered context+question
+  - private `answers/<id>.json` — `{source_id, title, question, gold_spans, is_positive}`
+  and return the audit summary including `case_count`, `positive_cases`, `negative_cases`.
+  The context guard raises `BenchmarkAssetPreparationError` above `MAX_CONTEXT_TOKENS`.
+
+Tests: the public/private split (no gold span may appear in `cases.json`), positive/negative
+counts, the guard passing on a normal row and raising on a synthetic over-budget one.
+
+## Task 3 — envelope, board, runtime, aggregate
+
+`case_evaluation.py`, `definition.py`, `runtime.py`, `aggregate.py`, `builtins.py` +
+`test_contracteval_case_evaluation.py`, `test_contracteval_aggregate.py`,
+`test_contracteval_definition.py`, and the two guard tables in
+`test_benchmark_declaration.py`.
+
+- `case_evaluation.py`: `CHECK_SCHEMA`/`CASE_EVALUATION_SCHEMA`, `bind_case_evaluation`,
+  `decode_case_evaluation` — the `attempt_1..N` object shape.
+- `definition.py`: `compute_revision()` over the prompt bytes + pins; the **single-shot**
+  expression — one `candidate()`, then `check`, then `case-evaluation`;
+  `BenchmarkDeclaration(failure_policy="coverage_declare", interaction="single_shot")`;
+  `check_surface` with `expected_check_cost="free"`.
+- `runtime.py`: cases data route, `_check` (runs `verdict` + `jaccard`, emits the record),
+  case-evaluation via **`attempt_records_endpoint`** — the object-shaped helper (the
+  array-shaped `case_evaluation_endpoint` is for rubric `iterate` fan-outs and would fail here
+  exactly as it did on MedXpertQA), and `aggregate_endpoint`.
+- `aggregate.py` — the only genuinely new reducer shape we have. Each case grade carries
+  `metrics: {is_positive, correct, abstained, jaccard}`; the scorer folds those into TP/TN/FP/FN
+  and publishes `score = f1` with `accuracy`, `precision`, `recall`, `f2`,
+  `no_related_clause_rate`, `false_no_related_clause_rate`, `jaccard_mean` (D-2, D-3, F-5).
+  Guard the degenerate denominators the reference does not: `f1` and `f2` divide by
+  `precision+recall`, which is 0 for an always-abstaining model — return 0.0, never raise.
+
+Tests to write first: the confusion matrix over a mixed set with hand-computed F1/F2; laziness
+divided by *selected* positives (D-3); `jaccard_mean` skipping negatives; the always-abstain
+model scoring F1 0.0 rather than dividing by zero; unanswered case 0.0 and in the denominator
+(D-5); errored case `None`.
+
+## Task 4 — SDK registration and the notebook
+
+`cli.py` (`_BENCHMARKS` + the asset-manifest entry `("cases.json", "answers")`),
+`build_notebooks.py` (`_contracteval_e2e`), regenerate `examples/12_contracteval.ipynb`.
+Notebook must be output-free and deterministic — that is a gated check on this stack.
+
+## Task 5 — live pilot, then close
+
+`limit=5` against the local stack, confirming a graded case end to end and a non-degenerate
+confusion matrix. Then fill the ledger Outcome, close the `docs/tasks/` mirror, and post the
+close-comment (commits · gates · ledger · deviations) on OME-1148.
+
+## Deliberately deferred
+
+- The `py-screamingface` landing-label split (D9). Filed as one ticket, following GDPval and
+  MedXpertQA; noted so it is a choice, not an oversight.
+- FS-Research and the repeats/epochs epic it needs.
+- Any partial-credit grader — the protocol has none (F-1).
+
+## Execution record (filled during implementation)
