@@ -381,10 +381,28 @@ readinessProbe:
 # assets the run mode needs. Private assets therefore still never reach the client-facing App.
 runnerPool:
   replicas: 1
-  # Run slots per worker pod — MUST match `run_queue_worker_slots`: the chart renders the
-  # fleet's `max_ack_pending` from `replicas × workerSlots`, so the pool and the queue
-  # cannot disagree about how many runs the fleet may hold in flight.
+  # Run slots per worker pod — MUST match `run_queue_worker_slots`. This is the pod's real
+  # execution width: one slot is one supervised child process, so `replicas × workerSlots` is
+  # what actually bounds how many runs the fleet executes at once.
   workerSlots: 4
+  # The queue's per-caller allowance, or empty to derive `replicas × workerSlots` (OME-1142).
+  #
+  # WHY per-caller and not a fleet bound: the queue is split into `config.runQueueBucketCount`
+  # bucket subjects, and `RunQueue._bound_subscription` creates one durable consumer PER BUCKET
+  # with this value. A caller hashes to exactly one bucket (`RunQueue.bucket_subject`), so this
+  # caps ONE caller's unacked runs. The emergent fleet ceiling is `bucketCount × this`; nothing
+  # enforces a single fleet total, and execution is bounded by the slots above.
+  #
+  # INVARIANT: raising `replicas` must increase how many CALLERS run at once, not how many runs
+  # one caller may hold. Leaving this empty breaks that — the derived product hands every caller
+  # the whole fleet's width, so a single caller can saturate the pool at any replica count. Pin
+  # it whenever the pool runs more than one replica.
+  #
+  # AIDEV-NOTE: the value binds when the consumer is CREATED — `pull_subscribe` is idempotent on
+  # existence, not on config — so changing it does NOT re-cap a live queue. The durable
+  # consumers must be deleted and rebuilt, and only while the queue is drained: deleting a
+  # consumer that holds in-flight acks redelivers those runs and re-spends provider calls.
+  maxAckPending:
   # Seconds a draining worker keeps its in-flight children alive after SIGTERM before
   # terminating them (`worker_drain_grace_s`). The preStop starts the drain by SIGTERMing the
   # worker, so the grace period below must exceed this or the kubelet SIGKILLs mid-drain.

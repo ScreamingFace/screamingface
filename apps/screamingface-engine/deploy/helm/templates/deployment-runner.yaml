@@ -146,13 +146,17 @@ spec:
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT
               value: {{ .Values.runnerPool.metricsPort | quote }}
-            # `max_ack_pending` is a WHOLE-CONSUMER bound — the fleet's total unacked runs —
-            # so the chart derives it from the fleet's own sizing: pods x slots. The code
-            # default is a generic fleet-sized constant; the chart's value is the truth for
-            # THIS deployment. (The value binds at consumer creation — resizing means a new
-            # consumer, which a cutover or bucket-count change already implies.)
+            # `max_ack_pending` is applied to EVERY bucket consumer (`runner_queue.py`:
+            # `_bound_subscription`), and a caller hashes to exactly one bucket, so it is a
+            # PER-CALLER allowance — NOT the fleet bound this comment used to claim. Deriving
+            # it from pods x slots therefore handed every caller the whole fleet's width, so
+            # one caller could saturate the pool at any replica count (OME-1142).
+            # `runnerPool.maxAckPending` pins it independently of pool sizing; empty keeps the
+            # historical derived product so an upgrade changes no running deployment.
+            # (The value binds at consumer creation — re-capping a live queue means deleting
+            # and rebuilding the durable consumers, which a cutover already implies.)
             - name: URL4_CLOUD_RUN_QUEUE_MAX_ACK_PENDING
-              value: {{ mul .Values.runnerPool.replicas .Values.runnerPool.workerSlots | quote }}
+              value: {{ .Values.runnerPool.maxAckPending | default (mul .Values.runnerPool.replicas .Values.runnerPool.workerSlots) | quote }}
           # Liveness on the metrics endpoint: the scrape server runs in its own thread, so
           # this catches process/pod-level death (the old Job-per-run design carried its own
           # per-run hard backstop; the pool needs a pod-level one). A wedged CLAIM loop with a

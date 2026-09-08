@@ -68,14 +68,19 @@ DEFAULT_QUEUE_MAX_AGE_S = 86_400.0
 DEFAULT_ACK_WAIT_S = 60.0
 DEFAULT_MAX_DELIVER = 2
 DEFAULT_WORKER_SLOTS = 4
-# WHY fleet-sized and not `replicas × slots`: `max_ack_pending` is a WHOLE-CONSUMER bound —
-# the total unacked messages the one durable consumer may hand out across EVERY puller in the
-# fleet — not a per-worker limit. Deriving it from the stream's data-redundancy replica count
-# conflated two unrelated numbers and silently capped the whole fleet at 12 in-flight runs.
-# The default is sized for a fleet (32 pods × 8 slots, with headroom); deployments that size
-# differently must set `run_queue_max_ack_pending` to their fleet's true concurrency. NOTE:
-# the value binds when the consumer is CREATED — `pull_subscribe` is idempotent on existence,
-# not on config, so changing it on a running queue means deleting and recreating the consumer.
+# WHY not derived from `replicas × slots`: this is a PER-CONSUMER bound, and since the bucket
+# split (OME-1091) there is one durable consumer PER BUCKET SUBJECT — `_bound_subscription`
+# hands this same value to each. A caller hashes to exactly one bucket (`bucket_subject`), so
+# it caps ONE CALLER's unacked runs. The emergent fleet ceiling is `bucket_count × this`;
+# nothing enforces a single fleet total, and what actually bounds execution is the worker's
+# slot count. Deriving it from fleet sizing therefore hands every caller the whole fleet's
+# width, letting one caller saturate the pool at any replica count (OME-1142) — which is why
+# the chart exposes `runnerPool.maxAckPending` to pin it independently.
+# INVARIANT: growing the fleet must raise how many CALLERS run at once, never how many runs a
+# single caller may hold.
+# AIDEV-NOTE: the value binds when the consumer is CREATED — `pull_subscribe` is idempotent on
+# existence, not on config, so changing it on a running queue means deleting and recreating the
+# consumers, and only while drained: a consumer holding in-flight acks redelivers those runs.
 DEFAULT_MAX_ACK_PENDING = 256
 DEFAULT_DEPTH_CEILING = 10_000
 DEFAULT_IO_CONCURRENCY = 4
