@@ -1,12 +1,12 @@
 ---
 id: OME-1126
 linear_url: https://linear.app/openmined/issue/OME-1126/onboard-medxpertqa-text-as-an-exact-match-mcq-benchmark
-status: in_progress
+status: closed
 type: feature
 priority: medium
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-09-05
-closed:
+closed: 2026-09-08
 ---
 
 # Onboard MedXpertQA (Text) as an exact-match MCQ benchmark

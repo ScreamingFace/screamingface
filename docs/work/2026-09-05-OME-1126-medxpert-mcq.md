@@ -1,9 +1,9 @@
 ---
 ticket: OME-1126
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-05
-finished:
+finished: 2026-09-08
 ---
 
 # OME-1126 — MedXpertQA (Text) as an exact-match MCQ benchmark
