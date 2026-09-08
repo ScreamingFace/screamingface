@@ -198,6 +198,26 @@ def _headers(credential: Credential) -> dict[str, str]:
 
     No ``Authorization``: a deployed aigateway (``cloudflare_headers``) reads only the identity
     header, and a local one (``disabled``) reads nothing at all.
+
+    AIDEV-NOTE (OME-1119): this function carries NO ``traceparent``, and the three callers do not
+    all want that for the same reason — so do not "fix" it in one place.
+
+    - ``fetch`` genuinely must not carry one. ``CachedCatalog`` coalesces concurrent misses for a
+      credential onto a single upstream fetch (``cache.py``'s ``_inflight``, typed
+      ``Future[ModelCatalog]``) and serves the result to every waiter, so that call is *caused by*
+      whichever caller led the refresh and *consumed by* N others. Stamping the leader's trace
+      would put a call in their trace that also served people they never heard of, and leave the
+      other N-1 with a gap where a catalog read should be — both readings wrong, and the wrong one
+      looks right. Representing it honestly needs an OTel span Link (one span, many causes), which
+      is Phase 2, ``OME-1130``.
+    - ``fetch_model_parameters`` and ``admit_model`` are NOT coalesced — ``_inflight`` covers only
+      ``fetch``, and ``CachedCatalog.model_parameter_source`` is documented as "the uncached detail
+      source". ``rest/catalog.py`` calls the first straight from a route, one upstream call per
+      inbound request. Those two SHOULD carry the caller's traceparent; they do not yet, because
+      the value has to be threaded from the REST edge through ``catalog/executable.py`` rather than
+      taken from ``Credential`` — ``Credential`` holds a derived cache ``key``, so a per-request
+      field on it would give every request its own cache entry and destroy the catalog cache.
+      Tracked as ``OME-1134``.
     """
     headers = dict(credential.identity)
     if credential.profile is not None:

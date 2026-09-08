@@ -26,6 +26,7 @@ from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
+from screamingface_engine.trace_scope import run_trace_scope
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
@@ -809,19 +810,30 @@ class Url4Executor(Executor):
         """
 
         async def _drive() -> str:
-            try:
-                if trace is not None:
-                    return await url4_run(
-                        url4,
-                        self._io,
-                        observer=bridge,
-                        trace_id=trace.trace_id,
-                        root_span_id=trace.root_span_id,
-                        **self._run_kwargs,
-                    )
-                return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
-            finally:
-                bridge.close()
+            # FEATURE (OME-1119): the run's trace is bound HERE, inside the driving task, so the
+            # world's outbound aigateway calls carry it (`runner.connector._headers`).
+            #
+            # WHY not around `execute`'s own `async for ... yield`: `execute` is an ASYNC
+            # GENERATOR, and consecutive steps of one can be driven from different contexts —
+            # `asyncio.ensure_future(gen.__anext__())` runs that step in a new Task with a COPIED
+            # context. A ContextVar token created in one and reset in another raises
+            # `ValueError: Token was created in a different Context`, which is what a cancelled
+            # run did (`test_a_cancelled_run_records_stopped`). This task is a single context for
+            # its whole life, and it is where every model call actually happens.
+            with run_trace_scope(trace):
+                try:
+                    if trace is not None:
+                        return await url4_run(
+                            url4,
+                            self._io,
+                            observer=bridge,
+                            trace_id=trace.trace_id,
+                            root_span_id=trace.root_span_id,
+                            **self._run_kwargs,
+                        )
+                    return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+                finally:
+                    bridge.close()
 
         task = asyncio.ensure_future(_drive())
         try:

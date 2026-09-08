@@ -171,14 +171,20 @@ def test_rung1_one_coherent_trace_id_spans_the_run(wire_run) -> None:
 
 
 @pytest.mark.e2e
-@pytest.mark.xfail(strict=True, reason="rung 2: the engine sends no traceparent to aigateway")
 def test_rung2_the_engine_propagates_the_trace_id_to_the_gateway(wire_run) -> None:
-    """RUNG 2 (not built — strict xfail).
+    """RUNG 2 (`OME-1119` — must PASS).
 
     The gateway must receive the run's OWN trace id, not merely some traceparent. The audit
     captured the engine's outbound header set as `Host, Accept, Accept-Encoding, Connection,
     User-Agent, X-User-Email, X-Profile, Content-Length, Content-Type` — no traceparent at
     all, on any of its three client paths.
+
+    This was a strict xfail until `OME-1119`, which binds the run's `TraceContext` in the
+    executor's driving task and renders it in `runner.connector._headers`. The engine-side
+    unit tests are `apps/screamingface-engine/tests/unit/test_traceparent_propagation.py`;
+    they pin two boundaries this rung cannot reach — a run whose caller sent NO inbound
+    traceparent still propagates the id url4 minted, and two runs sharing one cached world do
+    not share one trace id.
     """
     gateway: FakeGateway = wire_run["gateway"]
     assert gateway.inbound_headers, "the engine made no call to the gateway"

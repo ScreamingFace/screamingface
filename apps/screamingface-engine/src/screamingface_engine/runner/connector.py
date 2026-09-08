@@ -61,6 +61,7 @@ from screamingface_engine.runner.web_tools import (
     build_runtime,
     truncate_tool_result,
 )
+from screamingface_engine.trace_scope import current_traceparent
 from screamingface_engine.world_config import ModelSpec, WorldConfigError, provider_of, routes_for
 from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
@@ -802,10 +803,19 @@ def _headers(
     WHY no `Authorization`: aigateway runs `cloudflare_headers` when deployed and `disabled`
     locally. Neither mode reads a bearer token, and a deployed caller cannot obtain one, so the
     run carries none at all.
+
+    FEATURE (OME-1119): `traceparent` is gateway-owned for the same reason `X-Profile` is, and is
+    written under the same rule — the run's own trace must win over anything that arrived in the
+    identity mapping. Absent (no bound run) the key is OMITTED rather than sent empty: a
+    well-formed header carrying a zero or invented id would parse everywhere, join nothing, and
+    look correct in every log it reached.
     """
     headers = dict(identity_headers or {})
     if profile is not None:
         headers["X-Profile"] = profile
+    traceparent = current_traceparent()
+    if traceparent is not None:
+        headers["traceparent"] = traceparent
     return headers
 
 
