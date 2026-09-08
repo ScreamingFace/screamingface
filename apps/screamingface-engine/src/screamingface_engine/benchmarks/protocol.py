@@ -14,8 +14,17 @@ def preserve_candidate_outcome(
     candidate_invocation: Node,
     grading: Node,
     case_id: str,
+    bindings: tuple[Node, ...] = (),
 ) -> Node:
-    """Keep one completed Candidate Invocation even when later grading fails."""
+    """Keep one completed Candidate Invocation even when later grading fails.
+
+    ``bindings`` are case-scope sources resolved BEFORE the candidate invocation, for
+    values both the invocation and the grading depend on (e.g. MedXpertQA's turn-1
+    reasoning). WHY here and not inside ``grading``: the protective iterate rebinds
+    ``$item`` to the ``{candidate_invocation, case_id}`` struct, so a grading-scope
+    node can no longer read the case row — a `$item.<field>` reference there silently
+    resolves empty and ships an empty model prompt (OME-1126 live-run evidence).
+    """
 
     if not isinstance(candidate_invocation, Node):
         raise TypeError("candidate_invocation must be a URL4 Node")
@@ -23,6 +32,8 @@ def preserve_candidate_outcome(
         raise TypeError("grading must be a URL4 Node")
     if not isinstance(case_id, str) or not case_id:
         raise TypeError("case_id must be non-empty URL4 text")
+    if any(not isinstance(binding, Node) for binding in bindings):
+        raise TypeError("bindings must contain only URL4 Nodes")
     protected_grading = iterate(
         [
             struct(
@@ -37,6 +48,7 @@ def preserve_candidate_outcome(
         on_error="collect",
     )
     case_execution = expr(
+        *bindings,
         src(candidate_invocation, name="candidate_invocation", weight=0.0),
         src(protected_grading, name="protected_grading", weight=0.0),
         src(

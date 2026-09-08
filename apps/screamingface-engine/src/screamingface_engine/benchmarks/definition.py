@@ -261,14 +261,21 @@ class Benchmark:
         }
 
 
-def candidate(
+def candidate_call(
     input: str,
     *,
     binding: str = CANDIDATE_REF,
     web_search: bool,
     web_search_exclude: Sequence[str] = (),
-) -> Node:
-    """Invoke a structurally linked Candidate under explicit Benchmark retrieval policy."""
+) -> RelExpr:
+    """The bare Candidate Invocation call, for use as a DIRECT slot of an enclosing group.
+
+    WHY this exists beside `candidate()`: url4 sibling references resolve only within one
+    group — a reference inside `candidate()`'s wrapper cannot see the wrapper's siblings
+    and ships VERBATIM (OME-1126: the MedXpertQA commit's `$reasoning` reached the model
+    as the literal string, leaving the prompt without the turn-1 essay). An input that
+    must read a sibling binding uses this form inside the group that binds it.
+    """
 
     if not isinstance(input, str) or not input:
         raise ValueError("Candidate Invocation input must be non-empty URL4 context")
@@ -283,11 +290,28 @@ def candidate(
     params: list[tuple[str, str]] = [("web_search", "true" if web_search else "false")]
     if excluded:
         params.append(("web_search_exclude", ":".join(excluded)))
-    call = RelExpr(
+    return RelExpr(
         path=CANDIDATE_ROUTE,
         context=input,
         intent=text(binding),
         params=tuple(params),
+    )
+
+
+def candidate(
+    input: str,
+    *,
+    binding: str = CANDIDATE_REF,
+    web_search: bool,
+    web_search_exclude: Sequence[str] = (),
+) -> Node:
+    """Invoke a structurally linked Candidate under explicit Benchmark retrieval policy."""
+
+    call = candidate_call(
+        input,
+        binding=binding,
+        web_search=web_search,
+        web_search_exclude=web_search_exclude,
     )
     # A parameterized relative call needs an expression boundary to round-trip canonically.
     return expr(
@@ -331,5 +355,6 @@ __all__ = [
     "FailurePolicy",
     "InteractionType",
     "candidate",
+    "candidate_call",
     "link_candidate",
 ]

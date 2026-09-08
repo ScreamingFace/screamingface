@@ -33,6 +33,7 @@ from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
     candidate,
+    candidate_call,
 )
 from screamingface_engine.benchmarks.medxpert.pins import (
     DATASET,
@@ -112,10 +113,17 @@ def _build(case_count: int) -> Node:
     """
 
     # Turn 1 — free reasoning. The cases file bakes the ready-made CoT prompt.
+    # INVARIANT: this node is bound at CASE-EXECUTION scope (via `bindings=` below), never
+    # inside the grading scope. The protective iterate rebinds `$item` to the
+    # `{candidate_invocation, case_id}` struct, so `$item.cot_prompt` read there resolves
+    # empty and the model receives a blank prompt — the OME-1126 live-run failure.
     reasoning = candidate("$item.cot_prompt", web_search=CANDIDATE_WEB_SEARCH, binding="$candidate")
     # Turn 2 — the commit. Its input carries the question and turn 1's reasoning, and ends on the
     # trigger; the model finishes that sentence, so the letter leads.
-    commit = candidate(
+    # WHY `candidate_call` (the bare call) and not `candidate()`: `$reasoning` resolves only as
+    # a DIRECT sibling of the binding — inside `candidate()`'s wrapper group the reference ships
+    # to the model verbatim, and the commit loses the turn-1 essay (OME-1126).
+    commit = candidate_call(
         render(
             struct(
                 {
@@ -129,7 +137,6 @@ def _build(case_count: int) -> Node:
         binding="$candidate",
     )
     checked = expr(
-        src(reasoning, name="reasoning", weight=0.0),
         src(
             RelExpr(
                 path=CHECK_ROUTE,
@@ -161,6 +168,9 @@ def _build(case_count: int) -> Node:
             candidate_invocation=commit,
             grading=checked,
             case_id="$item.id",
+            # Turn 1 lives here so both the commit envelope and the check read the SAME
+            # real reasoning (see the INVARIANT on `reasoning` above).
+            bindings=(src(reasoning, name="reasoning", weight=0.0),),
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
