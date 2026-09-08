@@ -42,6 +42,7 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.medxpert.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.medxpert.prepare import METADATA_COLUMNS
 from screamingface_engine.benchmarks.spine.rows import RowReader
 
 _FAILURE_MESSAGES = {
@@ -155,11 +156,31 @@ def _case_result(
     the Candidate's own reply decide the score.
     """
 
+    slices = _slice_metadata(answer)
     failure = _terminal_failure(selected, row, answer, orphan_errors)
     if failure is not None:
-        return _failed(selected, None if row is None else row, failure)
+        return _failed(selected, None if row is None else row, failure, slices)
     assert row is not None and answer is not None
-    return _scored(selected, row, str(answer["label"]))
+    return _scored(selected, row, str(answer["label"]), slices)
+
+
+def _slice_metadata(answer: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The three PUBLIC slice tags for this Case's report row, and nothing else.
+
+    WHY explicit columns (spec D6): the official leaderboard cuts sub-scores by these axes,
+    and a report a researcher cannot group offline forces a re-join against the raw dataset.
+    WHY never the whole record: `label` — the answer key — lives in the same file; copying
+    the record wholesale would publish the key on every case.
+    """
+
+    metadata = answer.get("metadata") if isinstance(answer, Mapping) else None
+    if not isinstance(metadata, Mapping):
+        return {}
+    return {
+        column: metadata[column]
+        for column in METADATA_COLUMNS
+        if isinstance(metadata.get(column), str)
+    }
 
 
 def _terminal_failure(
@@ -184,7 +205,9 @@ def _terminal_failure(
     )
 
 
-def _scored(selected: SelectedCase, row: Mapping[str, Any], label: str) -> CaseResult:
+def _scored(
+    selected: SelectedCase, row: Mapping[str, Any], label: str, slices: Mapping[str, Any]
+) -> CaseResult:
     attempt = _attempt(row)
     committed = str(attempt.get("answer") or "")
     answered = bool(committed)
@@ -211,7 +234,7 @@ def _scored(selected: SelectedCase, row: Mapping[str, Any], label: str) -> CaseR
         "selected_case": selected,
         "finish_reason": fields["finish_reason"],
         "grade": grade,
-        "metadata": fields["metadata"],
+        "metadata": {**fields["metadata"], **slices},
         "execution": fields["execution"],
         "operations": fields.get("operations"),
     }
@@ -244,7 +267,10 @@ def _match_evidence(committed: str, label: str, correct: bool) -> dict[str, Any]
 
 
 def _failed(
-    selected: SelectedCase, row: Mapping[str, Any] | None, failure: dict[str, Any]
+    selected: SelectedCase,
+    row: Mapping[str, Any] | None,
+    failure: dict[str, Any],
+    slices: Mapping[str, Any],
 ) -> CaseResult:
     fields = _candidate_fields(_attempt(row) if row else {})
     grade = {"method": "exact_match", "score": None, "metrics": {}, "checks": []}
@@ -253,7 +279,7 @@ def _failed(
         "finish_reason": fields["finish_reason"],
         "grade": grade,
         "failures": [failure],
-        "metadata": fields["metadata"],
+        "metadata": {**fields["metadata"], **slices},
         "execution": fields["execution"],
         "operations": fields.get("operations"),
     }

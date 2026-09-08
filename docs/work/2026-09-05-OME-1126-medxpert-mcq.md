@@ -242,6 +242,15 @@ case `metadata` for scored AND failed cases, pinned by
 `test_the_turn_one_reasoning_reaches_the_scored_case` and
 `test_a_failed_case_keeps_its_reasoning_for_the_post_mortem`.
 
+## Review fix (2026-09-08) — the D6 slice tags now ride the report
+
+`question_type` / `medical_task` / `body_system` were baked into the private answer records
+(D6) but never crossed into `report.json` — a researcher could not cut sub-scores by the
+official leaderboard's own axes without re-joining the raw dataset. `aggregate._slice_metadata`
+now copies exactly those three public columns onto every case's metadata (scored and failed),
+sourced from `prepare.METADATA_COLUMNS` so the two ends cannot drift. Pinned by three tests,
+including the guard that `label`/`source_id` can never ride along.
+
 ## Still open at hand-off
 
 - Implement the check-surface handler (IFEval `_check_surface` precedent, using

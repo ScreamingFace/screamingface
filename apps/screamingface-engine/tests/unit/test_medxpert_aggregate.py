@@ -37,7 +37,11 @@ def _root(tmp_path: Path, case_ids: tuple[int, ...] = (1, 2)) -> Path:
                     "source_id": f"src-{case_id}",
                     "label": _KEYS[case_id],
                     "options_count": 5,
-                    "metadata": {},
+                    "metadata": {
+                        "question_type": "Reasoning",
+                        "medical_task": "Treatment",
+                        "body_system": "Skeletal",
+                    },
                 }
             ),
             encoding="utf-8",
@@ -286,3 +290,40 @@ def test_a_failed_case_keeps_its_reasoning_for_the_post_mortem(tmp_path: Path) -
 
     assert result["cases"][1]["status"] == "failed"
     assert result["cases"][1]["metadata"]["reasoning"] == "step by step"
+
+
+def test_the_official_slice_tags_ride_each_case(tmp_path: Path) -> None:
+    """WHY (spec D6): sub-scores are this benchmark's analysis culture — the official
+    leaderboard cuts by these three axes, and a report a researcher cannot group offline
+    forces a re-join against the raw dataset."""
+
+    result = _aggregate(_root(tmp_path), _rows((1, "C"), (2, "B")))
+
+    for case in result["cases"]:
+        assert case["metadata"]["question_type"] == "Reasoning"
+        assert case["metadata"]["medical_task"] == "Treatment"
+        assert case["metadata"]["body_system"] == "Skeletal"
+
+
+def test_a_failed_case_still_carries_its_slice_tags(tmp_path: Path) -> None:
+    """Failure-mode analysis groups by the same axes — an unmeasured Case must still say
+    which slice it belongs to."""
+
+    result = _aggregate(_root(tmp_path), _rows((1, "C")))
+
+    second = result["cases"][1]
+    assert second["status"] == "failed"
+    assert second["metadata"]["body_system"] == "Skeletal"
+
+
+def test_the_answer_key_never_rides_the_case_metadata(tmp_path: Path) -> None:
+    """INVARIANT: only the three named public columns cross from the private answer record
+    into the report — the label sits in the same file, and a whole-record copy would
+    publish the key on every case."""
+
+    result = _aggregate(_root(tmp_path), _rows((1, "C"), (2, "B")))
+
+    for case in result["cases"]:
+        assert "label" not in case["metadata"]
+        assert "source_id" not in case["metadata"]
+        assert "options_count" not in case["metadata"]
