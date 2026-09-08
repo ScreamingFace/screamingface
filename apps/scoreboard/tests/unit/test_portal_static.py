@@ -240,6 +240,9 @@ def test_every_served_asset_carries_no_internal_references(tmp_path: Path) -> No
             route = "/" + path.relative_to(portal).as_posix()
             response = client.get(route)
             assert response.status_code == 200, route
+            assert response.content == path.read_bytes(), (
+                f"{route} did not serve the expected asset"
+            )
 
             # Search raw response bytes so an unknown or generic MIME type cannot bypass the
             # public boundary. These ASCII-only markers are safe to match in binary assets too.

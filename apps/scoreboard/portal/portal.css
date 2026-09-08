@@ -177,8 +177,7 @@ table .btn { white-space: nowrap; }
    well as broken; suppress it rather than vendoring an icon set for one glyph.
    `content: none` alone does not stop the fetch — Chrome still
    resolves the mask URL and fires the 404 (verified in DevTools). The mask
-   itself has to be cleared, so keep all three declarations. If this portal ever
-   vendors the remix icons, drop this block instead of leaving two checkmarks. */
+   itself has to be cleared, so keep all three declarations. */
 .badge-verified::before {
   content: none;
   -webkit-mask: none;
@@ -196,8 +195,7 @@ table .btn { white-space: nowrap; }
 html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 
 /* ---- masthead nav links -------------------------------------------- */
-/* Adopted from the leaderboard-mvp design, which defines these in its own board.css —
-   they are NOT in the vendored style.css, so they belong here.
+/* These navigation links are portal-specific rather than part of the vendored style.css.
    WHY the group is a container and not three bare anchors: the theme toggle is
    `position: fixed; right: var(--space-5)` (style.css:58 — it pins itself because the
    rail's sticky is defeated by the page's overflow-x clipping), so it takes NO flex space
@@ -216,11 +214,8 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 }
 /* ---- two-card summary strip ---------------------------------------- */
 /* style.css sets `.stats { grid-template-columns: repeat(3,1fr) }` and is vendored,
-   so it is not edited. The leaderboard summary lost its third metric ("Verified
-   rows") when the verification UI was withdrawn — verified_by_screamingface became
-   meaningless — see benchmark.js — and the metric was dropped. Without a modifier the
-   bordered strip
-   renders two cards across two thirds of its width, leaving an empty third.
+   so it is not edited. This leaderboard summary has two cards; without a modifier,
+   the bordered strip renders them across two thirds of its width, leaving an empty third.
    Scoped to a new class so every other three-card `.stats` strip is untouched.
 
    This must stay inside a min-width query. style.css collapses `.stats`

@@ -289,7 +289,7 @@
     section.hidden = false;
   }
   // The chart module owns modelling and SVG; this page owns only
-  // lifecycle wiring. Keeping it separate holds benchmark.js below the repo's focused-file limit.
+  // lifecycle wiring, keeping chart concerns separate from page rendering.
   function renderParetoChart(entries) {
     var section = document.getElementById("pareto-chart-section");
     var container = document.getElementById("pareto-chart");

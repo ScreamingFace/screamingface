@@ -15,7 +15,9 @@ Current files expose ticket history, agent-only comment anchors, and internal re
    repository source path, or Python source-file reference.
 3. **Test the public boundary.** The guard requests every file in the mounted tree through the
    application and scans the raw response bytes. This covers binary assets and textual files served
-   under an unknown or generic media type without attempting to decode either.
+   under an unknown or generic media type without attempting to decode either. It first proves the
+   HTTP response is byte-identical to the enumerated asset so a route collision cannot pass
+   silently.
 4. **Preserve useful rationale.** Short comments that explain current behavior may remain after
    being rewritten in public-safe terms. Internal history, deferred-work notes, and cross-ticket
    reasoning move to the work ledger.
@@ -24,7 +26,7 @@ Current files expose ticket history, agent-only comment anchors, and internal re
 
 ## Acceptance
 
-- Every portal file remains reachable at the same path.
+- Every portal file remains reachable, byte-identically, at the same path.
 - No response from the mounted portal tree exposes a forbidden internal marker.
 - Maintainer rationale removed from served files is recorded in the work ledger.
 - No dependency or build step is introduced.

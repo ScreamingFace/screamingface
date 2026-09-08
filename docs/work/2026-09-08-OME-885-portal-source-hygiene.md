@@ -74,7 +74,12 @@ from them is preserved here:
   Baseline-only boards still have a meaningful open share even though they have no current entry.
   The zero-entry path renders table structure because the earlier return left an empty benchmark
   with only a message and no columns. The landing-page count is best-per-spec, not raw submissions,
-  because there is no aggregate submission-count endpoint.
+  because there is no aggregate submission-count endpoint. That also requires one leaderboard
+  request per benchmark; it was accepted for the current handful and should be revisited if the
+  catalog grows materially.
+- **Chart module boundary (`benchmark.js`, `pareto-chart.js`).** Chart modelling and SVG rendering
+  stay separate from page lifecycle wiring. Besides keeping those concerns isolated, this split was
+  chosen to keep `benchmark.js` below the repository's focused-file limit.
 - **Responsive and accessible layout (`benchmark.html`, `portal.css`).** Adding Cost pushed the
   table beyond its container at intermediate widths; horizontal scrolling preserves the columns,
   and the region must stay keyboard-focusable. The legend is necessary because the visual mark
@@ -95,12 +100,16 @@ from them is preserved here:
 - **Actual files:** the additive public-response guard in
   `apps/scoreboard/tests/unit/test_portal_static.py`; source-comment and provenance-text cleanup
   across `benchmark.html`, `benchmark.js`, `leaderboard-logic.js`, `main.js`, `pareto-chart.js`,
-  `portal.css`, `assets/fonts/OFL.txt`, and `assets/mark/PROVENANCE.md`; the repaired task mirror,
-  spec, plan, and this ledger. No executable JavaScript, HTML structure, CSS declaration, route,
-  dependency, or build step changed.
+  `spec.js`, `portal.css`, `assets/fonts/OFL.txt`, and `assets/mark/PROVENANCE.md`; the repaired task
+  mirror, spec, plan, and this ledger. No executable JavaScript, HTML structure, CSS declaration,
+  route, dependency, or build step changed.
 - **Self-review:** widened the guard from known text media types to raw response bytes so a generic
   MIME type cannot evade it; removed three remaining source-file paths; and corrected the font note
   to retain its concise attribution uncertainty rather than accidentally presenting it as verified.
+- **Second self-review:** made the HTTP guard prove byte identity rather than status alone, then
+  removed semantic leaks that had no forbidden token: a task-line instruction, an internal prototype
+  and source filename, repository sizing rationale, a deferred scaling note, withdrawn-verification
+  history, and a future icon-vendoring instruction.
 - **Commits:** this commit — `chore(scoreboard): keep served portal source public-safe`.
 - **Gates:** RED confirmed on `/assets/fonts/OFL.txt`; focused public-response guard 1 passed;
   `test_portal_static.py` 16 passed; full Scoreboard pytest 619 passed / 3 skipped / 3 deselected;
