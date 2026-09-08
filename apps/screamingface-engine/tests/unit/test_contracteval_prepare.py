@@ -127,3 +127,30 @@ class TestEmit:
 
         assert summary["dataset_revision"]
         assert summary["split"] == "test"
+
+
+class TestModuleEntryPoint:
+    def test_prepare_is_runnable_as_a_module(self) -> None:
+        """REGRESSION: the SDK bakes assets by spawning
+        `python -m screamingface_engine.benchmarks.contracteval.prepare --out <dir>`, so a
+        missing `main` fails only at bake time with "prepared output is missing [...]", which
+        names the symptom and hides the cause. The family guard in test_benchmark_deployment
+        checks that the command STRING matches its regex — not that the module answers it.
+        """
+
+        from screamingface_engine.benchmarks.contracteval import prepare as module
+
+        assert callable(module.main)
+
+    def test_the_entry_point_reports_a_prepare_failure_as_exit_1(self, tmp_path: Path) -> None:
+        from screamingface_engine.benchmarks.contracteval import prepare as module
+
+        def _boom() -> list[dict[str, object]]:
+            raise PrepareError("dataset unavailable")
+
+        original = module.load_rows
+        module.load_rows = _boom  # type: ignore[assignment]
+        try:
+            assert module.main(["--out", str(tmp_path)]) == 1
+        finally:
+            module.load_rows = original  # type: ignore[assignment]

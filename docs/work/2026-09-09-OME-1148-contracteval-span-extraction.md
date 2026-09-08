@@ -59,15 +59,16 @@ build a confusion matrix instead of averaging case scores.
 
 ## Planned changes
 
-To be filled from the spec. Expected shape, following `medxpert/`:
+Plan: `docs/plan/2026-09-09-OME-1148-contracteval-span-extraction.md` — five tasks, of which
+1-4 have landed. Files as built:
 
-- `apps/screamingface-engine/src/screamingface_engine/benchmarks/contracteval/`
-  — `pins.py` `prepare.py` `prompts.py` `answering.py` `grading.py` `case_evaluation.py`
-  `definition.py` `runtime.py` `aggregate.py` `__init__.py`
-- `apps/screamingface-engine/src/screamingface_engine/benchmarks/builtins.py` — registration
-- `apps/screamingface-engine/tests/unit/test_contracteval_*.py`
+- `benchmarks/contracteval/` — `__init__ pins prompts grading prepare case_evaluation definition
+  runtime aggregate` (no `answering.py`; see Deviations)
+- `benchmarks/builtins.py` — registration
+- `tests/unit/test_contracteval_{grading,prepare,case_evaluation,aggregate}.py` — 53 tests
+- `tests/unit/test_benchmark_declaration.py` — one row added to the policy table
 - `packages/screamingface/src/screamingface/_runtime/cli.py` — `_BENCHMARKS` + asset manifest
-- `packages/screamingface/scripts/build_notebooks.py` + the generated notebook
+- `packages/screamingface/scripts/build_notebooks.py` + `examples/12_contracteval.ipynb`
 
 ## Test plan
 

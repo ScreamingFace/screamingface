@@ -184,3 +184,35 @@ Deviations and findings:
 5. **The pinned parquet revision was verified end to end** before being written into `pins.py`:
    `load_dataset("theatticusproject/cuad-qa", revision="d9c4ee02…", split="test")` on
    `datasets 5.0.1` returns 4,182 rows with the expected columns.
+
+### Task 4 — SDK registration and the notebook (2026-09-09)
+
+Files: `cli.py` (`_BENCHMARKS` + asset manifest `("cases.json", "answers")`),
+`build_notebooks.py` (`_contracteval_e2e`), `examples/12_contracteval.ipynb` (12 cells,
+output-free, determinism confirmed by rebuild-and-diff).
+
+**A real defect the unit tests could not have caught.** `prepare.py` shipped without a `main()`,
+but the SDK bakes assets by spawning
+`python -m screamingface_engine.benchmarks.contracteval.prepare --out <dir>`. The bake failed
+with `prepared output is missing ['cases.json', 'answers']` — a message that names the symptom
+and hides the cause completely. Nothing caught it earlier because
+`test_the_family_guard_covers_every_family_preparer_package` asserts the command STRING matches
+its regex, not that the module answers it. Fixed, and pinned by two tests in
+`test_contracteval_prepare.py::TestModuleEntryPoint`.
+
+AIDEV-NOTE for whoever adds board number nine: the family guard is not proof your preparer runs.
+Bake once before you believe it.
+
+Asset bake, first successful run:
+
+```
+{"cases": 4182, "positive_cases": 1244, "negative_cases": 2938,
+ "dataset_revision": "d9c4ee0250ae2eb97bdb5b50773ab14ea62d0631", "split": "test"}
+```
+
+Exactly the spec's measured F-4 figures, and the D-7 context guard passed on all 4,182 rows —
+confirming it never fires on the pinned revision.
+
+Also reverted: regenerating the notebooks rewrote `11_medxpert.ipynb`'s kernel metadata
+(`"Python 3 (ipykernel)"` → `"Python 3"`), committed on main by someone running it locally. Not
+this ticket's change; restored with `git checkout`.

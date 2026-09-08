@@ -16,8 +16,10 @@ means no clause of that category exists — 2,938 of the 4,182 rows (70.3%).
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -134,4 +136,21 @@ def prepare(out: Path) -> dict[str, Any]:
     return emit(load_rows(), out)
 
 
-__all__ = ["PrepareError", "case_records", "emit", "load_rows", "prepare"]
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="contracteval-prepare", description=__doc__)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        summary = prepare(args.out)
+    except PrepareError as exc:
+        print(f"contracteval prepare failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(summary))
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - process entrypoint
+    raise SystemExit(main())
+
+
+__all__ = ["PrepareError", "case_records", "emit", "load_rows", "main", "prepare"]
