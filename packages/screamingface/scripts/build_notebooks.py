@@ -1203,10 +1203,13 @@ sf.connect()"""),
 `limit` keeps the rehearsal cheap. Grading is free, so what you pay for is two candidate calls
 per case — reason, then commit."""),
         nbformat.v4.new_code_cell("""\
-PARAMS = {"max_tokens": 8192, "temperature": 0.0}
+PARAMS = {"max_tokens": 32768, "temperature": 0.0}
 
-gemini = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARAMS)
-report = sf.evaluate(gemini, benchmark="medxpert", limit=5)
+# gemini = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARAMS)
+# solo = sf.Model(model="openrouter/deepseek/deepseek-v4-flash-0731", params=PARAMS)
+
+member1 = sf.Model(model="openrouter/qwen/qwen3.7-flash", params=PARAMS)
+report = sf.evaluate(member1, benchmark="medxpert", limit=2)
 report"""),
         nbformat.v4.new_markdown_cell("""\
 ### Why `max_tokens` is 8192 and not lower
@@ -1232,17 +1235,22 @@ the mechanism can and cannot do: an MCQ answer is a single discrete choice, so a
 nothing to *merge* — it can only pick among the panel's votes. That is a different situation from
 a rubric benchmark, where each member contributes partial credit the others miss."""),
         nbformat.v4.new_code_cell("""\
-qwen = sf.Model(model="openrouter/qwen/qwen3.8-2.4t-a95b", params=PARAMS)
-deepseek = sf.Model(model="openrouter/deepseek/deepseek-v4-pro", params=PARAMS)
-
+# The members below are reasoning models: thinking burns output tokens, so give them room.
+PANEL_PARAMS = {"max_tokens": 32768, "temperature": 0.0}
 SYNTHESIS_PROMPT = (
     "You are given several experts' step-by-step analyses of a multiple-choice medical "
     "question. Weigh their reasoning and the evidence they cite — not merely how many chose "
     "each option — and determine the single best choice."
 )
-kimi = sf.Model(model="openrouter/moonshotai/kimi-k3", params=PARAMS, prompt=SYNTHESIS_PROMPT)
 
-panel = sf.Fusion(members=[gemini, qwen, deepseek], name="medical_panel", synthesizer=kimi)"""),
+member1 = sf.Model(model="openrouter/qwen/qwen3.7-flash", params=PANEL_PARAMS)
+member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARAMS)
+synth = sf.Model(
+    model="openrouter/anthropic/claude-haiku-4.5", params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT
+)
+panel = sf.Fusion(name="medical_panel", members=[member1, member2], synthesizer=synth)
+
+panel"""),
         nbformat.v4.new_code_cell("""\
 fusion_report = sf.evaluate(panel, benchmark="medxpert", limit=5)
 fusion_report"""),
