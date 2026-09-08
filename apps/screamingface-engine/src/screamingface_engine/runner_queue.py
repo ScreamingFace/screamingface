@@ -17,13 +17,23 @@ worker half (which pulls), so it imports nothing from the run half — only the 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 import nats
+
+# WHY imported explicitly rather than reached through `nats`: `nats.errors` is a SUBMODULE, so
+# `import nats` does not bind it. `except nats.errors.Error` in `_fetch` resolves today only
+# because `nats.aio.client` below happens to import it as a side effect. That is an accident of
+# the dependency's internals, and if it ever changes the `except` clause raises AttributeError
+# WHILE HANDLING A BROKER ERROR — turning the guard that keeps one pull blip local into the
+# failure itself.
+import nats.errors
 from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.js import JetStreamContext
@@ -70,6 +80,61 @@ DEFAULT_MAX_ACK_PENDING = 256
 DEFAULT_DEPTH_CEILING = 10_000
 DEFAULT_IO_CONCURRENCY = 4
 DEFAULT_STATE_CACHE_TTL_S = 2.0
+# The per-caller fairness seam (OME-1091): how many bucket subjects the queue is split into.
+# More buckets mean fewer caller collisions (two callers sharing a bucket share its cap and its
+# round-robin slot), at the cost of more subjects the worker must poll each pull.
+DEFAULT_BUCKET_COUNT = 16
+# The per-bucket fetch cap per rotation visit (review follow-up P2-7): ONE message per
+# bucket per visit let a single caller's burst drain at ~1 run per poll — with the default
+# bucket count the rest of the rotation burned the poll's budget on empty buckets while the
+# burst sat in its bucket. A cap > 1 lets a burst drain several messages per visit while
+# round-robin fairness survives: a bucket takes at most this many (or its fair share of a
+# larger batch) per visit, never the whole poll. Pending production numbers from the sized
+# fleet; the levers are this cap and `PULL_FAST_PASS_S` below.
+PULL_BUCKET_BATCH = 2
+# The fast pass's total budget: one rotation with a short per-bucket window, so messages
+# that are IMMEDIATELY available are collected before the poll spends its budget waiting
+# on empty buckets. Bounded by `timeout_s` so a short poll never over-waits.
+PULL_FAST_PASS_S = 1.0
+# V-5: how long a held pull subscription is trusted before it is re-bound. The durable
+# consumer can be deleted/recreated server-side (the note above says that is required to
+# change `max_ack_pending`), and a stale sub can fail SILENTLY — nats-py's `_fetch_n`
+# returns [] on a deleted consumer rather than raising — which no error path can catch.
+# The TTL bounds the silent wedge to one refresh interval; the cost is one bind per
+# bucket per interval, against the per-poll bind the cache exists to avoid.
+PULL_SUB_TTL_S = 300.0
+# The per-caller in-flight cap (OME-1091): how many of one caller's runs may be admitted at
+# once. 8 matches the Client's fan-out (`_MAX_CANDIDATES_IN_FLIGHT`), so one ordinary
+# Evaluation fits while a second concurrent one is refused until the first's runs finish.
+DEFAULT_CALLER_INFLIGHT_CAP = 8
+# The anonymous caller's key: a run with no verified identity is its own caller, so it cannot
+# hide behind another caller's footprint.
+_ANONYMOUS_CALLER = "anonymous"
+
+
+def caller_key(identity: Mapping[str, str] | None) -> str:
+    """The caller's identity value — the verified email — or the anonymous sentinel.
+
+    The bucket key and the per-caller in-flight counter both derive from this one value, so a
+    caller is one caller everywhere. The identity mapping is canonical header name → value
+    (:func:`screamingface_engine.job_env.identity_from_headers`); there is exactly one
+    identity header today, so the value is the mapping's single member.
+    """
+    if not identity:
+        return _ANONYMOUS_CALLER
+    return next(iter(identity.values()), _ANONYMOUS_CALLER)
+
+
+def _consumer_for(subject: str) -> str:
+    """The durable consumer for one bucket subject: `url4-runners-<bucket>`.
+
+    WHY per-bucket rather than one shared name: a durable consumer is identified by
+    (stream, name) and its filter subject is part of its config — reusing one name across
+    buckets would UPDATE the filter on every pull, and messages pending under the old filter
+    would be re-evaluated against the new one. One consumer per bucket keeps each bucket's
+    ack state stable.
+    """
+    return f"{QUEUE_CONSUMER}-{subject.rsplit('.', 1)[-1]}"
 
 
 def _work_queue_consumer_config(
@@ -223,7 +288,10 @@ class RunQueue:
         nats_url: str,
         *,
         stream: str = subjects.RUN_QUEUE_STREAM,
-        subject: str = subjects.RUN_QUEUE_SUBJECT,
+        # The stream is declared with the wildcard `<prefix>.>` (so every bucket subject
+        # lands in it); the per-caller buckets derive from `subject_prefix`.
+        subject_prefix: str = subjects.RUN_QUEUE_SUBJECT_PREFIX,
+        bucket_count: int = DEFAULT_BUCKET_COUNT,
         duplicate_window_s: float = DEFAULT_DUPLICATE_WINDOW_S,
         max_age_s: float = DEFAULT_QUEUE_MAX_AGE_S,
         ack_wait_s: float = DEFAULT_ACK_WAIT_S,
@@ -239,7 +307,8 @@ class RunQueue:
     ) -> None:
         self._url = nats_url
         self._stream = stream
-        self._subject = subject
+        self._subject_prefix = subject_prefix
+        self._bucket_count = bucket_count
         self._duplicate_window_s = duplicate_window_s
         self._max_age_s = max_age_s
         self._ack_wait_s = ack_wait_s
@@ -253,6 +322,17 @@ class RunQueue:
         self._ensured = False
         # (monotonic time of the read, (depth, first_ts)) — see `_state`.
         self._state_cache: tuple[float, tuple[int, str | None]] | None = None
+        # The round-robin pull's rotation: which bucket the next pull starts at. Advancing by
+        # one per pull means no bucket is permanently first (or last) in the rotation.
+        self._rr_index = 0
+        # HELD pull subscriptions, one per distinct subject (review follow-up): binding a
+        # durable consumer costs a `consumer_info` round trip, and the claim loop pulls in
+        # a tight loop whenever slots are free — binding per bucket per cycle multiplied
+        # that cost by the bucket count on EVERY poll, even when the queue was empty. The
+        # set of subjects is the FIXED configured bucket list (or an explicit caller's
+        # list), so the cache is bounded by that, not by callers or messages.
+        self._pull_subs: dict[str, Any] = {}
+        self._pull_subs_bound: dict[str, float] = {}
 
     async def _jetstream(self) -> JetStreamContext:
         js = self._js
@@ -268,11 +348,33 @@ class RunQueue:
             self._js = js
             # The declarations belonged to the connection that just died; the new one has none.
             self._ensured = False
+            # Held subscriptions died with it too — rebind on the next pull.
+            self._pull_subs.clear()
+            self._pull_subs_bound.clear()
             return js
 
     def _is_closed(self) -> bool:
         nc = self._nc
         return nc is not None and nc.is_closed
+
+    @property
+    def _stream_subject(self) -> str:
+        """The stream's subject set: the wildcard over every bucket subject, so one stream
+        holds every caller's runs."""
+        return f"{self._subject_prefix}.>"
+
+    def bucket_subject(self, identity: Mapping[str, str] | None) -> str:
+        """The per-caller queue subject for one caller: a stable hash of the identity VALUE,
+        not the raw address — a subject name is readable by anything with broker access, so
+        the caller's email must never appear in it (spec open question 1).
+        """
+        digest = hashlib.sha256(caller_key(identity).encode("utf-8")).hexdigest()
+        bucket = int(digest[:8], 16) % self._bucket_count
+        return f"{self._subject_prefix}.{bucket:02x}"
+
+    def bucket_subjects(self) -> list[str]:
+        """Every bucket subject, in order — the round-robin pull's rotation."""
+        return [f"{self._subject_prefix}.{i:02x}" for i in range(self._bucket_count)]
 
     async def ensure_stream(self) -> None:
         """Declare the queue stream, tolerating one that already exists.
@@ -287,7 +389,7 @@ class RunQueue:
         try:
             await js.add_stream(
                 name=self._stream,
-                subjects=[self._subject],
+                subjects=[self._stream_subject],
                 retention=RetentionPolicy.WORK_QUEUE,
                 storage=StorageType.FILE,
                 num_replicas=self._replicas,
@@ -300,12 +402,27 @@ class RunQueue:
                 # diverged from what this code declares. NOT "already declared": raising here
                 # surfaces the mismatch at startup instead of running on it silently.
                 raise
-            # Already declared — by another replica, or by an earlier connection.
-            pass
+            # Already declared — by another replica, or by an earlier connection. A stream
+            # declared before per-caller buckets (OME-1091) holds only the single work subject;
+            # widen it to the wildcard so bucket publishes land, without touching the rest of
+            # its config (replicas, retention — those are the declaring replica's business).
+            info = await js.stream_info(self._stream)
+            if info.config.subjects != [self._stream_subject]:
+                # INVARIANT: the update starts from the LIVE config, not from kwargs.
+                # nats-py's `update_stream` builds a FRESH `StreamConfig()` and evolves
+                # only the given kwargs, so `update_stream(name=..., subjects=...)`
+                # resets everything not named — retention (WorkQueue -> Limits),
+                # `num_replicas`, `max_age`, `duplicate_window` — to defaults. Against a
+                # legacy narrow-subject stream the server then REJECTS the retention
+                # change and `ensure_stream` raises on every publish; if it were
+                # accepted, the dedupe window and replica count would be silently gone.
+                config = info.config
+                config.subjects = [self._stream_subject]
+                await js.update_stream(config)
         self._ensured = True
 
-    async def publish(self, message: bytes) -> None:
-        """Publish one run submission, durably.
+    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+        """Publish one run submission to its caller's bucket, durably.
 
         INVARIANT: `Nats-Msg-Id` is the run's TOPIC, read from the message body itself, so a
         retried submission of the same topic is deduplicated by the broker within
@@ -321,7 +438,7 @@ class RunQueue:
         await self.ensure_stream()
         js = await self._jetstream()
         await js.publish(
-            self._subject,
+            self.bucket_subject(identity),
             message,
             headers={
                 "Nats-Msg-Id": topic_of_message(message),
@@ -329,41 +446,193 @@ class RunQueue:
             },
         )
 
-    async def pull(self, batch: int, timeout_s: float) -> list[Msg]:
-        """Pull up to `batch` queued messages, waiting up to `timeout_s` for the first.
+    async def pull(
+        self,
+        batch: int,
+        timeout_s: float,
+        *,
+        subjects: Sequence[str] | None = None,
+    ) -> list[Msg]:
+        """Pull up to `batch` queued messages, round-robin across `subjects` (default: every
+        bucket), waiting up to `timeout_s` in total.
+
+        The round-robin visits every bucket in rotation, up to `PULL_BUCKET_BATCH`
+        messages (or the batch's fair share, whichever is larger) per bucket per visit, in
+        TWO phases: a FAST pass whose short per-bucket windows collect what is immediately
+        available — a burst sitting in one bucket — and a slow pass that spends the
+        remaining budget on a second rotation, so a message that is not there yet still
+        has a window to land. A busy caller cannot drain ahead of a quieter one WITHIN a
+        pull (the per-visit cap sees to that), and the rotation index advances so no
+        bucket is permanently first. A poll against an empty queue returns within
+        `timeout_s` overall: the fast pass is capped at `PULL_FAST_PASS_S`, and the slow
+        pass only re-splits what remains.
 
         Returns the raw NATS messages; the caller acks each after processing. Under the
         EXPLICIT ack policy an unacked message is redelivered after `ack_wait`, up to
         `max_deliver` times.
 
-        WHY a fresh subscription per call: the durable consumer (`url4-runners`) is server-side
-        and persists, so binding and unbinding a client subscription per pull is idempotent and
-        costs one `consumer_info` round trip. A worker that wants to avoid even that can hold
-        the subscription itself.
+        WHY subscriptions are HELD: the durable consumers (`url4-runners-<bucket>`) are
+        server-side and persist, so binding a client subscription is idempotent — and
+        doing it per bucket PER CYCLE cost a `consumer_info` round trip each way on every
+        poll, multiplied by the bucket count, paid even when the queue was empty and the
+        claim loop is polling flat out. Holding one subscription per distinct subject
+        reduces each cycle to the `fetch` alone; the cache is bounded by the configured
+        bucket list (or the caller's explicit list), never by callers or messages, and a
+        reconnect clears it — the subscriptions died with the connection.
+
+        THE RPC ACCOUNTING (review follow-up, recorded so the tradeoff is a decision, not
+        an accident): one pull costs one `fetch` per bucket VISITED — the fast pass
+        always costs a full rotation (16 with the default bucket count); the slow pass
+        only runs while the batch is unfilled and budget remains — against one
+        `fetch(batch)` for a single-subject consumer. That multiplier is the price of
+        per-caller fairness: JetStream dispatches one consumer in stream order, so a
+        single wildcard consumer would collapse the buckets back into FIFO — the exact
+        head-of-line unfairness the bucket rotation exists to break. Two properties keep
+        the cost bounded: the fast pass's windows total `min(PULL_FAST_PASS_S,
+        timeout_s)`, and an empty bucket's fetch returns as soon as its own short window
+        expires, so a poll against an empty queue is 16 cheap timeouts plus at most one
+        more rotation of the REMAINING budget — never more than `timeout_s` overall.
+        Revisit only with production RPC-budget numbers from the sized fleet (worker pods
+        x polls/second x buckets vs what the broker absorbs); the levers, in order of
+        preference, are a smaller `bucket_count`, the per-visit cap, or a server-side
+        fair consumer if JetStream ever ships one — never a silent fallback to the
+        wildcard.
         """
+        subjects = list(subjects) if subjects is not None else self.bucket_subjects()
+        if not subjects or batch <= 0:
+            return []
         await self.ensure_stream()
         js = await self._jetstream()
-        sub = await js.pull_subscribe(
-            self._subject,
-            durable=QUEUE_CONSUMER,
-            stream=self._stream,
-            config=_work_queue_consumer_config(
-                ack_wait_s=self._ack_wait_s,
-                max_deliver=self._max_deliver,
-                max_ack_pending=self._max_ack_pending,
-            ),
-        )
+        collected: list[Msg] = []
+        # TWO PHASES over the same rotation (review follow-up P2-7). The FAST pass (the
+        # first rotation) gives each bucket a short window so messages that are already
+        # there — a burst sitting in one bucket — are collected before the budget is
+        # spent waiting on empty buckets; the SLOW pass spends the remaining budget on a
+        # second rotation, so a message that lands mid-poll still has a window. Each
+        # visit fetches at most `per_visit` messages, so a busy caller cannot drain ahead
+        # of a quieter one WITHIN a pull, and the total wait never exceeds `timeout_s`.
+        rotation = len(subjects)
+        per_visit = max(PULL_BUCKET_BATCH, -(-batch // rotation))
+        fast_window = min(PULL_FAST_PASS_S, timeout_s) / rotation
+        deadline = time.monotonic() + timeout_s
+        for slot in range(max(batch, 2 * rotation)):
+            if len(collected) >= batch:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            window = fast_window if slot < rotation else remaining / rotation
+            subject = subjects[(self._rr_index + slot) % rotation]
+            sub = await self._bound_subscription(js, subject)
+            want = min(batch - len(collected), per_visit)
+            fetched = await self._visit(sub, subject, want, window, have=len(collected))
+            if fetched is None:
+                break
+            collected.extend(fetched)
+        self._rr_index = (self._rr_index + 1) % rotation
+        return collected
+
+    async def _visit(
+        self, sub: Any, subject: str, want: int, window: float, *, have: int
+    ) -> list[Any] | None:
+        """One bucket visit's messages, or ``None`` when a blip should end the rotation.
+
+        INVARIANT: a delivery attempt is never spent for nothing. `_fetch_from` re-raises a
+        non-timeout broker error, and `pull` accumulates across buckets — so letting that
+        escape discarded every message the earlier buckets had already yielded, along with
+        the stack frame holding them. Those messages had been DELIVERED: neither acked nor
+        NAK'd, they sat out the whole `ack_wait` and came back as their FINAL delivery
+        (`DEFAULT_MAX_DELIVER` is 2), where one further blip ends those runs as
+        `max_deliveries` instead of executing them.
+
+        WHY a visit that follows NOTHING still raises (`have == 0`): the claim loop counts
+        pull failures and backs off on them, so swallowing unconditionally would turn a
+        broker outage into a silent hot loop indistinguishable from an idle queue. With
+        work in hand the blip is simply left to the next pull, against the same broker.
+        """
         try:
-            return await sub.fetch(batch, timeout=timeout_s)
+            return await self._fetch_from(sub, subject, want, window)
+        except nats.errors.Error:
+            if not have:
+                raise
+            logger.warning(
+                "run-queue pull stopped early on %s after collecting %d message(s); "
+                "returning them and leaving the blip to the next pull",
+                subject,
+                have,
+                exc_info=True,
+            )
+            return None
+
+    async def _fetch_from(self, sub: Any, subject: str, want: int, window: float) -> list[Any]:
+        """One bucket visit: fetch up to `want` messages, clamped to `want`.
+
+        INVARIANT: an empty bucket is a RESULT, not an error. nats-py's `fetch` RAISES
+        `nats.errors.TimeoutError` (or its `FetchTimeoutError` subclass) when no message
+        arrives within the window — it never returns an empty list — and both subclass
+        `TimeoutError`. Left uncaught, the first empty bucket in the rotation unwinds the
+        worker's claim loop and kills the pool; with 16 buckets most rotations visit
+        empty buckets before the one that holds a message. A timed-out HELD subscription
+        stays usable — the next fetch on it is an independent request.
+
+        V-4: nats-py's `_fetch_n` (want >= 2) drains the subscription's PENDING queue
+        with no `needed` guard, so a held sub carrying late deliveries from a previous
+        poll can return MORE than `want` — and the claim loop spawns one supervisor per
+        returned message, so an unclamped extend over-subscribed the pod past
+        `worker_slots`, breaking the loop's stated invariant. The surplus is NAK'd —
+        returned to the queue for the next pull — not dropped and not acked away.
+
+        V-5: a held subscription can be broken server-side — the durable consumer deleted
+        or recreated (the note above says that is required to change `max_ack_pending`)
+        — and a broken sub never self-heals: `_fetch_one` raises, `_fetch_n` returns []
+        silently. A non-timeout error drops the cache entry so the next pull re-binds;
+        the claim loop's guard logs and retries, and the wedge is bounded to one poll.
+        """
+        try:
+            msgs = await sub.fetch(want, timeout=window)
         except TimeoutError:
-            # INVARIANT: an idle poll is a RESULT, not an error. nats-py's `fetch` RAISES
-            # `nats.errors.TimeoutError` (or its `FetchTimeoutError` subclass) when no
-            # message arrives within the window — it never returns an empty list — and
-            # both subclass `TimeoutError`. Left uncaught, the first empty poll unwinds
-            # the worker's claim loop and kills the pool on an idle queue.
             return []
-        finally:
-            await sub.unsubscribe()
+        except nats.errors.Error:
+            self._pull_subs.pop(subject, None)
+            self._pull_subs_bound.pop(subject, None)
+            raise
+        if len(msgs) > want:
+            surplus, msgs = msgs[want:], msgs[:want]
+            for extra in surplus:
+                await extra.nak()
+        return msgs
+
+    async def _bound_subscription(self, js: Any, subject: str) -> Any:
+        """The HELD pull subscription for one bucket subject, bound on first use.
+
+        WHY held and not per-cycle: binding a durable consumer costs a `consumer_info`
+        round trip, and the claim loop pulls in a tight loop — per-cycle binding paid
+        that once per bucket PER POLL, even against an empty queue. The cache is bounded
+        by the configured bucket list and cleared on reconnect (the subscriptions died
+        with the connection)."""
+        sub = self._pull_subs.get(subject)
+        if (
+            sub is not None
+            and time.monotonic() - self._pull_subs_bound.get(subject, 0.0) > PULL_SUB_TTL_S
+        ):
+            # V-5: the TTL refresh — a stale sub can fail silently (see the constant), so
+            # it is re-bound on a schedule rather than only on a visible error.
+            self._pull_subs.pop(subject, None)
+            sub = None
+        if sub is None:
+            sub = await js.pull_subscribe(
+                subject,
+                durable=_consumer_for(subject),
+                stream=self._stream,
+                config=_work_queue_consumer_config(
+                    ack_wait_s=self._ack_wait_s,
+                    max_deliver=self._max_deliver,
+                    max_ack_pending=self._max_ack_pending,
+                ),
+            )
+            self._pull_subs[subject] = sub
+            self._pull_subs_bound[subject] = time.monotonic()
+        return sub
 
     async def _state(self) -> tuple[int, str | None]:
         """(queued message count, first message's publish timestamp) from one stream-info round
@@ -418,6 +687,8 @@ class RunQueue:
 
 __all__ = [
     "DEFAULT_ACK_WAIT_S",
+    "DEFAULT_BUCKET_COUNT",
+    "DEFAULT_CALLER_INFLIGHT_CAP",
     "DEFAULT_DEPTH_CEILING",
     "DEFAULT_DUPLICATE_WINDOW_S",
     "DEFAULT_IO_CONCURRENCY",
@@ -426,9 +697,12 @@ __all__ = [
     "DEFAULT_QUEUE_MAX_AGE_S",
     "DEFAULT_STATE_CACHE_TTL_S",
     "DEFAULT_WORKER_SLOTS",
+    "PULL_BUCKET_BATCH",
+    "PULL_FAST_PASS_S",
     "QUEUE_CONSUMER",
     "QUEUE_REPLICAS",
     "RunQueue",
+    "caller_key",
     "decode_message",
     "encode_message",
     "topic_of_message",

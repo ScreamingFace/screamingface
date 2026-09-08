@@ -119,11 +119,13 @@ def build_job_runner(
                 # publishes where no worker listens). `run_worker` passes the same
                 # settings, so the sides agree for any Settings.
                 stream=settings.run_queue_stream,
+                subject_prefix=settings.run_queue_subject_prefix,
                 ack_wait_s=settings.run_queue_ack_wait_s,
                 max_deliver=settings.run_queue_max_deliver,
                 max_ack_pending=settings.run_queue_max_ack_pending,
                 duplicate_window_s=settings.run_queue_duplicate_window_s,
                 max_age_s=settings.run_queue_max_age_s,
+                bucket_count=settings.run_queue_bucket_count,
                 # INVARIANT: the same rule as `stream` above, for a property the broker
                 # itself enforces. `ensure_stream` refuses a declaration whose properties
                 # diverge from an existing stream, and the App usually declares FIRST —
@@ -142,5 +144,7 @@ def build_job_runner(
             capability_lifetime_s=settings.capability_lifetime_s,
             io_concurrency=settings.runner_io_concurrency,
             extra_models=extra_models,
+            depth_ceiling=settings.run_queue_depth_ceiling,
+            caller_inflight_cap=settings.run_queue_caller_inflight_cap,
         )
     return None

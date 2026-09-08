@@ -14,8 +14,10 @@ PREFIX = "url4-cloud"
 
 # The durable run queue (OME-1088): ONE stream for every run, unlike the per-run event streams,
 # so it is named OUTSIDE the per-run `url4-cloud_` prefix — see `owns_stream` for why that is
-# load-bearing. Per-caller subjects (`url4-runq.<bucket>`) are the fairness seam; they land in
-# OME-1091, so this unit uses the single `url4-runq.work` subject.
+# load-bearing. Per-caller subjects (`url4-runq.<bucket>`, a stable hash of the caller's identity
+# value) are the fairness seam (OME-1091): the stream is declared with the wildcard `url4-runq.>`
+# and the worker pulls round-robin across buckets. `RUN_QUEUE_SUBJECT` is the legacy single
+# subject, kept for backward compatibility.
 RUN_QUEUE_STREAM = "url4-runq"
 RUN_QUEUE_SUBJECT_PREFIX = "url4-runq"
 RUN_QUEUE_SUBJECT = f"{RUN_QUEUE_SUBJECT_PREFIX}.work"
