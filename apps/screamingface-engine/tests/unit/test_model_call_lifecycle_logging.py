@@ -156,3 +156,24 @@ def test_the_local_composition_root_attaches_exactly_one_engine_handler() -> Non
         for handler in package_logger.handlers[:]:
             if isinstance(handler, _EngineRuntimeLogHandler) and handler not in before:
                 package_logger.removeHandler(handler)
+
+
+async def test_heartbeats_back_off_instead_of_spamming(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """WHY: a 20-minute reasoning marathon at a fixed interval is 20 log lines saying
+    the same thing — doubling waits keep a long call to a handful of beats while a
+    fixed cadence would flood the log."""
+    monkeypatch.setattr(connector_module, "_IN_FLIGHT_HEARTBEAT_S", 0.04)
+    monkeypatch.setattr(connector_module, "_IN_FLIGHT_HEARTBEAT_MAX_S", 10.0)
+
+    async def fetch(client, *, headers, body, cache):
+        await asyncio.sleep(0.4)
+        return _Resp(_completion()), None
+
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        await _run_loop(monkeypatch, fetch)
+    beats = len([r for r in caplog.records if "in flight" in r.getMessage()])
+    # Fixed 0.04s cadence over 0.4s would be ~10 beats; doubling (0.04+0.08+0.16+0.32)
+    # yields 3-4. The band is wide because CI clocks jitter.
+    assert 2 <= beats <= 5, beats

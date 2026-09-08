@@ -85,19 +85,24 @@ _TRANSPORT_BACKOFF_JITTER_S = 0.25
 
 # How long a gateway round trip may sit quiet before the log says so (OME-1126). Long
 # enough that ordinary reasoning turns stay silent; short enough that a stalled provider
-# endpoint is visible while it stalls rather than only after the run dies.
+# endpoint is visible while it stalls rather than only after the run dies. Each later
+# beat waits twice as long (capped) so a 20-minute reasoning marathon costs ~5 lines,
+# not 20 — the log stays legible while still proving the call is alive.
 _IN_FLIGHT_HEARTBEAT_S = 60.0
+_IN_FLIGHT_HEARTBEAT_MAX_S = 600.0
 
 
 async def _in_flight_heartbeat(model_id: str, started: float) -> None:
     """Announce a still-running round trip until the caller cancels this task."""
+    wait = _IN_FLIGHT_HEARTBEAT_S
     while True:
-        await asyncio.sleep(_IN_FLIGHT_HEARTBEAT_S)
+        await asyncio.sleep(wait)
         logger.info(
             "model call in flight model=%s elapsed=%.0fs",
             model_id,
             time.monotonic() - started,
         )
+        wait = min(wait * 2, _IN_FLIGHT_HEARTBEAT_MAX_S)
 
 
 async def _logged_round_trip(
