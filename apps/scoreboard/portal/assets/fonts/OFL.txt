@@ -17,8 +17,8 @@ Parastoo (parastoo-*.woff2):
 
   Copyright (c) 2015, Saber Rastikerdar (saber.rastikerdar@gmail.com)
 
-  Attribution reference: https://github.com/rastikerdar/parastoo-font
-  (LICENSE, OFL-1.1).
+  Attribution for the vendored binary has not been independently confirmed.
+  Candidate OFL-1.1 source: https://github.com/rastikerdar/parastoo-font
 
 -----------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
