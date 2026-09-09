@@ -16,6 +16,7 @@ from screamingface_engine.benchmarks.spine.scored import (
     GradeRequest,
     ScoredPath,
 )
+from screamingface_engine.benchmarks.spine.verdict import Verdict, VerdictShape, parse_verdict
 
 __all__ = [
     "CaseGradeOutcome",
@@ -27,6 +28,9 @@ __all__ = [
     "RowReader",
     "ScoredPath",
     "TextPayload",
+    "Verdict",
+    "VerdictShape",
+    "parse_verdict",
     "read_selected_cases",
     "rubric_grade_case",
 ]

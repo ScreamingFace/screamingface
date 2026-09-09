@@ -52,6 +52,7 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import candidate_answer, compact_json, json_object
+from screamingface_engine.benchmarks.spine.verdict import recovered_array
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -442,15 +443,9 @@ def _verdict_row(row: object, count: int) -> tuple[int, bool] | None:
 
 
 def _decoded_array(reply: str) -> list[object] | None:
-    text = "\n".join(line for line in (reply or "").splitlines() if not line.startswith("```"))
-    start = text.find("[")
-    if start < 0:
-        return None
-    try:
-        decoded, _ = json.JSONDecoder().raw_decode(text[start:])
-    except ValueError:
-        return None
-    return decoded if isinstance(decoded, list) else None
+    # The shared JSON-recovery primitive (spine.verdict, OME-1099) — same fence
+    # stripping and first-value scan as the per-item verdict parsers.
+    return recovered_array(reply or "")
 
 
 # --- scoring + sanitization -------------------------------------------------------
