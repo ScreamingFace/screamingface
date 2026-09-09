@@ -34,7 +34,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore
-from screamingface_engine.benchmarks.contract import CaseResult
+from screamingface_engine.benchmarks.contract import CaseGrade, CaseResult
 
 
 def exam_scorer(
@@ -48,16 +48,20 @@ def exam_scorer(
     """
 
     def score(cases: Sequence[CaseResult]) -> CandidateScore:
-        grades = [case.grade for case in cases]
+        grades: list[CaseGrade | None] = [case.grade for case in cases]
         if any(grade is None or grade.score is None for grade in grades):  # pragma: no cover
             raise AssertionError("the exam scorer requires complete graded Cases")
-        typed = [grade for grade in grades if grade is not None and grade.score is not None]
-        scores = [float(grade.score) for grade in typed if grade.score is not None]
-        judged_items = sum(int(grade.metrics["judged"]) for grade in typed)
-        total_items = sum(int(grade.metrics["expected"]) for grade in typed)
-        invalid_replies = sum(int(grade.metrics["invalid_replies"]) for grade in typed)
-        met_items = sum(1 for grade in typed for check in grade.checks if check.outcome == "MET")
-        exam_score = mean(scores)
+        typed: list[CaseGrade] = [
+            grade for grade in grades if grade is not None and grade.score is not None
+        ]
+        scores: list[float] = [float(grade.score) for grade in typed if grade.score is not None]
+        judged_items: int = sum(int(grade.metrics["judged"]) for grade in typed)
+        total_items: int = sum(int(grade.metrics["expected"]) for grade in typed)
+        invalid_replies: int = sum(int(grade.metrics["invalid_replies"]) for grade in typed)
+        met_items: int = sum(
+            1 for grade in typed for check in grade.checks if check.outcome == "MET"
+        )
+        exam_score: float | None = mean(scores)
         if exam_score is None:  # pragma: no cover - a Benchmark always selects one Case
             raise AssertionError("the exam scorer requires at least one Case")
         return CandidateScore(
@@ -84,7 +88,7 @@ def sample_stdev(values: Sequence[float]) -> float:
 
     if len(values) < 2:
         return 0.0
-    centre = sum(values) / len(values)
+    centre: float = sum(values) / len(values)
     return (sum((value - centre) ** 2 for value in values) / (len(values) - 1)) ** 0.5
 
 

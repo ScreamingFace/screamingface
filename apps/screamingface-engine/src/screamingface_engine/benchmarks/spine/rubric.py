@@ -1,4 +1,5 @@
-"""
+"""The shared rubric ``grade_case`` — marking one script against a graded checklist.
+
 Imagine you're a TA grading 100 essay answers. You can't just eyeball them — you have a
 rubric: a checklist where each item has points.
 
@@ -65,11 +66,11 @@ def rubric_grade_case(*, case_score: CaseScore, judge_producer_id: str) -> Grade
         material = request.material
         assert isinstance(material, Sequence) and not isinstance(material, (str, bytes))
         points: list[int] = [int(value) for value in material]
-        evaluations = request.row.get("rubric_evaluations")
+        evaluations: object = request.row.get("rubric_evaluations")
         # Stage 1-2 — the judge's work, read and projected.
         verdicts, invalid = _verdicts(evaluations)
         checks: list[dict[str, Any]] = _checks(evaluations, points, judge_producer_id)
-        metrics = {
+        metrics: dict[str, int] = {
             "judged": len(verdicts),
             "expected": len(points),
             "invalid_replies": invalid,
@@ -81,7 +82,7 @@ def rubric_grade_case(*, case_score: CaseScore, judge_producer_id: str) -> Grade
             # WHY the split: a complete-but-unscorable Case means the baked asset
             # lost its guaranteed positive-points item — a baked-asset defect, not
             # judge loss; the two must stay distinguishable in the report.
-            code = "no_positive_points" if complete else "incomplete_verdicts"
+            code: str = "no_positive_points" if complete else "incomplete_verdicts"
             return CaseGradeOutcome(score=None, metrics=metrics, checks=checks, failure_code=code)
         return CaseGradeOutcome(score=score, metrics=metrics, checks=checks)
 
@@ -99,12 +100,12 @@ def _verdicts(evaluations: object) -> tuple[dict[int, bool], int]:
         if not isinstance(evaluation, Mapping):
             invalid += 1
             continue
-        evidence = evaluation.get("evidence")
+        evidence: object = evaluation.get("evidence")
         if not isinstance(evidence, Mapping) or evidence.get("valid") is not True:
             invalid += 1
             continue
-        rubric_id = evidence.get("rubric_id")
-        criteria_met = evidence.get("criteria_met")
+        rubric_id: object = evidence.get("rubric_id")
+        criteria_met: object = evidence.get("criteria_met")
         if (
             isinstance(rubric_id, int)
             and not isinstance(rubric_id, bool)
@@ -125,9 +126,9 @@ def _checks(evaluations: object, points: list[int], judge_producer_id: str) -> l
     for evaluation in evaluations:
         if not isinstance(evaluation, Mapping):
             continue
-        rubric = evaluation.get("rubric")
-        evidence = evaluation.get("evidence")
-        rubric_id = evaluation.get("rubric_id")
+        rubric: object = evaluation.get("rubric")
+        evidence: object = evaluation.get("evidence")
+        rubric_id: object = evaluation.get("rubric_id")
         if (
             not isinstance(rubric, Mapping)
             or not isinstance(evidence, Mapping)
@@ -161,7 +162,7 @@ def _evidence(record: Mapping[str, Any], judge_producer_id: str) -> dict[str, An
     verdict and explanation if the reply was valid, the rejection reason if it wasn't.
     """
 
-    valid = record.get("valid") is True
+    valid: bool = record.get("valid") is True
     value: dict[str, Any] = {
         # One judge pass per rubric item (the reference grades each item once),
         # so the sequence is always 1.

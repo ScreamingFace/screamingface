@@ -138,7 +138,7 @@ class RowReader:
         """
 
         # Stage 1-2 — decode the array and check it against the roll call.
-        rows = self._decoded_rows(raw_rows)
+        rows: list[Any] = self._decoded_rows(raw_rows)
         if len(rows) > len(case_ids):
             raise self.error_type(
                 f"aggregate received {len(rows)} rows for {len(case_ids)} selected Cases"
@@ -153,7 +153,7 @@ class RowReader:
         """Stage 1 — the collected array, still opaque, one entry per Case that ran."""
 
         try:
-            decoded = json.loads(raw or "")
+            decoded: object = json.loads(raw or "")
         except ValueError as exc:
             raise self.error_type(f"{self.benchmark_label} rows are not JSON: {exc}") from None
         if not isinstance(decoded, list):
@@ -169,11 +169,11 @@ class RowReader:
     ) -> None:
         """Stages 3-5 — unwrap one row, then file it as an error, a failure, or a row."""
 
-        row = self._row_value(entry, position)
+        row: Mapping[str, Any] = self._row_value(entry, position)
         if self._filed_outer_error(row, position, expected_case_id, index):
             return
         try:
-            outcome = case_execution_outcome(row)
+            outcome: CaseExecutionOutcome = case_execution_outcome(row)
             if not case_execution_matches(outcome, expected_case_id):
                 raise ValueError(
                     f"Case execution claims case_id {outcome.case_id!r}, "
@@ -192,7 +192,7 @@ class RowReader:
         """Stage 3 — url4 hands some rows back as JSON text rather than as objects."""
 
         try:
-            row = json.loads(entry) if isinstance(entry, str) else entry
+            row: object = json.loads(entry) if isinstance(entry, str) else entry
         except ValueError as exc:
             raise self.error_type(
                 f"Case result at position {position} is not JSON: {exc}"
@@ -210,12 +210,12 @@ class RowReader:
     ) -> bool:
         """Stage 4 — this Case's whole branch failed; True when the row was filed here."""
 
-        error = row.get("error")
+        error: object = row.get("error")
         if error is None:
             return False
         if not isinstance(error, Mapping):
             raise self.error_type(f"Case result at position {position} has an invalid error")
-        claimed = row.get("case_id")
+        claimed: object = row.get("case_id")
         if claimed is not None and claimed != expected_case_id:
             raise self.error_type(
                 f"Case result at position {position} claims case_id {claimed}, "
@@ -246,22 +246,22 @@ def read_selected_cases(
     """
 
     try:
-        decoded = json.loads((root / "cases.json").read_text(encoding="utf-8"))
+        decoded: object = json.loads((root / "cases.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise error_type(f"{benchmark_label} cases are unavailable: {exc}") from None
     if not isinstance(decoded, list):
         raise error_type(f"{benchmark_label} cases must be a JSON array")
-    by_id = {
-        row.get("id"): row
+    by_id: dict[int, Mapping[str, Any]] = {
+        row_id: row
         for row in decoded
         if isinstance(row, Mapping)
-        and isinstance(row.get("id"), int)
-        and not isinstance(row.get("id"), bool)
+        and isinstance((row_id := row.get("id")), int)
+        and not isinstance(row_id, bool)
     }
     selected: list[SelectedCase] = []
     for case_id in case_ids:
-        row = by_id.get(case_id)
-        input_value = row.get("input") if isinstance(row, Mapping) else None
+        row: Mapping[str, Any] | None = by_id.get(case_id)
+        input_value: object = row.get("input") if isinstance(row, Mapping) else None
         if not isinstance(input_value, str) or not input_value.strip():
             raise error_type(f"{benchmark_label} Case {case_id} has no public input")
         selected.append(SelectedCase(case_id=case_id, input=input_value, metadata={}))

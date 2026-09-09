@@ -33,14 +33,13 @@ One aggregate call = marking one class's exam.
     The hook can still fail a Case (e.g. the judge returned verdicts for only 3 of 5 rubric
     points → incomplete_verdicts), and the failure message text belongs to the benchmark,
     not the spine.
-
-Stage 5 — total the marks. Wrap each Case's outcome into a `CaseResult`, then compute the
+- Stage 5 — total the marks. Wrap each Case's outcome into a `CaseResult`, then compute the
     exam-level score with the shared scorer. The benchmark contributes exactly one thing
     here: its mean (how per-Case scores average into the headline number). Everything else —
     the metric names in the output — is fixed spine vocabulary, so every benchmark's
     report looks the same.
 
-Key design point the list is making: Stages 1, 2, 3, 5 are identical for every benchmark (spine).
+The key design point: Stages 1, 2, 3, 5 are identical for every benchmark (spine).
 Only Stage 4's grade_case (plus failure wording and the mean) is per-benchmark.
 
 INVARIANT (the hourglass waist): a ``GradeRequest`` carries only plain, serializable
@@ -62,6 +61,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import (
+    PublicError,
     SelectedCase,
     failed_case_result,
     finalize_candidate_result,
@@ -70,6 +70,7 @@ from screamingface_engine.benchmarks.aggregation import (
     refusal_case_result,
     scored_case_result,
 )
+from screamingface_engine.benchmarks.case_execution import CaseExecutionOutcome
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
 from screamingface_engine.benchmarks.spine.exam import exam_scorer
 from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
@@ -169,11 +170,13 @@ class ScoredPath:
         """
 
         # Stage 1-2 — roll call and row filing (position is identity; see rows.py).
-        case_ids = tuple(int(selected.case_id) for selected in selected_cases)
-        indexed = self.reader.index(raw_rows, case_ids)
+        case_ids: tuple[int, ...] = tuple(int(selected.case_id) for selected in selected_cases)
+        indexed: RowIndex = self.reader.index(raw_rows, case_ids)
         # Stage 3-4 — the hook is async (an enclave call is a network hop); the
         # surrounding url4 handler is sync.
-        case_results = _run_sync(self._case_results(selected_cases, indexed, grading_material))
+        case_results: list[CaseResult] = _run_sync(
+            self._case_results(selected_cases, indexed, grading_material)
+        )
         # Stage 5 — fold the marks into the class results.
         return finalize_candidate_result(
             benchmark_id=benchmark_id,
@@ -202,14 +205,14 @@ class ScoredPath:
         indexed: RowIndex,
         grading_material: Callable[[int], object | None],
     ) -> CaseResult:
-        case_id = int(selected_case.case_id)
-        row = indexed.rows.get(case_id)
-        material = grading_material(case_id)
-        result = self._ladder_result(selected_case, indexed, row, material)
+        case_id: int = int(selected_case.case_id)
+        row: dict[str, Any] | None = indexed.rows.get(case_id)
+        material: object | None = grading_material(case_id)
+        result: CaseResult | None = self._ladder_result(selected_case, indexed, row, material)
         if result is None:
             # Stage 4 — the hook: the one per-board call, data in, grade out.
             assert row is not None and material is not None
-            outcome = await self.grade_case(
+            outcome: CaseGradeOutcome = await self.grade_case(
                 GradeRequest(
                     case_id=selected_case.case_id,
                     input=TextPayload(text=selected_case.input),
@@ -238,7 +241,7 @@ class ScoredPath:
 
         case_id = int(selected.case_id)
         result: CaseResult | None
-        grading_failure = indexed.grading_failures.get(case_id)
+        grading_failure: CaseExecutionOutcome | None = indexed.grading_failures.get(case_id)
         if grading_failure is not None:
             assert grading_failure.error is not None
             result = grading_failure_case_result(
@@ -250,7 +253,7 @@ class ScoredPath:
                 default_message=self.grading_failure_message,
             )
         elif material is None:
-            failure = self._failure(case_id, "grading", "missing_rubric_asset")
+            failure: dict[str, Any] = self._failure(case_id, "grading", "missing_rubric_asset")
             result = self._failed_result(selected, row, [], failure)
         elif row is None:
             result = self._missing_row_result(selected, indexed.collected_errors.get(case_id))
@@ -268,7 +271,7 @@ class ScoredPath:
         outcome: CaseGradeOutcome,
     ) -> CaseResult:
         if outcome.failure_code is not None:
-            failure = self._failure(
+            failure: dict[str, Any] = self._failure(
                 int(selected.case_id),
                 "grading",
                 outcome.failure_code,
@@ -285,14 +288,14 @@ class ScoredPath:
         outcome: CaseGradeOutcome,
     ) -> CaseResult:
         assert outcome.score is not None
-        fields = _candidate_fields(row)
-        grade = {
+        fields: CandidateFields = _candidate_fields(row)
+        grade: dict[str, Any] = {
             "method": self.method,
             "score": round(outcome.score, 4),
             "metrics": dict(outcome.metrics),
             "checks": list(outcome.checks),
         }
-        common = {
+        common: dict[str, Any] = {
             "selected_case": selected,
             "finish_reason": fields.finish_reason,
             "grade": grade,
@@ -315,7 +318,7 @@ class ScoredPath:
         # Case identity, so a mid-chain error surfaces HERE as a missing row —
         # without the orphan payloads the report would name the symptom but hide
         # the cause (exactly what happened in the first live smoke run).
-        failure = self._failure(
+        failure: dict[str, Any] = self._failure(
             int(selected.case_id),
             "candidate",
             "missing_case_row",
@@ -330,13 +333,18 @@ class ScoredPath:
         checks: Sequence[Mapping[str, Any]],
         failure: dict[str, Any],
     ) -> CaseResult:
-        fields = _candidate_fields(row)
+        fields: CandidateFields = _candidate_fields(row)
         # WHY a grade with score None rather than no grade: the judge evidence for a
         # partially judged Case is audit material, and the grade's checks list is the
         # contract's slot for it. Its metrics stay {} — a failed Case publishes no
         # counting claims (byte-identical to the pre-extraction boards).
-        grade = {"method": self.method, "score": None, "metrics": {}, "checks": checks}
-        common = {
+        grade: dict[str, Any] = {
+            "method": self.method,
+            "score": None,
+            "metrics": {},
+            "checks": checks,
+        }
+        common: dict[str, Any] = {
             "selected_case": selected,
             "finish_reason": fields.finish_reason,
             "grade": grade,
@@ -350,11 +358,13 @@ class ScoredPath:
         return failed_case_result(output=fields.output, **common)
 
     def _failure(self, case_id: int, stage: str, code: str, **metadata: Any) -> dict[str, Any]:
-        public_metadata = _failure_metadata(metadata)
-        message = self.failure_messages[code]
+        public_metadata: dict[str, Any] = _failure_metadata(metadata)
+        message: str = self.failure_messages[code]
         retryable: bool | None = None
         if source_error := _source_error(metadata):
-            diagnostic = public_error(source_error, default_code=code, default_message=message)
+            diagnostic: PublicError = public_error(
+                source_error, default_code=code, default_message=message
+            )
             message = diagnostic.message
             retryable = diagnostic.retryable
             public_metadata["source_error"] = {
@@ -417,7 +427,7 @@ class CandidateFields:
 def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
     """Pull status/output/finish_reason/refusal/metadata off the hoisted Case record."""
 
-    case = row.get("case") if isinstance(row, Mapping) else None
+    case: object = row.get("case") if isinstance(row, Mapping) else None
     if not isinstance(case, Mapping):
         return CandidateFields(
             status=None,
@@ -428,10 +438,10 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
             operations=None,
             metadata={},
         )
-    metadata = case.get("metadata")
-    output = case.get("output")
-    finish_reason = case.get("finish_reason")
-    refusal = case.get("refusal")
+    metadata: object = case.get("metadata")
+    output: object = case.get("output")
+    finish_reason: object = case.get("finish_reason")
+    refusal: object = case.get("refusal")
     return CandidateFields(
         status=case.get("status"),
         output=output if isinstance(output, str) else None,
@@ -454,11 +464,11 @@ def _failure_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _source_error(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    error = metadata.get("error")
+    error: object = metadata.get("error")
     if isinstance(error, Mapping):
         return error
-    collected = metadata.get("collected_errors")
-    rows = collected[:3] if isinstance(collected, list) else []
+    collected: object = metadata.get("collected_errors")
+    rows: list[Any] = collected[:3] if isinstance(collected, list) else []
     return next(
         (
             source
