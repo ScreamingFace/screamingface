@@ -84,7 +84,8 @@ class PostHogDelivery:
         for attempt in range(2):
             try:
                 retry_after = await self.send(body)
-            except httpx.TransportError:
+            except (httpx.TransportError, httpx.DecodingError):
+                # WHY: corrupt response encoding leaves upstream acceptance ambiguous.
                 retry_after = "0"
             if retry_after is None:
                 return

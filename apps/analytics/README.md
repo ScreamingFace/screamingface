@@ -35,9 +35,10 @@ Clients retry only 429/503 with the original events. Never retry 4xx or 502. Req
 64 KiB (streamed), event cap 4 KiB (compact UTF-8 JSON), batch cap 20. Compressed bodies are
 rejected. Schema/consent rejection is 422; malformed JSON 400; size 413; media type 415.
 
-Forwarding has a total 1.5-second budget, at most two upstream attempts and jittered 100ms
-backoff. Retry-After is honored only within the budget. Body reads have a separate 2-second
-limit. Disconnect cancels pending delivery. There is no durable spool. PostHog duplicates
+Body intake, validation and forwarding share one total 1.5-second request budget, with at
+most two upstream attempts and jittered 100ms backoff. Retry-After is honored only within
+the remaining request budget. Corrupt upstream encodings are retryable ambiguity. Deadline
+expiry or disconnect cancels pending delivery. There is no durable spool. PostHog duplicates
 are eventual: stable uuid/event/timestamp/distinct_id keys are preserved. Never use these
 events to trigger side-effecting automations. Anonymous capture disables person profiles and
 GeoIP. The adapter accepts exactly the public batch acknowledgement `{"status":1}`; malformed,

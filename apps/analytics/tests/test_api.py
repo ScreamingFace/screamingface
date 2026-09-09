@@ -227,3 +227,68 @@ async def test_lifespan_failure_still_closes_delivery():
         async with app.router.lifespan_context(app):
             raise RuntimeError("shutdown")
     assert closed == [True] and app.state.ingestion.draining
+
+
+@pytest.mark.parametrize("body_delay", [0.8, 1.8])
+async def test_whole_request_deadline(envelope, body_delay):
+    import asyncio
+    import json
+
+    entered = []
+    cancelled = []
+
+    class SlowDelivery:
+        async def deliver(self, batch):
+            entered.append(batch)
+            try:
+                await asyncio.sleep(0.9)
+            finally:
+                cancelled.append(True)
+
+    app = create_app(settings(), SlowDelivery())
+
+    async def chunks():
+        await asyncio.sleep(body_delay)
+        yield json.dumps(envelope).encode()
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as c:
+        start = asyncio.get_running_loop().time()
+        response = await c.post(
+            "/v1/events", content=chunks(), headers={"Content-Type": "application/json"}
+        )
+        elapsed = asyncio.get_running_loop().time() - start
+    assert response.status_code == 503
+    assert response.json() == {"code": "unavailable"}
+    assert elapsed < 1.7
+    assert app.state.ingestion.inflight == 0
+    assert len(entered) == len(cancelled) == (1 if body_delay < 1.5 else 0)
+
+
+@pytest.mark.parametrize("recover,status", [(True, 202), (False, 503)])
+async def test_upstream_decoding_failure_is_retryable(envelope, recover, status):
+    from analytics_service.adapters.posthog import PostHogDelivery
+
+    bodies = []
+
+    async def upstream(request):
+        bodies.append(request.content)
+        if recover and len(bodies) == 2:
+            return httpx.Response(200, json={"status": 1})
+        return httpx.Response(
+            200, headers={"Content-Encoding": "gzip"}, content=b"private-invalid-gzip"
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        delivery = PostHogDelivery(client, "https://posthog.example", "test-token")
+        app = create_app(settings(), delivery)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app, raise_app_exceptions=False), base_url="http://test"
+        ) as c:
+            response = await c.post("/v1/events", json=envelope)
+    assert response.status_code == status
+    assert len(bodies) == 2 and bodies[0] == bodies[1]
+    assert "private" not in response.text
+    assert app.state.ingestion.inflight == 0
+    if not recover:
+        assert response.json() == {"code": "unavailable"}
+        assert response.headers["Retry-After"] == "1"

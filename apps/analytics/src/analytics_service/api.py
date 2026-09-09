@@ -19,11 +19,10 @@ async def read_body(request: Request) -> bytes:
     if request.headers.get("content-encoding", "identity").lower() != "identity":
         raise AdmissionRejected(415, "unsupported_encoding")
     data = bytearray()
-    async with asyncio.timeout(2):
-        async for chunk in request.stream():
-            data.extend(chunk)
-            if len(data) > 65536:
-                raise AdmissionRejected(413, "request_too_large")
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > 65536:
+            raise AdmissionRejected(413, "request_too_large")
     return bytes(data)
 
 
@@ -55,8 +54,10 @@ def error_response(status: int, code: str) -> JSONResponse:
 
 async def receive_events(request: Request, ingestion: Ingestion) -> JSONResponse:
     try:
-        data = decode_body(await read_body(request))
-        count = await forward_connected(request, ingestion, data)
+        # INVARIANT: intake and delivery share the SDK-compatible request deadline.
+        async with asyncio.timeout(1.5):
+            data = decode_body(await read_body(request))
+            count = await forward_connected(request, ingestion, data)
         response = JSONResponse({"status": "upstream_accepted", "count": count}, status_code=202)
     except EventTooLarge:
         response = error_response(413, "event_too_large")

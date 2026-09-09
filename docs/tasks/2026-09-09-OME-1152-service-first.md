@@ -62,3 +62,10 @@ Mock tests do not complete the live PostHog smoke or production rollout acceptan
 Implementation PR: https://github.com/ScreamingFace/screamingface/pull/873, commit f7da4c0b.
 64 tests and 99.03% statement/branch coverage locally; service CI passed on Python 3.12/3.13,
 including Docker build/start and Helm rendering. No production events or deployment.
+
+## PR review fixes
+
+Owner authorized both fixes: whole-request 1.5-second deadline and bounded retry for
+upstream decoding errors. Added four regression cases; all 68 tests and analytics gates
+pass with 99% coverage. Ledger: `docs/work/2026-09-09-OME-1152-review-fixes.md`.
+Live acceptance and rollout remain pending.
