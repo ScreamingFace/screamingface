@@ -148,9 +148,18 @@ def test_each_board_aggregate_reduces_through_the_shared_finalizer() -> None:
     # proves the call path; full closure lands when the spine itself consumes
     # failure_policy (`OME-1097`+) and the policy stops being prose entirely.
     from screamingface_engine.benchmarks import aggregation
+    from screamingface_engine.benchmarks.spine import scored
 
-    for family in ("draco", "gdpval", "healthbench", "ifeval"):
+    for family in ("draco", "ifeval"):
         module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.aggregate")
         assert module.finalize_candidate_result is aggregation.finalize_candidate_result, (
             f"{family} no longer reduces through the shared finalizer"
+        )
+    # The rubric boards funnel through the spine's shared scored path (OME-1097),
+    # which itself reduces through the shared finalizer — same mechanism, one hop up.
+    assert scored.finalize_candidate_result is aggregation.finalize_candidate_result
+    for family in ("gdpval", "healthbench"):
+        module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.grade")
+        assert module.ScoredPath is scored.ScoredPath, (
+            f"{family} no longer reduces through the shared scored path"
         )

@@ -33,7 +33,7 @@ from screamingface_engine.benchmarks.evaluation import (
     positive_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.gdpval import aggregate as reducing
+from screamingface_engine.benchmarks.gdpval import grade as reducing
 from screamingface_engine.benchmarks.gdpval import records
 from screamingface_engine.benchmarks.gdpval.case_evaluation import (
     bind_case_evaluation,
