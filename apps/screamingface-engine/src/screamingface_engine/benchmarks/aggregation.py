@@ -214,7 +214,9 @@ _SENSITIVE_ERROR_PATTERNS = (
 def scored_case_result(
     *,
     selected_case: SelectedCase,
-    output: str,
+    # str | None matches CaseResult.output: a completed row without usable answer
+    # text still scores (the rubric judges the row's evidence, not this field).
+    output: str | None,
     finish_reason: str | None,
     grade: CaseGrade | Mapping[str, Any],
     metadata: Mapping[str, Any] | None = None,
