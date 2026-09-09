@@ -47,3 +47,7 @@ User authorized pushing the revised spec to the existing draft. Replaced the com
 ## Five focused review revisions
 
 Applied the owner-approved clarifications: exact replacement scope for PRs 689/692; optional-Log admission/eviction at both capacity limits with paired lifecycle regression; explicit node/child/nested/expired-accessor semantics; OME-932’s evaluation lifecycle and canonical scoring obligations; and enumerated severity, immutable attributes and production size/rate requirements. Updated plan and removed the stale factory acceptance. This revision remains documentation-only; tests described here are implementation requirements, not claimed passing production tests.
+
+## Design approval and issue allocation
+
+Owner explicitly approved the revised design on 2026-09-09. Recorded approval in spec/plan, created OME-1165 for generic URL4 emission under OME-887 and made it block OME-934. Replaced OME-934's obsolete factory contract with Engine forwarding and targeted safe buffering; corrected the parent's stale package exclusion. Added package and parent task mirrors. Implementation follows the docs merge, URL4 first, in separate worktrees and draft PRs. PR 876 remains draft and unmerged; no production code is included.
