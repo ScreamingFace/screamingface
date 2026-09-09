@@ -2,8 +2,8 @@
 ticket: OME-1105
 stack: screamingface
 started: 2026-09-03
-status: in_progress
-finished:
+status: done
+finished: 2026-09-03
 ---
 
 # OME-1105 — Correlation-chain ladder in the local e2e harness

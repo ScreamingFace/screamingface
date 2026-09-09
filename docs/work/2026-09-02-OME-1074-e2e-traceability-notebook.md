@@ -1,9 +1,9 @@
 ---
 ticket: OME-1074
 stack: repo
-status: in_progress
+status: done
 started: 2026-09-02
-finished:
+finished: 2026-09-02
 ---
 
 # OME-1074 — Commit the live-k8s traceability e2e notebook

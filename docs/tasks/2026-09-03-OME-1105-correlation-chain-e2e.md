@@ -1,12 +1,12 @@
 ---
 id: OME-1105
 linear_url: https://linear.app/openmined/issue/OME-1105/add-the-correlation-chain-ladder-to-the-local-e2e-harness
-status: in_progress
+status: done
 type: null
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-09-03
-closed:
+closed: 2026-09-03
 ---
 
 # Add the correlation-chain ladder to the local e2e harness

@@ -1,12 +1,12 @@
 ---
 id: OME-1121
 linear_url: https://linear.app/openmined/issue/OME-1121/expose-trace-id-on-report-so-a-completed-run-can-be-quoted
-status: in_progress
+status: done
 type: null
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-09-04
-closed:
+closed: 2026-09-07
 ---
 
 # Expose trace_id on the public result so a completed run can be quoted
