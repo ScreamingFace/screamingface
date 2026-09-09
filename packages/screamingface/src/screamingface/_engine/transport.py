@@ -29,6 +29,7 @@ from screamingface._access.base import _TransportAuth
 from screamingface._access.contract import _challenge_audience
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._engine.reconnect import _RecoveryWindow
 from screamingface._engine.run_lifecycle import _Lifecycle
 from screamingface._engine.trace import TraceContext, new_trace_context
 from screamingface._evaluation.model import Candidate
@@ -165,12 +166,11 @@ class Url4CloudTransport:
         resumes from the last accepted stream sequence with the SAME capability (valid for
         the Run's whole life after OME-1018). A handshake 401/403 that is not an Access
         challenge is FATAL — dead credentials, no probe on a single-engine fleet (D5). A
-        connect/OS/timeout failure backs off with full jitter; when the cumulative budget
+        connect/OS/timeout failure backs off with full jitter; when the outage recovery budget
         is spent, everything this client owns is stopped and the Run surfaces as
         `websocket_disconnected`.
         """
-        budget_deadline = time.monotonic() + self._reconnect_budget_s
-        attempts = 0
+        recovery = _RecoveryWindow(self._reconnect_budget_s)
         run_started = False
         while True:
             try:
@@ -193,6 +193,7 @@ class Url4CloudTransport:
                         run_started = True
                     else:
                         websocket.send(lifecycle.resume_attach())
+                    recovery.connected(time.monotonic())
                     outcome = self._run_connected(websocket, lifecycle, on_event)
                 # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
                 # By now the run is over and the WS is closed — a fetch failure here
@@ -201,10 +202,13 @@ class Url4CloudTransport:
                 return _materialize_sync(self._http, outcome)
             except InvalidStatus as exc:
                 self._on_handshake_rejection(exc, minted, run_started, trace)
-                attempts += 1
+                recovery.attempts += 1
                 continue
             except (WebSocketException, OSError, TimeoutError) as exc:
-                attempts = self._on_stream_failure(exc, attempts, budget_deadline, started)
+                deadline = recovery.failed(time.monotonic())
+                recovery.attempts = self._on_stream_failure(
+                    exc, recovery.attempts, deadline, started
+                )
                 continue
 
     def _on_handshake_rejection(
@@ -432,8 +436,7 @@ class AsyncUrl4CloudTransport:
         trace: TraceContext,
     ) -> _RunOutcome:
         """Async twin of the sync reconnecting loop — see its docstring (spec §6 S3)."""
-        budget_deadline = time.monotonic() + self._reconnect_budget_s
-        attempts = 0
+        recovery = _RecoveryWindow(self._reconnect_budget_s)
         run_started = False
         while True:
             try:
@@ -456,15 +459,19 @@ class AsyncUrl4CloudTransport:
                         run_started = True
                     else:
                         await websocket.send(lifecycle.resume_attach())
+                    recovery.connected(time.monotonic())
                     outcome = await self._run_connected(websocket, lifecycle, on_event)
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
                 await self._on_handshake_rejection(exc, minted, run_started, trace)
-                attempts += 1
+                recovery.attempts += 1
                 continue
             except (WebSocketException, OSError, TimeoutError) as exc:
-                attempts = await self._on_stream_failure(exc, attempts, budget_deadline, started)
+                deadline = recovery.failed(time.monotonic())
+                recovery.attempts = await self._on_stream_failure(
+                    exc, recovery.attempts, deadline, started
+                )
                 continue
 
     async def _on_handshake_rejection(
