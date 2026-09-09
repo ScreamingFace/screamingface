@@ -33,3 +33,9 @@ One optional generic factory, ordinary Log delivery, explicit lifecycle/validati
 - **Commits:** This docs-only commit, docs(engine): specify the generic run Log seam; Refs: OME-934.
 - **Gates:** Four-document whitespace/conflict-marker/local-link validation passed; scope checked against live Linear and current executor. Repository hooks and PR CI run at publish. No Engine gates required for a docs-only diff.
 - **Deviations:** None. New worktree from origin/main ad0c965d; no commits imported from closed PRs 689/692.
+
+## URL4 alternative investigation
+
+User requested checking a generic URL4 Log extension before committing to the Engine-only design. PR 876 is draft and must remain draft. Evaluate in scratch only; no production implementation or cross-package ticket creation is authorized by this investigation. Compare node-scoped emission, structured attributes, Engine forwarding, lifecycle/expiry, observer failure semantics and what remains for run-scoped setup.
+
+Scratch probe passed: structured attributes survived actual Engine execution, concurrent runs used distinct node spans, caller mutation did not change queued values, invalid/off-thread submissions were rejected, and existing Log eviction recognized the additive event. Context reset and inactive-sink behavior were exercised. Full cancellation/nesting/publisher/failure tests remain outstanding. Updated the draft with comparison and recommendation; no production changes. The prior Engine-only proposal is explicitly not settled.
