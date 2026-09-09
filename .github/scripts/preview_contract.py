@@ -161,6 +161,16 @@ def preview_tag(number: int, sha: str) -> str:
     return f"pr-{number}-{sha[:7]}"
 
 
+def is_fork(pull: dict, repository: str) -> bool:
+    """Return True when the pull request head is outside the repository.
+
+    A deleted fork reports no head repository. That case counts as a fork,
+    so the safe branch of every caller handles it.
+    """
+    head_repository = (pull.get("head") or {}).get("repo") or {}
+    return head_repository.get("full_name") != repository
+
+
 def plan_admission(
     pulls: Sequence[PullState],
     now: datetime,
@@ -320,6 +330,20 @@ def preview_comment(
     return "\n".join(lines) + "\n"
 
 
+def fork_comment() -> str:
+    """Explain why a fork pull request lost its Preview labels."""
+    lines = [
+        COMMENT_MARKER,
+        "## Preview: unavailable",
+        "",
+        "Fork pull requests cannot receive a Preview.",
+        "The Preview labels were removed.",
+        "To preview this change, a maintainer pushes it to a repository",
+        "branch and opens a pull request from that branch.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
@@ -386,9 +410,24 @@ def _pull_selection(pull: dict) -> tuple[tuple[str, ...], tuple[str, ...]]:
     return components, images
 
 
+def _disable_fork(github: GitHub, pull: dict) -> None:
+    """Remove every managed Preview label from a fork pull request."""
+    number = pull["number"]
+    labels = {item["name"] for item in pull["labels"]}
+    if not labels & MANAGED_LABELS:
+        print(f"Fork pull request {number} carries no Preview label")
+        return
+    print(f"Remove the Preview labels from fork pull request {number}")
+    github.set_managed_labels(number, set())
+    github.upsert_comment(number, fork_comment())
+
+
 def _update(number: int, sha: str, status: str, selection: Selection) -> None:
     github = GitHub()
     pull = github.pull(number)
+    if is_fork(pull, github.repo):
+        _disable_fork(github, pull)
+        return
     if pull["head"]["sha"] != sha:
         print(f"Ignore stale revision {sha}; current revision is {pull['head']['sha']}")
         return
@@ -406,6 +445,9 @@ def reconcile() -> None:
     raw_pulls = github.pulls()
     pulls: list[PullState] = []
     for pull in raw_pulls:
+        if is_fork(pull, github.repo):
+            _disable_fork(github, pull)
+            continue
         labels = frozenset(item["name"] for item in pull["labels"])
         events = github.events(pull["number"])
         added = {
@@ -465,6 +507,8 @@ def main() -> None:
         command.add_argument("--components", default="[]")
         command.add_argument("--images", default="[]")
     subparsers.add_parser("reconcile")
+    guard = subparsers.add_parser("guard")
+    guard.add_argument("--number", type=int, required=True)
     args = parser.parse_args()
     if args.command == "classify":
         selection = classify_paths(args.paths.read_text().splitlines())
@@ -482,6 +526,13 @@ def main() -> None:
                 output.write(f"{name}={value}\n")
     elif args.command == "reconcile":
         reconcile()
+    elif args.command == "guard":
+        github = GitHub()
+        pull = github.pull(args.number)
+        if is_fork(pull, github.repo):
+            _disable_fork(github, pull)
+        else:
+            print(f"Pull request {args.number} is not from a fork; no change")
     else:
         selection = _selection(args)
         status = {
