@@ -4,7 +4,7 @@ Status: review proposal. Prerequisite: [service spec](../spec/2026-09-09-OME-115
 
 ## Before code
 
-1. Approve endpoint/schema, bounded synchronous-forwarding contract and eventual duplicate semantics. Select service owner, hostname/port, PostHog test destination and enforceable retention. No deployment values fabricated in this draft.
+1. Review the endpoint/schema and bounded forwarding contract with eventual duplicate semantics, applying the owner-confirmed measurement decisions. Select service owner, hostname/port, PostHog test destination and enforceable 90-day raw-event retention. No deployment values fabricated in this draft.
 2. Completed: owner-created analytics label applied and registered in the task-board card. Design-session/agentic describes docs work, not autonomous implementation approval.
 3. Start a fresh OME-1152 implementation worktree from updated origin/main after docs merge. Invoke sdlc-python and create a new implementation ledger. Do not carry unreviewed changes from the earlier SDK design branch.
 
@@ -14,7 +14,7 @@ Status: review proposal. Prerequisite: [service spec](../spec/2026-09-09-OME-115
 
 Create apps/analytics/pyproject.toml, uv.lock, src/analytics_service/, tests/, app guardrails and README. Use FastAPI/Pydantic/httpx and uv/hatchling consistent with report-intake, but do not copy its ORM, authentication or report filing logic. Proposed modules: contract.py (pure schema), ingestion.py (core use case), ports.py (EventDelivery), adapters/posthog.py, settings.py, api.py and main.py (wiring). No core import of concrete adapters.
 
-RED tests: four allowed event variants and every outcome, UUID/scope/time boundaries, strict unknown-field rejection, consent false/missing, forbidden payloads, invalid version grammar, duplicate identical/conflicting events. Freeze time; parse the JSON fixture from the spec. GREEN implementation must not add fields beyond the reviewed allowlist.
+RED tests: four allowed event variants and every outcome, UUID/scope/time boundaries, strict unknown-field rejection, explicit origin and usage_mode with unknown/mixed/missing values rejected, consent false/missing, forbidden payloads, invalid version grammar, duplicate identical/conflicting events. Freeze time; parse the JSON fixture from the spec. GREEN implementation must not add fields beyond the reviewed allowlist.
 
 ### B. HTTP boundary and bounded delivery
 

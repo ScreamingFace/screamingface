@@ -31,3 +31,9 @@ Child issue under OME-1060; OME-1124 dependency; reviewable docs PR with no runt
 - Validation: JSON example and relative Markdown links passed; staged whitespace check before commit. Product tests not applicable to docs-only work.
 - Docs PR will carry this branch; issue remains In Progress after docs review. No implementation or merge performed.
 - Owner subsequently created analytics label; verified UUID via team-scoped Linear MCP listing, applied it to OME-1152 and registered it in the task-board card. Updated spec/plan/mirror and PR prerequisite wording. No label created by agent.
+
+## Owner review update — 9 September 2026
+
+Owner explicitly approved updating the spec, plan, Linear issues and existing docs PR after the design questions. Applying evaluation-start activity, process/kernel sessions, stable IDs, remembered consent without scheduled re-prompt, four initial events, explicit origin/BYOK-or-hosted dimensions, classified report outcomes and 90-day raw events. Delivery remains nonblocking and best effort. Longer-lived aggregates contain no browser/install/session IDs. No implementation or merge authorized by this update.
+
+Validation passed: JSON fixture parsing, UUIDs and agreed field set; local Markdown links; stale-contract scan across seven documents; git diff --check. Updated all three Linear descriptions and mirrors, preserving historical browser evidence. Product tests are not applicable to this docs-only revision.
