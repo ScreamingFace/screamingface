@@ -26,7 +26,7 @@ SDK changes, Colab consent/cookie endpoints, website instrumentation, Scoreboard
 
 ## Acceptance
 
-- [ ] Docs-only PR defines HTTP/event contract, failure/dedup semantics, implementation plan and acceptance tests; approved and merged before code.
+- [x] Docs-only PR defines HTTP/event contract, failure/dedup semantics, implementation plan and acceptance tests; approved and merged before code.
 - [ ] Ingestion rejects unknown/forbidden fields, oversize payloads and invalid identifiers/event combinations.
 - [ ] Transient failures retry within explicit bounds; retries preserve analytics event IDs; downstream delivery isn't falsely claimed.
 - [ ] Synthetic test project proves anonymous PostHog delivery and dedup behavior; no production test events.
@@ -58,3 +58,7 @@ Owner authorized service implementation after the docs PR merged. Branch:
 `OME-1152-analytics-service`; ledger:
 `docs/work/2026-09-09-OME-1152-analytics-service.md`.
 Mock tests do not complete the live PostHog smoke or production rollout acceptance.
+
+Implementation PR: https://github.com/ScreamingFace/screamingface/pull/873, commit f7da4c0b.
+64 tests and 99.03% statement/branch coverage locally; service CI passed on Python 3.12/3.13,
+including Docker build/start and Helm rendering. No production events or deployment.
