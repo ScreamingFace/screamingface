@@ -1,23 +1,28 @@
-"""The shared rubric ``grade_case`` — marking one script against a graded checklist.
+"""
+Imagine you're a TA grading 100 essay answers. You can't just eyeball them — you have a
+rubric: a checklist where each item has points.
 
-A rubric is a graded checklist: each item carries points (positive = "a good answer
-does this", negative = "a good answer never does this"), and the judge has already
-decided which items the answer met — its verdicts ride inside the decoded row. This
-factory builds the ``grade_case`` hook both rubric boards share; the board supplies
++5  "mentions the correct drug"
++3  "explains the mechanism"
+-3  "invents a dosage"        ← negative = a good answer NEVER does this
+
+The judging already happened before code in this module runs.
+An LLM judge already read the answer and, for each checklist item, said "hit" or "miss."
+Those decisions (verdicts) are sitting inside the data row. This function's job is
+to take the verdicts, check they're complete, and turn them into a number.
+This factory builds the ``grade_case`` hook both rubric boards share; the board supplies
 only its official per-Case scoring formula and its judge's producer id.
 
-FEATURE: one grading spine per benchmark (OME-1024, seam born in OME-1097). The
-verdict matching and check/evidence projection here were near byte-identical in
-``gdpval`` and ``healthbench``; OME-1099 later folds draco's drifted parser onto this.
-
-The stages, in execution order, for one graded Case:
-
-    Stage 1  read verdicts off the row       one per rubric item, invalid replies counted
-    Stage 2  project checks + evidence       the SDK's audit rows, judge voice preserved
-    Stage 3  completeness gate               every item judged, zero invalid replies?
-    Stage 4  score with the BOARD's formula  or name the failure:
-                 incomplete verdicts  → "incomplete_verdicts" (never defaulted!)
-                 complete, unscorable → "no_positive_points" (a baked-asset defect)
+The 4 stages (one answer being graded)
+1. Read the verdicts off the row. One per rubric item. Count any garbage replies (judge
+    answered nonsense).
+2. Copy out the audit trail. Keep the judge's exact wording per check — so a human can
+    later ask "why did Case 7 lose points?"
+3. Completeness gate. Did the judge rule on every item, with zero invalid replies? If
+    not — stop, don't score.
+4. Score, or fail loudly. Complete → apply the board's formula. Incomplete → the
+    Case fails as incomplete_verdicts. Complete but the rubric has no positive points to
+    earn → no_positive_points (the asset itself is broken).
 
 INVARIANT: a missing or invalid verdict is never defaulted. A rubric penalty (say -3,
 "invents a dosage") only subtracts when the judge says "hit"; defaulting a failed judge
@@ -59,19 +64,19 @@ def rubric_grade_case(*, case_score: CaseScore, judge_producer_id: str) -> Grade
     async def grade(request: GradeRequest) -> CaseGradeOutcome:
         material = request.material
         assert isinstance(material, Sequence) and not isinstance(material, (str, bytes))
-        points = [int(value) for value in material]
+        points: list[int] = [int(value) for value in material]
         evaluations = request.row.get("rubric_evaluations")
         # Stage 1-2 — the judge's work, read and projected.
         verdicts, invalid = _verdicts(evaluations)
-        checks = _checks(evaluations, points, judge_producer_id)
+        checks: list[dict[str, Any]] = _checks(evaluations, points, judge_producer_id)
         metrics = {
             "judged": len(verdicts),
             "expected": len(points),
             "invalid_replies": invalid,
         }
         # Stage 3-4 — the completeness gate, then the board's formula.
-        complete = len(verdicts) == len(points) and not invalid
-        score = case_score(points, verdicts) if complete else None
+        complete: bool = len(verdicts) == len(points) and not invalid
+        score: float | None = case_score(points, verdicts) if complete else None
         if score is None:
             # WHY the split: a complete-but-unscorable Case means the baked asset
             # lost its guaranteed positive-points item — a baked-asset defect, not
@@ -152,6 +157,10 @@ def _checks(evaluations: object, points: list[int], judge_producer_id: str) -> l
 
 
 def _evidence(record: Mapping[str, Any], judge_producer_id: str) -> dict[str, Any]:
+    """Turn one raw judge reply into the audit-trail record a human reads later — its
+    verdict and explanation if the reply was valid, the rejection reason if it wasn't.
+    """
+
     valid = record.get("valid") is True
     value: dict[str, Any] = {
         # One judge pass per rubric item (the reference grades each item once),

@@ -1,35 +1,47 @@
 """The shared scored path — every rubric board's marking room, written once.
 
-Think of a benchmark run as an exam: the fan-out returns one row per Case (the graded
-paper), and this module is the marking room that turns the pile into the exam result.
+A benchmark run is an url4 expression that fans out one sub-call per Case — 100 exam
+questions → 100 parallel candidate calls. It returns one row per Case (the graded paper),
+and this module is the marking room that turns the pile into the exam result.
 The only per-board step is ``grade_case`` — the one function every benchmark writes to
 mark one script; everything around it (the roll call, the failure ladder, result
 assembly, the exam-level reduction) is spine machinery a board author never sees.
 
-FEATURE: one grading spine per benchmark (OME-1024); this is the third extraction
-(OME-1097) — it absorbs the near byte-identical ``aggregate`` orchestration and exam
-scorer that ``gdpval`` and ``healthbench`` previously duplicated, and it dissolves
-OME-1039's ``CaseGrader`` into the hook seam.
+The goal of this module is to have a shared grading pipeline (the "spine"), and each
+benchmark only plugs in its own marking logic. Before this shared module, ``gdpval/grade.py``
+and ``healthbench/grade.py`` each had their own copy of the same ~code: the loop that files
+rows by case, runs the failure ladder, grades each case, and computes the final score.
+The copies were almost character-for-character the same.
+This is the path for any rubric-scored (LLM-as-judge) benchmark, present or future.
 
-The stages, in execution order, for one ``ScoredPath.aggregate`` call:
+One aggregate call = marking one class's exam.
+- Stage 1 — roll call. Get the class list: which Cases (questions/students) were selected
+    for this run, in order. Say Cases [3, 7, 12].
+- Stage 2 — sort the pile. The fan-out dumped back a pile of result rows in whatever order.
+    RowReader files each row under its Case id, so "give me Case 7's paper" is a lookup.
+- Stage 3 — the ladder: decide if each paper is even gradeable. Before marking, check each
+    Case against a list of broken states, worst first. First match wins, and the Case becomes
+    a visible failure in the results — never silently dropped:
+        - the grading step itself errored earlier → benchmark's own failure code
+        - there's nothing to grade against (rubric asset missing) → missing_rubric_asset
+        - no paper turned up for this student at all → missing_case_row, with the reason
+          the row went missing attached
+        - a paper turned up but it's an error report, not an answer → case_error
+        - Example: Case 7's row is an error row → it gets a case_error result and skips Stage 4.
+- Stage 4 — mark the survivors. For each Case that passed the ladder, call grade_case,
+    the one function the benchmark author writes. Answer + rubric in, grade out.
+    The hook can still fail a Case (e.g. the judge returned verdicts for only 3 of 5 rubric
+    points → incomplete_verdicts), and the failure message text belongs to the benchmark,
+    not the spine.
 
-    Stage 1  read the roll call        selected Cases, in selected order
-    Stage 2  index the rows            `RowReader` files each row by Case id (OME-1096)
-    Stage 3  per Case, run the ladder  unusable states become VISIBLE failures:
-                 grading step failed        → the board's grading-failure code
-                 no grading material        → "missing_rubric_asset"
-                 no row for this Case       → "missing_case_row" (orphan cause attached)
-                 row is an error row        → "case_error"
-    Stage 4  per surviving Case, call `grade_case` — data in, grade out
-                 the hook may itself fail the Case ("incomplete_verdicts",
-                 "no_positive_points"); its wording still comes from the board
-    Stage 5  assemble each CaseResult, then finalize with the shared exam scorer
-             (the board's `mean` is the only parameter; the metric vocabulary is fixed)
+Stage 5 — total the marks. Wrap each Case's outcome into a `CaseResult`, then compute the
+    exam-level score with the shared scorer. The benchmark contributes exactly one thing
+    here: its mean (how per-Case scores average into the headline number). Everything else —
+    the metric names in the output — is fixed spine vocabulary, so every benchmark's
+    report looks the same.
 
-Why so strict? A lenient reducer would quietly CHEAT in the submitter's favor: dropping
-a failed Case inflates the mean (the failed ones are usually the hard ones), and
-defaulting a missing verdict erases a rubric penalty. Every unusable state therefore
-stays a visible failed Case with a named code.
+Key design point the list is making: Stages 1, 2, 3, 5 are identical for every benchmark (spine).
+Only Stage 4's grade_case (plus failure wording and the mean) is per-benchmark.
 
 INVARIANT (the hourglass waist): a ``GradeRequest`` carries only plain, serializable
 data — kind-tagged payloads, the decoded row mapping, the board's grading material.
@@ -186,33 +198,33 @@ class ScoredPath:
 
     async def _case_result(
         self,
-        selected: SelectedCase,
+        selected_case: SelectedCase,
         indexed: RowIndex,
         grading_material: Callable[[int], object | None],
     ) -> CaseResult:
-        case_id = int(selected.case_id)
+        case_id = int(selected_case.case_id)
         row = indexed.rows.get(case_id)
         material = grading_material(case_id)
-        result = self._ladder_result(selected, indexed, row, material)
+        result = self._ladder_result(selected_case, indexed, row, material)
         if result is None:
             # Stage 4 — the hook: the one per-board call, data in, grade out.
             assert row is not None and material is not None
             outcome = await self.grade_case(
                 GradeRequest(
-                    case_id=selected.case_id,
-                    input=TextPayload(text=selected.input),
+                    case_id=selected_case.case_id,
+                    input=TextPayload(text=selected_case.input),
                     # A refusal or empty answer carries no output payload; its text
                     # rides on the assembled result, not through the hook.
                     answer=(
                         TextPayload(text=output)
-                        if isinstance((output := _candidate_fields(row)["output"]), str)
+                        if (output := _candidate_fields(row).output) is not None
                         else None
                     ),
                     row=row,
                     material=material,
                 )
             )
-            result = self._graded_result(selected, row, outcome)
+            result = self._graded_result(selected_case, row, outcome)
         return result
 
     def _ladder_result(
@@ -282,17 +294,17 @@ class ScoredPath:
         }
         common = {
             "selected_case": selected,
-            "finish_reason": fields["finish_reason"],
+            "finish_reason": fields.finish_reason,
             "grade": grade,
-            "metadata": fields["metadata"],
-            "execution": fields["execution"],
-            "operations": fields.get("operations"),
+            "metadata": fields.metadata,
+            "execution": fields.execution,
+            "operations": fields.operations,
         }
-        if fields["status"] == "refused":
+        if fields.status == "refused":
             # WHY (OME-1037): the builder decides scored-vs-failed — a graded
             # refusal with text is scored; a textless provider decline is failed.
-            return refusal_case_result(refusal=fields["refusal"], **common)
-        return scored_case_result(output=fields["output"], **common)
+            return refusal_case_result(refusal=fields.refusal, **common)
+        return scored_case_result(output=fields.output, **common)
 
     def _missing_row_result(
         self,
@@ -326,16 +338,16 @@ class ScoredPath:
         grade = {"method": self.method, "score": None, "metrics": {}, "checks": checks}
         common = {
             "selected_case": selected,
-            "finish_reason": fields["finish_reason"],
+            "finish_reason": fields.finish_reason,
             "grade": grade,
             "failures": [failure],
-            "metadata": fields["metadata"],
-            "execution": fields["execution"],
-            "operations": fields.get("operations"),
+            "metadata": fields.metadata,
+            "execution": fields.execution,
+            "operations": fields.operations,
         }
-        if fields["status"] == "refused":
-            return refusal_case_result(refusal=fields["refusal"], **common)
-        return failed_case_result(output=fields["output"], **common)
+        if fields.status == "refused":
+            return refusal_case_result(refusal=fields.refusal, **common)
+        return failed_case_result(output=fields.output, **common)
 
     def _failure(self, case_id: int, stage: str, code: str, **metadata: Any) -> dict[str, Any]:
         public_metadata = _failure_metadata(metadata)
@@ -383,33 +395,52 @@ async def _awaited[T](coroutine: Awaitable[T]) -> T:
     return await coroutine
 
 
-def _candidate_fields(row: Mapping[str, Any] | None) -> dict[str, Any]:
+@dataclass(frozen=True, slots=True)
+class CandidateFields:
+    """The Candidate's half of one row, already normalized — unusable values are ``None``.
+
+    ``output``/``finish_reason``/``refusal`` are ``None`` unless the row carried a
+    usable string (a blank refusal is unusable): "no usable answer" is a grading fact
+    here, never a validation error. ``status``/``execution``/``operations`` pass
+    through untouched — the result builders own their interpretation.
+    """
+
+    status: Any
+    output: str | None
+    finish_reason: str | None
+    refusal: str | None
+    execution: Any
+    operations: Any
+    metadata: dict[str, Any]
+
+
+def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
     """Pull status/output/finish_reason/refusal/metadata off the hoisted Case record."""
 
     case = row.get("case") if isinstance(row, Mapping) else None
     if not isinstance(case, Mapping):
-        return {
-            "status": None,
-            "output": None,
-            "finish_reason": None,
-            "refusal": None,
-            "execution": None,
-            "operations": None,
-            "metadata": {},
-        }
+        return CandidateFields(
+            status=None,
+            output=None,
+            finish_reason=None,
+            refusal=None,
+            execution=None,
+            operations=None,
+            metadata={},
+        )
     metadata = case.get("metadata")
     output = case.get("output")
     finish_reason = case.get("finish_reason")
     refusal = case.get("refusal")
-    return {
-        "status": case.get("status"),
-        "output": output if isinstance(output, str) else None,
-        "finish_reason": finish_reason if isinstance(finish_reason, str) else None,
-        "refusal": refusal if isinstance(refusal, str) and refusal.strip() else None,
-        "execution": case.get("execution"),
-        "operations": case.get("operations"),
-        "metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
-    }
+    return CandidateFields(
+        status=case.get("status"),
+        output=output if isinstance(output, str) else None,
+        finish_reason=finish_reason if isinstance(finish_reason, str) else None,
+        refusal=refusal if isinstance(refusal, str) and refusal.strip() else None,
+        execution=case.get("execution"),
+        operations=case.get("operations"),
+        metadata=dict(metadata) if isinstance(metadata, Mapping) else {},
+    )
 
 
 def _failure_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:

@@ -1,9 +1,29 @@
 """The shared exam-level reduction — folding per-Case marks into the class results.
 
-Think of it as the exam office totalling a stack of graded papers into one final
-grade: the board chooses only the ``mean`` (HealthBench's official clip vs the
-worst-30% challenge metric vs GDPval's plain average); every other number and every
-metric key is fixed spine vocabulary, so leaderboard readers parse one shape.
+Every Case (one question) has already been graded to a number by this point. This
+module is the exam office: it takes the stack of per-Case grades and totals them into
+ONE headline score plus a fixed row of quality metrics for the leaderboard.
+
+The benchmark chooses exactly one thing here — its ``mean``, the official way its
+per-Case scores average into the headline number (GDPval: plain average; HealthBench:
+clip each score into [0, 1] first; the worst-30% challenge metric: average only the
+lowest 30% of scores). Everything else — which metrics exist and what they are
+named — is fixed spine vocabulary, so a leaderboard reader parses one shape no matter
+the benchmark.
+
+Worked example — 3 Cases, scores [0.8, 0.5, 0.2], each rubric 5 items, all judged,
+one MET count of 9 across the run:
+
+    score             = mean([0.8, 0.5, 0.2])       → 0.5    (the board's formula)
+    pass_rate         = 9 met / 15 judged           → 0.6    (rubric items, not Cases)
+    scored_cases      = 3
+    score_sd          = sample stdev (n−1) of [0.8, 0.5, 0.2] → 0.3
+    verdict_coverage  = 15 judged / 15 expected     → 1.0    (must be 1.0 to be valid)
+    judge_invalid_replies = 0
+
+The scorer REFUSES partial input: an ungraded Case in the stack is an assertion
+error, never skipped — skipping would silently inflate the mean (the upstream scored
+path is responsible for turning every failure into a graded-or-failed Case first).
 
 FEATURE: one grading spine per benchmark (OME-1024, extracted in OME-1097) — this
 scorer existed as a near byte-identical closure in gdpval and healthbench.
