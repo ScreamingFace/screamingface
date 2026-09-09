@@ -26,3 +26,7 @@ Remaining: real interrupted-delivery e2e tests; explicit policy for a complete e
 ## Classification implementation — 2026-09-09
 
 Implemented zero-byte completed responses as retryable `aigateway_empty_response`, without additional immediate retries. Added 5 unit cases and 17 real-loopback integration cases through the final MedXpert report. Covers interrupted framing, both candidate turns, complete reasoning-only responses, HTML, 429/503, checker stage, recorded spend, and successful scoring. Broader diagnostics/logging ownership remains open; this change does not close the ticket.
+
+## Review-gap allocation — 2026-09-09
+
+Engine logs cover runtime progress but do not fulfill Gateway dispatch/terminal pairing. Gateway child OME-1154 owns completion/duration and depends on existing OME-938/968; OME-1120 owns trace joining. Engine child OME-1153 owns bounded attributable response diagnostics (including status and observed body size) under OME-784. Both children assigned to Keelan for coordination; design approval remains before implementation. OME-1127 has explicit blocked-by relations to both and stays open. PR 872 CI passed but it is still open/draft.

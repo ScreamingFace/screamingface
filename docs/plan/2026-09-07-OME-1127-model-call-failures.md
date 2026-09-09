@@ -18,3 +18,11 @@ Completed investigation validation: 73 existing connector, finish-reason and gra
 3. Minimal _json_or_raise guard, with no additional immediate retry.
 4. Check actual framed disconnects for empty/partial delivery, candidate-stage failures in both turns, genuine checker-stage failure, 429/503, reasoning-only permanent model outcome, and retained successful-operation spend.
 5. Run Engine quality gates, inspect diff, update ledger and submit PR. OME-1127 remains open for explicitly outstanding acceptance/ownership decisions, so PR references rather than auto-closes it.
+
+## Acceptance ownership reconciliation — 2026-09-09
+
+- Engine runtime progress is delivered; Gateway-side terminal pairing is not equivalent and remains required.
+- Reuse OME-938 for gateway_call_id, OME-1120 for trace joining, OME-968 for mapped/streaming failure logs.
+- Add a Gateway child of OME-784 for successful completion records and elapsed duration, complementing those existing tickets.
+- Add an Engine child of OME-784 for bounded failure-response diagnostics attributable to an operation/attempt. Status and observed byte count are distinct from advertised Content-Length; unavailable evidence stays null. Partial-delivery instrumentation and wire representation require design approval before code.
+- Keep OME-1127 open with explicit dependencies. This allocation does not waive any original acceptance or freeze OME-784's broader contract.
