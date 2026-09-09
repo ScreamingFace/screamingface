@@ -21,12 +21,15 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import math
+import sys
 import threading
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, Self, runtime_checkable
+
+from url4._log_attributes import _LogAttributes
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +74,12 @@ class Log:
 
     def __post_init__(self) -> None:
         # INVARIANT: observers and caller mutation cannot rewrite queued evidence.
-        object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
+        object.__setattr__(self, "attributes", _LogAttributes(self.attributes))
+
+    def __reduce__(self) -> tuple[type[Self], tuple[str | None, str, str, dict[str, LogScalar]]]:
+        # INVARIANT: pickle/deepcopy reconstruct through the constructor so event
+        # attributes remain immutable even though detached asdict output is mutable.
+        return type(self), (self.span_id, self.severity, self.body, dict(self.attributes))
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,7 +245,8 @@ class LogSink(Protocol):
     """Best-effort structured emission for the active node, on its loop thread.
 
     No I/O or tasks are created. Invalid, expired and off-thread submissions
-    silently drop. Attributes are flat scalars; this is not content redaction.
+    drop without logging; see log_sink_drop_counts(). Attributes are flat scalars;
+    this is not content redaction.
     Producer schemas must separately bound record size and emission rate.
     """
 
@@ -274,6 +283,29 @@ def _log_attributes(attributes: Mapping[str, LogScalar] | None) -> dict[str, Log
     return snapshot
 
 
+_log_drop_counts: dict[str, int] = dict.fromkeys(
+    ("expired", "thread", "body", "severity", "attributes", "emit"), 0
+)
+_log_drop_lock = threading.Lock()
+
+
+def _record_log_drop(reason: str) -> None:
+    # INVARIANT: fixed keys, bounded integers, no payload or callbacks under the lock.
+    with _log_drop_lock:
+        _log_drop_counts[reason] = min(_log_drop_counts[reason] + 1, sys.maxsize)
+
+
+def log_sink_drop_counts() -> Mapping[str, int]:
+    """Immutable snapshot of process-wide drops, saturating at sys.maxsize.
+
+    Keys are expired, thread, body, severity, attributes and emit. Each rejected
+    call counts its first failing phase; successful calls and propagated process
+    signals do not count. No reset, payload, exception text or per-run attribution.
+    """
+    with _log_drop_lock:
+        return MappingProxyType(dict(_log_drop_counts))
+
+
 class _NodeLogSink:
     def __init__(self, emit: _LogEmitter) -> None:
         self._emit = emit
@@ -287,20 +319,30 @@ class _NodeLogSink:
         *,
         severity: str = "INFO",
     ) -> None:
-        if not self.active or threading.get_ident() != self._thread:
+        if not self.active:
+            _record_log_drop("expired")
             return
+        if threading.get_ident() != self._thread:
+            _record_log_drop("thread")
+            return
+        phase = "body"
         try:
-            if type(body) is not str or not body or type(severity) is not str:
-                return
+            if type(body) is not str or not body:
+                raise ValueError("invalid body")
+            phase = "severity"
+            if type(severity) is not str:
+                raise ValueError("invalid severity")
             normalized = severity.strip().upper()
             if normalized not in ("DEBUG", "INFO", "WARN", "ERROR"):
-                return
-            self._emit(normalized, body, attributes=_log_attributes(attributes))
+                raise ValueError("invalid severity")
+            phase = "attributes"
+            snapshot = _log_attributes(attributes)
+            phase = "emit"
+            self._emit(normalized, body, attributes=snapshot)
         except Exception:
-            # WHY: only this opt-in emission path is fail-open. No diagnostic
-            # logging here: it could recurse, leak payload or fail through a handler.
-            # BaseException (cancellation/process control) deliberately propagates.
-            pass
+            # WHY: counter-only diagnostics cannot recurse through logging handlers
+            # or retain payload. BaseException (process control) still propagates.
+            _record_log_drop(phase)
 
 
 _log_sink: contextvars.ContextVar[_NodeLogSink | None] = contextvars.ContextVar(
@@ -372,4 +414,5 @@ __all__ = [
     "current_log_sink",
     "current_response_sink",
     "current_usage_sink",
+    "log_sink_drop_counts",
 ]

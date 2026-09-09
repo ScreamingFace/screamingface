@@ -254,3 +254,30 @@ This interface defines emission, not delivery guarantees or content filtering. P
 schemas must specify privacy rules, maximum serialized record size, emission-rate/burst
 limits and heartbeat cleanup. Observers and producers must remain non-blocking; the sink
 creates no tasks, queue or I/O. Concrete exporters own forwarding and buffering.
+
+### Log serialization and drop diagnostics
+
+`Log` supports `pickle`, `copy.deepcopy` and `dataclasses.asdict`, with or without
+attributes. Reconstructed events retain immutable attribute snapshots; `asdict(log)`
+returns detached ordinary dictionaries suitable for JSON serialization.
+
+Use `url4.observe.log_sink_drop_counts()` to inspect optional emission failures:
+
+```python
+from url4.observe import log_sink_drop_counts
+
+before = log_sink_drop_counts()
+# Exercise the producer here.
+after = log_sink_drop_counts()
+severity_drops = after["severity"] - before["severity"]
+```
+
+Snapshots are immutable and process-wide. The six fixed keys are `expired`, `thread`
+(off-thread), `body`, `severity`, `attributes` and `emit` (observer/submission errors).
+Each dropped call counts its first failing reason. Counts never reset and saturate at
+`sys.maxsize`; deltas are meaningful below saturation and include other concurrent runs.
+Successful calls and propagated cancellation/process-control signals do not count.
+No messages, attribute keys/values, exception text or identities enter this diagnostic
+state. Updates use a short in-memory lock; no logging handlers, observers, tasks or I/O
+are invoked by diagnostics. These counters diagnose integrations, not authoritative
+run outcomes. `WARNING` remains invalid; use the documented severity `WARN`.

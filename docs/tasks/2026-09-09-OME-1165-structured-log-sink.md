@@ -31,3 +31,9 @@ Extend packages/url4 observation Logs with optional immutable flat scalar attrib
 OME-934 owns Engine forwarding and safe bridge buffering and depends on this issue. OME-1161 owns production activity records and concrete serialized size/rate limits; OME-932 owns evaluation lifecycle, typed terminal observations and scoring. This package interface supplies emission only. No new wire event, URL grammar or identity change; saved failure diagnostics remain separate. Keep implementation PR draft until the owner requests readiness.
 
 Implementation started after PR 876 merged at 1a53690c. See [implementation ledger](../work/2026-09-09-OME-1165-structured-log-sink.md).
+
+## PR 877 review fixes
+
+Owner requested both review fixes on 2026-09-09: preserve Log pickle/deepcopy/asdict
+compatibility and expose bounded, payload-free drop counters. See
+[review-fix ledger](../work/2026-09-09-OME-1165-log-review-fixes.md).
