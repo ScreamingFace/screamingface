@@ -900,6 +900,14 @@ def _json_or_raise(resp: httpx.Response) -> dict:
     try:
         return resp.json()
     except ValueError as exc:
+        # WHY: an empty completed reply supplies no evidence of malformed content or
+        # interception. Permit a later retry without replaying a paid call here.
+        if not resp.content:
+            raise ResolutionError(
+                "model request returned an empty response body; the request may be retried",
+                code="aigateway_empty_response",
+                permanent=False,
+            ) from exc
         raise ResolutionError(
             "aigateway returned a non-JSON response body — a proxy or access gateway in front "
             "of aigateway is intercepting the request",
