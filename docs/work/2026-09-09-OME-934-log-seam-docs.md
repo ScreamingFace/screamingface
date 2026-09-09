@@ -25,7 +25,7 @@ Compare against the current Linear contract and origin/main executor/bridge/comp
 
 ## Acceptance
 
-One optional generic factory, ordinary Log delivery, explicit lifecycle/validation/failure contracts, fake-adapter verification plan, and no concrete producer or Benchmark ownership machinery. Reviewable independently of implementation and OME-1153.
+Generic node-scoped URL4 Log emission, Engine forwarding and targeted safe buffering, with explicit lifecycle/expiry/validation/failure contracts and paired pressure regression requirements. Concrete model-activity schemas and evaluation lifecycle/tracking remain separately owned designs. Reviewable independently of implementation and OME-1153.
 
 ## Outcome
 
@@ -43,3 +43,7 @@ Scratch probe passed: structured attributes survived actual Engine execution, co
 ## Recommended spec refresh
 
 User authorized pushing the revised spec to the existing draft. Replaced the competing Engine-only implementation narrative with the recommended generic URL4 Log extension, explicit lifecycle/validation/failure rules, Engine forwarding and Client follow-ups. Added design-repository alignment with the limitation that Part D is not yet substantive. Rewrote the implementation plan around separate package/Engine issues, which remain unallocated pending approval. No code, ticket scope or readiness changes.
+
+## Five focused review revisions
+
+Applied the owner-approved clarifications: exact replacement scope for PRs 689/692; optional-Log admission/eviction at both capacity limits with paired lifecycle regression; explicit node/child/nested/expired-accessor semantics; OME-932’s evaluation lifecycle and canonical scoring obligations; and enumerated severity, immutable attributes and production size/rate requirements. Updated plan and removed the stale factory acceptance. This revision remains documentation-only; tests described here are implementation requirements, not claimed passing production tests.
