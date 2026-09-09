@@ -47,13 +47,29 @@ def retry_delay(value: str | None) -> float:
     return delay
 
 
+# The acknowledgements /batch/ is known to answer with. PostHog Cloud returns
+# {"status":"Ok"}, verified live against us.i.posthog.com on 2026-09-09; the
+# integer form is the older acknowledgement and stays accepted so a self-hosted
+# or pinned deployment does not regress. Neither shape is documented, so this
+# tuple is the whole contract and any addition belongs here.
+ACKNOWLEDGEMENTS = ({"status": "Ok"}, {"status": 1})
+
+
 def accepted(body: bytes) -> bool:
     # WHY: malformed/partial responses cannot acknowledge the whole batch.
     try:
         value = json.loads(body)
     except (ValueError, UnicodeDecodeError):
         return False
-    return type(value) is dict and value == {"status": 1} and type(value["status"]) is int
+    if type(value) is not dict:
+        return False
+    # INVARIANT: exact match, so a response carrying extra keys is still
+    # refused. The status type check is load-bearing on the integer form —
+    # JSON true equals 1 in Python, so equality alone would accept
+    # {"status": true}.
+    return any(
+        value == ack and type(value["status"]) is type(ack["status"]) for ack in ACKNOWLEDGEMENTS
+    )
 
 
 class PostHogDelivery:
