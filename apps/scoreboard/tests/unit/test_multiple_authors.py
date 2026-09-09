@@ -194,8 +194,6 @@ async def test_another_submitter_cannot_rewrite_public_author_credit(tortoise_db
 def test_portal_renders_author_lists_in_leaderboard_and_history() -> None:
     portal = Path(__file__).resolve().parents[2] / "portal"
 
-    assert 'key: "submitted_by", label: "Submitter"' in (portal / "benchmark.js").read_text()
-    assert "P.formatSubmitter(entry.submitted_by)" in (portal / "benchmark.js").read_text()
     assert "P.formatAuthors(entry.authors)" in (portal / "benchmark.js").read_text()
     assert "P.formatSubmitter(s.submitted_by)" in (portal / "spec.js").read_text()
     assert "P.formatAuthors(s.authors)" in (portal / "spec.js").read_text()
@@ -248,3 +246,21 @@ async def test_owned_entries_carry_every_field_with_a_non_default_value(
                 "comparison above cannot tell a copied field from an omitted one. Give it a "
                 "distinctive value."
             )
+
+
+def test_portal_leaderboard_table_has_no_submitter_column() -> None:
+    """FEATURE (OME-1144): one identity column on the benchmark table, not two.
+
+    INVARIANT: the two absence assertions must stay paired with the two presence ones. `COLUMNS`
+    and `renderRows` are positional — a header removed without its cell (or the reverse) shifts
+    every column right of Backends — and the two survivors are what a bare absence check cannot
+    tell apart from the two wrong ways to satisfy it: deleting BOTH identity columns, or deleting
+    the shared `formatSubmitter` helper that `spec.js` still calls.
+    """
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    benchmark_js = (portal / "benchmark.js").read_text()
+
+    assert 'label: "Submitter"' not in benchmark_js
+    assert "P.formatSubmitter(entry.submitted_by)" not in benchmark_js
+    assert "P.formatAuthors(entry.authors)" in benchmark_js
+    assert "P.formatSubmitter(s.submitted_by)" in (portal / "spec.js").read_text()
