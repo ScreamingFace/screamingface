@@ -89,7 +89,7 @@ class _Bridge:
     """A bounded async event queue between the engine's synchronous `url4.observe` callback
     and the async streaming loop draining it.
 
-    Buffers up to `maxsize` events; beyond that, an incoming `Log` is dropped outright, while
+    At either capacity limit, an incoming `Log` is dropped outright, while
     an incoming non-Log event instead evicts the oldest buffered `Log` to make room (or, if no
     `Log` is buffered, evicts nothing and the buffer grows toward the hard cap) — since a `Log`
     is the only event kind safe to lose without corrupting the run's span/cost accounting.
@@ -157,19 +157,16 @@ class _Bridge:
     def on_event(self, event: ObservationEvent) -> None:
         """Called synchronously by the engine for every observation event.
 
-        Policy at the soft cap (`maxsize`): a `Log` is dropped outright (counted in
+        Policy at either the soft or hard cap: a `Log` is dropped outright (counted in
         `dropped`); anything else evicts the oldest buffered `Log` to make room, since a
         `Log` is the only event kind safe to lose without corrupting the run's span/cost
         accounting. Only once the backlog still exceeds the hard cap after that eviction does
         this raise `BridgeOverflowError`.
         """
-        # INVARIANT: with the default budget the hard cap sits far above `_max`, giving the
-        # buffer headroom past the soft cap before the budget binds — NOT a guarantee that a
-        # Log is available to evict. A backlog with no buffered Log at all is exactly the
-        # state that runs out that headroom and raises BridgeOverflowError. A budget below
-        # `_max` events' worth makes the hard cap bind first; the policy stays correct, the
-        # soft cap simply never gets to help.
-        if len(self._buf) >= self._max:
+        # INVARIANT: optional activity cannot consume the last slot needed by an
+        # authoritative event, even when the hard cap is below the soft cap.
+        # The buffer never exceeds the hard cap, so one eviction admits one event.
+        if len(self._buf) >= min(self._max, self._hard_cap):
             if isinstance(event, Log):
                 self._dropped += 1
                 return
@@ -676,7 +673,9 @@ def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
 def _log_frame(event: Log) -> LogData:
     # The engine's severity is a free string; anything the protocol does not name maps to INFO.
     severity = cast(Severity, event.severity.upper())
-    return LogData.at(severity if severity in SEVERITY_NUMBER else "INFO", event.body)
+    return LogData.at(
+        severity if severity in SEVERITY_NUMBER else "INFO", event.body, dict(event.attributes)
+    )
 
 
 World = tuple[IOLayer, Callable[[], Awaitable[None]] | None]
