@@ -40,3 +40,7 @@ Existing terminal Case Spans remain baseline liveness. Optional Logs do not crea
 The user requested a clean first experience covering case loading, answering, grading, aggregation and final evaluation outcomes, with rich safe facts and a calm default view. The [proposed spec](../spec/2026-09-09-OME-887-evaluation-activity.md), [delivery plan](../plan/2026-09-09-OME-887-evaluation-activity.md) and [design ledger](../work/2026-09-09-OME-887-evaluation-activity-design.md) prepare that decision.
 
 Schema, budgets, coverage and Client support-state behavior remain proposed pending owner review. OME-1161 retains model-call production; a separate Engine stage-instrumentation child is proposed but not yet filed. OME-1135 remains the Client owner. No implementation ticket is expanded or completed by these documents.
+
+## Owner refinement — 10 September 2026
+
+Removed the proposed lifetime activity-record cap and its suppression counter at the owner’s request. Rate, record-size, bridge and Client-history bounds remain proposed as before. See the [refinement ledger](../work/2026-09-10-OME-887-remove-activity-total-cap.md).

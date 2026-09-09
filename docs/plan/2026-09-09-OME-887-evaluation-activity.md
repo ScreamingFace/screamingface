@@ -22,7 +22,7 @@ Potential files: new `activity/contract.py`, `activity/scope.py`, `activity/sess
 
 TDD through the producer interface:
 
-- Verify enabled/disabled operation, immutable scalar output, safe IDs/templates, byte/rate/run bounds, suppression counters and concurrent sessions.
+- Verify enabled/disabled operation, immutable scalar output, safe IDs/templates, byte/rate bounds, suppression counters and concurrent sessions. Verify that a run emitting more than 20,000 records within the rate limit continues admitting activity, including later terminal records; no lifetime record cap applies.
 - Real fake-provider completion, refusal, local transport retry, safe failure, cancellation and heartbeat timing. Preserve the number of calls, retry delays and original errors.
 - Scope semantics: nested operations, multiple calls inside one node, expired contexts, async-generator advancement/closure from different tasks, and no retained tasks after run cancellation.
 - Integrate the existing connector logging points without retaining two heartbeat loops for the same round trip. Preserve required server diagnostics while publishing the structured version from the same observed facts.
