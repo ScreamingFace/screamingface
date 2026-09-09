@@ -3,7 +3,7 @@ id: OME-1152
 linear_url: https://linear.app/openmined/issue/OME-1152
 status: In Progress
 priority: High
-labels: [analytics, agentic, design-session]
+labels: [analytics, agentic, autonomous]
 created: 2026-09-09
 closed:
 ---
@@ -26,7 +26,7 @@ SDK changes, Colab consent/cookie endpoints, website instrumentation, Scoreboard
 
 ## Acceptance
 
-- [ ] Docs-only PR defines HTTP/event contract, failure/dedup semantics, implementation plan and acceptance tests; approved and merged before code.
+- [x] Docs-only PR defines HTTP/event contract, failure/dedup semantics, implementation plan and acceptance tests; approved and merged before code.
 - [ ] Ingestion rejects unknown/forbidden fields, oversize payloads and invalid identifiers/event combinations.
 - [ ] Transient failures retry within explicit bounds; retries preserve analytics event IDs; downstream delivery isn't falsely claimed.
 - [ ] Synthetic test project proves anonymous PostHog delivery and dedup behavior; no production test events.
@@ -51,3 +51,21 @@ Metadata prerequisite completed: owner-created analytics label is applied and re
 - Discovery/review events and benchmark/provider/cost/cache-hit fields are deferred. No identity linking, email prompts, website instrumentation or Scoreboard database aggregates in this first slice.
 
 Authoritative docs review: [ScreamingFace analytics docs PR](https://github.com/ScreamingFace/screamingface/pull/871). Docs approval/merge precedes a separate service implementation PR; this update implements no product code.
+
+## Implementation
+
+Owner authorized service implementation after the docs PR merged. Branch:
+`OME-1152-analytics-service`; ledger:
+`docs/work/2026-09-09-OME-1152-analytics-service.md`.
+Mock tests do not complete the live PostHog smoke or production rollout acceptance.
+
+Implementation PR: https://github.com/ScreamingFace/screamingface/pull/873, commit f7da4c0b.
+64 tests and 99.03% statement/branch coverage locally; service CI passed on Python 3.12/3.13,
+including Docker build/start and Helm rendering. No production events or deployment.
+
+## PR review fixes
+
+Owner authorized both fixes: whole-request 1.5-second deadline and bounded retry for
+upstream decoding errors. Added four regression cases; all 68 tests and analytics gates
+pass with 99% coverage. Ledger: `docs/work/2026-09-09-OME-1152-review-fixes.md`.
+Live acceptance and rollout remain pending.

@@ -1,5 +1,16 @@
 ---
 stacks:
+  - name: analytics
+    root: apps/analytics
+    skill: sdlc-python
+    test_globs: ["tests/**"]
+    gates:
+      - uv lock --check
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run pyright
+      - uv run pytest --cov=analytics_service --cov-branch --cov-fail-under=95 -q
+      - uv build
   - name: aigateway
     root: apps/aigateway
     skill: sdlc-python
@@ -177,3 +188,12 @@ ledger_dir: docs/work/
 `docs/work/YYYY-MM-DD-<ticket-id>-<short-description>.md` — created at work START
 (date = start), frontmatter `status: planned|in_progress|done|blocked` + `finished:` filled
 at close. Template: copy `docs/work/TEMPLATE.md`.
+
+## analytics (python)
+
+- INVARIANTS: consent affirmation and strict four-event allowlist; no identity linking,
+  payload persistence, raw request logging or network enrichment. Core imports only ports.
+- Delivery has a total 1.5-second budget and at most two attempts. Acknowledgement means
+  whole-batch upstream HTTP acceptance, never durable or immediate exactly-once delivery.
+- Mock upstream only in CI. Public rollout requires a separately configured test-project
+  smoke, 90-day PostHog retention enforcement, ingress protection and log review.

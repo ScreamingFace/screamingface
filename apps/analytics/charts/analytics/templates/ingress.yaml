@@ -1,0 +1,23 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-analytics
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ required "ingress requires a controller class" .Values.ingress.className }}
+  tls:
+    - hosts: [{{ required "ingress requires a host" .Values.ingress.host | quote }}]
+      secretName: {{ required "ingress requires TLS" .Values.ingress.tlsSecretName }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /v1/events
+            pathType: Exact
+            backend:
+              service:
+                name: {{ .Release.Name }}-analytics
+                port: {name: http}
+{{- end }}

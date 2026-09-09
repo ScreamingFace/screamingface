@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-analytics
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-analytics
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-analytics
+    spec:
+      automountServiceAccountToken: false
+      # WHY: a Service named `analytics` injects ANALYTICS_* link variables that
+      # Settings rejects under extra="forbid", crash-looping on a sanitized message.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: analytics
+          image: "{{ .Values.image.repository }}:{{ required "set image.tag to a tested build" .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 9110}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          env:
+            - {name: ANALYTICS_ENABLED, value: {{ .Values.analytics.enabled | quote }}}
+            - {name: ANALYTICS_ENV, value: {{ .Values.analytics.environment | quote }}}
+            - {name: ANALYTICS_POSTHOG_HOST, value: {{ .Values.analytics.posthogHost | quote }}}
+            - {name: ANALYTICS_POSTHOG_ALLOWED_HOSTS, value: {{ .Values.analytics.allowedHosts | quote }}}
+            - {name: ANALYTICS_MAX_INFLIGHT, value: {{ .Values.analytics.maxInflight | quote }}}
+            - {name: ANALYTICS_REQUESTS_PER_MINUTE, value: {{ .Values.analytics.requestsPerMinute | quote }}}
+            {{- if .Values.analytics.enabled }}
+            - name: ANALYTICS_POSTHOG_PROJECT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "enabled analytics requires an existing secret" .Values.analytics.existingSecret }}
+                  key: {{ .Values.analytics.tokenKey }}
+            {{- end }}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
