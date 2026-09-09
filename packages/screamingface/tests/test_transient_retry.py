@@ -12,7 +12,7 @@ assertion here is secondary to it.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
@@ -330,3 +330,135 @@ def test_negative_attempts_is_rejected() -> None:
         RetryingAsyncTransport(
             httpx.MockTransport(lambda _request: httpx.Response(200)), attempts=-1
         )
+
+
+# ── a body that dies mid-read ─────────────────────────────────────────────────────────────
+
+
+class _FailingBodyStream(httpx.SyncByteStream):
+    """A response whose headers arrived but whose BODY died mid-stream (OME-1107 review).
+
+    `stream=` is the important part: `Response(content=...)` reads eagerly inside
+    `__init__`, which would raise in the handler. The failure must happen only when the
+    retry loop calls `read()` on the already-returned response — the exact case the loop
+    used to let escape.
+    """
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        raise httpx.ReadError("connection dropped mid-body")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _AsyncFailingBodyStream(httpx.AsyncByteStream):
+    """The async twin; same contract — headers arrived, the body did not."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        raise httpx.ReadError("connection dropped mid-body")
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def _read_failure_client(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> tuple[httpx.Client, list[float]]:
+    """A sync client whose transport will retry — mirror of `_rig`, but its handler may
+    return stream-backed responses, which `_Recorder` cannot express."""
+    slept: list[float] = []
+    transport = RetryingTransport(
+        httpx.MockTransport(handler),
+        attempts=3,
+        base_delay=0.25,
+        max_retry_after=30.0,
+        sleep=slept.append,
+        jitter=lambda: 0.0,
+    )
+    return httpx.Client(transport=transport, base_url="https://engine.test"), slept
+
+
+def _async_read_failure_client(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> httpx.AsyncClient:
+    """The async twin of `_read_failure_client`."""
+    transport = RetryingAsyncTransport(
+        httpx.MockTransport(handler),
+        attempts=3,
+        base_delay=0.25,
+        max_retry_after=30.0,
+        sleep=_no_sleep,
+        jitter=lambda: 0.0,
+    )
+    return httpx.AsyncClient(transport=transport, base_url="https://engine.test")
+
+
+def test_a_body_read_failure_is_retried_like_any_transport_failure() -> None:
+    """The reviewer's finding on #835: a retryable 503 whose BODY raises `httpx.ReadError`
+    used to escape the loop — one attempt, no retry, no release. It is the same transient
+    failure as a dropped send, so it gets a fresh attempt and the dead response is
+    released."""
+    dead = _FailingBodyStream()
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(503, stream=dead)
+        return httpx.Response(200, text="ok")
+
+    client, _slept = _read_failure_client(handler)
+    with client:
+        response = client.post("/token", extensions={_REPLAY_SAFE: True})
+    assert response.status_code == 200
+    assert attempts == 2
+    assert dead.closed, "the dead response must be released before re-sending"
+
+
+@pytest.mark.asyncio
+async def test_the_async_transport_retries_a_body_read_failure() -> None:
+    """The async twin of the reviewer's finding — it escaped both transports."""
+    dead = _AsyncFailingBodyStream()
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(503, stream=dead)
+        return httpx.Response(200, text="ok")
+
+    async with _async_read_failure_client(handler) as client:
+        response = await client.post("/token", extensions={_REPLAY_SAFE: True})
+    assert response.status_code == 200
+    assert attempts == 2
+    assert dead.closed, "the dead response must be released before re-sending"
+
+
+def test_a_body_read_failure_uses_backoff_not_the_retry_after_that_never_arrived() -> None:
+    """A `Retry-After` rides on the response that died: it was delivered on headers whose
+    body never did, and a connection-level drop is backoff territory, not the server's
+    schedule. The retry is paced exactly like any other transport failure."""
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            dead = _FailingBodyStream()
+            return httpx.Response(503, headers={"Retry-After": "2"}, stream=dead)
+        return httpx.Response(200, text="ok")
+
+    client, slept = _read_failure_client(handler)
+    with client:
+        response = client.post("/token", extensions={_REPLAY_SAFE: True})
+    assert response.status_code == 200
+    assert attempts == 2
+    assert slept == pytest.approx([0.25]), "backoff(1), not the unread Retry-After of 2s"

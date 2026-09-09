@@ -159,12 +159,35 @@ class RetryingTransport(httpx.BaseTransport):
             delay = self._plan.wait_for(response, attempt)
             if delay is None:
                 return response
-            # Release the connection before re-sending; a discarded body would otherwise hold
-            # it for the life of the pool.
-            response.read()
-            response.close()
-            self._sleep(delay)
+            self._release_and_wait(response, delay, attempt)
         raise AssertionError("unreachable: the final attempt returns or raises")
+
+    def _release_and_wait(
+        self,
+        response: httpx.Response,
+        delay: float,
+        attempt: int,
+    ) -> None:
+        """Drain and close a response we intend to re-send, then sleep the pacing.
+
+        WHY the read counts as a failure (OME-1107 review): a discarded body that was
+        never read holds its pooled connection, and a body that dies mid-read is the same
+        transport failure as a dropped send — close the dead response, back off, and
+        re-send. Never honor the Retry-After that rode on a response whose body never
+        arrived.
+
+        INVARIANT: reached only for a non-final attempt; the loop returns a retryable
+        response unread on its last try so the caller sees the terminal response intact —
+        which is also why there is no last-attempt branch here.
+        """
+        try:
+            response.read()
+        except httpx.TransportError:
+            response.close()
+            self._sleep(self._plan.backoff(attempt))
+            return
+        response.close()
+        self._sleep(delay)
 
     def close(self) -> None:
         self._inner.close()
@@ -212,10 +235,24 @@ class RetryingAsyncTransport(httpx.AsyncBaseTransport):
             delay = self._plan.wait_for(response, attempt)
             if delay is None:
                 return response
-            await response.aread()
-            await response.aclose()
-            await self._sleep(delay)
+            await self._release_and_wait_async(response, delay, attempt)
         raise AssertionError("unreachable: the final attempt returns or raises")
+
+    async def _release_and_wait_async(
+        self,
+        response: httpx.Response,
+        delay: float,
+        attempt: int,
+    ) -> None:
+        """The async twin of `_release_and_wait` — same release-before-sleep contract."""
+        try:
+            await response.aread()
+        except httpx.TransportError:
+            await response.aclose()
+            await self._sleep(self._plan.backoff(attempt))
+            return
+        await response.aclose()
+        await self._sleep(delay)
 
     async def aclose(self) -> None:
         await self._inner.aclose()

@@ -143,3 +143,36 @@ though the code for both already existed and was correct.
 - **All-or-nothing evaluation semantics** (`_evaluation/runner.py:382-389`).
 
 Both remain open follow-ups and are the reason a single refusal still costs a whole evaluation.
+
+## Follow-up — a body that dies mid-read (2026-09-09)
+
+PR #835 second review (`keelancj`): if a retryable response's BODY raises `httpx.ReadError`,
+`response.read()` exited before closing the response or retrying — reproduced in both sync
+and async, only one attempt happened even when the next would succeed. Confirmed and fixed
+here.
+
+- **Root cause:** the `except httpx.TransportError` guarded only the SEND
+  (`handle_request`). The `response.read()` that drains a response before re-sending sat
+  outside it, so a connection that dropped mid-body (the exact tunnel-flap class this
+  module exists for) escaped as a raw `ReadError`: no retry, no release.
+- **Fix:** read+close moved into `_release_and_wait` / `_release_and_wait_async`, where a
+  `TransportError` from the read is the same failure as a dropped send — close the dead
+  response, sleep `backoff(attempt)` (never the `Retry-After` that rode on a response
+  whose body never arrived), and re-send.
+- **Dead branch removed, not papered over:** a first draft carried `if last: raise` inside
+  `_release_and_wait`, but it was provably unreachable — the loop returns any retryable
+  response unread on its last attempt so the caller sees the terminal response intact (and
+  a test that only "passed" by exercising httpx's own `Client.send()` body read was
+  dropped, not kept). The parameter and branch are gone, with an INVARIANT note in the
+  docstring.
+- **Tests added (append-only):** `test_a_body_read_failure_is_retried_like_any_transport_failure`
+  and its async twin — the load-bearing regression: a 503 backed by a `stream=` that
+  raises on read, then a 200 on the retry, asserting the dead response was released — plus
+  `test_a_body_read_failure_uses_backoff_not_the_retry_after_that_never_arrived`. `stream=`
+  matters: `Response(content=...)` reads eagerly in `__init__`, which would raise inside
+  the handler instead of at the loop's read. All three fail against `ace79e08` (raw
+  `ReadError`, one attempt) and pass against the fix.
+- **Gates:** `run_gates.py screamingface` — ALL GATES GREEN (append-only · ruff · pyright ·
+  pytest --cov ≥95 · notebooks · uv build · distribution). `_core/retry.py` alone 98%; the
+  two misses remain the provably-unreachable `AssertionError` guards the previous
+  follow-up already left uncovered.
