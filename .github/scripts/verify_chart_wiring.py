@@ -1380,6 +1380,36 @@ check(
     "the benchmark image is published only under immutable version tags",
 )
 
+# analytics publishes from ONE lane — the dev lane on every merge to main. There is no release
+# lane yet, so unlike the pairs above there is no second publisher to agree with: the chart default
+# and this lane are the whole agreement, which is why it is asserted here rather than left to a
+# release lane that does not exist. A chart naming an image nobody pushes is installable and
+# permanently ImagePullBackOff.
+analytics_chart_values = yaml.safe_load(
+    (REPO / "apps/analytics/charts/analytics/values.yaml").read_text()
+)
+analytics_dev_lane = yaml.safe_load(
+    (REPO / ".github/workflows/dev-build-analytics.yml").read_text()
+)
+analytics_dev_tags = [
+    tag.strip()
+    for tag in analytics_dev_lane["jobs"]["image"]["steps"][-1]["with"]["tags"].split("\n")
+    if tag.strip()
+]
+check(
+    any(
+        tag.rsplit(":", 1)[0] == analytics_chart_values["image"]["repository"]
+        for tag in analytics_dev_tags
+    ),
+    f"analytics's dev lane pushes the SAME image repository the chart names "
+    f"({analytics_chart_values['image']['repository']})",
+)
+check(
+    all(":main-" in tag for tag in analytics_dev_tags)
+    and not any(tag.endswith(":latest") for tag in analytics_dev_tags),
+    "analytics's dev lane publishes only immutable main-<sha> tags — never :latest",
+)
+
 # A shared GHA cache scope between images with disjoint layer sets (uv/Python vs node/Next.js) is
 # not incorrect, but it is pure eviction pressure with no hits. Cheap to assert, easy to get wrong
 # by copying a sibling lane.

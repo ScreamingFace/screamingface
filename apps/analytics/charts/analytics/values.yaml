@@ -1,6 +1,6 @@
 replicaCount: 1
 image:
-  repository: ghcr.io/screamingface/analytics
+  repository: ghcr.io/screamingface/screamingface-analytics
   tag: ""
   pullPolicy: IfNotPresent
 analytics:

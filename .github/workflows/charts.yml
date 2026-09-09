@@ -22,6 +22,7 @@ on:
       # a renamed field has to re-run it. Without this line the rename lands green here and the
       # pod runs on the field's default — which for AUTH_MODE is authentication disabled.
       - "apps/report-intake/src/report_intake/config.py"
+      - "apps/analytics/charts/**"
       - "apps/screamingface-engine/deploy/helm/**"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
@@ -47,6 +48,7 @@ on:
       # a renamed field has to re-run it. Without this line the rename lands green here and the
       # pod runs on the field's default — which for AUTH_MODE is authentication disabled.
       - "apps/report-intake/src/report_intake/config.py"
+      - "apps/analytics/charts/**"
       - "apps/screamingface-engine/deploy/helm/**"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
