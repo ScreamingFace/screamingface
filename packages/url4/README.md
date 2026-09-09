@@ -220,3 +220,64 @@ uv run url4 eval "(/upper(hi)!'go')"
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE).
+
+## Structured observations
+
+An adapter running inside an observed DAG node can emit optional structured Logs:
+
+```python
+from url4.observe import current_log_sink
+
+sink = current_log_sink()
+if sink is not None:
+    sink("Operation completed", {"duration_ms": 42, "cached": False})
+```
+
+Supply an `Observer` to `url4.dag.run` to receive these observations. The sink attaches
+records to the resolving node's span. Child tasks inherit the active binding; observed
+nested execution binds its own sink and restores the outer one. Unobserved nested execution
+inherits an active outer sink without creating a span. After the node exits, accessors
+return `None` and retained sinks silently drop submissions, including from child tasks.
+
+Emission is synchronous and confined to the node's event-loop thread. Invalid records,
+off-thread calls and ordinary observer errors silently drop; cancellation and process-control
+signals propagate. Existing `ExecutionContext.log` and direct observer failures still
+propagate. Direct logging also accepts `attributes=` without changing its severity behavior.
+
+Bodies must be nonempty built-in strings. Attributes have built-in string keys and flat
+`str`, `int`, finite `float`, `bool` or `None` values, copied into an immutable snapshot.
+The optional `severity=` defaults to `INFO`: whitespace is stripped and letters uppercased,
+then only `DEBUG`, `INFO`, `WARN` and `ERROR` are accepted (`WARNING` is not an alias).
+Malformed records are rejected whole, without coercion or partial emission.
+
+This interface defines emission, not delivery guarantees or content filtering. Producer
+schemas must specify privacy rules, maximum serialized record size, emission-rate/burst
+limits and heartbeat cleanup. Observers and producers must remain non-blocking; the sink
+creates no tasks, queue or I/O. Concrete exporters own forwarding and buffering.
+
+### Log serialization and drop diagnostics
+
+`Log` supports `pickle`, `copy.deepcopy` and `dataclasses.asdict`, with or without
+attributes. Reconstructed events retain immutable attribute snapshots; `asdict(log)`
+returns detached ordinary dictionaries suitable for JSON serialization.
+
+Use `url4.observe.log_sink_drop_counts()` to inspect optional emission failures:
+
+```python
+from url4.observe import log_sink_drop_counts
+
+before = log_sink_drop_counts()
+# Exercise the producer here.
+after = log_sink_drop_counts()
+severity_drops = after["severity"] - before["severity"]
+```
+
+Snapshots are immutable and process-wide. The six fixed keys are `expired`, `thread`
+(off-thread), `body`, `severity`, `attributes` and `emit` (observer/submission errors).
+Each dropped call counts its first failing reason. Counts never reset and saturate at
+`sys.maxsize`; deltas are meaningful below saturation and include other concurrent runs.
+Successful calls and propagated cancellation/process-control signals do not count.
+No messages, attribute keys/values, exception text or identities enter this diagnostic
+state. Updates use a short in-memory lock; no logging handlers, observers, tasks or I/O
+are invoked by diagnostics. These counters diagnose integrations, not authoritative
+run outcomes. `WARNING` remains invalid; use the documented severity `WARN`.

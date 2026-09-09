@@ -48,7 +48,7 @@ from url4.io.layer import (
     SupportsHoldings,
     SupportsProcessorRoutes,
 )
-from url4.observe import Log, ModelResponse, ObservationEvent, Observer, Usage
+from url4.observe import Log, LogScalar, ModelResponse, ObservationEvent, Observer, Usage
 
 
 @dataclass(frozen=True)
@@ -423,11 +423,17 @@ class ExecutionContext:
                 )
             )
 
-    def log(self, severity: str, body: str) -> None:
+    def log(
+        self, severity: str, body: str, *, attributes: Mapping[str, LogScalar] | None = None
+    ) -> None:
         """Emit a log line attributed to this node's current span. A no-op
-        when no ``observer`` was passed to :func:`~url4.dag.executor.run`."""
+        when no ``observer`` was passed to :func:`~url4.dag.executor.run`.
+
+        Attributes are snapshotted immutably. Observer failures still propagate;
+        use ``current_log_sink()`` for best-effort producer emission.
+        """
         if self._obs is not None:
-            self._obs.emit(Log(self._current_span_id, severity, body))
+            self._obs.emit(Log(self._current_span_id, severity, body, attributes or {}))
 
 
 async def _spawn_unset(text: str, scope: Context) -> str:
