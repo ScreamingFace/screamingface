@@ -36,6 +36,9 @@ for enabled in (False, True):
     assert container["ports"][0]["containerPort"] == 9110
     assert service["spec"]["ports"][0]["targetPort"] == "http"
     assert container["securityContext"]["readOnlyRootFilesystem"] is True
+    # INVARIANT: link variables never reach an ANALYTICS_-prefixed, extra-forbidding Settings.
+    assert pod["spec"]["enableServiceLinks"] is False
+    assert "nodeSelector" not in pod["spec"] and "tolerations" not in pod["spec"]
     env = {value["name"]: value for value in container["env"]}
     assert env["ANALYTICS_ENABLED"]["value"] == str(enabled).lower()
     if enabled:
@@ -46,4 +49,14 @@ for enabled in (False, True):
         assert route["backend"]["service"]["name"] == service["metadata"]["name"]
     else:
         assert "ANALYTICS_POSTHOG_PROJECT_TOKEN" not in env and "Ingress" not in objects
-print("PASS: disabled and enabled chart wiring, secret references and ingress route")
+placed = subprocess.check_output(
+    base + ["--set", "nodeSelector.pool=tenant", "--set", "tolerations[0].key=workload"], text=True
+)
+spec = next(
+    item["spec"]["template"]["spec"]
+    for item in yaml.safe_load_all(placed)
+    if item and item["kind"] == "Deployment"
+)
+assert spec["nodeSelector"] == {"pool": "tenant"}
+assert spec["tolerations"] == [{"key": "workload"}]
+print("PASS: chart wiring, secret references, ingress route, service links and placement")
