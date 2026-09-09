@@ -13,6 +13,9 @@ spec:
         app: {{ .Release.Name }}-analytics
     spec:
       automountServiceAccountToken: false
+      # WHY: a Service named `analytics` injects ANALYTICS_* link variables that
+      # Settings rejects under extra="forbid", crash-looping on a sanitized message.
+      enableServiceLinks: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -48,3 +51,11 @@ spec:
             httpGet: {path: /readyz, port: http}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
