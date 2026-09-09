@@ -14,6 +14,8 @@
 /apps/screamingface-engine/                @sergio-bershadsky
 /apps/report-intake/             @sergio-bershadsky
 
+/apps/analytics/                 @sergio-bershadsky @HupBaHa
+
 # Product public docs
 /public-docs/                    @IrinaMBejan
 

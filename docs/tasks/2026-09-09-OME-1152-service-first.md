@@ -3,7 +3,7 @@ id: OME-1152
 linear_url: https://linear.app/openmined/issue/OME-1152
 status: In Progress
 priority: High
-labels: [analytics, agentic, design-session]
+labels: [analytics, agentic, autonomous]
 created: 2026-09-09
 closed:
 ---
@@ -51,3 +51,10 @@ Metadata prerequisite completed: owner-created analytics label is applied and re
 - Discovery/review events and benchmark/provider/cost/cache-hit fields are deferred. No identity linking, email prompts, website instrumentation or Scoreboard database aggregates in this first slice.
 
 Authoritative docs review: [ScreamingFace analytics docs PR](https://github.com/ScreamingFace/screamingface/pull/871). Docs approval/merge precedes a separate service implementation PR; this update implements no product code.
+
+## Implementation
+
+Owner authorized service implementation after the docs PR merged. Branch:
+`OME-1152-analytics-service`; ledger:
+`docs/work/2026-09-09-OME-1152-analytics-service.md`.
+Mock tests do not complete the live PostHog smoke or production rollout acceptance.

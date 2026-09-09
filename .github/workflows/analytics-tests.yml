@@ -1,0 +1,62 @@
+name: analytics-tests
+on:
+  pull_request:
+    paths: ["apps/analytics/**", ".github/workflows/analytics-tests.yml", ".claude/sdlc.local.md"]
+  push:
+    branches: [main]
+    paths: ["apps/analytics/**", ".github/workflows/analytics-tests.yml", ".claude/sdlc.local.md"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: analytics-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv run .claude/scripts/run_gates.py analytics
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/analytics/Dockerfile
+          push: false
+          load: true
+          tags: analytics:ci
+      - name: Start the shipped entrypoint without credentials
+        run: |
+          docker run -d --name analytics-ci --read-only -p 9110:9110 analytics:ci
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9110/healthz; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9110/readyz)" = 503
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:9110/v1/events)" = 503
+      - name: Stop the image
+        if: always()
+        run: docker rm -f analytics-ci || true
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v4.3.1
+        with:
+          version: v3.17.3
+      - uses: astral-sh/setup-uv@v7
+      - run: helm lint apps/analytics/charts/analytics --set image.tag=ci
+      - run: uv run apps/analytics/scripts/check_chart.py

@@ -1,0 +1,25 @@
+replicaCount: 1
+image:
+  repository: ghcr.io/screamingface/analytics
+  tag: ""
+  pullPolicy: IfNotPresent
+analytics:
+  enabled: false
+  environment: test
+  posthogHost: ""
+  allowedHosts: ""
+  existingSecret: ""
+  tokenKey: posthog-project-token
+  maxInflight: 16
+  requestsPerMinute: 120
+service:
+  port: 9110
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: "1", memory: 256Mi}
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tlsSecretName: ""
+  annotations: {}
