@@ -1,7 +1,7 @@
 ---
 id: OME-1165
 linear_url: https://linear.app/openmined/issue/OME-1165
-status: Backlog
+status: In Progress
 priority: High
 labels: [url4-python-sdk, agentic, autonomous]
 created: 2026-09-09
@@ -29,3 +29,5 @@ Extend packages/url4 observation Logs with optional immutable flat scalar attrib
 
 ## Delivery boundaries
 OME-934 owns Engine forwarding and safe bridge buffering and depends on this issue. OME-1161 owns production activity records and concrete serialized size/rate limits; OME-932 owns evaluation lifecycle, typed terminal observations and scoring. This package interface supplies emission only. No new wire event, URL grammar or identity change; saved failure diagnostics remain separate. Keep implementation PR draft until the owner requests readiness.
+
+Implementation started after PR 876 merged at 1a53690c. See [implementation ledger](../work/2026-09-09-OME-1165-structured-log-sink.md).

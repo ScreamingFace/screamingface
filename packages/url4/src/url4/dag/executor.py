@@ -192,23 +192,23 @@ class Executor:
             # re-attributing its code/permanent here would double-count it.
             obs.emit(NodeFinished(span_id, "cancelled", obs.next_seq()))
             raise
-        with _bind_node_sinks(node_ctx.report_usage, node_ctx.report_response):
-            try:
+        try:
+            with _bind_node_sinks(node_ctx.report_usage, node_ctx.report_response, node_ctx.log):
                 result = await node.resolve(dict(zip(roles, values, strict=True)), node_ctx)
-            except BaseException as exc:
-                status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
-                code = getattr(exc, "code", None)
-                permanent = getattr(exc, "permanent", None)
-                obs.emit(
-                    NodeFinished(
-                        span_id,
-                        status,
-                        obs.next_seq(),
-                        code if isinstance(code, str) else None,
-                        permanent if isinstance(permanent, bool) else None,
-                    )
+        except BaseException as exc:
+            status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
+            code = getattr(exc, "code", None)
+            permanent = getattr(exc, "permanent", None)
+            obs.emit(
+                NodeFinished(
+                    span_id,
+                    status,
+                    obs.next_seq(),
+                    code if isinstance(code, str) else None,
+                    permanent if isinstance(permanent, bool) else None,
                 )
-                raise
+            )
+            raise
         obs.emit(NodeFinished(span_id, "ok", obs.next_seq()))
         return result
 

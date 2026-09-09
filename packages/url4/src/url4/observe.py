@@ -11,18 +11,21 @@ downstream tracing product is deliberately kept out of this module.
 ``Observer.on_event`` is synchronous and non-blocking by contract — the
 executor calls it inline from its own coroutines, never behind a task or a
 queue, so a slow or blocking observer would slow the run itself. An observer
-that raises is not caught anywhere in the engine (an embedder bug should be
-loud, not swallowed): the exception propagates out of the run exactly like
-any other node failure.
+that raises propagates out of direct observation like any other node failure.
+The opt-in ``current_log_sink`` convenience alone contains ordinary submission
+failures; it never changes lifecycle or direct logging failure semantics.
 """
 
 from __future__ import annotations
 
 import contextlib
 import contextvars
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+import math
+import threading
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass, field
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Literal, Protocol, runtime_checkable
 
 
@@ -56,11 +59,19 @@ class NodeFinished:
     permanent: bool | None = None
 
 
+type LogScalar = str | int | float | bool | None
+
+
 @dataclass(frozen=True, slots=True)
 class Log:
     span_id: str | None
     severity: str
     body: str
+    attributes: Mapping[str, LogScalar] = field(default_factory=dict, hash=False)
+
+    def __post_init__(self) -> None:
+        # INVARIANT: observers and caller mutation cannot rewrite queued evidence.
+        object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,14 +233,102 @@ def current_response_sink() -> ResponseSink | None:
     return _response_sink.get()
 
 
+class LogSink(Protocol):
+    """Best-effort structured emission for the active node, on its loop thread.
+
+    No I/O or tasks are created. Invalid, expired and off-thread submissions
+    silently drop. Attributes are flat scalars; this is not content redaction.
+    Producer schemas must separately bound record size and emission rate.
+    """
+
+    def __call__(
+        self,
+        body: str,
+        attributes: Mapping[str, LogScalar] | None = None,
+        *,
+        severity: str = "INFO",
+    ) -> None: ...
+
+
+class _LogEmitter(Protocol):
+    def __call__(
+        self,
+        severity: str,
+        body: str,
+        *,
+        attributes: Mapping[str, LogScalar] | None = None,
+    ) -> None: ...
+
+
+def _log_attributes(attributes: Mapping[str, LogScalar] | None) -> dict[str, LogScalar]:
+    if attributes is None:
+        return {}
+    if not isinstance(attributes, Mapping):
+        raise ValueError("invalid attributes")
+    snapshot = dict(attributes)
+    for key, value in snapshot.items():
+        if type(key) is not str or type(value) not in (str, int, float, bool, type(None)):
+            raise ValueError("invalid scalar")
+        if type(value) is float and not math.isfinite(value):
+            raise ValueError("nonfinite scalar")
+    return snapshot
+
+
+class _NodeLogSink:
+    def __init__(self, emit: _LogEmitter) -> None:
+        self._emit = emit
+        self._thread = threading.get_ident()
+        self.active = True
+
+    def __call__(
+        self,
+        body: str,
+        attributes: Mapping[str, LogScalar] | None = None,
+        *,
+        severity: str = "INFO",
+    ) -> None:
+        if not self.active or threading.get_ident() != self._thread:
+            return
+        try:
+            if type(body) is not str or not body or type(severity) is not str:
+                return
+            normalized = severity.strip().upper()
+            if normalized not in ("DEBUG", "INFO", "WARN", "ERROR"):
+                return
+            self._emit(normalized, body, attributes=_log_attributes(attributes))
+        except Exception:
+            # WHY: only this opt-in emission path is fail-open. No diagnostic
+            # logging here: it could recurse, leak payload or fail through a handler.
+            # BaseException (cancellation/process control) deliberately propagates.
+            pass
+
+
+_log_sink: contextvars.ContextVar[_NodeLogSink | None] = contextvars.ContextVar(
+    "url4_log_sink", default=None
+)
+
+
+def current_log_sink() -> LogSink | None:
+    """Return the active node's sink, or None outside/after its resolve.
+
+    Child tasks inherit the binding. Observed nested runs bind their own;
+    unobserved nested runs inherit an active outer without creating a span.
+    Retained callables silently drop after expiry, including in copied contexts.
+    """
+    sink = _log_sink.get()
+    return sink if sink is not None and sink.active else None
+
+
 @contextlib.contextmanager
-def _bind_node_sinks(usage: UsageSink, response: ResponseSink) -> Iterator[None]:
-    """Bind both ctx-less sinks to the currently-resolving node, for the duration
+def _bind_node_sinks(
+    usage: UsageSink, response: ResponseSink, log: _LogEmitter | None = None
+) -> Iterator[None]:
+    """Bind ctx-less sinks to the currently-resolving node, for the duration
     of its own ``resolve`` only.
 
     Lives here rather than in the executor because the ContextVars are this
     module's private state — the executor should not have to reach into them to
-    scope a binding it does not own. Takes the two bound methods rather than an
+    scope a binding it does not own. Takes explicit bound callables rather than an
     ``ExecutionContext`` so this module stays the dependency-free leaf its
     docstring promises (``url4.dag.node`` imports *this*, never the reverse).
 
@@ -237,20 +336,28 @@ def _bind_node_sinks(usage: UsageSink, response: ResponseSink) -> Iterator[None]
     copied into each :class:`asyncio.Task`'s context at creation, so every
     sibling node sees its own binding, never another's.
 
-    INVARIANT: neither binding outlives the node's resolve — both are reset on
+    INVARIANT: bindings are restored when the node resolve exits on
     the success path and the failure path alike.
     """
+    sink = _NodeLogSink(log) if log is not None else None
+    log_token = _log_sink.set(sink)
     usage_token = _usage_sink.set(usage)
     response_token = _response_sink.set(response)
     try:
         yield
     finally:
+        # INVARIANT: resetting ContextVars alone cannot revoke copied child contexts.
+        if sink is not None:
+            sink.active = False
+        _log_sink.reset(log_token)
         _usage_sink.reset(usage_token)
         _response_sink.reset(response_token)
 
 
 __all__ = [
     "Log",
+    "LogScalar",
+    "LogSink",
     "ModelResponse",
     "NodeFinished",
     "NodeStarted",
@@ -262,6 +369,7 @@ __all__ = [
     "RunStarted",
     "Usage",
     "UsageSink",
+    "current_log_sink",
     "current_response_sink",
     "current_usage_sink",
 ]
