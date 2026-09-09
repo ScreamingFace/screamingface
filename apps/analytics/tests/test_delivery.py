@@ -118,3 +118,24 @@ def test_retry_dates_and_session_mapping(envelope):
     mapped = map_event(batch.events[0], batch)
     assert isinstance(mapped["properties"], dict)
     assert mapped["properties"]["distinct_id"] == "sf:session:" + event["session_id"]
+
+
+def test_posthog_cloud_acknowledgement_shape():
+    """PostHog Cloud answers {"status":"Ok"}, not the integer form.
+
+    Verified live against us.i.posthog.com/batch/ on 2026-09-09: a 200 with
+    body {"status":"Ok"}. The previous exact-match on {"status": 1} rejected
+    it, so every delivery retried once and then raised DeliveryUnavailable —
+    the event reached PostHog twice and the caller still saw 503.
+    """
+    from analytics_service.adapters.posthog import accepted
+
+    assert accepted(b'{"status":"Ok"}')
+    assert accepted(b'{"status":1}')
+    # Still refused: partial acknowledgements, wrong types, wrong shapes.
+    assert not accepted(b'{"status":"Ok","errors":["partial"]}')
+    assert not accepted(b'{"status":"ok"}')
+    assert not accepted(b'{"status":true}')
+    assert not accepted(b'{"status":"1"}')
+    assert not accepted(b'"Ok"')
+    assert not accepted(b"not json")
