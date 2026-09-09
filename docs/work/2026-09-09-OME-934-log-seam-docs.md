@@ -39,3 +39,7 @@ One optional generic factory, ordinary Log delivery, explicit lifecycle/validati
 User requested checking a generic URL4 Log extension before committing to the Engine-only design. PR 876 is draft and must remain draft. Evaluate in scratch only; no production implementation or cross-package ticket creation is authorized by this investigation. Compare node-scoped emission, structured attributes, Engine forwarding, lifecycle/expiry, observer failure semantics and what remains for run-scoped setup.
 
 Scratch probe passed: structured attributes survived actual Engine execution, concurrent runs used distinct node spans, caller mutation did not change queued values, invalid/off-thread submissions were rejected, and existing Log eviction recognized the additive event. Context reset and inactive-sink behavior were exercised. Full cancellation/nesting/publisher/failure tests remain outstanding. Updated the draft with comparison and recommendation; no production changes. The prior Engine-only proposal is explicitly not settled.
+
+## Recommended spec refresh
+
+User authorized pushing the revised spec to the existing draft. Replaced the competing Engine-only implementation narrative with the recommended generic URL4 Log extension, explicit lifecycle/validation/failure rules, Engine forwarding and Client follow-ups. Added design-repository alignment with the limitation that Part D is not yet substantive. Rewrote the implementation plan around separate package/Engine issues, which remain unallocated pending approval. No code, ticket scope or readiness changes.
