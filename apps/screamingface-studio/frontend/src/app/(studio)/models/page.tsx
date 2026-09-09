@@ -537,6 +537,15 @@ export default function ModelsPage() {
           </div>
         </main>
       </div>
+
+      <footer className="flex shrink-0 items-center justify-end border-t px-6 py-4 sm:px-8">
+        <Button asChild className="rounded-xl">
+          <Link href="/ensembles/new/" prefetch={false}>
+            <Boxes className="size-4" />
+            Start building a fusion
+          </Link>
+        </Button>
+      </footer>
     </div>
   );
 }

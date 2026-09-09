@@ -1,12 +1,11 @@
 "use client";
 
 import {
-  ArrowDown,
   ArrowRight,
   Check,
   ChevronDown,
   ChevronLeft,
-  Copy,
+  ChevronRight,
   Cpu,
   BarChart3,
   Globe,
@@ -20,6 +19,8 @@ import {
   Share2,
   Upload,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -37,7 +38,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -56,15 +56,24 @@ import {
   useModelStore,
 } from "@/lib/model-store";
 import { useOpenMinedStore } from "@/lib/openmined-store";
-import { useScriptStore } from "@/lib/script-store";
+import {
+  type FusionNode,
+  type PipelineNode,
+  type RecipeKind,
+  type RecipeNode,
+  type SoloNode,
+  collectSolos,
+  convertKind,
+  createFusion,
+  createSolo,
+  describeRecipe,
+  fusionFromSlots,
+  memberSolos,
+  recipeToUrl4,
+  rootSynthesizerSolo,
+} from "@/lib/recipe";
 import { cn } from "@/lib/utils";
 import { createUuid } from "@/lib/uuid";
-
-type ReduceStrategy =
-  | "majority_vote"
-  | "weighted_avg"
-  | "best_of_n"
-  | "merge";
 
 type Model = SavedModel;
 
@@ -104,33 +113,6 @@ function defaultParamValue(
   if (entry.kind === "text") return "";
   return String(entry.min ?? 0);
 }
-
-const strategies: {
-  value: ReduceStrategy;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "majority_vote",
-    label: "Majority Vote",
-    description: "Judge picks the most common answer",
-  },
-  {
-    value: "weighted_avg",
-    label: "Weighted Average",
-    description: "Blend answers weighted by confidence",
-  },
-  {
-    value: "best_of_n",
-    label: "Best-of-N",
-    description: "Judge ranks and selects the top response",
-  },
-  {
-    value: "merge",
-    label: "Merge",
-    description: "Judge merges every answer into one",
-  },
-];
 
 const benchmarks = [
   {
@@ -431,23 +413,9 @@ function parseRecipe(raw: string) {
       systemPrompt: "",
       weight: 0.5,
     }));
-  const reduce = params.get("reduce") as ReduceStrategy | null;
-  const reduceScriptId = reduce?.startsWith("script:")
-    ? reduce.slice(7)
-    : null;
-  const loop = params.get("loop");
-  const loopScriptId = loop?.startsWith("script:") ? loop.slice(7) : null;
   return {
     name: decodeURIComponent(match[1]).replace(/\s+/g, "-").toLowerCase(),
     slots,
-    strategy: strategies.some((item) => item.value === reduce)
-      ? reduce!
-      : ("majority_vote" as ReduceStrategy),
-    customReduce: Boolean(reduceScriptId),
-    reduceScriptId,
-    loopMode: loopScriptId ? ("custom" as const) : ("parallel" as const),
-    loopScriptId,
-    judgeId: params.get("judge"),
   };
 }
 
@@ -1095,6 +1063,9 @@ function RunsPanel({
   const [benchmarkId, setBenchmarkId] = useState("gpqa");
   const [sampleSize, setSampleSize] = useState(100);
   const [full, setFull] = useState(false);
+  const [custom, setCustom] = useState(false);
+  const [useCache, setUseCache] = useState(true);
+  const [saveCache, setSaveCache] = useState(true);
   const [compute, setCompute] = useState<"om" | "own">("om");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -1198,6 +1169,8 @@ function RunsPanel({
           benchmarkName: benchmark.name,
           sampleSize: full ? benchmark.questions : sampleSize,
           full,
+          useCache,
+          saveCache,
           compute: effectiveCompute,
           score,
           baseline,
@@ -1414,23 +1387,41 @@ function RunsPanel({
             <section>
               <p className="mb-3 text-xs text-muted-foreground">Sample Size</p>
               <div className="flex flex-wrap gap-2">
-                {[25, 50, 100, 200].map((size) => (
-                  <Button
-                    key={size}
-                    type="button"
-                    size="sm"
-                    aria-pressed={!full && sampleSize === size}
-                    variant={!full && sampleSize === size ? "default" : "outline"}
-                    disabled={running}
-                    className="font-mono"
-                    onClick={() => {
-                      setSampleSize(size);
-                      setFull(false);
-                    }}
-                  >
-                    {size}q
-                  </Button>
-                ))}
+                {[1, 50, 100].map((size) => {
+                  const active = !full && !custom && sampleSize === size;
+                  return (
+                    <Button
+                      key={size}
+                      type="button"
+                      size="sm"
+                      aria-pressed={active}
+                      variant={active ? "default" : "outline"}
+                      disabled={running}
+                      className="font-mono"
+                      onClick={() => {
+                        setSampleSize(size);
+                        setFull(false);
+                        setCustom(false);
+                      }}
+                    >
+                      {size}q
+                    </Button>
+                  );
+                })}
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-pressed={!full && custom}
+                  variant={!full && custom ? "default" : "outline"}
+                  disabled={running}
+                  className="font-mono"
+                  onClick={() => {
+                    setCustom(true);
+                    setFull(false);
+                  }}
+                >
+                  Custom
+                </Button>
                 <Button
                   type="button"
                   size="sm"
@@ -1438,11 +1429,32 @@ function RunsPanel({
                   variant={full ? "default" : "outline"}
                   disabled={running}
                   className="font-mono"
-                  onClick={() => setFull(true)}
+                  onClick={() => {
+                    setFull(true);
+                    setCustom(false);
+                  }}
                 >
                   Full
                 </Button>
               </div>
+              {!full && custom && (
+                <div className="mt-3 flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    value={sampleSize}
+                    disabled={running}
+                    aria-label="Custom sample size"
+                    className="h-8 w-28 font-mono"
+                    onChange={(event) => {
+                      const next = Number.parseInt(event.target.value, 10);
+                      setSampleSize(Number.isNaN(next) ? 1 : Math.max(1, next));
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">questions</span>
+                </div>
+              )}
               {full && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Full benchmark — {benchmark.questions.toLocaleString()} questions.
@@ -1507,6 +1519,55 @@ function RunsPanel({
                   </p>
                 </div>
               )}
+            </section>
+            <section>
+              <p className="mb-3 text-xs text-muted-foreground">Cache</p>
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="run-use-cache"
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
+                    running && "cursor-not-allowed opacity-50",
+                    useCache ? "border-primary/50 bg-primary/5" : "hover:bg-muted/20",
+                  )}
+                >
+                  <span>
+                    <span className="block text-xs font-medium">Use cache</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Reuse cached answers when a matching request already ran.
+                    </span>
+                  </span>
+                  <Switch
+                    id="run-use-cache"
+                    checked={useCache}
+                    disabled={running}
+                    onCheckedChange={setUseCache}
+                    aria-label="Use cache"
+                  />
+                </label>
+                <label
+                  htmlFor="run-save-cache"
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
+                    running && "cursor-not-allowed opacity-50",
+                    saveCache ? "border-primary/50 bg-primary/5" : "hover:bg-muted/20",
+                  )}
+                >
+                  <span>
+                    <span className="block text-xs font-medium">Save cache</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Store this run&apos;s answers so future runs can reuse them.
+                    </span>
+                  </span>
+                  <Switch
+                    id="run-save-cache"
+                    checked={saveCache}
+                    disabled={running}
+                    onCheckedChange={setSaveCache}
+                    aria-label="Save cache"
+                  />
+                </label>
+              </div>
             </section>
           </div>
         </div>
@@ -1622,6 +1683,519 @@ function RunsPanel({
   );
 }
 
+function deriveSlots(root: RecipeNode): Slot[] {
+  return memberSolos(root)
+    .filter((solo) => solo.model)
+    .map((solo) => ({
+      id: solo.id,
+      model: solo.model as Model,
+      systemPrompt: solo.prompt,
+      weight: 0.5,
+      params: solo.params,
+    }));
+}
+
+function deriveJudge(root: RecipeNode): Slot | null {
+  const synth = rootSynthesizerSolo(root);
+  return synth
+    ? { id: synth.id, model: synth.model as Model, systemPrompt: synth.prompt, weight: 0 }
+    : null;
+}
+
+function buildDraft(
+  id: string,
+  name: string,
+  root: RecipeNode,
+  runHistory: SavedRun[],
+): SavedEnsemble {
+  const judge = deriveJudge(root);
+  return {
+    id,
+    name,
+    root,
+    slots: deriveSlots(root),
+    strategy: "majority_vote",
+    customReduce: false,
+    reduceScriptId: null,
+    loopMode: "parallel",
+    loopScriptId: null,
+    judge,
+    judgeId: judge?.model.id ?? null,
+    runs: runHistory.length,
+    runHistory,
+    updatedAt: 0,
+  };
+}
+
+type NodeRole = "root" | "member" | "stage" | "synthesizer";
+
+function kindLabel(kind: RecipeKind): string {
+  return kind === "solo" ? "Solo" : kind === "fusion" ? "Fusion" : "Pipeline";
+}
+
+// Only leaf model units (and the synthesizer) are drawn as blocks; fusions/pipelines are
+// bare structural groupings, so the composition reads like a node diagram.
+function soloChrome(): string {
+  return "rounded-lg border bg-card p-2.5 shadow-sm";
+}
+
+function roleTagClass(): string {
+  return "shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground";
+}
+
+function KindDropdown({
+  node,
+  onChange,
+}: {
+  node: RecipeNode;
+  onChange: (next: RecipeNode) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md border px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/40"
+        >
+          {kindLabel(node.kind)}
+          <ChevronDown className="size-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[8rem]">
+        <DropdownMenuRadioGroup
+          value={node.kind}
+          onValueChange={(value) => onChange(convertKind(node, value as RecipeKind))}
+        >
+          <DropdownMenuRadioItem value="solo">Solo model</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="fusion">Fusion</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="pipeline">Pipeline</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function RemoveButton({ onRemove }: { onRemove: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-6 shrink-0 text-muted-foreground"
+      aria-label="Remove element"
+      onClick={onRemove}
+    >
+      <X className="size-3.5" />
+    </Button>
+  );
+}
+
+function SoloConfig({
+  node,
+  onChange,
+}: {
+  node: SoloNode;
+  onChange: (next: RecipeNode) => void;
+}) {
+  const [showParams, setShowParams] = useState((node.params?.length ?? 0) > 0);
+  const paramCount = node.params?.length ?? 0;
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Textarea
+        rows={2}
+        value={node.prompt}
+        placeholder="System prompt (optional) — You are a helpful assistant specializing in…"
+        className="resize-none text-xs"
+        onChange={(event) => onChange({ ...node, prompt: event.target.value })}
+      />
+      <div className="flex items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground"
+          aria-expanded={showParams}
+          onClick={() => setShowParams((value) => !value)}
+        >
+          <ChevronRight
+            className={cn("size-3.5 transition-transform", showParams && "rotate-90")}
+          />
+          Parameters{paramCount > 0 ? ` (${paramCount})` : ""}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground"
+          onClick={() => onChange({ ...node, model: null })}
+        >
+          Change model
+        </Button>
+      </div>
+      {showParams && (
+        <ParamEditor
+          params={node.params ?? []}
+          onChange={(next) => onChange({ ...node, params: next })}
+        />
+      )}
+    </div>
+  );
+}
+
+// Fusion: parallel member blocks on a rail, converging into the synthesizer block.
+function FusionBody({
+  node,
+  onChange,
+  providers,
+  onUseModels,
+  depth,
+}: {
+  node: FusionNode;
+  onChange: (next: RecipeNode) => void;
+  providers: ModelProvider[];
+  onUseModels: (models: Model[]) => void;
+  depth: number;
+}) {
+  const setMembers = (members: RecipeNode[]) => onChange({ ...node, members });
+  return (
+    <div className="flex flex-row items-center gap-1.5">
+      <div className="flex shrink-0 flex-col gap-2 rounded-lg border border-dashed border-border/60 p-2">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+          Parallel members
+        </p>
+        {node.members.map((member, index) => (
+          <RecipeNodeCard
+            key={member.id}
+            node={member}
+            index={index}
+            depth={depth + 1}
+            role="member"
+            providers={providers}
+            onUseModels={onUseModels}
+            onChange={(next) =>
+              setMembers(node.members.map((item, i) => (i === index ? next : item)))
+            }
+            onRemove={
+              node.members.length > 1
+                ? () => setMembers(node.members.filter((_, i) => i !== index))
+                : undefined
+            }
+          />
+        ))}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 self-start text-xs"
+          onClick={() => setMembers([...node.members, createSolo()])}
+        >
+          <Plus className="size-3.5" />
+          Add member
+        </Button>
+      </div>
+      <div className="flex shrink-0 flex-col items-center">
+        <ArrowRight className="size-4 text-muted-foreground/70" />
+        <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/70">
+          synthesize
+        </span>
+      </div>
+      <div className="shrink-0">
+        <RecipeNodeCard
+          node={node.synthesizer}
+          depth={depth + 1}
+          role="synthesizer"
+          providers={providers}
+          onUseModels={onUseModels}
+          onChange={(next) => onChange({ ...node, synthesizer: next })}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Pipeline: stage blocks on a left-to-right timeline.
+function PipelineBody({
+  node,
+  onChange,
+  providers,
+  onUseModels,
+  depth,
+}: {
+  node: PipelineNode;
+  onChange: (next: RecipeNode) => void;
+  providers: ModelProvider[];
+  onUseModels: (models: Model[]) => void;
+  depth: number;
+}) {
+  const setStages = (stages: RecipeNode[]) => onChange({ ...node, stages });
+  return (
+    <div className="flex flex-row items-center gap-1.5 pb-1">
+      {node.stages.map((stage, index) => (
+        <div key={stage.id} className="flex items-center gap-1.5">
+          {index > 0 && (
+            <ArrowRight className="size-4 shrink-0 text-muted-foreground/70" />
+          )}
+          <div className="min-w-[14rem] shrink-0">
+            <RecipeNodeCard
+              node={stage}
+              index={index}
+              depth={depth + 1}
+              role="stage"
+              providers={providers}
+              onUseModels={onUseModels}
+              onChange={(next) =>
+                setStages(node.stages.map((item, i) => (i === index ? next : item)))
+              }
+              onRemove={
+                node.stages.length > 1
+                  ? () => setStages(node.stages.filter((_, i) => i !== index))
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      ))}
+      <div className="flex items-center gap-1.5 self-center">
+        <ArrowRight className="size-4 shrink-0 text-muted-foreground/70" />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => setStages([...node.stages, createSolo()])}
+        >
+          <Plus className="size-3.5" />
+          Add stage
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function NodeLabel({
+  node,
+  roleLabel,
+  onChange,
+}: {
+  node: RecipeNode;
+  roleLabel: string;
+  onChange: (next: RecipeNode) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const named = Boolean(node.name && node.name.trim());
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        value={node.name ?? ""}
+        placeholder={roleLabel}
+        aria-label="Rename"
+        className="h-6 w-36 px-2 text-xs"
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => onChange({ ...node, name: event.target.value })}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === "Escape") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    );
+  }
+  return (
+    <span className="group/label flex min-w-0 items-center gap-1">
+      <span
+        className={cn(
+          "min-w-0 truncate",
+          named
+            ? "max-w-[11rem] text-xs font-medium text-foreground/90"
+            : roleTagClass(),
+        )}
+      >
+        {named ? node.name : roleLabel}
+      </span>
+      <button
+        type="button"
+        aria-label="Rename"
+        title="Rename"
+        onClick={(event) => {
+          event.stopPropagation();
+          setEditing(true);
+        }}
+        className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/label:opacity-100"
+      >
+        <Pencil className="size-3" />
+      </button>
+    </span>
+  );
+}
+
+function RecipeNodeCard({
+  node,
+  onChange,
+  providers,
+  onUseModels,
+  onRemove,
+  role = "root",
+  index,
+  depth = 0,
+}: {
+  node: RecipeNode;
+  onChange: (next: RecipeNode) => void;
+  providers: ModelProvider[];
+  onUseModels: (models: Model[]) => void;
+  onRemove?: () => void;
+  role?: NodeRole;
+  index?: number;
+  depth?: number;
+}) {
+  const [collapsed, setCollapsed] = useState(
+    () => node.kind === "solo" && Boolean((node as SoloNode).model),
+  );
+  const roleLabel =
+    role === "member"
+      ? `Member ${(index ?? 0) + 1}`
+      : role === "stage"
+        ? `Stage ${(index ?? 0) + 1}`
+        : role === "synthesizer"
+          ? "Synthesizer"
+          : "Recipe";
+  const handleKindChange = (next: RecipeNode) => {
+    setCollapsed(false);
+    onChange(next);
+  };
+  const controls = (
+    <div className="flex shrink-0 items-center gap-1">
+      <KindDropdown node={node} onChange={handleKindChange} />
+      {onRemove && <RemoveButton onRemove={onRemove} />}
+    </div>
+  );
+
+  // Solo — a drawn block.
+  if (node.kind === "solo") {
+    const model = node.model;
+    return (
+      <article className={cn("min-w-[14rem]", soloChrome())}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            {model ? (
+              <button
+                type="button"
+                aria-label={collapsed ? "Expand" : "Collapse"}
+                aria-expanded={!collapsed}
+                onClick={() => setCollapsed((value) => !value)}
+                className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              >
+                <ChevronRight
+                  className={cn("size-3.5 transition-transform", !collapsed && "rotate-90")}
+                />
+              </button>
+            ) : (
+              <span className="grid size-5 shrink-0 place-items-center">
+                <span className="size-1.5 rounded-full bg-muted-foreground/40" />
+              </span>
+            )}
+            <NodeLabel node={node} roleLabel={roleLabel} onChange={onChange} />
+            {!model && (
+              <span className="truncate text-xs text-muted-foreground/70">
+                · pick a model
+              </span>
+            )}
+          </div>
+          {controls}
+        </div>
+        {model && (
+          <button
+            type="button"
+            onClick={() => setCollapsed((value) => !value)}
+            className="mt-1.5 flex w-full min-w-0 items-center gap-1.5 text-left"
+          >
+            <ProviderDot provider={model.providerId} />
+            <span className="truncate font-mono text-xs text-foreground/90">
+              {model.name}
+            </span>
+          </button>
+        )}
+        {!model && (
+          <div className="mt-2.5">
+            <InlineModelPicker
+              providers={providers}
+              onAdd={(picked) => {
+                onChange({ ...node, model: picked });
+                onUseModels([picked]);
+                setCollapsed(false);
+              }}
+            />
+          </div>
+        )}
+        {model && !collapsed && (
+          <div className="mt-2.5">
+            <SoloConfig node={node} onChange={onChange} />
+          </div>
+        )}
+      </article>
+    );
+  }
+
+  // Fusion / Pipeline — a bare structural grouping.
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-2",
+        depth > 0 && "rounded-xl border border-border/60 bg-muted/10 p-3",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <button
+            type="button"
+            aria-label={collapsed ? "Expand" : "Collapse"}
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed((value) => !value)}
+            className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          >
+            <ChevronRight
+              className={cn("size-3.5 transition-transform", !collapsed && "rotate-90")}
+            />
+          </button>
+          <NodeLabel node={node} roleLabel={roleLabel} onChange={onChange} />
+          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {kindLabel(node.kind)}
+          </span>
+          {collapsed && (
+            <span className="min-w-0 truncate font-mono text-[11px] text-foreground/70">
+              {describeRecipe(node)}
+            </span>
+          )}
+        </div>
+        {controls}
+      </div>
+      {!collapsed && (
+        <div>
+          {node.kind === "fusion" ? (
+            <FusionBody
+              node={node}
+              onChange={onChange}
+              providers={providers}
+              onUseModels={onUseModels}
+              depth={depth}
+            />
+          ) : (
+            <PipelineBody
+              node={node}
+              onChange={onChange}
+              providers={providers}
+              onUseModels={onUseModels}
+              depth={depth}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EnsembleComposer() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1640,28 +2214,14 @@ function EnsembleComposer() {
   );
   const providers = useModelStore((state) => state.providers);
   const addLibraryModels = useModelStore((state) => state.addLibraryModels);
-  const scripts = useScriptStore((state) => state.scripts);
-  const loopScripts = useMemo(
-    () => scripts.filter((script) => script.kind === "loop"),
-    [scripts],
-  );
-  const reduceScripts = useMemo(
-    () => scripts.filter((script) => script.kind === "reduce"),
-    [scripts],
-  );
   const [name, setName] = useState("fusion-1");
   const [editingName, setEditingName] = useState(false);
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [strategy, setStrategy] =
-    useState<ReduceStrategy>("majority_vote");
-  const [customReduce, setCustomReduce] = useState(false);
-  const [reduceScriptId, setReduceScriptId] = useState<string | null>(null);
-  const [loopMode, setLoopMode] = useState<"parallel" | "custom">("parallel");
-  const [loopScriptId, setLoopScriptId] = useState<string | null>(null);
-  const [judge, setJudge] = useState<Slot | null>(null);
+  const [root, setRoot] = useState<RecipeNode>(() => createFusion());
   const [runHistory, setRunHistory] = useState<SavedRun[]>([]);
   const [tab, setTab] = useState<"compose" | "runs">("compose");
   const [copied, setCopied] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [autoSave, setAutoSave] = useState(true);
   const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState("");
@@ -1677,109 +2237,37 @@ function EnsembleComposer() {
     const frame = window.requestAnimationFrame(() => {
       if (saved) {
         const savedRunHistory = saved.runHistory ?? [];
-        const nextSlots = saved.slots.map((slot) => ({
-          ...slot,
-          id: slot.id ?? createUuid(),
-        }));
-        const nextJudge =
-          saved.judge ??
-          (saved.judgeId
-            ? (() => {
-                const model =
-                  nextSlots.find((slot) => slot.model.id === saved.judgeId)
-                    ?.model ??
-                  ALL_MODELS.find((item) => item.id === saved.judgeId);
-                return model
-                  ? {
-                      id: createUuid(),
-                      model,
-                      systemPrompt: "",
-                      weight: 0,
-                    }
-                  : null;
-              })()
-            : null);
+        const nextRoot =
+          saved.root ?? fusionFromSlots(saved.slots, saved.judge ?? null);
         setName(saved.name);
-        setSlots(nextSlots);
-        addLibraryModels(nextSlots.map((slot) => slot.model));
-        setStrategy(saved.strategy);
-        setCustomReduce(saved.customReduce);
-        setReduceScriptId(saved.reduceScriptId ?? null);
-        setLoopMode(saved.loopMode);
-        setLoopScriptId(saved.loopScriptId ?? null);
-        setJudge(nextJudge);
+        setRoot(nextRoot);
+        addLibraryModels(
+          collectSolos(nextRoot)
+            .map((solo) => solo.model)
+            .filter((model): model is Model => Boolean(model)),
+        );
         setRunHistory(savedRunHistory);
         setSavedSnapshot(
-          JSON.stringify({
-            ...saved,
-            slots: nextSlots,
-            reduceScriptId: saved.reduceScriptId ?? null,
-            loopScriptId: saved.loopScriptId ?? null,
-            judge: nextJudge,
-            judgeId: nextJudge?.model.id ?? null,
-            runs: savedRunHistory.length,
-            runHistory: savedRunHistory,
-            updatedAt: 0,
-          }),
+          JSON.stringify(buildDraft(ensembleId, saved.name, nextRoot, savedRunHistory)),
         );
       } else if (parsed) {
-        const nextSlots = parsed.slots.map((slot) => ({
-          ...slot,
-          id: slot.id ?? createUuid(),
-        }));
-        const nextJudge = parsed.judgeId
-          ? (() => {
-              const model =
-                nextSlots.find((slot) => slot.model.id === parsed.judgeId)
-                  ?.model ??
-                ALL_MODELS.find((item) => item.id === parsed.judgeId);
-              return model
-                ? {
-                    id: createUuid(),
-                    model,
-                    systemPrompt: "",
-                    weight: 0,
-                  }
-                : null;
-            })()
-          : null;
+        const nextRoot = fusionFromSlots(parsed.slots, null);
         setName(parsed.name);
-        setSlots(nextSlots);
-        addLibraryModels(nextSlots.map((slot) => slot.model));
-        setStrategy(parsed.strategy);
-        setCustomReduce(parsed.customReduce);
-        setReduceScriptId(parsed.reduceScriptId);
-        setLoopMode(parsed.loopMode);
-        setLoopScriptId(parsed.loopScriptId);
-        setJudge(nextJudge);
+        setRoot(nextRoot);
+        addLibraryModels(
+          collectSolos(nextRoot)
+            .map((solo) => solo.model)
+            .filter((model): model is Model => Boolean(model)),
+        );
         setRunHistory([]);
         setSavedSnapshot("");
       } else {
+        const nextRoot = createFusion();
         setName("fusion-1");
-        setSlots([]);
-        setStrategy("majority_vote");
-        setCustomReduce(false);
-        setReduceScriptId(null);
-        setLoopMode("parallel");
-        setLoopScriptId(null);
-        setJudge(null);
+        setRoot(nextRoot);
         setRunHistory([]);
         setSavedSnapshot(
-          JSON.stringify({
-            id: ensembleId,
-            name: "fusion-1",
-            slots: [],
-            strategy: "majority_vote",
-            customReduce: false,
-            reduceScriptId: null,
-            loopMode: "parallel",
-            loopScriptId: null,
-            judge: null,
-            judgeId: null,
-            runs: 0,
-            runHistory: [],
-            updatedAt: 0,
-          }),
+          JSON.stringify(buildDraft(ensembleId, "fusion-1", nextRoot, [])),
         );
       }
       setActiveEnsemble(ensembleId);
@@ -1795,55 +2283,12 @@ function EnsembleComposer() {
     storeHasHydrated,
   ]);
 
-  const selectedStrategy = strategies.find((item) => item.value === strategy)!;
-  const resolvedLoopScriptId = useMemo(
-    () =>
-      loopMode === "custom"
-        ? loopScripts.some((script) => script.id === loopScriptId)
-          ? loopScriptId
-          : loopScripts[0]?.id ?? null
-        : null,
-    [loopMode, loopScriptId, loopScripts],
-  );
-  const resolvedReduceScriptId = useMemo(
-    () =>
-      customReduce
-        ? reduceScripts.some((script) => script.id === reduceScriptId)
-          ? reduceScriptId
-          : reduceScripts[0]?.id ?? null
-        : null,
-    [customReduce, reduceScriptId, reduceScripts],
-  );
-  const weightSum = slots.reduce((sum, slot) => sum + slot.weight, 0);
-  const recipe = `url4://${name}?models=${slots.map((slot) => slot.model.id).join("+")}&reduce=${customReduce ? `script:${resolvedReduceScriptId ?? "custom"}` : strategy}&loop=${loopMode === "custom" ? `script:${resolvedLoopScriptId ?? "custom"}` : "parallel"}${!customReduce && judge ? `&judge=${judge.model.id}` : ""}`;
+  const slots = useMemo(() => deriveSlots(root), [root]);
+  const judge = useMemo(() => deriveJudge(root), [root]);
+  const recipe = useMemo(() => recipeToUrl4(root), [root]);
   const draft = useMemo<SavedEnsemble>(
-    () => ({
-      id: ensembleId,
-      name,
-      slots,
-      strategy,
-      customReduce,
-      reduceScriptId: resolvedReduceScriptId,
-      loopMode,
-      loopScriptId: resolvedLoopScriptId,
-      judge,
-      judgeId: judge?.model.id ?? null,
-      runs: runHistory.length,
-      runHistory,
-      updatedAt: 0,
-    }),
-    [
-      customReduce,
-      ensembleId,
-      judge,
-      loopMode,
-      name,
-      resolvedLoopScriptId,
-      resolvedReduceScriptId,
-      runHistory,
-      slots,
-      strategy,
-    ],
+    () => buildDraft(ensembleId, name, root, runHistory),
+    [ensembleId, name, root, runHistory],
   );
   const draftSnapshot = JSON.stringify(draft);
   const ready = loadedEnsembleId === ensembleId;
@@ -1855,10 +2300,9 @@ function EnsembleComposer() {
       upsertEnsemble({ ...draft, updatedAt: Date.now() });
       setSavedSnapshot(draftSnapshot);
       if (!requestedId) {
-        router.replace(
-          `/ensembles/new/?id=${encodeURIComponent(ensembleId)}`,
-          { scroll: false },
-        );
+        router.replace(`/ensembles/new/?id=${encodeURIComponent(ensembleId)}`, {
+          scroll: false,
+        });
       }
     }, 250);
     return () => window.clearTimeout(timer);
@@ -1878,10 +2322,9 @@ function EnsembleComposer() {
     upsertEnsemble({ ...draft, updatedAt: Date.now() });
     setSavedSnapshot(draftSnapshot);
     if (!requestedId) {
-      router.replace(
-        `/ensembles/new/?id=${encodeURIComponent(ensembleId)}`,
-        { scroll: false },
-      );
+      router.replace(`/ensembles/new/?id=${encodeURIComponent(ensembleId)}`, {
+        scroll: false,
+      });
     }
     setSavedFlash(true);
     window.setTimeout(() => setSavedFlash(false), 1500);
@@ -1898,10 +2341,9 @@ function EnsembleComposer() {
     upsertEnsemble({ ...savedDraft, updatedAt: Date.now() });
     setSavedSnapshot(JSON.stringify(savedDraft));
     if (!requestedId) {
-      router.replace(
-        `/ensembles/new/?id=${encodeURIComponent(ensembleId)}`,
-        { scroll: false },
-      );
+      router.replace(`/ensembles/new/?id=${encodeURIComponent(ensembleId)}`, {
+        scroll: false,
+      });
     }
   }
 
@@ -1917,33 +2359,6 @@ function EnsembleComposer() {
     setRunHistory(nextRunHistory);
     upsertEnsemble({ ...savedDraft, updatedAt: Date.now() });
     setSavedSnapshot(JSON.stringify(savedDraft));
-  }
-
-  function addMember(model: Model) {
-    setSlots((current) => [
-      ...current,
-      { id: createUuid(), model, systemPrompt: "", weight: 0.5 },
-    ]);
-  }
-
-  function removeMember(id: string) {
-    setSlots((current) => current.filter((slot) => slot.id !== id));
-  }
-
-  function updateSlotParams(id: string, next: ModelParam[]) {
-    setSlots((current) =>
-      current.map((slot) =>
-        slot.id === id ? { ...slot, params: next } : slot,
-      ),
-    );
-  }
-
-  function setJudgeModel(model: Model) {
-    setJudge({ id: createUuid(), model, systemPrompt: "", weight: 0 });
-  }
-
-  function removeJudge() {
-    setJudge(null);
   }
 
   async function copyRecipe() {
@@ -2059,317 +2474,90 @@ function EnsembleComposer() {
         value="compose"
         className="m-0 flex min-h-0 flex-1 overflow-hidden"
       >
-          <main className="min-w-0 flex-1 overflow-y-auto px-6 py-6 lg:px-10">
-            <div className="mx-auto flex max-w-2xl flex-col">
-              <section className="rounded-xl border bg-card">
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="grid size-5 shrink-0 place-items-center rounded-md bg-muted font-mono text-xs font-medium text-muted-foreground">
-                      1
-                    </span>
-                    <span className="text-sm font-medium">Loop</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      · the members that answer each question
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StageSelect
-                      value={loopMode}
-                      options={[
-                        {
-                          value: "parallel",
-                          label: "Parallel",
-                          description: "Run every model on each question",
-                        },
-                        {
-                          value: "custom",
-                          label: "Custom script…",
-                          description: "Plug in a loop script",
-                        },
-                      ]}
-                      onChange={(value) => {
-                        const nextMode = value as "parallel" | "custom";
-                        setLoopMode(nextMode);
-                        setLoopScriptId(
-                          nextMode === "custom"
-                            ? resolvedLoopScriptId
-                            : null,
-                        );
-                      }}
-                    />
-                    {loopMode === "custom" && loopScripts.length > 0 && (
-                      <StageSelect
-                        value={resolvedLoopScriptId ?? loopScripts[0].id}
-                        options={loopScripts.map((script) => ({
-                          value: script.id,
-                          label: script.name,
-                          description: "Custom response loop",
-                        }))}
-                        onChange={setLoopScriptId}
-                      />
-                    )}
-                    {loopMode === "custom" && loopScripts.length === 0 && (
-                      <span className="text-xs text-muted-foreground/70">
-                        No loop scripts — add one in Scripts
-                      </span>
-                    )}
-                  </div>
+          <main className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 py-6 lg:px-10">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                A unit is a solo model, a fusion (parallel members → a synthesizer), or a
+                pipeline (sequential stages). Nest to any depth.
+              </p>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    aria-label="Scroll left"
+                    onClick={() =>
+                      canvasRef.current?.scrollBy({ left: -360, behavior: "smooth" })
+                    }
+                  >
+                    <ChevronLeft className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    aria-label="Scroll right"
+                    onClick={() =>
+                      canvasRef.current?.scrollBy({ left: 360, behavior: "smooth" })
+                    }
+                  >
+                    <ChevronRight className="size-3.5" />
+                  </Button>
                 </div>
-                <div className="flex flex-col gap-2.5 px-4 py-4">
-                  {slots.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/40 py-12 text-muted-foreground">
-                      <Plus className="size-5 opacity-20" />
-                      <span className="text-sm opacity-50">
-                        Add models with <strong>+ Add model</strong> below
-                      </span>
-                    </div>
-                  ) : (
-                    slots.map((slot, index) => (
-                      <article
-                        key={slot.id}
-                        className="rounded-xl border bg-card p-3.5"
-                      >
-                        <div className="mb-2.5 flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <span className="w-4 shrink-0 font-mono text-xs text-muted-foreground/60">
-                              {index + 1}
-                            </span>
-                            <ProviderDot provider={slot.model.providerId} />
-                            <span className="truncate font-mono text-sm">
-                              {slot.model.name}
-                            </span>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 text-muted-foreground"
-                              aria-label={`Remove ${slot.model.name}`}
-                              onClick={() => removeMember(slot.id)}
-                            >
-                              <X className="size-3.5" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        <Textarea
-                          rows={2}
-                          value={slot.systemPrompt}
-                          placeholder="System prompt (optional) — You are a helpful assistant specializing in…"
-                          className="resize-none text-xs"
-                          onChange={(event) =>
-                            setSlots((current) =>
-                              current.map((item) =>
-                                item.id === slot.id
-                                  ? {
-                                      ...item,
-                                      systemPrompt: event.target.value,
-                                    }
-                                  : item,
-                              ),
-                            )
-                          }
-                        />
-
-                        <ParamEditor
-                          params={slot.params ?? []}
-                          onChange={(next) =>
-                            updateSlotParams(slot.id, next)
-                          }
-                        />
-
-                        {strategy === "weighted_avg" && (
-                          <div className="mt-3 flex items-center gap-3">
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              Weight
-                            </span>
-                            <Slider
-                              min={0}
-                              max={1}
-                              step={0.05}
-                              value={[slot.weight]}
-                              className="flex-1"
-                              onValueChange={([value]) =>
-                                setSlots((current) =>
-                                  current.map((item) =>
-                                    item.id === slot.id
-                                      ? {
-                                          ...item,
-                                          weight: value,
-                                        }
-                                      : item,
-                                  ),
-                                )
-                              }
-                            />
-                            <span className="w-7 text-right font-mono text-xs text-muted-foreground">
-                              {slot.weight.toFixed(2)}
-                            </span>
-                            <span className="w-12 text-right font-mono text-xs">
-                              {weightSum
-                                ? `${Math.round((slot.weight / weightSum) * 100)}%`
-                                : "—"}
-                            </span>
-                          </div>
-                        )}
-                      </article>
-                    ))
-                  )}
-
-                  <InlineModelPicker
-                    providers={providers}
-                    onAdd={(model) => {
-                      addMember(model);
-                      addLibraryModels([model]);
-                    }}
-                  />
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    aria-label="Zoom out"
+                    disabled={zoom <= 0.5}
+                    onClick={() =>
+                      setZoom((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10))
+                    }
+                  >
+                    <ZoomOut className="size-3.5" />
+                  </Button>
+                  <button
+                    type="button"
+                    className="w-11 text-center font-mono text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+                    title="Reset zoom"
+                    onClick={() => setZoom(1)}
+                  >
+                    {Math.round(zoom * 100)}%
+                  </button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    aria-label="Zoom in"
+                    disabled={zoom >= 1.3}
+                    onClick={() =>
+                      setZoom((value) => Math.min(1.3, Math.round((value + 0.1) * 10) / 10))
+                    }
+                  >
+                    <ZoomIn className="size-3.5" />
+                  </Button>
                 </div>
-              </section>
-
-              <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
-                <ArrowDown className="size-3.5" />
-                answers
               </div>
-
-              <section className="rounded-xl border bg-card">
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="grid size-5 shrink-0 place-items-center rounded-md bg-muted font-mono text-xs font-medium text-muted-foreground">
-                      2
-                    </span>
-                    <span className="text-sm font-medium">Reduce</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      · combines the members into one answer
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StageSelect
-                      value={customReduce ? "custom" : strategy}
-                      options={[
-                        ...strategies,
-                        {
-                          value: "custom",
-                          label: "Custom script…",
-                          description: "Plug in a reduce script",
-                        },
-                      ]}
-                      onChange={(value) => {
-                        if (value === "custom") {
-                          setCustomReduce(true);
-                          setReduceScriptId(resolvedReduceScriptId);
-                        } else {
-                          setCustomReduce(false);
-                          setReduceScriptId(null);
-                          setStrategy(value as ReduceStrategy);
-                        }
-                      }}
-                    />
-                    {customReduce && reduceScripts.length > 0 && (
-                      <StageSelect
-                        value={resolvedReduceScriptId ?? reduceScripts[0].id}
-                        options={reduceScripts.map((script) => ({
-                          value: script.id,
-                          label: script.name,
-                          description: "Custom reduce script",
-                        }))}
-                        onChange={setReduceScriptId}
-                      />
-                    )}
-                    {customReduce && reduceScripts.length === 0 && (
-                      <span className="text-xs text-muted-foreground/70">
-                        No reduce scripts — add one in Scripts
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-col gap-4 px-4 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent/10">
-                      <Scale className="size-4 text-accent" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="truncate text-sm font-medium">
-                        {customReduce
-                          ? reduceScripts.find(
-                              (script) => script.id === resolvedReduceScriptId,
-                            )?.name ?? "Choose a script"
-                          : selectedStrategy.label}
-                      </h3>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {customReduce
-                          ? "Custom reduce script"
-                          : selectedStrategy.description}
-                      </p>
-                    </div>
-                  </div>
-
-                  {customReduce ? (
-                    <p className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-                      A custom reduce script handles arbitration — no separate
-                      judge needed.
-                    </p>
-                  ) : (
-                    <div className="flex flex-col gap-2.5">
-                      <span className="text-sm font-medium">
-                        Judge{" "}
-                        <span className="text-muted-foreground">
-                          (optional)
-                        </span>
-                      </span>
-                      {judge ? (
-                        <article className="rounded-xl border bg-card p-3.5">
-                          <div className="mb-2.5 flex items-center justify-between gap-2">
-                            <div className="flex min-w-0 items-center gap-2.5">
-                              <ProviderDot provider={judge.model.providerId} />
-                              <span className="truncate font-mono text-sm">
-                                {judge.model.name}
-                              </span>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 text-muted-foreground"
-                              aria-label="Remove judge"
-                              onClick={removeJudge}
-                            >
-                              <X className="size-3.5" />
-                            </Button>
-                          </div>
-                          <Textarea
-                            rows={2}
-                            value={judge.systemPrompt}
-                            placeholder="System prompt (optional) — Judge the candidate answers and pick the best…"
-                            className="resize-none text-xs"
-                            onChange={(event) =>
-                              setJudge((current) =>
-                                current
-                                  ? {
-                                      ...current,
-                                      systemPrompt: event.target.value,
-                                    }
-                                  : current,
-                              )
-                            }
-                          />
-                        </article>
-                      ) : (
-                        <InlineModelPicker
-                          providers={providers}
-                          label="Add model"
-                          onAdd={(model) => {
-                            setJudgeModel(model);
-                            addLibraryModels([model]);
-                          }}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
-                <ArrowDown className="size-3.5" />
-                final answer
+            </div>
+            <div ref={canvasRef} className="min-h-0 flex-1 overflow-auto">
+              <div
+                className="w-max min-w-full pb-6 pr-6 transition-transform"
+                style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
+              >
+                <RecipeNodeCard
+                  node={root}
+                  role="root"
+                  depth={0}
+                  providers={providers}
+                  onUseModels={(models) => addLibraryModels(models)}
+                  onChange={setRoot}
+                />
               </div>
             </div>
           </main>
@@ -2377,73 +2565,29 @@ function EnsembleComposer() {
           <aside className="flex w-80 shrink-0 flex-col gap-6 overflow-y-auto border-l bg-muted/10 px-5 py-6">
             <div>
               <p className="mb-3 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
-                Pipeline
+                Recipe
               </p>
-              {slots.length > 0 ? (
-                <div className="flex flex-col gap-1.5">
-                  <p className="flex items-center gap-1.5 text-xs">
-                    <span className="font-mono text-muted-foreground">①</span>
-                    <span>
-                      Loop · {slots.length} member
-                      {slots.length === 1 ? "" : "s"} ·{" "}
-                      {loopMode === "custom" ? "custom" : "parallel"}
-                    </span>
-                  </p>
-                  <span className="pl-0.5 text-xs text-muted-foreground">↓</span>
-                  <p className="flex items-center gap-1.5 text-xs">
-                    <span className="font-mono text-muted-foreground">②</span>
-                    <span className="min-w-0 truncate">
-                      Reduce ·{" "}
-                      {customReduce
-                        ? reduceScripts.find(
-                            (script) => script.id === resolvedReduceScriptId,
-                          )?.name ?? "custom"
-                        : selectedStrategy.label}
-                    </span>
-                  </p>
-                  {!customReduce && judge && (
-                    <p className="flex items-center gap-1.5 pl-5 text-xs text-muted-foreground">
-                      <ProviderDot provider={judge.model.providerId} />
-                      <span className="min-w-0 truncate">
-                        Judge · {judge.model.name}
-                      </span>
-                    </p>
-                  )}
-                  <span className="pl-0.5 text-xs text-muted-foreground">↓</span>
-                  <p className="text-xs text-accent">Final answer</p>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Add members to build your fusion.
-                </p>
-              )}
+              <p className="text-xs">
+                <span className="font-mono text-primary">{describeRecipe(root)}</span>
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {slots.length} model{slots.length === 1 ? "" : "s"} in play
+              </p>
             </div>
 
-            {slots.length > 0 && (
-              <div>
-                <p className="mb-3 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
-                  url4 Recipe
-                </p>
-                <div className="rounded-lg border bg-card p-2">
-                  <code className="block break-all font-mono text-[11px] text-primary/90">
-                    {recipe}
-                  </code>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-2 w-full"
-                  onClick={copyRecipe}
-                >
-                  {copied ? (
-                    <Check className="size-3.5 text-accent" />
-                  ) : (
-                    <Copy className="size-3.5" />
-                  )}
-                  {copied ? "Copied" : "Copy"}
-                </Button>
+            <div>
+              <p className="mb-3 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                url4 preview
+              </p>
+              <div className="rounded-lg border bg-card p-2">
+                <code className="block break-all font-mono text-[11px] text-primary/90">
+                  {recipe}
+                </code>
               </div>
-            )}
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Structural preview — the engine emits the canonical url4 at run time.
+              </p>
+            </div>
 
             <div>
               <Button
@@ -2462,7 +2606,7 @@ function EnsembleComposer() {
       >
         <RunsPanel
           slots={slots}
-          judge={customReduce ? null : judge}
+          judge={judge}
           runs={runHistory}
           ensembleName={name}
           onComplete={completeRun}
