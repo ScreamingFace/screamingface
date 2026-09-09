@@ -5,7 +5,7 @@ Status: review proposal. Prerequisite: [service spec](../spec/2026-09-09-OME-115
 ## Before code
 
 1. Approve endpoint/schema, bounded synchronous-forwarding contract and eventual duplicate semantics. Select service owner, hostname/port, PostHog test destination and enforceable retention. No deployment values fabricated in this draft.
-2. Owner creates analytics under the app label group, registers it in the task-board card and replaces this issue's temporary repo landing label. Existing design-session/agentic status describes docs work, not autonomous implementation approval.
+2. Completed: owner-created analytics label applied and registered in the task-board card. Design-session/agentic describes docs work, not autonomous implementation approval.
 3. Start a fresh OME-1152 implementation worktree from updated origin/main after docs merge. Invoke sdlc-python and create a new implementation ledger. Do not carry unreviewed changes from the earlier SDK design branch.
 
 ## TDD slices within the service layer

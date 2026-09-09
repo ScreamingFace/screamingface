@@ -30,4 +30,4 @@ Child issue under OME-1060; OME-1124 dependency; reviewable docs PR with no runt
 - Added service spec/plan, aligned existing SDK draft spec/plan and three issue mirrors. No application code or infrastructure changed.
 - Validation: JSON example and relative Markdown links passed; staged whitespace check before commit. Product tests not applicable to docs-only work.
 - Docs PR will carry this branch; issue remains In Progress after docs review. No implementation or merge performed.
-- Owner prerequisite: missing analytics landing label; temporarily repo/design-session as documented. No label created by agent.
+- Owner subsequently created analytics label; verified UUID via team-scoped Linear MCP listing, applied it to OME-1152 and registered it in the task-board card. Updated spec/plan/mirror and PR prerequisite wording. No label created by agent.

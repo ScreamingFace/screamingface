@@ -14,6 +14,7 @@ labels:  # RECONCILED 2026-07-15 (OME-443) vs live Linear (list_issue_labels). S
   # Product/landing axis — live Linear groups product areas under parent labels (app/pkg/research/extra).
   # There is NO live "Epic" workstream group anymore; the product area IS the app/* (or research/*) landing label.
   landing:
+    "analytics": "ff4eeff4-5bca-48c7-bd7c-28702e39855a"  # owner-created, verified via Linear MCP 2026-09-09
     "aigateway": "f92de050-b7ec-41fe-a14a-d30c0d0be267"              # parent: app
     "aigateway/deployment": "874aa881-360e-4362-b80a-39c2ae823d97"  # parent: app
     "scoreboard": "3f8aa7fc-e9a0-461f-8a6b-0bf2dd7cf4d9"            # parent: app

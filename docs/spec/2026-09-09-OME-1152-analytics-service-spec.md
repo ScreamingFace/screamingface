@@ -92,7 +92,7 @@ Operational metrics contain only bounded labels (status/event type/retry bucket)
 
 Registration in implementation PR: app src/tests/pyproject/uv lock, Dockerfile, Helm/deployment route, CI lane and gate-card entry, release-please or explicitly chosen release lane, CODEOWNERS owner, dependabot and app guardrails. No runtime config registrations in the docs PR. Select deployment hostname/port/owner during review; do not invent a live endpoint. Use report-intake as structure reference, not as a source of unrelated auth, database or reporting features.
 
-Owner prerequisite: create analytics under the existing app label group in Linear and register/apply it. Current repo/design-session label is intentionally temporary for this docs phase.
+Owner created the analytics label on 9 September 2026. Applied to OME-1152 and registered in .claude/task-board.local.md; design-session remains during review.
 
 ## Acceptance matrix
 

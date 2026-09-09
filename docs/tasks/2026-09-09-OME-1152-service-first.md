@@ -3,7 +3,7 @@ id: OME-1152
 linear_url: https://linear.app/openmined/issue/OME-1152
 status: In Progress
 priority: High
-labels: [repo, agentic, design-session]
+labels: [analytics, agentic, design-session]
 created: 2026-09-09
 closed:
 ---
@@ -37,4 +37,4 @@ SDK changes, Colab consent/cookie endpoints, website instrumentation, Scoreboard
 
 Shared strategy: `OME-1060`. SDK `OME-1124` depends on this service contract/delivery. Work one layer at a time: service ingestion -> SDK local analytics -> service Colab bridge -> SDK Colab adapter. Do not merge or begin implementation from scope confirmation alone; review the docs PR first.
 
-Metadata prerequisite: no analytics landing label exists. This issue is temporarily repo/design-session for the docs phase. Before service implementation, owner creates `analytics` under `app`, registers it in .claude/task-board.local.md, and applies it here in place of repo. Agents must not create labels.
+Metadata prerequisite completed 9 September: owner-created analytics label applied in place of repo and registered in .claude/task-board.local.md. Design-session remains during docs review.
