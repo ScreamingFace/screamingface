@@ -10,6 +10,7 @@ sets the limit and execs the fake in place, exactly as it would exec the real en
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -21,6 +22,19 @@ from screamingface_engine.worker.loop import Worker
 from screamingface_engine.worker.supervisor import CHILD_EXITED
 
 pytestmark = pytest.mark.asyncio
+
+# WHY: the cap under test is Linux-only behavior. Linux lets a process LOWER its own
+# RLIMIT_AS ceiling; macOS refuses ("current limit exceeds maximum limit") and the
+# wrapper's setrlimit raises, so the child dies for the wrong reason and the assertion
+# fails on any Mac dev box. The worker only deploys in Linux containers, so skipping
+# off-Linux loses no real coverage — Linux CI still runs this unskipped (OME-1151).
+pytestmark = [
+    pytestmark,
+    pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="RLIMIT_AS self-lowering is Linux-only; macOS setrlimit refuses it",
+    ),
+]
 
 # 128 MiB of address space: enough for the interpreter to start, far too little for the
 # fake runner's 512 MiB allocation. (RLIMIT_AS bounds VIRTUAL address space, which is
