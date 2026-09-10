@@ -144,6 +144,9 @@ DISPATCH_CONTROL_FIELDS: frozenset[str] = frozenset(
         "failure_callback",
         "litellm_params",
         "litellm_metadata",
+        # WHY: only LiteLLM's proxy may stamp this trusted credential container.
+        # Passing caller data here bypasses LiteLLM's ordinary callback filtering.
+        "litellm_trusted_callback_vars",
         *_CALLBACK_DYNAMIC_FIELDS,
     }
 )

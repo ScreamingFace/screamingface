@@ -123,6 +123,7 @@ _D6_CONTROL_FIELDS = {
     "langfuse_environment",
     "newrelic_api_key",
     "newrelic_region",
+    "litellm_trusted_callback_vars",
 }
 
 
