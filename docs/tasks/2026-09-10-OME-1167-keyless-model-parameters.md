@@ -1,12 +1,12 @@
 ---
 id: OME-1167
 linear_url: https://linear.app/openmined/issue/OME-1167/checking-a-models-parameter-limits-fails-unless-a-provider-is
-status: in_progress
+status: done
 type: bug
 priority: Medium
 labels: [aigateway, agentic, autonomous]
 created: 2026-09-10
-closed:
+closed: 2026-09-10
 ---
 
 # Checking a model's parameter limits fails unless a provider is connected
