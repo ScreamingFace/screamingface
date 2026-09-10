@@ -15,9 +15,17 @@ queue and a worker pool.
 import asyncio
 import logging
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 
 from screamingface_engine import job_env
 from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.run_evidence import (
+    TerminalWatch,
+    adopt_or_mint_traceparent,
+    log_scheduled,
+    log_terminated,
+    outcome_of,
+)
 from url4.streaming.interfaces import (
     EventPublisher,
     Executor,
@@ -110,11 +118,22 @@ class InProcessJobRunner(IdentityAwareJobRunner):
 
     # --- admission and bookkeeping ----------------------------------------------------------
 
-    def _on_done(self, _task: asyncio.Task[None]) -> None:
+    def _on_done(
+        self,
+        task: asyncio.Task[None],
+        *,
+        topic: str,
+        traceparent: str,
+        watch: TerminalWatch,
+    ) -> None:
         # INVARIANT: registered exactly once per schedule(), so each run decrements exactly once
         # however it ended.
         self._active -= 1
         self._prune_history()
+        # FEATURE (OME-940): the durable half of the evidence. Emitted for EVERY outcome — the
+        # failed run is the one whose record is needed, and it was the one previously losing it.
+        outcome, error = outcome_of(watch, task)
+        log_terminated(_logger, topic=topic, traceparent=traceparent, outcome=outcome, error=error)
 
     def _prune_history(self) -> None:
         if len(self._tasks) <= self._max_history:
@@ -217,25 +236,34 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         existing = self._tasks.get(name)
         if existing is not None and not existing.done():
             raise JobAlreadyExists(name)
-        env = self._env(topic, url4, deadline_s, traceparent, profile, identity, cache)
+        # FEATURE (OME-940): decide the run's traceparent HERE, adopting the caller's or minting
+        # one, so the control plane can name the run it is scheduling and `job_env.TRACEPARENT`
+        # is always set. Left to `lifecycle.run`, the id would be minted after this returns and
+        # this adapter — and the runner's log context — would never learn it.
+        run_traceparent = adopt_or_mint_traceparent(traceparent)
+        env = self._env(topic, url4, deadline_s, run_traceparent, profile, identity, cache)
         # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
         # that raised now would take down the caller's request with nothing on the stream, where a
         # failure inside the run terminates the topic properly. See `Url4Executor._resolve_world`.
         executor = self._factory(env)
+        watch = TerminalWatch(self._stream)
         task = asyncio.get_running_loop().create_task(
             lifecycle_run(
-                self._stream,
+                watch,
                 executor,
                 topic,
                 url4,
-                traceparent=traceparent,
+                traceparent=run_traceparent,
                 deadline_s=deadline_s,
             ),
             name=f"url4-run:{name}",
         )
-        task.add_done_callback(self._on_done)
+        task.add_done_callback(
+            partial(self._on_done, topic=topic, traceparent=run_traceparent, watch=watch)
+        )
         self._tasks[name] = task
         self._active += 1
+        log_scheduled(_logger, topic=topic, traceparent=run_traceparent, job_name=name)
         return name
 
     async def stop(self, topic: str) -> None:

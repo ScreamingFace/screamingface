@@ -208,12 +208,23 @@ def test_rung2_the_engine_propagates_the_trace_id_to_the_gateway(wire_run) -> No
 
 
 @pytest.mark.e2e
-@pytest.mark.xfail(strict=True, reason="rung 4a: the engine does not log its trace id")
 def test_rung4a_the_engine_logs_the_run_trace_id(wire_run) -> None:
-    """RUNG 4, engine half (not built — strict xfail; `OME-940`).
+    """RUNG 4, engine half (`OME-940` — must PASS).
 
     A trace id that never reaches a log line cannot be grepped, which is the whole payoff.
     Split from the gateway half below because the two land in different changes.
+
+    Two things `OME-940` had to fix before this could pass, neither visible from here:
+
+    - The engine's rich terminal line was emitted only for SUCCESSFUL runs, so the failed run —
+      the one whose evidence is needed after the frame stream's 60 s reclamation — carried no
+      trace id at all.
+    - In local mode no such line existed on any path: `InProcessJobRunner` drives
+      `lifecycle.run` directly and never reaches the Job entrypoint that logged it.
+
+    AIDEV-NOTE: this rung drives a client that ALWAYS originates a traceparent, so it cannot
+    see the case where none arrives and the engine mints one. That case is pinned engine-side in
+    `tests/unit/test_run_evidence_lines.py` — do not assume this rung covers it.
     """
     log_text = Path(wire_run["engine_log"]).read_text(errors="replace")
     client_ids = wire_run["client_ids"]

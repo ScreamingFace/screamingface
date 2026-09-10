@@ -47,6 +47,7 @@ from nats.errors import NoRespondersError
 
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.run_evidence import adopt_or_mint_traceparent, log_scheduled
 from screamingface_engine.runner_queue import (
     DEFAULT_CALLER_INFLIGHT_CAP,
     DEFAULT_DEPTH_CEILING,
@@ -294,12 +295,16 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 many runs in flight (503 + `Retry-After` at the REST edge).
         """
         reservation = await self._admit_or_raise(identity, topic)
+        # FEATURE (OME-940): decide the run's traceparent HERE so the control plane can name the
+        # run it is queueing, and so `job_env.TRACEPARENT` is always set on the worker's message
+        # — left unset, the worker's whole log context (`logs.run_scope`) carries no trace id.
+        run_traceparent = adopt_or_mint_traceparent(traceparent)
         try:
             message = encode_message(
                 topic,
                 url4,
                 deadline_s,
-                traceparent=traceparent,
+                traceparent=run_traceparent,
                 profile=profile,
                 identity=identity,
                 cache=cache,
@@ -307,6 +312,11 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 extra_models=() if self._extra_models is None else self._extra_models(),
             )
             await self._queue.publish(message, identity=identity)
+            # AFTER the publish: a line claiming a run was scheduled when the publish then
+            # failed would send an operator hunting a run that never existed.
+            log_scheduled(
+                logger, topic=topic, traceparent=run_traceparent, job_name=job_name(topic)
+            )
         except BaseException:
             # WHY BaseException and not Exception: a task cancelled mid-publish (a client
             # disconnect, an upstream timeout) raises `CancelledError`, which since 3.8 is

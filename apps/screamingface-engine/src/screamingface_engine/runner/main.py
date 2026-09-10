@@ -417,6 +417,28 @@ def _log_terminal(executor: _SummarizingExecutor, topic: str, started: float) ->
         duration_s,
     )
     if summary.outcome != "succeeded":
+        # FEATURE (OME-940): a FAILED run leaves the evidence line too. This used to `return`
+        # here, so the only line carrying `trace_id` was emitted for successes — inverted from
+        # the point of durable evidence, since the failed run is the one whose record is needed
+        # after the frame stream's 60 s reclamation. The cost/cache fields stay success-only
+        # (they are not exact for a failure, and a partial figure reads as a complete one), so
+        # this states identity and outcome and stops there.
+        error = " ".join(
+            part
+            for part in (
+                f"code={summary.error_code}" if summary.error_code is not None else "",
+                f"type={summary.error_type}" if summary.error_type is not None else "",
+            )
+            if part
+        )
+        logger.info(
+            "run summary topic=%s trace_id=%s outcome=%s duration_s=%.1f%s",
+            topic,
+            summary.trace_id or "none",
+            summary.outcome,
+            duration_s,
+            f" {error}" if error else "",
+        )
         return
     cost = (
         "unpriced"
