@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import logs
+from .call_context import install_call_context_injection
 from .config import Settings
 from .core.api_key_validation_service import ApiKeyValidationService
 from .core.auth.bootstrap_admin import ensure_admin_account
@@ -45,6 +46,7 @@ from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
+from .middleware import CallIdMiddleware
 from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .routes import (
     accounts,
@@ -76,6 +78,11 @@ def _unsigned_jwt(payload: dict) -> str:
 
 def _attach_log_filter() -> None:
     install_provisioning_token_redaction()
+    # WHY after redaction, and why it does not matter (OME-938): the call-context injector WRAPS
+    # whatever factory it finds, and redaction does the same, so both survive in either order —
+    # `tests/unit/test_call_context.py` pins both. Ordered this way only because redaction is
+    # the security-critical one and reads better installed first.
+    install_call_context_injection()
     for name in ("", "uvicorn.access", "uvicorn.error", "aigateway"):
         target = logging.getLogger(name)
         if not any(isinstance(f, RedactProvisioningTokenFilter) for f in target.filters):
@@ -378,6 +385,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "AIGW_ALLOWED_NETWORKS to the CIDR networks of the url4-cloud App and its Runner Pods "
             "(e.g. your cluster's Pod CIDR)"
         )
+
+    # FEATURE (OME-938): correlation is app-wide plumbing, not a feature of usage accounting.
+    # INVARIANT: added LAST so it is the OUTERMOST layer. `add_middleware` does
+    # `user_middleware.insert(0, ...)` and the stack is built by wrapping that list in reverse,
+    # so the last registration ends up outermost — the opposite of the intuitive reading. Being
+    # outermost is the point: the auth guard above rejects requests and logs while doing it, and
+    # those lines are exactly the ones an operator needs attributed.
+    app.add_middleware(CallIdMiddleware)
 
     registry = ProviderRegistry()
     load_plugins(registry)
