@@ -132,16 +132,20 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
             )
 
     profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
-    # Reuse the chat resolution verbatim (raises the same 404/409 on a missing/
-    # pending/errored profile) so summary, detail, and dispatch agree on context.
+    # Reuse the chat resolution (raises the same 409/401 on a pending/errored
+    # profile, and the same 404 on an explicitly NAMED missing profile) so
+    # summary, detail, and dispatch agree on context. The one divergence
+    # (OME-1167): the DEFAULT binding with no stored target answers instead of
+    # 404ing — the contract is a datasheet lookup, not a credentialed action.
     profile, connection, _defaults = await _credential_target_for_chat(
         request,
         account_id=account_id,
         provider=provider,
         profile_name=profile_name,
         plugin=plugin,
+        missing_target_ok=profile_name == "default",
     )
-    auth_mode = resolved_auth_mode(profile, connection, plugin=plugin)
+    auth_mode = _contract_auth_mode(plugin, profile, connection)
 
     # Observed LAST: a request that fails profile resolution must not have spent a
     # fetch on a contract it will never serve. (The lazy catalog consult above is
@@ -183,6 +187,33 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         # contract_id is not silently handed evidence with a different provenance.
         source_revision=discovered.snapshot.source_revision if discovered.snapshot else None,
     )
+
+
+def _contract_auth_mode(
+    plugin: ProviderPluginBase,
+    profile: Profile | None,
+    connection: OAuthConnection | None,
+) -> AuthMode:
+    """The auth mode the published contract is bound to, keyless case included.
+
+    With any stored target — or a provider that permits a chatless profile —
+    this is exactly ``resolved_auth_mode``, unchanged. The added branch (OME-1167)
+    covers only the target-less answer that used to 404: the datasheet is
+    published under the provider's own declared preference — its profileless
+    mode when it names one, else its FIRST declared auth mode.
+
+    # WHY not ``resolved_auth_mode`` for that case: its target-less fallback is
+    # ``"oauth"``, which raises 400 for an api-key-only provider — correct for a
+    # dispatch target, wrong for a datasheet that merely needs A mode to be
+    # published under. The response's ``context.auth_mode`` names the binding,
+    # so the choice is visible, never a lie.
+    """
+    if profile is None and connection is None and not plugin.allows_chatless_profile():
+        keyless_mode: AuthMode | None = plugin.profileless_auth_mode()
+        if keyless_mode is not None:
+            return keyless_mode
+        return plugin.available_auth_modes()[0]
+    return resolved_auth_mode(profile, connection, plugin=plugin)
 
 
 async def _live_catalog_ids(request: Request, plugin: ProviderPluginBase[Any]) -> frozenset[str]:

@@ -219,6 +219,7 @@ async def _credential_target_for_chat(
     provider: str,
     profile_name: str,
     plugin: Any,
+    missing_target_ok: bool = False,
 ) -> tuple[Profile | None, OAuthConnection | None, ProfileDefaults]:
     idx: ProfileIndexStore = request.app.state.profile_index
     profile = await idx.get(account_id, provider, profile_name)
@@ -237,6 +238,11 @@ async def _credential_target_for_chat(
             )
             return None, connection, ProfileDefaults()
         if not _allows_chatless_profile(plugin):
+            # WHY the escape (OME-1167): the model-parameters DATASHEET needs no
+            # stored credential target, so its route opts in to a target-less
+            # result here. Chat never sets the flag — dispatch keeps this 404.
+            if missing_target_ok:
+                return None, None, ProfileDefaults()
             raise HTTPException(
                 status_code=404,
                 detail={
