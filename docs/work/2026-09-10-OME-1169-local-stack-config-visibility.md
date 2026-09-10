@@ -66,3 +66,8 @@ with remediation, not honored.
   build, distribution check.
 - **Deviations:** none. Design fork resolved per the ticket's own framing: `AIGATEWAY_DATABASE_URL`
   is refused at boot (also on adoption), not honored — the local stack keeps its own sqlite.
+- **Review follow-up (`d48fa21c`):** two PR #891 findings fixed — (1) `restart` now refuses
+  BEFORE `down`, so a mis-set env can no longer stop a healthy stack and then raise; (2) the
+  suite's autouse fixture scrubs `AIGATEWAY_DATABASE_URL`, so the refusal cannot fail
+  pre-existing tests on a dev machine that exports it. One appended test; the fixture edit
+  was owner-directed (append-only gate green post-commit).
