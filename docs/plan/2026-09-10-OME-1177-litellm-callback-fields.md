@@ -50,3 +50,12 @@ ticket: OME-1177
 ## Approved review follow-up
 
 The user approved fixing PR903 review: strip the entire internal `litellm_trusted_callback_vars` container at ingress. Add regression coverage showing caller-controlled New Relic/Datadog values never reach LiteLLM trusted initialization, retain ordinary metadata, and leave input unmodified. Append the field to the existing exact-set test inventory; this extends the approved filter contract without removing coverage. Run RED before production edit, then focused tests and all gateway gates. Commit and push to the existing PR; do not merge.
+
+
+## Approved second review follow-up
+
+The owner asked to add the security review fixes now. Comparison of installed 1.97.0 and 1.100.1 shows new native chat dispatch and OTel auth-metadata routing. The complete gateway pipeline already rejects caller `rust` as unknown; the earlier direct-handler reproduction omitted parameter projection and did not establish an ingress bypass. The owner narrowed this follow-up to the confirmed telemetry gap; do not change Rust handling. Strip `user_api_key_auth_metadata` from body and metadata: this container survives projection and reaches the new OTel trusted reader. Preserve other metadata and caller input. Native execution enabled by the operator's `LITELLM_RUST` environment is a separate configuration concern; this change does not claim to disable it.
+
+1. Add regression tests for the full strip/project/prepare pipeline and real OTel auth-metadata reader, including malformed containers and input preservation. Confirm RED.
+2. Extend metadata reserved-name set, and the independent exact-set test inventory (additive contract extension; preserve all prior assertions).
+3. Run focused tests, full gateway gates, review, commit, and push PR #903 without merging.
