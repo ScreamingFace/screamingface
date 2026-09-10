@@ -27,6 +27,7 @@ from url4.streaming.interfaces import (
 from url4.streaming.protocol import ResultData, StartedEvent, TerminatedEvent
 from url4.streaming.protocol.signals import CostUsageData
 from url4.streaming.protocol.taxonomy import CostBreakdown, TokenUsage
+from url4.streaming.trace import valid_traceparent
 
 TOPIC = "t-local"
 
@@ -130,13 +131,25 @@ async def test_schedule_builds_the_same_job_env_contract_a_job_would_get() -> No
 
 
 async def test_a_malformed_traceparent_is_dropped_rather_than_forwarded() -> None:
+    """The garbage must not travel. OME-940 changed what replaces it, not that rule.
+
+    This asserted the key was ABSENT, which was how "do not forward garbage" used to be
+    achieved: no valid value, so no variable. The adapter now mints a replacement at the edge
+    (see `run_evidence.adopt_or_mint_traceparent`), so the variable IS present and carries an
+    id the control plane logged — while the malformed input still goes nowhere.
+
+    Minting is the better answer for the same intent: dropping it left the runner's whole log
+    context with no trace id, which is precisely the anonymity OME-940 exists to remove.
+    """
     stream = InMemoryEventStream()
     runner, seen = _runner(stream)
 
     await runner.schedule(TOPIC, "q", 10, traceparent="not-a-traceparent")
     await _drain_until_terminal(stream, TOPIC)
 
-    assert job_env.TRACEPARENT not in seen[0]
+    forwarded = seen[0][job_env.TRACEPARENT]
+    assert "not-a-traceparent" not in forwarded, "the malformed value was forwarded verbatim"
+    assert valid_traceparent(forwarded) == forwarded, forwarded
 
 
 # --- lifecycle ----------------------------------------------------------------------------
