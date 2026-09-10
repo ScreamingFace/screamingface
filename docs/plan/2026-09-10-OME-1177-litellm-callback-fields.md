@@ -46,3 +46,7 @@ ticket: OME-1177
 - If field-existence re-verification (step 5) finds a genuine rename/removal rather than a
   mechanical adaptation, this becomes a real product-behavior question — STOP and report
   rather than guessing.
+
+## Approved review follow-up
+
+The user approved fixing PR903 review: strip the entire internal `litellm_trusted_callback_vars` container at ingress. Add regression coverage showing caller-controlled New Relic/Datadog values never reach LiteLLM trusted initialization, retain ordinary metadata, and leave input unmodified. Append the field to the existing exact-set test inventory; this extends the approved filter contract without removing coverage. Run RED before production edit, then focused tests and all gateway gates. Commit and push to the existing PR; do not merge.
