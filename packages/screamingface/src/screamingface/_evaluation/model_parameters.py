@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import Awaitable, Callable, Sequence
 
 from screamingface._candidate_policy import GenerationParams
@@ -16,26 +15,9 @@ type _SyncDetailsLoading = Callable[[str], ModelDetails]
 type _AsyncDetailsLoading = Callable[[str], Awaitable[ModelDetails]]
 
 
-# WHY this escape hatch exists (OME-1098): the keyless e2e replay lane re-runs a
-# RECORDED evaluation — one that already passed this preflight when it was paid for —
-# on a sealed stack where no provider profile can ever be connected, so the model-
-# details fetch below has nothing to answer it. The replay harness is the only
-# setter. Only the literal "1" disarms; anything else keeps the check.
-# Follow-up that deletes this: serve a model's parameter metadata without a
-# connected provider (engine/gateway), tracked from the OME-1098 close.
-_SKIP_PREFLIGHT_ENV = "SCREAMINGFACE_SKIP_PARAMETER_PREFLIGHT"
-
-
-def _skipped() -> bool:
-    """True only when the replay harness explicitly disarmed the pre-spend check."""
-    return os.environ.get(_SKIP_PREFLIGHT_ENV) == "1"
-
-
 def preflight_sync(candidates: Sequence[Candidate], load: _SyncDetailsLoading) -> None:
     """Validate explicit parameters against each affected Model contract once."""
 
-    if _skipped():
-        return
     assignments = _assignments(candidates)
     for model, selected in assignments.items():
         _validate_assignments(load(model), selected)
@@ -47,8 +29,6 @@ async def preflight_async(
 ) -> None:
     """Asynchronous counterpart of :func:`preflight_sync`."""
 
-    if _skipped():
-        return
     assignments = _assignments(candidates)
     models = tuple(assignments)
     if not models:

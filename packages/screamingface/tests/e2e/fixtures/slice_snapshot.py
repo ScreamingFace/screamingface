@@ -752,11 +752,6 @@ def _user_text(body: dict[str, Any]) -> str:
 def _evaluate(engine_url: str, candidate: Any, board: str, limit: int | None) -> Any:
     import screamingface as sf
 
-    # OME-1098: a params-carrying candidate (corrective_loop golden) would preflight
-    # against model details, which the sealed keyless stack cannot serve — the
-    # recording already passed that check when it was paid for, so the replay
-    # disarms it (see model_parameters._SKIP_PREFLIGHT_ENV).
-    os.environ["SCREAMINGFACE_SKIP_PARAMETER_PREFLIGHT"] = "1"
     with sf.Client(engine_url=engine_url) as client:
         return client.evaluate(candidate, benchmark=board, limit=limit, progress=False)
 

@@ -123,3 +123,10 @@ RED first, per unit:
   needed, then `just e2e-bless-fresh` as documented.
 - Gates re-run ALL GREEN after the preflight-skip cycle (same `--skip-append-only`
   disclosure).
+- 2026-09-10 later: `OME-1167` (keyless model-parameters route) and `OME-1168`
+  (minimal coach prompt) merged to main. Branch rebased; the
+  `SCREAMINGFACE_SKIP_PARAMETER_PREFLIGHT` hatch, its two tests and both harness
+  setters DELETED — a probe bless proved the keyless replay now preflights with no
+  hatch (39/50 cases replayed; refusal only on the pre-`OME-1168` recording's stale
+  multi-round bytes, as expected). Remaining: owner re-record of the 50-case loop
+  run on post-`OME-1168` main, then bless.

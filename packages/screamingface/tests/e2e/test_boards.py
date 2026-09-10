@@ -97,9 +97,7 @@ def _require_board_fixtures(board: str) -> tuple[Path, Path | None, GoldenReport
 
 
 @pytest.mark.parametrize("board", BOARDS)
-def test_board_replays_end_to_end_and_matches_its_golden(
-    board: str, tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_board_replays_end_to_end_and_matches_its_golden(board: str, tmp_path) -> None:
     # Fixture presence is checked FIRST so "no fixtures yet" is visible even on a
     # machine that could not run the stack anyway; then the stack gate.
     snapshot, manifest, golden = _require_board_fixtures(board)
@@ -110,10 +108,6 @@ def test_board_replays_end_to_end_and_matches_its_golden(
     # The golden carries its own replay input: sf.Model for `kind: model` goldens,
     # the recorded Fusion lineup for `kind: fusion` (OME-978).
     candidate = build_candidate(golden)
-    # OME-1098: a corrective_loop golden's candidate carries explicit params, whose
-    # free preflight needs a connected profile the sealed stack cannot have — the
-    # recording already passed that check, so the replay disarms it.
-    monkeypatch.setenv("SCREAMINGFACE_SKIP_PARAMETER_PREFLIGHT", "1")
     backend = CacheSeededGateway(snapshot=snapshot, manifest=manifest, work_dir=tmp_path)
     with replay_stack(backend, work_dir=tmp_path, assets_dir=_assets_root()) as stack:
         with sf.Client(engine_url=stack.engine_url) as client:
