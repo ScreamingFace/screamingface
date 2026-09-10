@@ -200,3 +200,54 @@ def test_failed_factory_is_inert_and_diagnostic_excludes_exception_text(caplog):
     run = RunObservations((broken,))
     assert run.observers == [] and run.active
     assert "execution observer failed" in caplog.text and "PRIVATE" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault", ["start", "retry", "close"])
+async def test_call_fault_budget_belongs_to_captured_run(fault, caplog):
+    from screamingface_engine.observations import ModelCall, RunObservations
+
+    owner = RunObservations((lambda: ObservingRun([], fault),))
+    nested = RunObservations(())
+    with owner.bind():
+        call = ModelCall("model", None)
+        with nested.bind():
+            async with call:
+                call.retry(attempt=2, delay_seconds=0)
+        assert owner.fault_reported and not nested.fault_reported
+        async with ModelCall("model", None) as again:
+            again.retry(attempt=2, delay_seconds=0)
+    assert caplog.text.count("execution observer failed") == 1
+
+
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+def test_bind_receives_step_exception_but_cannot_suppress_it(outcome, monkeypatch):
+    import asyncio
+
+    from screamingface_engine.observations import RunObservations
+
+    error = {"success": None, "error": ValueError("work"), "cancel": asyncio.CancelledError()}[
+        outcome
+    ]
+    seen = []
+
+    class Binding:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, kind, value, tb):
+            seen.append((kind, value, tb))
+            return True
+
+    observer = ObservingRun([], "")
+    monkeypatch.setattr(observer, "bind", Binding)
+    try:
+        with RunObservations((lambda: observer,)).bind():
+            if error is not None:
+                raise error
+    except BaseException as raised:
+        assert raised is error
+    else:
+        assert error is None
+    assert seen[0][:2] == (type(error) if error is not None else None, error)
+    assert (seen[0][2] is None) == (error is None)

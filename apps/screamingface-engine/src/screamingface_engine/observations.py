@@ -27,12 +27,10 @@ class LogEmitter(Protocol):
 
 
 class ModelObservation(Protocol):
-    """Observe one call without controlling its requests, retries or result.
+    """Observe facts without controlling requests, retries or results.
 
-    The dispatcher starts the observation, reports facts, then closes it with the
-    original scope-exit information. Close must tolerate partially failed startup.
-    Adapters own their resources; ordinary callback failures are contained, while
-    cancellation and other process-control exceptions retain their semantics.
+    Close receives the original exit information and must tolerate partial startup.
+    Adapters own resources; ordinary failures are contained, process control propagates.
     """
 
     async def start(self) -> None: ...
@@ -51,7 +49,8 @@ class RunObserver(Protocol):
     """One factory-created observer per execution, reused across its inner steps.
 
     Each bind returns a fresh context manager that restores context on exit. Binding
-    cleanup is separate from operation outcomes; model close receives those errors.
+    teardown receives the current step exception, but cannot suppress it or declare
+    the whole run outcome; model close receives the call outcome separately.
     aclose releases run-owned resources. Callbacks must not perform execution work.
     """
 
@@ -66,13 +65,11 @@ _CURRENT: ContextVar[RunObservations | None] = ContextVar("run_observations", de
 _CALL: ContextVar[ModelCall | None] = ContextVar("model_observation", default=None)
 
 
-def _fault(run: RunObservations | None = None) -> None:
+def _fault(run: RunObservations | None) -> None:
     # INVARIANT: one best-effort warning per run, with no exception text or payload.
-    run = run if run is not None else _CURRENT.get()
-    if run is not None:
-        if run.fault_reported:
-            return
-        run.fault_reported = True
+    if run is None or run.fault_reported:
+        return
+    run.fault_reported = True
     try:
         logger.warning("execution observer failed; execution continues")
     except Exception:
@@ -81,28 +78,42 @@ def _fault(run: RunObservations | None = None) -> None:
 
 
 @contextmanager
-def _bind(observer: RunObserver) -> Iterator[None]:
+def _guard(run: RunObservations | None) -> Iterator[None]:
+    # WHY: the same guard covers synchronous callbacks and awaited callbacks.
     try:
-        context = observer.bind()
-        context.__enter__()
+        yield
     except Exception:
-        _fault()
-        yield
-        return
+        _fault(run)
+
+
+@contextmanager
+def _bind(run: RunObservations, observer: RunObserver) -> Iterator[None]:
+    context = None
+    with _guard(run):
+        candidate = observer.bind()
+        candidate.__enter__()
+        context = candidate
+    error: BaseException | None = None
     try:
         yield
+    except BaseException as exc:
+        error = exc
+        raise
     finally:
-        try:
-            context.__exit__(None, None, None)
-        except Exception:
-            _fault()
+        if context is not None:
+            with _guard(run):
+                context.__exit__(
+                    type(error) if error is not None else None,
+                    error,
+                    error.__traceback__ if error is not None else None,
+                )
 
 
 class RunObservations:
-    """Own observer instances and isolate dispatch; no activity schema or policy.
+    """Own observers and isolated dispatch without activity policy.
 
-    Bind around inner execution steps, never across an outward generator yield:
-    another task may advance or close that generator. Final cleanup revokes dispatch.
+    Bind inner steps, never outward yields: generator consumers may change tasks.
+    Final cleanup revokes dispatch.
     """
 
     def __init__(self, factories: tuple[ObserverFactory, ...]) -> None:
@@ -110,10 +121,8 @@ class RunObservations:
         self.active = True
         self.fault_reported = False
         for factory in factories:
-            try:
+            with _guard(self):
                 self.observers.append(factory())
-            except Exception:
-                _fault(self)
 
     @contextmanager
     def bind(self) -> Iterator[None]:
@@ -122,7 +131,7 @@ class RunObservations:
         try:
             with ExitStack() as stack:
                 for observer in self.observers:
-                    stack.enter_context(_bind(observer))
+                    stack.enter_context(_bind(self, observer))
                 yield
         finally:
             _CURRENT.reset(token)
@@ -130,17 +139,14 @@ class RunObservations:
     async def aclose(self) -> None:
         self.active = False
         for observer in reversed(self.observers):
-            try:
+            with _guard(self):
                 await observer.aclose()
-            except Exception:
-                _fault(self)
 
 
 class ModelCall:
-    """Scope observer callbacks to one call and its owning execution.
+    """Bind callbacks to a call and its run; nested runs cannot target its retry.
 
-    Retry lookup checks both contexts so nested executions cannot update a parent
-    call. Observer scope exit cannot suppress the execution exception.
+    Observer scope exit cannot suppress the execution exception.
     """
 
     def __init__(self, model_id: str, emit: LogEmitter | None) -> None:
@@ -150,19 +156,15 @@ class ModelCall:
         self._closed = False
         if self._run is not None and self._run.active:
             for observer in self._run.observers:
-                try:
+                with _guard(self._run):
                     self._observers.append(observer.model_call(model_id, emit))
-                except Exception:
-                    _fault()
 
     async def __aenter__(self) -> ModelCall:
         self._token = _CALL.set(self)
         try:
             for observer in self._observers:
-                try:
+                with _guard(self._run):
                     await observer.start()
-                except Exception:
-                    _fault()
         except BaseException:
             await self.__aexit__(*sys.exc_info())
             raise
@@ -172,10 +174,8 @@ class ModelCall:
         if self._closed or self._run is None or not self._run.active:
             return
         for observer in self._observers:
-            try:
+            with _guard(self._run):
                 callback(observer)
-            except Exception:
-                _fault()
 
     def completed(self, finish_reason: str | None) -> None:
         self._notify(lambda observer: observer.completed(finish_reason))
@@ -194,10 +194,8 @@ class ModelCall:
     ) -> None:
         try:
             for observer in reversed(self._observers):
-                try:
+                with _guard(self._run):
                     await observer.close(exc_type, exc, tb)
-                except Exception:
-                    _fault()
         finally:
             self._closed = True
             if self._token is not None:
@@ -215,20 +213,15 @@ def bridge_loss_attributes(dropped: int) -> dict[str, Scalar]:
     run = _CURRENT.get()
     if run is not None and run.active:
         for observer in run.observers:
-            try:
+            with _guard(run):
                 snapshot = dict(observer.bridge_loss(dropped))
                 if not all(_valid_attribute(k, v) for k, v in snapshot.items()):
                     raise ValueError("invalid observer attributes")
                 attributes.update(snapshot)
-            except Exception:
-                _fault()
     return attributes
 
 
 def _valid_attribute(key: str, value: Scalar) -> bool:
-    return isinstance(key, str) and (
-        value is None
-        or isinstance(value, (str, int, bool))
-        or isinstance(value, float)
-        and math.isfinite(value)
-    )
+    if isinstance(value, float):
+        return isinstance(key, str) and math.isfinite(value)
+    return isinstance(key, str) and (value is None or isinstance(value, (str, int)))
