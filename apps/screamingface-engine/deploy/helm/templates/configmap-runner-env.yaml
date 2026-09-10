@@ -21,6 +21,10 @@ metadata:
   labels:
     {{- include "screamingface-engine.labels" . | nindent 4 }}
 data:
+  {{- if not (has .Values.config.activityLevel (list "off" "full")) }}
+  {{- fail "config.activityLevel must be off or full" }}
+  {{- end }}
+  URL4_CLOUD_ACTIVITY_LEVEL: {{ .Values.config.activityLevel | quote }}
   # Where the worker's children publish their run log. Their own fallback is loopback, which
   # inside a worker pod is that pod — so this must name the NATS Service to reach it.
   URL4_CLOUD_NATS_URL: {{ include "screamingface-engine.natsUrl" . | quote }}

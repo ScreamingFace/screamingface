@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from screamingface_engine import job_env
+from screamingface_engine.activity.contract import ActivityLevel
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.artifacts import ArtifactStore, ArtifactWriter, S3ArtifactStore
 from screamingface_engine.artifacts.wiring import s3_config_from_values
@@ -249,6 +250,8 @@ def build_executor(
     the wrapper is the only executor this function ever builds.
     """
 
+    activity_level = ActivityLevel(env.get(job_env.ACTIVITY_LEVEL, "off"))
+
     async def _world() -> World:
         # `include_extra_models`: the Runner boot is the ONE parse that reads the
         # Job-scoped URL4_CLOUD_EXTRA_MODELS overlay (review F3) — this env IS the
@@ -347,7 +350,8 @@ def build_executor(
             artifact_store=artifact_store,
             io_wrap=io_wrap,
             io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
-        )
+        ),
+        activity_level=activity_level,
     )
 
 

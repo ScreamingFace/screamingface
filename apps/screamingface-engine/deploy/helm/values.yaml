@@ -76,6 +76,9 @@ securityContext:
 
 # App config → ConfigMap (env-prefixed URL4_CLOUD_*, consumed by screamingface_engine.config.Settings).
 config:
+  # Optional ephemeral activity: public deployments explicitly choose full; private runs off.
+  # Does not change existing lifecycle, results, accounting or operator diagnostics.
+  activityLevel: "off"
   # Where the App reaches NATS. Empty + `nats.enabled` => built from `nats.fullnameOverride`;
   # empty with the subchart off is a render-time failure (see the `screamingface-engine.natsUrl` helper).
   # JetStream must be enabled on whichever NATS this names.

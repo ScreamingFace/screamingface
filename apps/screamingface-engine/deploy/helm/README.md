@@ -293,3 +293,25 @@ helm template apps/screamingface-engine/deploy/helm --set config.natsUrl=nats://
 
 For a real end-to-end exercise of this chart — the same templates, values-only overrides — see
 [`../kind/README.md`](../kind/README.md).
+
+### Optional live activity
+
+Set `config.activityLevel: "full"` on public deployments to emit the safe v1 model-call
+activity stream. The default is `"off"`; private/enclave deployments should explicitly keep
+it off. Only `full` and `off` are supported. The worker's deployment environment wins over
+any queued per-run value. For local mode, set `URL4_CLOUD_ACTIVITY_LEVEL=full` in the
+operator environment (or the equivalent local `Settings.activity_level`).
+
+Full activity uses fixed 60-second heartbeats, safe producer observation timestamps and a
+rolling 100-record/s, burst-200 budget, reserving 40 tokens from routine starts/heartbeats
+for retries and outcomes. It has no lifetime emission cutoff and creates no archive.
+Under pressure, optional records can be suppressed; this does not retry or fail the work.
+The existing closing bridge-loss Log gains structured cumulative loss attributes in full
+mode. That count covers all bridge Logs, and is neither a guaranteed live warning nor a
+complete activity-loss count.
+
+Off disables the new activity producer; existing lifecycle/results/accounting and operator
+logs remain governed by their existing settings. In off mode the pre-existing operator-log
+heartbeat retains its backoff; full mode uses a single fixed heartbeat for structured and
+operator observations. This switch is not a deployment-wide privacy guarantee. Aggregate
+privacy mode and the Client Logs tab are separate work.

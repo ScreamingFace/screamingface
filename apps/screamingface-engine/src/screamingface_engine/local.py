@@ -31,6 +31,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from screamingface_engine import job_env
+from screamingface_engine.activity.contract import ActivityLevel
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.adapters.memory import InMemoryEventStream
 from screamingface_engine.app import create_app
@@ -173,7 +174,10 @@ def create_local_app(
     # import (see the SCOPE NOTE in `check_layering.py`).
     from screamingface_engine.runner.main import build_executor
 
-    run_env = _with_runner_config(env if env is not None else os.environ)
+    run_env = dict(_with_runner_config(env if env is not None else os.environ))
+    run_env[job_env.ACTIVITY_LEVEL] = ActivityLevel(
+        run_env.get(job_env.ACTIVITY_LEVEL, settings.activity_level)
+    ).value
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)
     # INVARIANT: the local default is substituted ONCE, here, before anything reads the address —
