@@ -652,23 +652,24 @@ class TestAnthropicRouteMapping:
     def test_a_valid_accounted_request_allocates_one_gateway_call_id(
         self, credential_blobs, chat_client
     ) -> None:
+        # OME-938 retargeted the patch, NOT the claim. The id is now minted once per request by
+        # `middleware.call_id` and consumed by the session and the collector, so patching the
+        # two former mint sites observes zero calls while the behaviour is perfectly correct.
+        # There is exactly one minter left; the assertion is unchanged — one allocation per
+        # request, and the response carries that same id.
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
         with (
             patch(_ANTHROPIC_DISPATCH, self._succeed()),
             patch(
-                "aigateway.plugins.taxonomy.session.new_gateway_call_id",
+                "aigateway.middleware.call_id.new_gateway_call_id",
                 return_value="call_" + "a" * 32,
-            ) as allocate_unsupported_call_id,
-            patch(
-                "aigateway.plugins.taxonomy.collector.new_gateway_call_id",
-                return_value="call_" + "a" * 32,
-            ) as allocate_supported_call_id,
+            ) as allocate_call_id,
         ):
             response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
 
         assert response.status_code == 200, response.text
-        assert allocate_unsupported_call_id.call_count + allocate_supported_call_id.call_count == 1
+        assert allocate_call_id.call_count == 1
         assert _aigw(response)["usage_accounting"]["gateway_call_id"] == "call_" + "a" * 32
 
     def test_anthropic_reports_no_money_on_the_wire(self, credential_blobs, chat_client) -> None:

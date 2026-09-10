@@ -24,6 +24,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from ...call_context import new_gateway_call_id as _new_gateway_call_id
 from ...core.http_status import valid_http_status
 from .classify import FAILURE_CODES, outcome_for_status
 from .types import (
@@ -69,12 +70,18 @@ def _safe_failure_code(outcome: CallOutcome, failure_code: str) -> str:
 
 
 def new_gateway_call_id() -> str:
-    """Mint a response-local correlation id.
+    """Mint a correlation id — re-exported from `aigateway.call_context` (OME-938).
 
-    Exposed separately so a request with an UNSUPPORTED provider can still get an id to
-    log and render without constructing a collector it will never record into.
+    The implementation moved out of this plugin because correlation is no longer a side effect
+    of usage accounting: middleware mints one id per request and this plugin CONSUMES it, so a
+    gateway running with `AIGW_TAXONOMY_ENABLED=false` still correlates. The name stays here
+    because `plugins/taxonomy/__init__` publishes it and callers import it from there.
+
+    One implementation, not two: the id shape is pinned by `usage_accounting.schema.json`
+    (`^call_[0-9a-f]{32}$`) and by response bodies, so a second minter that drifted would break
+    a published contract in a way only a schema test would notice.
     """
-    return f"call_{uuid.uuid4().hex}"
+    return _new_gateway_call_id()
 
 
 @dataclass

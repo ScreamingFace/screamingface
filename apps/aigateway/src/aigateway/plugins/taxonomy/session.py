@@ -25,10 +25,12 @@ from typing import Any, Final, Literal
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from aigateway.call_context import current_call_id, new_gateway_call_id
+
 from ...core.usage_accounting.hooks import AccountingAsyncHTTPHandler
 from ...core.usage_accounting.signals import bound_collector
 from .classify import classify_conversion_failure, classify_transport_failure
-from .collector import RequestAccountingCollector, new_gateway_call_id
+from .collector import RequestAccountingCollector
 from .render import (
     CacheStatusWord,
     attach_metadata,
@@ -109,11 +111,25 @@ def begin_accounting(
     except Exception:
         logger.warning("provider usage-accounting strategy failed provider=%s", provider)
         strategy = UsageAccountingStrategy.unsupported()
+    # FEATURE (OME-938): the id is MINTED BY MIDDLEWARE and consumed here, not the other way
+    # round. It used to be minted by the collector, which made correlation a side effect of
+    # usage accounting — and this function returns None when the taxonomy plugin is disabled
+    # (line 105), so `AIGW_TAXONOMY_ENABLED=false` silently deleted the gateway's only
+    # correlation mechanism.
+    #
+    # INVARIANT: ONE id per request, shared by the response body and every log line. Letting the
+    # collector mint its own would put a different id in `_aigw.gateway_call_id` than the logs
+    # carry — two ids for one call, both looking correct, which is worse than none.
+    #
+    # `or new_gateway_call_id()`: a session can be built outside any request (unit tests
+    # constructing one directly), and a missing id there must not be an error.
+    call_id = current_call_id() or new_gateway_call_id()
     collector = (
         RequestAccountingCollector(
             provider=provider,
             requested_model=model,
             transport=strategy.capability,
+            gateway_call_id=call_id,
         )
         if strategy.is_supported
         else None
@@ -122,9 +138,7 @@ def begin_accounting(
         provider=provider,
         supported=strategy.is_supported,
         collector=collector,
-        gateway_call_id=(
-            collector.gateway_call_id if collector is not None else new_gateway_call_id()
-        ),
+        gateway_call_id=call_id,
         inject_shared_handler=strategy.uses_shared_litellm_http,
     )
     # Published so the app-wide HTTPException handler can render `_aigw` beside `detail`
