@@ -226,3 +226,36 @@ def test_retry_prompts_thread_own_previous_answer_and_coaching() -> None:
     # Each member retries ITS OWN draft, not a teammate's.
     assert "$loop_check_1_a.answer" in compiled.url4
     assert "$loop_check_1_b.answer" in compiled.url4
+
+
+def test_coach_verdicts_carry_only_answer_and_feedback_per_member() -> None:
+    # INVARIANT (OME-1168 — replayability + role isolation): the coach prompt is
+    # a pure function of case input + member answer/feedback texts. The round's
+    # Candidate Invocation envelopes (accounting/usage token counts, provider and
+    # model identity) must never render into a judge-role body — live token
+    # counts differ from replay's cache-hit zeros, so an envelope in the prompt
+    # makes a recorded run unreplayable.
+    compiled = compile_candidate(_loop(max_rounds=2), check_surface=_SURFACE)
+    assert (
+        "verdicts: {a: {answer: '$loop_check_1_a.answer', "
+        "feedback: '$loop_check_1_a.feedback'}, "
+        "b: {answer: '$loop_check_1_b.answer', "
+        "feedback: '$loop_check_1_b.feedback'}}"
+    ) in compiled.url4
+    assert "verdicts: '$loop_round_1'" not in compiled.url4
+
+
+def test_the_round_object_still_feeds_gate_and_select_verbatim() -> None:
+    # INVARIANT: the verbatim-selection path is untouched — tie gate, continue
+    # gate, and select still consume the FULL round object (whose records carry
+    # the envelope the SELECT endpoint returns verbatim). Exactly those three
+    # consumers reference round 1; the coach is no longer one of them.
+    compiled = compile_candidate(_loop(max_rounds=2), check_surface=_SURFACE)
+    assert compiled.url4.count("$loop_round_1") == 3
+
+
+def test_protocol_revision_moved_with_the_coach_verdict_shape() -> None:
+    # WHY pin the retired hash: the revision must move whenever the Client-
+    # rendered prompt shape changes; OME-1168 reshaped the coach verdicts, so
+    # the pre-change revision is retired for good.
+    assert CORRECTIVE_PROTOCOL_REVISION != "284c47e50ca0ba4f"
