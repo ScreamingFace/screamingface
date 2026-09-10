@@ -231,3 +231,25 @@ def test_pareto_chart_heading_and_label_name_the_pareto_frontier() -> None:
     assert 'aria-label="Pareto Frontier (cost/score) chart, horizontally scrollable"' in html
     assert "Score for cost" not in html
     assert "Costs are self-reported, not verified by re-running." in html
+
+
+def test_portal_index_filters_private_boards_through_the_shared_logic_module() -> None:
+    """FEATURE (OME-1147): the index lists established boards only.
+
+    INVARIANT: the rule living in `leaderboard-logic.js` is not the same as the rule being
+    applied. `tests/portal/leaderboard-logic.test.js` proves the helper behaves; it cannot see
+    `main.js`, so a correct helper that nothing calls passes every behavioural test. This asserts
+    the call, and the script order that makes the call resolvable — the two ways the wiring
+    breaks silently while the logic stays perfect.
+    """
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    logic = (portal / "leaderboard-logic.js").read_text(encoding="utf-8")
+    main = (portal / "main.js").read_text(encoding="utf-8")
+    index = (portal / "index.html").read_text(encoding="utf-8")
+
+    assert "listedBenchmarks: listedBenchmarks," in logic
+    assert "listedBenchmarks(" in main
+
+    logic_at = index.index('<script src="leaderboard-logic.js"')
+    caller_at = index.index('<script src="main.js"')
+    assert logic_at < caller_at
