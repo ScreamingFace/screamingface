@@ -117,22 +117,59 @@ def _runtime_extra() -> Check:
     return Check("[runtime] extra", OK, f"all local-stack modules present in {label}")
 
 
-def _assets() -> Check:
+def _assets_root() -> tuple[Path | None, str]:
+    """Where the ladder will look for boards, resolved the way the ladder resolves it.
+
+    INVARIANT: this must agree with `test_correlation_chain.py::_assets_root` EXACTLY. A
+    validator that accepts a location the test does not read reports `LOCAL LANE READY` for a
+    lane that then skips every rung — and an all-skipped run exits 0, which is the precise
+    failure this script exists to prevent. It happened: the first version also accepted
+    `packages/screamingface/tests/e2e/fixtures/assets`, which no test has ever read.
+
+    WHY the default is asked of the client rather than hardcoded: it is
+    `default_data_dir() / "benchmark-assets"`, and `default_data_dir()` honours
+    `SCREAMINGFACE_DATA_DIR` before falling back to `~/.screamingface`. Spelling the fallback
+    literally here gives a wrong answer to everyone who sets that variable.
+    """
     override = os.environ.get("SCREAMINGFACE_E2E_ASSETS")
-    roots = [Path(override)] if override else []
-    roots += [
-        Path.home() / ".screamingface" / "benchmark-assets",
-        CLIENT / "tests" / "e2e" / "fixtures" / "assets",
-    ]
-    for root in roots:
-        if (root / "draco").is_dir():
-            return Check("draco assets", OK, f"found at {root}")
+    if override:
+        return Path(override), "SCREAMINGFACE_E2E_ASSETS"
+    python, label = _client_python()
+    probe = subprocess.run(
+        [
+            python,
+            "-c",
+            "from screamingface._runtime.config import default_data_dir;"
+            "print(default_data_dir())",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        return None, label
+    data_dir = Path(probe.stdout.strip())
+    return data_dir / "benchmark-assets", "screamingface prepare default"
+
+
+def _assets() -> Check:
+    root, source = _assets_root()
+    if root is None:
+        # UNKNOWN, not MISSING: the client is not importable, so the default location cannot be
+        # resolved and the board may well be prepared. `main` blocks on anything that is not OK,
+        # so this still stops the lane — it just says the true reason.
+        return Check(
+            "draco assets",
+            UNKNOWN,
+            f"cannot resolve the assets root — screamingface not importable in {source}",
+            "cd packages/screamingface && uv sync --extra runtime",
+        )
+    if (root / "draco").is_dir():
+        return Check("draco assets", OK, f"found at {root} (via {source})")
     return Check(
         "draco assets",
         MISSING,
-        "no prepared draco board found",
-        "screamingface prepare draco   # then export SCREAMINGFACE_E2E_ASSETS="
-        f"{Path.home() / '.screamingface' / 'benchmark-assets'}",
+        f"no prepared draco board at {root} (via {source})",
+        f"screamingface prepare draco   # writes to {root}",
     )
 
 
@@ -237,12 +274,20 @@ def main() -> int:
     _render("LOCAL LANE — the correlation ladder (decides the exit code)", local)
     _render("K8S LANE — the live notebook (reported only, never fails this run)", k8s)
 
-    blocked = [c for c in local if c.state == MISSING]
+    # WHY `!= OK` and not `== MISSING`: with three states the question is "which checks did not
+    # SUCCEED", not "which failed". UNKNOWN means *could not check* — a probe that itself failed
+    # (`_runtime_extra`, `_assets`) or a client that is not importable — and readiness cannot be
+    # concluded from a check that never ran. Reading it as non-blocking printed LOCAL LANE READY
+    # and exited 0 for an unsynced venv, where the run then dies at import while the reader was
+    # told to expect a clean xfail line. That is worse than the skip case: a skip is silent, this
+    # promises an outcome that cannot happen.
+    blocked = [c for c in local if c.state != OK]
     print()
     if blocked:
-        print(
-            f"LOCAL LANE NOT READY — {len(blocked)} prerequisite(s) missing (see -> lines)."
-        )
+        missing = sum(1 for c in blocked if c.state == MISSING)
+        unknown = len(blocked) - missing
+        detail = f"{missing} missing" + (f", {unknown} unverifiable" if unknown else "")
+        print(f"LOCAL LANE NOT READY — {detail} (see -> lines).")
         # WHY this warning is worth its own line: without assets every rung SKIPS and pytest
         # exits 0. An all-skipped run is indistinguishable from a passing one by exit code,
         # which is the most likely way to believe the chain was validated when nothing ran.
@@ -251,13 +296,22 @@ def main() -> int:
         )
         return 1
 
+    root, source = _assets_root()
     print("LOCAL LANE READY. Run:")
     print("  cd packages/screamingface && SCREAMINGFACE_TEST_E2E=1 \\")
+    # WHY the override is echoed when one is set: the printed command must be the command that
+    # was actually validated. Printing a bare invocation while readiness was concluded from an
+    # override the next shell may not carry is how a READY report becomes an all-skipped run.
+    if source == "SCREAMINGFACE_E2E_ASSETS":
+        print(f"    SCREAMINGFACE_E2E_ASSETS={root} \\")
     print("    uv run pytest tests/e2e/test_correlation_chain.py -m e2e -q")
     print(
-        "Expected today: 5 xfailed, 0 failed. A rung turning green means its change landed"
+        "Expected today: 2 passed, 3 xfailed, 0 failed — rungs 1 (OME-1121) and 2 (OME-1119)"
     )
-    print("and its xfail marker must be deleted in that same PR.")
+    print(
+        "are green. A further rung turning green means its change landed and its xfail marker"
+    )
+    print("must be deleted in that same PR, or the suite fails on XPASS(strict).")
     return 0
 
 
