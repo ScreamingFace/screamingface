@@ -1,12 +1,12 @@
 ---
 id: OME-1170
 linear_url: https://linear.app/openmined/issue/OME-1170/checking-a-models-parameters-fails-with-http-504-the-first-time-after
-status: in_progress
+status: done
 type: fix
 priority: Medium
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-10
-closed:
+closed: 2026-09-10
 ---
 
 # Checking a model's parameters fails with HTTP 504 the first time after a stack start
