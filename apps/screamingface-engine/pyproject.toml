@@ -40,6 +40,8 @@ dependencies = [
     "immutabledict>=4.2.0",
     "langdetect>=1.0.9",
     "nltk>=3.9.1",
+    "opentelemetry-sdk>=1.30.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
 ]
 
 [project.scripts]
