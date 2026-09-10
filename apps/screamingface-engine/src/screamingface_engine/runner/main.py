@@ -29,7 +29,6 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
 from screamingface_engine.logs import run_scope
-from screamingface_engine.observations import ObserverFactory
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
@@ -228,7 +227,6 @@ def build_executor(
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     benchmark_assets_root: Path | None = None,
     io_gate: FairShareGate | None = None,
-    observers: tuple[ObserverFactory, ...] = (),
 ) -> OperationCapturingExecutor:
     """Wire an executor over the DECLARED world — without building it yet.
 
@@ -245,9 +243,6 @@ def build_executor(
     ``build_aigateway_world`` as ``tavily_api_key``; when it is unset, the built world disables
     the web-search/web-fetch tool loop entirely (deny-by-default — see
     ``web_tools.build_client``), rather than leaving it half-configured.
-
-    ``observers`` are per-execution factories supplied by composition. The empty default
-    leaves execution without observers; optional telemetry policy belongs to its adapter.
 
     The concrete return type (not the ``Executor`` port) is deliberate: the composition root
     reads the run's process-level summary back off the wrapper after the run (OME-1069), and
@@ -352,8 +347,7 @@ def build_executor(
             artifact_store=artifact_store,
             io_wrap=io_wrap,
             io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
-        ),
-        observers=observers,
+        )
     )
 
 

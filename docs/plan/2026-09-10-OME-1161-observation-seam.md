@@ -1,19 +1,17 @@
-# OME-1161 — Two sequential main-based PRs
+# OME-1161 — Sequential review units, maximum 500 changed lines each
 
-1. Preserve the complete implementation at 01b3a0f1 on local branch
-   `OME-1161-activity-preserved` before trimming existing PR 897.
-2. Keep only Engine observation interfaces/dispatch, connector/executor/lifecycle hooks and
-   explicit observer-factory injection with an empty default. Remove activity implementation,
-   registration, deployment wiring and their tests from this PR, retaining them on that branch.
-3. Keep generic fault/isolation tests. Add RED-first composition injection coverage, standalone
-   unregistered execution, concurrent/cross-task cleanup and generic bridge-loss decoration.
-4. Run full Engine gates and independent review. Rewrite PR/task descriptions for foundation
-   scope. Push without force; do not merge automatically or open a second PR yet.
-5. After the owner merges PR 897, create a fresh worktree/branch from origin/main. Restore the
-   activity package, registration, deployment changes and activity-only tests from the preserved
-   revision. Reconcile registration with explicit observer injection; retain all foundation tests.
-   Relocate the two activity-only tests from the preserved `test_observation_seam.py` rather than
-   overwriting the foundation file. Run independent gates/review and open the activity PR.
+Each PR starts from updated origin/main after its predecessor merges. No stacked PRs.
+Count additions plus deletions across production, tests and docs; split further if needed.
 
-The approved feature contract remains unchanged. OME-1161 tracks the two deliveries and remains
-open after the foundation merges. No stacked PRs are created.
+1. Observation ports/dispatch and unit tests (PR 897).
+2. Connector/executor/run-wrapper/composition hooks and integration tests.
+3. Activity schema and bounded admission, with tests.
+4. Operation scopes and heartbeat lifetime, with tests.
+5. Model-call activity adapter and stream tests; subdivide if over the cap.
+6. Deployment full/off policy and wiring, with tests.
+
+Preserved locally: `OME-1161-foundation-preserved` at 1344cb62 (integrated foundation),
+`OME-1161-activity-preserved` at 01b3a0f1 (complete activity implementation).
+Restore only each unit's files/tests and reconcile with merged main; never overwrite
+previously landed tests. Keep rationale in each PR and overall scope in OME-1161.
+Run gates independently for every unit. Do not open later PRs before predecessors merge.

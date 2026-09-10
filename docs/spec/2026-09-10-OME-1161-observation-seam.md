@@ -1,46 +1,23 @@
-# OME-1161 — Engine observation foundation
+# OME-1161 — Optional Engine observation interfaces
 
-Owner approved this interface design on 2026-09-10 and subsequently approved two sequential
-main-based PRs, explicitly no stacked PRs. PR 897 delivers the foundation below; it does not
-yet enable researcher activity. The activity adapter follows after this PR merges.
+Approved 2026-09-10. Each sequential main-based PR must change at most 500 lines
+(additions plus deletions, including tests/docs). No stacked PRs.
 
-## Purpose and ownership
+PR 897 introduces only Engine-owned observation ports and fault-isolated dispatch.
+Execution integration and the concrete activity adapter arrive in later PRs.
+The interfaces have a known consumer preserved at 01b3a0f1, not a speculative event bus.
 
-The model connector owns request/retry/outcome facts; the executor owns transport-loss facts.
-Expose these through narrow Engine-owned interfaces so optional telemetry implementations
-can observe execution without becoming dependencies of execution code. The core imports no
-activity schema, policy, session or heartbeat implementation.
+Factories create fresh run observers. Run binding masks inherited observer dispatch;
+call binding is tied to its owning run. Adapters supply context binding, cleanup,
+model-call observation and scalar bridge-loss attributes. They own telemetry policy
+and resources; the Engine retains requests, retries, results and accounting.
 
-`build_executor` accepts an immutable tuple of observer factories, defaulting to empty.
-Each execution calls its factories to obtain fresh run observers. Factories are supplied
-through composition, not a process-global registry. Removing registration requires no edits
-to the connector, executor or run wrapper and preserves existing operator diagnostics.
+Model observations accept start, actual retry attempt/delay, completion finish reason,
+failure code and scope exit. Ordinary observer faults cannot replace execution results
+or errors; process-control exceptions propagate. Diagnostic failures are contained and
+warning attempts are bounded to one per execution. Invalid loss attributes are discarded.
 
-## Lifecycle and facts
-
-A run observer supplies context binding, cleanup, model-call observation and bridge-loss
-attributes. Bindings surround each inner generator advancement and close; tokens never cross
-outward yields. Nested runs mask inherited observer dispatch, including with empty registration.
-
-Model observations receive start, actual selected retry attempt/delay, completion finish
-reason, safe failure code and scope exit (including cancellation). They own their own resources;
-the core guarantees cleanup dispatch. Model-call association cannot leak to another execution.
-Bridge loss decorates the existing closing diagnostic with validated scalar attributes; its
-count covers all Logs dropped by the bridge. Empty registration preserves the original record.
-
-Ordinary observer exceptions cannot replace work results, exceptions or cancellation. Even
-fault reporting is best-effort, bounded to one warning attempt per execution and excludes
-exception text. Process-control exceptions retain their semantics. Operator heartbeat ownership,
-provider requests, retries, results and accounting remain in their existing execution owners.
-
-## Acceptance and next PR
-
-Test registered observers against actual connector retries/outcomes and closing loss facts;
-test an unregistered installation, concurrent/cross-task lifetime and callback faults. Pass
-all existing Engine tests independently, without the activity package or deployment changes.
-
-After merge, create a fresh branch from origin/main for the preserved activity implementation
-(commit 01b3a0f1, local branch `OME-1161-activity-preserved`). It owns the approved v1 schema,
-sessions, rate limits, fixed heartbeat, full/off policy and deployment wiring, under the parent
-activity contract in `docs/spec/2026-09-09-OME-887-evaluation-activity.md`. OME-1161 stays open
-until that follow-up lands. Client, benchmark-stage and provisional-score work remain separate.
+Tests cover callback/factory faults, nested context isolation, startup cancellation and
+loss validation. Existing Engine behavior is unchanged: this PR wires no observers into
+execution. Integration tests follow with the execution hooks, including cross-task cleanup.
+The overall feature remains OME-1161; merging this foundation does not complete it.

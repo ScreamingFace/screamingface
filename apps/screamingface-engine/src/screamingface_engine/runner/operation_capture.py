@@ -6,7 +6,6 @@ from collections.abc import AsyncIterator
 from typing import cast
 
 from screamingface_engine.grading_accounting import capture_grading_requests
-from screamingface_engine.observations import ObserverFactory, RunObservations
 from screamingface_engine.operation_calls import (
     RequestAccountingRecorder,
     capture_request_accounting,
@@ -18,14 +17,12 @@ from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 class OperationCapturingExecutor(Executor):
     """Decorate one Executor without teaching it Benchmark or model semantics."""
 
-    def __init__(self, inner: Executor, *, observers: tuple[ObserverFactory, ...] = ()) -> None:
+    def __init__(self, inner: Executor) -> None:
         self._inner = inner
-        self._observers = observers
 
     async def execute(
         self, url4: str, *, trace: TraceContext | None = None
     ) -> AsyncIterator[ExecStep]:
-        observations = RunObservations(self._observers)
         requests: RequestAccountingRecorder = []
         registry = None
         iterator = self._inner.execute(url4, trace=trace)
@@ -34,7 +31,7 @@ class OperationCapturingExecutor(Executor):
                 # INVARIANT: ContextVar tokens never cross the outward yield. An abandoned
                 # iterator may be finalized by a different task, while the reused objects keep
                 # one run's accounting and grading ownership alive across every inner step.
-                with observations.bind(), capture_request_accounting(requests):
+                with capture_request_accounting(requests):
                     with capture_grading_requests(registry) as registry:
                         try:
                             step = await anext(iterator)
@@ -42,15 +39,13 @@ class OperationCapturingExecutor(Executor):
                             return
                 yield step
         finally:
-            try:
-                close = getattr(iterator, "aclose", None)
-                if close is not None:
-                    # INVARIANT: cleanup shares this run, but tokens never cross outward yield.
-                    with observations.bind(), capture_request_accounting(requests):
-                        with capture_grading_requests(registry):
-                            await close()
-            finally:
-                await observations.aclose()
+            close = getattr(iterator, "aclose", None)
+            if close is not None:
+                # The inner generator's own cleanup may publish final accounting, so reactivate
+                # the same run state while closing it in whichever task owns this finalization.
+                with capture_request_accounting(requests):
+                    with capture_grading_requests(registry):
+                        await close()
 
     def last_summary(self) -> RunSummary | None:
         """Delegate the inner executor's process-level run summary (OME-1069).

@@ -21,7 +21,6 @@ import httpx
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.models.registry import decode_route_id
-from screamingface_engine.observations import ModelCall, current_model_call
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
     combine_operation_accounting,
@@ -67,7 +66,7 @@ from screamingface_engine.trace_scope import current_traceparent
 from screamingface_engine.world_config import ModelSpec, WorldConfigError, provider_of, routes_for
 from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
-from url4.observe import current_log_sink, current_response_sink, current_usage_sink
+from url4.observe import current_response_sink, current_usage_sink
 from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
 
@@ -117,30 +116,6 @@ async def _logged_round_trip(
     max_tokens: object | None,
     operation_accounting: list[OperationAccounting | None],
 ) -> Choice:
-    async with ModelCall(real_model_id, current_log_sink()) as observation:
-        return await _observed_round_trip(
-            http_client,
-            real_model_id=real_model_id,
-            headers=headers,
-            body=body,
-            cache=cache,
-            max_tokens=max_tokens,
-            operation_accounting=operation_accounting,
-            observation=observation,
-        )
-
-
-async def _observed_round_trip(
-    http_client: httpx.AsyncClient,
-    *,
-    real_model_id: str,
-    headers: dict[str, str],
-    body: dict[str, object],
-    cache: CachePolicy,
-    max_tokens: object | None,
-    operation_accounting: list[OperationAccounting | None],
-    observation: ModelCall,
-) -> Choice:
     """One gateway round trip with its lifecycle in the log.
 
     FEATURE: model-call lifecycle observability (OME-1126). One line per round trip's
@@ -174,7 +149,6 @@ async def _observed_round_trip(
             accounting=operation_accounting,
         )
     except (RunnerRequestError, ResolutionError) as exc:
-        observation.failed(exc.code)
         logger.warning(
             "model call failed model=%s duration=%.1fs code=%s",
             real_model_id,
@@ -183,16 +157,13 @@ async def _observed_round_trip(
         )
         raise
     finally:
-        if heartbeat is not None:
-            heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
+        heartbeat.cancel()
     logger.info(
         "model call completed model=%s duration=%.1fs finish_reason=%s",
         real_model_id,
         time.monotonic() - started,
         choice.finish_reason,
     )
-    observation.completed(choice.finish_reason)
     return choice
 
 
@@ -574,11 +545,7 @@ async def _post_completion(
         except httpx.TransportError as exc:
             last = exc
             if attempt < _TRANSPORT_RETRIES:
-                delay = _transport_backoff(attempt)
-                observation = current_model_call()
-                if observation is not None:
-                    observation.retry(attempt=attempt + 2, delay_seconds=delay)
-                await asyncio.sleep(delay)
+                await asyncio.sleep(_transport_backoff(attempt))
     assert last is not None  # the loop always runs at least once
     raise ResolutionError(
         f"aigateway request failed at the transport layer: {_transport_detail(last)}",
