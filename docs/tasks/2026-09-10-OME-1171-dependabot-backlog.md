@@ -1,12 +1,12 @@
 ---
 id: OME-1171
 linear_url: https://linear.app/openmined/issue/OME-1171/merge-the-safe-dependabot-backlog-and-publish-an-owner-triage
-status: in_progress
+status: done
 type: task
 priority: High
 labels: [repo, agentic, autonomous, task]
 created: 2026-09-10
-closed:
+closed: 2026-09-10
 ---
 
 # Merge the safe Dependabot backlog and publish an owner triage

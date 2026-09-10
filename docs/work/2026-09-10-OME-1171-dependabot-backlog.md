@@ -1,9 +1,9 @@
 ---
 ticket: OME-1171
 stack: repo
-status: in_progress
+status: done
 started: 2026-09-10
-finished:
+finished: 2026-09-10
 ---
 
 # OME-1171 — Merge the safe Dependabot backlog and publish an owner triage
@@ -55,9 +55,34 @@ merges and issuing `@dependabot rebase` on DIRTY/BEHIND:
 - Three follow-up issues exist and are referenced from the triage doc: the LiteLLM 1.100 guard
   re-verification (supersedes #803), the packaged-litellm pin split, and the unpinned helm renderer.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** as planned — `docs/plan/2026-09-10-dependabot-backlog-triage.md`,
+  this ledger, and `docs/tasks/2026-09-10-OME-1171-dependabot-backlog.md`. No application code.
+- **Commits:** `0c3a9b69` — docs(repo): triage the Dependabot backlog by CODEOWNER (PR #895)
+- **Merged PRs (10):** #811, #802, #799, #798, #810, #809, #864, #860, then the two cluster
+  siblings #804 and #807. Each `mergeStateStatus: CLEAN` and green at merge time; squash, no
+  `--admin`.
+- **Gates:** no `run_gates.py` — this unit ships no executable code. Verification was CI instead:
+  - PR #895: all checks pass (`CodeQL`, `Analyze` × 4, `plan`), `mergeStateStatus: CLEAN`.
+  - `main` after the sweep: no failing repo workflow. `screamingface-engine-tests`,
+    `ScreamingFace E2E Replay`, `Dev build screamingface-engine` and `Release Please` all green.
+  - Confirmed the bumps actually landed: `apps/screamingface-engine/uv.lock` on `origin/main` now
+    shows tornado 6.5.8, pydantic 2.13.5, ruff 0.16.6.
+- **Deviations:**
+  1. **No `@dependabot rebase` was needed.** Both lockfile clusters (#811 -> #804,
+     #864 -> #807) re-reported `CLEAN` after the head merged, because the grouped bumps touch
+     disjoint lock entries. The rebase step in the plan went unused.
+  2. **Two cancelled runs on #811's merge commit** (`screamingface-engine-tests`,
+     `Dev build screamingface-engine`) — concurrency-cancelled when #804 merged into the same
+     tree 54s later. Not a gap: #804's runs cover a commit containing both bumps and are green.
+  3. **Two red `Dependabot Updates` runs on `main`**, for nanoid and js-yaml. These are
+     Dependabot's own post-merge security-refresh jobs, triggered by the very merges that fixed
+     the advisories — the logs read "Checking if js-yaml 4.3.2 needs updating" and "Found no
+     dependencies to update", then exit `unknown_error`. Dependabot-side race, not our CI and not
+     a regression on `main`.
+  4. **The unit did not reach zero open Dependabot PRs**, by design — see the Intent section.
+     18 -> 8. The remaining 8 are owner-gated and handed over in the triage doc.
+- **Follow-ups filed:** OME-1172 (LiteLLM 1.100 guard re-verification, supersedes #803),
+  OME-1173 (packaged litellm pin drift, blocked by OME-1172), OME-1174 (helm renderer unpinned
+  in CI — `version: latest` currently resolves v4.2.4).
