@@ -134,6 +134,12 @@ These values require owner approval; they make implementation and load tests con
 
 Detail controls filter what is displayed, not what work is executed. This is bounded optional telemetry, not “everything forever” or a guaranteed downloadable audit. At run termination, incomplete operations become “run ended; operation outcome not observed,” not fabricated successes/failures. A later valid terminal record can complete a row whose start was lost. Never increment authoritative case counts or compute scores from these messages.
 
+## Live view and durable export boundary
+
+The Logs tab is a bounded live activity view. Its rolling history is not a durable run-log archive, and removing an old row does not imply that an exportable copy exists elsewhere. The existing Engine event streams have their own retention and cleanup policies; they are temporary delivery/replay storage, not a promised complete archive. This proposal changes none of those existing settings.
+
+Durable run-log storage and export are separate delivery work and are not prerequisites for this live-view release. That work must define where received events are persisted, retention and retrieval/export behavior, and how known losses are disclosed. It must not describe an export as complete when records were suppressed before delivery or lost in buffering. The Logs tab must not promise a complete downloadable history until that contract is implemented.
+
 ## Client projection and coverage honesty
 
 OME-1135 adds a pure bounded activity reducer and presentation to the existing widget. Decoder/projection tests can be written before visual implementation. Preserve existing Candidate progress, callbacks, cost view, final Report and error behavior.

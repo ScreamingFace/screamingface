@@ -44,3 +44,5 @@ Schema, budgets, coverage and Client support-state behavior remain proposed pend
 ## Owner refinement — 10 September 2026
 
 Removed the proposed lifetime activity-record cap and its suppression counter at the owner’s request. Rate, record-size, bridge and Client-history bounds remain proposed as before. See the [refinement ledger](../work/2026-09-10-OME-887-remove-activity-total-cap.md).
+
+Clarified at the owner’s request that the Logs tab is a bounded live view. Durable run-log storage/export and its retention/loss contract remain separate delivery work; existing Engine retention is unchanged. See the [boundary ledger](../work/2026-09-10-OME-887-live-view-export-boundary.md).

@@ -53,6 +53,7 @@ Run full Engine gates in that issue's worktree. No scoring-spine migration is pe
 Can proceed alongside producer implementation once the shared contract is approved. Keep all changes under `packages/screamingface` with its own issue/worktree/ledger.
 
 - Define the strict activity interpreter over existing generic Log events. Preserve original accepted events and public callback delivery exactly once.
+- Present the Logs tab as a bounded live view. Do not promise a complete downloadable archive or assume evicted Client history survives in Engine transport storage. Durable storage/export, retention and loss disclosure belong to separate delivery work; existing transport retention remains unchanged.
 - Build/test a pure bounded reducer for occurrence rows, revision handling, late terminal records, unknown versions, bad shapes, replay and truncation.
 - Use existing Candidate/run context for grouping. Do not infer Case/member roles or fabricate joins between activity occurrences and node-level accounting.
 - Design the actual tab/row/expanded detail states using SFDS app tokens, including empty/unknown support, failure, partial history and ended-without-terminal states. Owner reviews the visual result before readiness.
@@ -67,7 +68,7 @@ Use the same tiny fake-provider evaluation locally and through the hosted stream
 
 One test fixture deliberately fails loading before any paid call; another fails a model call; another fails grading; another fails aggregation. Preserve original error handling and final truth in each. Logging faults or full buffers must not introduce a new failure or paid call.
 
-Mark full-stage delivery only after the declared board matrix and Client experience pass. Capture screenshots/recordings with synthetic public fixtures and no private materials. Optional log export, criterion-level detail and provisional scores are not part of this acceptance.
+Mark full-stage delivery only after the declared board matrix and Client experience pass. Capture screenshots/recordings with synthetic public fixtures and no private materials. Durable run-log storage/export, criterion-level detail and provisional scores are not part of this acceptance. The live-view release does not wait for durable export.
 
 ## 6. Reconcile existing future work
 
