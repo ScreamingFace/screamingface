@@ -102,3 +102,24 @@ RED first, per unit:
   - Plan named a sha cross-check "before docker boots"; the expression renders only
     engine-side, so the check runs after the verified replay instead — still refuses
     the bless on a drifted candidate spec.
+
+## Follow-up cycle (2026-09-10) — preflight skip + bless diagnosis
+
+- The first bless attempt surfaced that the SDK's free model-parameters preflight
+  fires for params-carrying candidates and needs a connected provider — impossible on
+  the sealed keyless stack. Owner-approved fix: `SCREAMINGFACE_SKIP_PARAMETER_PREFLIGHT=1`
+  (literal "1" only) disarms the preflight; only the replay harness sets it
+  (`slice_snapshot._evaluate`, `test_boards`). Two new tests pin both directions; an
+  interim throwaway-credential helper was tried, rejected by the gateway's real key
+  validation, and removed. `test_boards`'s existing test gained only a `monkeypatch`
+  fixture parameter (disclosed prior-test touch; assertions unchanged). Principled
+  replacement filed as `OME-1167`.
+- The bless then ran and REFUSED correctly: all 39 single-round cases replay
+  byte-identically; all 9 multi-round cases miss, because the engine embeds runtime
+  accounting (`usage` token counts) inside coach/tie prompts — live counts vs
+  cache-hit zeros → different cache keys. Replay proven deterministic (two runs,
+  131 identical bodies). Engine defect filed as `OME-1168` (blocks this ticket's
+  ifeval bless); after it lands, one owner re-record of the 50-case loop run is
+  needed, then `just e2e-bless-fresh` as documented.
+- Gates re-run ALL GREEN after the preflight-skip cycle (same `--skip-append-only`
+  disclosure).

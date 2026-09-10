@@ -319,3 +319,44 @@ def test_later_pipeline_stage_parameters_fail_before_any_paid_execution() -> Non
     assert caught.value.code == "unsupported_model_parameter"
     assert transport.called is False
     assert detail_models == ["provider/opus", "provider/synth"]
+
+
+def test_replay_env_flag_skips_the_parameter_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # FEATURE (OME-1098): the keyless e2e replay re-runs an already-validated
+    # recording with explicit params, on a stack where no provider can ever be
+    # connected — the flag lets that sealed room skip the free pre-spend check.
+    monkeypatch.setenv("SCREAMINGFACE_SKIP_PARAMETER_PREFLIGHT", "1")
+    detail_models: list[str] = []
+    transport = _ReachedTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=_engine(detail_models),
+        run_transport=transport,
+    )
+
+    with client, pytest.raises(RuntimeError, match="execution reached"):
+        client.evaluate(sf.Model("provider/opus", params={"temperature": 0.2}), benchmark="fixture")
+
+    assert transport.called is True
+    assert detail_models == []
+
+
+def test_the_flag_must_spell_exactly_one_to_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+    # INVARIANT: only the literal "1" disarms the preflight — any other value
+    # (truthy-looking or not) keeps the pre-spend check armed, so a stray or
+    # mistyped environment value can never silently lose it.
+    monkeypatch.setenv("SCREAMINGFACE_SKIP_PARAMETER_PREFLIGHT", "true")
+    detail_models: list[str] = []
+    transport = _ReachedTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=_engine(detail_models),
+        run_transport=transport,
+    )
+
+    with client, pytest.raises(RuntimeError, match="execution reached"):
+        client.evaluate(sf.Model("provider/opus", params={"temperature": 0.2}), benchmark="fixture")
+
+    assert detail_models == ["provider/opus"]
