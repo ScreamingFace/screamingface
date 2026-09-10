@@ -56,7 +56,7 @@ the envelope for verbatim selection) untouched. Tie-picker is already clean
 - **Actual files:** as planned —
   `packages/screamingface/src/screamingface/_evaluation/corrective.py`
   (`_coach` panel branch renders per-member `{answer, feedback}` projection;
-  new `COACH_VERDICT_FIELDS` constant folded into
+  new `_COACH_VERDICT_FIELDS` constant generates the projection AND is folded into
   `CORRECTIVE_PROTOCOL_REVISION`, now `f8fcb8eada80aa7d`, was
   `284c47e50ca0ba4f`) +
   `packages/screamingface/tests/test_corrective_compilation.py` (3 new tests).
@@ -65,5 +65,7 @@ the envelope for verbatim selection) untouched. Tie-picker is already clean
 - **Gates:** `run_gates.py screamingface` ALL GREEN — append-only check, ruff
   check/format, pyright, pytest 1420 passed / 22 skipped (cov ≥95),
   notebooks, build, distribution.
-- **Deviations:** none. Follow-up owned by `OME-1098`: fresh ifeval
+- **Deviations:** review findings applied pre-commit — the verdict-fields constant
+  is underscore-private and the coach projection is generated from it, so reshaping
+  the prompt shape necessarily moves the protocol revision. Follow-up owned by `OME-1098`: fresh ifeval
   CorrectiveLoop recording (rendered keys changed), then `just e2e-bless-fresh`.
