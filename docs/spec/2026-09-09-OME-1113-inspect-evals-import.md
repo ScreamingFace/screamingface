@@ -5,15 +5,10 @@
 `OME-1103`) as one buildable contract. It **consumes** the merged `grade_case` seam and
 the envelope decisions — it never redefines them.*
 
-**The whole idea in one sentence: inspect_evals benchmarks become rows in our catalogue —
-our engine conducts every run; from inspect we import only the dead components (question
-banks + grader functions), never its runner, CLI, or logs.**
+**The whole idea in one sentence: inspect_evals (https://ukgovernmentbeis.github.io/inspect_evals/) benchmarks (171 benchmarks as of 9 Sep, 2026) become rows in our catalogue —
+our engine conducts every run; from inspect we import only the data / static components (question banks + grader functions), never its dynamic ones (runner, CLI, or logs) - since we will own this.**
 
-Think of inspect_evals as a rival exam board that publishes its question banks and marking
-schemes under MIT. We don't hire their invigilators or sit students in their exam hall —
-we photocopy the question paper and the marking scheme once, file them in our own
-catalogue, and run the exam in our hall under our rules: one url4 expression per run,
-sealed envelopes, metered cost, our report card.
+Think of inspect_evals as a legitimate exam board that publishes its question banks and marking schemes under MIT. We don't hire their invigilators or sit students in their exam hall — we only copy the question paper and the marking scheme / rubrics once, file them in our own catalogue (of course we keep their attributions), and run the exam in our hall under our rules: one url4 expression per run, sealed envelopes, metered cost, our report card.
 
 ## Before / After
 
@@ -46,7 +41,7 @@ sealed envelopes, metered cost, our report card.
 
 ## 1 · What we take from inspect — and what we never take
 
-| Take (MIT, importable) | Never take |
+| Take (MIT, importable) | Not take |
 |---|---|
 | Datasets (`Sample[]`) — snapshotted at import/prepare time | Their `eval()` runner / solver loop |
 | Scorer functions — standalone async callables `(state, target) -> Score` | Their `.eval` log as a results source |
@@ -218,8 +213,10 @@ Per eval, the importer:
   scorers. `OME-1115` proves one board end to end; `OME-1116` lands the importer + ten.
 - **Later:** 13 execution-graded evals (sandbox for the *grading step* only); 35 agentic
   evals (ride the `environment` envelope kind, `OME-1103`); report export in inspect's
-  log format (`OME-1117`). Their compose declarations ship as reference designs for our
-  sandbox runner, nothing more.
+  log format (`OME-1117`) — including a one-click "export this run + submit upstream"
+  flow, gated on their submission rules admitting logs not produced by their own harness
+  (if they don't, the §7-Out `@modelapi` wrapper becomes its prerequisite). Their compose
+  declarations ship as reference designs for our sandbox runner, nothing more.
 - **Out (on purpose):** running anything under inspect's own loop — the loop is part of
   what a leaderboard score measures, and a scaffold `expression_sha` cannot pin must not
   exist; publishing scores from inspect logs — no expression hash, no metered cost, no
