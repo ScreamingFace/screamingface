@@ -63,3 +63,14 @@ imports the ports, never the reverse. No new dependency, event bus, URL4 behavio
 or scoring change. Existing pre-PR tests are preserved. Three new-PR test files migrated
 constructor/binding setup and the explicitly superseded shared-timer expectation; all original
 outcome, isolation, privacy, rate and cancellation assertions remain. Full Engine gate runner passed (append-only against origin/main, Ruff lint/format, Pyright, layering, full tests/coverage). 2,773 tests collected; the new observation dispatch/adapter/registration modules have 99% combined coverage.
+
+
+## Comment placement correction (2026-09-10)
+
+Owner requested moving the misplaced JWT explanation back beside `jwt_secret`.
+Move comments only, preserving field order and values. Verify Python AST equality against
+HEAD and run required Engine gates. No behavioral test is warranted for comment placement.
+
+Outcome: JWT explanation now directly precedes `jwt_secret`; the activity policy comment
+stays with `activity_level`. Python AST is identical to HEAD, preserving field order and
+behavior. Full Engine gate runner passed (append-only, lint, format, types, layering, tests/coverage).

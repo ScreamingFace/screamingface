@@ -40,6 +40,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="URL4_CLOUD_")
 
+    # INVARIANT: deployment policy, never a per-run request parameter.
+    activity_level: Literal["off", "full"] = "off"
+
     # WHY: HS256 signing secret for the JWT topic-capability token (spec §4). Never logged.
     #
     # The prod guard in app.py rejects the insecure DEFAULT, but sentinel equality alone would
@@ -47,9 +50,6 @@ class Settings(BaseSettings):
     # RFC 7518 §3.2 requires an HMAC key at least as long as the hash output; below that, PyJWT
     # itself warns. Enforced here so a weak secret fails at startup rather than at the first
     # forged token.
-    # INVARIANT: deployment policy, never a per-run request parameter.
-    activity_level: Literal["off", "full"] = "off"
-
     jwt_secret: str = INSECURE_DEFAULT_JWT_SECRET
     # WHY the shared constant and not a literal: `job_env` states the fallback beside the variable
     # name so serve and run cannot be pointed at different brokers by a one-sided edit.
