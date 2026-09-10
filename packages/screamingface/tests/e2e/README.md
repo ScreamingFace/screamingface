@@ -3,7 +3,7 @@
 One paid run becomes a permanent free regression test: CI replays the whole benchmark
 from committed fixtures and goes red when the published number drifts.
 
-<img src="../../../../docs/diagrams/e2e-board-onboarding.png" width="900">
+<img src="../../../../docs/diagrams/e2e-board-onboarding.png" width="1500">
 
 ## The five steps
 
@@ -23,11 +23,23 @@ SCREAMINGFACE_TEST_E2E=1 uv run pytest tests/e2e -rs        # opt-in, needs dock
 
 ## How the bless run moves the data
 
-<img src="../../../../docs/diagrams/e2e-replay-data-flow.png" width="900">
+<img src="../../../../docs/diagrams/e2e-replay-data-flow.png" width="1600">
 
 Everything below the recordings runs in throwaway Docker containers with **no API
 keys** — a cache miss is a loud failure, never a live call. Full mechanics: the
 docstring of [`fixtures/slice_snapshot.py`](fixtures/slice_snapshot.py).
+
+## Why this guards the example notebooks
+
+The full story for one board (ifeval), non-engineer readable: one paid run is recorded
+onto a tape (`ifeval.snapshot.gz`), CI replays the exact notebook call against it with
+zero AI keys, and the fresh result must match the frozen answer key
+(`ifeval.golden.json`) on five locks — recipe fingerprint, case statuses, failure
+reasons, coverage, and the score digit-for-digit. Any mismatch blocks the merge before
+it can break a notebook in `examples/`. (Scope note: this guards the pipeline the
+notebooks call — `sf.evaluate()` — not the `.ipynb` files themselves.)
+
+<img src="../../../../docs/diagrams/e2e-ifeval-golden-guard.png" width="1500">
 
 ## When CI goes red
 
