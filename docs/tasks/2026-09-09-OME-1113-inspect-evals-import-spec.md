@@ -1,12 +1,12 @@
 ---
 id: OME-1113
 linear_url: https://linear.app/openmined/issue/OME-1113/write-the-spec-for-importing-inspect-evals-benchmarks
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [screamingface-engine, agentic, autonomous, task]
 created: 2026-09-04
-closed:
+closed: 2026-09-10
 ---
 
 # Write the spec for importing inspect_evals benchmarks
