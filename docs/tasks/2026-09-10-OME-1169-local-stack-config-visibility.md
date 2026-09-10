@@ -1,12 +1,12 @@
 ---
 id: OME-1169
 linear_url: https://linear.app/openmined/issue/OME-1169/the-local-stack-silently-ignores-the-database-setting-and-never-shows
-status: in_progress
+status: done
 type: bug
 priority: Medium
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-09-10
-closed:
+closed: 2026-09-10
 ---
 
 # The local stack silently ignores the database setting and never shows what config it started with
