@@ -9,11 +9,13 @@ closed:
 
 # Stream safe model-call activity
 
-PR 897 delivers observation ports/dispatch only; it does not yet enable activity.
-Subsequent main-based PRs deliver execution integration, activity and deployment policy.
-Hard cap: 500 added plus deleted lines per PR, including tests/docs. No stacked PRs.
-Keep this feature open until all deliveries land. Client/benchmark work remains separate.
+PR 897 is documentation-only: design, rationale and delivery plan. Code follows in sequential
+main-based PRs, each at most 500 added plus deleted lines including tests/docs. No stacked PRs.
+The first code PR supplies observation interfaces; later units integrate execution, activity
+and deployment policy. Keep this overall feature open until delivery is complete.
+Client rendering, benchmark-stage producers and provisional scores remain separate.
 
+Update these same four shared artifacts across the deliveries; do not create one set per PR.
 [Spec](../spec/2026-09-10-OME-1161-observation-seam.md) ·
 [Plan](../plan/2026-09-10-OME-1161-observation-seam.md) ·
 [Ledger](../work/2026-09-10-OME-1161-observation-split.md).
