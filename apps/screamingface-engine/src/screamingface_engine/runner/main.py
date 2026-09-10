@@ -29,7 +29,7 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
 from screamingface_engine.logs import run_scope
-from screamingface_engine.observation_plugins import observation_factories
+from screamingface_engine.observations import ObserverFactory
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
@@ -228,6 +228,7 @@ def build_executor(
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     benchmark_assets_root: Path | None = None,
     io_gate: FairShareGate | None = None,
+    observers: tuple[ObserverFactory, ...] = (),
 ) -> OperationCapturingExecutor:
     """Wire an executor over the DECLARED world — without building it yet.
 
@@ -245,12 +246,13 @@ def build_executor(
     the web-search/web-fetch tool loop entirely (deny-by-default — see
     ``web_tools.build_client``), rather than leaving it half-configured.
 
+    ``observers`` are per-execution factories supplied by composition. The empty default
+    leaves execution without observers; optional telemetry policy belongs to its adapter.
+
     The concrete return type (not the ``Executor`` port) is deliberate: the composition root
     reads the run's process-level summary back off the wrapper after the run (OME-1069), and
     the wrapper is the only executor this function ever builds.
     """
-
-    observers = observation_factories(env)
 
     async def _world() -> World:
         # `include_extra_models`: the Runner boot is the ONE parse that reads the

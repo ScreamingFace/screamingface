@@ -11,15 +11,18 @@ closed:
 
 # Stream safe model-call activity
 
-Implement the Engine slice of the [approved spec](../spec/2026-09-09-OME-887-evaluation-activity.md) and [plan](../plan/2026-09-09-OME-887-evaluation-activity.md), merged in PR #885. [Work ledger](../work/2026-09-10-OME-1161-model-activity.md).
+Delivery is split into two sequential main-based PRs; the owner explicitly requested no stack.
 
-Full/off policy; shared bounded helper; model-call observations and fixed 60-second heartbeats; producer timestamps; structured closing bridge-loss reporting. Client and benchmark-stage producers remain separate.
+1. [PR 897](https://github.com/ScreamingFace/screamingface/pull/897): generic Engine observation
+   interfaces, explicit composition injection and tests. Nothing is registered by default;
+   this PR alone does not emit researcher activity.
+2. After PR 897 merges: a fresh main-based PR for the activity adapter, schema, sessions,
+   rate limits, heartbeat, full/off policy, Helm wiring and activity-specific tests.
 
-Implementation is in [draft PR #897](https://github.com/ScreamingFace/screamingface/pull/897), commit `378fade9`. Full local/pre-push Engine gates, 43 new tests, independent review and 112 chart-wiring checks passed. Awaiting PR review/CI/merge; delivery remains open.
+Full implementation preserved at 01b3a0f1 on local branch `OME-1161-activity-preserved`.
+The issue stays open until the second delivery lands. Client rendering and benchmark-stage
+producers remain separate.
 
-
-Architecture revision approved on 2026-09-10: [observation seam spec](../spec/2026-09-10-OME-1161-observation-seam.md)
-and [plan](../plan/2026-09-10-OME-1161-observation-seam.md). Core owns generic lifecycle/model/loss
-interfaces; activity registers through composition and owns policy, sessions, schema and timers.
-Operator diagnostics retain their existing independent heartbeat in both modes. A copied-installation
-test removes the activity package and registration and verifies real execution still works.
+[Foundation spec](../spec/2026-09-10-OME-1161-observation-seam.md) ·
+[Delivery plan](../plan/2026-09-10-OME-1161-observation-seam.md) ·
+[Split ledger](../work/2026-09-10-OME-1161-observation-split.md).

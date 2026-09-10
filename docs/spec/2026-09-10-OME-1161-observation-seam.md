@@ -1,30 +1,46 @@
-# OME-1161 — Removable activity observation
+# OME-1161 — Engine observation foundation
 
-Owner approved this revision on 2026-09-10 after the architecture review of PR 897.
-It supersedes the concrete core/activity integration and shared operator/activity timer
-in the initial implementation, while retaining the approved v1 wire contract.
+Owner approved this interface design on 2026-09-10 and subsequently approved two sequential
+main-based PRs, explicitly no stacked PRs. PR 897 delivers the foundation below; it does not
+yet enable researcher activity. The activity adapter follows after this PR merges.
 
-Execution owners expose narrow lifecycle, model completion/failure/retry and bridge-loss
-interfaces. Composition registers observation factories. Each execution creates its own
-observers; context bindings do not cross outward generator yields. Generic cleanup closes
-observers even on failure/cancellation. No core execution module imports activity, knows
-its policy, or selects behavior based on whether activity is enabled.
+## Purpose and ownership
 
-The activity adapter owns ActivitySession, schema, full/off behavior, operation identities,
-validation, admission and fixed 60-second heartbeat tasks. The connector retains its existing
-operator diagnostics and timer independently. Two independent timers in full mode are
-intentional: removing researcher activity must not change operator diagnostics.
+The model connector owns request/retry/outcome facts; the executor owns transport-loss facts.
+Expose these through narrow Engine-owned interfaces so optional telemetry implementations
+can observe execution without becoming dependencies of execution code. The core imports no
+activity schema, policy, session or heartbeat implementation.
 
-Bridge loss is an integer fact supplied by the executor. Registered observers may decorate
-its existing diagnostic with safe scalar attributes; the activity adapter supplies the
-versioned, saturated loss snapshot. No activity observer means the original diagnostic.
+`build_executor` accepts an immutable tuple of observer factories, defaulting to empty.
+Each execution calls its factories to obtain fresh run observers. Factories are supplied
+through composition, not a process-global registry. Removing registration requires no edits
+to the connector, executor or run wrapper and preserves existing operator diagnostics.
 
-Ordinary observer failures must not affect requests, retries, results, accounting or
-cancellation. Call correlation is scoped to the current execution and call; nested disabled
-executions mask inherited observers. No global mutable registration or payload event bus.
+## Lifecycle and facts
 
-Acceptance: remove the activity package and its composition registration, then execute
-success/retry/failure/cancellation paths without editing core. Verify operator diagnostics,
-accounting and output preservation; all existing behavioral contracts still pass. Tests
-that encode the superseded concrete constructor or shared timer migrate to the approved
-interfaces without weakening their underlying isolation or cleanup assertions.
+A run observer supplies context binding, cleanup, model-call observation and bridge-loss
+attributes. Bindings surround each inner generator advancement and close; tokens never cross
+outward yields. Nested runs mask inherited observer dispatch, including with empty registration.
+
+Model observations receive start, actual selected retry attempt/delay, completion finish
+reason, safe failure code and scope exit (including cancellation). They own their own resources;
+the core guarantees cleanup dispatch. Model-call association cannot leak to another execution.
+Bridge loss decorates the existing closing diagnostic with validated scalar attributes; its
+count covers all Logs dropped by the bridge. Empty registration preserves the original record.
+
+Ordinary observer exceptions cannot replace work results, exceptions or cancellation. Even
+fault reporting is best-effort, bounded to one warning attempt per execution and excludes
+exception text. Process-control exceptions retain their semantics. Operator heartbeat ownership,
+provider requests, retries, results and accounting remain in their existing execution owners.
+
+## Acceptance and next PR
+
+Test registered observers against actual connector retries/outcomes and closing loss facts;
+test an unregistered installation, concurrent/cross-task lifetime and callback faults. Pass
+all existing Engine tests independently, without the activity package or deployment changes.
+
+After merge, create a fresh branch from origin/main for the preserved activity implementation
+(commit 01b3a0f1, local branch `OME-1161-activity-preserved`). It owns the approved v1 schema,
+sessions, rate limits, fixed heartbeat, full/off policy and deployment wiring, under the parent
+activity contract in `docs/spec/2026-09-09-OME-887-evaluation-activity.md`. OME-1161 stays open
+until that follow-up lands. Client, benchmark-stage and provisional-score work remain separate.

@@ -40,9 +40,6 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="URL4_CLOUD_")
 
-    # INVARIANT: deployment policy, never a per-run request parameter.
-    activity_level: Literal["off", "full"] = "off"
-
     # WHY: HS256 signing secret for the JWT topic-capability token (spec §4). Never logged.
     #
     # The prod guard in app.py rejects the insecure DEFAULT, but sentinel equality alone would

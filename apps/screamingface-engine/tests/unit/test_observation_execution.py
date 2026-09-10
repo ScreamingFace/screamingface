@@ -1,4 +1,4 @@
-"""Run a real copied installation with the activity package and registration removed."""
+"""An unregistered installation preserves execution and operator diagnostics."""
 
 import os
 import shutil
@@ -7,14 +7,10 @@ import sys
 from pathlib import Path
 
 
-def test_execution_survives_removing_activity_package_and_registration(tmp_path):
+def test_unregistered_engine_preserves_requests_accounting_and_cancellation(tmp_path):
     source = Path(__file__).resolve().parents[2] / "src/screamingface_engine"
     target = tmp_path / "screamingface_engine"
     shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "activity"))
-    # WHY: registration is the only deployment composition edit needed to remove a plugin.
-    (target / "observation_plugins.py").write_text(
-        "def observation_factories(env):\n    return ()\n"
-    )
     script = r"""
 import asyncio
 import importlib.util
@@ -106,7 +102,7 @@ async def main():
     async with httpx.AsyncClient(
         base_url='http://gateway', transport=httpx.MockTransport(lambda _: response())
     ) as client:
-        executor = build_executor({'URL4_CLOUD_ACTIVITY_LEVEL': 'full'}, config, client=client)
+        executor = build_executor({}, config, client=client)
         frames = [frame async for frame in executor.execute("/model('question')!go")]
     assert frames
     assert 'sf.activity.' not in str(frames)

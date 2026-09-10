@@ -44,7 +44,6 @@ from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.metrics import register_fair_share_metrics
-from screamingface_engine.observation_plugins import observation_factories
 from screamingface_engine.runner.fair_share import FairShareGate
 
 _logger = logging.getLogger(__name__)
@@ -174,9 +173,7 @@ def create_local_app(
     # import (see the SCOPE NOTE in `check_layering.py`).
     from screamingface_engine.runner.main import build_executor
 
-    run_env = dict(_with_runner_config(env if env is not None else os.environ))
-    run_env.setdefault(job_env.ACTIVITY_LEVEL, settings.activity_level)
-    observation_factories(run_env)
+    run_env = _with_runner_config(env if env is not None else os.environ)
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)
     # INVARIANT: the local default is substituted ONCE, here, before anything reads the address —

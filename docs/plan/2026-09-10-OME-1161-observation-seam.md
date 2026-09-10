@@ -1,13 +1,19 @@
-# OME-1161 — Observation seam implementation
+# OME-1161 — Two sequential main-based PRs
 
-1. Record the approved revision and append regression tests for absent/failing observers,
-   generic run lifecycle and unchanged operator heartbeat ownership; demonstrate RED.
-2. Add core-owned observation protocols and run/call context helpers. Inject a tuple of
-   factories into the execution wrapper. Keep execution and cancellation authoritative.
-3. Implement the activity adapter and composition registration. Move session ownership,
-   model schema translation and loss attributes behind these interfaces.
-4. Replace concrete activity calls in executor/connector with generic observations.
-   Restore the independent operator heartbeat. Migrate tests coupled to replaced interfaces.
-5. Verify plugin deletion in an isolated subprocess, faults, concurrent/cross-task cleanup,
-   real fake-provider stream contracts and full Engine gates. Obtain independent review,
-   update docs/issue/PR and push the revision without merging.
+1. Preserve the complete implementation at 01b3a0f1 on local branch
+   `OME-1161-activity-preserved` before trimming existing PR 897.
+2. Keep only Engine observation interfaces/dispatch, connector/executor/lifecycle hooks and
+   explicit observer-factory injection with an empty default. Remove activity implementation,
+   registration, deployment wiring and their tests from this PR, retaining them on that branch.
+3. Keep generic fault/isolation tests. Add RED-first composition injection coverage, standalone
+   unregistered execution, concurrent/cross-task cleanup and generic bridge-loss decoration.
+4. Run full Engine gates and independent review. Rewrite PR/task descriptions for foundation
+   scope. Push without force; do not merge automatically or open a second PR yet.
+5. After the owner merges PR 897, create a fresh worktree/branch from origin/main. Restore the
+   activity package, registration, deployment changes and activity-only tests from the preserved
+   revision. Reconcile registration with explicit observer injection; retain all foundation tests.
+   Relocate the two activity-only tests from the preserved `test_observation_seam.py` rather than
+   overwriting the foundation file. Run independent gates/review and open the activity PR.
+
+The approved feature contract remains unchanged. OME-1161 tracks the two deliveries and remains
+open after the foundation merges. No stacked PRs are created.
