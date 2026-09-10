@@ -34,3 +34,32 @@ Inactive activity is inert; full produces safe immutable observations on the cur
 - **Review:** independent Standards and Spec reviews completed; fixed nested off/missing-sink retry leakage and expanded real-producer coverage. Follow-up reviews found no remaining actionable issues.
 - **Wisdom:** one shared helper owns timing/validation/admission without importing URL4 or Benchmarks; producers supply safe facts through explicit emitters. No new event bus, archive, scoring path or dependency. No private payload or exception string enters activity. Deployment policy cannot be overridden by run inputs. New modules remain below 450 lines.
 - **Deviations:** existing operator-only heartbeat backoff stays intact when activity is off; full mode uses a single fixed loop. This preserves existing operator behavior and tests while implementing the approved structured cadence. No Client, URL4 or benchmark-stage code changed. Delivery remains open pending PR review/merge.
+
+## Architecture revision — complete (2026-09-10)
+
+Owner approved replacing concrete core/activity dependencies with registered observers.
+Spec: `docs/spec/2026-09-10-OME-1161-observation-seam.md`.
+Plan: `docs/plan/2026-09-10-OME-1161-observation-seam.md`.
+
+Planned files: generic observation interfaces/helpers, activity adapter and composition;
+connector, executor and execution wrapper; regression tests and descriptions.
+Test plan: RED on absent/failing observer behavior and architectural imports, then real
+stream/regression tests, plugin deletion, cancellation/timer cleanup and full gates.
+Acceptance: remove activity plus registration without core edits; preserve execution,
+accounting, retries and operator diagnostics. Migrate only tests tied to the explicitly
+superseded constructor/timer ownership. This approval authorizes those necessary changes.
+
+
+Revision validation: 63 targeted tests pass, including 20 additional seam/removal/fault
+regressions. The removal test physically omits the activity package from a copied installation,
+replaces only its registration, and checks real model requests/retries, result/accounting,
+provider failure, cancellation, operator diagnostics and top-level Engine composition.
+Independent Standards and Spec review found a diagnostic-handler fault that could replace
+execution errors; RED reproduced it, and the fix contains diagnostic faults with one warning
+attempt per execution. Both follow-up reviews report no remaining confirmed findings.
+
+Wisdom: generic observation ports are Engine-owned and stdlib-only; the activity adapter
+imports the ports, never the reverse. No new dependency, event bus, URL4 behavior, persistence
+or scoring change. Existing pre-PR tests are preserved. Three new-PR test files migrated
+constructor/binding setup and the explicitly superseded shared-timer expectation; all original
+outcome, isolation, privacy, rate and cancellation assertions remain. Full Engine gate runner passed (append-only against origin/main, Ruff lint/format, Pyright, layering, full tests/coverage). 2,773 tests collected; the new observation dispatch/adapter/registration modules have 99% combined coverage.

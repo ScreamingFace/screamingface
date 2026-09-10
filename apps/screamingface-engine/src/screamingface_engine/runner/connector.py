@@ -18,11 +18,10 @@ from typing import NoReturn
 
 import httpx
 
-from screamingface_engine.activity.contract import ActivityKind
-from screamingface_engine.activity.scope import Operation, current_operation, operation
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.models.registry import decode_route_id
+from screamingface_engine.observations import ModelCall, current_model_call
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
     combine_operation_accounting,
@@ -118,13 +117,7 @@ async def _logged_round_trip(
     max_tokens: object | None,
     operation_accounting: list[OperationAccounting | None],
 ) -> Choice:
-    started = time.monotonic()
-    async with operation(
-        emit=current_log_sink(),
-        kind=ActivityKind.MODEL_CALL,
-        model_id=real_model_id,
-        on_heartbeat=lambda: _log_activity_wait(real_model_id, started),
-    ) as activity:
+    async with ModelCall(real_model_id, current_log_sink()) as observation:
         return await _observed_round_trip(
             http_client,
             real_model_id=real_model_id,
@@ -133,12 +126,8 @@ async def _logged_round_trip(
             cache=cache,
             max_tokens=max_tokens,
             operation_accounting=operation_accounting,
-            activity=activity,
+            observation=observation,
         )
-
-
-def _log_activity_wait(model_id: str, started: float) -> None:
-    logger.info("model call in flight model=%s elapsed=%.0fs", model_id, time.monotonic() - started)
 
 
 async def _observed_round_trip(
@@ -150,7 +139,7 @@ async def _observed_round_trip(
     cache: CachePolicy,
     max_tokens: object | None,
     operation_accounting: list[OperationAccounting | None],
-    activity: Operation,
+    observation: ModelCall,
 ) -> Choice:
     """One gateway round trip with its lifecycle in the log.
 
@@ -160,12 +149,7 @@ async def _observed_round_trip(
     ONLY, never prompt or response text (OME-990).
     """
     started = time.monotonic()
-    # WHY: full activity owns the only heartbeat; off retains existing operator diagnostics.
-    heartbeat = (
-        None
-        if activity.enabled
-        else asyncio.create_task(_in_flight_heartbeat(real_model_id, started))
-    )
+    heartbeat = asyncio.create_task(_in_flight_heartbeat(real_model_id, started))
     try:
         resp, outcome = await _fetch_completion(
             http_client, headers=headers, body=body, cache=cache
@@ -190,10 +174,7 @@ async def _observed_round_trip(
             accounting=operation_accounting,
         )
     except (RunnerRequestError, ResolutionError) as exc:
-        activity.finish(
-            outcome="refused" if exc.code == "provider_refusal" else "failed",
-            failure_code=exc.code,
-        )
+        observation.failed(exc.code)
         logger.warning(
             "model call failed model=%s duration=%.1fs code=%s",
             real_model_id,
@@ -211,7 +192,7 @@ async def _observed_round_trip(
         time.monotonic() - started,
         choice.finish_reason,
     )
-    activity.finish(finish_reason=choice.finish_reason)
+    observation.completed(choice.finish_reason)
     return choice
 
 
@@ -594,9 +575,9 @@ async def _post_completion(
             last = exc
             if attempt < _TRANSPORT_RETRIES:
                 delay = _transport_backoff(attempt)
-                activity = current_operation()
-                if activity is not None:
-                    activity.retry(attempt=attempt + 2, delay_seconds=delay)
+                observation = current_model_call()
+                if observation is not None:
+                    observation.retry(attempt=attempt + 2, delay_seconds=delay)
                 await asyncio.sleep(delay)
     assert last is not None  # the loop always runs at least once
     raise ResolutionError(

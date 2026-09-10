@@ -22,9 +22,8 @@ from decimal import Decimal
 from typing import Any, Literal, cast
 
 from screamingface_engine import job_env
-from screamingface_engine.activity.contract import MAX_INTEGER
-from screamingface_engine.activity.session import current_session
 from screamingface_engine.artifacts import ArtifactWriter
+from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
@@ -634,13 +633,7 @@ def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
                 payload=LogData.at(
                     "WARN",
                     f"dropped {bridge.dropped} log event(s) (telemetry overflow)",
-                    {
-                        "sf.telemetry.schema": "screamingface.telemetry.v1",
-                        "sf.telemetry.loss.scope": "engine_bridge_logs",
-                        "sf.telemetry.loss.dropped_total": min(MAX_INTEGER, bridge.dropped),
-                    }
-                    if current_session() is not None
-                    else None,
+                    bridge_loss_attributes(bridge.dropped),
                 ),
                 span=None,
             )

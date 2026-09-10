@@ -6,8 +6,9 @@ from dataclasses import dataclass
 import pytest
 
 from screamingface_engine.activity.contract import MAX_INTEGER
-from screamingface_engine.activity.session import ActivitySession, activate
 from screamingface_engine.config import Settings
+from screamingface_engine.observation_plugins import observation_factories
+from screamingface_engine.observations import RunObservations
 from screamingface_engine.runner.cache_counters import RunCacheCounters
 from screamingface_engine.runner.executor import _Bridge, _closing_logs
 from screamingface_engine.worker.supervisor import RunSupervisor
@@ -53,7 +54,7 @@ def test_bridge_loss_attributes_are_cumulative_safe_and_disabled_when_off():
     bridge = _Bridge(maxsize=1)
     bridge.on_event(Log(None, "INFO", "secret payload"))
     bridge.on_event(Log(None, "INFO", "secret payload"))
-    with activate(ActivitySession()):
+    with RunObservations(observation_factories({"URL4_CLOUD_ACTIVITY_LEVEL": "full"})).bind():
         frame = _closing_logs(bridge, RunCacheCounters())[0]
     assert frame.span is None
     assert isinstance(frame.payload, LogData)
@@ -66,7 +67,7 @@ def test_bridge_loss_attributes_are_cumulative_safe_and_disabled_when_off():
     assert isinstance(off, LogData)
     assert off.attributes == {}
     bridge._dropped = MAX_INTEGER + 10
-    with activate(ActivitySession()):
+    with RunObservations(observation_factories({"URL4_CLOUD_ACTIVITY_LEVEL": "full"})).bind():
         saturated = _closing_logs(bridge, RunCacheCounters())[0].payload
     assert isinstance(saturated, LogData)
     assert saturated.attributes["sf.telemetry.loss.dropped_total"] == MAX_INTEGER

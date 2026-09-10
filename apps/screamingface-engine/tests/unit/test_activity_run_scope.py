@@ -7,6 +7,7 @@ import pytest
 
 from screamingface_engine.activity.contract import ActivityLevel
 from screamingface_engine.activity.session import current_session
+from screamingface_engine.observation_plugins import observation_factories
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 from url4.streaming.protocol import LogData
@@ -29,7 +30,9 @@ class Probe(Executor):
 @pytest.mark.asyncio
 async def test_full_session_rebinds_for_cross_task_close_then_revokes():
     probe = Probe()
-    iterator = OperationCapturingExecutor(probe, activity_level=ActivityLevel.FULL).execute("x")
+    iterator = OperationCapturingExecutor(
+        probe, observers=observation_factories({"URL4_CLOUD_ACTIVITY_LEVEL": "full"})
+    ).execute("x")
 
     async def advance():
         return await anext(iterator)
@@ -49,7 +52,10 @@ async def test_full_runs_have_distinct_sessions_and_off_allocates_none():
 
     async def consume(probe, level):
         return [
-            s async for s in OperationCapturingExecutor(probe, activity_level=level).execute("x")
+            s
+            async for s in OperationCapturingExecutor(
+                probe, observers=observation_factories({"URL4_CLOUD_ACTIVITY_LEVEL": level})
+            ).execute("x")
         ]
 
     await asyncio.gather(

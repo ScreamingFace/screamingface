@@ -160,6 +160,11 @@ class Operation:
                 _CURRENT.reset(self._token)
                 self._token = None
 
+    async def stop_heartbeat(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)
+
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
@@ -167,9 +172,7 @@ class Operation:
         tb: TracebackType | None,
     ) -> None:
         try:
-            if self._task is not None:
-                self._task.cancel()
-                await asyncio.gather(self._task, return_exceptions=True)
+            await self.stop_heartbeat()
         finally:
             self.__exit__(exc_type, exc, tb)
 

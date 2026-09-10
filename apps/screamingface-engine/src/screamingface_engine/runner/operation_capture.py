@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import cast
 
-from screamingface_engine.activity.contract import ActivityLevel
-from screamingface_engine.activity.session import ActivitySession, activate
 from screamingface_engine.grading_accounting import capture_grading_requests
+from screamingface_engine.observations import ObserverFactory, RunObservations
 from screamingface_engine.operation_calls import (
     RequestAccountingRecorder,
     capture_request_accounting,
@@ -19,16 +18,14 @@ from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 class OperationCapturingExecutor(Executor):
     """Decorate one Executor without teaching it Benchmark or model semantics."""
 
-    def __init__(
-        self, inner: Executor, *, activity_level: ActivityLevel = ActivityLevel.OFF
-    ) -> None:
+    def __init__(self, inner: Executor, *, observers: tuple[ObserverFactory, ...] = ()) -> None:
         self._inner = inner
-        self._activity_level = activity_level
+        self._observers = observers
 
     async def execute(
         self, url4: str, *, trace: TraceContext | None = None
     ) -> AsyncIterator[ExecStep]:
-        session = ActivitySession() if self._activity_level == ActivityLevel.FULL else None
+        observations = RunObservations(self._observers)
         requests: RequestAccountingRecorder = []
         registry = None
         iterator = self._inner.execute(url4, trace=trace)
@@ -37,7 +34,7 @@ class OperationCapturingExecutor(Executor):
                 # INVARIANT: ContextVar tokens never cross the outward yield. An abandoned
                 # iterator may be finalized by a different task, while the reused objects keep
                 # one run's accounting and grading ownership alive across every inner step.
-                with activate(session), capture_request_accounting(requests):
+                with observations.bind(), capture_request_accounting(requests):
                     with capture_grading_requests(registry) as registry:
                         try:
                             step = await anext(iterator)
@@ -49,12 +46,11 @@ class OperationCapturingExecutor(Executor):
                 close = getattr(iterator, "aclose", None)
                 if close is not None:
                     # INVARIANT: cleanup shares this run, but tokens never cross outward yield.
-                    with activate(session), capture_request_accounting(requests):
+                    with observations.bind(), capture_request_accounting(requests):
                         with capture_grading_requests(registry):
                             await close()
             finally:
-                if session is not None:
-                    session.revoke()
+                await observations.aclose()
 
     def last_summary(self) -> RunSummary | None:
         """Delegate the inner executor's process-level run summary (OME-1069).

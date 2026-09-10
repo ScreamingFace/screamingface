@@ -153,7 +153,7 @@ async def test_safe_failure_does_not_expose_provider_details_or_retry_http():
 
 
 @pytest.mark.asyncio
-async def test_real_wait_uses_one_fixed_heartbeat_loop(monkeypatch):
+async def test_real_wait_uses_fixed_activity_and_independent_operator_heartbeat(monkeypatch):
     from screamingface_engine.activity import scope
     from screamingface_engine.runner import connector
 
@@ -165,8 +165,11 @@ async def test_real_wait_uses_one_fixed_heartbeat_loop(monkeypatch):
         if len(intervals) >= 3:
             release.set()
 
-    async def forbidden_legacy(*args):
-        pytest.fail("full mode started the legacy heartbeat too")
+    operator_started = []
+
+    async def independent_operator(*args):
+        operator_started.append(True)
+        await asyncio.Event().wait()
 
     async def handler(request):
         calls.append(request)
@@ -174,9 +177,10 @@ async def test_real_wait_uses_one_fixed_heartbeat_loop(monkeypatch):
         return httpx.Response(200, json=completion())
 
     monkeypatch.setattr(scope, "_sleep", heartbeat_sleep)
-    monkeypatch.setattr(connector, "_in_flight_heartbeat", forbidden_legacy)
+    monkeypatch.setattr(connector, "_in_flight_heartbeat", independent_operator)
     logs = activities(await publish(handler))
     assert len(calls) == 1
+    assert operator_started == [True]
     assert len(intervals) >= 3 and set(intervals) == {60.0}
     assert any(r.data.attributes["sf.activity.state"] == "running" for r in logs)
     assert logs[-1].data.attributes["sf.activity.state"] == "completed"
@@ -185,7 +189,8 @@ async def test_real_wait_uses_one_fixed_heartbeat_loop(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_actual_connector_cancellation_keeps_error_and_joins_timer(monkeypatch):
-    from screamingface_engine.activity.session import ActivitySession, activate
+    from screamingface_engine.observation_plugins import observation_factories
+    from screamingface_engine.observations import RunObservations
     from screamingface_engine.runner import connector
     from url4.streaming.protocol import CachePolicy
 
@@ -206,7 +211,10 @@ async def test_actual_connector_cancellation_keeps_error_and_joins_timer(monkeyp
     ) as client:
 
         async def work():
-            with activate(ActivitySession()):
+            observations = RunObservations(
+                observation_factories({"URL4_CLOUD_ACTIVITY_LEVEL": "full"})
+            )
+            with observations.bind():
                 return await connector._logged_round_trip(
                     client,
                     real_model_id="model",

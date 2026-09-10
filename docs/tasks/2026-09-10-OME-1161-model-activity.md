@@ -16,3 +16,10 @@ Implement the Engine slice of the [approved spec](../spec/2026-09-09-OME-887-eva
 Full/off policy; shared bounded helper; model-call observations and fixed 60-second heartbeats; producer timestamps; structured closing bridge-loss reporting. Client and benchmark-stage producers remain separate.
 
 Implementation is in [draft PR #897](https://github.com/ScreamingFace/screamingface/pull/897), commit `378fade9`. Full local/pre-push Engine gates, 43 new tests, independent review and 112 chart-wiring checks passed. Awaiting PR review/CI/merge; delivery remains open.
+
+
+Architecture revision approved on 2026-09-10: [observation seam spec](../spec/2026-09-10-OME-1161-observation-seam.md)
+and [plan](../plan/2026-09-10-OME-1161-observation-seam.md). Core owns generic lifecycle/model/loss
+interfaces; activity registers through composition and owns policy, sessions, schema and timers.
+Operator diagnostics retain their existing independent heartbeat in both modes. A copied-installation
+test removes the activity package and registration and verifies real execution still works.

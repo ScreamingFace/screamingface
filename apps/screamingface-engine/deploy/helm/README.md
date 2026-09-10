@@ -311,7 +311,7 @@ mode. That count covers all bridge Logs, and is neither a guaranteed live warnin
 complete activity-loss count.
 
 Off disables the new activity producer; existing lifecycle/results/accounting and operator
-logs remain governed by their existing settings. In off mode the pre-existing operator-log
-heartbeat retains its backoff; full mode uses a single fixed heartbeat for structured and
-operator observations. This switch is not a deployment-wide privacy guarantee. Aggregate
+logs remain governed by their existing settings. The pre-existing operator-log
+heartbeat retains its backoff in both modes; full mode adds an independent fixed heartbeat
+owned by the activity observer. Removing its registration preserves operator diagnostics. This switch is not a deployment-wide privacy guarantee. Aggregate
 privacy mode and the Client Logs tab are separate work.

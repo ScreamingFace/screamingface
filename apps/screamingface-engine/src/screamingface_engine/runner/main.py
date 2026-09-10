@@ -21,7 +21,6 @@ from urllib.parse import urlsplit
 import httpx
 
 from screamingface_engine import job_env
-from screamingface_engine.activity.contract import ActivityLevel
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.artifacts import ArtifactStore, ArtifactWriter, S3ArtifactStore
 from screamingface_engine.artifacts.wiring import s3_config_from_values
@@ -30,6 +29,7 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
 from screamingface_engine.logs import run_scope
+from screamingface_engine.observation_plugins import observation_factories
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
@@ -250,7 +250,7 @@ def build_executor(
     the wrapper is the only executor this function ever builds.
     """
 
-    activity_level = ActivityLevel(env.get(job_env.ACTIVITY_LEVEL, "off"))
+    observers = observation_factories(env)
 
     async def _world() -> World:
         # `include_extra_models`: the Runner boot is the ONE parse that reads the
@@ -351,7 +351,7 @@ def build_executor(
             io_wrap=io_wrap,
             io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
         ),
-        activity_level=activity_level,
+        observers=observers,
     )
 
 
