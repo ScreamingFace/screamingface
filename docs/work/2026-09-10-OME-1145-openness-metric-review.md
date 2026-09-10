@@ -409,7 +409,7 @@ asserting what the board stores.
 | D-G | Record the Baseline consequence in **both** OME-1145 and OME-1179. |
 | D-H | *(revised — was "drop D5")* Do not silently drop it. Record that under D-L the override loses its only consumer, and raise Q4. |
 | D-I | Do not comment on OME-831. Record in OME-1179 that the Scoreboard keeps its own registry and that Gateway-side classification would need reconciling. Stop calling OME-831 a successor. |
-| D-J | Hold all Linear edits until this document is reviewed. |
+| D-J | Hold all Linear edits until this document is reviewed. **Satisfied** — reviewed, then applied 2026-09-10; see §13. |
 | D-K | Assume OME-1143 lands and costs become real. The one-row frontier is a **sequencing** fact — it blocks demonstrating the fix, not designing it. |
 | D-L | **API shape: option (a).** Move the entire `/frontier` response to the frontier and per-model basis. The holder-based trend is **replaced** by an open-share-over-time series, not adapted. Justified because the board is in testing and nothing depends on the August history. |
 | D-M | Leave the existing pre-OME-1143 rows in place. They will likely be deleted later. Trend points computed before real costs are meaningless and unrecoverable. |
@@ -446,7 +446,19 @@ anti-hijack and visibility locking the author/metadata path uses.
 
 ---
 
-## 13. Pending Linear edits (not yet applied)
+## 13. Linear edits — APPLIED 2026-09-10
+
+All five tickets updated via MCP after this document was reviewed. No comments were posted
+on anyone's ticket; OME-772 received only the relation.
+
+One scope change was made during application, beyond the corrections listed here: the
+boundary between OME-1181 and OME-1145 was redrawn. OME-1181 now provides the **inputs**
+(accept, store, derive, `classify_model()`, bounded frontier read) and OME-1145 owns the
+**metric and the public response**. The first version had OME-1181 doing the counting, which
+would have made it undeployable ahead of the Client — the opposite of what the one-directional
+rollout requires.
+
+What each ticket received:
 
 **OME-1179** — rewrite Problem per §5; add the rejected-option note; fix `:430` → `:502`/`:443`
 and `:293` → `:276`; correct constraint 2 per D-B with the live stale-revision evidence; correct
