@@ -31,3 +31,17 @@ Verified: docs-only diff, relative links, one file per folder and 177 changed li
 After docs merge, extract each code unit from updated main and repeat gates/review. Existing
 pre-PR tests remain intact; deferred tests stay with their preserved implementation.
 OME-1161 remains open. Append subsequent delivery outcomes to this same ledger.
+
+
+## Code unit 1 — observation ports (2026-09-10)
+
+Docs PR 897 merged at af58b5c1. Extract only observations.py and its unit tests from
+f9aa283f onto a fresh origin/main worktree. Explain adapter lifecycle obligations in
+interface docstrings. No execution integration or activity implementation in this unit.
+RED first on the absent module, then full Engine gates and independent review. Keep
+all changes, including shared-doc updates, below 500 added plus deleted lines.
+
+Outcome: 16 focused tests pass; full Engine gates pass (append-only, Ruff lint/format,
+Pyright, layering and full tests/coverage). Independent Standards/Spec reviews found
+no remaining issues. No execution hooks or activity policy ship in this unit. Reused
+shared docs only; final line-budget check passed before commit. Feature remains open.
