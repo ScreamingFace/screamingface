@@ -81,6 +81,10 @@ _CALLBACK_DYNAMIC_FIELDS: frozenset[str] = frozenset(
         # comment); a caller nesting it under `metadata` instead of the top level should
         # not get a free pass just because it lives in the smaller set.
         "litellm_trusted_callback_vars",
+        # WHY: LiteLLM 1.100 OTel routing trusts this proxy-owned auth container
+        # for project/service selection. Caller metadata must never impersonate it.
+        # Strip the whole value at both ingress locations, regardless of its shape.
+        "user_api_key_auth_metadata",
     }
 )
 

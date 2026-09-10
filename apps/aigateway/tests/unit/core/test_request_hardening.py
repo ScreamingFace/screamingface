@@ -124,6 +124,7 @@ _D6_CONTROL_FIELDS = {
     "newrelic_api_key",
     "newrelic_region",
     "litellm_trusted_callback_vars",
+    "user_api_key_auth_metadata",
 }
 
 
