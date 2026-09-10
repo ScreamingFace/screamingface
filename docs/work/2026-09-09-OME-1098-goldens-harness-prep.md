@@ -130,3 +130,12 @@ RED first, per unit:
   hatch (39/50 cases replayed; refusal only on the pre-`OME-1168` recording's stale
   multi-round bytes, as expected). Remaining: owner re-record of the 50-case loop
   run on post-`OME-1168` main, then bless.
+- 2026-09-10 later still: owner re-recorded the 50-case loop (score 0.9184,
+  coverage 0.98, one `model_token_cap` failed case — a real recurring property of
+  the deepseek judge on this board, present in the Sep-9 run too).
+  `just e2e-bless-fresh` verified the replay reproduces score/coverage/statuses AND
+  the recorded expression, sliced 177 of 226 rows, and wrote the ifeval fixture
+  triple; the e2e lane replays `test_boards[ifeval]` green in ~11s, keyless. The
+  ifeval manifest gained its `.gitignore` whitelist line (per-board pattern);
+  stale example notebooks (owner's recording runs) regenerated via
+  `build_notebooks.py`. gdpval-text bless still waits on its fusion recording.

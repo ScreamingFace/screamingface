@@ -1,0 +1,102 @@
+{
+  "schema": "screamingface.golden-report.v1",
+  "board": "ifeval",
+  "revision": "1cba769ece27f7ef",
+  "models": [
+    "openrouter/mistralai/ministral-3b-2512",
+    "openrouter/microsoft/phi-4"
+  ],
+  "limit": 50,
+  "expression_sha": "e45d1458d1d1e487cb0e62c695a80c26206a39cedb43fc9f431ca2366e320b90",
+  "final_score": "0.9184",
+  "case_count": 50,
+  "gradeable_count": 49,
+  "case_statuses": {
+    "1000": "scored",
+    "1001": "scored",
+    "1005": "scored",
+    "1012": "scored",
+    "1019": "scored",
+    "102": "scored",
+    "1021": "scored",
+    "1040": "scored",
+    "1051": "scored",
+    "1069": "failed",
+    "1072": "scored",
+    "1075": "scored",
+    "1082": "scored",
+    "1087": "scored",
+    "1092": "scored",
+    "1094": "scored",
+    "1098": "scored",
+    "1107": "scored",
+    "1108": "scored",
+    "1122": "scored",
+    "1127": "scored",
+    "1128": "scored",
+    "1129": "scored",
+    "1130": "scored",
+    "1131": "scored",
+    "1132": "scored",
+    "1137": "scored",
+    "1139": "scored",
+    "1147": "scored",
+    "1148": "scored",
+    "1153": "scored",
+    "1154": "scored",
+    "1162": "scored",
+    "1174": "scored",
+    "1180": "scored",
+    "1187": "scored",
+    "1203": "scored",
+    "1216": "scored",
+    "1217": "scored",
+    "1219": "scored",
+    "122": "scored",
+    "1220": "scored",
+    "1233": "scored",
+    "1236": "scored",
+    "1237": "scored",
+    "1242": "scored",
+    "1246": "scored",
+    "1248": "scored",
+    "1251": "scored",
+    "1258": "scored"
+  },
+  "case_failures": {
+    "1069": [
+      {
+        "stage": "grading",
+        "code": "model_token_cap"
+      }
+    ]
+  },
+  "kind": "corrective_loop",
+  "member_specs": [
+    {
+      "model": "openrouter/mistralai/ministral-3b-2512",
+      "prompt": "Answer the request accurately and completely. Follow every instruction and formatting constraint in the request.",
+      "params": {
+        "max_tokens": 8192,
+        "temperature": 0.0
+      }
+    },
+    {
+      "model": "openrouter/microsoft/phi-4",
+      "prompt": "Answer the request accurately and completely. Follow every instruction and formatting constraint in the request.",
+      "params": {
+        "max_tokens": 8192,
+        "temperature": 0.0
+      }
+    }
+  ],
+  "judge_spec": {
+    "model": "openrouter/deepseek/deepseek-v4-flash",
+    "prompt": "Produce one final answer to the original request from the panel drafts. Preserve every instruction and formatting constraint.",
+    "params": {
+      "max_tokens": 8192,
+      "temperature": 0.0
+    }
+  },
+  "max_rounds": 3
+}
