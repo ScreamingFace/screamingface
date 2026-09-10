@@ -25,7 +25,7 @@ from typing import Any, Final, Literal
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from aigateway.call_context import current_call_id, new_gateway_call_id
+from aigateway.call_context import current_call_id, current_trace_id, new_gateway_call_id
 
 from ...core.usage_accounting.hooks import AccountingAsyncHTTPHandler
 from ...core.usage_accounting.signals import bound_collector
@@ -320,6 +320,7 @@ def _metadata(
     cache_reference: CacheReference | None = None,
 ) -> dict[str, Any]:
     return render_aigw_metadata(
+        trace_id=current_trace_id(),
         collector=session.collector,
         supported=session.supported,
         cache_status=cache_status,
