@@ -112,7 +112,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@v5.0.1
 
       # Kept for malformed-Chart.yaml coverage but NOT the gate: `helm lint` reports
       # "0 chart(s) failed" for a chart that cannot render at all, because it reads templates
