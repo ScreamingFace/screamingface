@@ -34,7 +34,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from harness._gating import FIXTURES_DIR, SNAPSHOTS_DIR, require_e2e_stack
+from harness._gating import SNAPSHOTS_DIR, require_e2e_stack
 from harness.cache_seeded import CacheSeededGateway
 from harness.fake_gateway import FakeGateway
 from harness.stack import EngineProcess, replay_stack
@@ -63,8 +63,19 @@ asserted.
 
 
 def _assets_root() -> Path:
+    # WHY this default: it is where `screamingface prepare` writes, so the assets a dev
+    # prepares for the stack are the assets these tests find (OME-1001). `test_boards.py` and
+    # `test_failures.py` have resolved it this way all along; this file was the one outlier,
+    # defaulting to `FIXTURES_DIR / "assets"` — a path `prepare` never writes and the repo does
+    # not ship. The ladder was therefore unrunnable without setting the override by hand, and
+    # `check_setup.py` reported the lane ready from a location this function never read
+    # (OME-1106 review). `default_data_dir()` also honours SCREAMINGFACE_DATA_DIR.
+    from screamingface._runtime.config import default_data_dir
+
     override = os.environ.get(_ASSETS_ENV)
-    return Path(override) if override else FIXTURES_DIR / "assets"
+    if override:
+        return Path(override)
+    return default_data_dir() / "benchmark-assets"
 
 
 def _require_draco_assets() -> Path:
