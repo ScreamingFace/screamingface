@@ -74,6 +74,13 @@ _CALLBACK_DYNAMIC_FIELDS: frozenset[str] = frozenset(
         "newrelic_api_key",
         "newrelic_region",
         "turn_off_message_logging",
+        # WHY here and not only in DISPATCH_CONTROL_FIELDS: this filter strips dynamic
+        # callback controls from BOTH the top-level body and `metadata` symmetrically —
+        # every other name in this set gets that treatment. `litellm_trusted_callback_vars`
+        # is reserved for LiteLLM's own proxy to stamp (see DISPATCH_CONTROL_FIELDS'
+        # comment); a caller nesting it under `metadata` instead of the top level should
+        # not get a free pass just because it lives in the smaller set.
+        "litellm_trusted_callback_vars",
     }
 )
 
@@ -144,9 +151,10 @@ DISPATCH_CONTROL_FIELDS: frozenset[str] = frozenset(
         "failure_callback",
         "litellm_params",
         "litellm_metadata",
-        # WHY: only LiteLLM's proxy may stamp this trusted credential container.
-        # Passing caller data here bypasses LiteLLM's ordinary callback filtering.
-        "litellm_trusted_callback_vars",
+        # WHY only LiteLLM's proxy may stamp this trusted credential container. Passing
+        # caller data here bypasses LiteLLM's ordinary callback filtering — it now lives
+        # in `_CALLBACK_DYNAMIC_FIELDS` below (splatted in) so it is stripped from both
+        # the top-level body and `metadata`, not just the top level.
         *_CALLBACK_DYNAMIC_FIELDS,
     }
 )

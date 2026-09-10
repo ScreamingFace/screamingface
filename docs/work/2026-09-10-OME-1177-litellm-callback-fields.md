@@ -156,3 +156,37 @@ sanctioned OME-735 path rather than stopping to ask.
   5. Prior-test edits — see the Deviation section above for the full Confidence-Gate reasoning
      (append to `_D6_CONTROL_FIELDS`, bump the two version-pin literals after `hasattr`
      re-verification).
+
+## Follow-up round — defense-in-depth tightening from independent review
+
+A subsequent commit (`fix(aigateway): reject caller-supplied trusted callback settings`) added
+`litellm_trusted_callback_vars` to `DISPATCH_CONTROL_FIELDS` (top-level only) plus
+`test_trusted_callback_ingress.py`, proving LiteLLM's real trusted-callback consumers
+(`get_trusted_callback_params`, `initialize_standard_callback_dynamic_params`) never see a
+caller-supplied value.
+
+An independent code review of that commit found the field was added only to
+`DISPATCH_CONTROL_FIELDS`, not `_CALLBACK_DYNAMIC_FIELDS` — the set `strip_dispatch_controls`
+uses to sanitize `metadata`. Reproduced directly: a caller nesting
+`metadata.litellm_trusted_callback_vars` instead of putting it at the top level survived the
+strip untouched.
+
+Owner review of that finding (correcting the initial "incidental luck" framing): LiteLLM's
+`get_trusted_callback_params` reads this container via a flat top-level `kwargs.get(...)` —
+a different, and narrower, input contract than ordinary dynamic callback params, which LiteLLM
+explicitly also resolves from `metadata`. No metadata-to-kwargs promotion was found on the
+paths checked, so this was not a demonstrated bypass of the current trust boundary — but
+symmetric stripping is still a reasonable, deliberate hardening given every other name in
+`_CALLBACK_DYNAMIC_FIELDS` already gets that treatment.
+
+**Fix:** moved `litellm_trusted_callback_vars` from an explicit `DISPATCH_CONTROL_FIELDS`
+literal into `_CALLBACK_DYNAMIC_FIELDS` (still covered by `DISPATCH_CONTROL_FIELDS` via the
+existing `*_CALLBACK_DYNAMIC_FIELDS` splat, so top-level stripping is unchanged) — this is what
+makes `metadata` stripping cover it too. Added
+`test_ingress_removes_the_envelope_when_nested_under_metadata_too` to
+`test_trusted_callback_ingress.py`, proving the nested case is now stripped and that the real
+LiteLLM consumers see nothing when given the sanitized `metadata` alone.
+
+**Gates:** `uv run .claude/scripts/run_gates.py aigateway` — ALL GREEN, append-only guard passed
+without `--skip-append-only` (pure additions, no pre-existing assertion edited). Targeted:
+`tests/unit/core/` + `test_openai_runtime_guard.py` — **606 passed**.
