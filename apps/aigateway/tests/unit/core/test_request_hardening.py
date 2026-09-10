@@ -116,6 +116,13 @@ _D6_CONTROL_FIELDS = {
     "dd_agent_host",
     "dd_agent_port",
     "dd_site",
+    # OME-1177: litellm 1.100 added `langfuse_environment` plus a New Relic
+    # dynamic-callback trio. Mirrors the same three names added to
+    # _CALLBACK_DYNAMIC_FIELDS in request_hardening.py. Same deliberate review
+    # checkpoint as the dd_* block above.
+    "langfuse_environment",
+    "newrelic_api_key",
+    "newrelic_region",
 }
 
 
@@ -205,6 +212,32 @@ def test_strip_removes_litellm_metadata_alias_entirely() -> None:
         },
     }
     assert set(strip_dispatch_controls(body)) == {"model", "messages"}
+
+
+def test_strip_removes_litellm_1_100_dynamic_callback_fields() -> None:
+    # OME-1177: litellm 1.100 added `langfuse_environment` (a further Langfuse
+    # dynamic param) and a New Relic dynamic-callback trio for per-team trace
+    # routing. `newrelic_api_key` is a caller-injectable credential and
+    # `langfuse_environment`/`newrelic_region` redirect where prompt/response
+    # telemetry ships — same exfiltration category as the dd_* fields above.
+    body = {
+        "model": "openrouter/a/b",
+        "messages": [],
+        "langfuse_environment": "attacker-env",
+        "newrelic_api_key": "attacker-key",
+        "newrelic_region": "attacker-region",
+        "metadata": {
+            "trace_id": "safe-provider-metadata",
+            "langfuse_environment": "attacker-env",
+            "newrelic_api_key": "attacker-key",
+            "newrelic_region": "attacker-region",
+        },
+    }
+
+    stripped = strip_dispatch_controls(body)
+
+    assert set(stripped) == {"model", "messages", "metadata"}
+    assert stripped["metadata"] == {"trace_id": "safe-provider-metadata"}
 
 
 def test_litellm_dynamic_callback_parameter_set_is_covered() -> None:
