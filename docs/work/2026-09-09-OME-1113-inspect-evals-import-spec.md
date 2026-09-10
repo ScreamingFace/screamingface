@@ -1,9 +1,9 @@
 ---
 ticket: OME-1113
 stack: repo
-status: in_progress
+status: done
 started: 2026-09-09
-finished:
+finished: 2026-09-10
 ---
 
 # OME-1113 — Write the spec for importing inspect_evals benchmarks
@@ -42,7 +42,11 @@ and the envelope decisions, never redefining them.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned — the spec, this ledger, the `docs/tasks/` mirror.
+- **Commits:** `0ff077a7` docs(spec): specify importing inspect_evals benchmarks;
+  `51aafe7a` docs(spec): sharpen inspect import framing + upstream-export nice-to-have
+  (owner's review edits); merged via PR #869 (`e409b5b7`).
+- **Gates:** none applicable — docs-only change; pre-commit hooks green.
+- **Deviations:** owner review sharpened the framing before merge (live catalogue count,
+  attribution note, upstream-export nice-to-have); mirror + ledger close landed in a
+  follow-up docs PR because the review edits merged ahead of the close-out.
