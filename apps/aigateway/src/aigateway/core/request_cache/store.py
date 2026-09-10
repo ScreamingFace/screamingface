@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Infrastructure failures that must degrade the cache rather than fail the request. OSError covers
 # the socket/file layer under the driver, which does not always arrive wrapped as an ORM error.
-_INFRASTRUCTURE_ERRORS = (BaseORMException, OSError)
+INFRASTRUCTURE_ERRORS = (BaseORMException, OSError)
 
 
 class CacheUnavailable(RuntimeError):
@@ -109,7 +109,7 @@ class TortoiseRequestCacheStore:
 
         try:
             row = await RequestCacheEntry.get_or_none(key_hash=key_hash)
-        except _INFRASTRUCTURE_ERRORS as exc:
+        except INFRASTRUCTURE_ERRORS as exc:
             logger.warning("global cache read failed (%s); bypassing", type(exc).__name__)
             raise CacheUnavailable("global cache read failed") from exc
 
@@ -222,7 +222,7 @@ class TortoiseRequestCacheStore:
             # TransactionManagementError. By now the block has exited and the savepoint is rolled
             # back, so this runs on a usable session.
             return await self._classify_fill_conflict(entry)
-        except _INFRASTRUCTURE_ERRORS as exc:
+        except INFRASTRUCTURE_ERRORS as exc:
             # AIDEV-NOTE: this clause must stay BELOW `except IntegrityError`. The MRO is
             # IntegrityError -> OperationalError -> BaseORMException, so reordering them makes this
             # one swallow every lost race and silently report `not_stored` instead.
@@ -239,7 +239,7 @@ class TortoiseRequestCacheStore:
         """Did a rival fill win this key, or did the row violate some other constraint?"""
         try:
             winner_exists = await RequestCacheEntry.filter(key_hash=entry.key_hash).exists()
-        except _INFRASTRUCTURE_ERRORS as exc:
+        except INFRASTRUCTURE_ERRORS as exc:
             logger.warning(
                 "global cache fill conflict for %s… could not be classified (%s); not stored",
                 entry.key_hash[:12],

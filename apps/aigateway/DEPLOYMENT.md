@@ -354,6 +354,54 @@ This feature writes no accounting or attribution fields, and a hit performs no p
 so a hit currently produces no provider-side usage record of its own. Do not read cache-hit volume
 out of provider billing.
 
+## The Tavily Retrieval Cache (OME-1043/OME-1044)
+
+`POST /v1/retrieval/tavily/cache/lookup` and `.../entries` cache the results of the Runner's
+Tavily `web_search` and `web_fetch` calls.
+
+**This gateway never calls Tavily and never holds a Tavily API key.** The Runner keeps both. It
+sends a *description* of the retrieval it is about to make, this gateway derives the cache key
+from that description itself, and on a miss the Runner pays Tavily and posts the result back.
+The key is derived server-side deliberately: a client-supplied key would let two Runner versions
+with different normalization silently split or share rows.
+
+**It is always on.** There is no env var, no chart value and no availability gate — unlike the
+global response cache above, there is nothing to configure. A runtime store failure is reported
+as `X-AIGW-Cache: bypass` with `X-AIGW-Cache-Reason: cache_unavailable`, and the Runner then
+calls Tavily exactly as it would have anyway.
+
+**It shares `request_cache_entries` with the response cache.** Rows are told apart by
+`provider = 'tavily'`, with `model` holding the tool name (`web_search` / `web_fetch`). No
+migration was needed. Consequences for operators:
+
+- **Rows never expire**, the same as the response-cache lane — `expires_at` is NULL. This was a
+  deliberate choice of determinism over freshness: a re-run of a benchmark keys *and* answers
+  identically, which is what also lets the tool-loop continuation chat call hit the response
+  cache. The cost is that a stale web result can be served indefinitely.
+- **Cross-account replay applies here too.** Two callers whose retrieval descriptions are
+  identical share one row. Identity never enters the key.
+- **The exclusion list IS part of the key.** A row filled by a caller with no domain exclusions
+  is never served to one that excluded domains, because a cached hit returns an
+  already-formatted result string that can no longer be filtered. Do not remove
+  `excluded_domains` from the key — it is the only place a benchmark's retrieval policy can be
+  honoured.
+- **Results are plaintext in the database**, exactly like cached chat responses.
+
+To reset only this lane — after a Tavily behaviour change, or to drop stale pages — use the same
+per-provider delete the response cache already documents:
+
+```sql
+DELETE FROM request_cache_entries WHERE provider = 'tavily';
+```
+
+The next caller re-fills what was removed. Growth is unbounded and unswept, so watch this table
+the same way you watch the response-cache rows; `provider` lets you size the two lanes
+separately:
+
+```sql
+SELECT provider, count(*) AS rows FROM request_cache_entries GROUP BY provider;
+```
+
 ## Live OpenRouter Model Discovery (OME-972)
 
 `GET /v1/models` lists the models OpenRouter actually serves now, refreshed from its public
