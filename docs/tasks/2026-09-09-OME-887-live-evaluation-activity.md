@@ -50,3 +50,7 @@ Clarified at the owner’s request that the Logs tab is a bounded live view. Dur
 Owner-approved refinement: limits recover or roll forward without blocking evaluation; prioritize outcomes over repetitive updates within bounded capacity, preserve bounded active/failure summaries, and disclose reconnect gaps. Use fixed 60-second async heartbeats (superseding the earlier backoff recommendation), with elapsed time distinct from received activity. See the [long-run refinement ledger](../work/2026-09-10-OME-887-rolling-activity-limits.md). Product implementation remains separate.
 
 Latest owner clarification: activity is ephemeral; no new server-side archive or historical retrieval is wanted. Existing temporary transport retention remains unchanged. Discarded Client history need not be recoverable, and durable storage/export is not requested follow-up work.
+
+## Deployment policy and review follow-up
+
+PR #885 now proposes full/off deployment enforcement in OME-1161, with genuine aggregate mode deferred. OME-1135 owns bounded decoder ID tracking as well as bounded projection; the bounded ID-reuse detection tradeoff is explicit. OME-1161 adds structured run-scoped bridge-loss attributes to the existing closing diagnostic. Freshness changes stale rows to outcome unknown, and replay alone cannot restart timers; the proposed 180-second threshold awaits owner confirmation. See the [review ledger](../work/2026-09-10-OME-887-policy-and-review-findings.md).

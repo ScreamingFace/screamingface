@@ -18,7 +18,11 @@ Inventory the seven registered boards with fixtures and exact hook locations. Ve
 
 ## 2. OME-1161: shared activity behavior and model-call producer
 
-Potential files: new `activity/contract.py`, `activity/scope.py`, `activity/session.py`; existing `runner/connector.py` and the execution wrapper/composition point. Generic `runner/executor.py` needs no domain-aware change.
+Potential files: new `activity/contract.py`, `activity/scope.py`, `activity/session.py`; existing `runner/connector.py` and the execution wrapper/composition point. Generic `runner/executor.py` gains only safe structured attributes on the existing bridge-loss closing diagnostic; it gains no benchmark-stage knowledge.
+
+Resolve full/off deployment policy in composition and test that Client/run input cannot escalate it. Missing policy is off; invalid configuration fails deployment setup. Public profiles explicitly choose full, private profiles off. Off starts no activity timers and emits no activity records/suppression diagnostics. Existing lifecycle/results/accounting and generic telemetry are not silently reclassified as privacy-safe. Aggregate/limited modes are not implemented.
+
+Add the spec's structured bridge-loss attributes at the existing closing diagnostic, with saturation and run-total semantics. Test nonzero/zero drops, off policy, original lifecycle ordering, no message parsing, and no false promise of live or guaranteed loss notification. This Engine change belongs to OME-1161; merged OME-934 is not reopened.
 
 TDD through the producer interface:
 
@@ -53,9 +57,11 @@ Run full Engine gates in that issue's worktree. No scoring-spine migration is pe
 
 Can proceed alongside producer implementation once the shared contract is approved. Keep all changes under `packages/screamingface` with its own issue/worktree/ledger.
 
-- Define the strict activity interpreter over existing generic Log events. Preserve original accepted events and public callback delivery exactly once.
+- Define the strict activity interpreter over existing generic Log events. Preserve the callback path for newly accepted sequence numbers. Decode the generic structured bridge-loss diagnostic separately; take per-run maxima and never infer counts from body text.
+- Bound `_RunState._event_ids` before the Logs projection: proposed 4,096 IDs / 1 MiB window plus constant-size sequence cursor. Review and document the loss of lifetime cross-sequence ID-reuse detection after eviction; preserve replay suppression, gap detection and authoritative event behavior. Exercise oversized tracking entries, duplicates within/outside the window, more than 20,000 events and multi-day synthetic streams. Measure decoder and projection state independently.
 - Present the Logs tab as a bounded live view. Do not promise a complete downloadable archive or assume evicted Client history survives in Engine transport storage. The owner wants ephemeral activity: do not add a server-side archive or historical pagination service. Existing temporary transport retention remains unchanged; durable storage/export would need a separate future owner request.
 - Build/test a pure bounded reducer for occurrence rows, revision handling, late terminal records, unknown versions, bad shapes, replay and truncation. Active/failure summaries and raw history share the total entry/byte bounds; routine eviction preserves summaries preferentially, but summary overflow is bounded and disclosed.
+- Confirm the proposed 180-second freshness timeout with the owner. Test dropped terminal records during an ongoing run: freeze elapsed time and show outcome unknown, never failure. Establish actual fresh-observation evidence before resuming timers; replay receipt, revision advancement and connection heartbeat alone do not qualify. If the current transport cannot prove freshness, keep restored rows unknown and specify any additive Engine evidence with OME-1161 before readiness.
 - Exercise simulated multi-day replay/retention gaps and a fresh notebook. Distinguish retained summaries from reconstructed evidence; never fabricate active work or completeness. A local elapsed timer does not refresh last-received activity, and stops on disconnect or terminal/run-end observation.
 - Use existing Candidate/run context for grouping. Do not infer Case/member roles or fabricate joins between activity occurrences and node-level accounting.
 - Design the actual tab/row/expanded detail states using SFDS app tokens, including empty/unknown support, failure, partial history and ended-without-terminal states. Owner reviews the visual result before readiness.
@@ -81,3 +87,7 @@ OME-699 handles exact semantic ownership with Engine/Client children. OME-700 ha
 ## Closure discipline
 
 Each implementation finishes with green required checks, independent review, draft-to-ready approval, PR merge, matching task mirror and Linear close evidence. Merging this proposal does not close OME-887 or its delivery children. No merge is requested by this design preparation.
+
+## Privacy follow-up boundary
+
+Aggregate activity is a separately scoped Engine/Client contract if scheduled: run-level counts, duration quantization and safe publication cadence need owner agreement. No per-case records with merely stripped identifiers, no undefined limited mode, and no server-side archive. Full/off is included in OME-1161; aggregate implementation is not a prerequisite.
