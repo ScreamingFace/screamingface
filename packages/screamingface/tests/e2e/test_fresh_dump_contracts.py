@@ -235,3 +235,61 @@ def test_parse_fresh_report_refuses_multiple_candidates() -> None:
     report["candidates"] = [report["candidates"][0]] * 2  # type: ignore[index]
     with pytest.raises(SystemExit, match="candidate"):
         parse_fresh_report(report)
+
+
+# -- review findings (PR #870): report authority + loop-golden refresh ---------------
+
+
+def test_report_backed_bless_refuses_expect_flag_overrides() -> None:
+    # INVARIANT (review finding, blocking): in a report-backed mode the saved report
+    # is the ONLY outcome authority — an --expect-score flag must never be able to
+    # bless a replay that contradicts the report.
+    import argparse
+
+    from fixtures.slice_snapshot import pin_report_expectations
+
+    args = argparse.Namespace(expect_score="0.8", expect_coverage=None)
+    with pytest.raises(SystemExit, match="authority"):
+        pin_report_expectations(args, score=0.9, coverage=0.96)
+
+    args = argparse.Namespace(expect_score=None, expect_coverage="0.5")
+    with pytest.raises(SystemExit, match="authority"):
+        pin_report_expectations(args, score=0.9, coverage=0.96)
+
+
+def test_report_backed_bless_pins_the_reports_own_outcome() -> None:
+    import argparse
+
+    from fixtures.slice_snapshot import pin_report_expectations
+
+    args = argparse.Namespace(expect_score=None, expect_coverage=None)
+    pin_report_expectations(args, score=0.9375, coverage=0.96)
+
+    assert args.expect_score == "0.9375"
+    assert args.expect_coverage == "0.96"
+
+
+def test_replay_input_fields_carries_the_loop_spec_through_a_refresh() -> None:
+    # INVARIANT (review finding): refreshing a corrective_loop golden must re-author
+    # it with its full member/judge specs — dropping them would refuse validation
+    # after the replay already ran.
+    from fixtures.slice_snapshot import replay_input_fields
+
+    golden = GoldenReport.model_validate(_loop_golden_document())
+    fields = replay_input_fields(golden)
+
+    authored = author_golden(
+        **fields,
+        board="ifeval",
+        revision="ifeval-2026-09",
+        limit=50,
+        rendered_url4="url4://ifeval/loop",
+        final_score=0.75,
+        case_statuses={"case_1": "scored", "case_2": "failed"},
+        case_failures={"case_2": [{"stage": "grading", "code": "incomplete_verdicts"}]},
+    )
+
+    assert authored["kind"] == "corrective_loop"
+    assert authored["member_specs"] == _member_specs()
+    assert authored["judge_spec"] == _judge_spec()
+    assert authored["max_rounds"] == 3

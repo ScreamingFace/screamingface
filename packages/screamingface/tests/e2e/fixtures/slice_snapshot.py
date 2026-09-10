@@ -461,6 +461,51 @@ def parse_candidate_spec(spec: Mapping[str, Any]) -> tuple[Any, Any, int]:
     return member_specs, judge_spec, max_rounds
 
 
+def pin_report_expectations(args: argparse.Namespace, *, score: Any, coverage: float) -> None:
+    """Pin the verified replay's expected outcome to the saved report — and ONLY it.
+
+    INVARIANT (PR #870 review finding): in a report-backed mode the report is the
+    single outcome authority; an explicit ``--expect-*`` flag could otherwise bless
+    a replay that contradicts the report (e.g. ``--expect-score 0.8`` against a
+    report scoring 0.9). Those flags belong to the ``--dump/--answers`` path, where
+    no report exists and they are the only cross-check.
+    """
+    from harness.goldens import canonical_score
+
+    for value, name in (
+        (args.expect_score, "expect-score"),
+        (args.expect_coverage, "expect-coverage"),
+    ):
+        if value is not None:
+            raise SystemExit(
+                f"--{name} cannot be combined with a report-backed bless — the saved "
+                f"report is the only outcome authority in this mode (the flag belongs "
+                f"to the --dump/--answers path)"
+            )
+    args.expect_score = canonical_score(score)
+    args.expect_coverage = str(coverage)
+
+
+def replay_input_fields(golden: Any) -> dict[str, Any]:
+    """A golden's replay-input fields, shaped for ``author_golden`` — ALL of them.
+
+    ONE mapping for every golden kind, used by the refresh flow so a re-authored
+    golden can never drop the fields its own kind requires (PR #870 review finding:
+    a corrective_loop refresh lost member/judge specs and refused validation after
+    the replay had already run).
+    """
+    return {
+        "model": golden.models[0] if golden.kind == "model" else None,
+        "kind": golden.kind,
+        "recipe": golden.recipe,
+        "members": list(golden.models),
+        "synthesizer": golden.synthesizer,
+        "member_specs": [spec.model_dump() for spec in golden.member_specs],
+        "judge_spec": None if golden.judge_spec is None else golden.judge_spec.model_dump(),
+        "max_rounds": golden.max_rounds,
+    }
+
+
 def parse_fresh_report(report: Mapping[str, Any]) -> FreshReportFacts:
     """One saved report → the facts a fresh-dump bless pins; ambiguity refuses here."""
     if report.get("schema") != "screamingface.report.v1":
@@ -1493,18 +1538,12 @@ def _report_replay_and_slice(
 def _bless_from_report(args: argparse.Namespace) -> None:
     """The OME-978 flow: report → tape → capture/splice loop → verify → slice → write."""
     sys.path.insert(0, str(_E2E_DIR))
-    from harness.goldens import canonical_score
 
     tape, report_sha = _load_tape(args)
     assets_root = _require_assets(args.board)
     args.work_dir.mkdir(parents=True, exist_ok=True)
 
-    # WHY defaults from the report: the report IS the independently saved outcome the
-    # replay must reproduce — explicit flags remain as overrides only.
-    if args.expect_score is None:
-        args.expect_score = canonical_score(tape.expected_score)
-    if args.expect_coverage is None:
-        args.expect_coverage = str(tape.expected_coverage)
+    pin_report_expectations(args, score=tape.expected_score, coverage=tape.expected_coverage)
 
     evidence = _report_replay_and_slice(args, tape, assets_root)
     golden = author_golden(
@@ -1615,7 +1654,6 @@ def _fresh_replay_and_slice(
 def _bless_fresh_dump(args: argparse.Namespace) -> None:
     """The OME-1098 flow: fresh dump + report + candidate spec → verify → slice → write."""
     sys.path.insert(0, str(_E2E_DIR))
-    from harness.goldens import canonical_score
 
     if args.dump is None or args.report is None or args.candidate is None:
         raise SystemExit("--dump-fresh needs --dump, --report AND --candidate")
@@ -1645,12 +1683,7 @@ def _bless_fresh_dump(args: argparse.Namespace) -> None:
     assets_root = _require_assets(args.board)
     args.work_dir.mkdir(parents=True, exist_ok=True)
 
-    # WHY defaults from the report: the report IS the independently saved outcome the
-    # replay must reproduce — explicit flags remain as overrides only.
-    if args.expect_score is None:
-        args.expect_score = canonical_score(facts.expected_score)
-    if args.expect_coverage is None:
-        args.expect_coverage = str(facts.expected_coverage)
+    pin_report_expectations(args, score=facts.expected_score, coverage=facts.expected_coverage)
 
     candidate = _loop_candidate(member_specs, judge_spec, max_rounds)
     evidence = _fresh_replay_and_slice(args, candidate, facts, assets_root)
@@ -1758,13 +1791,9 @@ def _refresh_golden(args: argparse.Namespace) -> None:
 
     # Stage 3 — author from the replay.
     golden = author_golden(
+        **replay_input_fields(inputs),
         board=args.board,
         revision=report.benchmark.revision,
-        model=inputs.models[0] if inputs.kind == "model" else None,
-        kind=inputs.kind,
-        recipe=inputs.recipe,
-        members=list(inputs.models),
-        synthesizer=inputs.synthesizer,
         limit=inputs.limit,
         rendered_url4=str(candidate.url4),
         final_score=candidate.score,
