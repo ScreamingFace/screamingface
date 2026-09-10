@@ -39,7 +39,12 @@ from screamingface_engine.world_config import WorldConfigError, declared_model_i
 
 logger = logging.getLogger(__name__)
 
-_UPSTREAM_TIMEOUT_S = 10.0
+# WHY 30s (OME-1170): a COLD gateway composes a model's parameter datasheet in 3–11.8s per
+# model (measured 2026-09-10 across six models; warm repeats ~0.002s). The previous 10.0s
+# budget sat inside that range, so the first fetch after a stack start deterministically
+# timed out for the slower models and surfaced as HTTP 504. Do not lower this below the
+# measured cold ceiling; the warm path never comes near it.
+_UPSTREAM_TIMEOUT_S = 30.0
 
 
 def _default_client(base_url: str) -> httpx.AsyncClient:
