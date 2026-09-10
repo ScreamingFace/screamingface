@@ -53,4 +53,6 @@ Latest owner clarification: activity is ephemeral; no new server-side archive or
 
 ## Deployment policy and review follow-up
 
-PR #885 now proposes full/off deployment enforcement in OME-1161, with genuine aggregate mode deferred. OME-1135 owns bounded decoder ID tracking as well as bounded projection; the bounded ID-reuse detection tradeoff is explicit. OME-1161 adds structured run-scoped bridge-loss attributes to the existing closing diagnostic. Freshness changes stale rows to outcome unknown, and replay alone cannot restart timers; the proposed 180-second threshold awaits owner confirmation. See the [review ledger](../work/2026-09-10-OME-887-policy-and-review-findings.md).
+PR #885 now proposes full/off deployment enforcement in OME-1161, with genuine aggregate mode deferred. OME-1135 owns bounded decoder ID tracking as well as bounded projection; the bounded ID-reuse detection tradeoff is explicit. OME-1161 adds structured run-scoped bridge-loss attributes to the existing closing diagnostic. Owner confirmed the 180-second threshold since the last fresh update, not operation start. Stale model rows say “No recent update; call may still be running”; fresh 60-second heartbeats keep long calls active. Replay alone cannot restart timers. See the [review ledger](../work/2026-09-10-OME-887-policy-and-review-findings.md).
+
+The [freshness confirmation ledger](../work/2026-09-10-OME-887-confirm-freshness.md) records this approval; other implementation-readiness gates remain unchanged.
