@@ -19,6 +19,12 @@ def _isolated_screamingface_data_dir(
         "SCREAMINGFACE_DATA_DIR",
         str(tmp_path_factory.mktemp("screamingface-data")),
     )
+    # INVARIANT (OME-1169): `up`/`restart` refuse to boot while AIGATEWAY_DATABASE_URL is
+    # set, reading live os.environ — on a dev machine that exports it (exactly the
+    # gateway-with-Postgres dev the refusal protects), every runtime test would fail with
+    # the refusal instead of exercising its own contract. Tests that need the variable
+    # set it themselves via monkeypatch.
+    monkeypatch.delenv("AIGATEWAY_DATABASE_URL", raising=False)
 
 
 __all__: list[str] = []

@@ -968,3 +968,28 @@ def test_gateway_config_line_is_omitted_for_pre_config_state(
     cli._print_gateway_config({"schema_version": 1})
 
     assert capsys.readouterr().out == ""
+
+
+def test_restart_refuses_a_foreign_gateway_database_url_before_stopping_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: the refusal must fire BEFORE `restart` tears the stack down — a
+    # refusal that lands after `_down` leaves the operator with a dead stack instead
+    # of a clean error (review finding on PR #891).
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, {"mode": "bundled", "root": None})
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+    monkeypatch.setenv("AIGATEWAY_DATABASE_URL", "postgresql://operator:pw@db.example/gw")
+    monkeypatch.setattr(
+        cli,
+        "_down",
+        lambda _config: pytest.fail("restart reached _down while the environment was refused"),
+    )
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path), "restart"])
+
+    with pytest.raises(RuntimeError, match="AIGATEWAY_DATABASE_URL"):
+        cli._restart(config, args, foreground=False)
+
+    # Refusal means the running stack was left untouched.
+    assert config.state_path.exists()

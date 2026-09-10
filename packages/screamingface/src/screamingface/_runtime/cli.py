@@ -400,6 +400,10 @@ def _down(config: RuntimeConfig) -> None:
 
 
 def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: bool) -> None:
+    # WHY here too, not only inside `_up` (PR #891 review finding): restart is down THEN
+    # up — a refusal raised only by `_up` would land after `_down` already stopped a
+    # healthy stack, leaving the operator with a dead stack instead of a clean error.
+    _refuse_foreign_gateway_database()
     state = _read_state(config)
     # INVARIANT: restart = down + up, so it must refuse a foreign stack the same way
     # `up` does — otherwise it silently replaces another checkout's running services.
