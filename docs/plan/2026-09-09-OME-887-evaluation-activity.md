@@ -23,7 +23,8 @@ Potential files: new `activity/contract.py`, `activity/scope.py`, `activity/sess
 TDD through the producer interface:
 
 - Verify enabled/disabled operation, immutable scalar output, safe IDs/templates, byte/rate bounds, suppression counters and concurrent sessions. Verify that a run emitting more than 20,000 records within the rate limit continues admitting activity, including later terminal records; no lifetime record cap applies.
-- Real fake-provider completion, refusal, local transport retry, safe failure, cancellation and heartbeat timing. Preserve the number of calls, retry delays and original errors.
+- Freeze the bounded admission allocation that prioritizes terminal/retry observations over repetitive heartbeats while preserving the total rate/burst cap. Test saturation and recovery, including later valid records after an oversized record; no optional logging limit may block or fail work.
+- Real fake-provider completion, refusal, local transport retry, safe failure, cancellation and heartbeat timing. Use a simulated clock to verify fixed 60-second ticks across multi-day durations, no doubling or catch-up bursts, and immediate observed outcomes independent of timer phase. Preserve the number of calls, retry delays and original errors.
 - Scope semantics: nested operations, multiple calls inside one node, expired contexts, async-generator advancement/closure from different tasks, and no retained tasks after run cancellation.
 - Integrate the existing connector logging points without retaining two heartbeat loops for the same round trip. Preserve required server diagnostics while publishing the structured version from the same observed facts.
 - Carry terminal identity/facts even if the start was suppressed. Exercise pressure via merged OME-934 and verify existing lifecycle/results remain authoritative.
@@ -53,8 +54,9 @@ Run full Engine gates in that issue's worktree. No scoring-spine migration is pe
 Can proceed alongside producer implementation once the shared contract is approved. Keep all changes under `packages/screamingface` with its own issue/worktree/ledger.
 
 - Define the strict activity interpreter over existing generic Log events. Preserve original accepted events and public callback delivery exactly once.
-- Present the Logs tab as a bounded live view. Do not promise a complete downloadable archive or assume evicted Client history survives in Engine transport storage. Durable storage/export, retention and loss disclosure belong to separate delivery work; existing transport retention remains unchanged.
-- Build/test a pure bounded reducer for occurrence rows, revision handling, late terminal records, unknown versions, bad shapes, replay and truncation.
+- Present the Logs tab as a bounded live view. Do not promise a complete downloadable archive or assume evicted Client history survives in Engine transport storage. The owner wants ephemeral activity: do not add a server-side archive or historical pagination service. Existing temporary transport retention remains unchanged; durable storage/export would need a separate future owner request.
+- Build/test a pure bounded reducer for occurrence rows, revision handling, late terminal records, unknown versions, bad shapes, replay and truncation. Active/failure summaries and raw history share the total entry/byte bounds; routine eviction preserves summaries preferentially, but summary overflow is bounded and disclosed.
+- Exercise simulated multi-day replay/retention gaps and a fresh notebook. Distinguish retained summaries from reconstructed evidence; never fabricate active work or completeness. A local elapsed timer does not refresh last-received activity, and stops on disconnect or terminal/run-end observation.
 - Use existing Candidate/run context for grouping. Do not infer Case/member roles or fabricate joins between activity occurrences and node-level accounting.
 - Design the actual tab/row/expanded detail states using SFDS app tokens, including empty/unknown support, failure, partial history and ended-without-terminal states. Owner reviews the visual result before readiness.
 - Keyboard interaction, focus/scroll stability, bounded rendering, accessible announcements, light/dark modes and high-volume fixtures are acceptance, not polish left for later.

@@ -46,3 +46,7 @@ Schema, budgets, coverage and Client support-state behavior remain proposed pend
 Removed the proposed lifetime activity-record cap and its suppression counter at the owner’s request. Rate, record-size, bridge and Client-history bounds remain proposed as before. See the [refinement ledger](../work/2026-09-10-OME-887-remove-activity-total-cap.md).
 
 Clarified at the owner’s request that the Logs tab is a bounded live view. Durable run-log storage/export and its retention/loss contract remain separate delivery work; existing Engine retention is unchanged. See the [boundary ledger](../work/2026-09-10-OME-887-live-view-export-boundary.md).
+
+Owner-approved refinement: limits recover or roll forward without blocking evaluation; prioritize outcomes over repetitive updates within bounded capacity, preserve bounded active/failure summaries, and disclose reconnect gaps. Use fixed 60-second async heartbeats (superseding the earlier backoff recommendation), with elapsed time distinct from received activity. See the [long-run refinement ledger](../work/2026-09-10-OME-887-rolling-activity-limits.md). Product implementation remains separate.
+
+Latest owner clarification: activity is ephemeral; no new server-side archive or historical retrieval is wanted. Existing temporary transport retention remains unchanged. Discarded Client history need not be recoverable, and durable storage/export is not requested follow-up work.
