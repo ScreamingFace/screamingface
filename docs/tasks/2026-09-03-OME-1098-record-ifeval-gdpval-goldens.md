@@ -1,12 +1,12 @@
 ---
 id: OME-1098
 linear_url: https://linear.app/openmined/issue/OME-1098/record-ifeval-and-gdpval-text-goldens-so-the-deterministic-and-gdpval
-status: in_progress
+status: done
 type: feature
 priority: 2
 labels: [py-screamingface, human, deferred]
 created: 2026-09-03
-closed:
+closed: 2026-09-10
 ---
 
 # Record ifeval and gdpval-text goldens so the deterministic and gdpval folds are e2e-guarded

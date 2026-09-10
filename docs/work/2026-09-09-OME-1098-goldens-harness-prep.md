@@ -1,9 +1,9 @@
 ---
 ticket: OME-1098
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-09
-finished:
+finished: 2026-09-10
 ---
 
 # OME-1098 — Harness prep for the ifeval (corrective-loop) and gdpval-text goldens
@@ -139,3 +139,10 @@ RED first, per unit:
   ifeval manifest gained its `.gitignore` whitelist line (per-board pattern);
   stale example notebooks (owner's recording runs) regenerated via
   `build_notebooks.py`. gdpval-text bless still waits on its fusion recording.
+- 2026-09-10 evening: owner recorded the gdpval-text fusion (`open_panel`:
+  deepseek-v4-pro + qwen + glm, kimi synthesizer; 25 cases, 3h32m, $17.37; score
+  0.8044, coverage 0.8 — 5 failed cases from genuine provider errors during the
+  run, pinned as such). `just e2e-bless-report` converged in 4 capture→splice
+  rounds and verified the replay reproduces the report exactly; fixture triple
+  written (929 rows, 0.46 MB), `test_boards[gdpval-text]` green in ~15s keyless.
+  Both goldens of this ticket are now committed; unit DONE pending PR merge.

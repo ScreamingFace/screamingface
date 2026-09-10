@@ -1,0 +1,77 @@
+{
+  "schema": "screamingface.golden-report.v1",
+  "board": "gdpval-text",
+  "revision": "cacfc3e6b83765f6",
+  "models": [
+    "openrouter/deepseek/deepseek-v4-pro",
+    "openrouter/qwen/qwen3.8-2.4t-a95b",
+    "openrouter/z-ai/glm-5.2"
+  ],
+  "limit": 25,
+  "expression_sha": "b04775e20944a6818b2c1b99341342cd866dc99498eea9fe91b47fe7eff5a53e",
+  "final_score": "0.8044",
+  "case_count": 25,
+  "gradeable_count": 20,
+  "case_statuses": {
+    "1": "scored",
+    "10": "failed",
+    "11": "scored",
+    "12": "scored",
+    "13": "scored",
+    "14": "scored",
+    "15": "scored",
+    "16": "scored",
+    "17": "scored",
+    "18": "scored",
+    "19": "scored",
+    "2": "scored",
+    "20": "scored",
+    "21": "scored",
+    "22": "scored",
+    "23": "scored",
+    "24": "failed",
+    "25": "scored",
+    "3": "scored",
+    "4": "scored",
+    "5": "scored",
+    "6": "failed",
+    "7": "failed",
+    "8": "failed",
+    "9": "scored"
+  },
+  "case_failures": {
+    "10": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "24": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "6": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "7": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ],
+    "8": [
+      {
+        "stage": "candidate",
+        "code": "missing_case_row"
+      }
+    ]
+  },
+  "kind": "fusion",
+  "recipe": "open_panel",
+  "synthesizer": "openrouter/moonshotai/kimi-k3"
+}
