@@ -844,3 +844,152 @@ def test_the_local_projection_omits_an_absent_case_count() -> None:
         revision = "revision-from-engine"
 
     assert "case_count" not in json.loads(scoreboard_seed_json([Benchmark()]))[0]
+
+
+# FEATURE: OME-1169 — the local stack refuses a foreign database setting and prints the
+# effective gateway config in the ready banner.
+
+
+def test_up_refuses_a_foreign_gateway_database_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: the local stack must never silently record into a database other than the
+    # one the operator configured — a set AIGATEWAY_DATABASE_URL is refused at boot, not
+    # overridden (the 2026-09-09 recording wrote paid rows into sqlite while the operator
+    # believed Postgres was in use).
+    config = RuntimeConfig(data_dir=tmp_path)
+    _stub_runtime_extra(monkeypatch)
+    monkeypatch.setenv("AIGATEWAY_DATABASE_URL", "postgresql://operator:pw@db.example/gw")
+
+    with pytest.raises(RuntimeError, match="AIGATEWAY_DATABASE_URL") as refusal:
+        cli._up(config, foreground=False)
+
+    # The refusal carries the remediation, not just the diagnosis.
+    assert "unset" in str(refusal.value)
+
+
+def test_up_refuses_a_foreign_gateway_database_url_even_when_adopting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: adoption is exactly where a stale exported URL bites hardest — the operator
+    # re-runs `up`, sees a healthy banner, and keeps believing the wrong database story.
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, {"mode": "bundled", "root": None})
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+    monkeypatch.setenv("AIGATEWAY_DATABASE_URL", "postgresql://operator:pw@db.example/gw")
+
+    with pytest.raises(RuntimeError, match="AIGATEWAY_DATABASE_URL"):
+        cli._up(config, foreground=False)
+
+
+def test_database_url_redaction_strips_userinfo_and_leaves_sqlite_alone() -> None:
+    # INVARIANT: the banner never prints secrets — userinfo is redacted before a database
+    # URL leaves the settings object.
+    assert (
+        server._redact_database_url("postgresql://operator:pw@db.example:5432/gw")
+        == "postgresql://***@db.example:5432/gw"
+    )
+    assert (
+        server._redact_database_url("sqlite:///home/dev/.screamingface/aigateway.sqlite3")
+        == "sqlite:///home/dev/.screamingface/aigateway.sqlite3"
+    )
+
+
+def test_gateway_config_summary_reflects_the_constructed_settings() -> None:
+    # WHY sourced from the settings object and not the shell: the OME-1098 flake was an env
+    # var that never reached the child — only the constructed settings tell the truth.
+    class Secret:
+        def get_secret_value(self) -> str:
+            return "postgresql://operator:pw@db.example/gw"
+
+    class Settings:
+        database_url = Secret()
+        request_cache_enabled = False
+
+    summary = server._gateway_config_summary(Settings())
+
+    assert summary == {
+        "database_url": "postgresql://***@db.example/gw",
+        "request_cache": "off",
+    }
+
+
+def test_publishing_the_gateway_config_merges_into_owned_state(tmp_path: Path) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    state: dict[str, object] = {
+        "schema_version": 1,
+        "pid": 42,
+        "owner_token": "secret",
+        "services": config.services,
+    }
+    cli._write_state(config, state)
+
+    cli._publish_gateway_config(
+        config, state, {"database_url": "sqlite://x", "request_cache": "on"}
+    )
+
+    stored = json.loads(config.state_path.read_text())
+    # The merge adds the config without dropping the ownership fields readers rely on.
+    assert stored["gateway_config"] == {"database_url": "sqlite://x", "request_cache": "on"}
+    assert stored["owner_token"] == "secret"
+    assert stored["services"] == config.services
+
+
+def test_adoption_banner_prints_the_running_stacks_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # STORY: as an operator re-running `up` over a live stack, I see the RUNNING stack's
+    # effective config — not what my current shell would produce.
+    config = RuntimeConfig(data_dir=tmp_path)
+    state: dict[str, object] = {
+        "schema_version": 1,
+        "pid": 42,
+        "owner_token": "secret",
+        "services": config.services,
+        "source": {"mode": "bundled", "root": None},
+        "gateway_config": {"database_url": "sqlite://adopted.sqlite3", "request_cache": "off"},
+    }
+    cli._write_state(config, state)
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+
+    cli._up(config, foreground=False)
+
+    output = capsys.readouterr().out
+    assert "gateway db=sqlite://adopted.sqlite3 · request_cache=off" in output
+
+
+def test_gateway_config_line_is_omitted_for_pre_config_state(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # WHY: a stack started by an older build carries no gateway_config record; the banner
+    # must not invent one.
+    cli._print_gateway_config({"schema_version": 1})
+
+    assert capsys.readouterr().out == ""
+
+
+def test_restart_refuses_a_foreign_gateway_database_url_before_stopping_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: the refusal must fire BEFORE `restart` tears the stack down — a
+    # refusal that lands after `_down` leaves the operator with a dead stack instead
+    # of a clean error (review finding on PR #891).
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, {"mode": "bundled", "root": None})
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+    monkeypatch.setenv("AIGATEWAY_DATABASE_URL", "postgresql://operator:pw@db.example/gw")
+    monkeypatch.setattr(
+        cli,
+        "_down",
+        lambda _config: pytest.fail("restart reached _down while the environment was refused"),
+    )
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path), "restart"])
+
+    with pytest.raises(RuntimeError, match="AIGATEWAY_DATABASE_URL"):
+        cli._restart(config, args, foreground=False)
+
+    # Refusal means the running stack was left untouched.
+    assert config.state_path.exists()

@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -173,6 +174,10 @@ def _environment_port(value: str | None, fallback: int) -> int:
 
 
 def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
+    # WHY first, before anything boots or is adopted (OME-1169): silence is the failure
+    # mode — the operator must learn at `up` time, for free, that the variable will not
+    # be honored, instead of after a paid run recorded into the wrong database.
+    _refuse_foreign_gateway_database()
     from screamingface._runtime.server import require_runtime_extra
 
     require_runtime_extra()
@@ -186,6 +191,9 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
         health = _health(_state_services(state))
         if all(health.values()):
             print("ScreamingFace is already running.")
+            # STORY: as an operator re-running `up` over a live stack, I see the RUNNING
+            # stack's effective config — exactly the case where a stale env bites hardest.
+            _print_gateway_config(state)
             _print_urls(_state_services(state), config.log_path)
             return
         raise RuntimeError(
@@ -236,7 +244,52 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
             _request_shutdown(state)
         raise
     print("ScreamingFace is ready.")
+    # The child published its effective gateway config into the state record before its
+    # servers came up (server.run), so by ready time it is there to print.
+    _print_gateway_config(_read_state(config))
     _print_urls(config.services, config.log_path)
+
+
+def _refuse_foreign_gateway_database() -> None:
+    """Refuse to boot or adopt while AIGATEWAY_DATABASE_URL is set in the environment.
+
+    INVARIANT (OME-1169): the local stack must never silently record into a database
+    other than the one the operator configured. The runtime hard-wires the gateway to
+    its own sqlite file, so a set AIGATEWAY_DATABASE_URL would be overridden — the
+    2026-09-09 recording wrote paid rows into sqlite while the operator believed
+    Postgres was in use. Loud refusal is the ticket's decision; silence is the only
+    unacceptable option.
+    """
+    if os.getenv("AIGATEWAY_DATABASE_URL"):
+        raise RuntimeError(
+            "the local stack manages its own sqlite database; AIGATEWAY_DATABASE_URL "
+            "is ignored — unset it or use a deployed gateway"
+        )
+
+
+def _print_gateway_config(state: dict[str, object] | None) -> None:
+    """Print the running stack's effective gateway config line, if the child published one.
+
+    A state record written by an older build carries no `gateway_config`; the banner
+    must not invent one, so absence prints nothing.
+    """
+    value = state.get("gateway_config") if state else None
+    if not isinstance(value, dict):
+        return
+    print(f"  gateway db={value.get('database_url')} · request_cache={value.get('request_cache')}")
+
+
+def _publish_gateway_config(
+    config: RuntimeConfig, state: dict[str, object], summary: dict[str, str]
+) -> None:
+    """Merge the child's effective gateway config into the owned state record.
+
+    WHY a merge over the in-memory state (OME-1169): the serving child is the only
+    writer of its state file, and `state` is the exact document it wrote at boot — so
+    rewriting it with one added key preserves the ownership fields readers rely on.
+    """
+    state["gateway_config"] = summary
+    _write_state(config, state)
 
 
 def _ensure_adoptable(state: dict[str, object] | None) -> None:
@@ -300,8 +353,12 @@ def _serve_logged(config: RuntimeConfig, token: str) -> None:
     _write_state(config, state)
     control_thread = threading.Thread(target=control.serve_forever, daemon=True)
     control_thread.start()
+
+    def publish(summary: dict[str, str]) -> None:
+        _publish_gateway_config(config, state, summary)
+
     try:
-        _run_server(config, shutdown)
+        _run_server(config, shutdown, publish)
     finally:
         control.shutdown()
         control.server_close()
@@ -309,12 +366,16 @@ def _serve_logged(config: RuntimeConfig, token: str) -> None:
         _remove_owned_state(config, token)
 
 
-def _run_server(config: RuntimeConfig, shutdown: threading.Event) -> None:
+def _run_server(
+    config: RuntimeConfig,
+    shutdown: threading.Event,
+    publish_config: Callable[[dict[str, str]], None],
+) -> None:
     import asyncio
 
     from screamingface._runtime.server import run
 
-    asyncio.run(run(config, shutdown))
+    asyncio.run(run(config, shutdown, publish_config))
 
 
 def _down(config: RuntimeConfig) -> None:
@@ -339,6 +400,10 @@ def _down(config: RuntimeConfig) -> None:
 
 
 def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: bool) -> None:
+    # WHY here too, not only inside `_up` (PR #891 review finding): restart is down THEN
+    # up — a refusal raised only by `_up` would land after `_down` already stopped a
+    # healthy stack, leaving the operator with a dead stack instead of a clean error.
+    _refuse_foreign_gateway_database()
     state = _read_state(config)
     # INVARIANT: restart = down + up, so it must refuse a foreign stack the same way
     # `up` does — otherwise it silently replaces another checkout's running services.

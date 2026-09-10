@@ -35,6 +35,45 @@ class Server(Protocol):
     async def serve(self) -> None: ...
 
 
+class _SecretView(Protocol):
+    def get_secret_value(self) -> str: ...
+
+
+class _GatewayConfigView(Protocol):
+    """The two gateway settings an operator must see at boot (OME-1169)."""
+
+    # WHY properties, not attributes: a mutable protocol attribute is invariant, which
+    # would reject the concrete pydantic Settings class; the summary only reads.
+    @property
+    def database_url(self) -> _SecretView: ...
+    @property
+    def request_cache_enabled(self) -> bool: ...
+
+
+def _redact_database_url(url: str) -> str:
+    """Strip userinfo from a database URL so the banner can never print credentials."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    host: str = parts.netloc.rsplit("@", 1)[1]
+    return urlunsplit((parts.scheme, f"***@{host}", parts.path, parts.query, parts.fragment))
+
+
+def _gateway_config_summary(settings: _GatewayConfigView) -> dict[str, str]:
+    """Project the constructed gateway settings into the operator-facing banner fields.
+
+    WHY sourced from the settings object and not the shell (OME-1169): during the OME-1098
+    recordings a spawned child verifiably lacked the exported AIGW_REQUEST_CACHE_* flags —
+    only the object the gateway was actually constructed with tells the truth.
+    """
+    return {
+        "database_url": _redact_database_url(settings.database_url.get_secret_value()),
+        "request_cache": "on" if settings.request_cache_enabled else "off",
+    }
+
+
 # The modules ONLY the "runtime" extra provides AND the local boot path reaches before it
 # can serve: the gateway app (fastapi, litellm, pydantic_settings, tortoise, bcrypt,
 # cryptography), its sqlite database (aiosqlite), the Engine app (kubernetes — adapters.k8s
@@ -124,7 +163,11 @@ def require_runtime_extra() -> RuntimeSource:
     return source
 
 
-async def run(config: RuntimeConfig, shutdown_event: threading.Event | None = None) -> None:
+async def run(
+    config: RuntimeConfig,
+    shutdown_event: threading.Event | None = None,
+    publish_config: Callable[[dict[str, str]], None] | None = None,
+) -> None:
     source = require_runtime_extra()
     # WHY logged at boot: whether a stack serves the live checkout or the installed
     # package decides what a benchmark actually tests — it must be auditable in the
@@ -132,7 +175,17 @@ async def run(config: RuntimeConfig, shutdown_event: threading.Event | None = No
     print(f"runtime source: {source.describe()}", flush=True)
     config.data_dir.mkdir(parents=True, exist_ok=True)
     await _migrate(config)
-    gateway, engine = _build_apps(config)
+    gateway, engine, gateway_config = _build_apps(config)
+    # WHY printed AND published (OME-1169): the log line makes the effective config
+    # auditable next to the run it governed; publishing into the state record is what
+    # lets the parent `up` (and a later adopting `up`) print it in the ready banner.
+    print(
+        f"gateway config: db={gateway_config['database_url']} · "
+        f"request_cache={gateway_config['request_cache']}",
+        flush=True,
+    )
+    if publish_config is not None:
+        publish_config(gateway_config)
     servers = (
         _server(gateway, config.gateway_port, "AI Gateway"),
         _server(engine, config.engine_port, "Engine"),
@@ -190,7 +243,7 @@ async def _migrate(config: RuntimeConfig) -> None:
             await Tortoise.close_connections()
 
 
-def _build_apps(config: RuntimeConfig) -> tuple[object, object]:
+def _build_apps(config: RuntimeConfig) -> tuple[object, object, dict[str, str]]:
     from aigateway.config import Settings as GatewaySettings
     from aigateway.main import create_app as create_gateway_app
     from pydantic import SecretStr  # pyright: ignore[reportMissingImports]
@@ -198,14 +251,13 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object]:
     from screamingface_engine.config import Settings as EngineSettings
     from screamingface_engine.local import create_local_app
 
-    gateway = create_gateway_app(
-        GatewaySettings(
-            host="127.0.0.1",
-            port=config.gateway_port,
-            database_url=SecretStr(config.gateway_database_url),
-            auth_mode="disabled",
-        )
+    gateway_settings = GatewaySettings(
+        host="127.0.0.1",
+        port=config.gateway_port,
+        database_url=SecretStr(config.gateway_database_url),
+        auth_mode="disabled",
     )
+    gateway = create_gateway_app(gateway_settings)
     run_env: Mapping[str, str] = {
         **os.environ,
         job_env.RUNNER_CONFIG: str(config.runner_config),
@@ -216,7 +268,7 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object]:
         settings=EngineSettings(aigateway_base_url=config.services["gateway"]),
         env=run_env,
     )
-    return gateway, engine
+    return gateway, engine, _gateway_config_summary(gateway_settings)
 
 
 def run_scoreboard(config: RuntimeConfig) -> None:
