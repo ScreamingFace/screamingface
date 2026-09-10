@@ -39,13 +39,16 @@ from harness.stack import replay_stack
 
 pytestmark = pytest.mark.e2e
 
-#: Every board the engine registers today (screamingface_engine.benchmarks.builtins).
+#: Boards under the e2e replay guard (registered in
+#: screamingface_engine.benchmarks.builtins; medxpert is registered but not yet
+#: onboarded here — no golden planned for it).
 BOARDS = (
     "draco",
     "draco-3pass",
     "ifeval",
     "healthbench-worst30",
     "healthbench-professional",
+    "gdpval-text",
 )
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
@@ -57,6 +60,7 @@ _ASSET_BUNDLE = {
     "ifeval": "ifeval",
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
+    "gdpval-text": "gdpval",
 }
 
 

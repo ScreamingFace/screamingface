@@ -19,6 +19,15 @@ Run it from the SDK project (docker running, benchmark assets prepared once via
         --board healthbench-worst30 \\
         --report <owner-held SDK report .json>
 
+    # OME-1098 fresh-dump mode — a dump recorded through THIS checkout's gateway
+    # (keys already correct: no re-key, no tape synthesis, any candidate shape):
+    uv run python tests/e2e/fixtures/slice_snapshot.py \\
+        --board ifeval --dump-fresh \\
+        --dump <owner-held fresh cache dump .sql.gz> \\
+        --report <owner-held SDK report .json> \\
+        --candidate <corrective_loop spec .json> \\
+        --limit 50
+
 Mental model: this script is the "bless" button — it turns two owner-held recordings
 into the committed fixtures that make ``test_boards.py`` go green: a sliced cache
 snapshot (only the rows one board replay actually touches), its manifest sidecar, and
@@ -122,6 +131,7 @@ _ASSET_BUNDLE = {
     "ifeval": "ifeval",
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
+    "gdpval-text": "gdpval",
 }
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
@@ -326,6 +336,9 @@ def author_golden(
     recipe: str | None = None,
     members: list[str] | None = None,
     synthesizer: str | None = None,
+    member_specs: Sequence[Mapping[str, Any]] | None = None,
+    judge_spec: Mapping[str, Any] | None = None,
+    max_rounds: int | None = None,
     limit: int | None,
     rendered_url4: str,
     final_score: float | None,
@@ -339,17 +352,26 @@ def author_golden(
     blessed file can never be refused by ``load_golden`` or disagree with itself.
     ``kind: "model"`` goldens keep the pre-OME-978 document shape byte-for-byte (no
     ``kind``/``recipe``/``synthesizer`` keys), so a re-bless never churns old files;
-    ``kind: "fusion"`` records the full replay lineup (ordered members + synthesizer).
+    ``kind: "fusion"`` records the full replay lineup (ordered members + synthesizer);
+    ``kind: "corrective_loop"`` (OME-1098) records the FULL member/judge specs +
+    ``max_rounds`` (``models`` derived from the member routes — see
+    ``GoldenModelSpec`` for why routes alone cannot replay a fresh dump).
     ``case_failures`` (OME-1094) is the per-case ``[{stage, code}]`` map for every
     case that carries a failure — ``failure_document`` builds it from the replay.
     """
     from harness.goldens import GOLDEN_SCHEMA, GoldenReport, canonical_score, expression_sha
 
+    if kind == "corrective_loop":
+        recorded_models = [str(spec["model"]) for spec in member_specs or ()]
+    elif kind == "model":
+        recorded_models = [model]
+    else:
+        recorded_models = list(members or ())
     golden: dict[str, Any] = {
         "schema": GOLDEN_SCHEMA,
         "board": board,
         "revision": revision,
-        "models": [model] if kind == "model" else list(members or ()),
+        "models": recorded_models,
         "limit": limit,
         "expression_sha": expression_sha(rendered_url4),
         "final_score": canonical_score(final_score),
@@ -361,7 +383,12 @@ def author_golden(
             for case, entries in sorted(case_failures.items())
         },
     }
-    if kind != "model":
+    if kind == "corrective_loop":
+        golden["kind"] = kind
+        golden["member_specs"] = [dict(spec) for spec in member_specs or ()]
+        golden["judge_spec"] = dict(judge_spec) if judge_spec is not None else None
+        golden["max_rounds"] = max_rounds
+    elif kind != "model":
         golden["kind"] = kind
         golden["recipe"] = recipe
         golden["synthesizer"] = synthesizer
@@ -379,6 +406,125 @@ def failure_document(cases: Iterable[Any]) -> dict[str, list[dict[str, str]]]:
         case: [entry.model_dump() for entry in entries]
         for case, entries in failure_map(cases).items()
     }
+
+
+# -- the fresh-dump bless flow's pure seams (OME-1098) -------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class FreshReportFacts:
+    """What the saved SDK report pins for a fresh-dump bless: the recorded
+    expression (the candidate-spec cross-check) and the outcome the verified
+    replay must reproduce."""
+
+    board: str
+    revision: str
+    kind: str
+    rendered_url4: str
+    expected_score: float | None
+    expected_coverage: float
+    case_statuses: dict[str, str]
+
+
+def parse_candidate_spec(spec: Mapping[str, Any]) -> tuple[Any, Any, int]:
+    """The owner-authored candidate file → validated replay inputs.
+
+    Returns ``(member_specs, judge_spec, max_rounds)`` as harness
+    ``GoldenModelSpec`` values. Every prompt and param in here renders into the
+    request bytes the recorded cache keys hash, so a wrong spec surfaces as cache
+    misses at replay — this parse only guards the SHAPE, loudly.
+    """
+    from harness.goldens import GoldenModelSpec
+    from pydantic import ValidationError
+
+    if spec.get("kind") != "corrective_loop":
+        raise SystemExit(
+            f"candidate spec kind is {spec.get('kind')!r} — the fresh-dump mode "
+            f"replays corrective_loop candidates (single-model boards bless from "
+            f"--dump/--answers; fusions from --report)"
+        )
+    try:
+        member_specs = tuple(
+            GoldenModelSpec.model_validate(member) for member in spec.get("members") or ()
+        )
+        judge_raw = spec.get("judge")
+        judge_spec = None if judge_raw is None else GoldenModelSpec.model_validate(judge_raw)
+    except ValidationError as exc:
+        raise SystemExit(f"candidate spec has a malformed member/judge entry: {exc}") from exc
+    if not member_specs:
+        raise SystemExit("candidate spec lists no members")
+    if judge_spec is None:
+        raise SystemExit("candidate spec names no judge")
+    max_rounds = spec.get("max_rounds")
+    if not isinstance(max_rounds, int) or isinstance(max_rounds, bool) or max_rounds < 1:
+        raise SystemExit(f"candidate spec max_rounds must be an int >= 1, got {max_rounds!r}")
+    return member_specs, judge_spec, max_rounds
+
+
+def pin_report_expectations(args: argparse.Namespace, *, score: Any, coverage: float) -> None:
+    """Pin the verified replay's expected outcome to the saved report — and ONLY it.
+
+    INVARIANT (PR #870 review finding): in a report-backed mode the report is the
+    single outcome authority; an explicit ``--expect-*`` flag could otherwise bless
+    a replay that contradicts the report (e.g. ``--expect-score 0.8`` against a
+    report scoring 0.9). Those flags belong to the ``--dump/--answers`` path, where
+    no report exists and they are the only cross-check.
+    """
+    from harness.goldens import canonical_score
+
+    for value, name in (
+        (args.expect_score, "expect-score"),
+        (args.expect_coverage, "expect-coverage"),
+    ):
+        if value is not None:
+            raise SystemExit(
+                f"--{name} cannot be combined with a report-backed bless — the saved "
+                f"report is the only outcome authority in this mode (the flag belongs "
+                f"to the --dump/--answers path)"
+            )
+    args.expect_score = canonical_score(score)
+    args.expect_coverage = str(coverage)
+
+
+def replay_input_fields(golden: Any) -> dict[str, Any]:
+    """A golden's replay-input fields, shaped for ``author_golden`` — ALL of them.
+
+    ONE mapping for every golden kind, used by the refresh flow so a re-authored
+    golden can never drop the fields its own kind requires (PR #870 review finding:
+    a corrective_loop refresh lost member/judge specs and refused validation after
+    the replay had already run).
+    """
+    return {
+        "model": golden.models[0] if golden.kind == "model" else None,
+        "kind": golden.kind,
+        "recipe": golden.recipe,
+        "members": list(golden.models),
+        "synthesizer": golden.synthesizer,
+        "member_specs": [spec.model_dump() for spec in golden.member_specs],
+        "judge_spec": None if golden.judge_spec is None else golden.judge_spec.model_dump(),
+        "max_rounds": golden.max_rounds,
+    }
+
+
+def parse_fresh_report(report: Mapping[str, Any]) -> FreshReportFacts:
+    """One saved report → the facts a fresh-dump bless pins; ambiguity refuses here."""
+    if report.get("schema") != "screamingface.report.v1":
+        raise SystemExit(f"unknown report schema {report.get('schema')!r}")
+    candidates = report["candidates"]
+    if len(candidates) != 1:
+        raise SystemExit(
+            f"the report holds {len(candidates)} candidates — a golden pins exactly one"
+        )
+    candidate = candidates[0]
+    return FreshReportFacts(
+        board=str(report["benchmark"]["id"]),
+        revision=str(report["benchmark"]["revision"]),
+        kind=str(candidate["kind"]),
+        rendered_url4=str(candidate["url4"]),
+        expected_score=candidate["score"],
+        expected_coverage=float(candidate["coverage"]),
+        case_statuses={str(case["case_id"]): str(case["status"]) for case in candidate["cases"]},
+    )
 
 
 # -- helper modes (executed under the aigateway venv — single-authority rule) --------
@@ -752,6 +898,24 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("/tmp/screamingface-e2e-bless"),
         help="scratch dir for service logs and oversized output",
+    )
+    parser.add_argument(
+        "--dump-fresh",
+        action="store_true",
+        help="OME-1098: bless from a FRESH cache dump — one recorded through THIS "
+        "checkout's gateway, so its keys need no re-keying and no tape synthesis. "
+        "Needs --dump (the pg_dump), --report (the run's saved SDK report — the "
+        "expected outcome) and --candidate (the corrective_loop spec that rebuilds "
+        "the recorded run). The replay must reproduce the report's score/coverage/"
+        "statuses AND rendered expression exactly.",
+    )
+    parser.add_argument(
+        "--candidate",
+        type=Path,
+        help="fresh-dump mode: JSON spec of the recorded corrective_loop candidate — "
+        '{"kind": "corrective_loop", "members": [{"model", "prompt"?, "params"?}...], '
+        '"judge": {...}, "max_rounds": N}. Prompts/params must match the recording '
+        "verbatim: they render into the request bytes the recorded cache keys hash.",
     )
     parser.add_argument(
         "--refresh-golden",
@@ -1374,18 +1538,12 @@ def _report_replay_and_slice(
 def _bless_from_report(args: argparse.Namespace) -> None:
     """The OME-978 flow: report → tape → capture/splice loop → verify → slice → write."""
     sys.path.insert(0, str(_E2E_DIR))
-    from harness.goldens import canonical_score
 
     tape, report_sha = _load_tape(args)
     assets_root = _require_assets(args.board)
     args.work_dir.mkdir(parents=True, exist_ok=True)
 
-    # WHY defaults from the report: the report IS the independently saved outcome the
-    # replay must reproduce — explicit flags remain as overrides only.
-    if args.expect_score is None:
-        args.expect_score = canonical_score(tape.expected_score)
-    if args.expect_coverage is None:
-        args.expect_coverage = str(tape.expected_coverage)
+    pin_report_expectations(args, score=tape.expected_score, coverage=tape.expected_coverage)
 
     evidence = _report_replay_and_slice(args, tape, assets_root)
     golden = author_golden(
@@ -1402,6 +1560,147 @@ def _bless_from_report(args: argparse.Namespace) -> None:
         case_failures=evidence.case_failures,
     )
     _write_fixtures(args, evidence, _report_header(args.board, report_sha), golden)
+
+
+# -- the fresh-dump bless flow (OME-1098) --------------------------------------------
+#
+# A recording made through the CURRENT gateway already stores every row under the
+# key math this checkout computes, so nothing needs re-keying and no tape needs
+# synthesizing: load the dump, replay keylessly, slice what the replay touched.
+# That makes this mode candidate-shape-agnostic — it never inspects a request
+# body — which is what lets it bless a CorrectiveLoop run (multi-round request
+# bytes that neither the archive re-key nor the report tape could match).
+
+
+def _fresh_header(board: str, dump_sha: str, report_sha: str) -> list[str]:
+    # Provenance rule: sources are described generically + shas — NEVER local paths.
+    return [
+        "--",
+        f"-- Sliced replay fixture for board '{board}' (OME-1098; see slice_snapshot.py).",
+        "-- Every row VERBATIM from the owner-held fresh cache dump (content sha256 "
+        f"{dump_sha}) — recorded through this checkout's gateway, so the keys are",
+        "-- already this protocol's. The bless cross-check proved the replayed "
+        "score/coverage/statuses AND rendered expression reproduce the owner-held",
+        f"-- SDK report (content sha256 {report_sha}) exactly.",
+        "--",
+        "",
+    ]
+
+
+def _loop_candidate(member_specs: Any, judge_spec: Any, max_rounds: int) -> Any:
+    from harness.goldens import spec_model
+
+    import screamingface as sf
+
+    return sf.CorrectiveLoop(
+        [spec_model(spec) for spec in member_specs],
+        judge=spec_model(judge_spec),
+        max_rounds=max_rounds,
+    )
+
+
+def _fresh_replay_and_slice(
+    args: argparse.Namespace, candidate: Any, facts: FreshReportFacts, assets_root: Path
+) -> _ReplayEvidence:
+    """Fresh-dump stages 2–6: boot, seed the dump, verify, slice. No capture, no re-key."""
+    from harness.stack import EngineProcess
+
+    backend, gateway_url = _boot_gateway(args)
+    engine = EngineProcess(work_dir=args.work_dir, assets_dir=assets_root)
+    try:
+        job = _upload_snapshot(gateway_url, args.dump.name, args.dump.read_bytes())
+        print(f"[seed] fresh dump loaded: rows={job.get('live_after')}", flush=True)
+        engine_url = engine.start(gateway_url)
+
+        # Baseline BEFORE the verified replay, so the slice can observe movement.
+        _psql(backend._container, _BASELINE_SQL)
+        report, statuses = _verified_replay(engine_url, args, candidate=candidate)
+        outcome = report.candidates.only
+        # INVARIANT: the rebuilt candidate must render the RECORDED expression — a
+        # drifted --candidate spec (wrong prompt/params) renders different request
+        # bytes, and every later number would measure a different experiment.
+        if str(outcome.url4) != facts.rendered_url4:
+            raise SystemExit(
+                "BLESS REFUSED — the replay rendered a different url4 expression than "
+                "the saved report recorded; the --candidate spec does not rebuild the "
+                "recorded run (check every member/judge prompt and param, verbatim)"
+            )
+        if statuses != facts.case_statuses:
+            drifted = {
+                case: (facts.case_statuses.get(case), statuses.get(case))
+                for case in facts.case_statuses.keys() | statuses.keys()
+                if facts.case_statuses.get(case) != statuses.get(case)
+            }
+            raise SystemExit(
+                f"BLESS REFUSED — replayed case statuses diverge from the report "
+                f"(report, replay): {drifted}"
+            )
+        slice_output = _psql(backend._container, _SLICE_SQL)
+    finally:
+        engine.stop()
+        backend.stop_sync()
+
+    candidate_result = report.candidates.only
+    return _ReplayEvidence(
+        revision=report.benchmark.revision,
+        rendered_url4=str(candidate_result.url4),
+        final_score=candidate_result.score,
+        case_statuses=statuses,
+        case_failures=failure_document(candidate_result.cases),
+        slice_rows=[line for line in slice_output.split("\n") if line and not line.isspace()],
+    )
+
+
+def _bless_fresh_dump(args: argparse.Namespace) -> None:
+    """The OME-1098 flow: fresh dump + report + candidate spec → verify → slice → write."""
+    sys.path.insert(0, str(_E2E_DIR))
+
+    if args.dump is None or args.report is None or args.candidate is None:
+        raise SystemExit("--dump-fresh needs --dump, --report AND --candidate")
+
+    # Stage 1 — parse the recordings.
+    member_specs, judge_spec, max_rounds = parse_candidate_spec(
+        json.loads(args.candidate.read_text(encoding="utf-8"))
+    )
+    facts = parse_fresh_report(json.loads(args.report.read_text(encoding="utf-8")))
+    if facts.board != args.board:
+        raise SystemExit(f"the report describes board {facts.board!r}, not {args.board!r}")
+    if facts.kind != "corrective_loop":
+        raise SystemExit(
+            f"the report records a {facts.kind!r} run — the fresh-dump mode blesses "
+            f"corrective_loop recordings (see --dump/--answers and --report for the others)"
+        )
+    dump_sha = _dump_content_sha(args.dump)
+    report_sha = hashlib.sha256(args.report.read_bytes()).hexdigest()
+    print(
+        f"[parse] candidate: {len(member_specs)} members "
+        f"{[spec.model for spec in member_specs]}, judge {judge_spec.model!r}, "
+        f"max_rounds={max_rounds}; report: {len(facts.case_statuses)} cases, "
+        f"expected score={facts.expected_score} coverage={facts.expected_coverage}",
+        flush=True,
+    )
+
+    assets_root = _require_assets(args.board)
+    args.work_dir.mkdir(parents=True, exist_ok=True)
+
+    pin_report_expectations(args, score=facts.expected_score, coverage=facts.expected_coverage)
+
+    candidate = _loop_candidate(member_specs, judge_spec, max_rounds)
+    evidence = _fresh_replay_and_slice(args, candidate, facts, assets_root)
+    golden = author_golden(
+        board=args.board,
+        revision=evidence.revision,
+        kind="corrective_loop",
+        member_specs=[spec.model_dump() for spec in member_specs],
+        judge_spec=judge_spec.model_dump(),
+        max_rounds=max_rounds,
+        limit=args.limit,
+        rendered_url4=evidence.rendered_url4,
+        final_score=evidence.final_score,
+        case_statuses=evidence.case_statuses,
+        case_failures=evidence.case_failures,
+    )
+    _write_fixtures(args, evidence, _fresh_header(args.board, dump_sha, report_sha), golden)
 
 
 # -- the fixtures-sourced refresh (OME-1094) -----------------------------------------
@@ -1492,13 +1791,9 @@ def _refresh_golden(args: argparse.Namespace) -> None:
 
     # Stage 3 — author from the replay.
     golden = author_golden(
+        **replay_input_fields(inputs),
         board=args.board,
         revision=report.benchmark.revision,
-        model=inputs.models[0] if inputs.kind == "model" else None,
-        kind=inputs.kind,
-        recipe=inputs.recipe,
-        members=list(inputs.models),
-        synthesizer=inputs.synthesizer,
         limit=inputs.limit,
         rendered_url4=str(candidate.url4),
         final_score=candidate.score,
@@ -1528,21 +1823,15 @@ def main() -> None:
     if args.helper is not None:
         {"keys": _helper_keys, "revisions": _helper_revisions}[args.helper]()
         return
-    if args.refresh_golden:
-        _run_exclusive_mode(
-            args,
-            flag="--refresh-golden",
-            recording="the committed snapshot",
-            excluded=("model", "dump", "answers", "report", "judge_bodies", "dump_judge_bodies"),
-            run=_refresh_golden,
-        )
+    if args.refresh_golden or args.dump_fresh:
+        _run_gated_bless(args)
         return
     if args.report is not None:
         _run_exclusive_mode(
             args,
             flag="--report",
             recording="the report",
-            excluded=("model", "dump", "answers", "judge_bodies", "dump_judge_bodies"),
+            excluded=("model", "dump", "answers", "candidate", "judge_bodies", "dump_judge_bodies"),
             run=_bless_from_report,
         )
         return
@@ -1550,6 +1839,37 @@ def main() -> None:
         if getattr(args, required) is None:
             raise SystemExit(f"--{required} is required (unless running a --helper mode)")
     _bless(args)
+
+
+def _run_gated_bless(args: argparse.Namespace) -> None:
+    """Dispatch the two flag-selected modes (kept out of ``main`` for the return budget)."""
+    if args.refresh_golden:
+        _run_exclusive_mode(
+            args,
+            flag="--refresh-golden",
+            recording="the committed snapshot",
+            excluded=(
+                "model",
+                "dump",
+                "answers",
+                "report",
+                "candidate",
+                "judge_bodies",
+                "dump_judge_bodies",
+            ),
+            run=_refresh_golden,
+        )
+        return
+    # WHY dispatched before the --report branch in main: the fresh-dump mode
+    # legitimately takes --report (as the expected outcome), so its flag must
+    # claim the dispatch first.
+    _run_exclusive_mode(
+        args,
+        flag="--dump-fresh",
+        recording="the fresh dump + report + candidate spec",
+        excluded=("model", "answers", "judge_bodies", "dump_judge_bodies"),
+        run=_bless_fresh_dump,
+    )
 
 
 def _run_exclusive_mode(

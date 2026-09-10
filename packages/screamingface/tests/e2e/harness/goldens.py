@@ -91,16 +91,37 @@ class GoldenFailure(BaseModel):
     code: str = Field(min_length=1)
 
 
+class GoldenModelSpec(BaseModel):
+    """One replayable model, spelled completely: route + prompt + params.
+
+    WHY the full spec and not just the route (OME-1098): a fresh-dump replay hits
+    the RECORDED cache keys directly, and those keys hash the request bytes — which
+    the prompt and params render into. A route-only rebuild would render different
+    bytes, miss every row, and the bless would refuse. (Fusion goldens get away
+    with routes only because report mode re-keys the tape from the replay's own
+    rendered bodies.)
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    model: str = Field(min_length=1)
+    prompt: str | None = None
+    params: dict[str, str | int | float | bool] = {}
+
+
 class GoldenReport(BaseModel):
     """The frozen expected outcome of one board replay.
 
-    ``kind``, ``models``, ``recipe``, ``synthesizer`` and ``limit`` are the replay
-    INPUTS (which candidate to build, how many cases to select) — without them a
-    golden could not be re-run; everything else is the expected OUTPUT. For
-    ``kind: "model"`` (the default — every golden blessed before OME-978) the
-    candidate is ``models[0]``; for ``kind: "fusion"`` the candidate is the recipe
-    named ``recipe`` with ``models`` as its ordered members and ``synthesizer`` as
-    the model that merges them.
+    ``kind``, ``models``, ``recipe``, ``synthesizer``, ``member_specs``,
+    ``judge_spec``, ``max_rounds`` and ``limit`` are the replay INPUTS (which
+    candidate to build, how many cases to select) — without them a golden could not
+    be re-run; everything else is the expected OUTPUT. For ``kind: "model"`` (the
+    default — every golden blessed before OME-978) the candidate is ``models[0]``;
+    for ``kind: "fusion"`` the candidate is the recipe named ``recipe`` with
+    ``models`` as its ordered members and ``synthesizer`` as the model that merges
+    them; for ``kind: "corrective_loop"`` (OME-1098) the candidate is
+    ``sf.CorrectiveLoop(member_specs, judge=judge_spec, max_rounds=max_rounds)``
+    with every member and the judge rebuilt from its FULL spec.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -108,10 +129,13 @@ class GoldenReport(BaseModel):
     schema_: str = Field(alias="schema", default=GOLDEN_SCHEMA)
     board: str = Field(min_length=1)
     revision: str = Field(min_length=1)
-    kind: Literal["model", "fusion"] = "model"
+    kind: Literal["model", "fusion", "corrective_loop"] = "model"
     recipe: str | None = None
     models: tuple[str, ...] = ()
     synthesizer: str | None = None
+    member_specs: tuple[GoldenModelSpec, ...] = ()
+    judge_spec: GoldenModelSpec | None = None
+    max_rounds: int | None = None
     limit: int | None = None
     expression_sha: str = Field(pattern=_SHA256_HEX)
     final_score: str | None
@@ -163,6 +187,32 @@ class GoldenReport(BaseModel):
                     f"a fusion golden lists its member routes in order — got "
                     f"{len(self.models)}, need at least 2 members"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _corrective_loop_lineup_is_complete(self) -> GoldenReport:
+        # INVARIANT: a corrective_loop golden must be re-runnable byte-for-byte —
+        # full member specs, the judge spec and max_rounds are its replay inputs,
+        # and `models` must mirror the member routes so every pre-loop reader of
+        # that field stays truthful.
+        if self.kind == "corrective_loop":
+            if not self.member_specs:
+                raise ValueError("a corrective_loop golden requires its member specs")
+            if self.judge_spec is None:
+                raise ValueError("a corrective_loop golden requires its judge spec")
+            if self.max_rounds is None or self.max_rounds < 1:
+                raise ValueError("a corrective_loop golden requires max_rounds >= 1")
+            routes = tuple(spec.model for spec in self.member_specs)
+            if self.models != routes:
+                raise ValueError(
+                    f"models {self.models!r} must mirror the member spec routes "
+                    f"{routes!r}, in order"
+                )
+        elif self.member_specs or self.judge_spec is not None or self.max_rounds is not None:
+            raise ValueError(
+                f"member_specs/judge_spec/max_rounds belong to a corrective_loop "
+                f"golden only — this golden is kind {self.kind!r}"
+            )
         return self
 
     @model_validator(mode="after")
@@ -226,17 +276,35 @@ def _spell_failures(entries: tuple[GoldenFailure, ...] | None) -> tuple[str, ...
     return None if entries is None else tuple(f"{entry.stage}:{entry.code}" for entry in entries)
 
 
-def build_candidate(golden: GoldenReport):  # -> sf.Model | sf.Fusion
+def spec_model(spec: GoldenModelSpec):  # -> sf.Model
+    """One golden model spec → the exact ``sf.Model`` it recorded (route + prompt + params)."""
+    import screamingface as sf
+
+    return sf.Model(spec.model, prompt=spec.prompt, params=spec.params or None)
+
+
+def build_candidate(golden: GoldenReport):  # -> sf.Model | sf.Fusion | sf.CorrectiveLoop
     """The golden's replay INPUT, rebuilt: the exact candidate the bless ran.
 
     ``kind: "model"`` → ``sf.Model(models[0])`` (the pre-OME-978 behaviour, pinned);
     ``kind: "fusion"`` → ``sf.Fusion(models, name=recipe, synthesizer=synthesizer)``
     with the members in the golden's recorded order — member order is part of the
     rendered url4 expression, so reordering would fail the expression rung, not
-    silently reshuffle the run.
+    silently reshuffle the run. ``kind: "corrective_loop"`` (OME-1098) →
+    ``sf.CorrectiveLoop`` with every member and the judge rebuilt from their FULL
+    specs, because a fresh-dump replay must render byte-identical requests to hit
+    the recorded cache keys (see ``GoldenModelSpec``).
     """
     import screamingface as sf
 
+    if golden.kind == "corrective_loop":
+        # The validator guarantees member specs + judge spec + max_rounds here.
+        assert golden.judge_spec is not None and golden.max_rounds is not None
+        return sf.CorrectiveLoop(
+            [spec_model(spec) for spec in golden.member_specs],
+            judge=spec_model(golden.judge_spec),
+            max_rounds=golden.max_rounds,
+        )
     if golden.kind == "fusion":
         # The validator guarantees recipe + synthesizer + ≥2 members on this branch.
         return sf.Fusion(
