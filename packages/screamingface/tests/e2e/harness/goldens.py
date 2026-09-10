@@ -208,6 +208,13 @@ class GoldenReport(BaseModel):
                     f"models {self.models!r} must mirror the member spec routes "
                     f"{routes!r}, in order"
                 )
+            # The mirror of the elif below (OME-1176): fusion-only fields on a loop
+            # golden would be silently DEAD replay inputs — refused, not tolerated.
+            if self.recipe is not None or self.synthesizer is not None:
+                raise ValueError(
+                    "recipe/synthesizer belong to a fusion golden only — this golden "
+                    "is kind 'corrective_loop'"
+                )
         elif self.member_specs or self.judge_spec is not None or self.max_rounds is not None:
             raise ValueError(
                 f"member_specs/judge_spec/max_rounds belong to a corrective_loop "
@@ -283,6 +290,26 @@ def spec_model(spec: GoldenModelSpec):  # -> sf.Model
     return sf.Model(spec.model, prompt=spec.prompt, params=spec.params or None)
 
 
+def loop_candidate(
+    member_specs: Iterable[GoldenModelSpec],
+    judge_spec: GoldenModelSpec,
+    max_rounds: int,
+):  # -> sf.CorrectiveLoop
+    """Full specs → the exact ``sf.CorrectiveLoop`` they record — the ONE builder.
+
+    Both the golden replay (``build_candidate``) and the fresh-dump bless construct
+    the loop through here (OME-1176), so the two can never disagree about how a
+    spec becomes a candidate.
+    """
+    import screamingface as sf
+
+    return sf.CorrectiveLoop(
+        [spec_model(spec) for spec in member_specs],
+        judge=spec_model(judge_spec),
+        max_rounds=max_rounds,
+    )
+
+
 def build_candidate(golden: GoldenReport):  # -> sf.Model | sf.Fusion | sf.CorrectiveLoop
     """The golden's replay INPUT, rebuilt: the exact candidate the bless ran.
 
@@ -300,11 +327,7 @@ def build_candidate(golden: GoldenReport):  # -> sf.Model | sf.Fusion | sf.Corre
     if golden.kind == "corrective_loop":
         # The validator guarantees member specs + judge spec + max_rounds here.
         assert golden.judge_spec is not None and golden.max_rounds is not None
-        return sf.CorrectiveLoop(
-            [spec_model(spec) for spec in golden.member_specs],
-            judge=spec_model(golden.judge_spec),
-            max_rounds=golden.max_rounds,
-        )
+        return loop_candidate(golden.member_specs, golden.judge_spec, golden.max_rounds)
     if golden.kind == "fusion":
         # The validator guarantees recipe + synthesizer + ≥2 members on this branch.
         return sf.Fusion(

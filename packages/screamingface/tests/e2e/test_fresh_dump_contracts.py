@@ -293,3 +293,25 @@ def test_replay_input_fields_carries_the_loop_spec_through_a_refresh() -> None:
     assert authored["member_specs"] == _member_specs()
     assert authored["judge_spec"] == _judge_spec()
     assert authored["max_rounds"] == 3
+
+
+def test_refresh_and_fresh_dump_flags_refuse_each_other() -> None:
+    # INVARIANT (review finding, blocking): boolean mode flags dodge the
+    # `is not None` exclusion guard, so the pair must refuse explicitly —
+    # silently ignoring the fresh recording is the one unacceptable outcome.
+    import argparse
+
+    from fixtures.slice_snapshot import _run_gated_bless
+
+    args = argparse.Namespace(refresh_golden=True, dump_fresh=True, board="ifeval")
+    with pytest.raises(SystemExit, match="cannot be combined"):
+        _run_gated_bless(args)
+
+
+def test_fusion_fields_are_refused_on_a_loop_golden() -> None:
+    # The mirror of test_loop_fields_are_refused_on_other_kinds: recipe/synthesizer
+    # on a corrective_loop golden would be silently dead fields, not inputs.
+    with pytest.raises(Exception, match="corrective_loop"):
+        GoldenReport.model_validate(_loop_golden_document(recipe="open_panel"))
+    with pytest.raises(Exception, match="corrective_loop"):
+        GoldenReport.model_validate(_loop_golden_document(synthesizer=_JUDGE))

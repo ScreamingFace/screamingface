@@ -418,7 +418,6 @@ class FreshReportFacts:
     replay must reproduce."""
 
     board: str
-    revision: str
     kind: str
     rendered_url4: str
     expected_score: float | None
@@ -518,7 +517,6 @@ def parse_fresh_report(report: Mapping[str, Any]) -> FreshReportFacts:
     candidate = candidates[0]
     return FreshReportFacts(
         board=str(report["benchmark"]["id"]),
-        revision=str(report["benchmark"]["revision"]),
         kind=str(candidate["kind"]),
         rendered_url4=str(candidate["url4"]),
         expected_score=candidate["score"],
@@ -1176,15 +1174,7 @@ def _replay_and_slice(
         if proxy is not None:
             proxy.shutdown()
         backend.stop_sync()
-    candidate = report.candidates.only
-    return _ReplayEvidence(
-        revision=report.benchmark.revision,
-        rendered_url4=str(candidate.url4),
-        final_score=candidate.score,
-        case_statuses=statuses,
-        case_failures=failure_document(candidate.cases),
-        slice_rows=[line for line in slice_output.split("\n") if line and not line.isspace()],
-    )
+    return _evidence(report, statuses, slice_output)
 
 
 def _write_fixtures(
@@ -1507,16 +1497,7 @@ def _report_replay_and_slice(
         # Baseline BEFORE the verified replay, so the slice can observe movement.
         _psql(backend._container, _BASELINE_SQL)
         report, statuses = _verified_replay(engine_url, args, candidate=_fusion_candidate(tape))
-        if statuses != tape.case_statuses:
-            drifted = {
-                case: (tape.case_statuses.get(case), statuses.get(case))
-                for case in tape.case_statuses.keys() | statuses.keys()
-                if tape.case_statuses.get(case) != statuses.get(case)
-            }
-            raise SystemExit(
-                f"BLESS REFUSED — replayed case statuses diverge from the report "
-                f"(report, replay): {drifted}"
-            )
+        _refuse_status_drift(tape.case_statuses, statuses)
         slice_output = _psql(backend._container, _SLICE_SQL)
     finally:
         engine.stop()
@@ -1524,15 +1505,7 @@ def _report_replay_and_slice(
             proxy.shutdown()
         backend.stop_sync()
 
-    candidate = report.candidates.only
-    return _ReplayEvidence(
-        revision=report.benchmark.revision,
-        rendered_url4=str(candidate.url4),
-        final_score=candidate.score,
-        case_statuses=statuses,
-        case_failures=failure_document(candidate.cases),
-        slice_rows=[line for line in slice_output.split("\n") if line and not line.isspace()],
-    )
+    return _evidence(report, statuses, slice_output)
 
 
 def _bless_from_report(args: argparse.Namespace) -> None:
@@ -1587,15 +1560,38 @@ def _fresh_header(board: str, dump_sha: str, report_sha: str) -> list[str]:
     ]
 
 
-def _loop_candidate(member_specs: Any, judge_spec: Any, max_rounds: int) -> Any:
-    from harness.goldens import spec_model
+def _refuse_status_drift(expected: Mapping[str, str], statuses: Mapping[str, str]) -> None:
+    """Refuse the bless when the replayed case statuses diverge from the report's.
 
-    import screamingface as sf
+    ONE refusal for both report-backed replay flows (OME-1176) — the drift map names
+    (report, replay) per diverging case so the owner sees exactly which cases moved.
+    """
+    if dict(statuses) != dict(expected):
+        drifted = {
+            case: (expected.get(case), statuses.get(case))
+            for case in expected.keys() | statuses.keys()
+            if expected.get(case) != statuses.get(case)
+        }
+        raise SystemExit(
+            f"BLESS REFUSED — replayed case statuses diverge from the report "
+            f"(report, replay): {drifted}"
+        )
 
-    return sf.CorrectiveLoop(
-        [spec_model(spec) for spec in member_specs],
-        judge=spec_model(judge_spec),
-        max_rounds=max_rounds,
+
+def _evidence(report: Any, statuses: dict[str, str], slice_output: str) -> _ReplayEvidence:
+    """One verified replay + its observed slice → the ``_ReplayEvidence`` record.
+
+    The ONE constructor for all three replay flows (OME-1176), so what a golden is
+    authored from can never be assembled three subtly different ways.
+    """
+    candidate = report.candidates.only
+    return _ReplayEvidence(
+        revision=report.benchmark.revision,
+        rendered_url4=str(candidate.url4),
+        final_score=candidate.score,
+        case_statuses=statuses,
+        case_failures=failure_document(candidate.cases),
+        slice_rows=[line for line in slice_output.split("\n") if line and not line.isspace()],
     )
 
 
@@ -1625,30 +1621,13 @@ def _fresh_replay_and_slice(
                 "the saved report recorded; the --candidate spec does not rebuild the "
                 "recorded run (check every member/judge prompt and param, verbatim)"
             )
-        if statuses != facts.case_statuses:
-            drifted = {
-                case: (facts.case_statuses.get(case), statuses.get(case))
-                for case in facts.case_statuses.keys() | statuses.keys()
-                if facts.case_statuses.get(case) != statuses.get(case)
-            }
-            raise SystemExit(
-                f"BLESS REFUSED — replayed case statuses diverge from the report "
-                f"(report, replay): {drifted}"
-            )
+        _refuse_status_drift(facts.case_statuses, statuses)
         slice_output = _psql(backend._container, _SLICE_SQL)
     finally:
         engine.stop()
         backend.stop_sync()
 
-    candidate_result = report.candidates.only
-    return _ReplayEvidence(
-        revision=report.benchmark.revision,
-        rendered_url4=str(candidate_result.url4),
-        final_score=candidate_result.score,
-        case_statuses=statuses,
-        case_failures=failure_document(candidate_result.cases),
-        slice_rows=[line for line in slice_output.split("\n") if line and not line.isspace()],
-    )
+    return _evidence(report, statuses, slice_output)
 
 
 def _bless_fresh_dump(args: argparse.Namespace) -> None:
@@ -1685,7 +1664,9 @@ def _bless_fresh_dump(args: argparse.Namespace) -> None:
 
     pin_report_expectations(args, score=facts.expected_score, coverage=facts.expected_coverage)
 
-    candidate = _loop_candidate(member_specs, judge_spec, max_rounds)
+    from harness.goldens import loop_candidate
+
+    candidate = loop_candidate(member_specs, judge_spec, max_rounds)
     evidence = _fresh_replay_and_slice(args, candidate, facts, assets_root)
     golden = author_golden(
         board=args.board,
@@ -1843,6 +1824,15 @@ def main() -> None:
 
 def _run_gated_bless(args: argparse.Namespace) -> None:
     """Dispatch the two flag-selected modes (kept out of ``main`` for the return budget)."""
+    # WHY an explicit pair check (OME-1176): `_run_exclusive_mode` polices sources via
+    # `is not None`, which boolean store_true flags dodge — without this, the pair
+    # would silently run only the refresh and IGNORE the fresh recording.
+    if args.refresh_golden and args.dump_fresh:
+        raise SystemExit(
+            "--refresh-golden cannot be combined with --dump-fresh — a refresh "
+            "re-authors from the COMMITTED snapshot and would silently ignore the "
+            "fresh recording; run one mode at a time"
+        )
     if args.refresh_golden:
         _run_exclusive_mode(
             args,
