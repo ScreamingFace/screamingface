@@ -60,6 +60,19 @@ _CALLBACK_DYNAMIC_FIELDS: frozenset[str] = frozenset(
         "dd_agent_host",
         "dd_agent_port",
         "dd_site",
+        # WHY: litellm 1.100 added `langfuse_environment` (a further Langfuse dynamic
+        # param alongside the block above) plus a New Relic dynamic-callback trio for
+        # per-team trace routing. `newrelic_api_key` is a caller-injectable credential
+        # and `langfuse_environment`/`newrelic_region` redirect where prompt/response
+        # telemetry is shipped — the same exfiltration category as the langfuse/arize/
+        # braintrust/dd_* host+key fields above.
+        # INVARIANT: every name in litellm's `_supported_callback_params` must appear
+        # here, so a client can never turn a chat request into a telemetry redirect.
+        # test_litellm_dynamic_callback_parameter_set_is_covered is what caught these on
+        # the 1.97 -> 1.100 upgrade; it will catch the next batch the same way.
+        "langfuse_environment",
+        "newrelic_api_key",
+        "newrelic_region",
         "turn_off_message_logging",
     }
 )
