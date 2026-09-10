@@ -312,15 +312,20 @@ def test_rung3_every_gateway_log_line_carries_a_call_id(gateway_log) -> None:
 
 
 @pytest.mark.e2e
-@pytest.mark.xfail(strict=True, reason="rung 4b: aigateway does not join the inbound trace")
 def test_rung4b_the_gateway_logs_this_runs_trace_id(gateway_log) -> None:
-    """RUNG 4, gateway half (not built — strict xfail).
+    """RUNG 4, gateway half (`OME-1120` — must PASS). THE PAYOFF RUNG.
 
-    The payoff rung: once this and its engine twin pass, one id is greppable across both
-    services and a bug report's `trace_id` finally points at something.
+    With this and its engine twin (`OME-940`) green, one id is greppable across both services
+    and a bug report's `trace_id` finally points at something. All five rungs now pass, which
+    is Phase 1's local acceptance in full.
 
     It asserts THIS run's id, not merely that some 32-hex token appears — a log full of
     unrelated hex would satisfy the weaker check while joining nothing.
+
+    AIDEV-NOTE: this rung proves the id ARRIVES and is logged. It cannot prove the gateway
+    rejects a hostile one, because the client always sends a well-formed traceparent. The
+    nine-case rejection table lives in `apps/aigateway/tests/unit/test_trace_context.py` —
+    that is the security half, and it is not covered here.
     """
     trace_ids = gateway_log["trace_ids"]
     assert trace_ids, "the run emitted no trace id to look for"

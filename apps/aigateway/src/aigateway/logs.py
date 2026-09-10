@@ -19,7 +19,7 @@ import logging
 import os
 from typing import TextIO
 
-from aigateway.call_context import record_call_id
+from aigateway.call_context import record_call_id, record_trace_id
 
 APP_LOGGER = "aigateway"
 LEVEL_ENV = "AIGW_LOG_LEVEL"
@@ -30,6 +30,18 @@ DEFAULT_LEVEL = "INFO"
 # reaches the handler WITHOUT passing the filter — a foreign handler's, a library's — from
 # raising KeyError in the formatter and taking the log line with it.
 _FORMAT = "%(levelname)s:     %(name)s %(call_context)s%(message)s"
+
+
+def rendered_context(record: logging.LogRecord) -> str:
+    """What `CallContextFilter` rendered onto `record`, or "" if it never passed one.
+
+    A typed accessor for the same reason `record_call_id` is one: `LogRecord` has no
+    `call_context` in its type, so every direct read is a pyright error and the attribute name
+    would be repeated at each site.
+    """
+
+    value = getattr(record, "call_context", "")
+    return value if isinstance(value, str) else ""
 
 
 class CallContextFilter(logging.Filter):
@@ -44,8 +56,8 @@ class CallContextFilter(logging.Filter):
     collector can be taught to parse into a real attribute. Unbound (boot, shutdown, tests) it
     renders nothing at all, so those lines stay byte-identical to before.
 
-    AIDEV-NOTE: `OME-1120` adds `trace_id` here, beside the call id — that is why this renders a
-    LIST of parts rather than one interpolation.
+    `OME-1120` added `trace_id` beside the call id — which is why this renders a LIST of parts
+    rather than one interpolation. Further ids belong in the same list, same shape.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -53,6 +65,12 @@ class CallContextFilter(logging.Filter):
         call_id = record_call_id(record)
         if call_id is not None:
             parts.append(f"gateway_call_id={call_id}")
+        # FEATURE (OME-1120): the CALLER's trace id, so one grep spans this service and the
+        # engine. Omitted entirely when absent — never rendered empty or all-zero, both of
+        # which parse downstream as a value and correlate nothing.
+        trace_id = record_trace_id(record)
+        if trace_id is not None:
+            parts.append(f"trace_id={trace_id}")
         record.call_context = (" ".join(parts) + " ") if parts else ""
         return True
 
@@ -97,5 +115,6 @@ __all__ = [
     "DEFAULT_LEVEL",
     "LEVEL_ENV",
     "CallContextFilter",
+    "rendered_context",
     "configure",
 ]

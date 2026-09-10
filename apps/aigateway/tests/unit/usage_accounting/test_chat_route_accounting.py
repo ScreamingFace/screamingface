@@ -191,7 +191,12 @@ class TestActivation:
             response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
         assert response.status_code == 200, response.text
         metadata = _aigw(response)
-        assert set(metadata) == {"usage_accounting", "request_economics"}
+        # OME-1120 added `_aigw.trace_id` — the caller's W3C trace id, echoed so a JSON
+        # caller can quote it in a bug report. This assertion pins the EXACT key set on
+        # purpose, so a new key has to be a deliberate act; it is, and the published schema
+        # gained it too (optional, not required, so a payload from an older gateway still
+        # validates).
+        assert set(metadata) == {"usage_accounting", "request_economics", "trace_id"}
         assert metadata["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
         assert metadata["request_economics"]["schema"] == "aigw.request_economics"
 
