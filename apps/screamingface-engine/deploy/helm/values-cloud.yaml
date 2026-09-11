@@ -46,3 +46,29 @@ gateway:
 # portably, and it is not the mesh gateway, so it injects no identity.
 ingress:
   enabled: false
+
+# Span export (OME-1131) is deliberately NOT enabled here, and left commented rather than set
+# with an empty endpoint: `tracing.enabled: true` with no endpoint is refused by the schema, so
+# turning it on in this file would break every cloud install until somebody supplied one.
+# Tracing is optional; the front door is not.
+#
+# To turn it on, prefer the IN-CLUSTER collector address — no credential, no public network, no
+# edge that can deny it. Find it with:
+#
+#   kubectl get svc -A | grep -i 'otel\|signoz'
+#
+#   --set tracing.enabled=true \
+#   --set tracing.endpoint=http://<otel-collector-svc>.<ns>.svc.cluster.local:4318 \
+#   --set tracing.serviceName=screamingface-engine \
+#   --set tracing.resourceAttributes=deployment.environment=dev
+#
+# Only if the collector is reached over the public edge does a credential enter the picture, and
+# then `tracing.existingSecret` is the right shape (a Secret the chart does not own survives a
+# values-less upgrade by construction). One variable carries either auth style:
+#
+#   SigNoz ingestion key   OTEL_EXPORTER_OTLP_HEADERS=signoz-access-token=<key>
+#   Cloudflare Access      OTEL_EXPORTER_OTLP_HEADERS=CF-Access-Client-Id=<id>,CF-Access-Client-Secret=<secret>
+#
+# NOTE: the SigNoz value used for READING logs (`SIGNOZ-API-KEY` against /api/v3/query_range) is
+# a different surface from OTLP INGEST and is not necessarily the same credential. Confirm which
+# one the collector wants rather than assuming the query key works here.

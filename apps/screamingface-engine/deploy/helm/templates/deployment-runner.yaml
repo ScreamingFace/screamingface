@@ -182,6 +182,13 @@ spec:
             - secretRef:
                 name: {{ include "screamingface-engine.artifactSecretName" . }}
             {{- end }}
+            {{- if include "screamingface-engine.tracingHasSecret" . }}
+            # The OTLP collector credential (OME-1131). Referenced only when one EXISTS —
+            # tracing to an in-cluster collector needs no credential, and naming a Secret that
+            # is never created would stop the pool from starting on an unresolvable envFrom.
+            - secretRef:
+                name: {{ include "screamingface-engine.tracingSecretName" . }}
+            {{- end }}
             {{- if .Values.tavily.enabled }}
             - secretRef:
                 name: {{ include "screamingface-engine.tavilySecretName" . }}

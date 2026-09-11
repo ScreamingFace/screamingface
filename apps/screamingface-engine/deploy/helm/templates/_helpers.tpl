@@ -115,6 +115,31 @@ injects each key under its OWN name — so the key MUST be `URL4_CLOUD_ARTIFACT_
 variable both halves read. Unlike the Tavily Secret, the App reads this one too: it is the read
 side of the hand-off.
 */}}
+{{/*
+The Secret carrying OTEL_EXPORTER_OTLP_HEADERS — an operator's own when supplied, else the
+chart's. Same shape as the Tavily and artifact-storage helpers, so `existingSecret` means the
+same thing everywhere in this chart.
+*/}}
+{{- define "screamingface-engine.tracingSecretName" -}}
+{{- if .Values.tracing.existingSecret -}}
+{{- .Values.tracing.existingSecret -}}
+{{- else -}}
+{{- printf "%s-tracing" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Whether the pool should attach a tracing Secret at all. Distinct from `tracing.enabled`:
+headers are OPTIONAL (an in-cluster collector needs no credential), so enabling tracing must
+not by itself reference a Secret that will never be created — an unresolvable `envFrom` stops
+the pool from starting, turning "I forgot the credential I did not need" into an outage.
+*/}}
+{{- define "screamingface-engine.tracingHasSecret" -}}
+{{- if and .Values.tracing.enabled (or .Values.tracing.existingSecret .Values.tracing.headers) -}}
+true
+{{- end -}}
+{{- end -}}
+
 {{- define "screamingface-engine.artifactSecretName" -}}
 {{- if .Values.artifactStorage.s3.existingSecret -}}
 {{- .Values.artifactStorage.s3.existingSecret -}}
