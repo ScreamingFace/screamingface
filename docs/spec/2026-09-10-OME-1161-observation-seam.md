@@ -3,7 +3,8 @@
 Approved direction, 2026-09-10. This documents the execution interface supporting the
 activity contract in `docs/spec/2026-09-09-OME-887-evaluation-activity.md`.
 PR 897 is documentation-only. Code follows in sequential main-based PRs, each at most
-500 added plus deleted lines including tests/docs. No stacked PRs.
+500 added plus deleted lines including tests/docs. Owner exception (2026-09-11): the
+integration draft may stack on PR 899 temporarily, then rebase onto main after its merge.
 
 ## Problem and useful behavior
 

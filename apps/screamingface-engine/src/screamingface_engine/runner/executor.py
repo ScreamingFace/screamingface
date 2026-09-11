@@ -23,6 +23,7 @@ from typing import Any, Literal, cast
 
 from screamingface_engine import job_env
 from screamingface_engine.artifacts import ArtifactWriter
+from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
@@ -630,7 +631,9 @@ def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
         frames.append(
             Traced(
                 payload=LogData.at(
-                    "WARN", f"dropped {bridge.dropped} log event(s) (telemetry overflow)"
+                    "WARN",
+                    f"dropped {bridge.dropped} log event(s) (telemetry overflow)",
+                    bridge_loss_attributes(bridge.dropped),
                 ),
                 span=None,
             )

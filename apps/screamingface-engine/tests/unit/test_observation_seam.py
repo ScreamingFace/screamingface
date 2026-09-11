@@ -1,6 +1,13 @@
 """Optional observation dispatch preserves execution outcomes and context isolation."""
 
+import ast
+from pathlib import Path
+
 import pytest
+
+from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
+from url4.streaming.interfaces import Executor
+from url4.streaming.protocol import LogData
 
 
 class ObservingCall:
@@ -251,3 +258,190 @@ def test_bind_receives_step_exception_but_cannot_suppress_it(outcome, monkeypatc
         assert error is None
     assert seen[0][:2] == (type(error) if error is not None else None, error)
     assert (seen[0][2] is None) == (error is None)
+
+
+def test_execution_modules_do_not_import_activity():
+    root = Path(__file__).resolve().parents[2] / "src/screamingface_engine/runner"
+    for name in ("connector.py", "executor.py", "operation_capture.py"):
+        tree = ast.parse((root / name).read_text())
+        imports = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+        assert not [m for m in imports if m and ".activity" in m], name
+
+
+@pytest.mark.asyncio
+async def test_failed_observer_factory_does_not_prevent_execution(caplog):
+    class Probe(Executor):
+        async def execute(self, url4, *, trace=None):
+            yield LogData.at("INFO", "result")
+
+    def broken():
+        raise RuntimeError("PRIVATE observer detail")
+
+    frames = [
+        s async for s in OperationCapturingExecutor(Probe(), observers=(broken,)).execute("x")
+    ]
+    assert frames == [LogData.at("INFO", "result")]
+    assert "PRIVATE" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_composition_injects_observer_for_real_model_retry_and_outcome(monkeypatch):
+    import httpx
+
+    from screamingface_engine.runner import connector
+    from screamingface_engine.runner.main import build_executor
+    from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+
+    events, requests = [], []
+
+    class Call(ObservingCall):
+        def retry(self, *, attempt, delay_seconds):
+            assert (attempt, delay_seconds) == (2, 0.0)
+            super().retry(attempt=attempt, delay_seconds=delay_seconds)
+
+        def completed(self, finish_reason):
+            assert finish_reason == "stop"
+            super().completed(finish_reason)
+
+    observer = ObservingRun(events, "")
+    observer.call = Call(events, "")
+
+    def respond(request):
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx.ReadError("retry once")
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "answer"}, "finish_reason": "stop"}],
+            },
+        )
+
+    config = WorldConfig(
+        aigateway=AigatewaySection(
+            base_url="http://gateway",
+            default_model="model",
+            models=(ModelSpec(id="model"),),
+        )
+    )
+    monkeypatch.setattr(connector, "_transport_backoff", lambda _: 0.0)
+    async with httpx.AsyncClient(
+        base_url="http://gateway",
+        transport=httpx.MockTransport(respond),
+    ) as client:
+        executor = build_executor({}, config, client=client, observers=(lambda: observer,))
+        frames = [frame async for frame in executor.execute("/model('question')!go")]
+    assert len(requests) == 2
+    assert frames
+    assert [e for e in events if e not in {"bind", "unbind"}] == [
+        "model_call",
+        "start",
+        "retry",
+        "completed",
+        "close",
+        "aclose",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_execution_rebinds_observer_for_cross_task_close():
+    import asyncio
+    from contextlib import contextmanager
+    from contextvars import ContextVar
+
+    bound = ContextVar[ObservingRun | None]("test_observer", default=None)
+    seen = []
+
+    class Observer(ObservingRun):
+        @contextmanager
+        def bind(self):
+            token = bound.set(self)
+            try:
+                yield
+            finally:
+                bound.reset(token)
+
+    class Probe(Executor):
+        async def execute(self, url4, *, trace=None):
+            seen.append(bound.get())
+            try:
+                yield LogData.at("INFO", "result")
+            finally:
+                seen.append(bound.get())
+
+    events = []
+    observer = Observer(events, "")
+    iterator = OperationCapturingExecutor(Probe(), observers=(lambda: observer,)).execute("x")
+
+    async def advance():
+        return await anext(iterator)
+
+    await asyncio.create_task(advance())
+    assert bound.get() is None
+    await asyncio.create_task(getattr(iterator, "aclose")())
+    assert seen == [observer, observer]
+    assert events == ["aclose"]
+    assert bound.get() is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_executions_construct_and_close_distinct_observers():
+    import asyncio
+
+    made = []
+
+    def factory():
+        observer = ObservingRun([], "")
+        made.append(observer)
+        return observer
+
+    class Probe(Executor):
+        async def execute(self, url4, *, trace=None):
+            await asyncio.sleep(0)
+            yield LogData.at("INFO", "result")
+
+    executor = OperationCapturingExecutor(Probe(), observers=(factory,))
+
+    async def consume():
+        return [s async for s in executor.execute("x")]
+
+    await asyncio.gather(consume(), consume())
+    assert len(made) == 2 and made[0] is not made[1]
+    assert all(o.call.events[-1] == "aclose" for o in made)
+
+
+def test_bridge_loss_observation_decorates_existing_diagnostic_only():
+    from screamingface_engine.observations import RunObservations
+    from screamingface_engine.runner.cache_counters import RunCacheCounters
+    from screamingface_engine.runner.executor import _Bridge, _closing_logs
+    from url4.observe import Log
+
+    bridge = _Bridge(maxsize=1)
+    bridge.on_event(Log(None, "INFO", "one"))
+    bridge.on_event(Log(None, "INFO", "two"))
+    run = RunObservations((lambda: ObservingRun([], ""),))
+    with run.bind():
+        frame = _closing_logs(bridge, RunCacheCounters())[0]
+    original = _closing_logs(bridge, RunCacheCounters())[0]
+    assert isinstance(frame.payload, LogData) and isinstance(original.payload, LogData)
+    assert frame.payload.body == original.payload.body
+    assert frame.payload.attributes == {"test.loss": 1}
+    assert original.payload.attributes == {}
+    assert frame.span is original.span is None
+
+
+@pytest.mark.asyncio
+async def test_iterator_creation_failure_closes_run_observers():
+    events = []
+    error = ValueError("iterator creation failed")
+
+    class Broken(Executor):
+        def execute(self, url4, *, trace=None):
+            raise error
+
+    observer = ObservingRun(events, "")
+    executor = OperationCapturingExecutor(Broken(), observers=(lambda: observer,))
+    with pytest.raises(ValueError) as raised:
+        await anext(executor.execute("x"))
+    assert raised.value is error
+    assert events == ["aclose"]
