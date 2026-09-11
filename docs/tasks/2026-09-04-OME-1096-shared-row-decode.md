@@ -1,7 +1,7 @@
 ---
 id: OME-1096
 linear_url: https://linear.app/openmined/issue/OME-1096/share-the-row-decode-and-index-step-between-gdpval-and-healthbench
-status: in_progress
+status: done
 type:
 priority: high
 labels:
@@ -9,7 +9,7 @@ labels:
   - agentic
   - autonomous
 created: 2026-09-04
-closed:
+closed: 2026-09-04
 ---
 
 # Share the row decode and index step between gdpval and healthbench

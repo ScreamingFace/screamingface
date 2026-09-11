@@ -1,7 +1,7 @@
 ---
 id: OME-1094
 linear_url: https://linear.app/openmined/issue/OME-1094/pin-each-failed-cases-failure-code-in-the-e2e-goldens-so-a
-status: in_progress
+status: done
 type:
 priority: high
 labels:
@@ -9,7 +9,7 @@ labels:
   - agentic
   - autonomous
 created: 2026-09-03
-closed:
+closed: 2026-09-03
 ---
 
 # Pin each failed case's failure code in the e2e goldens so a reclassification can't pass as "failed"

@@ -1,7 +1,7 @@
 ---
 id: OME-1095
 linear_url: https://linear.app/openmined/issue/OME-1095/derive-the-hand-listed-benchmark-board-tuples-in-engine-tests-from-the
-status: in_progress
+status: done
 type:
 priority: high
 labels:
@@ -9,7 +9,7 @@ labels:
   - agentic
   - autonomous
 created: 2026-09-03
-closed:
+closed: 2026-09-03
 ---
 
 # Derive the hand-listed benchmark board tuples in engine tests from the registry

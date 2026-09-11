@@ -1,7 +1,7 @@
 ---
 id: OME-1039
 linear_url: https://linear.app/openmined/issue/OME-1039/declare-each-benchmarks-failure-policy-and-interaction-type-as-visible
-status: in_progress
+status: done
 type:
 priority: high
 labels:
@@ -9,7 +9,7 @@ labels:
   - agentic
   - autonomous
 created: 2026-08-29
-closed:
+closed: 2026-09-04
 ---
 
 # Declare each benchmark's failure policy and interaction type as visible parameters when the spine takes over grading
