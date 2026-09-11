@@ -205,6 +205,75 @@ def test_deriving_providers_does_not_change_recipe_identity() -> None:
     assert _content_hash(honest) != _content_hash(contradictory)
 
 
+@pytest.mark.asyncio
+async def test_a_replay_by_the_same_submitter_fills_in_missing_routes(
+    tortoise_db: None,
+) -> None:
+    """FEATURE: OME-1179 Q3 — the whole reason rows can ever become classifiable.
+
+    Every row predates the Client that sends routes. Without this, a submitter who re-runs
+    after OME-1180 ships gets deduplicated to their old row and the routes are silently
+    discarded, so the board keeps a permanent population it cannot classify.
+
+    `models` is deterministic for a given `content_hash`: the hash covers `url4_expression`,
+    and the routes are a projection of that same recipe. So a replay carrying different routes
+    for the same hash means an inconsistent client, not a legitimate correction.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    first, first_created = await store.submit(_submission())
+
+    replay, replay_created = await store.submit(_submission(models=ROUTES))
+    stored = await Score.get(id=first.id)
+
+    assert first_created is True
+    assert replay_created is False
+    assert replay.id == first.id
+    assert stored.models == ROUTES
+    assert await Score.all().count() == 1
+
+
+@pytest.mark.asyncio
+async def test_another_submitter_cannot_write_routes_onto_someone_elses_row(
+    tortoise_db: None,
+) -> None:
+    """INVARIANT: the anti-hijack guard covers this field too, for free.
+
+    A public content hash is global across submitters, so without the same-owner requirement
+    anyone who copied a team's candidate could rewrite what that team's entry is made of — and
+    under OME-1179 D1 a single fabricated closed route flips the entry's published verdict.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    original, _ = await store.submit(_submission(models=ROUTES))
+
+    attacker = _submission(models=["anthropic/claude-opus-4.8"])
+    attacker = attacker.model_copy(update={"submitted_by": "mallory@example.test"})
+    replay, created = await store.submit(attacker)
+    stored = await Score.get(id=original.id)
+
+    assert created is False
+    assert replay.id == original.id
+    assert stored.models == ROUTES
+
+
+@pytest.mark.asyncio
+async def test_a_replay_without_routes_does_not_erase_stored_ones(tortoise_db: None) -> None:
+    """None means "not specified", so an older Client replaying cannot wipe newer provenance —
+    the same rule `authors` and `metadata` already follow.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    first, _ = await store.submit(_submission(models=ROUTES))
+
+    replay, created = await store.submit(_submission())
+    stored = await Score.get(id=first.id)
+
+    assert created is False
+    assert stored.models == ROUTES
+    assert replay.models == ROUTES
+
+
 def test_models_do_not_change_recipe_identity() -> None:
     """INVARIANT: `models` must NOT enter `_content_hash` (OME-1179 Q3).
 
