@@ -1,3 +1,8 @@
+Owner update, 2026-09-11: temporarily stack the integration draft on PR 899; rebase onto
+main after 899 merges. Preferred remaining split: integration, then the complete activity
+plugin. Integration retains the 500-line cap; plugin size will be reviewed separately.
+This explicit exception supersedes the no-stack instructions below.
+
 # OME-1161 — Docs first, then sequential code PRs
 
 PR 897 reviews the shared design and delivery plan only. Every subsequent PR starts from

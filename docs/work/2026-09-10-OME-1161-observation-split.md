@@ -42,3 +42,18 @@ Owner-approved revision uses explicit fault ownership, faithful step-exception t
 and one guard for synchronous/awaited callbacks. Nested execution isolation is unchanged.
 All 22 focused tests and full Engine gates pass; both reviews found no remaining issues.
 Full PR: 496 changed lines, including shared artifacts. The overall feature remains open.
+
+## Code unit 2 — execution integration (2026-09-11)
+
+Owner approved a temporary stack on PR 899, to rebase onto main after its merge.
+Intent: connect generic observations to existing execution facts without activity imports.
+Planned files: connector, executor, main composition and operation wrapper; integration tests.
+Acceptance: real retry/outcome delivery, per-run isolation, cross-task cleanup, unchanged
+requests/accounting/cancellation/operator diagnostics with no plugin. Keep this diff under 500
+changed lines, retain shared artifacts, run focused RED then full Engine gates and review.
+Outcome: five wiring regressions failed before integration; review found iterator-creation
+cleanup leakage, reproduced RED and fixed. All 30 focused cases and full Engine gates pass
+(append-only vs 96b15be0, Ruff lint/format, Pyright, layering, full pytest/coverage).
+Both reviews have no remaining findings. Existing tests remain intact. The narrow integration
+keeps policy in the future plugin; no new dependencies or public wire schema changes.
+Commit: feat: connect optional observers to Engine execution. Activity remains a separate delivery.
