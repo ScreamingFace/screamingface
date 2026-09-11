@@ -44,13 +44,35 @@ def parse_trace_id(value: str | None) -> str | None:
     The two all-zero rejections are not pedantry: the spec defines them as invalid precisely
     because they are what a broken or lazy implementation emits, and an all-zero id would
     happily group every such request together under one meaningless key.
+
+    Delegates to :func:`parse_traceparent` so there is ONE parse and one rejection table. Two
+    copies of this rule inside a module whose own docstring warns that three copies across
+    services is already the cost being managed would be the worst of both.
+    """
+    parsed = parse_traceparent(value)
+    return parsed[0] if parsed is not None else None
+
+
+def parse_traceparent(value: str | None) -> tuple[str, str] | None:
+    """BOTH ids a well-formed traceparent states — `(trace_id, parent_span_id)` — or None.
+
+    `parse_trace_id` validates the span id and then throws it away, which is right for its
+    callers: they group log lines, and a log line has no parent. A SPAN does. Without the
+    second id aigateway's server span can share the engine's trace but cannot attach to
+    anything inside it, so the waterfall shows two unconnected roots under one trace.
+
+    Added alongside rather than widening `parse_trace_id`, whose callers want exactly what it
+    already returns.
+
+    SECURITY: same rule, same rejections. The value is caller-controlled, so a malformed one
+    yields None and the caller starts its own trace — never a repaired version of the input.
     """
     if not value:
         return None
     match = _TRACEPARENT_RE.match(value)
     if match is None or match.group(1) == _ALL_ZERO_TRACE or match.group(2) == _ALL_ZERO_SPAN:
         return None
-    return match.group(1)
+    return match.group(1), match.group(2)
 
 
 def new_trace_id() -> str:
@@ -75,4 +97,5 @@ __all__ = [
     "adopt_or_mint_trace_id",
     "new_trace_id",
     "parse_trace_id",
+    "parse_traceparent",
 ]

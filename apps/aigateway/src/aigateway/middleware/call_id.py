@@ -29,7 +29,8 @@ from __future__ import annotations
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from aigateway.call_context import call_scope, new_gateway_call_id
-from aigateway.w3c_trace import adopt_or_mint_trace_id
+from aigateway.tracing import server_span
+from aigateway.w3c_trace import adopt_or_mint_trace_id, parse_traceparent
 
 TRACE_RESPONSE_HEADER = b"x-aigw-trace-id"
 """Echoed on every response so a STREAMING caller can read the id.
@@ -52,6 +53,18 @@ def _inbound_traceparent(scope: Scope) -> str | None:
     return None
 
 
+def _route_name(scope: Scope) -> str:
+    """The span's name: `<METHOD> <path>`.
+
+    The RAW path, deliberately not a templated route — this runs before routing has happened,
+    which is the same reason the ids are bound here. Path parameters in aigateway's surface are
+    ids, not secrets, so the cardinality cost is bounded and the alternative (naming every span
+    after the method alone) makes the trace view useless.
+    """
+    method = scope.get("method", "HTTP")
+    return f"{method} {scope.get('path', '')}".strip()
+
+
 class CallIdMiddleware:
     """Give every HTTP request its correlation ids, bound for the whole request."""
 
@@ -66,8 +79,15 @@ class CallIdMiddleware:
             await self._app(scope, receive, send)
             return
 
+        inbound = _inbound_traceparent(scope)
+        trace_id = adopt_or_mint_trace_id(inbound)
         call_id = new_gateway_call_id()
-        trace_id = adopt_or_mint_trace_id(_inbound_traceparent(scope))
+        # The caller's SPAN id, when it sent a usable one — the edge that attaches this
+        # gateway's span to the engine node that called it. `adopt_or_mint_trace_id` above
+        # keeps only the trace id, which is all a log line needs and not enough for a span.
+        # Re-parsing rather than threading it through: one validated read, same rejections.
+        parsed = parse_traceparent(inbound)
+        parent_span_id = parsed[1] if parsed is not None else None
 
         async def send_with_trace(message: Message) -> None:
             # INVARIANT: appended, never replacing the header list. A response that already
@@ -78,7 +98,14 @@ class CallIdMiddleware:
                 message = {**message, "headers": headers}
             await send(message)
 
-        with call_scope(call_id, trace_id=trace_id):
+        # INVARIANT: the span opens INSIDE `call_scope`. `tracing`'s id generator reads the
+        # bound trace id from that scope, so opening the span outside it would mint a
+        # different one and produce the two-ids-for-one-call state this middleware exists to
+        # prevent (OME-1132). A no-op when tracing is not configured, which is the default.
+        with (
+            call_scope(call_id, trace_id=trace_id),
+            server_span(_route_name(scope), parent_span_id=parent_span_id),
+        ):
             # Published on the scope so downstream consumers (the taxonomy session, the
             # exception handlers) read the SAME ids rather than minting a second set for the
             # same request — two ids for one call is worse than none, because both look right.

@@ -66,6 +66,7 @@ from .routes import (
     tavily_retrieval_cache,
 )
 from .routes.chat_accounting import accounting_error_response
+from .tracing import install as install_tracing
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,10 @@ def _attach_log_filter() -> None:
     # `tests/unit/test_call_context.py` pins both. Ordered this way only because redaction is
     # the security-critical one and reads better installed first.
     install_call_context_injection()
+    # FEATURE (OME-1132): aigateway as an OTel service. No-op unless an OTLP endpoint is
+    # configured, which is the default everywhere, and it never raises — an AI gateway that
+    # refuses to boot because a collector address was wrong is a worse outage than no spans.
+    install_tracing(os.environ)
     for name in ("", "uvicorn.access", "uvicorn.error", "aigateway"):
         target = logging.getLogger(name)
         if not any(isinstance(f, RedactProvisioningTokenFilter) for f in target.filters):

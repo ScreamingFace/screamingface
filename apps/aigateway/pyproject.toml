@@ -17,6 +17,8 @@ dependencies = [
     "aiosqlite==0.22.1",
     "cryptography==50.0.0",
     "python-multipart>=0.0.20",
+    "opentelemetry-sdk>=1.30.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
 ]
 
 [project.scripts]
