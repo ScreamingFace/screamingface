@@ -26,6 +26,7 @@ from ..core.http_status import valid_http_error_status
 from ..core.oauth.models import OAuthConnection
 from ..core.profile_models import AuthType, Profile
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
+from ..tracing import provider_span
 from .chat_accounting import note_conversion_failure
 from .chat_credentials import (
     _invalidate_profile_session,
@@ -169,11 +170,24 @@ async def _dispatch_with_backpressure(
             on_dispatch()
         return plugin.chat_completion(body)
 
-    async with provider_slot(request.app, provider, effective_provider_limit(settings, provider)):
-        return await with_overload_retry(
-            _attempt,
-            policy=RetryPolicy.from_settings(settings),
-        )
+    # FEATURE (OME-1132): the provider call as a CHILD span — "which provider was slow",
+    # answerable at last. Deliberately wraps the WHOLE block, slot wait and retries included,
+    # because that is the wall-clock the caller experienced; per-attempt detail already lives
+    # in the accounting record.
+    #
+    # WHY here and not in `plugins/taxonomy/collector.py`, which already measures this latency:
+    # that plugin is gated by `AIGW_TAXONOMY_ENABLED`, so reusing its measurement would make an
+    # accounting kill-switch silently delete the gateway's spans — the same coupling
+    # `middleware/call_id.py` was written to undo for the correlation ids. One extra clock read
+    # is the cheaper of the two costs.
+    with provider_span(provider):
+        async with provider_slot(
+            request.app, provider, effective_provider_limit(settings, provider)
+        ):
+            return await with_overload_retry(
+                _attempt,
+                policy=RetryPolicy.from_settings(settings),
+            )
 
 
 # WHY (FINDING B): the client-facing message is gateway-authored per machine
