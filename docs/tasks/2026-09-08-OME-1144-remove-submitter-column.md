@@ -1,12 +1,12 @@
 ---
 id: OME-1144
 linear_url: https://linear.app/openmined/issue/OME-1144/remove-the-submitter-column-from-the-leaderboard-table
-status: in_review
+status: Done
 type: task
 priority: 2
 labels: [scoreboard, agentic, autonomous, BUG]
 created: 2026-09-08
-closed:
+closed: 2026-09-09
 ---
 
 # Remove the "Submitter" column from the leaderboard table
