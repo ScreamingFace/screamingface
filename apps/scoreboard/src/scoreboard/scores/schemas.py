@@ -223,22 +223,50 @@ SubmittedBy = Annotated[
     PlainSerializer(_publish_submitter, return_type=str | None, when_used="json"),
 ]
 
+# INVARIANT: counting distinct people must not turn repeated author entries into
+# an unbounded public write. This matches the established metadata envelope.
+_AUTHORS_MAX_BYTES = 4096
+_AUTHORS_MAX_DISTINCT = 10
+
+
+def _author_identity(author: str) -> str:
+    """The one comparison identity for author validation and publication."""
+    return author.casefold()
+
 
 def _publish_authors(value: list[str] | None) -> list[str] | None:
-    """Apply the submitter privacy boundary to every credited author.
+    """Publish one unambiguous credit per distinct author.
 
-    INVARIANT: one trimming rule, delegated. `submitted_by` and `authors` must degrade
-    identically, or the same address is redacted on one field and published on the other.
+    INVARIANT: duplicate detection and the submission cap use the same full-address,
+    case-insensitive identity. The first submitted spelling and order win, while storage
+    remains untouched because this function runs only as a JSON serializer.
 
-    AIDEV-NOTE: `or author` below is a TYPE narrowing, not a fallback — read as a fallback it looks
-    like it publishes a raw address whenever the trimmer balks, which is the opposite of what this
-    function is for. It cannot: `_publish_submitter` returns None only for a None input, and these
-    elements are typed `str`. For anything that is not a dotted-domain address the trimmer already
-    returns the full value on purpose (see its docstring), so there is nothing here to rescue.
+    WHY domains appear only for collisions: OME-834's privacy rule remains the default,
+    but two distinct people with the same local part cannot both publish as the same name.
+    The domain is the minimum already-stored discriminator that makes that row truthful.
     """
     if value is None:
         return None
-    return [_publish_submitter(author) or author for author in value]
+
+    distinct: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for author in value:
+        identity = _author_identity(author)
+        if identity not in seen:
+            seen.add(identity)
+            published = _publish_submitter(author)
+            # `author` is non-null, so this is type narrowing rather than a raw-address fallback.
+            distinct.append((author, published if published is not None else author))
+
+    local_counts: dict[str, int] = {}
+    for _, published in distinct:
+        local = published.casefold()
+        local_counts[local] = local_counts.get(local, 0) + 1
+
+    return [
+        author if local_counts[published.casefold()] > 1 else published
+        for author, published in distinct
+    ]
 
 
 # INVARIANT: author addresses are full in Python mode (staff export) and local-part-only in
@@ -312,7 +340,7 @@ class ScoreSubmission(BaseModel):
     submitted_by: str | None = None
     # None means the client did not specify a credit line; reads then derive [submitted_by].
     # An explicit list is exact — the submitter is not auto-added (OME-1051 D1).
-    authors: Annotated[list[AuthorEmail], Field(min_length=1, max_length=10)] | None = None
+    authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
     # the exact primary score the Engine Benchmark produced — any
     # finite number, higher is better
     score: Annotated[float, Field(strict=True, allow_inf_nan=False)]
@@ -351,6 +379,20 @@ class ScoreSubmission(BaseModel):
     # which fails the comparison); allow_inf_nan=False stops +Infinity, which
     # would pass ge=0 and then raise inside quantize().
     run_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+    @field_validator("authors")
+    @classmethod
+    def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
+        # INVARIANT: the cap protects credit cardinality, not raw audit history. The
+        # serializer uses this exact key when it collapses repeated identities.
+        if value is None:
+            return value
+        if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
+            raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+        if len(encoded) > _AUTHORS_MAX_BYTES:
+            raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
+        return value
 
     @field_validator("run_cost_usd")
     @classmethod
