@@ -52,3 +52,27 @@ data:
   {{- end }}
   AIGW_CACHE_SNAPSHOT_S3_BUCKET: {{ .Values.snapshot.storage.bucket | quote }}
   AIGW_CACHE_SNAPSHOT_S3_REGION: {{ .Values.snapshot.storage.region | quote }}
+  {{- if .Values.tracing.enabled }}
+  {{- if not .Values.tracing.endpoint }}
+  {{- fail "tracing.enabled requires tracing.endpoint — an enabled exporter with no endpoint starts a pod that silently exports nothing, and that state has no runtime symptom" }}
+  {{- end }}
+  # OTLP span export (OME-1184). These are OpenTelemetry's OWN specified variable names, read by
+  # the SDK rather than by our code — which is why they carry no `AIGW_` prefix: an operator's
+  # existing OTel knowledge transfers, and no vocabulary was invented here.
+  #
+  # The ENDPOINT is not a credential and belongs here; the HEADERS are nothing but a credential
+  # and travel by Secret (`secret-tracing.yaml`), because a ConfigMap is readable by anything
+  # with `get` on it and is printed in plain text by `helm get manifest`.
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.tracing.endpoint | quote }}
+  {{- with .Values.tracing.serviceName }}
+  # Gated on a non-empty value: rendering "" would OVERRIDE the code's default with a blank
+  # service name, and a blank `service.name` in a tracing backend is indistinguishable from an
+  # unconfigured service. Omitting the key lets the documented default apply.
+  OTEL_SERVICE_NAME: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.tracing.resourceAttributes }}
+  OTEL_RESOURCE_ATTRIBUTES: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  # NOTE: OTEL_EXPORTER_OTLP_HEADERS is deliberately ABSENT here — it carries the collector
+  # credential and travels by Secret.

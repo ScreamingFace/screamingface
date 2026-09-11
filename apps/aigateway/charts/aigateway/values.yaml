@@ -309,3 +309,50 @@ snapshot:
     # Alternative to accessKey/secretKey: a pre-existing Secret holding
     # AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY / AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY.
     existingSecret: ""
+
+# Distributed tracing — aigateway emits spans over OTLP (OME-1184, Phase 2).
+# Phase 1 made one `trace_id` greppable across the engine and this gateway; this is what makes
+# a tracing backend show aigateway as its own SERVICE in the engine's trace, with a latency
+# breakdown and a per-provider child span, instead of two log searches that share an id.
+#
+# POSTURE — fail open, but never silently. An unreachable collector must never fail or slow a
+# request: this is an AI gateway first and a telemetry source second, so the exporter drops
+# spans on backpressure and swallows its own errors. The cost of that is the failure it must
+# NOT hide — a deployment that believes it is exporting and is not. So the loud half lives
+# here, at render time: `enabled: true` with an empty `endpoint` FAILS the render rather than
+# starting a pod that silently exports nothing. There is no runtime symptom for that state;
+# the trace view is simply empty, which looks identical to "nobody called anything".
+tracing:
+  enabled: false
+  # Base OTLP/HTTP endpoint. The exporter appends `/v1/traces`. Required when enabled.
+  #
+  # In THIS cluster the collector is in-cluster and needs no credential:
+  #   http://signoz-otel-collector.signoz.svc.cluster.local:4318
+  # (namespace `signoz`; the port is confirmed from the collector's own startup log, which
+  # reports its otlp receiver on `[::]:4318`.)
+  #
+  # ⚠️ POINT THIS AT THE COLLECTOR, NEVER AT THE SIGNOZ UI HOSTNAME. Verified footgun, not a
+  # theoretical one: `https://signoz.pulse.dev.openmined.org/v1/traces` answers **200 with
+  # `text/html`** — the UI's single-page-app catch-all, and a nonsense path answers identically.
+  # OTel's HTTP exporter treats any 2xx as success, so pointing here makes every span POST,
+  # succeed, and be DISCARDED while the exporter reports perfect health.
+  endpoint: ""
+  # Reported as `service.name`. Empty => the code's own default (`aigateway`). Deliberately
+  # omitted from the ConfigMap when empty rather than rendered as "" — a blank service name in
+  # a tracing backend is indistinguishable from an unconfigured service.
+  serviceName: ""
+  # Extra OTel resource attributes as `k=v,k=v`, e.g. `deployment.environment=dev`.
+  resourceAttributes: ""
+  # Bring your own Secret (recommended for prod — out-of-band, or External Secrets / Sealed
+  # Secrets). NOTE: it must key the value `OTEL_EXPORTER_OTLP_HEADERS`, because the pod attaches
+  # it with `envFrom.secretRef`, which injects keys under their own names and cannot rename.
+  existingSecret: ""
+  # OPTIONAL — unlike every other credential in this chart. An in-cluster collector needs none,
+  # and that is the deployment we actually have. Comma-separated `k=v` headers:
+  #
+  #   SigNoz ingestion key   signoz-access-token=<key>
+  #   Cloudflare Access      CF-Access-Client-Id=<id>,CF-Access-Client-Secret=<secret>
+  #
+  # One variable covers both shapes, the Access client-id/secret PAIR included.
+  # NEVER commit a real credential to a values file; pass it with `--set` or use existingSecret.
+  headers: ""
