@@ -111,6 +111,47 @@ def test_an_unrecognised_model_stays_unknown_even_when_openrouter_carried_it() -
     assert classify_model("openrouter/acme/never-heard-of-this-one") == "unknown"
 
 
+@pytest.mark.parametrize(
+    "route",
+    [
+        "openrouter/openai/not-gemma-proprietary",
+        "openrouter/anthropic/kimi-wrapper",
+        "openrouter/google/not-qwen-api",
+        "openrouter/openai/gpt-5.5-llama-killer",
+        "openrouter/anthropic/claude-with-mistral-flavour",
+    ],
+)
+def test_a_crafted_model_name_cannot_buy_an_open_verdict(route: str) -> None:
+    """INVARIANT: routes are CLIENT-SUBMITTED, so the classifier is an adversarial surface.
+
+    Matching an open marker anywhere in the whole route lets a submitter name a proprietary
+    model `not-gemma-proprietary` and be published as open — the fail-closed contract inverted
+    by choosing a string. Found in review of PR #922; every route here returned `open`.
+
+    The rule is therefore structural, not textual: the OWNER segment decides, and a family
+    exception must belong to that owner. `google/gemma-*` is open because Google ships Gemma's
+    weights; `openai/not-gemma-anything` is not, because OpenAI does not.
+    """
+    assert classify_model(route) == "closed"
+
+
+def test_an_owner_family_exception_is_scoped_to_that_owner() -> None:
+    """`gpt-oss` is OpenAI's and `gemma` is Google's. Neither name may travel."""
+    assert classify_model("openrouter/openai/gpt-oss-120b") == "open"
+    assert classify_model("openrouter/google/gemma-2-27b-it") == "open"
+
+    assert classify_model("openrouter/google/gpt-oss-120b") == "closed"
+    assert classify_model("openrouter/anthropic/gemma-2-27b-it") == "closed"
+
+
+def test_a_route_with_no_owner_segment_is_unknown() -> None:
+    """Fail closed on a shape the registry cannot reason about, rather than guessing from the
+    bare string — which is how the crafted-name hole above was opened in the first place.
+    """
+    assert classify_model("claude-opus-4.8") == "unknown"
+    assert classify_model("openrouter/claude-opus-4.8") == "unknown"
+
+
 def test_the_existing_row_level_classifier_is_untouched() -> None:
     """GUARD: `classify_providers` still serves `_current_split` and `_compute_trend` until
     OME-1145 replaces them. Its provider-prefix behaviour must not shift under this change —

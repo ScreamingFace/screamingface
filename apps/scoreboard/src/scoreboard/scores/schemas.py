@@ -540,13 +540,18 @@ class ScoreSchema(BaseModel):
     authors: Authors = None
     # FEATURE: OME-1181 — the declared candidate model routes, for classification.
     #
-    # INVARIANT (OME-1179 Q2, owner 2026-09-11): this is the INTERNAL read DTO. `models` is
-    # deliberately NOT on `LeaderboardEntry`, the public payload. The identities are already
-    # public inside `url4_expression`, so this is not a disclosure decision — it is an API
-    # commitment, and a typed field that returns null on every row until OME-1180 ships and
-    # submitters re-run is worse than no field. Widen the public payload when there is a
-    # consumer and real data behind it.
-    models: list[str] | None = None
+    # INVARIANT: EXCLUDED WHEN ABSENT, like `ranking_notice` below and for the same reason.
+    # This schema is NOT internal — it is the response model for `POST /scores` and
+    # `GET /scores/{id}`, and it also feeds the private JSONL export, whose exact bytes
+    # `purge_private_benchmark.export_sha256` hashes to authorize a destructive purge against
+    # an operator-supplied digest. Emitting `"models": null` would change every export saved
+    # before this field existed, with no underlying row having changed, so a previously
+    # certified export could no longer authorize its own purge (review of PR #922).
+    #
+    # `models` stays off `LeaderboardEntry`, the ranked-board payload (OME-1179 Q2). That
+    # decision recorded this schema as internal, which was wrong; the exclusion below is what
+    # actually keeps the absent case off the wire.
+    models: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
     submitted_at: datetime
     score: float
     total_questions: int

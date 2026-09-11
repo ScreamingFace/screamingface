@@ -156,7 +156,7 @@ def _derived_providers(submission: ScoreSubmission) -> list[str]:
     return list(dict.fromkeys(route.split("/", 1)[0] for route in submission.models))
 
 
-def _replay_updates(submission: ScoreSubmission) -> dict[str, object]:
+def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
     """The ONLY fields a replay of an existing recipe may correct on the stored row.
 
     FEATURE: OME-1054 — recipe identity deliberately excludes mutable provenance, so a
@@ -183,15 +183,20 @@ def _replay_updates(submission: ScoreSubmission) -> dict[str, object]:
     # Without this a submitter who re-runs is deduplicated to their old row and the routes are
     # discarded, leaving the board a permanent population the openness statistic cannot read.
     #
-    # WHY accepting a changed value is safe rather than needing fill-if-null: `models` is
-    # deterministic for a given `content_hash`, which covers `url4_expression`, and the routes
-    # are a projection of that same recipe. A replay carrying different routes under the same
-    # hash is an inconsistent client, not a legitimate correction — and the same-owner guard
-    # means it can only ever be inconsistent with itself.
-    if submission.models is not None:
+    # INVARIANT: FILL ONLY, never replace. `_content_hash` excludes `models`, so two
+    # submissions differing only in their routes share one identity — an earlier version
+    # updated unconditionally, which let a replay swap what an entry is made of, and so flip
+    # its published openness, without changing its identity or its url4 expression (review of
+    # PR #922). A conflicting populated value is retained, not overwritten: enrichment fills a
+    # gap, it does not arbitrate between two claims.
+    #
+    # WHY this is not merely defence against a hostile client: the same-owner guard already
+    # limits it to the original submitter. It is defence against the field becoming a way to
+    # rewrite a published verdict at all, by anyone, including by accident.
+    if submission.models is not None and existing.models is None:
         updates["models"] = submission.models
         # The stored providers are derived from the routes (`_derived_providers`), so a replay
-        # that corrects one must correct the other or the two drift apart on this path alone.
+        # that fills one must fill the other or the two drift apart on this path alone.
         updates["ran_with_providers"] = _derived_providers(submission)
     return updates
 
@@ -924,7 +929,7 @@ class ScoreStore:
             and submission.submitted_by is not None
             and existing.submitted_by == submission.submitted_by
         )
-        updates = _replay_updates(submission) if same_candidate_owner else {}
+        updates = _replay_updates(submission, existing) if same_candidate_owner else {}
 
         if not updates:
             return readable
