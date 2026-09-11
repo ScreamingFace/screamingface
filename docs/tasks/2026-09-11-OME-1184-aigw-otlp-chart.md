@@ -41,10 +41,11 @@ Two traps recorded so they are not re-introduced:
   supplied, so the reuse branch silently reverts a credential rotation to the stale cluster
   copy. It cannot be fixed by moving the condition: "absent" is a legitimate configuration.
 
-- **`azure/setup-helm@v5` in `aigateway-tests.yml`'s `test` job is load-bearing.** Without it
-  these chart tests `skipif` and pass while asserting nothing. That is exactly what happened to
-  the engine's equivalents (`OME-1189`). If you ever see them reported as skipped in CI, that
-  is a broken gate, not a tolerable environment difference.
+- **helm comes from the RUNNER IMAGE, not from anything this repo pins.** GitHub's
+  `ubuntu-latest` ships it, so these tests do run on the merge gate (verified in the run log).
+  If a future image drops helm they would start skipping SILENTLY and still report green — so
+  if you ever see them reported as skipped in CI, that is a broken gate, not a tolerable
+  environment difference.
 
 **Deployment is ArgoCD**, not GitHub Actions. `screamingface-sf-aigw` (dev) tracks this repo's
 chart with values from `$values/kubernetes/apps/sf-aigw/values/dev.yaml` in

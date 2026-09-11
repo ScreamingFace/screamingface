@@ -31,19 +31,6 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
-      # WHY helm is in the TEST job (OME-1184): `tests/unit/test_chart_render_tracing.py`
-      # renders the chart and asserts against the rendered manifest, because `helm lint`
-      # reports "0 chart(s) failed" for a chart that cannot render at all.
-      #
-      # Those tests carry `skipif(shutil.which("helm") is None)`. Without this step they would
-      # SKIP here and pass while asserting nothing — not hypothetical: it is exactly what
-      # happened to the engine's equivalent chart tests, whose `test` job has no helm and whose
-      # `chart` job runs no pytest, so they have never once executed on the merge gate
-      # (OME-1189). A conditional skip reads as healthy locally and is invisible in CI output.
-      #
-      # SECURITY: a pinned third-party action, no `github.event.*` interpolation anywhere.
-      - uses: azure/setup-helm@v5
-
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}

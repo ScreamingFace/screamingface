@@ -32,19 +32,23 @@ Resolved from SigNoz's own logs during `OME-1131`/`OME-1132` follow-up:
 
 ## Design decisions
 
-**D1 — the assertion lives in a pytest render test, AND this unit adds `helm` to the test job.**
-The issue asked where the assertion should live: a pytest test like the engine's, or
-`verify_chart_wiring.py`. Investigating that turned up something that changes the answer.
+**D1 — the assertion lives in a pytest render test.** The issue asked whether it should live
+there or in `verify_chart_wiring.py`.
 
-`aigateway-tests.yml` has **no helm**, so a pytest chart test would carry
-`skipif(shutil.which("helm") is None)` and **skip silently in CI** — passing locally, asserting
-nothing on the merge gate. That is not a hypothetical: it is exactly what happened to
-`OME-1131`'s 12 engine chart tests and to the pre-existing `test_chart_render_runner_pool.py`,
-filed as `OME-1189`.
+`verify_chart_wiring.py` is rejected: it exists for the **pair** of charts (the console must
+point at the Service the gateway renders; the gateway must admit the label the console's Pods
+carry). Single-chart tracing config is not a cross-chart concern, and putting it there would
+blur the one file whose whole point is that it owns what neither app's lane owns.
 
-So a pytest test is only a real gate if the job can run it. This unit therefore adds
-`azure/setup-helm@v5` to `aigateway-tests.yml`'s `test` job. One line, ~2 s, and it makes chart
-pytest viable in this app permanently.
+A pytest render test also matches the engine's, so one shape covers both charts.
+
+**Correction — an earlier draft of this unit also added `azure/setup-helm@v5` to the test job,
+on the false premise that the chart tests would otherwise skip in CI.** They do not:
+GitHub's `ubuntu-latest` image ships helm, and the engine's equivalent tests have been passing
+on the merge gate all along (verified in the run log — zero `helm is not installed` skips).
+The step was removed and `OME-1189`, filed on that premise, cancelled. What remains true and
+is recorded in the test file: helm comes from the RUNNER IMAGE rather than anything this repo
+pins, so if a future image drops it these tests would start skipping silently.
 
 `verify_chart_wiring.py` was the alternative and is rejected: it exists for the **pair** of
 charts (the console must point at the Service the gateway renders; the gateway must admit the

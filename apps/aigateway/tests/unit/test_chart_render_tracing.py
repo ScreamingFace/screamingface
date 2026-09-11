@@ -15,10 +15,12 @@ WHY the variable names are hardcoded rather than imported from `aigateway.tracin
 OpenTelemetry's own specified names. The chart and the code conform to the same external spec
 independently, so the literal belongs on both sides — that is conformance, not duplication.
 
-AIDEV-NOTE: these tests need `helm` on PATH. `aigateway-tests.yml`'s `test` job installs it
-(added by this unit). Without that step they would `skipif` and pass while asserting NOTHING —
-which is precisely what happened to the engine's equivalent tests (`OME-1189`). If you ever see
-these reported as skipped in CI, that is a broken gate, not a tolerable environment difference.
+AIDEV-NOTE: these tests need `helm` on PATH and carry a `skipif` for laptops without it.
+GitHub's `ubuntu-latest` image ships helm, so they DO run on the merge gate — verified in the
+run log, not assumed from the workflow file. That is a dependency on the runner image rather
+than on anything this repo pins: if a future image drops helm, these tests would start skipping
+SILENTLY and still report green. If you ever see them reported as skipped in CI, that is a
+broken gate, not a tolerable environment difference.
 """
 
 from __future__ import annotations
