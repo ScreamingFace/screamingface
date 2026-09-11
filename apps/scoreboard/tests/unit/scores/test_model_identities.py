@@ -7,6 +7,8 @@ survive the wire. `OME-1180` makes the Client send them; this is the half that a
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -14,9 +16,10 @@ import pytest
 from pydantic import ValidationError
 from tortoise.queryset import QuerySet
 
+from scoreboard.export_private_submissions import format_jsonl_bytes
 from scoreboard.scores import store as store_module
 from scoreboard.scores.models import Score
-from scoreboard.scores.schemas import ScoreSubmission
+from scoreboard.scores.schemas import ScoreSchema, ScoreSubmission
 from scoreboard.scores.store import ScoreStore, _content_hash
 
 ROUTES = [
@@ -24,6 +27,33 @@ ROUTES = [
     "openrouter/moonshotai/kimi-k2.6",
     "openrouter/qwen/qwen3.6-plus",
 ]
+
+
+def _schema_row(*, models: list[str] | None) -> ScoreSchema:
+    """A stored row as the export and the public GET see it."""
+    return ScoreSchema(
+        id=uuid4(),
+        version=1,
+        benchmark_id="hle",
+        benchmark_revision="rev-1",
+        spec_id="spec-1",
+        url4_expression="url4://benchmark/hle/spec-1",
+        submitted_by="alice@example.test",
+        models=models,
+        submitted_at=datetime(2026, 1, 1, tzinfo=UTC),
+        score=0.75,
+        total_questions=100,
+        correct_questions=75,
+        ran_with_providers=["openrouter"],
+        ran_at_local=None,
+        client_name=None,
+        client_version=None,
+        client_platform=None,
+        verified_by_screamingface=True,
+        metadata=None,
+        openness_override=None,
+        run_cost_usd=None,
+    )
 
 
 def _submission(
@@ -364,6 +394,70 @@ async def test_the_read_projects_only_the_two_columns_it_needs(tortoise_db: None
         monkeypatch.undo()
 
     assert captured == [("id", "models")]
+
+
+def test_a_legacy_row_serializes_byte_identically_to_before_this_field() -> None:
+    """INVARIANT: adding a field must not change what an EXISTING row exports.
+
+    `ScoreSchema` feeds the private JSONL export, and `purge_private_benchmark.export_sha256`
+    hashes those exact bytes to authorize a destructive purge against an operator-supplied
+    digest. A `"models": null` on every line silently invalidates every export saved before this
+    change, so a previously-certified export can no longer authorize its own purge — with no
+    underlying row having changed at all.
+
+    `ranking_notice` carries `exclude_if` for precisely this reason (schemas.py:567-573). Found
+    in review of PR #922.
+    """
+    row = _schema_row(models=None)
+
+    exported = format_jsonl_bytes([row])
+
+    assert b'"models"' not in exported
+    assert "models" not in json.loads(exported.decode().strip())
+
+
+def test_a_row_that_declares_routes_does_export_them() -> None:
+    """The exclusion is for ABSENCE, not for the field. A row whose routes are known has
+    genuinely changed, and staff reading an export must see what it was made of.
+    """
+    exported = format_jsonl_bytes([_schema_row(models=ROUTES)])
+
+    assert json.loads(exported.decode().strip())["models"] == ROUTES
+
+
+def test_the_public_score_response_omits_an_absent_models_field() -> None:
+    """`ScoreSchema` is the response model for POST /scores and GET /scores/{id}, so this is a
+    public payload, not an internal DTO — the Q2 decision recorded it as internal, which was
+    wrong. Absent stays absent on the wire rather than becoming an explicit null.
+    """
+    assert "models" not in json.loads(_schema_row(models=None).model_dump_json())
+    assert json.loads(_schema_row(models=ROUTES).model_dump_json())["models"] == ROUTES
+
+
+@pytest.mark.asyncio
+async def test_a_replay_cannot_replace_routes_that_are_already_declared(
+    tortoise_db: None,
+) -> None:
+    """INVARIANT: enrichment FILLS a missing value; it never replaces a present one.
+
+    `_content_hash` excludes `models`, so two submissions differing only in their routes share
+    an identity — verified in `test_models_do_not_change_recipe_identity`. Without this rule a
+    replay could therefore swap what an entry is made of, and so flip its published openness,
+    without changing its identity or its url4 expression. The Q3 decision was to enrich a
+    missing value, not to accept a conflicting one. Found in review of PR #922.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    first, _ = await store.submit(_submission(models=ROUTES))
+
+    replay, created = await store.submit(
+        _submission(models=["openrouter/anthropic/claude-opus-4.8"])
+    )
+    stored = await Score.get(id=first.id)
+
+    assert created is False
+    assert stored.models == ROUTES
+    assert stored.ran_with_providers == ["openrouter"]
 
 
 def test_models_do_not_change_recipe_identity() -> None:
