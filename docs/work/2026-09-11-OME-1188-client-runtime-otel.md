@@ -1,9 +1,9 @@
 ---
 ticket: OME-1188
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-11
-finished:
+finished: 2026-09-11
 ---
 
 # OME-1188 — Client runtime OpenTelemetry dependency parity
@@ -47,4 +47,5 @@ implementation and a draft PR.
 - Commit: `fix(screamingface): include bundled runtime tracing dependencies`, Refs: OME-1188.
 - Deviations: used the existing failing regression rather than duplicating its assertions.
 - Gate log: `.docs/OME-1188-gates.log` (local).
-- Draft PR delivery only; issue remains open until review and merge.
+- PR 920 merged on 11 September 2026 as 48ec29d14ce91d99aedbd861a067bf4239839163.
+- Linear and task mirror are Done.
