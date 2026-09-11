@@ -227,6 +227,58 @@ tavily:
   # pass it with `--set-file tavily.apiKey=<path>` or `--set`, or use `existingSecret`.
   apiKey: ""
 
+# Distributed tracing — the runner pool exports each run's spans over OTLP (OME-1131, Phase 2).
+# Phase 1 made one `trace_id` greppable across services; this is what makes a tracing backend's
+# TRACE VIEW show a waterfall instead of a log search.
+#
+# POSTURE — fail open, but never silently. An unreachable collector must never fail or slow a
+# run: the engine's job is executing runs, not shipping telemetry, so the exporter drops spans
+# on backpressure and swallows its own errors. The cost of that choice is the failure it CANNOT
+# be allowed to hide — a deployment that believes it is exporting and is not. So the loud half
+# lives HERE, at render time: `enabled: true` with an empty `endpoint` FAILS the render rather
+# than starting a pool that silently exports nothing. There is no runtime symptom for that
+# state; the trace view is simply empty, which looks identical to "nobody ran anything".
+#
+# Applies to the RUNNER POOL only. The control plane publishes no spans (the exporter is
+# mounted in the run mode), so configuring it there would wire up an exporter that does not
+# exist. aigateway is instrumented separately.
+tracing:
+  enabled: false
+  # Base OTLP/HTTP endpoint, e.g. http://signoz-otel-collector.platform.svc.cluster.local:4318
+  # The exporter appends `/v1/traces`. Required when enabled.
+  #
+  # ⚠️ POINT THIS AT THE COLLECTOR, NEVER AT THE SIGNOZ UI HOSTNAME. This is a silent, verified
+  # footgun, not a theoretical one: `https://signoz.pulse.dev.openmined.org/v1/traces` answers
+  # **200 with `text/html`** — it is the UI's single-page-app catch-all, and a nonsense path
+  # answers identically. OTel's HTTP exporter treats any 2xx as success, so pointing here makes
+  # every span POST, succeed, and be DISCARDED, while the exporter reports perfect health and
+  # the trace view stays empty. That is indistinguishable from "nobody ran anything".
+  #
+  # Prefer the IN-CLUSTER Service address: it needs no credential, crosses no public network,
+  # and does not depend on an edge that can deny it. Find it with:
+  #   kubectl get svc -A | grep -i 'otel\|signoz'
+  endpoint: ""
+  # Reported as `service.name`. Empty => the code's own default (`screamingface-engine`).
+  # Deliberately omitted from the ConfigMap when empty rather than rendered as "" — a blank
+  # service name in a tracing backend is indistinguishable from an unconfigured service.
+  serviceName: ""
+  # Extra OTel resource attributes as `k=v,k=v`, e.g. `deployment.environment=dev`.
+  resourceAttributes: ""
+  # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
+  # / Sealed Secrets flow). NOTE: it must key the value `OTEL_EXPORTER_OTLP_HEADERS`, because
+  # the pool attaches it with `envFrom.secretRef`, which injects keys under their own names and
+  # cannot rename.
+  existingSecret: ""
+  # OPTIONAL, unlike `tavily.apiKey` — an in-cluster collector needs no credential at all, and
+  # requiring one would block the most likely correct deployment. Comma-separated `k=v` headers:
+  #
+  #   SigNoz ingestion key        signoz-access-token=<key>
+  #   Cloudflare Access           CF-Access-Client-Id=<id>,CF-Access-Client-Secret=<secret>
+  #
+  # One variable covers both shapes, the Access client-id/secret PAIR included.
+  # NEVER commit a real credential to a values file; pass it with `--set` or use `existingSecret`.
+  headers: ""
+
 # JWT topic-capability signing secret (spec §4). HS256; never logged. When `create: true` the chart
 # generates a random 64-char secret (reused across upgrades via lookup), else supply `existingSecret`.
 auth:

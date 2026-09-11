@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "screamingface-engine chart values",
-  "description": "Validated at `helm lint`/`helm install` time. WHY this file exists: a chart's values are an API, and without a schema they are an UNTYPED one — `runner.backend` was a free-form string that only screamingface_engine.config.Settings validated, at container startup, i.e. after a successful deploy reported success. Everything encoded here fails before anything is applied to a cluster.",
+  "description": "Validated at `helm lint`/`helm install` time. WHY this file exists: a chart's values are an API, and without a schema they are an UNTYPED one \u2014 `runner.backend` was a free-form string that only screamingface_engine.config.Settings validated, at container startup, i.e. after a successful deploy reported success. Everything encoded here fails before anything is applied to a cluster.",
   "type": "object",
   "properties": {
     "replicaCount": {
@@ -55,12 +55,12 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 57600,
-          "description": "Job activeDeadlineSeconds. INVARIANT: the 16h ceiling is spec §3."
+          "description": "Job activeDeadlineSeconds. INVARIANT: the 16h ceiling is spec \u00a73."
         },
         "orphanGraceS": {
           "type": "number",
           "minimum": 0,
-          "description": "Seconds a run may keep going with no WebSocket subscriber before the App stops it (OME-890); 0 disables the reaper. INVARIANT: the audience count is in-process, so replicaCount must stay 1 while this is non-zero — a second replica would answer \"nobody is listening\" for runs another replica is streaming. Keep it above uvicorn's WS ping window (~40s), which is what closes a partitioned client's socket in the first place."
+          "description": "Seconds a run may keep going with no WebSocket subscriber before the App stops it (OME-890); 0 disables the reaper. INVARIANT: the audience count is in-process, so replicaCount must stay 1 while this is non-zero \u2014 a second replica would answer \"nobody is listening\" for runs another replica is streaming. Keep it above uvicorn's WS ping window (~40s), which is what closes a partitioned client's socket in the first place."
         },
         "runnerIoConcurrency": {
           "type": "integer",
@@ -70,12 +70,12 @@
         "runQueueReplicas": {
           "type": "integer",
           "minimum": 1,
-          "description": "The queue stream's replica count (OME-1088), rendered to both the App and the worker pool — they declare the same singleton stream and ensure_stream refuses a divergent declaration, so a one-sided value is a startup failure for whichever half declares second. Defaults to 1 because this chart bundles a SINGLE-NODE NATS subchart, and a single-node broker refuses replicas > 1 outright (ServerError 10074). Raise it only against a real NATS cluster."
+          "description": "The queue stream's replica count (OME-1088), rendered to both the App and the worker pool \u2014 they declare the same singleton stream and ensure_stream refuses a divergent declaration, so a one-sided value is a startup failure for whichever half declares second. Defaults to 1 because this chart bundles a SINGLE-NODE NATS subchart, and a single-node broker refuses replicas > 1 outright (ServerError 10074). Raise it only against a real NATS cluster."
         },
         "runQueueBucketCount": {
           "type": "integer",
           "minimum": 1,
-          "description": "How many bucket subjects the run queue is split into for per-caller fairness (OME-1091), rendered to both the App and the worker pool. The App publishes into one bucket and the worker polls them all, so a one-sided value is NOT a startup failure — the run is accepted, lands in a bucket nobody polls, and expires silently. Zero is the modulus of the bucket hash, so it is refused here before any template renders."
+          "description": "How many bucket subjects the run queue is split into for per-caller fairness (OME-1091), rendered to both the App and the worker pool. The App publishes into one bucket and the worker polls them all, so a one-sided value is NOT a startup failure \u2014 the run is accepted, lands in a bucket nobody polls, and expires silently. Zero is the modulus of the bucket hash, so it is refused here before any template renders."
         },
         "aigatewayBaseUrl": {
           "type": "string"
@@ -86,7 +86,7 @@
         }
       },
       "additionalProperties": false,
-      "$comment": "`port` was removed deliberately: the App serves on a hardcoded 9108 (cli.py) and reads no port from its environment, so the value only ever moved the containerPort away from the listening port — a render that lint and install both accepted while the probes and the Service targetPort pointed at nothing. additionalProperties:false now rejects it at install time instead."
+      "$comment": "`port` was removed deliberately: the App serves on a hardcoded 9108 (cli.py) and reads no port from its environment, so the value only ever moved the containerPort away from the listening port \u2014 a render that lint and install both accepted while the probes and the Service targetPort pointed at nothing. additionalProperties:false now rejects it at install time instead."
     },
     "runner": {
       "type": "object",
@@ -120,7 +120,7 @@
     },
     "runnerPool": {
       "type": "object",
-      "description": "The fixed worker pool (OME-1092): a Deployment of `replicas` pods, each running `screamingface-engine worker` with `workerSlots` run slots. Declared concurrency is `replicas × workerSlots`.",
+      "description": "The fixed worker pool (OME-1092): a Deployment of `replicas` pods, each running `screamingface-engine worker` with `workerSlots` run slots. Declared concurrency is `replicas \u00d7 workerSlots`.",
       "properties": {
         "replicas": {
           "type": "integer",
@@ -129,12 +129,15 @@
         "workerSlots": {
           "type": "integer",
           "minimum": 1,
-          "description": "Run slots per worker pod. MUST match `run_queue_worker_slots`. One slot is one supervised child process, so `replicas × workerSlots` is what bounds fleet execution."
+          "description": "Run slots per worker pod. MUST match `run_queue_worker_slots`. One slot is one supervised child process, so `replicas \u00d7 workerSlots` is what bounds fleet execution."
         },
         "maxAckPending": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1,
-          "description": "The queue's PER-CALLER allowance: applied to every bucket consumer, and a caller hashes to one bucket, so it caps one caller's unacked runs (not the fleet — that is `runQueueBucketCount × this`). Null/absent derives `replicas × workerSlots`, which hands each caller the whole fleet's width; pin it whenever `replicas > 1`. Binds at consumer creation, so changing it does not re-cap a live queue."
+          "description": "The queue's PER-CALLER allowance: applied to every bucket consumer, and a caller hashes to one bucket, so it caps one caller's unacked runs (not the fleet \u2014 that is `runQueueBucketCount \u00d7 this`). Null/absent derives `replicas \u00d7 workerSlots`, which hands each caller the whole fleet's width; pin it whenever `replicas > 1`. Binds at consumer creation, so changing it does not re-cap a live queue."
         },
         "drainGraceS": {
           "type": "number",
@@ -144,7 +147,7 @@
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 1,
-          "description": "INVARIANT: must stay at or above `drainGraceS` + 10s (kill grace) + 15s (terminal-publish budget) — the kubelet SIGKILLs the pod at this deadline, and a drain cut short interrupts every in-flight run. The chart enforces this with a `fail` at render time; a JSON Schema description alone enforces nothing."
+          "description": "INVARIANT: must stay at or above `drainGraceS` + 10s (kill grace) + 15s (terminal-publish budget) \u2014 the kubelet SIGKILLs the pod at this deadline, and a drain cut short interrupts every in-flight run. The chart enforces this with a `fail` at render time; a JSON Schema description alone enforces nothing."
         },
         "perRunCharge": {
           "type": "object",
@@ -303,7 +306,7 @@
             "required": [
               "existingSecret"
             ],
-            "description": "auth.create=false means the JWT signing secret must come from somewhere — without existingSecret the Deployment references a Secret that was never created."
+            "description": "auth.create=false means the JWT signing secret must come from somewhere \u2014 without existingSecret the Deployment references a Secret that was never created."
           }
         }
       ],
@@ -588,7 +591,7 @@
     },
     "garage": {
       "type": "object",
-      "description": "The bundled single-node S3-compatible store. Default-disabled: an existing endpoint can be named with artifactStorage.s3.endpointUrl instead. Needs a one-time bootstrap after install — see templates/garage.yaml.",
+      "description": "The bundled single-node S3-compatible store. Default-disabled: an existing endpoint can be named with artifactStorage.s3.endpointUrl instead. Needs a one-time bootstrap after install \u2014 see templates/garage.yaml.",
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -631,6 +634,55 @@
         }
       },
       "additionalProperties": false
+    },
+    "tracing": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "serviceName": {
+          "type": "string"
+        },
+        "resourceAttributes": {
+          "type": "string"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "endpoint": {
+                "minLength": 1
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "description": "tracing.enabled requires tracing.endpoint. Enabled with an empty endpoint would start a runner pool that exports nothing, and that state has NO runtime symptom - the trace view is simply empty, which is indistinguishable from nobody having run anything. Refusing here is the only loud moment available. Note the credential (tracing.headers) is deliberately NOT required: an in-cluster collector needs none."
+          }
+        }
+      ],
+      "additionalProperties": false
     }
   },
   "required": [
@@ -639,5 +691,5 @@
     "runner"
   ],
   "additionalProperties": false,
-  "$comment": "additionalProperties:false is the point of this file — it turns a stale or misspelled key (a `podDisruptionBudget` block left behind after the template was deleted, a `runner.resource` typo) into an install-time error instead of a value that is silently ignored while the operator believes it took effect. `global` is allowed because Helm injects it for subcharts."
+  "$comment": "additionalProperties:false is the point of this file \u2014 it turns a stale or misspelled key (a `podDisruptionBudget` block left behind after the template was deleted, a `runner.resource` typo) into an install-time error instead of a value that is silently ignored while the operator believes it took effect. `global` is allowed because Helm injects it for subcharts."
 }
