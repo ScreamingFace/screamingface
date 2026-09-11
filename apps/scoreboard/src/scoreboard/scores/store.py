@@ -123,6 +123,32 @@ def _resolve_benchmark_revision(submission: ScoreSubmission) -> str | None:
     return candidate if isinstance(candidate, str) and candidate else None
 
 
+def _derived_providers(submission: ScoreSubmission) -> list[str]:
+    """The providers to STORE, preferring the ones the declared routes imply.
+
+    `ran_with_providers` and `models` describe the same thing at different resolutions, and the
+    Client already computes the former from the latter. Recomputing it here means a submission
+    cannot assert a provider its own routes contradict, and the board never publishes a
+    Backends column its stored routes disagree with.
+
+    INVARIANT: this is the STORED value only. `_content_hash` keeps reading
+    `submission.ran_with_providers`, the wire value — see the note there. Correcting what is
+    stored is fine; rewriting recipe identity underneath existing rows is not.
+
+    WHY not reject a contradiction instead: a 422 would be the louder choice, but it turns a
+    field the board can compute for itself into a way for a client to fail. Nothing is lost by
+    correcting it, because the wire value survives in the hash.
+
+    No routes means nothing to derive from — the Client's truncation is lossy, so there is no
+    way back from ["openrouter"] to the models it stood for.
+    """
+    if not submission.models:
+        return submission.ran_with_providers
+    # Order is part of what happened rather than incidental serialization (OME-391), so first
+    # appearance wins and repeats collapse — the same rule the Client's own `_providers` uses.
+    return list(dict.fromkeys(route.split("/", 1)[0] for route in submission.models))
+
+
 def _resolved_authors(authors: list[str] | None, submitted_by: str | None) -> list[str] | None:
     """The backwards-compatible author credit shown for one stored submission."""
     if authors is not None:
@@ -149,7 +175,9 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "score": submission.score,
         "total_questions": submission.total_questions,
         "correct_questions": submission.correct_questions,
-        "ran_with_providers": submission.ran_with_providers,
+        # INVARIANT: derived from `models` when present, so the two stored fields cannot
+        # contradict each other. `_content_hash` below still reads the WIRE value.
+        "ran_with_providers": _derived_providers(submission),
         "ran_at_local": submission.ran_at_local,
         "client_name": submission.client.name if submission.client else None,
         "client_version": submission.client.version if submission.client else None,
@@ -191,6 +219,12 @@ def _content_hash(submission: ScoreSubmission, *, per_submitter: bool = False) -
         "url4_expression": submission.url4_expression,
         "score": submission.score,
         "total_questions": submission.total_questions,
+        # INVARIANT: the WIRE value, deliberately NOT `_derived_providers(submission)`.
+        # OME-1181: the stored column is corrected from `models`, but identity must stay what
+        # the submitter actually sent. Hashing the derived value would recompute identity for
+        # every row whose client-sent providers differ from its routes — including every row
+        # predating OME-1180 — so each would stop deduplicating to its stored twin and create a
+        # duplicate instead.
         "ran_with_providers": submission.ran_with_providers,
     }
     if per_submitter:
