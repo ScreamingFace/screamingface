@@ -65,3 +65,11 @@ lifetime, not a new durable record. User approved implementation and draft PR cr
   Refs: OME-1191. Draft only; issue stays open for review and merge.
 - Logs: `.docs/OME-1191-focused.log`, `.docs/OME-1191-full-tests.log`,
   `.docs/OME-1191-gates-approved.log` (local).
+
+### Review handoff and related issue reconciliation
+
+- Owner marked PR 924 ready for review; Linear and mirror are In Review.
+- Updated merged delivery notes for OME-1188 (Done) and OME-416 (In Progress;
+  returned typed Report provenance remains outstanding).
+- Documentation-only reconciliation; verified issue states against PR states
+  and ran git diff --check. Existing code validation above still applies.
