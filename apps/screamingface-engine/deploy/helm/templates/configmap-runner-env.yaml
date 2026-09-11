@@ -77,9 +77,19 @@ data:
   # the documented default apply.
   OTEL_SERVICE_NAME: {{ . | quote }}
   {{- end }}
-  {{- with .Values.tracing.resourceAttributes }}
-  OTEL_RESOURCE_ATTRIBUTES: {{ . | quote }}
-  {{- end }}
+  # FEATURE (OME-1190): defaults to the release NAMESPACE, so a preview environment's spans are
+  # distinguishable from dev's. They would otherwise be identical — a direct OTLP export carries
+  # the app's OWN Resource, and the k8s collector's namespace enrichment applies to the LOGS it
+  # scrapes, not to spans an app posts itself.
+  #
+  # WHY here and not in `values.yaml`: Helm does not template values files, so
+  # `{{ `{{ .Release.Namespace }}` }}` written there renders as that literal string and every
+  # service reports the template source as its environment.
+  #
+  # Unlike OTEL_SERVICE_NAME above, this is NOT gated on a non-empty value: the chart knows
+  # something the code cannot — which namespace it is being installed into — so it has a
+  # meaningful default to supply rather than an empty one to avoid.
+  OTEL_RESOURCE_ATTRIBUTES: {{ .Values.tracing.resourceAttributes | default (printf "deployment.environment=%s" .Release.Namespace) | quote }}
   {{- end }}
   # NOTE: OTEL_EXPORTER_OTLP_HEADERS is deliberately ABSENT here, for the same reason as the S3
   # secret key below — it carries the collector credential.

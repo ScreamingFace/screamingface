@@ -243,7 +243,18 @@ tavily:
 # mounted in the run mode), so configuring it there would wire up an exporter that does not
 # exist. aigateway is instrumented separately.
 tracing:
-  enabled: false
+  # ON by default (OME-1190) — deliberately, and conditionally.
+  #
+  # WHY the chart rather than the deployment's values file: ArgoCD merges chart defaults UNDER
+  # `$values/kubernetes/apps/sf-url4-cloud/values/dev.yaml` in `OpenMined/infrastructure`, so
+  # defaulting here turns tracing on with no change to that repo. An operator overrides it the
+  # normal way.
+  #
+  # ⚠️ THIS IS ONLY DEFENSIBLE WHILE THE CHART IS UNPUBLISHED, and that is a SUNSET condition.
+  # `release-screamingface-engine.yml` defers OCI Helm publishing until the NATS dependency is
+  # pinned and vendored (OME-567). The endpoint below is specific to `aks-dev`, so the day this
+  # chart ships to anyone else, BOTH lines must go back to being opt-in. Revisit with OME-567.
+  enabled: true
   # Base OTLP/HTTP endpoint, e.g. http://signoz-otel-collector.platform.svc.cluster.local:4318
   # The exporter appends `/v1/traces`. Required when enabled.
   #
@@ -254,15 +265,26 @@ tracing:
   # every span POST, succeed, and be DISCARDED, while the exporter reports perfect health and
   # the trace view stays empty. That is indistinguishable from "nobody ran anything".
   #
-  # Prefer the IN-CLUSTER Service address: it needs no credential, crosses no public network,
-  # and does not depend on an edge that can deny it. Find it with:
-  #   kubectl get svc -A | grep -i 'otel\|signoz'
-  endpoint: ""
+  # The IN-CLUSTER Service address below needs no credential, crosses no public network, and
+  # does not depend on an edge that can deny it. Confirmed from the collector's OWN startup log
+  # (`otelcol.component.id=otlp kind=receiver endpoint=[::]:4318`), not assumed from convention.
+  #
+  # CLUSTER-SPECIFIC: `aks-dev`, namespace `signoz`. See the sunset note on `enabled` above.
+  endpoint: "http://signoz-otel-collector.signoz.svc.cluster.local:4318"
   # Reported as `service.name`. Empty => the code's own default (`screamingface-engine`).
   # Deliberately omitted from the ConfigMap when empty rather than rendered as "" — a blank
   # service name in a tracing backend is indistinguishable from an unconfigured service.
   serviceName: ""
-  # Extra OTel resource attributes as `k=v,k=v`, e.g. `deployment.environment=dev`.
+  # Extra OTel resource attributes as `k=v,k=v`.
+  #
+  # Empty does NOT mean absent here: the template defaults it to
+  # `deployment.environment=<release namespace>`, which is what keeps a preview environment's
+  # spans distinguishable from dev's. Without it they are identical — a direct OTLP export
+  # carries the app's OWN Resource, and the k8s collector's namespace enrichment applies to the
+  # LOGS it scrapes, not to spans an app posts itself.
+  #
+  # The default lives in the TEMPLATE, not here: Helm does not template values files, so
+  # `{{ .Release.Namespace }}` written at this line would render as that literal string.
   resourceAttributes: ""
   # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
   # / Sealed Secrets flow). NOTE: it must key the value `OTEL_EXPORTER_OTLP_HEADERS`, because
