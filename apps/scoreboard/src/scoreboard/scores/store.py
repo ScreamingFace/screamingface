@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, NamedTuple, cast
@@ -41,6 +42,12 @@ _NULLABLE_RAW_FIELDS = frozenset({"authors", "run_cost_usd"})
 logger = logging.getLogger(__name__)
 
 IDEMPOTENCY_TTL = timedelta(hours=24)
+
+# INVARIANT: the id set handed to `models_for_score_ids` is as large as the board, because the
+# Pareto frontier is neither small nor bounded — every best-per-spec point can be non-dominated
+# and spec ids are client-controlled. A single `WHERE id IN (...)` would eventually exceed the
+# driver's bind-parameter limit (SQLite's default is 999), at a board size no test reproduces.
+_MODELS_READ_CHUNK = 500
 
 
 class _Unset:
@@ -147,6 +154,46 @@ def _derived_providers(submission: ScoreSubmission) -> list[str]:
     # Order is part of what happened rather than incidental serialization (OME-391), so first
     # appearance wins and repeats collapse — the same rule the Client's own `_providers` uses.
     return list(dict.fromkeys(route.split("/", 1)[0] for route in submission.models))
+
+
+def _replay_updates(submission: ScoreSubmission) -> dict[str, object]:
+    """The ONLY fields a replay of an existing recipe may correct on the stored row.
+
+    FEATURE: OME-1054 — recipe identity deliberately excludes mutable provenance, so a
+    corrected credit line or metadata object updates the deduped row rather than pretending
+    success while discarding the correction.
+
+    INVARIANT: this is an allowlist, and its caller has already established that the replay
+    comes from the ORIGINAL submitter of the same recipe on the same benchmark. Nothing outside
+    this function may be written on the replay path, and nothing here may be written without
+    that guard — a public content hash is global across submitters, so anyone who copied a
+    team's candidate could otherwise rewrite that team's row.
+
+    INVARIANT: `None` means "not specified", so an older client replaying cannot erase newer
+    provenance. Empty containers stay meaningful explicit replacements where the wire contract
+    permits them (`metadata` may be `{}`; `authors=[]` and `models=[]` are rejected at
+    validation).
+    """
+    updates: dict[str, object] = {}
+    if submission.authors is not None:
+        updates["authors"] = submission.authors
+    if submission.metadata is not None:
+        updates["metadata"] = submission.metadata
+    # FEATURE: OME-1181 — how a row submitted before OME-1180 ever becomes classifiable.
+    # Without this a submitter who re-runs is deduplicated to their old row and the routes are
+    # discarded, leaving the board a permanent population the openness statistic cannot read.
+    #
+    # WHY accepting a changed value is safe rather than needing fill-if-null: `models` is
+    # deterministic for a given `content_hash`, which covers `url4_expression`, and the routes
+    # are a projection of that same recipe. A replay carrying different routes under the same
+    # hash is an inconsistent client, not a legitimate correction — and the same-owner guard
+    # means it can only ever be inconsistent with itself.
+    if submission.models is not None:
+        updates["models"] = submission.models
+        # The stored providers are derived from the routes (`_derived_providers`), so a replay
+        # that corrects one must correct the other or the two drift apart on this path alone.
+        updates["ran_with_providers"] = _derived_providers(submission)
+    return updates
 
 
 def _resolved_authors(authors: list[str] | None, submitted_by: str | None) -> list[str] | None:
@@ -864,29 +911,20 @@ class ScoreStore:
         if readable is None:
             raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
 
-        # FEATURE: OME-1054 — recipe identity deliberately excludes mutable provenance. A
-        # corrected explicit author list or metadata object therefore updates the deduped row,
-        # rather than pretending success while discarding the correction.
-        #
         # INVARIANT: a public content hash is global across submitters. Requiring the SAME stored
         # hash, benchmark and submitter prevents someone who copied another team's candidate (or
         # merely reused its idempotency key) from rewriting that team's credit. In production the
         # submitter is mesh-verified; disabled mode explicitly trusts this field for development.
-        updates: dict[str, object] = {}
+        #
+        # This guard is the ONLY thing standing between a replay and `_replay_updates`' field
+        # allowlist — read that function before widening either.
         same_candidate_owner = (
             existing.content_hash == content_hash
             and cast(str, getattr(existing, "benchmark_id")) == submission.benchmark_id
             and submission.submitted_by is not None
             and existing.submitted_by == submission.submitted_by
         )
-        if same_candidate_owner:
-            # None means "not specified", so an old client replay cannot erase newer provenance.
-            # Empty containers remain meaningful explicit replacements where the wire contract
-            # permits them (metadata may be {}, while authors=[] is rejected at validation).
-            if submission.authors is not None:
-                updates["authors"] = submission.authors
-            if submission.metadata is not None:
-                updates["metadata"] = submission.metadata
+        updates = _replay_updates(submission) if same_candidate_owner else {}
 
         if not updates:
             return readable
@@ -1269,6 +1307,31 @@ class ScoreStore:
             Score.filter(benchmark_id=benchmark_id).using_db(using_db).order_by("submitted_at")
         )
         return [_score_to_schema(score) for score in rows]
+
+    async def models_for_score_ids(self, score_ids: Sequence[str]) -> dict[str, list[str] | None]:
+        """Declared model routes for a given set of score ids, read in chunks.
+
+        FEATURE: OME-1181 — the second query behind the openness statistic. Membership comes
+        from `leaderboard_pareto_inputs` + `compute_pareto_frontier_ids`, which stay minimal;
+        this fills in only what those deliberately omit.
+
+        INVARIANT: selects `id` and `models` and nothing else. `leaderboard.py:270-275` records
+        why the whole-board read is minimal — client-controlled recipes and display metadata
+        must never be materialised en masse. This read is scoped to the frontier rather than the
+        board, but the frontier is still unbounded, so the same rule applies. Do NOT widen it
+        into a general row fetch.
+
+        An id with no row is simply absent from the result; a row with no declared routes maps
+        to `None`, which is not the same as absent and must stay distinguishable — the contract
+        excludes undeclared rows from the statistic rather than counting them closed.
+        """
+        found: dict[str, list[str] | None] = {}
+        for start in range(0, len(score_ids), _MODELS_READ_CHUNK):
+            chunk = score_ids[start : start + _MODELS_READ_CHUNK]
+            rows = await Score.filter(id__in=chunk).values("id", "models")
+            for row in rows:
+                found[str(row["id"])] = cast("list[str] | None", row["models"])
+        return found
 
     async def mark_verified(self, score_id: UUID | str) -> None:
         await Score.filter(id=score_id).update(verified_by_screamingface=True)

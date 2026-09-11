@@ -7,9 +7,14 @@ survive the wire. `OME-1180` makes the Client send them; this is the half that a
 
 from __future__ import annotations
 
+from typing import Any
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
+from tortoise.queryset import QuerySet
 
+from scoreboard.scores import store as store_module
 from scoreboard.scores.models import Score
 from scoreboard.scores.schemas import ScoreSubmission
 from scoreboard.scores.store import ScoreStore, _content_hash
@@ -25,11 +30,13 @@ def _submission(
     *,
     models: list[str] | None = None,
     ran_with_providers: list[str] | None = None,
+    spec_id: str = "spec-1",
+    url4: str = "url4://benchmark/hle/spec-1",
 ) -> ScoreSubmission:
     return ScoreSubmission(
         benchmark_id="hle",
-        spec_id="spec-1",
-        url4_expression="url4://benchmark/hle/spec-1",
+        spec_id=spec_id,
+        url4_expression=url4,
         submitted_by="alice@example.test",
         models=models,
         score=0.75,
@@ -272,6 +279,91 @@ async def test_a_replay_without_routes_does_not_erase_stored_ones(tortoise_db: N
     assert created is False
     assert stored.models == ROUTES
     assert replay.models == ROUTES
+
+
+@pytest.mark.asyncio
+async def test_routes_are_read_back_for_a_set_of_score_ids(tortoise_db: None) -> None:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    with_routes, _ = await store.submit(_submission(models=ROUTES))
+    without, _ = await store.submit(
+        _submission(spec_id="spec-2", models=None, url4="url4://benchmark/hle/spec-2")
+    )
+
+    found = await store.models_for_score_ids([str(with_routes.id), str(without.id)])
+
+    assert found == {str(with_routes.id): ROUTES, str(without.id): None}
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_id_is_simply_absent(tortoise_db: None) -> None:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    assert await store.models_for_score_ids([]) == {}
+    assert await store.models_for_score_ids([str(uuid4())]) == {}
+
+
+@pytest.mark.asyncio
+async def test_the_read_is_chunked_and_loses_nothing_across_the_boundary(
+    tortoise_db: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: the frontier is neither small nor bounded.
+
+    Every best-per-spec point can be non-dominated, and spec ids are client-controlled, so the
+    id set handed to this read is as large as the board. A single `WHERE id IN (...)` can
+    exceed the database's bind-parameter limit — SQLite's default is 999 — which fails at a
+    board size nobody will reproduce in a test. Chunking is therefore exercised by shrinking
+    the chunk rather than by growing the board.
+    """
+    monkeypatch.setattr(store_module, "_MODELS_READ_CHUNK", 2)
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    expected: dict[str, list[str]] = {}
+    for index in range(5):
+        routes = [f"openrouter/vendor-{index}/model-{index}"]
+        score, _ = await store.submit(
+            _submission(
+                spec_id=f"spec-{index}",
+                models=routes,
+                url4=f"url4://benchmark/hle/spec-{index}",
+            )
+        )
+        expected[str(score.id)] = routes
+
+    found = await store.models_for_score_ids(list(expected))
+
+    assert found == expected
+
+
+@pytest.mark.asyncio
+async def test_the_read_projects_only_the_two_columns_it_needs(tortoise_db: None) -> None:
+    """GUARD: `leaderboard.py:270-275` records why the whole-board read stays minimal —
+    client-controlled recipes and display metadata must never be materialised en masse. This
+    read is scoped to the frontier rather than the board, but it is still unbounded, so the
+    same rule applies. A widened projection fails here.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    score, _ = await store.submit(_submission(models=ROUTES))
+
+    captured: list[tuple[str, ...]] = []
+    original = QuerySet.values
+
+    def _spy(self: QuerySet[Any], *fields: str, **kwargs: Any) -> Any:
+        captured.append(fields)
+        return original(self, *fields, **kwargs)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(QuerySet, "values", _spy)
+    try:
+        await store.models_for_score_ids([str(score.id)])
+    finally:
+        monkeypatch.undo()
+
+    assert captured == [("id", "models")]
 
 
 def test_models_do_not_change_recipe_identity() -> None:
