@@ -14,7 +14,7 @@ from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco.aggregate import aggregate as aggregate_draco
 from screamingface_engine.benchmarks.healthbench.grade import aggregate as aggregate_healthbench
 from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
-from screamingface_engine.benchmarks.ifeval.aggregate import aggregate as aggregate_ifeval
+from screamingface_engine.benchmarks.ifeval.grade import aggregate as aggregate_ifeval
 
 AggregateFixture = Callable[[Path, dict[str, object]], dict[str, Any]]
 

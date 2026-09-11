@@ -8,12 +8,12 @@ import pytest
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ifeval.aggregate import (
+from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
+from screamingface_engine.benchmarks.ifeval.grade import (
     SCHEMA,
     AggregateError,
     aggregate,
 )
-from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
 
 _SPEC = {
     1: {

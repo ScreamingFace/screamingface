@@ -61,6 +61,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import (
+    CandidateScore,
     PublicError,
     SelectedCase,
     failed_case_result,
@@ -72,7 +73,6 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.case_execution import CaseExecutionOutcome
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
-from screamingface_engine.benchmarks.spine.exam import exam_scorer
 from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
 from screamingface_engine.benchmarks.spine.rows import RowIndex, RowReader
 
@@ -117,6 +117,12 @@ class CaseGradeOutcome:
 #: (an enclave judge), data-only because nothing else crosses a privacy boundary.
 type GradeCase = Callable[[GradeRequest], Awaitable[CaseGradeOutcome]]
 
+#: A board-owned replacement for the whole missing-row CaseResult — called as
+#: ``(selected, selected_index, orphan_errors_or_None)``. WHY the whole result and
+#: not just the failure dict: ifeval publishes a missing-row Case with ``grade: None``
+#: (no grade envelope at all), and its golden pins that shape byte-for-byte.
+type MissingRowResult = Callable[[SelectedCase, int, list[dict[str, Any]] | None], CaseResult]
+
 
 @dataclass(frozen=True, slots=True)
 class ScoredPath:
@@ -129,9 +135,16 @@ class ScoredPath:
         grade_case: the board's hook — the only per-board grading code.
         failure_messages: failure code → the public message shown for it. Wording is
             board voice; this path never invents text.
-        method: the grade's published method label ("rubric" for both current boards).
+        method: the grade's published method label ("rubric" for the rubric boards,
+            "deterministic" for ifeval).
         grading_failure_code: the board's code for "the grading step itself failed".
         grading_failure_message: its default public message.
+        missing_row_result: optional board-owned builder for the WHOLE missing-row
+            CaseResult (wording, codes, grade shape). ``None`` keeps the spine
+            default (``missing_case_row`` with the orphan cause attached). WHY
+            (OME-1101): ifeval's recorded golden pins its own collected-row wording
+            (stage "grading", the diagnostic's code), and OME-981 owns the
+            candidate-vs-grading boundary decision — the spine must not default it.
     """
 
     reader: RowReader
@@ -140,6 +153,7 @@ class ScoredPath:
     method: str
     grading_failure_code: str
     grading_failure_message: str
+    missing_row_result: MissingRowResult | None = None
 
     def aggregate(
         self,
@@ -149,9 +163,9 @@ class ScoredPath:
         benchmark_revision: str,
         selected_cases: Sequence[SelectedCase],
         grading_material: Callable[[int], object | None],
-        mean: Callable[[Sequence[float]], float | None],
+        scorer: Callable[[Sequence[CaseResult]], CandidateScore],
     ) -> dict[str, Any]:
-        """Mark every selected Case, then score the exam with the board's own mean.
+        """Mark every selected Case, then score the exam with the board's own scorer.
 
         Args:
             raw_rows: the collected array of Case execution rows, in selected order.
@@ -160,9 +174,10 @@ class ScoredPath:
             selected_cases: the authoritative roll call, in selected order.
             grading_material: per-Case loader for the board's grading material;
                 ``None`` marks the material unusable ("missing_rubric_asset").
-            mean: the exam-level reduction. INVARIANT: this is the ONLY place two
-                boards of one family differ in scoring — everything per-Case is the
-                hook's job, everything exam-level except the mean is fixed vocabulary.
+            scorer: the exam-level reduction, the board's whole ``CandidateScore``
+                builder. Rubric boards bind ``exam_scorer(mean)`` (fixed rubric
+                vocabulary, mean the only choice); a non-rubric board (ifeval)
+                supplies its published metric vocabulary here (OME-1101).
 
         Returns:
             The Candidate result payload: every selected Case, its grade or its
@@ -183,7 +198,7 @@ class ScoredPath:
             benchmark_revision=benchmark_revision,
             selected_cases=list(selected_cases),
             cases=case_results,
-            scorer=exam_scorer(mean),
+            scorer=scorer,
         ).as_payload()
 
     async def _case_results(
@@ -195,20 +210,23 @@ class ScoredPath:
         # WHY sequential, not gather: selected order is publication order, and no
         # current hook overlaps I/O; concurrency semantics are a later, separate call.
         return [
-            await self._case_result(selected, indexed, grading_material)
-            for selected in selected_cases
+            await self._case_result(selected, index, indexed, grading_material)
+            for index, selected in enumerate(selected_cases)
         ]
 
     async def _case_result(
         self,
         selected_case: SelectedCase,
+        selected_index: int,
         indexed: RowIndex,
         grading_material: Callable[[int], object | None],
     ) -> CaseResult:
         case_id: int = int(selected_case.case_id)
         row: dict[str, Any] | None = indexed.rows.get(case_id)
         material: object | None = grading_material(case_id)
-        result: CaseResult | None = self._ladder_result(selected_case, indexed, row, material)
+        result: CaseResult | None = self._ladder_result(
+            selected_case, selected_index, indexed, row, material
+        )
         if result is None:
             # Stage 4 — the hook: the one per-board call, data in, grade out.
             assert row is not None and material is not None
@@ -233,6 +251,7 @@ class ScoredPath:
     def _ladder_result(
         self,
         selected: SelectedCase,
+        selected_index: int,
         indexed: RowIndex,
         row: Mapping[str, Any] | None,
         material: object | None,
@@ -256,7 +275,11 @@ class ScoredPath:
             failure: dict[str, Any] = self._failure(case_id, "grading", "missing_rubric_asset")
             result = self._failed_result(selected, row, [], failure)
         elif row is None:
-            result = self._missing_row_result(selected, indexed.collected_errors.get(case_id))
+            orphans: list[dict[str, Any]] | None = indexed.collected_errors.get(case_id)
+            if self.missing_row_result is not None:
+                result = self.missing_row_result(selected, selected_index, orphans)
+            else:
+                result = self._missing_row_result(selected, orphans)
         elif "error" in row:
             failure = self._failure(case_id, "candidate", "case_error", error=row["error"])
             result = self._failed_result(selected, row, [], failure)
@@ -483,5 +506,6 @@ __all__ = [
     "CaseGradeOutcome",
     "GradeCase",
     "GradeRequest",
+    "MissingRowResult",
     "ScoredPath",
 ]

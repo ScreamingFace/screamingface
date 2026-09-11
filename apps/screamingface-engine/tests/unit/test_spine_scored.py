@@ -25,9 +25,14 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.benchmarks.aggregation import SelectedCase
+from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
-from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+from screamingface_engine.benchmarks.contract import (
+    CaseResult,
+    Failure,
+    encode_candidate_invocation,
+)
+from screamingface_engine.benchmarks.spine.exam import exam_scorer
 from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
 from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
@@ -141,7 +146,7 @@ def _aggregate(
         benchmark_revision="rev",
         selected_cases=selected,
         grading_material=lambda case_id: material,
-        mean=_mean,
+        scorer=exam_scorer(_mean),
     )
 
 
@@ -347,6 +352,135 @@ def test_exam_metric_vocabulary_is_pinned_and_the_mean_is_the_boards() -> None:
     assert result["metrics"]["judge_invalid_replies"] == 2
     assert result["metrics"]["verdict_coverage"] == 1.0
     assert result["metrics"]["score_sd"] == 0.0
+
+
+# ── the scorer is a board parameter: metric vocabulary is the board's ───────
+
+
+def test_a_non_rubric_scorer_publishes_its_own_metric_vocabulary() -> None:
+    """OME-1101: the deterministic board's metrics are not rubric vocabulary —
+    the whole CandidateScore builder is the parameter, not just the mean."""
+
+    def deterministic_scorer(cases: Sequence[CaseResult]) -> CandidateScore:
+        scores = [
+            float(case.grade.score)
+            for case in cases
+            if case.grade is not None and case.grade.score is not None
+        ]
+        return CandidateScore(
+            score=sum(scores) / len(scores),
+            metrics={"prompt_level_strict_accuracy": sum(scores) / len(scores)},
+        )
+
+    hook = _Hook(CaseGradeOutcome(score=1.0, metrics={}, checks=[]))
+    result = _path(hook).aggregate(
+        json.dumps([_envelope(1, _grading(1))]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1),
+        grading_material=lambda case_id: (5,),
+        scorer=deterministic_scorer,
+    )
+
+    assert result["score"] == 1.0
+    assert set(result["metrics"]) == {"prompt_level_strict_accuracy"}
+
+
+# ── the board-owned missing-row hook: wording stays the board's ─────────────
+
+
+def test_a_board_owned_missing_row_hook_replaces_the_default_result() -> None:
+    """OME-1101: ifeval's collected-row failure wording is pinned by its golden —
+    a board may supply the whole missing-row CaseResult; the spine only files it."""
+
+    calls: list[tuple[int, int, list[dict[str, Any]] | None]] = []
+
+    def board_missing_row(
+        selected: SelectedCase, index: int, orphans: list[dict[str, Any]] | None
+    ) -> CaseResult:
+        calls.append((int(selected.case_id), index, orphans))
+        return CaseResult(
+            status="failed",
+            case_id=selected.case_id,
+            input=selected.input,
+            output=None,
+            finish_reason=None,
+            refusal=None,
+            grade=None,  # INVARIANT: the board's shape, not the spine's grade envelope
+            failures=[
+                Failure(
+                    stage="grading",
+                    code="board_owned_code",
+                    message="the board's own wording",
+                    retryable=False,
+                    case_id=selected.case_id,
+                    metadata={"row_index": index},
+                )
+            ],
+            metadata={},
+        )
+
+    hook = _Hook()
+    orphan = {"error": {"kind": "transport", "message": "boom"}}
+    result = _path(hook, missing_row_result=board_missing_row).aggregate(
+        json.dumps([orphan]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1),
+        grading_material=lambda case_id: (5,),
+        scorer=exam_scorer(_mean),
+    )
+
+    assert hook.requests == []
+    assert calls == [(1, 0, [orphan])]
+    case = result["cases"][0]
+    assert case["grade"] is None
+    failure = case["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("grading", "board_owned_code")
+    assert failure["message"] == "the board's own wording"
+
+
+def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
+    # A rows array shorter than the roll call: the tail Case has no row AND no
+    # collected cause — the board hook must be able to tell the two apart.
+    seen: list[list[dict[str, Any]] | None] = []
+
+    def board_missing_row(
+        selected: SelectedCase, index: int, orphans: list[dict[str, Any]] | None
+    ) -> CaseResult:
+        seen.append(orphans)
+        return CaseResult(
+            status="failed",
+            case_id=selected.case_id,
+            input=selected.input,
+            output=None,
+            finish_reason=None,
+            refusal=None,
+            grade=None,
+            failures=[
+                Failure(
+                    stage="aggregation",
+                    code="case_result_missing",
+                    message="no row at all",
+                    retryable=None,
+                    case_id=selected.case_id,
+                    metadata={},
+                )
+            ],
+            metadata={},
+        )
+
+    hook = _Hook()
+    _path(hook, missing_row_result=board_missing_row).aggregate(
+        json.dumps([]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1),
+        grading_material=lambda case_id: (5,),
+        scorer=exam_scorer(_mean),
+    )
+
+    assert seen == [None]
 
 
 # ── the shared rubric hook factory: both boards' marking, written once ──────
