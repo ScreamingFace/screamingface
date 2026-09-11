@@ -28,6 +28,11 @@ from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry,
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
+from screamingface_engine.client_provenance import (
+    CLIENT_VERSION_ENV,
+    ProvenanceExecutor,
+    valid_version,
+)
 from screamingface_engine.logs import run_scope
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
@@ -182,6 +187,7 @@ class RunnerParams:
     url4: str
     nats_url: str
     deadline_s: float | None = None
+    client_version: str | None = None
 
 
 def _deadline_from_env(environ: Mapping[str, str]) -> float | None:
@@ -217,6 +223,7 @@ def params_from_env(environ: Mapping[str, str]) -> RunnerParams:
         url4=url4,
         nats_url=environ.get(job_env.NATS_URL, job_env.DEFAULT_NATS_URL),
         deadline_s=_deadline_from_env(environ),
+        client_version=valid_version(environ.get(CLIENT_VERSION_ENV)),
     )
 
 
@@ -502,7 +509,7 @@ async def _run_and_log(
     try:
         await run(
             publisher,
-            executor,
+            ProvenanceExecutor(executor, params.client_version),
             params.topic,
             params.url4,
             traceparent=traceparent,

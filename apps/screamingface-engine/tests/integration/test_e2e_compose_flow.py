@@ -54,6 +54,7 @@ class MockRunnerJobRunner(IdentityAwareJobRunner):
         # Accepted so this fake still satisfies the port; the mock run it publishes never reaches
         # a gateway, so there is nothing here for a cache policy to change.
         cache: CachePolicy | None = None,
+        client_version: str | None = None,
     ) -> str:
         self.scheduled.append((topic, url4, deadline_s))
         self._tasks.append(asyncio.ensure_future(publish_mock_run(self._stream, topic, url4)))
