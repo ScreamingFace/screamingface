@@ -42,13 +42,13 @@ notebook = [
 runtime = [
     "aiosqlite==0.22.1",
     "bcrypt==5.0.0",
-    "cryptography==50.0.0",
+    "cryptography==50.0.1",
     "datasets==5.0.1",
     "fastapi>=0.141.1",
     "immutabledict>=4.2.0",
     "kubernetes>=31.0.0",
     "langdetect>=1.0.9",
-    "litellm==1.98.0",
+    "litellm==1.100.0",
     "nats-py>=2.9.0",
     "nltk>=3.9.1",
     # WHY: pip resolves this extra, not the bundled Engine/Gateway tracing requirements.
