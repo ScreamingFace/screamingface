@@ -60,7 +60,31 @@ _CALLBACK_DYNAMIC_FIELDS: frozenset[str] = frozenset(
         "dd_agent_host",
         "dd_agent_port",
         "dd_site",
+        # WHY: litellm 1.100 added `langfuse_environment` (a further Langfuse dynamic
+        # param alongside the block above) plus a New Relic dynamic-callback trio for
+        # per-team trace routing. `newrelic_api_key` is a caller-injectable credential
+        # and `langfuse_environment`/`newrelic_region` redirect where prompt/response
+        # telemetry is shipped — the same exfiltration category as the langfuse/arize/
+        # braintrust/dd_* host+key fields above.
+        # INVARIANT: every name in litellm's `_supported_callback_params` must appear
+        # here, so a client can never turn a chat request into a telemetry redirect.
+        # test_litellm_dynamic_callback_parameter_set_is_covered is what caught these on
+        # the 1.97 -> 1.100 upgrade; it will catch the next batch the same way.
+        "langfuse_environment",
+        "newrelic_api_key",
+        "newrelic_region",
         "turn_off_message_logging",
+        # WHY here and not only in DISPATCH_CONTROL_FIELDS: this filter strips dynamic
+        # callback controls from BOTH the top-level body and `metadata` symmetrically —
+        # every other name in this set gets that treatment. `litellm_trusted_callback_vars`
+        # is reserved for LiteLLM's own proxy to stamp (see DISPATCH_CONTROL_FIELDS'
+        # comment); a caller nesting it under `metadata` instead of the top level should
+        # not get a free pass just because it lives in the smaller set.
+        "litellm_trusted_callback_vars",
+        # WHY: LiteLLM 1.100 OTel routing trusts this proxy-owned auth container
+        # for project/service selection. Caller metadata must never impersonate it.
+        # Strip the whole value at both ingress locations, regardless of its shape.
+        "user_api_key_auth_metadata",
     }
 )
 
@@ -131,6 +155,10 @@ DISPATCH_CONTROL_FIELDS: frozenset[str] = frozenset(
         "failure_callback",
         "litellm_params",
         "litellm_metadata",
+        # WHY only LiteLLM's proxy may stamp this trusted credential container. Passing
+        # caller data here bypasses LiteLLM's ordinary callback filtering — it now lives
+        # in `_CALLBACK_DYNAMIC_FIELDS` below (splatted in) so it is stripped from both
+        # the top-level body and `metadata`, not just the top level.
         *_CALLBACK_DYNAMIC_FIELDS,
     }
 )
