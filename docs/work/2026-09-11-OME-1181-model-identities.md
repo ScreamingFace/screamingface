@@ -1,7 +1,7 @@
 ---
 ticket: OME-1181
 stack: scoreboard
-status: planned
+status: in_progress
 started: 2026-09-11
 finished:
 ---
