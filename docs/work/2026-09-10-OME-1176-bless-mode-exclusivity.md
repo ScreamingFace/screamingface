@@ -1,9 +1,9 @@
 ---
 ticket: OME-1176
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-10
-finished:
+finished: 2026-09-11
 ---
 
 # OME-1176 — Bless-mode exclusivity, two-way golden field policing, and deduplication
@@ -61,7 +61,7 @@ a cleanup batch in the bless tool + golden schema:
     spec→CorrectiveLoop builder, used by `build_candidate` and the fresh-dump bless).
   - `packages/screamingface/tests/e2e/test_fresh_dump_contracts.py` — 2 new tests
     (flag-pair refusal; fusion-fields-on-loop refusal).
-- **Commits:** single commit on `OME-1176-bless-mode-exclusivity`.
+- **Commits:** `959932f3` fix(py-screamingface): refuse contradictory bless modes and police golden fields both ways (merged via PR #900).
 - **Gates:** `run_gates.py screamingface --skip-append-only` ALL GREEN (96 e2e
   contract tests incl. the 2 new; full suite; cov ≥95). Append-only skip disclosed:
   harness/tool files extended, no test function changed.
