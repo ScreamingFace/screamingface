@@ -199,7 +199,7 @@ async def _schedule(
             profile=profile,
             identity=identity,
             cache=cache,
-            **({"client_version": client_version} if client_version is not None else {}),
+            client_version=client_version,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.

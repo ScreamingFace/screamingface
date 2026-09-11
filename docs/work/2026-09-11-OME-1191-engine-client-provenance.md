@@ -31,6 +31,17 @@ lifetime, not a new durable record. User approved implementation and draft PR cr
 
 ## Outcome
 
+### Review follow-up
+
+- User requested passing `client_version` directly to the scheduling port now that
+  all implementations accept the optional keyword. Simplify only that call, rerun
+  Engine gates, and update the existing draft PR. No new behavior or test changes.
+- Follow-up gates: ALL GATES GREEN, including the normal append-only check against
+  the previous commit. Log: `.docs/OME-1191-followup-gates.log`.
+- Commit: `refactor(engine): pass optional Client version directly`.
+
+### Initial delivery
+
 - Actual files: new Engine `client_provenance.py`; REST, scheduling port, local/queue
   adapters, queue codec, worker environment, Runner parameters and lifecycle wiring;
   two new test modules; four test-double signatures; spec, plan, mirror, ledger.
