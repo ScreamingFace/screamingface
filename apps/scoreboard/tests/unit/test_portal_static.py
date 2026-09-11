@@ -186,7 +186,7 @@ def test_pareto_chart_shell_is_bounded_provenanced_and_loaded_before_its_caller(
 
     assert re.search(r'<section[^>]*id="pareto-chart-section"[^>]*hidden', html)
     assert re.search(r'<div[^>]*class="pareto-chart-scroll"[^>]*tabindex="0"', html)
-    assert 'aria-label="Score for cost chart, horizontally scrollable"' in html
+    assert 'aria-label="Pareto Frontier (cost/score) chart, horizontally scrollable"' in html
     assert 'id="pareto-chart"' in html
     assert 'aria-hidden="true"' in html
     assert "Costs are self-reported, not verified by re-running." in html
@@ -211,3 +211,23 @@ def test_pareto_chart_dark_theme_uses_the_right_paint_property_for_each_element(
     assert "fill: var(--info-solid)" in point.group(1)
     assert key is not None
     assert "background: var(--info-solid)" in key.group(1)
+
+
+def test_pareto_chart_heading_and_label_name_the_pareto_frontier() -> None:
+    """FEATURE (OME-1146 part 1): the chart carries the name the rest of the page uses.
+
+    INVARIANT: heading and `aria-label` are renamed as one. Only the label was previously
+    asserted, so a rename that touched the heading alone — or the label alone — would leave the
+    page describing itself two ways, silently, to two different audiences.
+
+    INVARIANT: the disclaimer assertion below is not incidental. OME-1146 also asks to delete it,
+    and this unit deliberately does not. Nothing else in the suite pins "renamed but still
+    disclaimed", which is exactly the state this unit ships.
+    """
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    html = (portal / "benchmark.html").read_text(encoding="utf-8")
+
+    assert "<h2>Pareto Frontier (cost/score)</h2>" in html
+    assert 'aria-label="Pareto Frontier (cost/score) chart, horizontally scrollable"' in html
+    assert "Score for cost" not in html
+    assert "Costs are self-reported, not verified by re-running." in html
