@@ -1,7 +1,7 @@
 ---
 title: Accept and store model identities, and classify openness per model — spec
 ticket: OME-1181
-status: proposed — needs owner approval on §3 (Q2) and §4 (Q3)
+status: approved — Q2 and Q3 decided by the owner 2026-09-11
 date: 2026-09-11
 parent: OME-1179
 related:
@@ -123,7 +123,7 @@ metadata are never materialised en masse.
 
 ---
 
-## 3. DECISION NEEDED — Q2: is `models` public?
+## 3. DECIDED — Q2: `models` stays internal
 
 `ScoreSchema` is the internal read DTO; `LeaderboardEntry` is the public payload.
 
@@ -137,10 +137,13 @@ creates a new wire contract to support.
 | **A — internal only** (recommended) | `models` on `ScoreSchema`, absent from `LeaderboardEntry`. Classification works; nothing new is promised publicly. The portal's Backends column keeps reading `ran_with_providers` and keeps its honest label. `OME-1145` or a portal ticket can widen it later, when there is a consumer. |
 | B — public now | `models` on `LeaderboardEntry` too. Lets the portal render real model names, which is the visible fix people will ask for. But it commits to the field before the Client populates it, so every row returns `null` until `OME-1180` ships and people resubmit. |
 
-**Recommended: A.** It keeps this unit's blast radius inside the Scoreboard, and a public
-field whose value is `null` on every row is worse than no field.
+**Decided 2026-09-11: option A — internal only.** `models` lands on `ScoreSchema` and is
+absent from `LeaderboardEntry`. It keeps this unit's blast radius inside the Scoreboard, and a
+public field whose value is `null` on every row is worse than no field. The portal's Backends
+column is untouched and keeps its honest label. Widening the public payload is a later change,
+made when there is a consumer and real data behind it.
 
-## 4. DECISION NEEDED — Q3: legacy and deduplicated rows
+## 4. DECIDED — Q3: a same-owner republish may fill in `models`
 
 Every existing row will have `models = null`. Two sub-questions.
 
@@ -153,7 +156,17 @@ existing row is silently discarded today.
 | **A — enrich on same-owner replay** (recommended) | Add `models` to `updates` under the existing `same_candidate_owner` guard, reusing its anti-hijack check and visibility locking unchanged. Rows fill in naturally as people resubmit. |
 | B — leave null | Simplest. A row submitted before `OME-1180` can never gain identities, so the board carries permanently unclassifiable rows. |
 
-**4b. Do we backfill the seven live rows?** Not in this unit either way, but the answer shapes
+**Decided 2026-09-11: option A — enrich on same-owner replay.** `models` joins `authors` and
+`metadata` in the `updates` allowlist, under the existing `same_candidate_owner` guard. That
+guard already requires a matching benchmark, stored content hash and submitter, and the write
+already takes the visibility lock — both are reused verbatim, so this adds a field to an
+existing allowlist rather than a new write path.
+
+INVARIANT: enrichment fills a field, it does not overwrite a correct one with a worse one. The
+same anti-hijack rule that protects `authors` protects this.
+
+**4b. Do we backfill the seven live rows?** **Out of scope for this unit** (owner, 2026-09-11).
+Not in this unit either way, but the answer shapes
 what `OME-1145` can show. `url4_expression` does contain the routes; the grader-ambiguity
 problem that ruled out runtime parsing is manageable in a one-off operator script where the
 output can be inspected before it is committed. Proposed: **out of scope here, note it on
