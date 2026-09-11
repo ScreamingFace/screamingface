@@ -82,6 +82,11 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         url4_expression=model.url4_expression,
         submitted_by=model.submitted_by,
         authors=_resolved_authors(model.authors, model.submitted_by),
+        # INVARIANT: no fallback, unlike `authors` above. A NULL here means the routes were
+        # never declared, and deriving them from `ran_with_providers` is impossible — the
+        # Client's truncation is lossy. Inventing a value would turn "we do not know" into a
+        # confident claim about what a submission is made of.
+        models=model.models,
         submitted_at=model.submitted_at,
         score=model.score,
         total_questions=model.total_questions,
@@ -140,6 +145,7 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "url4_expression": submission.url4_expression,
         "submitted_by": submission.submitted_by,
         "authors": submission.authors,
+        "models": submission.models,
         "score": submission.score,
         "total_questions": submission.total_questions,
         "correct_questions": submission.correct_questions,
