@@ -1,7 +1,7 @@
 ---
 title: Accept and store model identities, and classify openness per model — spec
 ticket: OME-1181
-status: approved — Q2 and Q3 decided by the owner 2026-09-11
+status: approved — Q2 and Q3 decided 2026-09-11, both CORRECTED after review of PR #922
 date: 2026-09-11
 parent: OME-1179
 related:
@@ -213,3 +213,63 @@ unknown top-level field 422s against an un-upgraded Scoreboard.
 is knowable per model but not derivable from any field the Gateway exposes — checked, there is
 no licence or `open_weights` signal in its discovery code. D4's visible-miss count is the
 mitigation, not a fix.
+
+
+---
+
+## 8. Corrections after review of PR #922 (2026-09-11)
+
+Three findings, all confirmed empirically. Two invalidate answers recorded above.
+
+### 8.1 §3 was wrong — `models` is not internal
+
+`ScoreSchema` is itself the response model for `POST /scores` (`routes/scores.py:179`) and
+`GET /scores/{id}` (`:287`). Checking only that the field stays off `LeaderboardEntry` was not
+enough.
+
+The consequence is worse than disclosure. `export_private_submissions.format_jsonl` dumps this
+schema in python mode with `sort_keys=True`, and `purge_private_benchmark.export_sha256` hashes
+those exact bytes to authorize a destructive purge against an operator-supplied digest. Adding
+`"models": null` changed every export saved before the field existed, **with no underlying row
+having changed**, so a previously certified export could no longer authorize its own purge.
+
+`ranking_notice` carries `exclude_if` for exactly this reason, documented three lines above
+where `models` was added. `models` now carries it too. Verified: a legacy row exports byte
+identically to `origin/main` — sha256 `ac966efd…b8a3`, 582 bytes on both sides.
+
+### 8.2 §2.4 was exploitable — substring matching on a client-controlled string
+
+Routes are submitted by clients. Matching an open marker anywhere in the route let a submitter
+choose a verdict by choosing a name. All of these returned **open**:
+
+* `openrouter/openai/not-gemma-proprietary`
+* `openrouter/anthropic/kimi-wrapper`
+* `openrouter/google/not-qwen-api`
+* `openrouter/openai/gpt-5.5-llama-killer`
+
+Matching is now structural. The route parses as `owner/model`; the owner is matched exactly
+against open and closed sets, and a family exception is prefix-matched on the model segment and
+**scoped to its owner** — `google/gemma-*` is open, `openai/gemma-*` is not. A route with no
+owner segment is `unknown` rather than guessed at.
+
+Mutation testing had confirmed that `gpt-oss` beat `openai`. It never tested that a *crafted*
+name beat it too, which is the difference between checking a feature works and checking it
+cannot be abused.
+
+### 8.3 §4a was too permissive — enrichment must fill, not replace
+
+`_content_hash` excludes `models`, so two submissions differing only in their routes share one
+identity. The replay update was unconditional, so a same-owner replay could swap what an entry
+is made of — and thus flip its published openness — without changing its identity or its url4
+expression.
+
+The code comment justifying this claimed `models` is deterministic per `content_hash` because
+the hash covers `url4_expression`. True of an honest client, irrelevant to a careless or hostile
+one, since `url4_expression` is free text. It now writes only when the stored value is null,
+which is what the Q3 decision said in the first place.
+
+### 8.4 Bookkeeping
+
+The acceptance criterion requiring the unrecognised-model count to be **exposed** contradicted
+this unit's own scope boundary, which assigns response-shape changes to `OME-1145`. Moved there;
+this unit only guarantees `unknown` is a distinct verdict so the count is computable.
