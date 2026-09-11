@@ -42,6 +42,42 @@ _OPEN_PROVIDER_MARKERS: tuple[str, ...] = (
 _CLOSED_BASELINE_MARKERS: tuple[str, ...] = ("gpt-", "claude-", "gemini-")
 _OPEN_BASELINE_MARKERS: tuple[str, ...] = ("llama", "mistral", "qwen", "deepseek")
 
+# FEATURE: OME-1181 — per-model classification, for `classify_model` only. The lists above
+# describe PROVIDERS and keep serving `classify_providers` unchanged.
+ModelOpenness = Literal["open", "closed", "unknown"]
+
+# WHY a separate list rather than more entries in _OPEN_PROVIDER_MARKERS: these are the
+# vendors that ship BOTH. Every marker here names a model family whose OWNER is on the closed
+# list, so it must be consulted before the owner rule or the owner wins and an open-weights
+# model is published as closed. That is the OME-1145 defect, and on the live draco-3pass board
+# `moonshotai`/`kimi` alone is the difference between 0% and 29%.
+#
+# INVARIANT (OME-1179 Q1): membership here means "weights are downloadable and locally
+# runnable", NOT "permissively licensed". Gemma carries use restrictions and gpt-oss a usage
+# policy; both are still open under the chosen definition, because the board's claim is
+# reproducibility — can someone else run this and get your number.
+_OPEN_MODEL_MARKERS: tuple[str, ...] = (
+    "gpt-oss",
+    "gemma",
+    "moonshotai",
+    "kimi",
+)
+
+# WHY: a routing prefix says who carried the request, not what ran. Every live draco-3pass
+# route is `openrouter/`-prefixed and `openrouter` is a closed PROVIDER marker, so without
+# stripping this every model on the board classifies closed however open its weights are.
+_ROUTING_PREFIXES: tuple[str, ...] = ("openrouter",)
+
+# INVARIANT: ORDER IS THE RULE. `classify_model` returns on the first match, so the specific
+# model markers must sit above the owner markers — `gpt-oss` before `openai`, `gemma` before
+# `google`. Reordering these three entries silently reintroduces OME-1145. Expressed as data
+# rather than an if-chain so the precedence is visible in one place and testable.
+_MODEL_RULES: tuple[tuple[tuple[str, ...], ModelOpenness], ...] = (
+    (_OPEN_MODEL_MARKERS, "open"),
+    (_OPEN_PROVIDER_MARKERS, "open"),
+    (_CLOSED_PROVIDER_MARKERS, "closed"),
+)
+
 
 def _matches_any(name: str, markers: tuple[str, ...]) -> bool:
     lowered = name.lower()
@@ -75,6 +111,36 @@ def classify_providers(providers: Sequence[str]) -> Openness:
             _log_unrecognized("provider", provider)
             saw_closed = True
     return "closed" if saw_closed else "open"
+
+
+def _strip_routing_prefix(route: str) -> str:
+    head, separator, tail = route.partition("/")
+    if separator and head.lower() in _ROUTING_PREFIXES:
+        return tail
+    return route
+
+
+def classify_model(route: str) -> ModelOpenness:
+    """Openness of ONE declared model route (OME-1181).
+
+    Distinct from `classify_providers`, which returns one verdict for a whole submission from
+    its provider prefixes. OME-1179 D1 keeps that any-closed-wins aggregation; this only
+    changes what gets fed to it.
+
+    INVARIANT: `unknown` is a THIRD value, not a synonym for `closed`. Both close an entry
+    under D1, but D4 requires the count of unrecognised models to be reportable, which is
+    impossible once the two collapse into one verdict.
+
+    WHY this resolution order: a specific model rule must beat its owner rule. `gpt-oss` is
+    OpenAI's and `gemma` is Google's, so checking `_CLOSED_PROVIDER_MARKERS` first would file
+    both as closed on the owner's name while their weights are downloadable.
+    """
+    identity = _strip_routing_prefix(route)
+    for markers, verdict in _MODEL_RULES:
+        if _matches_any(identity, markers):
+            return verdict
+    _log_unrecognized("model route", route)
+    return "unknown"
 
 
 def classify_baseline_name(model_name: str) -> Openness:
