@@ -1,7 +1,7 @@
 ---
 id: OME-1099
 linear_url: https://linear.app/openmined/issue/OME-1099/merge-the-three-drifted-judge-verdict-parsers-into-one-typed-shared
-status: in_progress
+status: done
 type: task
 priority: medium
 labels:
@@ -9,7 +9,7 @@ labels:
   - agentic
   - autonomous
 created: 2026-09-03
-closed:
+closed: 2026-09-11
 ---
 
 # Merge the three drifted judge-verdict parsers into one typed shared parser

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1099
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-09
-finished:
+finished: 2026-09-11
 ---
 
 # OME-1099 — Merge the three drifted judge-verdict parsers into one typed shared parser
@@ -96,3 +96,5 @@ board-owned via shape declarations. Delivers OME-1025.
      primitive strips `line.strip().startswith`; old array copy used `line.startswith`).
   4. producer-id ValueError message unified to "producer_id must be non-empty text"
      (gdpval said "a non-empty string"; tests pin the raise, not the message).
+- **Merged:** PR #868 squash-merged to main as `138bf5ab` (2026-09-11); Linear `OME-1099`
+  closed with the close-template comment the same day.
