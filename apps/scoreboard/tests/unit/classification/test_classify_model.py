@@ -84,13 +84,31 @@ def test_the_routing_prefix_does_not_change_the_verdict(route: str) -> None:
     """INVARIANT: routing is not openness.
 
     Every live draco-3pass route is `openrouter/`-prefixed, and `openrouter` is on the closed
-    marker list, so without stripping it every model on the board classifies closed however
-    open its weights are.
+    provider marker list.
     """
     bare = route.removeprefix("openrouter/")
 
     assert bare != route
     assert classify_model(bare) == classify_model(route)
+
+
+def test_an_unrecognised_model_stays_unknown_even_when_openrouter_carried_it() -> None:
+    """INVARIANT: the routing prefix must be stripped BEFORE the closed markers are consulted.
+
+    WHY this exists next to the parametrised prefix test above rather than instead of it: that
+    test cannot fail for a recognised model. `_MODEL_RULES` checks the open markers first, so
+    an open model wins on its own name and `openrouter` is never reached — the strip is
+    redundant for every route in OPEN_ROUTES, and CLOSED_ROUTES are closed either way. Removing
+    `_strip_routing_prefix` entirely leaves that whole parametrisation green (found by mutation
+    testing, 2026-09-11).
+
+    The unknown case is the one that needs it. Without the strip, `openrouter` matches
+    `_CLOSED_PROVIDER_MARKERS` and an unrecognised model is published as a confident `closed`
+    instead of an honest `unknown` — which destroys the count OME-1179 D4 requires, and does it
+    silently, since a stale registry then looks like a real closed verdict.
+    """
+    assert classify_model("acme/never-heard-of-this-one") == "unknown"
+    assert classify_model("openrouter/acme/never-heard-of-this-one") == "unknown"
 
 
 def test_the_existing_row_level_classifier_is_untouched() -> None:
