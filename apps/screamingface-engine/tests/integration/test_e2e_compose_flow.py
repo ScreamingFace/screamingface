@@ -55,6 +55,7 @@ class MockRunnerJobRunner(IdentityAwareJobRunner):
         # a gateway, so there is nothing here for a cache policy — or an answer seed — to change.
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
+        client_version: str | None = None,
     ) -> str:
         self.scheduled.append((topic, url4, deadline_s))
         self._tasks.append(asyncio.ensure_future(publish_mock_run(self._stream, topic, url4)))

@@ -279,6 +279,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
+        client_version: str | None = None,
     ) -> str:
         """Publish the run to the queue and return its job name.
 
@@ -310,6 +311,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 identity=identity,
                 cache=cache,
                 answer_seed=answer_seed,
+                client_version=client_version,
                 io_concurrency=self._io_concurrency,
                 extra_models=() if self._extra_models is None else self._extra_models(),
             )

@@ -29,6 +29,7 @@ from screamingface_engine.auth import (
     VerifiedClaims,
     new_topic,
 )
+from screamingface_engine.client_provenance import parse_user_agent
 from screamingface_engine.config import Settings
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.rest.cache_header import parse_cache_control
@@ -182,6 +183,7 @@ async def _schedule(
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy,
     answer_seed: int | None = None,
+    client_version: str | None = None,
 ) -> None:
     """Schedule the run on the job runner, or raise 409 if one already exists for ``topic``.
 
@@ -218,6 +220,7 @@ async def _schedule(
             identity=identity,
             cache=cache,
             answer_seed=answer_seed,
+            client_version=client_version,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
@@ -557,6 +560,9 @@ async def start_run(
         identity=identity,
         cache=_converge_cache(deps, topic, cache_control, clock),
         answer_seed=answer_seed,
+        client_version=parse_user_agent(request.headers.get("User-Agent"))
+        if len(request.headers.getlist("User-Agent")) == 1
+        else None,
     )
     pref = _parse_prefer(prefer or "")
     if pref.respond_async:
