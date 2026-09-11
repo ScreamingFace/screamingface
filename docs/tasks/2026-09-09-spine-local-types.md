@@ -1,12 +1,12 @@
 ---
 id: OME-1150
 linear_url: https://linear.app/openmined/issue/OME-1150/type-the-grading-spines-local-variables-and-land-the-rescued-candidate
-status: in_progress
+status: done
 type: task
 priority: medium
 labels: [screamingface-engine, agentic, autonomous, task]
 created: 2026-09-09
-closed:
+closed: 2026-09-11
 ---
 
 # Type the grading spine's local variables and land the rescued candidate-fields dataclass

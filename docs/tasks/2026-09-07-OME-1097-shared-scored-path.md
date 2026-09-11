@@ -1,7 +1,7 @@
 ---
 id: OME-1097
 linear_url: https://linear.app/openmined/issue/OME-1097/share-the-scored-path-and-scorer-for-rubric-benchmarks-behind-a-grade
-status: in_progress
+status: done
 type:
 priority: high
 labels:
@@ -9,7 +9,7 @@ labels:
   - agentic
   - autonomous
 created: 2026-09-07
-closed:
+closed: 2026-09-09
 ---
 
 # Share the scored path and scorer for rubric benchmarks behind a `grade_case` hook
