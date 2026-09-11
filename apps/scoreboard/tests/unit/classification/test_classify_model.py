@@ -144,6 +144,37 @@ def test_an_owner_family_exception_is_scoped_to_that_owner() -> None:
     assert classify_model("openrouter/anthropic/gemma-2-27b-it") == "closed"
 
 
+# Every `custom_llm_provider` the Gateway registers, read off
+# `apps/aigateway/src/aigateway/plugins/*_provider/plugin.py`. Hardcoded because apps never
+# import another app's internals; this list is the contract between them, and it drifts only
+# when a provider is added there without being taught here — which is exactly what this catches.
+REGISTERED_GATEWAY_PROVIDERS = [
+    ("openai/gpt-5.5", "closed"),
+    ("anthropic/claude-opus-4.8", "closed"),
+    ("gemini-cli/gemini-2.5-flash", "closed"),
+    ("codex/gpt-5.4-mini", "closed"),
+    ("antigravity/gemini-3-pro", "closed"),
+    ("huggingface/meta-llama/Llama-3.1-70B", "open"),
+    ("ollama/llama3.1:70b", "open"),
+]
+
+
+@pytest.mark.parametrize(("route", "expected"), REGISTERED_GATEWAY_PROVIDERS)
+def test_every_registered_gateway_provider_is_classified(route: str, expected: str) -> None:
+    """INVARIANT: an owner the Gateway actually supports must never read as a registry gap.
+
+    `unknown` and `closed` both close the entry under OME-1179 D1, so a miss here changes no
+    percentage. It corrupts the D4 count: an ordinary supported API-only provider reported as
+    unrecognised makes the staleness signal meaningless, because the number stops meaning
+    "models the registry has not been taught about".
+
+    `gemini-cli`, `codex` and `antigravity` were all missing — found in review of PR #922. The
+    eighth registered provider, `openrouter`, is a routing prefix rather than an owner and is
+    covered by the prefix tests above.
+    """
+    assert classify_model(route) == expected
+
+
 def test_a_route_with_no_owner_segment_is_unknown() -> None:
     """Fail closed on a shape the registry cannot reason about, rather than guessing from the
     bare string — which is how the crafted-name hole above was opened in the first place.

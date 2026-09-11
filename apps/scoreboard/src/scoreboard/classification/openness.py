@@ -64,14 +64,30 @@ _OPEN_OWNERS: frozenset[str] = frozenset(
         "ollama",
     }
 )
+# INVARIANT: every `custom_llm_provider` the Gateway registers belongs in one of these two sets,
+# or an ordinary supported provider reports as a registry gap. `unknown` and `closed` both close
+# an entry under OME-1179 D1, so a miss here changes no percentage — it corrupts D4's staleness
+# count, which is only meaningful if it means "models the registry has not been taught about".
+#
+# Verified against `apps/aigateway/src/aigateway/plugins/*_provider/plugin.py`: the registered
+# ids are openai, anthropic, gemini-cli, codex, antigravity, huggingface, ollama, openrouter.
+# `gemini-cli`, `codex` and `antigravity` were missing (review of PR #922).
+#
+# AIDEV-NOTE: an owner segment is a Gateway provider id on a direct route, and a model owner on
+# an OpenRouter-carried one (`openrouter/google/...`), so both kinds live here. Entries are only
+# added once observed in one of those two places — an earlier version carried `cohere` and `xai`,
+# neither registered by the Gateway nor OpenRouter's actual namespace, which is `x-ai`.
 _CLOSED_OWNERS: frozenset[str] = frozenset(
     {
+        # Gateway provider ids
         "openai",
         "anthropic",
+        "gemini-cli",
+        "codex",
+        "antigravity",
+        # Model owners as they appear on OpenRouter routes
         "google",
         "gemini",
-        "cohere",
-        "xai",
     }
 )
 
