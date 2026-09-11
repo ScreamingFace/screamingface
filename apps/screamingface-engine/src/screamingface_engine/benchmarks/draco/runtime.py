@@ -12,8 +12,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.draco import aggregate as scoring
 from screamingface_engine.benchmarks.draco import assets as protocol_assets
+from screamingface_engine.benchmarks.draco import grade as grading
 from screamingface_engine.benchmarks.draco import records, tasks
 from screamingface_engine.benchmarks.draco import scoring as rubric_scoring
 from screamingface_engine.benchmarks.draco.case_evaluation import (
@@ -287,7 +287,7 @@ def _aggregate(
 ):
     def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         _cases_json, selected_cases, rubrics = assets()
-        return scoring.aggregate(
+        return grading.aggregate(
             case_evaluations,
             rubrics,
             exam.id,

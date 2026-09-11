@@ -8,12 +8,13 @@ import pytest
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.draco import aggregate as agg
+from screamingface_engine.benchmarks.draco import grade as agg
 from screamingface_engine.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,
 )
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
+from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
 _RUBRIC = {
     "sections": [
@@ -45,7 +46,7 @@ def _scored_row(case_id: int) -> dict[str, object]:
             "requirement": "Correct",
         },
         {
-            "schema": agg.VERDICT_SCHEMA,
+            "schema": VERDICT_SCHEMA,
             "case_id": case_id,
             "criterion_id": "c1",
             "sequence": 1,
@@ -276,7 +277,7 @@ def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
         "requirement": "Correct",
     }
     invalid = {
-        "schema": agg.VERDICT_SCHEMA,
+        "schema": VERDICT_SCHEMA,
         "case_id": 1,
         "criterion_id": "c1",
         "sequence": 1,

@@ -107,8 +107,11 @@ class CaseGradeOutcome:
     Case carries ``score`` and ``failure_code=None`` — never both.
     """
 
+    # WHY Any, not int (OME-1100): draco's per-Case metric block carries floats,
+    # None (an unobserved axis), and nested per-axis dicts — counting claims are a
+    # board vocabulary, not a spine one.
     score: float | None
-    metrics: Mapping[str, int]
+    metrics: Mapping[str, Any]
     checks: Sequence[Mapping[str, Any]]
     failure_code: str | None = None
 
@@ -121,7 +124,45 @@ type GradeCase = Callable[[GradeRequest], Awaitable[CaseGradeOutcome]]
 #: ``(selected, selected_index, orphan_errors_or_None)``. WHY the whole result and
 #: not just the failure dict: ifeval publishes a missing-row Case with ``grade: None``
 #: (no grade envelope at all), and its golden pins that shape byte-for-byte.
-type MissingRowResult = Callable[[SelectedCase, int, list[dict[str, Any]] | None], CaseResult]
+#: Returning ``None`` (OME-1100) files NOTHING for the Case, so the finalizer
+#: materialises it as ``case_result_missing`` — draco's pinned missing-row shape.
+type MissingRowResult = Callable[
+    [SelectedCase, int, list[dict[str, Any]] | None], CaseResult | None
+]
+
+#: A board-owned replacement for the whole error-row CaseResult — called as
+#: ``(selected, selected_index, row)`` where ``row`` carries the ``"error"`` payload.
+#: WHY (OME-1100): draco publishes the UPSTREAM error's own code ("rate_limited",
+#: "provider_error") on a candidate-stage failure with no grade envelope, where the
+#: spine default publishes the fixed ``case_error`` code with an empty grade — the
+#: e2e failure tapes pin draco's shape byte-for-byte.
+type ErrorRowResult = Callable[[SelectedCase, int, Mapping[str, Any]], CaseResult]
+
+#: A board-owned replacement for the whole missing-material CaseResult — called as
+#: ``(selected, selected_index, row_or_None)`` when ``grading_material`` returned
+#: ``None``. WHY (OME-1100): draco pins ``missing_case_rubric`` with a ``row_index``
+#: and no grade envelope, with the Candidate's answer retained off the row.
+type MissingMaterialResult = Callable[[SelectedCase, int, Mapping[str, Any] | None], CaseResult]
+
+#: A board-owned replacement for the whole hook-failure CaseResult — called as
+#: ``(selected, selected_index, row, outcome)`` when the board's ``grade_case``
+#: returned a ``failure_code``. WHY (OME-1100): draco's incomplete Case keeps its
+#: full zeroed metric block and its judge checks in the grade (audit material) with
+#: a ``row_index`` failure, where the default assembly publishes empty metrics with
+#: judged/expected counts.
+type HookFailureResult = Callable[
+    [SelectedCase, int, Mapping[str, Any], CaseGradeOutcome], CaseResult
+]
+
+
+class _Omitted:
+    """Sentinel: the board's missing-row hook filed nothing for this Case.
+
+    Distinct from ``None`` on the ladder, which means "the Case is gradeable".
+    """
+
+
+_OMITTED = _Omitted()
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +186,17 @@ class ScoredPath:
             (OME-1101): ifeval's recorded golden pins its own collected-row wording
             (stage "grading", the diagnostic's code), and OME-981 owns the
             candidate-vs-grading boundary decision — the spine must not default it.
+        error_row_result: optional board-owned builder for the WHOLE error-row
+            CaseResult. A board that sets it also owns the rung's RANK: its error
+            rows are reported before the material rung (draco reports a broken row
+            over its own missing rubric). ``None`` keeps the ``case_error`` default.
+        missing_material_result: optional board-owned builder for the WHOLE
+            missing-material CaseResult. ``None`` keeps the ``missing_rubric_asset``
+            default.
+        hook_failure_result: optional board-owned builder for the WHOLE CaseResult
+            of a hook-reported failure (``grade_case`` returned a ``failure_code``).
+            ``None`` keeps the default assembly (empty metrics, judged/expected
+            metadata).
     """
 
     reader: RowReader
@@ -154,6 +206,9 @@ class ScoredPath:
     grading_failure_code: str
     grading_failure_message: str
     missing_row_result: MissingRowResult | None = None
+    error_row_result: ErrorRowResult | None = None
+    missing_material_result: MissingMaterialResult | None = None
+    hook_failure_result: HookFailureResult | None = None
 
     def aggregate(
         self,
@@ -209,10 +264,13 @@ class ScoredPath:
     ) -> list[CaseResult]:
         # WHY sequential, not gather: selected order is publication order, and no
         # current hook overlaps I/O; concurrency semantics are a later, separate call.
-        return [
+        results: list[CaseResult | None] = [
             await self._case_result(selected, index, indexed, grading_material)
             for index, selected in enumerate(selected_cases)
         ]
+        # An omitted Case (a missing-row hook returned None) files nothing; the
+        # finalizer materialises it as case_result_missing, so nothing vanishes.
+        return [result for result in results if result is not None]
 
     async def _case_result(
         self,
@@ -220,13 +278,16 @@ class ScoredPath:
         selected_index: int,
         indexed: RowIndex,
         grading_material: Callable[[int], object | None],
-    ) -> CaseResult:
+    ) -> CaseResult | None:
         case_id: int = int(selected_case.case_id)
         row: dict[str, Any] | None = indexed.rows.get(case_id)
         material: object | None = grading_material(case_id)
-        result: CaseResult | None = self._ladder_result(
+        ladder: CaseResult | _Omitted | None = self._ladder_result(
             selected_case, selected_index, indexed, row, material
         )
+        if isinstance(ladder, _Omitted):
+            return None
+        result: CaseResult | None = ladder
         if result is None:
             # Stage 4 — the hook: the one per-board call, data in, grade out.
             assert row is not None and material is not None
@@ -245,7 +306,7 @@ class ScoredPath:
                     material=material,
                 )
             )
-            result = self._graded_result(selected_case, row, outcome)
+            result = self._graded_result(selected_case, selected_index, row, outcome)
         return result
 
     def _ladder_result(
@@ -255,11 +316,11 @@ class ScoredPath:
         indexed: RowIndex,
         row: Mapping[str, Any] | None,
         material: object | None,
-    ) -> CaseResult | None:
+    ) -> CaseResult | _Omitted | None:
         """Stage 3 — the ladder, most-broken first; ``None`` means the Case is gradeable."""
 
         case_id = int(selected.case_id)
-        result: CaseResult | None
+        result: CaseResult | _Omitted | None
         grading_failure: CaseExecutionOutcome | None = indexed.grading_failures.get(case_id)
         if grading_failure is not None:
             assert grading_failure.error is not None
@@ -271,15 +332,14 @@ class ScoredPath:
                 default_code=self.grading_failure_code,
                 default_message=self.grading_failure_message,
             )
+        elif self.error_row_result is not None and row is not None and "error" in row:
+            # A board that owns its error rows also owns their rank: the broken row
+            # is reported before the board's own missing material (draco's order).
+            result = self.error_row_result(selected, selected_index, row)
         elif material is None:
-            failure: dict[str, Any] = self._failure(case_id, "grading", "missing_rubric_asset")
-            result = self._failed_result(selected, row, [], failure)
+            result = self._missing_material(selected, selected_index, row)
         elif row is None:
-            orphans: list[dict[str, Any]] | None = indexed.collected_errors.get(case_id)
-            if self.missing_row_result is not None:
-                result = self.missing_row_result(selected, selected_index, orphans)
-            else:
-                result = self._missing_row_result(selected, orphans)
+            result = self._missing_row(selected, selected_index, indexed, case_id)
         elif "error" in row:
             failure = self._failure(case_id, "candidate", "case_error", error=row["error"])
             result = self._failed_result(selected, row, [], failure)
@@ -287,13 +347,50 @@ class ScoredPath:
             result = None
         return result
 
+    def _missing_material(
+        self,
+        selected: SelectedCase,
+        selected_index: int,
+        row: Mapping[str, Any] | None,
+    ) -> CaseResult:
+        """The missing-material rung: board-owned shape when the hook is set."""
+
+        if self.missing_material_result is not None:
+            return self.missing_material_result(selected, selected_index, row)
+        failure: dict[str, Any] = self._failure(
+            int(selected.case_id), "grading", "missing_rubric_asset"
+        )
+        return self._failed_result(selected, row, [], failure)
+
+    def _missing_row(
+        self,
+        selected: SelectedCase,
+        selected_index: int,
+        indexed: RowIndex,
+        case_id: int,
+    ) -> CaseResult | _Omitted:
+        """The missing-row rung: board-owned shape — or omission — when the hook is set."""
+
+        orphans: list[dict[str, Any]] | None = indexed.collected_errors.get(case_id)
+        if self.missing_row_result is None:
+            return self._missing_row_result(selected, orphans)
+        board_result: CaseResult | None = self.missing_row_result(selected, selected_index, orphans)
+        # None from the board hook means "file nothing" — the finalizer reports
+        # the Case as case_result_missing (draco's pinned shape).
+        return board_result if board_result is not None else _OMITTED
+
     def _graded_result(
         self,
         selected: SelectedCase,
+        selected_index: int,
         row: Mapping[str, Any],
         outcome: CaseGradeOutcome,
     ) -> CaseResult:
         if outcome.failure_code is not None:
+            if self.hook_failure_result is not None:
+                # The board owns the whole failed shape (draco keeps its zeroed
+                # metric block and judge checks as audit material in the grade).
+                return self.hook_failure_result(selected, selected_index, row, outcome)
             failure: dict[str, Any] = self._failure(
                 int(selected.case_id),
                 "grading",
@@ -504,8 +601,11 @@ def _source_error(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
 
 __all__ = [
     "CaseGradeOutcome",
+    "ErrorRowResult",
+    "MissingMaterialResult",
     "GradeCase",
     "GradeRequest",
+    "HookFailureResult",
     "MissingRowResult",
     "ScoredPath",
 ]

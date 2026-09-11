@@ -1,4 +1,12 @@
-"""Build auditable DRACO Case Results from Engine-bound checks and evidence."""
+"""Build auditable DRACO grading material from Engine-bound checks and evidence.
+
+Since OME-1100 the shared spine (``spine/scored.py``) assembles draco's typed Case
+Results; this module supplies what stays draco's: the multi-pass verdict handling
+(``group_runs`` / ``valid_verdicts``), the per-Case grade blocks the ``grade_case``
+hook returns (``scored_grade`` / ``incomplete_grade``), the check/evidence audit
+projection, and the one typed-result builder draco's board-owned failure hooks
+still need (``_case_result`` / ``ungraded_case_result``).
+"""
 
 from __future__ import annotations
 
@@ -14,14 +22,12 @@ from screamingface_engine.benchmarks.aggregation import (
 from screamingface_engine.benchmarks.aggregation import (
     refusal_case_result as build_refusal_case_result,
 )
-from screamingface_engine.benchmarks.aggregation import (
-    scored_case_result as build_scored_case_result,
-)
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.draco.errors import AggregateError
 from screamingface_engine.benchmarks.draco.scoring import flatten_criteria, score_case
 from screamingface_engine.benchmarks.draco.validation import optional_integer
 from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
+from screamingface_engine.benchmarks.spine.scored import CaseGradeOutcome
 
 
 def group_runs(verdicts: Sequence[Mapping[str, Any]]) -> list[dict[str, bool]]:
@@ -69,15 +75,15 @@ def valid_verdicts(
     return accepted
 
 
-def scored_case_result(
+def scored_grade(
     case_record: Mapping[str, Any],
     rubric: Mapping[str, Any],
     check_records: Sequence[Mapping[str, Any]],
     records: Sequence[Mapping[str, Any]],
     verdicts: Sequence[Mapping[str, Any]],
     judge_passes: int,
-) -> CaseResult:
-    """Build one scored or coverage-failed Case Result."""
+) -> CaseGradeOutcome:
+    """Score one Case's judge passes into the grade block the spine's hook returns."""
     case_id, criteria_expected = _expected_criteria(case_record, rubric)
     expected = criteria_expected * judge_passes
     accepted = len(verdicts)
@@ -100,23 +106,20 @@ def scored_case_result(
         "verdicts_invalid": max(len(records) - accepted, 0),
         "verdicts_missing": max(expected - len(records), 0),
     }
-    return _case_result(
-        case_record,
+    return CaseGradeOutcome(
         score=scored["normalized_score"],
         metrics=metrics,
         checks=_checks(case_id, rubric, check_records, records, criteria_expected),
-        failures=[],
     )
 
 
-def incomplete_case_result(
+def incomplete_grade(
     case_record: Mapping[str, Any],
     rubric: Mapping[str, Any],
     check_records: Sequence[Mapping[str, Any]],
     evidence: Sequence[Mapping[str, Any]],
     judge_passes: int,
-    failure: Mapping[str, Any],
-) -> CaseResult:
+) -> CaseGradeOutcome:
     """Retain auditable grading material when no Judge Evidence was scoreable."""
     case_id, criteria_expected = _expected_criteria(case_record, rubric)
     verdicts_expected = criteria_expected * judge_passes
@@ -138,22 +141,26 @@ def incomplete_case_result(
         "verdicts_invalid": len(evidence),
         "verdicts_missing": max(verdicts_expected - len(evidence), 0),
     }
-    return _case_result(
-        case_record,
+    return CaseGradeOutcome(
         score=None,
         metrics=metrics,
         checks=_checks(case_id, rubric, check_records, evidence, criteria_expected),
-        failures=[dict(failure)],
+        failure_code="no_valid_judge_verdict",
     )
 
 
-def failed_selected_case_result(
-    selected_case: Mapping[str, Any], failure: Mapping[str, Any]
+def incomplete_case_result(
+    case_record: Mapping[str, Any],
+    outcome: CaseGradeOutcome,
+    failure: Mapping[str, Any],
 ) -> CaseResult:
-    """Represent a selected Case that never produced a Candidate answer."""
-    return build_failed_case_result(
-        selected_case=_selected_case(selected_case, id_key="id"),
-        failures=[failure],
+    """Assemble the typed Case Result for an ``incomplete_grade`` hook outcome."""
+    return _case_result(
+        case_record,
+        score=None,
+        metrics=outcome.metrics,
+        checks=outcome.checks,
+        failures=[dict(failure)],
     )
 
 
@@ -221,15 +228,6 @@ def _case_result(
         )
     if not isinstance(output, str):  # pragma: no cover - sealed by the Case record decoder
         raise AggregateError("a non-refused DRACO Case must carry Candidate output text")
-    if score is not None and not failures:
-        return build_scored_case_result(
-            selected_case=selected,
-            output=output,
-            finish_reason=finish_reason,
-            grade=grade,
-            execution=case_record.get("execution"),
-            operations=case_record.get("operations"),
-        )
     return build_failed_case_result(
         selected_case=selected,
         failures=failures,

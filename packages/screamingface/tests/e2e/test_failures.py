@@ -21,13 +21,13 @@ The declared policy chain, with the code that declares it:
   ``{"error": {"kind", "message", "code", "retryable"}}`` (url4
   ``dag/nodes.py::_error_payload``) and DRACO's
   aggregate maps it to a ``stage="candidate"`` Failure via ``public_error``
-  (``benchmarks/draco/aggregate.py::_row_failure``). The wire row carries the connector's
+  (``benchmarks/draco/grade.py::_error_row_result``). The wire row carries the connector's
   own code/retryable (OME-924), so the Failure code and retryability are the upstream
   ones and the gateway-authored MESSAGE names the provider failure.
 - a judge that answers but is cut off (truncated verdict JSON) never errors the row:
   every verdict is bound invalid (``benchmarks/draco/verdict.py::bind``) and the case
   lands as a ``stage="grading"`` Failure, code ``no_valid_judge_verdict``
-  (``benchmarks/draco/aggregate.py``), with the candidate's output preserved.
+  (``benchmarks/draco/grade.py``), with the candidate's output preserved.
 
 Lanes: the FakeGateway/fixture contract tests below are pure-code + loopback-thread and
 run in the DEFAULT lane; the scenario tests boot the real engine subprocess and are
