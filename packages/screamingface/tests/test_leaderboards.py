@@ -1339,6 +1339,11 @@ def test_the_submission_payload_gains_only_the_cost_key() -> None:
         "url4_expression",
         "score",
         "total_questions",
+        # OME-1181/OME-1180: the declared model routes. Added here as an approved
+        # Confidence-Gate exception (2026-09-11) — this guard exists so a DELIBERATE payload
+        # change is recorded rather than absorbed, which is exactly what this line does. The set
+        # stays exhaustive; nothing is removed and no assertion is loosened.
+        "models",
         "ran_with_providers",
         "ran_at_local",
         "run_cost_usd",
@@ -1735,3 +1740,67 @@ def test_revision_mismatch_card_identity_uses_the_persisted_revision() -> None:
 
     assert "draco · rev submitted-revision" in html
     assert "draco · rev fixture-revision" not in html
+
+
+# --- OME-1180: the declared model routes reach the submission payload -------------------------
+# `_providers` truncates each route to its first path segment, so a fusion of deepseek, kimi and
+# qwen is submitted as ["openrouter"] and the Scoreboard publishes it as closed. OME-1181 is the
+# Scoreboard half that accepts these; it must be DEPLOYED before this Client is released.
+
+
+def test_the_declared_routes_are_sent_whole() -> None:
+    # INVARIANT: verbatim. A regression to `_providers`-style truncation is the entire bug this
+    # unit exists to fix, and it is invisible to any assertion that only checks the key is there.
+    payload = _submission(_candidate_result())
+
+    assert payload["models"] == ["openrouter/model-a", "gemini-cli/model-b"]
+
+
+def test_models_and_providers_describe_the_same_set() -> None:
+    # INVARIANT: the two fields are one fact at two resolutions. If they ever disagree the board
+    # has to choose, and OME-1181 resolves that by deriving providers from these routes
+    # server-side — which only holds while the Client sends a consistent pair.
+    payload = _submission(_candidate_result())
+    models = cast(list[str], payload["models"])
+    providers = cast(list[str], payload["ran_with_providers"])
+
+    assert {route.split("/", 1)[0] for route in models} == set(providers)
+
+
+def test_the_providers_field_is_unchanged_by_this_unit() -> None:
+    # GUARD: `ran_with_providers` is required on ScoreSubmission, the portal's Backends column
+    # reads it, and the Scoreboard's `_content_hash` hashes the WIRE value — so changing it here
+    # would rewrite recipe identity for every existing row and break dedup across the board.
+    payload = _submission(_candidate_result())
+
+    assert payload["ran_with_providers"] == ["openrouter", "gemini-cli"]
+
+
+def test_a_fusion_declares_its_synthesizer_as_well_as_its_members() -> None:
+    """INVARIANT: the synthesizer is part of what the system is made of.
+
+    A fusion's answer passes through its synthesizer, so omitting it would let a closed
+    synthesizer hide behind open members — under OME-1179 D1 that flips the entry's published
+    verdict from closed to open. This asserts the property at its source,
+    `CandidateResult.models`, because that is where an upstream change would silently drop it.
+    """
+    from screamingface._evaluation.candidate import compile_candidate
+
+    member_a = "openrouter/meta-llama/Llama-3.1-70B-Instruct"
+    member_b = "openrouter/qwen/qwen3.6-plus"
+    synthesizer = "anthropic/claude-opus-4.8"
+
+    compiled = compile_candidate(sf.Fusion([member_a, member_b], synthesizer=synthesizer))
+
+    assert set(compiled.models) == {member_a, member_b, synthesizer}
+
+
+def test_the_routes_survive_json_serialisation() -> None:
+    # The payload is handed to `json=`; a tuple would encode fine but would not round-trip to the
+    # list the Scoreboard's `list[ModelRoute]` expects.
+    import json
+
+    encoded = json.loads(json.dumps(_submission(_candidate_result())))
+
+    assert encoded["models"] == ["openrouter/model-a", "gemini-cli/model-b"]
+    assert isinstance(encoded["models"], list)
