@@ -184,7 +184,24 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
 
 @router.get("/benchmarks", response_model=BenchmarksResponse, tags=["benchmarks"])
 async def list_benchmarks(request: Request) -> BenchmarksResponse:
-    """List registered public benchmarks. This endpoint is public and has no auth."""
+    """List EVERY registered benchmark, private ones included. Public, no auth.
+
+    WHY private boards are listed here: a challenge participant has to discover the board before
+    they can submit to it, and `sf.leaderboards` reads this endpoint. Listing exposes benchmark
+    METADATA, never participant results — the catalogue entry carries a name and nothing else.
+
+    INVARIANT (OME-894): a private board has no ranking at all, so `get_leaderboard` returns
+    `entries: []` to EVERYONE, the submitter included. An authenticated participant receives only
+    their own rows, unranked, in `my_submissions`. Do not paraphrase this as "rankings are
+    refused to anyone but the submitter": that reads as though a participant sees a ranking, and
+    would justify populating `entries` or adding a rank to `my_submissions` for them. Neither has
+    a rank to show.
+
+    AIDEV-NOTE (OME-1147): the portal index does NOT render everything this returns. It drops
+    private boards client-side in `portal/leaderboard-logic.js::listedBenchmarks`. That is a
+    cosmetic catalogue rule, not an access rule; do not "fix" the apparent inconsistency by
+    filtering here, or challenge participants lose the ability to find their board.
+    """
     benchmarks = await _score_store(request).list_benchmarks()
     return BenchmarksResponse(benchmarks=benchmarks)
 
