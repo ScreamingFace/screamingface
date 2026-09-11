@@ -62,7 +62,13 @@ ingress:
 #   --set tracing.serviceName=screamingface-engine \
 #   --set tracing.resourceAttributes=deployment.environment=dev
 #
-# Only if the collector is reached over the public edge does a credential enter the picture, and
+# VERIFIED (2026-09-11): there is NO public OTLP ingest on the SigNoz UI hostname.
+# `POST https://signoz.pulse.dev.openmined.org/v1/traces` returns 200 with `text/html` — the
+# SPA catch-all, identical to what a nonsense path returns. Since OTel's exporter treats any
+# 2xx as success, configuring that hostname would discard every span while reporting healthy.
+# The in-cluster Service address is therefore the answer, and it needs no credential.
+#
+# Only if a collector is ever exposed over the public edge does a credential enter the picture, and
 # then `tracing.existingSecret` is the right shape (a Secret the chart does not own survives a
 # values-less upgrade by construction). One variable carries either auth style:
 #

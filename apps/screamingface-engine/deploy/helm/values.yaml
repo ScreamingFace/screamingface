@@ -247,8 +247,16 @@ tracing:
   # Base OTLP/HTTP endpoint, e.g. http://signoz-otel-collector.platform.svc.cluster.local:4318
   # The exporter appends `/v1/traces`. Required when enabled.
   #
+  # ⚠️ POINT THIS AT THE COLLECTOR, NEVER AT THE SIGNOZ UI HOSTNAME. This is a silent, verified
+  # footgun, not a theoretical one: `https://signoz.pulse.dev.openmined.org/v1/traces` answers
+  # **200 with `text/html`** — it is the UI's single-page-app catch-all, and a nonsense path
+  # answers identically. OTel's HTTP exporter treats any 2xx as success, so pointing here makes
+  # every span POST, succeed, and be DISCARDED, while the exporter reports perfect health and
+  # the trace view stays empty. That is indistinguishable from "nobody ran anything".
+  #
   # Prefer the IN-CLUSTER Service address: it needs no credential, crosses no public network,
-  # and does not depend on an edge that can deny it.
+  # and does not depend on an edge that can deny it. Find it with:
+  #   kubectl get svc -A | grep -i 'otel\|signoz'
   endpoint: ""
   # Reported as `service.name`. Empty => the code's own default (`screamingface-engine`).
   # Deliberately omitted from the ConfigMap when empty rather than rendered as "" — a blank
