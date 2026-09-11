@@ -271,6 +271,9 @@ def _missing_row_result(
     """
 
     if orphan_errors:
+        # INVARIANT: selected_index IS the row position — rows.py enforces
+        # position-is-identity (a row claiming another Case aborts the run), so the
+        # golden-pinned ``row_index`` metadata can be rebuilt from the roll call.
         return _collected_failure_result(selected_case, selected_index, orphan_errors[0])
     return CaseResult(
         status="failed",
