@@ -34,7 +34,9 @@ from screamingface_engine.runner.executor import Url4Executor, World, deny_by_de
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.runner.summary import RunSummary
+from screamingface_engine.tracing.relay import SpanRelay, SpanSink, otlp_configured
 from screamingface_engine.world_config import WorldConfig, WorldConfigError, load_config
+from url4.streaming.interfaces import EventPublisher
 from url4.streaming.lifecycle import run
 from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import parse_traceparent
@@ -351,6 +353,31 @@ def build_executor(
     )
 
 
+def span_sink(env: Mapping[str, str]) -> SpanSink | None:
+    """The run's span sink, or ``None`` when this deployment configured no OTLP endpoint.
+
+    WHY the import is LAZY. `tracing.otlp` pulls the OTel SDK, protobuf and `requests` —
+    measured at ~62 ms of this module's ~227 ms import time, which every Job would otherwise
+    pay whether or not it exports anything. `check_layering.py` protects a Job's cold start
+    from the engine's OWN modules; nothing protects it from a third-party dependency, so this
+    is the same discipline applied by hand. `cli.py` and `worker_composition` import their
+    heavy halves the same way, for the same reason.
+
+    INVARIANT: never raises. A broken exporter config must not stop a run from happening — the
+    whole point of the relay is that telemetry degrades alone. An unreachable collector is
+    already handled downstream (the exporter drops); this covers the boot-time half.
+    """
+    if not otlp_configured(env):
+        return None
+    try:
+        from screamingface_engine.tracing.otlp import sink_from_env
+
+        return sink_from_env(env)
+    except Exception:
+        logger.warning("span export is configured but could not be started", exc_info=True)
+        return None
+
+
 def _cache_stated(policy: CachePolicy) -> str:
     """Whether a run's cache policy stated anything — 'stated' or 'not-stated'.
 
@@ -461,7 +488,7 @@ def _log_terminal(executor: _SummarizingExecutor, topic: str, started: float) ->
 
 async def _run_and_log(
     executor: OperationCapturingExecutor,
-    publisher: JetStreamPublisher,
+    publisher: EventPublisher,
     params: RunnerParams,
     traceparent: str | None,
 ) -> None:
@@ -497,11 +524,24 @@ def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
         # the executor records and the summary line reports). Bound for the whole run so
         # every process log line inside it carries topic and trace id.
         trace_id = parse_traceparent(traceparent)
-        with run_scope(params.topic, trace_id):
+        # FEATURE (OME-1130): the run's spans, exported to a tracing backend so SigNoz shows a
+        # WATERFALL instead of a log search. The relay wraps the run's own publisher — the one
+        # path every frame of every run travels, attached client or not — and is a pure
+        # passthrough when no OTLP endpoint is configured, which is the default everywhere.
+        #
+        # `with`, not a hand-written `finally`: this process is short-lived, and an unflushed
+        # batch loses the tail of every trace including its root span. See `tracing.relay`.
+        #
+        # `run_and_reclaim` keeps the RAW publisher: it needs `delete_stream`, which is
+        # JetStream's, not the wire port's — the relay only stands where frames are published.
+        with (
+            run_scope(params.topic, trace_id),
+            SpanRelay(publisher, span_sink(os.environ)) as relay,
+        ):
             await run_and_reclaim(
                 publisher,
                 params.topic,
-                lambda: _run_and_log(executor, publisher, params, traceparent),
+                lambda: _run_and_log(executor, relay, params, traceparent),
                 grace_s=stream_grace_s(os.environ),
             )
 
