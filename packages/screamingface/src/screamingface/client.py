@@ -16,6 +16,7 @@ from screamingface._client_connections import (
     _scoreboard_origin,
 )
 from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._engine.identity import engine_headers
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -76,6 +77,7 @@ class Client:
         )
         self._http = httpx.Client(
             base_url=self._engine_url,
+            headers=engine_headers(),
             timeout=30.0,
             auth=self._engine_auth,
             transport=http_transport,
@@ -400,6 +402,7 @@ class AsyncClient:
         )
         self._http = httpx.AsyncClient(
             base_url=self._engine_url,
+            headers=engine_headers(),
             timeout=30.0,
             auth=self._engine_auth,
             transport=http_transport,

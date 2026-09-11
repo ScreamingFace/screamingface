@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
 import nbformat
@@ -56,11 +57,14 @@ def notebooks() -> dict[str, NotebookNode]:
 
 
 def _notebook(*cells: NotebookNode) -> NotebookNode:
+    # WHY: record the generating checkout, not an unrelated package installed in the builder.
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     for index, cell in enumerate(cells, 1):
         cell["id"] = f"cell-{index:02d}"
     return nbformat.v4.new_notebook(
         cells=list(cells),
         metadata={
+            "screamingface": {"generated_by_version": project["project"]["version"]},
             "kernelspec": {
                 "display_name": "Python 3",
                 "language": "python",

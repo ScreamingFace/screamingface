@@ -30,6 +30,7 @@ from screamingface._access.contract import _challenge_audience
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface._core.retry import RetryingAsyncTransport, RetryingTransport
 from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._engine.identity import engine_headers
 from screamingface._engine.reconnect import _RecoveryWindow
 from screamingface._engine.run_lifecycle import _Lifecycle
 from screamingface._engine.trace import TraceContext, new_trace_context
@@ -114,6 +115,7 @@ class Url4CloudTransport:
         # `_REPLAY_SAFE` are re-sent, so `GET /?q=` — which starts billable work — never is.
         self._http = httpx.Client(
             base_url=engine_url,
+            headers=engine_headers(),
             timeout=30.0,
             auth=self._caller_auth,
             transport=RetryingTransport(httpx.HTTPTransport()),
@@ -365,6 +367,7 @@ class AsyncUrl4CloudTransport:
         # See the synchronous twin: retry is gated on `_REPLAY_SAFE`, never on the method.
         self._http = httpx.AsyncClient(
             base_url=engine_url,
+            headers=engine_headers(),
             timeout=30.0,
             auth=self._caller_auth,
             transport=RetryingAsyncTransport(httpx.AsyncHTTPTransport()),
