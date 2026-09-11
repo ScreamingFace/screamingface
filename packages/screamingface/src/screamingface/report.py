@@ -361,15 +361,9 @@ class Report:
 
     @property
     def failures(self) -> tuple[Failure, ...]:
-        flattened: list[Failure] = []
-        for candidate in self.candidates:
-            flattened.extend(candidate.failures)
-            for member in candidate.members:
-                if member.failures is not None:
-                    flattened.extend(member.failures)
-            for case in candidate.cases:
-                flattened.extend(case.failures)
-        return tuple(flattened)
+        return tuple(
+            failure for candidate in self.candidates for failure in _candidate_failures(candidate)
+        )
 
     @property
     def ok(self) -> bool:
@@ -441,6 +435,16 @@ def _models(values: Sequence[str], label: str) -> tuple[str, ...]:
     if len(selected) != len(set(selected)):
         raise ValueError(f"{label} models must be unique")
     return selected
+
+
+def _candidate_failures(candidate: CandidateResult) -> Iterator[Failure]:
+    # INVARIANT: the summary and raw disclosure traverse all failure sources in one order.
+    yield from candidate.failures
+    for member in candidate.members:
+        if member.failures is not None:
+            yield from member.failures
+    for case in candidate.cases:
+        yield from case.failures
 
 
 def _failures(values: Sequence[Failure], label: str) -> tuple[Failure, ...]:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from html import unescape
 from types import SimpleNamespace
 from typing import cast
 
@@ -753,3 +755,33 @@ def test_unique_member_names_render_without_provider_suffix() -> None:
 
     assert ">opus</span>" in html
     assert "opus (" not in html
+
+
+# WHY: Case ids belong to a Candidate; flattening before grouping hides ownership.
+def test_failure_banner_keeps_identical_case_ids_under_their_candidates() -> None:
+    value = report(
+        candidate("Model A", None, cases=(failed_case(153),)),
+        candidate("Model B", None, cases=(failed_case(153),)),
+    )
+    banner = _failures_html(value)
+    summary, disclosure = banner.split("<details>", 1)
+
+    assert "2 failures" in summary
+    assert "<h4>Model A</h4><ul><li>candidate · missing_case_row · case 153" in summary
+    assert "<h4>Model B</h4><ul><li>candidate · missing_case_row · case 153" in summary
+    assert "cases 153, 153" not in summary
+    assert "role='alert'" in summary
+    assert json.loads(
+        unescape(disclosure.split("<pre class='sf-report__pre'>")[1].split("</pre>")[0])
+    ) == [failure.to_dict() for failure in value.failures]
+
+
+def test_failure_banner_escapes_candidate_names_and_keeps_single_candidate_compact() -> None:
+    named = candidate("<Model & A>", None, cases=(failed_case(0),))
+    other = candidate("Model B", 1.0)
+    summary = _failures_html(report(named, other)).split("<details>", 1)[0]
+
+    assert "<h4>&lt;Model &amp; A&gt;</h4><ul><li>candidate · missing_case_row · case 0" in summary
+    assert "<Model & A>" not in summary
+    assert "Model B" not in summary
+    assert "&lt;Model &amp; A&gt;" not in _failures_html(report(named)).split("<details>", 1)[0]
