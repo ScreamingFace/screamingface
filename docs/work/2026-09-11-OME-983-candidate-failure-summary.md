@@ -40,7 +40,7 @@ complete failure disclosure and alert semantics remain intact.
 - Validation: all 37 Report-rendering tests pass; `run_gates.py screamingface` reports ALL GATES
   GREEN (append-only, lint, format, pyright, full pytest with >=95% coverage, notebook checks,
   build and distribution checks). Gate log: `.docs/OME-983-headings-gates.log`.
-- Light and dark screenshots inspected and saved under `docs/work/assets/OME-983/`.
+- Light and dark screenshots inspected; local previews remain in gitignored `.docs/`.
 - Wisdom review: no public API, schema or dependency changes; one shared traversal, no new
   interpretation of errors. All tests from main remain unchanged. Only this worktree's new
   preview assertions were revised for the explicitly approved headings.
@@ -57,3 +57,10 @@ User approved Candidate headings with indented failure lines, and direct ticket 
 comments. Refine the local preview tests to this expressly approved layout; all tests from main
 remain unchanged. Use semantic headings and a list per Candidate, existing error text and tokens.
 Run Report regressions, full gates, and refresh notebook output and light/dark previews.
+
+## Screenshot cleanup — 2026-09-11
+
+Owner requested removal of tracked preview images. Remove both PNGs from the PR diff and
+remove their image links from the PR description. Keep the local `.docs/` copies.
+Validation: documentation/assets only; `git diff --check` and commit hooks. Earlier code gates
+remain applicable because no implementation or tests changed. No Linear comments.
