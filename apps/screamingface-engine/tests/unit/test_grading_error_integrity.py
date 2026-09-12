@@ -29,7 +29,7 @@ from screamingface_engine.benchmarks.contract import (
     encode_candidate_invocation,
 )
 from screamingface_engine.benchmarks.definition import link_candidate
-from screamingface_engine.benchmarks.draco import aggregate as draco_agg
+from screamingface_engine.benchmarks.draco import grade as draco_agg
 from screamingface_engine.benchmarks.draco import prepare
 from screamingface_engine.benchmarks.draco.definition import DRACO
 from screamingface_engine.benchmarks.draco.exam import (

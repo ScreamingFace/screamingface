@@ -113,11 +113,18 @@ class RowReader:
         decode_case_evaluation: the board's envelope validator, the only authority on its
             own schema. Called as `(grading, expected_case_id) -> decoded row`; it raises
             `ValueError`/`TypeError`, which this module wraps with the row's position.
+        claim_anonymous_errors: when True an anonymous `on_error=collect` row is ADOPTED
+            as the row of the Case selected at its position, instead of being retained
+            as an orphan cause. WHY (OME-1100): draco's fan-out emits anonymous error
+            rows and its pinned results report them as candidate-stage failures OF that
+            Case — position is identity, so the adoption is sound for any board that
+            opts in.
     """
 
     benchmark_label: str
     error_type: type[Exception]
     decode_case_evaluation: Callable[[object, int], dict[str, Any]]
+    claim_anonymous_errors: bool = False
 
     def index(self, raw_rows: str, case_ids: tuple[int, ...]) -> RowIndex:
         """Sort one per-Case fan-out's collected rows into the three piles above.
@@ -221,7 +228,7 @@ class RowReader:
                 f"Case result at position {position} claims case_id {claimed}, "
                 f"but the selected Case is {expected_case_id}"
             )
-        if claimed is None:
+        if claimed is None and not self.claim_anonymous_errors:
             # WHY: an anonymous error cannot be indexed, so it is retained against the
             # position it arrived at — the grader attaches it to the Case that ends up
             # with no row, which is how the symptom keeps its cause.

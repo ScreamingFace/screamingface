@@ -230,3 +230,19 @@ def test_the_reader_never_reads_a_case_input_or_answer() -> None:
     index = _reader().index(json.dumps([_envelope(1, {"opaque": ["anything", 42]})]), (1,))
 
     assert index.rows[1]["grading"] == {"opaque": ["anything", 42]}
+
+
+def test_a_claiming_reader_files_an_anonymous_error_as_the_cases_row() -> None:
+    # WHY (OME-1100): draco's fan-out emits anonymous error rows, and its results pin
+    # them as candidate-stage failures OF that Case — position is identity, so a
+    # claiming reader adopts the orphan instead of retaining it as a mere cause.
+    reader = RowReader(
+        benchmark_label="TestBoard",
+        error_type=BoardError,
+        decode_case_evaluation=_decode,
+        claim_anonymous_errors=True,
+    )
+    index = reader.index(json.dumps([_collected_error("upstream 503")]), (1,))
+
+    assert index.rows[1]["error"]["message"] == "upstream 503"
+    assert index.collected_errors == {}

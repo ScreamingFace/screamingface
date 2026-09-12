@@ -1,7 +1,6 @@
 """DRACO's exact per-case scoring arithmetic."""
 
-from screamingface_engine.benchmarks.draco import aggregate as agg
-from screamingface_engine.benchmarks.draco import scoring
+from screamingface_engine.benchmarks.draco import case_results, grade, scoring
 
 _RUBRIC = {
     "sections": [
@@ -89,7 +88,7 @@ def test_runs_are_grouped_in_order_so_each_pass_scores_independently() -> None:
         for n, status in enumerate(("MET", "UNMET", "MET"), start=1)
     ]
 
-    assert agg.group_runs(verdicts) == [{"a1": True}, {"a1": False}, {"a1": True}]
+    assert case_results.group_runs(verdicts) == [{"a1": True}, {"a1": False}, {"a1": True}]
 
 
 def test_a_criterion_with_fewer_passes_drops_out_of_the_missing_run() -> None:
@@ -99,7 +98,7 @@ def test_a_criterion_with_fewer_passes_drops_out_of_the_missing_run() -> None:
         {"case_id": 1, "criterion_id": "a2", "sequence": 1, "criterion_status": "MET"},
     ]
 
-    assert agg.group_runs(verdicts) == [{"a1": True, "a2": True}, {"a1": True}]
+    assert case_results.group_runs(verdicts) == [{"a1": True, "a2": True}, {"a1": True}]
 
 
 def test_score_case_means_the_runs_and_reports_the_spread() -> None:
@@ -145,8 +144,8 @@ def test_a_case_missing_the_accuracy_axis_is_skipped_by_the_candidate_mean() -> 
     with_axis = {"grade": {"metrics": {"accuracy": 0.8}}}
     without_axis = {"grade": {"metrics": {"accuracy": None}}}
 
-    assert agg._mean_optional_grade_metrics([with_axis, without_axis], "accuracy") == 0.8
-    assert agg._mean_optional_grade_metrics([without_axis], "accuracy") is None
+    assert grade._mean_optional_grade_metrics([with_axis, without_axis], "accuracy") == 0.8
+    assert grade._mean_optional_grade_metrics([without_axis], "accuracy") is None
 
 
 def test_a_single_run_reports_zero_spread() -> None:

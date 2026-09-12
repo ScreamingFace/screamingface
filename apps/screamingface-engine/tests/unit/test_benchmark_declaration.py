@@ -150,16 +150,11 @@ def test_each_board_aggregate_reduces_through_the_shared_finalizer() -> None:
     from screamingface_engine.benchmarks import aggregation
     from screamingface_engine.benchmarks.spine import scored
 
-    for family in ("draco",):
-        module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.aggregate")
-        assert module.finalize_candidate_result is aggregation.finalize_candidate_result, (
-            f"{family} no longer reduces through the shared finalizer"
-        )
     # These boards funnel through the spine's shared scored path (OME-1097; ifeval
-    # folded in OME-1101), which itself reduces through the shared finalizer — same
-    # mechanism, one hop up.
+    # folded in OME-1101, draco in OME-1100), which itself reduces through the
+    # shared finalizer — same mechanism, one hop up.
     assert scored.finalize_candidate_result is aggregation.finalize_candidate_result
-    for family in ("gdpval", "healthbench", "ifeval"):
+    for family in ("draco", "gdpval", "healthbench", "ifeval"):
         module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.grade")
         assert module.ScoredPath is scored.ScoredPath, (
             f"{family} no longer reduces through the shared scored path"

@@ -22,12 +22,13 @@ import pytest
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.draco import aggregate as agg
+from screamingface_engine.benchmarks.draco import grade as agg
 from screamingface_engine.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,
 )
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
+from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
 
 def _rubric(criterion: str) -> dict[str, object]:
@@ -50,7 +51,7 @@ def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> obj
     raw_output = json.dumps({"explanation": "fixture verdict", "criterion_status": status})
     verdicts = [
         {
-            "schema": agg.VERDICT_SCHEMA,
+            "schema": VERDICT_SCHEMA,
             "criterion_id": criterion,
             "sequence": sequence,
             "producer_type": "model",

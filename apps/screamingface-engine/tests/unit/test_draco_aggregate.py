@@ -19,7 +19,7 @@ import pytest
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.draco import aggregate as agg
+from screamingface_engine.benchmarks.draco import grade as agg
 from screamingface_engine.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,

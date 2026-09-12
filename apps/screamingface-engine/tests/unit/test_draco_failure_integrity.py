@@ -8,12 +8,13 @@ import pytest
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.draco import aggregate as agg
+from screamingface_engine.benchmarks.draco import grade as agg
 from screamingface_engine.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
     bind_criterion_evaluation,
 )
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
+from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
 _RUBRIC = {
     "sections": [
@@ -45,7 +46,7 @@ def _scored_row(case_id: int) -> dict[str, object]:
             "requirement": "Correct",
         },
         {
-            "schema": agg.VERDICT_SCHEMA,
+            "schema": VERDICT_SCHEMA,
             "case_id": case_id,
             "criterion_id": "c1",
             "sequence": 1,
@@ -132,6 +133,44 @@ def test_partial_result_preserves_the_collected_case_error() -> None:
         "failures": expected_failure,
         "metadata": {},
     }
+
+
+def test_an_error_row_case_carries_the_selected_cases_own_metadata() -> None:
+    """An errored Case publishes its cases.json extras (e.g. domain), like every other Case."""
+    # INVARIANT: the selected Case's extra fields (everything beyond id/input in the
+    # baked cases.json) ride the published Case result even when the candidate call
+    # errored. Pre-fold aggregate.py published {} here; the spine fold made error rows
+    # consistent with scored/missing/ungraded rows — an owner-approved delta (OME-1100
+    # review), declared in grade.py's module docstring.
+    selected: list[dict[str, object]] = [
+        {"id": 1, "input": "Question 1"},
+        {"id": 2, "input": "Question 2", "domain": "physics"},
+    ]
+    rows = json.dumps(
+        [
+            _execution(_scored_row(1)),
+            {
+                "error": {
+                    "kind": "ResolutionError",
+                    "code": "rate_limited",
+                    "message": "provider rate limit hit",
+                }
+            },
+        ]
+    )
+
+    result = agg.aggregate(
+        rows,
+        {1: _RUBRIC, 2: _RUBRIC},
+        "draco",
+        selected_cases=selected,
+        judge_passes=1,
+    )
+
+    errored = result["cases"][1]
+    assert errored["status"] == "failed"
+    assert errored["failures"][0]["code"] == "rate_limited"
+    assert errored["metadata"] == {"domain": "physics"}
 
 
 def test_a_missing_selected_row_is_retained_and_lowers_coverage() -> None:
@@ -276,7 +315,7 @@ def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
         "requirement": "Correct",
     }
     invalid = {
-        "schema": agg.VERDICT_SCHEMA,
+        "schema": VERDICT_SCHEMA,
         "case_id": 1,
         "criterion_id": "c1",
         "sequence": 1,

@@ -28,6 +28,7 @@ import pytest
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import (
+    CaseGrade,
     CaseResult,
     Failure,
     encode_candidate_invocation,
@@ -481,6 +482,202 @@ def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
     )
 
     assert seen == [None]
+
+
+# ── the board-owned failure hooks (OME-1100): draco's shapes as seams ───────
+
+
+def test_a_missing_row_hook_may_omit_the_case_for_the_finalizer() -> None:
+    # OME-1100: draco reports a missing row via the finalizer's `case_result_missing`
+    # (its zip simply dropped the Case) — the hook returns None and the spine files
+    # nothing, so the finalizer materialises the missing Case itself.
+    hook = _Hook()
+    result = _path(hook, missing_row_result=lambda selected, index, orphans: None).aggregate(
+        json.dumps([_envelope(1, _grading(1))]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1, 2),
+        grading_material=lambda case_id: (5,),
+        scorer=exam_scorer(_mean),
+    )
+
+    case = result["cases"][1]
+    assert case["failures"][0]["code"] == "case_result_missing"
+    assert case["grade"] is None
+    assert result["coverage"] == 0.5
+
+
+def _board_error_row(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
+    """The draco shape: the upstream error's own code, no grade envelope at all."""
+
+    error: Any = row["error"]
+    return CaseResult(
+        status="failed",
+        case_id=selected.case_id,
+        input=selected.input,
+        output=None,
+        finish_reason=None,
+        refusal=None,
+        grade=None,
+        failures=[
+            Failure(
+                stage="candidate",
+                code=str(error["code"]),
+                message=str(error["message"]),
+                retryable=True,
+                case_id=selected.case_id,
+                metadata={"row_index": index, "error_kind": str(error["kind"])},
+            )
+        ],
+        metadata={},
+    )
+
+
+def test_a_board_owned_error_row_hook_replaces_the_case_error_result() -> None:
+    # draco's e2e tapes pin the UPSTREAM code ("rate_limited") on an error row,
+    # not the spine's fixed `case_error` — the board supplies the whole result.
+    hook = _Hook()
+    row = {
+        "case_id": 1,
+        "error": {"kind": "GatewayError", "code": "rate_limited", "message": "provider limit"},
+    }
+    result = _aggregate(_path(hook, error_row_result=_board_error_row), [row], _selected(1))
+
+    assert hook.requests == []
+    case = result["cases"][0]
+    assert case["grade"] is None
+    assert case["failures"][0]["code"] == "rate_limited"
+    assert case["failures"][0]["metadata"] == {"row_index": 0, "error_kind": "GatewayError"}
+
+
+def test_a_board_owned_error_row_outranks_missing_material() -> None:
+    # draco's ladder order: a broken row is reported before the board's own missing
+    # asset — a board that owns its error rows owns their rank too.
+    hook = _Hook()
+    row = {"case_id": 1, "error": {"kind": "E", "code": "provider_error", "message": "x"}}
+    result = _aggregate(
+        _path(hook, error_row_result=_board_error_row), [row], _selected(1), material=None
+    )
+
+    assert result["cases"][0]["failures"][0]["code"] == "provider_error"
+
+
+def test_a_board_owned_missing_material_hook_replaces_the_default_result() -> None:
+    # draco's missing-rubric Case pins its own code ("missing_case_rubric"), a
+    # row_index, and NO grade envelope — with the Candidate's answer retained
+    # off the row the board hook receives.
+    def board_missing_material(
+        selected: SelectedCase, index: int, row: Mapping[str, Any] | None
+    ) -> CaseResult:
+        assert row is not None
+        return CaseResult(
+            status="failed",
+            case_id=selected.case_id,
+            input=selected.input,
+            output=str(row["case"]["output"]),
+            finish_reason="stop",
+            refusal=None,
+            grade=None,
+            failures=[
+                Failure(
+                    stage="grading",
+                    code="missing_case_rubric",
+                    message="the selected Case has no installed rubric",
+                    retryable=None,
+                    case_id=selected.case_id,
+                    metadata={"row_index": index},
+                )
+            ],
+            metadata={},
+        )
+
+    hook = _Hook()
+    result = _aggregate(
+        _path(hook, missing_material_result=board_missing_material),
+        [_envelope(1, _grading(1))],
+        _selected(1),
+        material=None,
+    )
+
+    assert hook.requests == []
+    case = result["cases"][0]
+    assert case["grade"] is None
+    assert case["output"] == "output-1"
+    failure = case["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("grading", "missing_case_rubric")
+    assert failure["metadata"] == {"row_index": 0}
+
+
+def test_a_board_owned_hook_failure_result_replaces_the_failed_assembly() -> None:
+    # draco's incomplete Case keeps its FULL zeroed metric block and its checks in
+    # the grade (audit material) plus a row_index — shapes the default assembly
+    # (empty metrics, judged/expected metadata) must not touch.
+    outcome_metrics: dict[str, Any] = {"pass_rate": 0.0, "axis_scores": {}, "n_runs": 0}
+    hook = _Hook(
+        CaseGradeOutcome(
+            score=None,
+            metrics=outcome_metrics,
+            checks=[],
+            failure_code="no_valid_judge_verdict",
+        )
+    )
+
+    def board_hook_failure(
+        selected: SelectedCase, index: int, row: Mapping[str, Any], outcome: CaseGradeOutcome
+    ) -> CaseResult:
+        assert outcome.failure_code == "no_valid_judge_verdict"
+        return CaseResult(
+            status="failed",
+            case_id=selected.case_id,
+            input=selected.input,
+            output="output-1",
+            finish_reason="stop",
+            refusal=None,
+            grade=CaseGrade.model_validate(
+                {
+                    "method": "rubric",
+                    "score": None,
+                    "metrics": dict(outcome.metrics),
+                    "checks": list(outcome.checks),
+                }
+            ),
+            failures=[
+                Failure(
+                    stage="grading",
+                    code=str(outcome.failure_code),
+                    message="board wording",
+                    retryable=None,
+                    case_id=selected.case_id,
+                    metadata={"row_index": index},
+                )
+            ],
+            metadata={},
+        )
+
+    result = _aggregate(
+        _path(hook, hook_failure_result=board_hook_failure),
+        [_envelope(1, _grading(1))],
+        _selected(1),
+    )
+
+    case = result["cases"][0]
+    assert case["grade"]["metrics"] == outcome_metrics
+    assert case["failures"][0]["metadata"] == {"row_index": 0}
+
+
+def test_a_scored_outcome_never_reaches_the_hook_failure_result() -> None:
+    hook = _Hook()  # scores 0.5, failure_code None
+
+    def never(
+        selected: SelectedCase, index: int, row: Mapping[str, Any], outcome: CaseGradeOutcome
+    ) -> CaseResult:
+        raise AssertionError("a scored outcome must take the scored path")
+
+    result = _aggregate(
+        _path(hook, hook_failure_result=never), [_envelope(1, _grading(1))], _selected(1)
+    )
+
+    assert result["cases"][0]["status"] == "scored"
 
 
 # ── the shared rubric hook factory: both boards' marking, written once ──────
