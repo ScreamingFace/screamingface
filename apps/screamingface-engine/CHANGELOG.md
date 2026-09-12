@@ -1,5 +1,81 @@
 # Changelog
 
+## [1.6.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v1.5.0...screamingface-engine-v1.6.0) (2026-09-12)
+
+
+### Features
+
+* **engine:** add the durable run queue (OME-1088) ([#816](https://github.com/ScreamingFace/screamingface/issues/816)) ([4c16c49](https://github.com/ScreamingFace/screamingface/commit/4c16c4926fb7c32d1a098ee3d3641d83909d7d1c))
+* **engine:** add the runner worker (OME-1089) ([#818](https://github.com/ScreamingFace/screamingface/issues/818)) ([b68fdfb](https://github.com/ScreamingFace/screamingface/commit/b68fdfb01d23702b6ac1f34c8f8bf91186b96904))
+* **engine:** admit runs on queue depth and fair-schedule them per caller ([#821](https://github.com/ScreamingFace/screamingface/issues/821)) ([5263388](https://github.com/ScreamingFace/screamingface/commit/526338880a7eee573685134ba123c34d788b82e2))
+* **engine:** cut the chart over to the worker pool and retire the Job adapter ([#822](https://github.com/ScreamingFace/screamingface/issues/822)) ([4cdfa92](https://github.com/ScreamingFace/screamingface/commit/4cdfa920db7ae40280b2f8b9cc7c0b27fbd9ab7e))
+* **engine:** derive run status from the event stream and make cancellation queue-aware ([#819](https://github.com/ScreamingFace/screamingface/issues/819)) ([2804531](https://github.com/ScreamingFace/screamingface/commit/2804531dd5d5cbae56347a99cd0ee5079221f02c))
+* **engine:** export a run's span frames to OTLP ([#905](https://github.com/ScreamingFace/screamingface/issues/905)) ([59c22b0](https://github.com/ScreamingFace/screamingface/commit/59c22b0abcfc629a13ecad9983dd33c89eb088a6))
+* **engine:** fair-share concurrent run admission (OME-908) ([#750](https://github.com/ScreamingFace/screamingface/issues/750)) ([345dd46](https://github.com/ScreamingFace/screamingface/commit/345dd467c229d90cd43353fb854e5862096a6886))
+* **engine:** log run identity and terminal evidence on the control plane ([#901](https://github.com/ScreamingFace/screamingface/issues/901)) ([a136e0f](https://github.com/ScreamingFace/screamingface/commit/a136e0ffd153dcb8275d409b9ccbb2b60f14eaf2))
+* **engine:** refuse a run when the namespace quota has no headroom (OME-1065) ([#808](https://github.com/ScreamingFace/screamingface/issues/808)) ([ed1c67b](https://github.com/ScreamingFace/screamingface/commit/ed1c67b7a66e95454571dc3c441c04fddef0e4c6))
+* **engine:** ship the OTLP endpoint and credential through the chart ([#908](https://github.com/ScreamingFace/screamingface/issues/908)) ([b052aca](https://github.com/ScreamingFace/screamingface/commit/b052aca696b9896f9d1fd7896218fcad61593464))
+* **screamingface-engine:** back the in-flight heartbeat off instead of spamming ([4812470](https://github.com/ScreamingFace/screamingface/commit/4812470d41f1061b6b61a076849a3e9131495146))
+* **screamingface-engine:** declare failure policy + interaction per benchmark; extract shared failure ladder ([0867af8](https://github.com/ScreamingFace/screamingface/commit/0867af888c173c81f972f0255d1addd5990889cf))
+* **screamingface-engine:** declare failure policy + interaction per benchmark; extract shared failure ladder ([0ba4d39](https://github.com/ScreamingFace/screamingface/commit/0ba4d39ee8f1cd370b640296a2070475a96e63ec))
+* **screamingface-engine:** log each model call's completion, failure, and stalls ([da36c20](https://github.com/ScreamingFace/screamingface/commit/da36c20a00eee65dc16c982f26a6f2def09286ca))
+* **screamingface-engine:** make the runner pool's max_ack_pending an explicit per-caller allowance ([#855](https://github.com/ScreamingFace/screamingface/issues/855)) ([eaa8d96](https://github.com/ScreamingFace/screamingface/commit/eaa8d96cb98a3299e9f4b59a3ad8f4fb69bdc4a1))
+* **screamingface-engine:** onboard MedXpertQA as an exact-match MCQ benchmark ([0829106](https://github.com/ScreamingFace/screamingface/commit/0829106b1e91a80f76b23275ce865b52a72cd1e7))
+* **screamingface-engine:** propagate the run's traceparent to aigateway (OME-1119) ([#849](https://github.com/ScreamingFace/screamingface/issues/849)) ([1220e2e](https://github.com/ScreamingFace/screamingface/commit/1220e2e64a24dd3439829fb773b39a093702fde4))
+* **screamingface-engine:** retain operation accounting ([#762](https://github.com/ScreamingFace/screamingface/issues/762)) ([dd51ea8](https://github.com/ScreamingFace/screamingface/commit/dd51ea815374b92ce8b907d162476a690ec72d4a))
+* **screamingface-engine:** runner traceability and logging layer ([#797](https://github.com/ScreamingFace/screamingface/issues/797)) ([1d665d1](https://github.com/ScreamingFace/screamingface/commit/1d665d171cbef779ab0a2d8940b604f633005180))
+* **screamingface-engine:** serve MedXpertQA as an exact-match MCQ board ([ed9f035](https://github.com/ScreamingFace/screamingface/commit/ed9f03513ef0ef4eecf03587a9162c6a7ba6932b))
+* **screamingface-engine:** stamp the official MedXpertQA slice tags on every report case ([2f4885a](https://github.com/ScreamingFace/screamingface/commit/2f4885a32c2fd8c88f8e0363ed533cab4ae86d12))
+
+
+### Bug Fixes
+
+* **docs:** onboarding audit fixes — benchmark ids, routing, READMEs, 404 page ([#787](https://github.com/ScreamingFace/screamingface/issues/787)) ([039167c](https://github.com/ScreamingFace/screamingface/commit/039167ccf1d61db2320c56976b4211e3d55cd750))
+* **engine:** classify empty model responses as retryable ([#872](https://github.com/ScreamingFace/screamingface/issues/872)) ([e42904e](https://github.com/ScreamingFace/screamingface/commit/e42904ebfdcc2e8183f5b0dd609b812051189d79))
+* **engine:** forward structured Logs with safe buffer admission ([#884](https://github.com/ScreamingFace/screamingface/issues/884)) ([b47853e](https://github.com/ScreamingFace/screamingface/commit/b47853ea5dc1938360362fd46edf28b7d951fde1))
+* **repo:** complete the org repoint sweep ([32a3868](https://github.com/ScreamingFace/screamingface/commit/32a3868a06a52716efaabe7b51c47aed9d704e4f))
+* **scoreboard:** close partial-run leaderboard follow-ups ([#820](https://github.com/ScreamingFace/screamingface/issues/820)) ([2b47ae3](https://github.com/ScreamingFace/screamingface/commit/2b47ae3cdbd9a6cccfac4e584e0c1c838f68028a))
+* **screamingface-engine:** adopt the OME-1037 refusal split in the MedXpertQA reducer ([69d67a5](https://github.com/ScreamingFace/screamingface/commit/69d67a5e2a6dc78547a2f5ea53cc61ebd4770661))
+* **screamingface-engine:** carry the MedXpertQA turn-one reasoning into the report ([e8e66f1](https://github.com/ScreamingFace/screamingface/commit/e8e66f17e4c4aa0819013c44c20b89bdd16f440a))
+* **screamingface-engine:** deliver real inputs to both MedXpertQA turns ([4f8a4f5](https://github.com/ScreamingFace/screamingface/commit/4f8a4f5eda9c5069b0d9a2118d48179be151929c))
+* **screamingface-engine:** grade MedXpertQA Cases end to end ([8573e66](https://github.com/ScreamingFace/screamingface/commit/8573e66468d564534efa4184cb33ce249e85bcbe))
+* **screamingface-engine:** name the model, not the gateway, for a reasoning-only reply ([7c22441](https://github.com/ScreamingFace/screamingface/commit/7c22441a31fe2da45ddcd8a497241e90a5a8d15a))
+* **screamingface-engine:** read the k8s client's default_request attribute ([#813](https://github.com/ScreamingFace/screamingface/issues/813)) ([1cd3b89](https://github.com/ScreamingFace/screamingface/commit/1cd3b8918de0577ba5a2d261e6973975762e590a))
+* **screamingface-engine:** skip the Linux-only memory-cap test off-Linux ([0dc1b84](https://github.com/ScreamingFace/screamingface/commit/0dc1b8454a50b232fdc83da3e8da7d76821315a3))
+* **screamingface-engine:** skip the Linux-only memory-cap test off-Linux ([226e52a](https://github.com/ScreamingFace/screamingface/commit/226e52aab12727988197a4f1744af74de0984261))
+* **screamingface-engine:** survive a cold gateway when fetching model parameters ([dcfb59a](https://github.com/ScreamingFace/screamingface/commit/dcfb59ab0d1ba51c091f0ef136e187e3bf9dae55))
+* **screamingface-engine:** survive a cold gateway when fetching model parameters ([64fad82](https://github.com/ScreamingFace/screamingface/commit/64fad82b6c3e55ca25965ac62464dd6a3ccf7552))
+* **screamingface-engine:** withdraw the MedXpertQA check surface until a handler serves it ([26e65d4](https://github.com/ScreamingFace/screamingface/commit/26e65d4c66e3e27439b0a6d6122876ff6b46c563))
+* **url4:** correct the JobRunner capacity contract ([#815](https://github.com/ScreamingFace/screamingface/issues/815)) ([ead1c84](https://github.com/ScreamingFace/screamingface/commit/ead1c849397930b9345504435411d5366ca07e93))
+
+
+### Refactors
+
+* **screamingface-engine:** annotate the spine's non-trivial locals ([ef3ae8b](https://github.com/ScreamingFace/screamingface/commit/ef3ae8b81fe4f00cdb10a817296f298fe940a793))
+* **screamingface-engine:** fold ifeval onto the shared scored spine ([9f3d46a](https://github.com/ScreamingFace/screamingface/commit/9f3d46a2c1ac979938becff00db74304368e971e))
+* **screamingface-engine:** fold ifeval onto the shared scored spine ([cdeec4f](https://github.com/ScreamingFace/screamingface/commit/cdeec4f23da7cb2e055b922bc4785500fc560eea))
+* **screamingface-engine:** fold the draco boards onto the shared scored spine ([c1c9256](https://github.com/ScreamingFace/screamingface/commit/c1c9256283bd262294e67cf5f5ae45fbab8bbac5))
+* **screamingface-engine:** fold the draco boards onto the shared scored spine ([cd3527b](https://github.com/ScreamingFace/screamingface/commit/cd3527bc47091708b5ae18d4354569661ddc935c))
+* **screamingface-engine:** merge the drifted judge-verdict parsers into one typed shared parser ([138bf5a](https://github.com/ScreamingFace/screamingface/commit/138bf5abe3f570ed1711363dc2ba04ad153a880f))
+* **screamingface-engine:** merge the drifted judge-verdict parsers into one typed spine parser ([d0282dd](https://github.com/ScreamingFace/screamingface/commit/d0282dd527c04df50e9e0597a084fa9f447f95c2))
+* **screamingface-engine:** read benchmark rows through one shared spine reader ([5057f98](https://github.com/ScreamingFace/screamingface/commit/5057f980d6a042019f705abdc4d7f1e7f277a047))
+* **screamingface-engine:** read benchmark rows through one shared spine reader ([0b83739](https://github.com/ScreamingFace/screamingface/commit/0b837391df9d29f9a0289add81c139f485cfcded))
+* **screamingface-engine:** rename CaseLadder to CaseGrader; snake_case coverage_declare ([9caa692](https://github.com/ScreamingFace/screamingface/commit/9caa69283a7fae8a4a18985b027d4f169cf68f4d))
+* **screamingface-engine:** share the rubric scored path behind a grade_case hook ([ce31f07](https://github.com/ScreamingFace/screamingface/commit/ce31f071cfb463a9cc77fb26ee9be7769ef522ce))
+* **screamingface-engine:** share the rubric scored path behind a grade_case hook ([eac8acd](https://github.com/ScreamingFace/screamingface/commit/eac8acde32892dbf98c1bffb648238134eda5cdf))
+* **screamingface-engine:** split provider refusal from graded refusal in case status ([a9b5da2](https://github.com/ScreamingFace/screamingface/commit/a9b5da2d059bf1a36b6f0268cec3d09f0d8f2543))
+* **screamingface-engine:** split provider refusal from graded refusal in case status ([fe1a8cf](https://github.com/ScreamingFace/screamingface/commit/fe1a8cff48cc5287cb9883753ebf3d648c017f06))
+* **screamingface-engine:** type the candidate row fields and teach the spine docstrings ([70fd787](https://github.com/ScreamingFace/screamingface/commit/70fd787e7fe679dd8631bfe2c12f60bbd6523f3d))
+* **screamingface-engine:** type the grading spine's locals and land the candidate-fields dataclass ([2dfb1fd](https://github.com/ScreamingFace/screamingface/commit/2dfb1fd0ee6cb2c4d5fd4144798578de9b129d4b))
+
+
+### Documentation
+
+* **repo:** repoint the remaining OpenMined org references to ScreamingFace ([9e739a0](https://github.com/ScreamingFace/screamingface/commit/9e739a051cf6abf1778b39b57198f2ad75701205))
+* **screamingface-engine:** explain each failure policy at its definition site ([46b7cea](https://github.com/ScreamingFace/screamingface/commit/46b7cea849cfa9d314d375dcd81087c5b9deac85))
+* **screamingface-engine:** name which fan-out the row reader reads ([7092a5c](https://github.com/ScreamingFace/screamingface/commit/7092a5cfac647892ac3c6208e7ca428c21246272))
+* **screamingface-engine:** plain words for the grading checks ([332ce20](https://github.com/ScreamingFace/screamingface/commit/332ce201a343a7115ec73902852c3d77ca6cc41b))
+
 ## [1.5.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v1.4.0...screamingface-engine-v1.5.0) (2026-08-27)
 
 
