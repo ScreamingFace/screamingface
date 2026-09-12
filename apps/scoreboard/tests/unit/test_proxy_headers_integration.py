@@ -46,6 +46,7 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
         "total_questions": 4,
         "correct_questions": 3,
         "ran_with_providers": ["openai"],
+        "run_cost_usd": "1.250000",
     }
     payload.update(overrides)
     return payload
