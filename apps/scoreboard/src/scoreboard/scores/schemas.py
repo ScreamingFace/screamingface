@@ -228,6 +228,26 @@ SubmittedBy = Annotated[
 _AUTHORS_MAX_BYTES = 4096
 _AUTHORS_MAX_DISTINCT = 10
 
+# FEATURE: OME-1181 — the declared candidate model routes.
+#
+# WHY a count cap AND a byte cap: 32 routes of 255 characters is still 8 KiB of
+# client-controlled text arriving on a public write path. Same reasoning and the
+# same envelope as `authors` above and `metadata`.
+#
+# WHY 32: the live maximum on any board is 4 (a three-member fusion plus its
+# synthesizer). A recipe naming 32 distinct models is already implausible, so the
+# cap bounds the payload without constraining any real submission.
+_MODELS_MAX_ROUTES = 32
+_MODELS_MAX_BYTES = 4096
+
+# INVARIANT: this mirrors the Client's own route grammar (`_MODEL_ROUTE_RE` in
+# `packages/screamingface/.../_evaluation/candidate.py:429`), anchored. The two ends must agree
+# on what a route is, or the Client compiles an expression the board then rejects at submit —
+# a failure that would only appear in the field, after a release.
+_MODEL_ROUTE_PATTERN = r"^[A-Za-z0-9\-_.~]+(?:/[A-Za-z0-9\-_.~]+)*$"
+
+ModelRoute = Annotated[str, Field(max_length=255, pattern=_MODEL_ROUTE_PATTERN)]
+
 
 def _author_identity(author: str) -> str:
     """The one comparison identity for author validation and publication."""
@@ -341,6 +361,22 @@ class ScoreSubmission(BaseModel):
     # None means the client did not specify a credit line; reads then derive [submitted_by].
     # An explicit list is exact — the submitter is not auto-added (OME-1051 D1).
     authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    # FEATURE: OME-1181 — the candidate's DECLARED model routes, as composed in the recipe.
+    #
+    # WHY optional: this field deploys BEFORE the Client that populates it (OME-1179
+    # constraint 1). `extra="forbid"` above means the rollout is one-directional — a Client
+    # sending an unknown field to an older board gets a 422 — so the board must tolerate its
+    # absence or the deploy order reverses and every in-field submission breaks.
+    #
+    # INVARIANT: `None` and `[]` are different. None is "the client did not send them"; an
+    # empty list would claim the run used no models at all, which no real submission can mean
+    # (`CandidateResult.models` is required and non-empty at the Client) and which would store
+    # an unclassifiable row that looks populated.
+    #
+    # AIDEV-NOTE: deliberately absent from `_content_hash`. These routes are a richer
+    # projection of what `url4_expression` already carries, and that IS hashed — see the
+    # invariant on `_content_hash` in store.py before changing this.
+    models: Annotated[list[ModelRoute], Field(min_length=1)] | None = None
     # the exact primary score the Engine Benchmark produced — any
     # finite number, higher is better
     score: Annotated[float, Field(strict=True, allow_inf_nan=False)]
@@ -392,6 +428,20 @@ class ScoreSubmission(BaseModel):
         encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
         if len(encoded) > _AUTHORS_MAX_BYTES:
             raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
+        return value
+
+    @field_validator("models")
+    @classmethod
+    def validate_bounded_models(cls, value: list[str] | None) -> list[str] | None:
+        # INVARIANT: both caps are needed. The route count alone still admits 32 maximum-length
+        # routes, and the byte cap alone still admits thousands of short ones.
+        if value is None:
+            return value
+        if len(value) > _MODELS_MAX_ROUTES:
+            raise ValueError(f"models must name at most {_MODELS_MAX_ROUTES} routes")
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+        if len(encoded) > _MODELS_MAX_BYTES:
+            raise ValueError(f"models must serialize to at most {_MODELS_MAX_BYTES} bytes")
         return value
 
     @field_validator("run_cost_usd")
@@ -488,6 +538,20 @@ class ScoreSchema(BaseModel):
     url4_expression: str
     submitted_by: SubmittedBy
     authors: Authors = None
+    # FEATURE: OME-1181 — the declared candidate model routes, for classification.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, like `ranking_notice` below and for the same reason.
+    # This schema is NOT internal — it is the response model for `POST /scores` and
+    # `GET /scores/{id}`, and it also feeds the private JSONL export, whose exact bytes
+    # `purge_private_benchmark.export_sha256` hashes to authorize a destructive purge against
+    # an operator-supplied digest. Emitting `"models": null` would change every export saved
+    # before this field existed, with no underlying row having changed, so a previously
+    # certified export could no longer authorize its own purge (review of PR #922).
+    #
+    # `models` stays off `LeaderboardEntry`, the ranked-board payload (OME-1179 Q2). That
+    # decision recorded this schema as internal, which was wrong; the exclusion below is what
+    # actually keeps the absent case off the wire.
+    models: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
     submitted_at: datetime
     score: float
     total_questions: int

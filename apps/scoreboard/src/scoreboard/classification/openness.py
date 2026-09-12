@@ -42,6 +42,72 @@ _OPEN_PROVIDER_MARKERS: tuple[str, ...] = (
 _CLOSED_BASELINE_MARKERS: tuple[str, ...] = ("gpt-", "claude-", "gemini-")
 _OPEN_BASELINE_MARKERS: tuple[str, ...] = ("llama", "mistral", "qwen", "deepseek")
 
+# FEATURE: OME-1181 — per-model classification, for `classify_model` only. The lists above
+# describe PROVIDERS and keep serving `classify_providers` unchanged.
+ModelOpenness = Literal["open", "closed", "unknown"]
+
+# INVARIANT: model routes are CLIENT-SUBMITTED, so this is an adversarial surface and the rules
+# below are STRUCTURAL, never substring. An earlier version matched any open marker anywhere in
+# the route, which let a submitter name a proprietary model `not-gemma-proprietary` and be
+# published as open — the fail-closed contract inverted by choosing a string (review of PR #922).
+#
+# A route is `owner/model`. The OWNER segment decides, matched exactly.
+_OPEN_OWNERS: frozenset[str] = frozenset(
+    {
+        "meta-llama",
+        "mistralai",
+        "qwen",
+        "deepseek",
+        "moonshotai",
+        "huggingface",
+        # A locally-run model is the definition of downloadable-and-runnable under Q1.
+        "ollama",
+    }
+)
+# INVARIANT: every `custom_llm_provider` the Gateway registers belongs in one of these two sets,
+# or an ordinary supported provider reports as a registry gap. `unknown` and `closed` both close
+# an entry under OME-1179 D1, so a miss here changes no percentage — it corrupts D4's staleness
+# count, which is only meaningful if it means "models the registry has not been taught about".
+#
+# Verified against `apps/aigateway/src/aigateway/plugins/*_provider/plugin.py`: the registered
+# ids are openai, anthropic, gemini-cli, codex, antigravity, huggingface, ollama, openrouter.
+# `gemini-cli`, `codex` and `antigravity` were missing (review of PR #922).
+#
+# AIDEV-NOTE: an owner segment is a Gateway provider id on a direct route, and a model owner on
+# an OpenRouter-carried one (`openrouter/google/...`), so both kinds live here. Entries are only
+# added once observed in one of those two places — an earlier version carried `cohere` and `xai`,
+# neither registered by the Gateway nor OpenRouter's actual namespace, which is `x-ai`.
+_CLOSED_OWNERS: frozenset[str] = frozenset(
+    {
+        # Gateway provider ids
+        "openai",
+        "anthropic",
+        "gemini-cli",
+        "codex",
+        "antigravity",
+        # Model owners as they appear on OpenRouter routes
+        "google",
+        "gemini",
+    }
+)
+
+# The vendors that ship BOTH. A family exception is SCOPED TO ITS OWNER and matched as a prefix
+# of the model segment, so `google/gemma-*` is open while `openai/gemma-anything` is not —
+# Google ships Gemma's weights, OpenAI does not.
+#
+# INVARIANT (OME-1179 Q1): membership means "weights are downloadable and locally runnable", NOT
+# "permissively licensed". Gemma carries use restrictions and gpt-oss a usage policy; both are
+# still open under the chosen definition, because the board's claim is reproducibility.
+_OPEN_FAMILIES_BY_OWNER: dict[str, tuple[str, ...]] = {
+    "openai": ("gpt-oss",),
+    "google": ("gemma",),
+}
+
+# WHY: a routing prefix says who carried the request, not what ran. Every live draco-3pass
+# route is `openrouter/`-prefixed, so without stripping this the owner segment would always
+# read `openrouter` and no model could ever be classified at all.
+_ROUTING_PREFIXES: frozenset[str] = frozenset({"openrouter"})
+
 
 def _matches_any(name: str, markers: tuple[str, ...]) -> bool:
     lowered = name.lower()
@@ -75,6 +141,59 @@ def classify_providers(providers: Sequence[str]) -> Openness:
             _log_unrecognized("provider", provider)
             saw_closed = True
     return "closed" if saw_closed else "open"
+
+
+def _split_route(route: str) -> tuple[str, str] | None:
+    """`owner/model` for a route, after dropping any routing prefix. None if it has no owner.
+
+    A bare `claude-opus-4.8` carries no owner to reason about, and guessing from the string is
+    exactly the hole this parsing closes, so the caller fails closed on None.
+    """
+    segments = [segment for segment in route.lower().split("/") if segment]
+    if segments and segments[0] in _ROUTING_PREFIXES:
+        segments = segments[1:]
+    if len(segments) < 2:
+        return None
+    return segments[0], "/".join(segments[1:])
+
+
+def classify_model(route: str) -> ModelOpenness:
+    """Openness of ONE declared model route (OME-1181).
+
+    Distinct from `classify_providers`, which returns one verdict for a whole submission from
+    its provider prefixes. OME-1179 D1 keeps that any-closed-wins aggregation; this only
+    changes what gets fed to it.
+
+    INVARIANT: STRUCTURAL, never substring. Routes are client-submitted, so any rule that reads
+    the whole string lets a submitter buy a verdict by naming their model after an open family
+    — `openai/not-gemma-proprietary` classified open under the first version of this function
+    (review of PR #922). The owner segment decides, matched exactly; a family exception must
+    belong to that owner.
+
+    INVARIANT: `unknown` is a THIRD value, not a synonym for `closed`. Both close an entry
+    under D1, but D4 requires the count of unrecognised models to be reportable, which is
+    impossible once the two collapse into one verdict.
+    """
+    verdict = _owner_verdict(_split_route(route))
+    if verdict == "unknown":
+        _log_unrecognized("model route", route)
+    return verdict
+
+
+def _owner_verdict(parsed: tuple[str, str] | None) -> ModelOpenness:
+    """The rules themselves, so `classify_model` stays one decision and one log.
+
+    INVARIANT: the family exception is consulted FIRST and is scoped to its owner. Reversing
+    these two lines files `openai/gpt-oss-120b` as closed on its owner's name; widening the
+    family check beyond `_OPEN_FAMILIES_BY_OWNER[owner]` re-opens the crafted-name hole.
+    """
+    if parsed is None:
+        return "unknown"
+    owner, model = parsed
+    families = _OPEN_FAMILIES_BY_OWNER.get(owner, ())
+    if any(model.startswith(family) for family in families) or owner in _OPEN_OWNERS:
+        return "open"
+    return "closed" if owner in _CLOSED_OWNERS else "unknown"
 
 
 def classify_baseline_name(model_name: str) -> Openness:
