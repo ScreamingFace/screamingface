@@ -22,6 +22,7 @@ from typing import Any
 
 from screamingface_engine.benchmarks.gdpval.case_evaluation import decode_case_evaluation
 from screamingface_engine.benchmarks.gdpval.scoring import case_score
+from screamingface_engine.benchmarks.spine.exam import exam_scorer
 from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
 from screamingface_engine.benchmarks.spine.scored import ScoredPath
@@ -98,7 +99,7 @@ def aggregate(
             root, case_ids, benchmark_label="GDPval", error_type=AggregateError
         ),
         grading_material=lambda case_id: load_rubric_points(root, case_id),
-        mean=mean,
+        scorer=exam_scorer(mean),
     )
 
 

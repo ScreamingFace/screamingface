@@ -16,14 +16,14 @@ import pytest
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ifeval.aggregate import (
+from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
+from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
+from screamingface_engine.benchmarks.ifeval.grade import (
     SCHEMA,
     AggregateError,
     aggregate,
     load_case_order,
 )
-from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
-from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.benchmarks.ifeval.prepare import (
     KNOWN_DIVERGENT_KEYS,
     PrepareError,

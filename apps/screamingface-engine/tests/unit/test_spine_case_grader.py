@@ -25,6 +25,7 @@ from typing import Any
 from screamingface_engine.benchmarks.aggregation import SelectedCase
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+from screamingface_engine.benchmarks.spine.exam import exam_scorer
 from screamingface_engine.benchmarks.spine.rows import RowReader
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
@@ -122,7 +123,7 @@ def _case_result(
         benchmark_revision="rev",
         selected_cases=[CASE],
         grading_material=lambda case_id: points,
-        mean=lambda scores: sum(scores) / len(scores) if scores else None,
+        scorer=exam_scorer(lambda scores: sum(scores) / len(scores) if scores else None),
     )
     return result["cases"][0]
 

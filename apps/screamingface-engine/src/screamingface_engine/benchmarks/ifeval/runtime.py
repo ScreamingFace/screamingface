@@ -14,7 +14,7 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.ifeval import aggregate as scoring
+from screamingface_engine.benchmarks.ifeval import grade as scoring
 from screamingface_engine.benchmarks.ifeval import grading
 from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
 from screamingface_engine.benchmarks.ifeval.definition import (
