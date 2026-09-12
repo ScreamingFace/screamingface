@@ -1,9 +1,9 @@
 ---
 ticket: OME-1100
 stack: screamingface-engine
-status: planned
+status: done
 started: 2026-09-11
-finished:
+finished: 2026-09-12
 ---
 
 # OME-1100 — Fold the draco 5-pass and 3-pass boards onto the shared spine

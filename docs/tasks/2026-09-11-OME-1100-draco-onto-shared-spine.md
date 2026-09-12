@@ -1,12 +1,12 @@
 ---
 id: OME-1100
 linear_url: https://linear.app/openmined/issue/OME-1100/fold-the-draco-5-pass-and-3-pass-boards-onto-the-shared-spine
-status: in_progress
+status: done
 type: refactor
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-11
-closed:
+closed: 2026-09-12
 ---
 
 # Fold the draco 5-pass and 3-pass boards onto the shared spine
