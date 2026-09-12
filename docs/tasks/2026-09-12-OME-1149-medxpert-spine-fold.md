@@ -1,12 +1,12 @@
 ---
 id: OME-1149
 linear_url: https://linear.app/openmined/issue/OME-1149/adding-a-second-exact-match-benchmark-means-copying-medxpertqas
-status: in_progress
+status: done
 type: task
 priority: 4
 labels: [screamingface-engine, agentic, autonomous, task]
 created: 2026-09-12
-closed:
+closed: 2026-09-12
 ---
 
 # Adding a second exact-match benchmark means copying MedXpertQA's grading code

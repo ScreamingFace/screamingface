@@ -1,8 +1,9 @@
 ---
 ticket: OME-1149
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-12
+finished: 2026-09-12
 ---
 
 # OME-1149 — Fold MedXpertQA's grading orchestration onto the shared scored path
@@ -67,7 +68,12 @@ fold a fixed-answer benchmark writes one check function plus its exam formula.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, except gdpval/healthbench/ifeval `grade.py` were NOT
+  touched — `missing_material_code` defaults to `missing_rubric_asset`, so the rubric
+  boards and ifeval's unreachable rung keep their bytes with zero call-site churn.
+- **Commits:** `171f2938` (fold) + this docs flip, squash-merged via the feature PR.
+- **Gates:** `run_gates.py screamingface-engine` ALL GREEN (append-only included —
+  spine tests were pure additions; ruff, pyright, layering, 2716 unit tests, cov ≥80%).
+  e2e: 4 recorded golden replays green (ifeval, gdpval-text, healthbench-worst30,
+  draco-3pass). The medxpert suite (77 tests) passed byte-for-byte untouched.
+- **Deviations:** none.
