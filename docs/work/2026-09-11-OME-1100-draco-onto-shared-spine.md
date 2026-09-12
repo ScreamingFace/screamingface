@@ -67,7 +67,9 @@ whole-result hooks. All under `apps/screamingface-engine/` unless noted:
   `case_result_missing` (draco's shape) instead of `missing_case_row`.
 - Result metadata: spine merges roll-call `selected.metadata` with the row
   record's metadata — identical to draco's record-only metadata in every
-  reachable case (both carry the cases.json extras).
+  reachable case EXCEPT the error row (see Deviations (4): pre-fold published
+  `{}` there; the fold made error rows carry the cases.json extras like every
+  other Case shape — owner-approved, pinned by a new unit test).
 - Abort wording: spine's "Case result at position N is invalid: …" satisfies
   every pinned regex ("position N", "claims case_id X, but the selected Case
   is Y", "invalid DRACO Judge Evidence", "Case execution has an invalid shape").
@@ -110,4 +112,12 @@ whole-result hooks. All under `apps/screamingface-engine/` unless noted:
   to add as a flags dataclass — adopted its board-owned-hook grammar instead;
   (2) `draco_scorer` lives in `grade.py`, not `scoring.py`, honoring
   scoring.py's pinned isolation-from-aggregation invariant; (3) diff ~1.4k
-  lines total — over the ticket's ~800 guidance; owner chose one PR anyway.
+  lines total — over the ticket's ~800 guidance; owner chose one PR anyway;
+  (4) review finding (differential old-vs-new run): an error row's Case now
+  publishes the selected Case's metadata (e.g. `domain`) where pre-fold
+  published `{}` — unpinned by any golden or failure tape (the tapes assert
+  stage/code/message only; the golden has zero failed cases). Owner chose to
+  KEEP the new behavior (error rows were the only Case shape dropping the
+  cases.json extras) rather than restore `{}`: declared in `grade.py`'s
+  INVARIANT docstring and pinned by
+  `test_draco_failure_integrity.py::test_an_error_row_case_carries_the_selected_cases_own_metadata`.

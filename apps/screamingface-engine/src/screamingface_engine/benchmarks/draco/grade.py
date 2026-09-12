@@ -22,7 +22,11 @@ The stages, in execution order (one aggregate call = marking one board's exam):
              the passes, or the incomplete grade when nothing was scoreable
     Stage 5  the scorer (this module)  → the official cross-Case reduction
 
-INVARIANT: failure output is byte-identical to the pre-fold ``draco/aggregate.py``.
+INVARIANT: failure output is byte-identical to the pre-fold ``draco/aggregate.py``,
+with ONE owner-approved delta: an error row's Case now carries the selected Case's
+own metadata (the cases.json extras, e.g. ``domain``) where pre-fold published
+``{}`` — error rows were the only Case shape dropping it (pinned in
+``test_draco_failure_integrity.py::test_an_error_row_case_carries_the_selected_cases_own_metadata``).
 The seven e2e failure tapes pin an error row's UPSTREAM code ("rate_limited",
 "provider_error") on a candidate-stage, grade-less failure; a missing row lands as
 the finalizer's ``case_result_missing``; a missing rubric is ``missing_case_rubric``
