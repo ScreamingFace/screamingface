@@ -29,6 +29,7 @@ from nats.errors import NoRespondersError
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
+from screamingface_engine.client_provenance import CLIENT_VERSION_ENV
 from screamingface_engine.logs import run_scope
 from screamingface_engine.runner_queue import (
     UNDECODABLE_BODY_ERRORS,
@@ -739,6 +740,8 @@ class RunSupervisor:
         fan out (the fair-share gate cannot span processes, so the budget travels by env).
         """
         env = dict(os.environ)
+        # INVARIANT: only this queue message may declare its Client version.
+        env.pop(CLIENT_VERSION_ENV, None)
         env.update(decode_message(msg.data))
         env[job_env.IO_CONCURRENCY] = str(self._io_budget())
         return env

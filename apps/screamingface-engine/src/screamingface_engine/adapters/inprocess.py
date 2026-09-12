@@ -18,6 +18,7 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import partial
 
 from screamingface_engine import job_env
+from screamingface_engine.client_provenance import ProvenanceExecutor
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.run_evidence import (
     TerminalWatch,
@@ -223,6 +224,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
+        client_version: str | None = None,
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -250,7 +252,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         task = asyncio.get_running_loop().create_task(
             lifecycle_run(
                 watch,
-                executor,
+                ProvenanceExecutor(executor, client_version),
                 topic,
                 url4,
                 traceparent=run_traceparent,
