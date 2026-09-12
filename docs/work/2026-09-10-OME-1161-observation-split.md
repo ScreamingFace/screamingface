@@ -31,3 +31,14 @@ Verified: docs-only diff, relative links, one file per folder and 177 changed li
 After docs merge, extract each code unit from updated main and repeat gates/review. Existing
 pre-PR tests remain intact; deferred tests stay with their preserved implementation.
 OME-1161 remains open. Append subsequent delivery outcomes to this same ledger.
+
+
+## Code unit 1 — observation ports (2026-09-10)
+
+Extracted ports/tests from f9aa283f after docs merge af58b5c1, on a fresh main worktree.
+Interface docstrings explain lifecycle obligations; no execution hooks or activity ship.
+RED reproduced the absent module, then wrong-run fault attribution and lost bind errors.
+Owner-approved revision uses explicit fault ownership, faithful step-exception teardown
+and one guard for synchronous/awaited callbacks. Nested execution isolation is unchanged.
+All 22 focused tests and full Engine gates pass; both reviews found no remaining issues.
+Full PR: 496 changed lines, including shared artifacts. The overall feature remains open.
