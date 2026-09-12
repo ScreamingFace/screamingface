@@ -53,6 +53,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "09_corrective_loops.ipynb": _corrective_loops(),
         "10_gdpval.ipynb": _gdpval_e2e(),
         "11_medxpert.ipynb": _medxpert_e2e(),
+        "12_contracteval.ipynb": _contracteval_e2e(),
     }
 
 
@@ -1275,6 +1276,131 @@ A `limit=N` run is a smoke test, not a ranking. On the full set, temperature-0 s
 make the leaderboard stable — small subsamples reshuffle it — so a difference of a point or two
 between two systems on a handful of cases is noise, not a result. Run the whole set before
 quoting a comparison."""),
+    )
+
+
+def _contracteval_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# ContractEval — find the clause, scored by pure string matching
+
+[ContractEval](https://arxiv.org/abs/2508.03080) gives a model a full commercial contract and one
+of 41 clause categories, and asks it to quote the answering sentences **verbatim** — or to reply
+`"No related clause."` if the contract has none. 4,182 questions over 102 real contracts, from
+the [CUAD](https://huggingface.co/datasets/theatticusproject/cuad-qa) test split.
+
+Grading is string containment: every gold sentence must appear in the reply, with **no partial
+credit**. No judge, no grading tokens — like MedXpertQA, what you pay for is answer generation.
+
+**Two things to know before reading a score.**
+
+- **70.3% of rows have no clause.** A model that always says "No related clause." is right on
+  every one of them and scores ~70% *accuracy* while answering nothing. That is why the headline
+  score here is **F1**, not accuracy — F1 scores that model 0.
+- **The score is not a mean of case scores.** F1 comes from a confusion matrix built across the
+  whole run, so a 5-case rehearsal produces a number that is real but extremely coarse."""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+From a terminal:
+
+```bash
+screamingface prepare contracteval  # first run only: download pinned Benchmark assets
+screamingface up                    # Gateway :9105, Scoreboard :9106, Engine :9108
+screamingface status
+```
+
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
+Stack management stays outside the notebook so **Run All** never starts or stops local
+services."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Run a few cases with one model
+
+Contracts are long — the median case is about 5,400 input tokens and the largest is ~63,000 — so
+`limit` matters more here than on most boards. The answer itself is short: a few quoted
+sentences, or the refusal string."""),
+        nbformat.v4.new_code_cell("""\
+# No `temperature` here on purpose: several current reasoning models reject the parameter
+# outright — OpenRouter answers `openai/gpt-5.5` with a 404 for ANY temperature value, and
+# `anthropic/claude-opus-4.8` with a 400 — while `gemini-3.1-pro-preview` and
+# `qwen/qwen3.7-flash` accept it. The reference harness calls at temperature 0; omitting it
+# leaves each provider on its own default, which is the only setting that works across a
+# mixed panel. Add `"temperature": 0.0` back for a model you know accepts it.
+PARAMS = {"max_tokens": 4096}
+
+solo = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+report = sf.evaluate(solo, benchmark="contracteval", limit=5)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+### Reading the metrics
+
+`score` is F1. Beside it the board reports the whole confusion matrix, so you can see *which*
+mistake a model is making rather than only how often:
+
+- **`false_no_related_clause_rate`** — the paper calls this *laziness*: how often the model
+  claimed no clause exists when one did. This is the refusal lever, and it is the number that
+  separates a cautious model from a knowledgeable one.
+- **`recall`** vs **`precision`** — low recall means it misses real clauses; low precision means
+  it answers when it should have abstained.
+- **`jaccard_mean`** — token overlap on the rows that *do* have a clause, so a model that found
+  roughly the right passage but not exactly scores above one that was nowhere near."""),
+        nbformat.v4.new_code_cell("""\
+candidate = report.candidates.only
+print("score (F1):", candidate.score)
+for key, value in candidate.metrics.items():
+    print(f"  {key:32s} {value}")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Compare a Fusion against the same model
+
+The board takes no view on whether a fusion should win. Worth knowing what the mechanism has to
+work with: unlike an MCQ, the answer here is *text a member either quoted or did not*, so a
+synthesiser has something real to reconcile. It also has a way to lose — a synthesiser that
+paraphrases its members instead of copying their quotes scores zero on rows they got right."""),
+        nbformat.v4.new_code_cell("""\
+SYNTHESIS_PROMPT = (
+    "You are given several assistants' attempts to extract the clause sentences answering a "
+    "question about a contract. Choose the sentences best supported by the contract text. "
+    "Reproduce them EXACTLY as they appear — never paraphrase, reword, or summarise. If none "
+    'of the attempts identifies a genuinely relevant clause, reply "No related clause."'
+)
+
+member1 = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARAMS)
+synth = sf.Model(
+    model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
+)
+panel = sf.Fusion(name="contract_panel", members=[member1, member2], synthesizer=synth)
+
+fusion_report = sf.evaluate(panel, benchmark="contracteval", limit=5)
+fusion_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Read the per-case outcomes
+
+Each case is one bit: every gold sentence was quoted, or it was not. The check row records
+whether the model abstained and how many gold sentences the case had, so a wrong answer can be
+inspected rather than just counted."""),
+        nbformat.v4.new_code_cell("""\
+for case in fusion_report.candidates.only.cases:
+    grade = case.grade
+    metrics = grade.metrics if grade else {}
+    print(
+        case.case_id,
+        case.status,
+        grade.score if grade else None,
+        "positive" if metrics.get("is_positive") else "negative",
+        "abstained" if metrics.get("abstained") else "answered",
+    )"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Before you scale up
+
+A `limit=N` run is a smoke test, not a ranking — and on this board it is coarser than most,
+because F1 over five cases is built from a handful of confusion-matrix cells. With 70% of rows
+negative, a small sample can easily contain no positive case at all, which makes precision and
+recall undefined and the score 0. Run the full set before quoting any comparison."""),
     )
 
 
