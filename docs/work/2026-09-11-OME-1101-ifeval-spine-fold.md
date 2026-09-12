@@ -1,8 +1,9 @@
 ---
 ticket: OME-1101
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-11
+finished: 2026-09-12
 ---
 
 # OME-1101 — Fold ifeval onto the shared spine, keeping its deterministic grading as its hook
@@ -79,7 +80,7 @@ kind a real consumer (MedXpertQA copy target; `OME-1149` dedupe depends on it).
   moved from the aggregate-module loop to the ScoredPath loop — the fold itself),
   `test_spine_case_grader.py` and `test_spine_scored.py` helpers (`mean` →
   `scorer=exam_scorer(mean)`, the approved seam change).
-- **Commits:** filled at close (PR merge).
+- **Commits:** `cdeec4f2` fold + `138f0bbf` identified-error-row pinning test, squash-merged as `9f3d46a2` (PR #913).
 - **Gates:** `run_gates.py screamingface-engine --skip-append-only` ALL GREEN
   (ruff check/format, pyright, layering, pytest 2712 passed / 6 skipped, cov ≥80%).
   e2e replay: 4 boards green (ifeval 0.9184 incl. the case-1069 failure pin,

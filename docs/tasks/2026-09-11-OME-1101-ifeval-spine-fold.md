@@ -1,12 +1,12 @@
 ---
 id: OME-1101
 linear_url: https://linear.app/openmined/issue/OME-1101/fold-ifeval-onto-the-shared-spine-keeping-its-deterministic-grading-as
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-11
-closed:
+closed: 2026-09-12
 ---
 
 # Fold ifeval onto the shared spine, keeping its deterministic grading as its hook
