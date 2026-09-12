@@ -1,5 +1,5 @@
 {
-  "apps/aigateway": "0.2.1",
+  "apps/aigateway": "0.3.0",
   "packages/url4": "1.5.1",
   "packages/screamingface": "0.1.1",
   "apps/screamingface-engine": "1.5.0",
