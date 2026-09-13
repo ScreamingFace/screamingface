@@ -10,11 +10,9 @@ FEATURE: one grading spine per benchmark (OME-1024); this fold (OME-1101) is the
 STORY: as a researcher, the number I publish is the IFEval paper's prompt-level strict
 accuracy (arXiv:2311.07911).
 
-INVARIANT: failure output is byte-identical to the pre-fold ``ifeval/aggregate.py`` —
-the recorded golden pins a collected-row failure as stage "grading" with the
-diagnostic's own code, so the board supplies the whole missing-row result
-(``_missing_row_result``) instead of the spine default. The candidate-vs-grading
-attribution question stays open for `OME-981`.
+INVARIANT: only connector-owned diagnostics establish Candidate provenance for an
+anonymous collected row (OME-981). Ambiguous rows retain the grading fallback;
+protected checker failures retain the shared spine's explicit grading boundary.
 
 INVARIANT: malformed or mismatched verifier envelopes abort the run (the RowReader
 wraps this module's decode ``ValueError`` with the row position) — their identity
@@ -24,6 +22,7 @@ cannot be trusted, and scoring the wrong Case is worse than reporting a failed o
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -265,8 +264,8 @@ def _missing_row_result(
 ) -> CaseResult:
     """This board's shape for a selected Case with no usable row — wording pinned.
 
-    A collected error row keeps today's published failure (stage "grading", the
-    diagnostic's own code, ``row_index``) exactly as the golden recorded it; a Case
+    A collected error row retains the diagnostic and row index, attributing known
+    Gateway-call failures to Candidate execution (OME-981); a Case
     with no row at all keeps the pre-fold ``case_result_missing`` synthesis.
     """
 
@@ -318,13 +317,7 @@ def _collected_failure_result(
         selected_case=selected_case,
         failures=[
             {
-                # WHY the constant stage: a collected url4 error row carries only
-                # kind+message — never a code — so public_error always falls back to
-                # the aggregate defaults and the old provider_/aigateway_ prefix
-                # heuristic could not fire. One IFEval row spans invocation AND
-                # checking, so "grading" (the stage that failed to produce a valid
-                # evaluation record) is the honest constant.
-                "stage": "grading",
+                "stage": "candidate" if _is_gateway_call_failure(error) else "grading",
                 "code": diagnostic.code,
                 "message": diagnostic.message,
                 "retryable": diagnostic.retryable,
@@ -332,6 +325,18 @@ def _collected_failure_result(
                 "metadata": metadata,
             }
         ],
+    )
+
+
+def _is_gateway_call_failure(error: Mapping[str, Any]) -> bool:
+    # WHY: these codes are emitted by runner/connector.py at the model-call boundary.
+    # IFEval's checker is deterministic; its protected failures never take this path.
+    # Do not infer provenance from a message, a broad prefix, or a sanitized code:
+    # unknown and legacy kind/message-only rows remain the grading fallback.
+    code = error.get("code")
+    return isinstance(code, str) and (
+        code in {"aigateway_transport_error", "aigateway_empty_response", "aigateway_bad_response"}
+        or re.fullmatch(r"aigateway_http_[45][0-9]{2}", code) is not None
     )
 
 
