@@ -45,3 +45,27 @@ Owner explicitly approved updating the obsolete no-details assertion and affecte
 - Actual files: planned discovery/decoder/preflight changes plus runner admission reuse; new access tests; four approved request-count updates; public API snapshot and changelog; README and process artifacts.
 - Commit: `fix(screamingface): check provider access before evaluation` (Refs: OME-1042). Draft PR delivery; issue remains In Review until merge.
 - Deviations: parameter-free evaluations previously skipped details entirely, so they now perform one lookup per required model. Owner approved the resulting existing-test changes. Gateway #932 remains the runtime prerequisite for authoritative status, but this Client PR may merge independently and preserves legacy omission behavior.
+
+## Follow-up: CI replay discovery route
+
+Intent: repair the authored replay backend after CI reported seven preflight 404s
+and three missing-trace failures. Python 3.12/3.13 default checks passed.
+Plan: add a loopback regression for the advertised model-details route, then serve
+minimal metadata for taped identities only; retain refusal of unknown models and
+all existing failure/tracing assertions. No production behavior changes.
+Acceptance: regression fails before the fixture fix and passes after; replay cases
+and SDK gates pass, or environmental replay limitations are explicitly recorded.
+
+Follow-up outcome: added the missing `/v1/model-parameters` projection to the
+FakeGateway only. Taped identities expose configured access and empty capabilities;
+untaped/missing identities still fail loudly. All previous assertions remain intact.
+Regression command: `uv run --directory packages/screamingface pytest
+ tests/e2e/test_fake_gateway_discovery.py -q`: before 1 failed (HTTP 404), 2 passed;
+after 3 passed. Combined fixture checks: 17 passed, 7 gated scenarios skipped.
+Full SDK gate runner passed lint, format, types, full default test suite with >=95%
+coverage, notebooks, build, and distribution validation. Existing owner-approved
+append-only exception retained. Docker daemon remained unavailable after a bounded
+startup attempt; assets prepared, but full replay confirmation delegated to PR CI.
+Wisdom: no production contract, schema, credentials, or error policy changed. Minimal
+fixture route restores the actual discovery seam; no weakened assertions or swallowed
+errors. The default-lane regression now catches this omission without Docker.
