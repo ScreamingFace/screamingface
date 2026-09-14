@@ -196,7 +196,9 @@ async def test_concurrent_fills_leave_exactly_one_row_and_one_winner(migrated_po
         assert sorted(results) == ["race_lost", "stored"]
         assert await RequestCacheEntry.filter(key_hash=key).count() == 1
         winner = first if results[0] == "stored" else second
-        assert await store.get(key) == winner
+        entry = await store.get(key)
+        assert entry is not None
+        assert entry.response == winner
 
 
 @pytest.mark.asyncio
@@ -217,7 +219,9 @@ async def test_a_lost_race_does_not_poison_the_callers_transaction(migrated_post
 
             # The caller's transaction is still usable — this is the whole point.
             assert await RequestCacheEntry.filter(key_hash=key).count() == 1
-            assert await store.get(key) == {"id": "winner"}
+            entry = await store.get(key)
+            assert entry is not None
+            assert entry.response == {"id": "winner"}
 
 
 @pytest.mark.asyncio
@@ -446,7 +450,12 @@ async def test_every_concurrent_hit_is_counted(migrated_postgres) -> None:
 
         responses = await asyncio.gather(*(store.get(key) for _ in range(hits)))
 
-        assert all(response == {"id": "shared", "choices": []} for response in responses)
+        assert all(entry is not None for entry in responses)
+        assert all(
+            entry.response == {"id": "shared", "choices": []}
+            for entry in responses
+            if entry is not None
+        )
         row = await RequestCacheEntry.get(key_hash=key)
         assert row.hit_count == hits
         assert row.last_hit_at is not None

@@ -10,9 +10,15 @@ per-row guarantees (key validity, payload shape) were established by the gateway
 them; moving them is a bulk COPY plus one set-based merge, seconds rather than minutes.
 
 MERGE keeps the live row's identity and serving history (``id``, ``created_at``, ``hit_count``,
-``last_hit_at``) and replaces only the content columns — the same create-or-replace discipline
+``last_hit_at``) and replaces only the content columns — ``response_json``, ``metadata_json`` and
+the rest — the same create-or-replace discipline
 as ``set_if_absent``: a stored answer may be replaced by its snapshot version, never removed.
 REPLACE is a wholesale contents swap behind the caller's loss acknowledgement.
+
+TWO ARCHIVE LAYOUTS are accepted (``snapshot.ACCEPTED_COLUMN_LAYOUTS``): the current 13-column
+layout and the 12-column layout written before the metadata column existed. The COPY names the
+columns the dump's own header lists, so a legacy row leaves ``metadata_json`` NULL instead of
+being padded with an invented block.
 """
 
 from __future__ import annotations
@@ -37,17 +43,18 @@ _BATCH_BYTES: Final = 1 << 20  # 1 MiB per asyncpg chunk — enough for throughp
 # collisions impossible) and `updated_at` reads `now()` — the row changed here.
 _MERGE_INSERT_COLUMNS: Final = (
     "id, key_hash, prompt_hash, provider, model, response_json, response_size_bytes, "
-    "created_at, updated_at, expires_at, last_hit_at, hit_count"
+    "created_at, updated_at, expires_at, last_hit_at, hit_count, metadata_json"
 )
 _REPLACE_COLUMNS: Final = (
     "id, key_hash, prompt_hash, provider, model, response_json, response_size_bytes, "
-    "created_at, updated_at, expires_at, last_hit_at, hit_count"
+    "created_at, updated_at, expires_at, last_hit_at, hit_count, metadata_json"
 )
 
 _MERGE_SQL: Final = f"""
 INSERT INTO {_TABLE} ({_MERGE_INSERT_COLUMNS})
 SELECT gen_random_uuid(), s.key_hash, s.prompt_hash, s.provider, s.model, s.response_json,
-       s.response_size_bytes, s.created_at, now(), s.expires_at, s.last_hit_at, s.hit_count
+       s.response_size_bytes, s.created_at, now(), s.expires_at, s.last_hit_at, s.hit_count,
+       s.metadata_json
   FROM {_STAGING} AS s
 ON CONFLICT (key_hash) DO UPDATE SET
     prompt_hash         = EXCLUDED.prompt_hash,
@@ -55,6 +62,7 @@ ON CONFLICT (key_hash) DO UPDATE SET
     model               = EXCLUDED.model,
     response_json       = EXCLUDED.response_json,
     response_size_bytes = EXCLUDED.response_size_bytes,
+    metadata_json       = EXCLUDED.metadata_json,
     expires_at          = EXCLUDED.expires_at,
     updated_at          = now()
 """
@@ -135,6 +143,10 @@ async def load_snapshot(
         # defaults — the dump supplies every column, and a bare copy of the column shape loads
         # fastest. Dropping it between runs would trade a CREATE per upload for nothing.
         await raw.execute(f"CREATE TABLE IF NOT EXISTS {_STAGING} (LIKE {_TABLE})")
+        # A staging twin left behind by a gateway that pre-dates the metadata column is 12
+        # columns wide, and `CREATE TABLE IF NOT EXISTS` will not widen it — the next 13-column
+        # COPY would then fail on the missing column. Idempotent, and a no-op on a fresh twin.
+        await raw.execute(f"ALTER TABLE {_STAGING} ADD COLUMN IF NOT EXISTS metadata_json TEXT")
         await raw.execute(f"TRUNCATE {_STAGING}")
 
         stream: BinaryIO = open_snapshot_stream(path)
@@ -142,8 +154,11 @@ async def load_snapshot(
         # beneath a gzip wrapper is closed by the wrapper itself.
         try:
             source = CopyBlockSource(stream)
-            await asyncio.to_thread(source.header)
-            staged_rows = await _copy_stream_into_staging(raw, source)
+            # The dump's OWN header names the columns the data lines carry — the current 13, or
+            # the legacy 12. Feeding exactly those to COPY is what makes a legacy row load with
+            # metadata_json NULL rather than be refused or padded.
+            columns = await asyncio.to_thread(source.header)
+            staged_rows = await _copy_stream_into_staging(raw, source, columns=columns)
         finally:
             await asyncio.to_thread(stream.close)
 
@@ -183,8 +198,13 @@ def _read_batch(source: CopyBlockSource) -> bytes:
     return bytes(buffer)
 
 
-async def _copy_stream_into_staging(raw: object, source: CopyBlockSource) -> int:
-    """Feed the block to Postgres COPY; return the row count actually delivered."""
+async def _copy_stream_into_staging(
+    raw: object, source: CopyBlockSource, *, columns: tuple[str, ...]
+) -> int:
+    """Feed the block to Postgres COPY; return the row count actually delivered.
+
+    ``columns`` is the dump's own header list, so the column set is never guessed here.
+    """
     rows = 0
 
     async def chunks() -> AsyncIterator[bytes]:
@@ -198,7 +218,7 @@ async def _copy_stream_into_staging(raw: object, source: CopyBlockSource) -> int
             yield chunk
 
     await raw.copy_to_table(  # type: ignore[attr-defined]
-        _STAGING, source=chunks(), timeout=600
+        _STAGING, source=chunks(), columns=columns, timeout=600
     )
     return rows
 

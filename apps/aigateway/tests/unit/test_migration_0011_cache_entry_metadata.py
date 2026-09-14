@@ -1,0 +1,222 @@
+"""Migration 0011 appends the nullable cache-entry metadata column (A3, ERD §5.1).
+
+Replays the deployed upgrade path on SQLite: migrate to ``0010``, seed a real cache row, apply
+``0011``, then prove the column is last, nullable, defaultless, that the row survived untouched
+with NULL metadata, and that the table was NOT rebuilt.
+
+The last point is the migration's whole risk. ``0010`` shows the failure mode: SQLite cannot
+``ALTER COLUMN``, so that operation rebuilt the table and silently stripped every standalone
+index. A nullable ``ADD COLUMN`` with no default needs no rebuild on either dialect, so this
+migration needs no index-restore workaround — and ``test_0011_does_not_rebuild_the_sqlite_table``
+is what makes that claim checkable instead of assumed.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+import uuid
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+APP_DIR = Path(__file__).resolve().parents[2]
+_TABLE = "request_cache_entries"
+_COLUMN = "metadata_json"
+
+
+def _migrate(database_url: str, *target: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tortoise",
+            "-c",
+            "aigateway.db.TORTOISE_CONFIG",
+            "migrate",
+            *target,
+        ],
+        cwd=APP_DIR,
+        env={**os.environ, "AIGATEWAY_DATABASE_URL": database_url},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _downgrade(database_url: str, migration: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tortoise",
+            "-c",
+            "aigateway.db.TORTOISE_CONFIG",
+            "downgrade",
+            "models",
+            migration,
+        ],
+        cwd=APP_DIR,
+        env={**os.environ, "AIGATEWAY_DATABASE_URL": database_url},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _columns(db: Path) -> dict[str, sqlite3.Row]:
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        return {row["name"]: row for row in conn.execute(f"pragma table_info({_TABLE})")}
+
+
+def _column_order(db: Path) -> tuple[str, ...]:
+    with sqlite3.connect(db) as conn:
+        return tuple(row[1] for row in conn.execute(f"pragma table_info({_TABLE})"))
+
+
+def _indexes(db: Path) -> dict[str, str | None]:
+    with sqlite3.connect(db) as conn:
+        rows = conn.execute(
+            "select name, sql from sqlite_master where type = 'index' and tbl_name = ?",
+            (_TABLE,),
+        ).fetchall()
+    return {name: sql for name, sql in rows}
+
+
+def _rootpage(db: Path) -> int:
+    """The table's b-tree root. A SQLite rebuild (CREATE/INSERT/DROP/RENAME) moves it."""
+    with sqlite3.connect(db) as conn:
+        found = conn.execute(
+            "select rootpage from sqlite_master where type = 'table' and name = ?", (_TABLE,)
+        ).fetchone()
+    assert found is not None, f"{_TABLE} is absent"
+    return int(found[0])
+
+
+def _seed_row(db: Path) -> str:
+    """One row in the 0010 shape — no metadata column exists yet."""
+    payload = json.dumps({"id": "cmpl-0010", "choices": []}, separators=(",", ":"))
+    key_hash = "a" * 64
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            f"insert into {_TABLE} (id, key_hash, prompt_hash, provider, model, response_json,"
+            " response_size_bytes, created_at, updated_at, expires_at, hit_count, last_hit_at)"
+            " values (?, ?, ?, 'openrouter', 'openrouter/anthropic/claude-fable-5', ?, ?,"
+            " ?, ?, NULL, 3, ?)",
+            (
+                str(uuid.uuid4()),
+                key_hash,
+                "p" * 64,
+                payload,
+                len(payload),
+                (datetime.now(UTC) - timedelta(hours=2)).isoformat(sep=" "),
+                (datetime.now(UTC) - timedelta(hours=1)).isoformat(sep=" "),
+                (datetime.now(UTC) - timedelta(minutes=30)).isoformat(sep=" "),
+            ),
+        )
+    return key_hash
+
+
+def _read_row(db: Path, key_hash: str) -> dict[str, object]:
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        found = conn.execute(f"select * from {_TABLE} where key_hash = ?", (key_hash,)).fetchone()
+    assert found is not None, "the seeded row did not survive the migration"
+    return dict(found)
+
+
+@pytest.fixture
+def populated_0010(tmp_path: Path) -> tuple[Path, str, str]:
+    db = tmp_path / "populated-0010.sqlite3"
+    url = f"sqlite://{db}"
+    _migrate(url, "models", "0010_simplify_request_cache")
+    key_hash = _seed_row(db)
+    assert _COLUMN not in _columns(db)
+    return db, url, key_hash
+
+
+def test_0011_appends_a_nullable_metadata_column_without_a_default(
+    populated_0010: tuple[Path, str, str],
+) -> None:
+    db, url, _key = populated_0010
+
+    _migrate(url)
+
+    columns = _columns(db)
+    assert _COLUMN in columns
+    assert _column_order(db)[-1] == _COLUMN, "the column must be appended last, not inserted"
+    assert columns[_COLUMN]["notnull"] == 0
+    assert columns[_COLUMN]["dflt_value"] is None
+    assert columns[_COLUMN]["type"].upper() == "TEXT"
+
+
+def test_0011_leaves_an_existing_row_intact_with_unknown_metadata(
+    populated_0010: tuple[Path, str, str],
+) -> None:
+    db, url, key_hash = populated_0010
+    before = _read_row(db, key_hash)
+
+    _migrate(url)
+
+    after = _read_row(db, key_hash)
+    for column, expected in before.items():
+        assert after[column] == expected, f"{column} changed across migration 0011"
+    # ERD E7: NULL means unknown. No backfill, and never a zero-shaped block.
+    assert after[_COLUMN] is None
+
+
+def test_0011_does_not_rebuild_the_sqlite_table(
+    populated_0010: tuple[Path, str, str],
+) -> None:
+    db, url, _key = populated_0010
+    root_before = _rootpage(db)
+    indexes_before = _indexes(db)
+
+    _migrate(url)
+
+    assert _rootpage(db) == root_before, (
+        "the table b-tree moved — a nullable ADD COLUMN must not rebuild it, and a rebuild "
+        "would drop the standalone indexes"
+    )
+    assert _indexes(db) == indexes_before
+
+
+def test_0011_is_idempotent(populated_0010: tuple[Path, str, str]) -> None:
+    _db, url, _key = populated_0010
+
+    _migrate(url)
+    rerun = _migrate(url)
+
+    assert "No migrations to apply" in rerun.stdout
+
+
+def test_0011_downgrade_drops_the_metadata_column_and_keeps_the_row(
+    populated_0010: tuple[Path, str, str],
+) -> None:
+    db, url, key_hash = populated_0010
+    _migrate(url)
+
+    _downgrade(url, "0010_simplify_request_cache")
+
+    assert _COLUMN not in _columns(db)
+    assert _read_row(db, key_hash)["hit_count"] == 3
+
+
+def test_0011_downgrade_keeps_the_standalone_indexes(
+    populated_0010: tuple[Path, str, str],
+) -> None:
+    # SQLite's DROP COLUMN rebuilds the table and recreates no standalone indexes, so a bare
+    # RemoveField would silently leave every local database doing full scans on key_hash. The
+    # column is unindexed: the index set must be IDENTICAL across the round trip.
+    db, url, _key = populated_0010
+    _migrate(url)
+    indexes_before = _indexes(db)
+
+    _downgrade(url, "0010_simplify_request_cache")
+
+    assert _indexes(db) == indexes_before

@@ -13,6 +13,7 @@ from tortoise.exceptions import BaseORMException, IntegrityError
 from tortoise.expressions import F
 from tortoise.transactions import in_transaction
 
+from .entry_metadata import CACHE_ENTRY_METADATA_MAX_BYTES, CacheEntryMetadata
 from .models import RequestCacheEntry
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,24 @@ class _AlwaysAvailable:
 
 _UNGATED = _AlwaysAvailable()
 
+# How many distinct unreadable-metadata keys one store instance remembers having warned about.
+# The store is a process-lifetime singleton, so this bounds the set rather than the log.
+_MAX_WARNED_METADATA_KEYS = 1024
+
+
+@dataclass(frozen=True)
+class CachedEntry:
+    """One served cache row: the provider-compatible body and its metadata block.
+
+    INVARIANT (A6/ERD §5.5): ``metadata`` is the parsed block from ``metadata_json``,
+    or ``None`` when the row has no block or its block is unreadable. The body always
+    serves either way — a corrupt block is treated as absent (S11), never as a reason
+    to lose the hit.
+    """
+
+    response: dict[str, Any]
+    metadata: CacheEntryMetadata | None = None
+
 
 @dataclass(frozen=True)
 class RequestCacheWrite:
@@ -58,10 +77,13 @@ class RequestCacheWrite:
     model: str
     response: dict[str, Any]
     response_size_bytes: int
+    # A4/ERD §5.4: the standard metadata block for THIS response. The default keeps
+    # every existing caller working, including the Tavily lane, which never sets it.
+    metadata: CacheEntryMetadata | None = None
 
 
 class RequestCacheStore(Protocol):
-    async def get(self, key_hash: str) -> dict[str, Any] | None: ...
+    async def get(self, key_hash: str) -> CachedEntry | None: ...
 
     async def delete_expired(self) -> int: ...
 
@@ -88,6 +110,27 @@ class TortoiseRequestCacheStore:
         self._availability: CacheAvailability = (
             availability if availability is not None else _UNGATED
         )
+        # S11 / PRD §4.4: one warning per unreadable block, not one per hit on it.
+        self._warned_metadata_keys: set[str] = set()
+
+    def _warn_unreadable_metadata(self, key_hash: str, size_bytes: int) -> None:
+        """Warn once per key that a stored block could not be read (S11, PRD §4.4).
+
+        A popular corrupt row is hit over and over, and a warning per hit is spam rather than
+        signal. The seen-set is capped: past the cap it simply stops admitting new keys, so
+        memory stays bounded and the worst case is a repeated warning — never unbounded growth.
+        """
+        prefix = key_hash[:12]
+        if prefix in self._warned_metadata_keys:
+            return
+        if len(self._warned_metadata_keys) < _MAX_WARNED_METADATA_KEYS:
+            self._warned_metadata_keys.add(prefix)
+        logger.warning(
+            "request cache entry %s… metadata block was unreadable (%d bytes); "
+            "serving the body without it",
+            prefix,
+            size_bytes,
+        )
 
     def cache_available(self) -> bool:
         return self._availability.cache_available()
@@ -97,7 +140,7 @@ class TortoiseRequestCacheStore:
         # future configurable TTL has actually elapsed.
         return await RequestCacheEntry.filter(expires_at__lte=datetime.now(UTC)).delete()
 
-    async def get(self, key_hash: str) -> dict[str, Any] | None:
+    async def get(self, key_hash: str) -> CachedEntry | None:
         """Look up one row. ``None`` means no currently serveable row; every failure raises.
 
         INVARIANT: an absent or expired row is a miss; read and decode failures raise.
@@ -118,6 +161,14 @@ class TortoiseRequestCacheStore:
         # Nullable expiry is part of this one lane: NULL is indefinite, a past timestamp is a miss.
         if row.expires_at is not None and row.expires_at <= datetime.now(UTC):
             return None
+
+        # ERD §5.5 / S11: a block that fails to parse is treated as absent. The body
+        # still serves; the failure is logged once, with the key prefix only.
+        metadata: CacheEntryMetadata | None = None
+        if row.metadata_json is not None:
+            metadata = CacheEntryMetadata.parse(row.metadata_json)
+            if metadata is None:
+                self._warn_unreadable_metadata(key_hash, len(row.metadata_json))
 
         def reject_non_finite(value: str) -> None:
             raise ValueError(f"non-finite JSON constant: {value}")
@@ -162,7 +213,7 @@ class TortoiseRequestCacheStore:
                 "global cache hit metadata was not recorded (%s); serving the hit anyway",
                 type(exc).__name__,
             )
-        return response
+        return CachedEntry(response=response, metadata=metadata)
 
     async def set_if_absent(
         self, entry: RequestCacheWrite
@@ -189,6 +240,8 @@ class TortoiseRequestCacheStore:
             )
             return "not_stored"
 
+        metadata_json = self._serialize_metadata(entry)
+
         try:
             # WHY the explicit transaction: on Postgres a unique-violation aborts the whole
             # transaction it happens in. Nested inside a caller's transaction this becomes a
@@ -210,6 +263,7 @@ class TortoiseRequestCacheStore:
                     response_json=payload,
                     response_size_bytes=entry.response_size_bytes,
                     expires_at=None,
+                    metadata_json=metadata_json,
                 )
         except IntegrityError:
             # INVARIANT: `race_lost` means the winner's row is in the table. `IntegrityError` also
@@ -232,6 +286,34 @@ class TortoiseRequestCacheStore:
             )
             return "not_stored"
         return "stored"
+
+    @staticmethod
+    def _serialize_metadata(entry: RequestCacheWrite) -> str | None:
+        """Serialize the metadata block, or ``None`` when it cannot be stored.
+
+        INVARIANT (A5/S8/S9/E7): metadata is best-effort. A build or serialization
+        failure, and a block over the size cap, all write the row with
+        ``metadata_json = NULL`` — never fail the request and never trim the block.
+        The warning carries the key-hash prefix only; never prompt or response content.
+        """
+        if entry.metadata is None:
+            return None
+        try:
+            payload = entry.metadata.serialize()
+        except (ValueError, TypeError) as exc:
+            logger.warning(
+                "global cache fill %s… metadata could not be serialized (%s); storing without it",
+                entry.key_hash[:12],
+                type(exc).__name__,
+            )
+            return None
+        if payload is None:
+            logger.warning(
+                "global cache fill %s… metadata exceeded %d bytes; storing without it",
+                entry.key_hash[:12],
+                CACHE_ENTRY_METADATA_MAX_BYTES,
+            )
+        return payload
 
     async def _classify_fill_conflict(
         self, entry: RequestCacheWrite

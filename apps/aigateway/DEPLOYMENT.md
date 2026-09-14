@@ -347,12 +347,48 @@ endpoint for this — it is a deliberate database operation, on purpose.
 Global response rows are readable to anyone with database, replica, snapshot or backup access. If a
 class of response must not be stored or replayed across users, send `use-cache=false`.
 
-### Accounting boundary
+### Accounting boundary and the cached metadata block
 
-Usage and cost accounting for cache hits is **out of scope here** and tracked separately as OME-303.
-This feature writes no accounting or attribution fields, and a hit performs no provider dispatch —
-so a hit currently produces no provider-side usage record of its own. Do not read cache-hit volume
-out of provider billing.
+A cache hit is **in scope** for accounting as of migration `0011`. It still performs no provider
+dispatch, so a hit still produces no provider-side usage record of its own. Do not read cache-hit
+volume out of provider billing. Saved cost comes from the gateway's own stored metadata.
+
+**A nullable `metadata_json` column.** Migration `0011` appends `metadata_json` last on
+`request_cache_entries`. The column is nullable with no default. On Postgres the operation changes
+only the catalog: no table rewrite, no long lock, no backfill. On SQLite it is a plain in-place
+`ADD COLUMN`.
+
+**The block is roughly 400 bytes.** It holds the canonical token usage, the direct cost, the
+provider latency, the response model and a schema id. The gateway writes the block at write time
+from the raw provider response, so the block proves raw-JSON provenance. The block never enters
+`response_json`. The cache key and the response size cap are therefore unchanged. A block that
+somehow exceeds 2,048 bytes is dropped whole, not trimmed.
+
+**`NULL` means unknown, and it is never read as `0`.** Every legacy row keeps `metadata_json =
+NULL`: rows written before migration `0011`, rows loaded from a seed package that carries no
+metadata, and every Tavily retrieval row. A hit on such a row still serves the cached body, and
+the cost is reported as unknown. The
+gateway never infers a cost from `response_json`. A block that cannot be built, serialized or
+parsed also degrades to `NULL`. No metadata failure ever fails a request or loses an answer.
+
+**Two saved-cost totals per run.** A run report can carry two totals. Each total is a
+**counterfactual**: it states what the run would have paid without the cache. Both totals are
+labelled counterfactual wherever they are rendered.
+
+| run field | content |
+|---|---|
+| `cache.saved_cost_usd` | only `reported` amounts, authored by the provider |
+| `cache.saved_cost_archive_usd` | only `archive_matched` amounts, from an offline-priced seed load |
+
+**Never add the two totals together.** They hold money of different provenance. One combined
+figure would mix provider-authored money with archive-matched money.
+
+The report also carries the counts `cache.saved_cost.reported_hits`, `.archive_hits` and
+`.unpriced_hits`. These counts state the coverage of each total. A total is `null` only when the
+run had no hits of that provenance.
+
+Neither total changes `cost_usd`. A hit still counts as `0` spend in the run cost. **Neither
+total is submitted to the leaderboard.**
 
 ## The Tavily Retrieval Cache (OME-1043/OME-1044)
 

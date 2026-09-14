@@ -348,7 +348,14 @@ async def chat_completions(request: Request, response: Response, current: Curren
         cached_response = request.app.state.taxonomy_plugin.sanitize_provider_response(
             cache_outcome.response
         )
-        return attach_hit_metadata(cached_response, accounting, plugin=plugin)
+        # C4/ERD §5.5: the stored block travels with the hit. ``attach_hit_metadata``
+        # prefers it and falls back to the provider's own mapper when it is absent.
+        return attach_hit_metadata(
+            cached_response,
+            accounting,
+            plugin=plugin,
+            entry_metadata=cache_outcome.metadata,
+        )
 
     # ==================================================================
     # STAGE 2 — a miss or a bypass: resolve identity and dispatch.
@@ -511,7 +518,9 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # returned to this caller is always the one their own dispatch produced.
     write_status = None
     if cache_outcome.should_store:
-        write_status = await store_global_response(request, outcome=cache_outcome, result=result)
+        write_status = await store_global_response(
+            request, outcome=cache_outcome, result=result, accounting=accounting
+        )
     set_global_cache_headers(response, cache_outcome, write_status=write_status)
     # OME-303 INVARIANT (§6): metadata is attached to a COPY, and STRICTLY AFTER the
     # store above. The cache row must stay provider-compatible for every future replay,
