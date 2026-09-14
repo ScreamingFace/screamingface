@@ -107,14 +107,27 @@ class CacheOutcome:
     future consumer has it without re-deriving the parse. Never label a metric with it (spec §7).
     """
     age_s: int | None
+    retried: bool = False
+    """Whether a transport retry preceded the round trip that produced this outcome.
+
+    A retried attempt may ALREADY have been processed and billed upstream with only its response
+    lost, so a hit that follows one cannot prove the cache avoided anything — the row it hit may
+    be the one the lost attempt just paid for and wrote. Carried here rather than derived later
+    because only the posting function knows it happened, and the fact dies with the response.
+
+    Defaulted `False` so every existing construction site keeps its meaning: absent evidence of a
+    retry is not evidence of one.
+    """
 
 
-def read_cache_outcome(headers: Mapping[str, str]) -> CacheOutcome:
+def read_cache_outcome(headers: Mapping[str, str], *, retried: bool = False) -> CacheOutcome:
     """The cache outcome a chat-completions response reported. Total — it never raises.
 
     Args:
         headers: The response's fields. Matched case-insensitively (RFC 9110 §5.1), so an
             `httpx.Headers` and a plain dict behave the same.
+        retried: Whether a transport retry preceded the round trip these headers came from. Carried
+            straight onto the returned outcome — see `CacheOutcome.retried`.
 
     Returns:
         The parsed outcome, preferring `Cache-Status` and falling back to the `X-AIGW-Cache*`
@@ -125,13 +138,14 @@ def read_cache_outcome(headers: Mapping[str, str]) -> CacheOutcome:
     reported = _from_cache_status(headers) or _from_legacy_triple(headers)
     age_s = _non_negative_int(_field(headers, _AGE_FIELD))
     if reported is None:
-        return CacheOutcome(status=None, reason=None, key=None, age_s=age_s)
+        return CacheOutcome(status=None, reason=None, key=None, age_s=age_s, retried=retried)
     keyed = reported.status in _KEYED_STATUSES
     return CacheOutcome(
         status=reported.status,
         reason=reported.reason or None,
         key=(reported.key or None) if keyed else None,
         age_s=age_s,
+        retried=retried,
     )
 
 

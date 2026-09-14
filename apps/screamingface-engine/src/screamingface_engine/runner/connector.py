@@ -32,7 +32,7 @@ from screamingface_engine.retrieval_policy import (
 )
 from screamingface_engine.runner.accounting import (
     CallAccounting,
-    avoided_usd_from_aigw,
+    avoided_usd_for_outcome,
     read_aigw,
     retained_operation_accounting,
 )
@@ -413,11 +413,16 @@ def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -
     outcome `cache` describes — and never from a discarded one. `_fetch_completion` may refuse a
     hit and re-issue the call, returning the SECOND trip's outcome; deriving from that same
     returned pair is what keeps the discarded hit's cost out of the run total (PRD test 17).
+
+    INVARIANT: a hit whose round trip was RETRIED is never priced. A transport retry can follow
+    an attempt the provider already processed and billed, so pricing the hit would report money
+    saved that was in fact spent — the one direction of error this whole feature exists to
+    remove.
     """
     sink = current_response_sink()
     if sink is None:
         return
-    saved = avoided_usd_from_aigw(aigw)
+    saved = avoided_usd_for_outcome(aigw, cache)
     sink(
         finish_reason=choice.finish_reason,
         refusal=choice.refusal,
@@ -533,7 +538,7 @@ async def _post_completion(
     *,
     headers: dict[str, str],
     body: dict,
-) -> httpx.Response:
+) -> tuple[httpx.Response, bool]:
     """One chat-completions POST: retry transport failures, then translate to a retryable error.
 
     WHY (OME-1016): a transport failure (connection reset, read error, timeout) is
@@ -546,11 +551,17 @@ async def _post_completion(
     retry in lockstep), then raises a retryable ``ResolutionError`` that names the real
     cause. ``HTTPStatusError`` is deliberately NOT caught — ``_raise_for_status``
     handles non-2xx after the post returns.
+
+    Returns the response and WHETHER A RETRY PRECEDED IT. A retried attempt may already have
+    been processed and billed with only its reply lost, so accounting must not treat the
+    attempt that finally answered as the whole operation.
     """
     last: httpx.TransportError | None = None
     for attempt in range(_TRANSPORT_RETRIES + 1):
         try:
-            return await http_client.post(_COMPLETIONS_PATH, headers=headers, json=body)
+            return await http_client.post(
+                _COMPLETIONS_PATH, headers=headers, json=body
+            ), attempt > 0
         except httpx.TransportError as exc:
             last = exc
             if attempt < _TRANSPORT_RETRIES:
@@ -609,7 +620,7 @@ async def _fetch_completion(
         The response to consume, and the cache outcome of the round trip that produced IT — not
         of the one that was discarded, whose only remaining trace is that it happened.
     """
-    resp = await _post_completion(
+    resp, retried = await _post_completion(
         http_client,
         headers=headers,
         # `policy_to_body_field` yields an EMPTY dict for a run that participates, so an ordinary
@@ -619,19 +630,19 @@ async def _fetch_completion(
         body={**body, **policy_to_body_field(cache)},
     )
     _raise_for_status(resp)
-    outcome = read_cache_outcome(resp.headers)
+    outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
         return resp, outcome
     # An explicit opt-out, built here rather than derived from `cache`: the run's own policy
     # PARTICIPATES (a bound is not a refusal), and the re-issue must state the one thing the
     # closed grammar understands — `use-cache: false` — and nothing else.
-    resp = await _post_completion(
+    resp, reissue_retried = await _post_completion(
         http_client,
         headers=headers,
         body={**body, **policy_to_body_field(CachePolicy(participate=False))},
     )
     _raise_for_status(resp)
-    return resp, read_cache_outcome(resp.headers)
+    return resp, read_cache_outcome(resp.headers, retried=reissue_retried)
 
 
 async def _chat_completion_loop(

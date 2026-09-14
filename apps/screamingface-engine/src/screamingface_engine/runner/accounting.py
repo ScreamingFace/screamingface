@@ -44,6 +44,7 @@ __all__ = [
     "CallAccounting",
     "SavedCostProvenance",
     "accumulate",
+    "avoided_usd_for_outcome",
     "avoided_usd_from_aigw",
     "read_aigw",
     "retained_operation_accounting",
@@ -289,6 +290,24 @@ def avoided_usd_from_aigw(aigw: object) -> AvoidedCost:
     # Unpriced, not free: a status we trust but a unit we cannot convert stays out of every total
     # and is counted as an unpriced hit instead.
     return AvoidedCost(usd=usd, provenance=provenance) if usd is not None else AvoidedCost()
+
+
+def avoided_usd_for_outcome(aigw: object, cache: CacheOutcome) -> AvoidedCost:
+    """What one round trip's outcome PROVES the cache avoided.
+
+    A retried round trip proves nothing was avoided. `_post_completion` retries a lost response,
+    and the attempt whose reply was lost may have been processed and billed upstream — in which
+    case the row this attempt hit is the very one the lost attempt wrote and paid for. Pricing
+    that hit would report money saved that was in fact spent: the one direction of error this
+    whole feature exists to remove.
+
+    This WITHDRAWS a claim; it does not assert the spend was zero. The hit is still a hit and
+    still counted — as an unpriced one, which is the honest answer when the evidence is
+    ambiguous rather than absent.
+    """
+    if cache.retried:
+        return AvoidedCost()
+    return avoided_usd_from_aigw(aigw)
 
 
 def _attempt_usage(attempt: Mapping[str, Any]) -> tuple[int | None, ...]:

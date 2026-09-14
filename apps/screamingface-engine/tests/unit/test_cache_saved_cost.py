@@ -23,6 +23,7 @@ import pytest
 from screamingface_engine.runner.accounting import (
     OPENROUTER_CREDIT_UNIT,
     AvoidedCost,
+    avoided_usd_for_outcome,
     avoided_usd_from_aigw,
     usd_from_aigw,
 )
@@ -34,6 +35,7 @@ from screamingface_engine.runner.cache_counters import (
     SAVED_COST_USD,
     RunCacheCounters,
 )
+from screamingface_engine.runner.cache_readback import CacheOutcome
 
 
 def _aigw(*, direct_cost: dict[str, Any] | None, cache_status: str = "hit") -> dict[str, Any]:
@@ -286,3 +288,61 @@ def test_every_saved_cost_provenance_literal_declares_the_same_members() -> None
     assert wire == {"reported", "archive_matched"}
     assert accounting == wire
     assert counter == wire
+
+
+# ── the retry withdrawal: a hit that followed a transport retry is never priced ─────────────────
+
+
+def test_a_hit_after_a_transport_retry_is_not_priced() -> None:
+    """A retried attempt may already have been billed, so its cache hit proves no saving.
+
+    Attempt 1 can be processed and billed by the provider with its response lost in transit;
+    attempt 2 then hits the row attempt 1 wrote. Reporting the reference cost as a SAVING would
+    claim the cache avoided money that was in fact just spent.
+    """
+    payload = _aigw(
+        direct_cost={
+            "status": "reported",
+            "amount": "9.99",
+            "unit": OPENROUTER_CREDIT_UNIT,
+            "source": "openrouter.usage.cost",
+        }
+    )
+    retried = CacheOutcome(status="hit", reason=None, key="ab12", age_s=3, retried=True)
+
+    # The price IS present in the block — this is a withdrawal, not an absence of evidence.
+    assert avoided_usd_from_aigw(payload) == AvoidedCost(usd=Decimal("9.99"), provenance="reported")
+    assert avoided_usd_for_outcome(payload, retried) == AvoidedCost()
+
+
+def test_a_hit_with_no_retry_is_still_priced() -> None:
+    """The withdrawal is narrow: an ordinary hit keeps reporting what it avoided."""
+    payload = _aigw(
+        direct_cost={
+            "status": "reported",
+            "amount": "9.99",
+            "unit": OPENROUTER_CREDIT_UNIT,
+            "source": "openrouter.usage.cost",
+        }
+    )
+    plain = CacheOutcome(status="hit", reason=None, key="ab12", age_s=3)
+
+    assert avoided_usd_for_outcome(payload, plain) == AvoidedCost(
+        usd=Decimal("9.99"), provenance="reported"
+    )
+
+
+def test_a_withdrawn_price_lands_in_the_unpriced_bucket_and_no_total() -> None:
+    """The hit is not erased — it is counted without a price, which is the honest report."""
+    counters = RunCacheCounters()
+    counters.record("hit", None)
+    withdrawn = avoided_usd_for_outcome(
+        _aigw(direct_cost={"status": "reported", "amount": "1", "unit": OPENROUTER_CREDIT_UNIT}),
+        CacheOutcome(status="hit", reason=None, key=None, age_s=None, retried=True),
+    )
+    counters.record_saved_cost(withdrawn.usd, withdrawn.provenance)
+
+    assert counters.hits == 1
+    assert counters.unpriced_hits == 1
+    assert counters.saved_cost_usd is None
+    assert counters.saved_cost_archive_usd is None
