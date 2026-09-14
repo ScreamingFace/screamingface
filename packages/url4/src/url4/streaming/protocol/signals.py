@@ -133,6 +133,19 @@ class SpanData(BaseModel):
     end: datetime | None = None
     status: Literal["ok", "error"] = "ok"
 
+    @model_validator(mode="after")
+    def _saved_cost_is_non_negative_money(self) -> "SpanData":
+        """Both saved-cost totals are counterfactual MONEY, so both share money's domain.
+
+        `SpanData` carries no provenance field — the two provenances are two differently-named
+        fields precisely so they cannot be summed — so only the amount domain is checked here.
+        """
+        for name in ("cache_saved_cost_usd", "cache_saved_cost_archive_usd"):
+            amount = getattr(self, name)
+            if amount is not None and (not amount.is_finite() or amount < 0):
+                raise ValueError(f"{name} must be a finite non-negative amount, got {amount!r}")
+        return self
+
 
 class CostUsageData(BaseModel):
     model_config = ConfigDict(

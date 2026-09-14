@@ -236,3 +236,82 @@ def test_a_round_trip_that_saved_nothing_still_constructs() -> None:
 
     assert response.cache_saved_cost_usd is None
     assert response.cache_saved_cost_provenance is None
+
+
+# --- the amount and provenance stay inside money's domain, not just paired ---------------------
+
+
+def test_a_negative_saved_cost_is_refused() -> None:
+    """Negative savings are not a claim the cache can make: a hit avoids money or it does not."""
+    with pytest.raises(ValueError, match="cache_saved_cost_usd must be a finite non-negative"):
+        ModelResponse(
+            span_id="s1",
+            finish_reason="stop",
+            refusal=None,
+            cache_status="hit",
+            cache_saved_cost_usd=Decimal("-0.01"),
+            cache_saved_cost_provenance="reported",
+        )
+
+
+def test_an_unknown_saved_cost_provenance_is_refused() -> None:
+    """An unrecognised provenance would be counted as an unpriced hit, losing measured money."""
+    with pytest.raises(ValueError, match="cache_saved_cost_provenance must be one of"):
+        ModelResponse(
+            span_id="s1",
+            finish_reason="stop",
+            refusal=None,
+            cache_status="hit",
+            cache_saved_cost_usd=Decimal("0.01"),
+            cache_saved_cost_provenance="bogus",  # type: ignore[arg-type]
+        )
+
+
+def test_a_non_finite_saved_cost_is_refused() -> None:
+    """NaN and Infinity pass a bare `< 0` check and would poison every downstream total."""
+    for amount in (Decimal("NaN"), Decimal("Infinity")):
+        with pytest.raises(ValueError, match="cache_saved_cost_usd must be a finite non-negative"):
+            ModelResponse(
+                span_id="s1",
+                finish_reason="stop",
+                refusal=None,
+                cache_status="hit",
+                cache_saved_cost_usd=amount,
+                cache_saved_cost_provenance="reported",
+            )
+
+
+def test_the_span_wire_seam_refuses_negative_saved_cost() -> None:
+    """The same domain rule on the wire type, which an outside consumer reaches first."""
+    with pytest.raises(ValidationError, match="cache_saved_cost_usd must be a finite non-negative"):
+        SpanData(
+            name="aigateway",
+            operation="chat",
+            start=datetime.now(UTC),
+            cache_saved_cost_usd=Decimal("-0.01"),
+        )
+
+
+def test_the_span_wire_seam_refuses_negative_archive_saved_cost() -> None:
+    with pytest.raises(
+        ValidationError, match="cache_saved_cost_archive_usd must be a finite non-negative"
+    ):
+        SpanData(
+            name="aigateway",
+            operation="chat",
+            start=datetime.now(UTC),
+            cache_saved_cost_archive_usd=Decimal("-0.01"),
+        )
+
+
+def test_a_zero_saved_cost_is_still_accepted() -> None:
+    """Zero is a real claim — a genuinely free call — and must survive the non-negative guard."""
+    response = ModelResponse(
+        span_id="s1",
+        finish_reason="stop",
+        refusal=None,
+        cache_status="hit",
+        cache_saved_cost_usd=Decimal("0"),
+        cache_saved_cost_provenance="reported",
+    )
+    assert response.cache_saved_cost_usd == Decimal("0")

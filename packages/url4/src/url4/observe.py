@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Literal, Protocol, Self, runtime_checkable
+from typing import Final, Literal, Protocol, Self, get_args, runtime_checkable
 
 from url4._log_attributes import _LogAttributes
 
@@ -123,6 +123,15 @@ type SavedCostProvenance = Literal["reported", "archive_matched"]
 :class:`url4.streaming.protocol.SpanData` — see the AIDEV-NOTE on `cache_status`."""
 
 
+_SAVED_COST_PROVENANCES: Final[frozenset[str]] = frozenset(get_args(SavedCostProvenance.__value__))
+"""The provenance vocabulary, DERIVED from the type alias rather than restated.
+
+A second hand-written tuple is a second thing to forget: the defect this closes was a seam that
+enforced the pairing invariant but not the vocabulary, so the vocabulary must not itself become a
+copy that can drift from the Literal it checks.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class ModelResponse:
     """Emitted once per model round trip, carrying HOW that call ended.
@@ -184,6 +193,21 @@ class ModelResponse:
             raise ValueError(
                 "ModelResponse cache_saved_cost_usd and cache_saved_cost_provenance "
                 "must be set together or not at all"
+            )
+        if self.cache_saved_cost_provenance is None:
+            return
+        if self.cache_saved_cost_provenance not in _SAVED_COST_PROVENANCES:
+            raise ValueError(
+                "ModelResponse cache_saved_cost_provenance must be one of "
+                f"{sorted(_SAVED_COST_PROVENANCES)}, got {self.cache_saved_cost_provenance!r}"
+            )
+        amount = self.cache_saved_cost_usd
+        # `is_finite()` rejects NaN and Infinity, which both slip past a bare `< 0`. A NaN total
+        # poisons every sum it reaches and never compares unequal to itself again.
+        if not isinstance(amount, Decimal) or not amount.is_finite() or amount < 0:
+            raise ValueError(
+                f"ModelResponse cache_saved_cost_usd must be a finite non-negative Decimal, "
+                f"got {amount!r}"
             )
 
 
