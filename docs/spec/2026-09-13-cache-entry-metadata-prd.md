@@ -184,6 +184,33 @@ failure to a minimal input. Recorded as open.
 | **E1/E2** | Saved-cost reporting on the observation seam (see ERD §4). |
 | **E3/E5** | The avoided-cost reader and its two accumulators. |
 
+## 7.1 Review round 2 additions (OME-1203)
+
+> **Added in review round 2, 2026-09-14.** Unlike the rest of this document, this section is not
+> recovered from a lost original — it is new specified behaviour, added closing PR #930's second
+> review round, pinned by the tests named below.
+
+**A retried round trip proves nothing was avoided.** A cache hit whose gateway round trip
+followed a transport-layer retry is reported as a hit with **no saved cost**, and counts as an
+**unpriced hit** (`cache.saved_cost.unpriced_hits`) — never as a priced saving. The retried
+attempt may already have been processed and billed upstream before its response was lost in
+transit; the retry then hits the very row that attempt wrote, and pricing that hit would report
+money saved that was in fact spent. This **withdraws** a claim; it does not assert the spend was
+zero — the underlying billed-then-lost-attempt gap is not closed by this rule and needs
+gateway-side idempotency keys (tracked separately, not in this PR).
+
+`CacheOutcome.retried` carries the fact from `_post_completion`, and
+`avoided_usd_for_outcome(aigw, cache)` in
+`apps/screamingface-engine/src/screamingface_engine/runner/accounting.py` is the single choke
+point that applies it — not the connector, which only produces the flag.
+
+*Pinned by `test_a_hit_after_a_transport_retry_is_not_priced`,
+`test_a_hit_with_no_retry_is_still_priced` and
+`test_a_withdrawn_price_lands_in_the_unpriced_bucket_and_no_total` in
+`apps/screamingface-engine/tests/unit/test_cache_saved_cost.py`, and
+`test_read_cache_outcome_passes_the_retried_flag_through` in
+`apps/screamingface-engine/tests/unit/test_cache_readback.py`.*
+
 ## 8. Unrecovered identifiers
 
 Cited somewhere in the codebase, but not pinnable to a specific assertion from the surviving code.

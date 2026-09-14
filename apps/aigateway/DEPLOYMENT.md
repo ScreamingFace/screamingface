@@ -354,9 +354,27 @@ dispatch, so a hit still produces no provider-side usage record of its own. Do n
 volume out of provider billing. Saved cost comes from the gateway's own stored metadata.
 
 **A nullable `metadata_json` column.** Migration `0011` appends `metadata_json` last on
-`request_cache_entries`. The column is nullable with no default. On Postgres the operation changes
-only the catalog: no table rewrite, no long lock, no backfill. On SQLite it is a plain in-place
-`ADD COLUMN`.
+`request_cache_entries`. The column is nullable with no default. On Postgres the operation
+rewrites nothing and touches only the catalog — but it still needs `ACCESS EXCLUSIVE` for the
+instant it applies, and a *queued* request for that lock sits at the head of the lock queue, so
+every later cache read queues behind it too. The migration runs the `ADD COLUMN` under a
+3-second `SET LOCAL lock_timeout`. If it cannot get the lock inside that window the migration
+**fails** and the operator reruns it — this is deliberate, on purpose, and there is no retry: a
+waiting `ACCESS EXCLUSIVE` blocking every later reader is worse than a failed migration, so
+leaving the queue is the safe direction. Retrying was considered and dropped — five short
+attempts against a lock held by the snapshot exporter (`snapshot_export.py`, up to 600 s per
+export) would nearly always exhaust anyway, and making the migration non-atomic to allow retries
+would have cost the downgrade path its all-or-nothing property. The realistic conflicting holder
+is a snapshot export in progress; avoid running a migration and an export at the same time. On
+SQLite it is a plain in-place `ADD COLUMN`.
+
+**A snapshot merge also takes a table lock.** Restoring a snapshot with `merge` now opens with
+`LOCK TABLE request_cache_entries IN SHARE ROW EXCLUSIVE MODE` for the length of the merge
+transaction. This is new behaviour operators should expect: concurrent cache **writes** block
+until the merge finishes; concurrent **reads** are unaffected and the cache keeps serving. The
+lock is what makes the degraded-row count below exact rather than approximate. On a deployment
+that sets a global `lock_timeout`, the merge will **fail** rather than wait — the safe direction,
+but not a surprise you want to discover during an incident.
 
 **The block is roughly 400 bytes.** It holds the canonical token usage, the direct cost, the
 provider latency, the response model and a schema id. The gateway writes the block at write time
@@ -376,11 +394,32 @@ one way a row goes from known back to unknown, and it is easy to trigger by acci
 taken before migration `0011` has 12 columns and no `metadata_json`, so every staged row carries
 `NULL` there — and both load modes write content columns wholesale, `merge` included. Merging such
 an archive to patch a gap therefore sets `metadata_json = NULL` on each live row whose cache key it
-matches, discarding blocks the gateway had already accumulated. Nothing warns, and nothing fails:
-those keys simply stop reporting saved cost and start counting as `cache.saved_cost.unpriced_hits`
-on later runs. Before merging an archive, check whether its header lists `metadata_json`; if it
+matches, discarding blocks the gateway had already accumulated. The erasure is still permitted —
+nothing fails — but it is no longer silent: the merge counts exactly the rows it degrades (the
+`SHARE ROW EXCLUSIVE` lock above is what keeps that count exact under a concurrent cache fill) and
+reports the total as `metadata_degraded` on the load outcome, on the job record, in the admin
+API, and as a warning. Those keys also stop reporting saved cost and start counting as
+`cache.saved_cost.unpriced_hits` on later runs. Before merging an archive, check whether its header lists `metadata_json`; if it
 does not, expect to lose the block on every overlapping key and re-accumulate it through live
 traffic. A post-`0011` archive is unaffected — it carries the column and restores real blocks.
+
+**A second, automatic path degrades a row the same way.** A Postgres-only `BEFORE UPDATE`
+trigger, `request_cache_entries_metadata_follows_response`, clears `metadata_json` on any
+`UPDATE` that changes `response_json` without setting `metadata_json` in the same statement. This
+is what protects the deployment from a **pre-`0011` binary** running against the widened table —
+a rolling upgrade or a rollback pod that has never heard of `metadata_json` still updates
+`response_json`, and without the trigger the row would keep its previous block, now describing an
+answer it did not produce. The trigger's `WHEN` clause is cheap on the hot path: an ordinary
+`hit_count`/`last_hit_at` bump changes neither column it inspects, so it never enters the
+function body. Like the merge above, this degrades to `NULL` — unknown — and never to a wrong
+number. It has one accepted false positive: a writer that replaces the body with a
+byte-identical block still loses it, because the trigger cannot tell "same answer" from "no
+answer computed."
+
+Together, this makes **a rollback to a pre-`0011` image safe for correctness and lossy for
+coverage.** The rolled-back binary can keep writing cache rows; every row it touches loses its
+metadata instead of carrying a stale one, and the deployment only pays for it in
+`cache.saved_cost.unpriced_hits`, never in a wrong number.
 
 **Two saved-cost totals per run.** A run report can carry two totals. Each total is a
 **counterfactual**: it states what the run would have paid without the cache. Both totals are

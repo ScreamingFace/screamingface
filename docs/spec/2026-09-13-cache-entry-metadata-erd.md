@@ -82,9 +82,29 @@ measured, reported and then quietly lost.
 
 ### §5.1 Migration 0011
 
-Appends `metadata_json` **nullable, with no default, last**. On Postgres this is a catalog-only
-change: no rewrite, no long lock, no backfill. On SQLite the migration is written so the reverse
-op restores the indexes the table rebuild drops. Neither dialect rebuilds the table on upgrade.
+Appends `metadata_json` **nullable, with no default, last**. On Postgres this is catalog-only —
+no table rewrite, no backfill — but it still needs `ACCESS EXCLUSIVE` for the instant it applies,
+and a queued request for that lock heads the lock queue, so every later cache read queues behind
+it too.
+
+> **Corrected in review round 2 (OME-1203).** This section previously read "no rewrite, no long
+> lock, no backfill." The lock claim was wrong: see below.
+
+The forward DDL runs under `SET LOCAL lock_timeout = '3000ms'` (`_bound_lock_wait`). It is tried
+**exactly once** — if the timeout fires the migration fails and the operator reruns it; there is
+no retry loop. `Migration.atomic` stays `True`, so the whole migration (including the SQLite
+index-restore on downgrade) commits or aborts as one unit. A retry loop was tried and removed:
+five attempts against the snapshot exporter's lock (held for up to 600 s) would nearly always
+exhaust anyway, and making the migration non-atomic to permit retrying would have cost the
+downgrade path its all-or-nothing property (ruling R10). The downgrade path (`DROP COLUMN`) sets
+no `lock_timeout` and can queue for as long as whatever holds the conflicting lock does — out of
+scope for this migration to fix.
+
+On SQLite the migration is written so the reverse op restores the indexes the table rebuild
+drops. Neither dialect rebuilds the table on upgrade.
+
+*Pinned by `test_the_migration_gives_up_the_lock_queue_instead_of_blocking_readers` in
+`apps/aigateway/tests/integration/test_cache_snapshot_entry_metadata_postgres.py`.*
 
 ### §5.2 Snapshot merge
 
@@ -100,6 +120,61 @@ response.
 Since PR #930's review, the load **counts and reports** the rows it degrades, on the
 `LoadOutcome`, on the job record, in the admin API, and as a warning. The erasure remains
 permitted; it is no longer silent.
+
+> **Added in review round 2 (OME-1203).** The merge transaction opens with `LOCK TABLE
+> request_cache_entries IN SHARE ROW EXCLUSIVE MODE` before it counts and before it merges.
+> Without it, the count and the merge are two statements under READ COMMITTED, each with its own
+> snapshot; a cache fill landing between them would be degraded by the merge but missed by the
+> count, so the report would understate the loss. `SHARE ROW EXCLUSIVE` blocks concurrent cache
+> **writes** for the length of the transaction and leaves **reads** unaffected, which is what
+> makes `metadata_degraded` exact rather than approximate. On a deployment with a global
+> `lock_timeout`, the merge fails rather than waits.
+>
+> *Pinned by `test_a_legacy_merge_reports_how_many_blocks_it_degraded` and
+> `test_a_racing_write_to_an_unrelated_row_blocks_the_merge` in
+> `apps/aigateway/tests/integration/test_cache_snapshot_entry_metadata_postgres.py`.*
+
+### §5.3 Stale-metadata trigger
+
+> **Added in review round 2 (OME-1203).** Not recovered from the lost original — new specified
+> behaviour, closing PR #930 review finding 1.
+
+A Postgres-only `BEFORE UPDATE` trigger, `request_cache_entries_metadata_follows_response`
+(function `request_cache_entries_clear_stale_metadata`), guards every writer, not only the
+snapshot loader:
+
+```sql
+BEFORE UPDATE ON request_cache_entries
+FOR EACH ROW
+WHEN (NEW.response_json IS DISTINCT FROM OLD.response_json
+      AND NEW.metadata_json IS NOT DISTINCT FROM OLD.metadata_json)
+EXECUTE FUNCTION request_cache_entries_clear_stale_metadata()  -- sets NEW.metadata_json := NULL
+```
+
+Migration 0011 leaves pre-0011 binaries fully operational against the widened table. An old
+writer that updates `response_json` without knowing `metadata_json` exists — during pod overlap
+in a rolling upgrade, or after a rollback — would otherwise pair a NEW response with the
+PREVIOUS response's cost, tokens and latency: a block that is well-formed and simply describes a
+different answer, which nothing downstream can detect. The trigger degrades the row to `NULL` —
+unknown — instead, which is the direction this feature already commits to (**E7**): unknown, not
+wrong.
+
+The `WHEN` clause is evaluated without entering the function body, so an ordinary
+`hit_count`/`last_hit_at` bump — the hot path — never pays for this. Installed with `CREATE OR
+REPLACE TRIGGER` (Postgres 14+) so re-running the forward migration against an already-migrated
+table is idempotent; both the trigger and its function are dropped on reverse.
+
+**Known false positive, deliberately accepted:** a writer that replaces the body and computes a
+byte-identical block loses it anyway, because the trigger cannot distinguish "same answer" from
+"no answer computed." The block carries provider latency, so two calls colliding on every field
+is vanishingly rare, and the cost is one row degraded to the safe direction (unknown).
+
+*Pinned by `test_replacing_a_response_alone_clears_its_metadata_block`,
+`test_replacing_a_response_with_its_own_block_keeps_the_block`,
+`test_a_hit_count_bump_never_touches_the_block`,
+`test_the_merge_still_carries_a_real_block_through` and
+`test_the_trigger_and_function_drop_together_on_reverse_and_recreate_idempotently` in
+`apps/aigateway/tests/integration/test_cache_snapshot_entry_metadata_postgres.py`.*
 
 ### §5.4 Write path
 
@@ -124,6 +199,8 @@ preferred over the provider plugin's mapper (**PRD S3/S4**).
 | **M5/M7** | Money and counts are re-validated through the canonical constructors on rebuild, not trusted verbatim from storage. |
 | **M8** | Archive-matched money is never summed with provider-authored money. |
 | **R2** | `CacheEntryMetadataReferenceError` is narrow and internal. No value is ever inferred from the cached response body. |
+| **E10** | *(Added in review round 2, OME-1203.)* Any `UPDATE` that changes `response_json` without setting `metadata_json` in the same statement clears the block to `NULL` (§5.3). This is the automatic counterpart to E7's merge case — the same "unknown, never wrong" direction, enforced against every writer, not only the loader. |
+| **E11** | *(Added in review round 2, OME-1203.)* A snapshot merge holds `SHARE ROW EXCLUSIVE` on `request_cache_entries` for its whole transaction (§5.2), so its `metadata_degraded` count is exact under a concurrent cache write, not merely likely. |
 
 ## Snapshot scenarios
 
@@ -132,6 +209,7 @@ preferred over the provider plugin's mapper (**PRD S3/S4**).
 | **S12** | A legacy 12-column archive is loaded. | COPY names the dump's own header columns; `metadata_json` loads `NULL` rather than being padded with an invented block. |
 | **S13** | A row produced by a gateway older than the column. | `NULL`; the provider's existing mapper serves the hit. |
 | **S20** | A merge drops a block. | Permitted (§5.2), counted and warned about. |
+| **S21** | *(Round 2.)* A pre-0011 binary updates `response_json` on a row that already has a block (rolling upgrade or rollback). | The trigger (§5.3, **E10**) clears `metadata_json` to `NULL` before the row commits — never a stale block beside the new response. |
 
 A staging twin left behind by a pre-0011 gateway is 12 columns wide, and `CREATE TABLE IF NOT
 EXISTS` will not widen it. The loader issues an idempotent `ADD COLUMN IF NOT EXISTS` before the
