@@ -70,12 +70,13 @@ def evaluate_sync(
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
     # pre-spend), or answers a plain 404 that reads as today's refusal.
+    prefetched: dict[str, ModelDetails] = {}
     for model in _missing_required_models(evaluation, catalog.models):
         try:
-            load_model_details(model)
+            prefetched[model] = load_model_details(model)
         except PlanningError as exc:
             _reraise_probe_miss(model, exc)
-    preflight_sync(tuple(evaluation.candidates), load_model_details)
+    preflight_sync(tuple(evaluation.candidates), load_model_details, prefetched)
     observer = _sync_event_observer(
         on_event,
         progress,
@@ -120,12 +121,13 @@ async def evaluate_async(
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
     # pre-spend), or answers a plain 404 that reads as today's refusal.
+    prefetched: dict[str, ModelDetails] = {}
     for model in _missing_required_models(evaluation, catalog.models):
         try:
-            await load_model_details(model)
+            prefetched[model] = await load_model_details(model)
         except PlanningError as exc:
             _reraise_probe_miss(model, exc)
-    await preflight_async(tuple(evaluation.candidates), load_model_details)
+    await preflight_async(tuple(evaluation.candidates), load_model_details, prefetched)
     observer = _async_event_observer(
         on_event,
         progress,

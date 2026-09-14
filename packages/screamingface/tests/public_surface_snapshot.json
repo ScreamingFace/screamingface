@@ -480,11 +480,12 @@
       "ModelDetails": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', provider: 'str', upstream_id: 'str', contract_id: 'str', scope: 'str', auth_mode: 'str', context_revision: 'str', source_revision: 'str | None', parameters: 'Mapping[str, ModelParameter]', tools: 'Mapping[str, ModelCapability]', transport: 'Mapping[str, ModelCapability]', observed_at: 'datetime | None', expires_at: 'datetime | None', stale: 'bool', degraded: 'bool') -> None",
+          "__init__": "method (self, id: 'str', provider: 'str', upstream_id: 'str', contract_id: 'str', scope: 'str', auth_mode: 'str', context_revision: 'str', source_revision: 'str | None', parameters: 'Mapping[str, ModelParameter]', tools: 'Mapping[str, ModelCapability]', transport: 'Mapping[str, ModelCapability]', observed_at: 'datetime | None', expires_at: 'datetime | None', stale: 'bool', degraded: 'bool', execution_access: \"Literal['configured', 'missing'] | None\" = None) -> None",
           "auth_mode": "field",
           "context_revision": "field",
           "contract_id": "field",
           "degraded": "field",
+          "execution_access": "field",
           "expires_at": "field",
           "id": "field",
           "observed_at": "field",
