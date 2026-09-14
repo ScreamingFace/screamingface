@@ -25,6 +25,8 @@ from screamingface_engine.runner.cache_counters import (
     SAVED_COST_ARCHIVE_USD,
     SAVED_COST_REPORTED_HITS,
     SAVED_COST_USD,
+    RunCacheCounters,
+    SavedCostTotals,
 )
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor
@@ -183,3 +185,40 @@ async def test_an_archive_matched_hit_lands_in_its_own_total_not_the_provider_on
 
     assert summary.cache_attributes[SAVED_COST_ARCHIVE_USD] == "0.25"
     assert SAVED_COST_USD not in summary.cache_attributes
+
+
+def test_accumulating_two_maximum_precision_amounts_rounds_nothing() -> None:
+    """Money is exact or it is not money.
+
+    `avoided_usd_from_aigw` converts a single amount at `AMOUNT_PRECISION`, so an amount at the
+    producer's published bound survives conversion. It must survive ADDITION too, or the run
+    publishes a total that silently disagrees with the hits behind it.
+    """
+    bound = Decimal("999999999999999999.000000000000000000000000000000001")
+    counters = RunCacheCounters()
+    counters.record_saved_cost(bound, "reported")
+    counters.record_saved_cost(bound, "reported")
+
+    # The expected value is a LITERAL, never `bound + bound`: recomputing it here would run the
+    # same ambient-context addition this test exists to catch, and the assertion would pass
+    # against a rounded total by agreeing with the defect.
+    assert counters.saved_cost_usd == Decimal(
+        "1999999999999999998.000000000000000000000000000000002"
+    )
+
+
+def test_the_span_and_run_totals_agree_at_maximum_precision() -> None:
+    """The two scopes share one accumulator helper, so they must agree on the EXACT value.
+
+    They already agreed while both were wrong — which is why this asserts the literal rather
+    than only comparing the two to each other.
+    """
+    bound = Decimal("999999999999999999.000000000000000000000000000000001")
+    run = RunCacheCounters()
+    span = SavedCostTotals()
+    for totals in (run, span):
+        totals.add_saved_cost(bound, "reported")
+        totals.add_saved_cost(bound, "reported")
+
+    assert run.saved_cost_usd == span.saved_cost_usd
+    assert span.saved_cost_usd == Decimal("1999999999999999998.000000000000000000000000000000002")

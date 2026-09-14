@@ -39,6 +39,7 @@ __all__ = [
     "PRICING_VERSION",
     "UNPRICED",
     "USD_UNIT",
+    "AMOUNT_PRECISION",
     "AvoidedCost",
     "CallAccounting",
     "SavedCostProvenance",
@@ -66,7 +67,7 @@ _SAVED_COST_PROVENANCES: tuple[SavedCostProvenance, ...] = ("reported", "archive
 _CREDIT_TO_USD = Decimal(1)
 # The producer's published amount bound is 18 integer + 33 fractional digits; this leaves headroom
 # so no conversion can round a value that arrived at the bound.
-_AMOUNT_PRECISION = 18 + 33 + 2
+AMOUNT_PRECISION = 18 + 33 + 2
 
 # Copied verbatim from the producer's published schema (the `amount` property). Keep it that way:
 # a locally-invented variant would drift from the contract it exists to mirror.
@@ -175,7 +176,7 @@ def _credits_to_usd(subtotals: object) -> Decimal | None:
     # INVARIANT: money arithmetic here is independent of whatever decimal context the caller happens
     # to be running under, exactly as the producing gateway guarantees for its own subtotals.
     with localcontext() as ctx:
-        ctx.prec = _AMOUNT_PRECISION
+        ctx.prec = AMOUNT_PRECISION
         return amount * _CREDIT_TO_USD
 
 

@@ -35,9 +35,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import Literal
 
+from screamingface_engine.runner.accounting import AMOUNT_PRECISION
 from screamingface_engine.runner.cache_readback import CacheStatus
 
 SavedCostProvenance = Literal["reported", "archive_matched"]
@@ -100,8 +101,17 @@ def _accumulated(total: Decimal | None, amount: Decimal) -> Decimal:
     WHY not `(total or 0) + amount`: a total of `Decimal("0")` is falsy, and collapsing it into
     the absent case would be harmless here only by luck. `None` and zero are different claims
     everywhere else in this module, so they stay different here too.
+
+    WHY the local context: `Decimal.__add__` rounds to the AMBIENT precision, 28 digits by
+    default, while `avoided_usd_from_aigw` converts each amount at `AMOUNT_PRECISION`. Adding
+    under the smaller context would round a value that was deliberately preserved one step
+    earlier — and silently, since `Decimal` signals inexactness only if the caller asks.
     """
-    return amount if total is None else total + amount
+    if total is None:
+        return amount
+    with localcontext() as ctx:
+        ctx.prec = AMOUNT_PRECISION
+        return total + amount
 
 
 @dataclass(slots=True)
