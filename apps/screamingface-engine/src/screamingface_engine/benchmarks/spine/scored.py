@@ -197,6 +197,12 @@ class ScoredPath:
             of a hook-reported failure (``grade_case`` returned a ``failure_code``).
             ``None`` keeps the default assembly (empty metrics, judged/expected
             metadata).
+        missing_material_code: the published failure code when a Case's grading
+            material is unusable (the default missing-material rung only — a
+            ``missing_material_result`` hook owns its whole shape). WHY board-named
+            (OME-1149): the rubric boards say ``missing_rubric_asset``, but an MCQ
+            board's material is its answer key — publishing a rubric-flavored code
+            there would contradict its own message.
     """
 
     reader: RowReader
@@ -209,6 +215,7 @@ class ScoredPath:
     error_row_result: ErrorRowResult | None = None
     missing_material_result: MissingMaterialResult | None = None
     hook_failure_result: HookFailureResult | None = None
+    missing_material_code: str = "missing_rubric_asset"
 
     def aggregate(
         self,
@@ -219,6 +226,7 @@ class ScoredPath:
         selected_cases: Sequence[SelectedCase],
         grading_material: Callable[[int], object | None],
         scorer: Callable[[Sequence[CaseResult]], CandidateScore],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Mark every selected Case, then score the exam with the board's own scorer.
 
@@ -228,11 +236,17 @@ class ScoredPath:
             benchmark_revision: that board's revision, stamped into the result.
             selected_cases: the authoritative roll call, in selected order.
             grading_material: per-Case loader for the board's grading material;
-                ``None`` marks the material unusable ("missing_rubric_asset").
+                ``None`` marks the material unusable (``missing_material_code``).
             scorer: the exam-level reduction, the board's whole ``CandidateScore``
                 builder. Rubric boards bind ``exam_scorer(mean)`` (fixed rubric
                 vocabulary, mean the only choice); a non-rubric board (ifeval)
                 supplies its published metric vocabulary here (OME-1101).
+            case_metadata: optional per-Case loader for PUBLIC report metadata that
+                does not ride the row (OME-1149: MedXpertQA's slice tags live in the
+                private answer asset). Merged into the spine-assembled scored and
+                failed results, so failure-mode analysis can group by the same axes;
+                row-level grading failures and board-owned result hooks keep their
+                own (pre-fold) shape.
 
         Returns:
             The Candidate result payload: every selected Case, its grade or its
@@ -245,7 +259,7 @@ class ScoredPath:
         # Stage 3-4 — the hook is async (an enclave call is a network hop); the
         # surrounding url4 handler is sync.
         case_results: list[CaseResult] = _run_sync(
-            self._case_results(selected_cases, indexed, grading_material)
+            self._case_results(selected_cases, indexed, grading_material, case_metadata)
         )
         # Stage 5 — fold the marks into the class results.
         return finalize_candidate_result(
@@ -261,11 +275,12 @@ class ScoredPath:
         selected_cases: Sequence[SelectedCase],
         indexed: RowIndex,
         grading_material: Callable[[int], object | None],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None,
     ) -> list[CaseResult]:
         # WHY sequential, not gather: selected order is publication order, and no
         # current hook overlaps I/O; concurrency semantics are a later, separate call.
         results: list[CaseResult | None] = [
-            await self._case_result(selected, index, indexed, grading_material)
+            await self._case_result(selected, index, indexed, grading_material, case_metadata)
             for index, selected in enumerate(selected_cases)
         ]
         # An omitted Case (a missing-row hook returned None) files nothing; the
@@ -278,12 +293,14 @@ class ScoredPath:
         selected_index: int,
         indexed: RowIndex,
         grading_material: Callable[[int], object | None],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None,
     ) -> CaseResult | None:
         case_id: int = int(selected_case.case_id)
         row: dict[str, Any] | None = indexed.rows.get(case_id)
         material: object | None = grading_material(case_id)
+        extra_metadata: Mapping[str, Any] = case_metadata(case_id) if case_metadata else {}
         ladder: CaseResult | _Omitted | None = self._ladder_result(
-            selected_case, selected_index, indexed, row, material
+            selected_case, selected_index, indexed, row, material, extra_metadata
         )
         if isinstance(ladder, _Omitted):
             return None
@@ -306,7 +323,9 @@ class ScoredPath:
                     material=material,
                 )
             )
-            result = self._graded_result(selected_case, selected_index, row, outcome)
+            result = self._graded_result(
+                selected_case, selected_index, row, outcome, extra_metadata
+            )
         return result
 
     def _ladder_result(
@@ -316,6 +335,7 @@ class ScoredPath:
         indexed: RowIndex,
         row: Mapping[str, Any] | None,
         material: object | None,
+        extra_metadata: Mapping[str, Any],
     ) -> CaseResult | _Omitted | None:
         """Stage 3 — the ladder, most-broken first; ``None`` means the Case is gradeable."""
 
@@ -337,12 +357,12 @@ class ScoredPath:
             # is reported before the board's own missing material (draco's order).
             result = self.error_row_result(selected, selected_index, row)
         elif material is None:
-            result = self._missing_material(selected, selected_index, row)
+            result = self._missing_material(selected, selected_index, row, extra_metadata)
         elif row is None:
-            result = self._missing_row(selected, selected_index, indexed, case_id)
+            result = self._missing_row(selected, selected_index, indexed, case_id, extra_metadata)
         elif "error" in row:
             failure = self._failure(case_id, "candidate", "case_error", error=row["error"])
-            result = self._failed_result(selected, row, [], failure)
+            result = self._failed_result(selected, row, [], failure, extra_metadata)
         else:
             result = None
         return result
@@ -352,15 +372,16 @@ class ScoredPath:
         selected: SelectedCase,
         selected_index: int,
         row: Mapping[str, Any] | None,
+        extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
         """The missing-material rung: board-owned shape when the hook is set."""
 
         if self.missing_material_result is not None:
             return self.missing_material_result(selected, selected_index, row)
         failure: dict[str, Any] = self._failure(
-            int(selected.case_id), "grading", "missing_rubric_asset"
+            int(selected.case_id), "grading", self.missing_material_code
         )
-        return self._failed_result(selected, row, [], failure)
+        return self._failed_result(selected, row, [], failure, extra_metadata)
 
     def _missing_row(
         self,
@@ -368,12 +389,13 @@ class ScoredPath:
         selected_index: int,
         indexed: RowIndex,
         case_id: int,
+        extra_metadata: Mapping[str, Any],
     ) -> CaseResult | _Omitted:
         """The missing-row rung: board-owned shape — or omission — when the hook is set."""
 
         orphans: list[dict[str, Any]] | None = indexed.collected_errors.get(case_id)
         if self.missing_row_result is None:
-            return self._missing_row_result(selected, orphans)
+            return self._missing_row_result(selected, orphans, extra_metadata)
         board_result: CaseResult | None = self.missing_row_result(selected, selected_index, orphans)
         # None from the board hook means "file nothing" — the finalizer reports
         # the Case as case_result_missing (draco's pinned shape).
@@ -385,6 +407,7 @@ class ScoredPath:
         selected_index: int,
         row: Mapping[str, Any],
         outcome: CaseGradeOutcome,
+        extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
         if outcome.failure_code is not None:
             if self.hook_failure_result is not None:
@@ -398,14 +421,15 @@ class ScoredPath:
                 judged=outcome.metrics.get("judged"),
                 expected=outcome.metrics.get("expected"),
             )
-            return self._failed_result(selected, row, outcome.checks, failure)
-        return self._scored_result(selected, row, outcome)
+            return self._failed_result(selected, row, outcome.checks, failure, extra_metadata)
+        return self._scored_result(selected, row, outcome, extra_metadata)
 
     def _scored_result(
         self,
         selected: SelectedCase,
         row: Mapping[str, Any],
         outcome: CaseGradeOutcome,
+        extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
         assert outcome.score is not None
         fields: CandidateFields = _candidate_fields(row)
@@ -419,7 +443,7 @@ class ScoredPath:
             "selected_case": selected,
             "finish_reason": fields.finish_reason,
             "grade": grade,
-            "metadata": fields.metadata,
+            "metadata": {**fields.metadata, **extra_metadata},
             "execution": fields.execution,
             "operations": fields.operations,
         }
@@ -433,6 +457,7 @@ class ScoredPath:
         self,
         selected: SelectedCase,
         orphan_errors: list[dict[str, Any]] | None,
+        extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
         # WHY the collected_errors attachment: an on_error=collect row loses its
         # Case identity, so a mid-chain error surfaces HERE as a missing row —
@@ -444,7 +469,7 @@ class ScoredPath:
             "missing_case_row",
             **({"collected_errors": orphan_errors[:3]} if orphan_errors else {}),
         )
-        return self._failed_result(selected, None, [], failure)
+        return self._failed_result(selected, None, [], failure, extra_metadata)
 
     def _failed_result(
         self,
@@ -452,6 +477,7 @@ class ScoredPath:
         row: Mapping[str, Any] | None,
         checks: Sequence[Mapping[str, Any]],
         failure: dict[str, Any],
+        extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
         fields: CandidateFields = _candidate_fields(row)
         # WHY a grade with score None rather than no grade: the judge evidence for a
@@ -469,7 +495,7 @@ class ScoredPath:
             "finish_reason": fields.finish_reason,
             "grade": grade,
             "failures": [failure],
-            "metadata": fields.metadata,
+            "metadata": {**fields.metadata, **extra_metadata},
             "execution": fields.execution,
             "operations": fields.operations,
         }

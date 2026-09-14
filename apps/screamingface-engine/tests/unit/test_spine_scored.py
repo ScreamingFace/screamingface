@@ -680,6 +680,64 @@ def test_a_scored_outcome_never_reaches_the_hook_failure_result() -> None:
     assert result["cases"][0]["status"] == "scored"
 
 
+# ── OME-1149: the two seams a fixed-answer board needs ──────────────────────
+
+
+def test_case_metadata_rides_scored_and_failed_results() -> None:
+    """OME-1149: MedXpertQA's slice tags come from the PRIVATE answer asset, not the
+    row — a per-case loader must reach scored, ladder-failed, and missing-row
+    results alike, so failure-mode analysis can group by the same axes."""
+
+    hook = _Hook()
+    result = _path(hook).aggregate(
+        json.dumps([_envelope(1, _grading(1))]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1, 2),
+        grading_material=lambda case_id: (5,),
+        scorer=exam_scorer(_mean),
+        case_metadata=lambda case_id: {"body_system": f"slice-{case_id}"},
+    )
+
+    scored, failed = result["cases"]
+    assert scored["status"] == "scored"
+    assert scored["metadata"]["body_system"] == "slice-1"
+    assert failed["status"] == "failed"  # missing row — slice tag must survive
+    assert failed["metadata"]["body_system"] == "slice-2"
+
+
+def test_omitting_case_metadata_changes_nothing() -> None:
+    hook = _Hook()
+    result = _aggregate(_path(hook), [_envelope(1, _grading(1))], _selected(1))
+
+    assert result["cases"][0]["metadata"] == {}
+
+
+def test_the_material_missing_code_is_board_named() -> None:
+    """OME-1149: an MCQ board publishing `missing_rubric_asset` would contradict its
+    own message — the rung's published code is the board's, not spine vocabulary."""
+
+    hook = _Hook()
+    messages = dict(MESSAGES) | {"missing_answer_asset": "test: answer key gone"}
+    result = _path(
+        hook,
+        failure_messages=messages,
+        missing_material_code="missing_answer_asset",
+    ).aggregate(
+        json.dumps([_envelope(1, _grading(1))]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1),
+        grading_material=lambda case_id: None,
+        scorer=exam_scorer(_mean),
+    )
+
+    assert hook.requests == []
+    failure = result["cases"][0]["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("grading", "missing_answer_asset")
+    assert failure["message"] == "test: answer key gone"
+
+
 # ── the shared rubric hook factory: both boards' marking, written once ──────
 
 
