@@ -371,6 +371,17 @@ the cost is reported as unknown. The
 gateway never infers a cost from `response_json`. A block that cannot be built, serialized or
 parsed also degrades to `NULL`. No metadata failure ever fails a request or loses an answer.
 
+**Restoring a pre-`0011` archive erases the metadata of every row it collides with.** This is the
+one way a row goes from known back to unknown, and it is easy to trigger by accident: a snapshot
+taken before migration `0011` has 12 columns and no `metadata_json`, so every staged row carries
+`NULL` there — and both load modes write content columns wholesale, `merge` included. Merging such
+an archive to patch a gap therefore sets `metadata_json = NULL` on each live row whose cache key it
+matches, discarding blocks the gateway had already accumulated. Nothing warns, and nothing fails:
+those keys simply stop reporting saved cost and start counting as `cache.saved_cost.unpriced_hits`
+on later runs. Before merging an archive, check whether its header lists `metadata_json`; if it
+does not, expect to lose the block on every overlapping key and re-accumulate it through live
+traffic. A post-`0011` archive is unaffected — it carries the column and restores real blocks.
+
 **Two saved-cost totals per run.** A run report can carry two totals. Each total is a
 **counterfactual**: it states what the run would have paid without the cache. Both totals are
 labelled counterfactual wherever they are rendered.

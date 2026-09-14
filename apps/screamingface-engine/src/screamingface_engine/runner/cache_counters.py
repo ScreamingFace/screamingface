@@ -94,8 +94,62 @@ than drops, so the breakdown still sums to the total it belongs to.
 _COUNTED_BYPASS: CacheStatus = "bypass"
 
 
+def _accumulated(total: Decimal | None, amount: Decimal) -> Decimal:
+    """``amount`` added to ``total``, an absent total meaning this is the first contribution.
+
+    WHY not `(total or 0) + amount`: a total of `Decimal("0")` is falsy, and collapsing it into
+    the absent case would be harmless here only by luck. `None` and zero are different claims
+    everywhere else in this module, so they stay different here too.
+    """
+    return amount if total is None else total + amount
+
+
 @dataclass(slots=True)
-class RunCacheCounters:
+class SavedCostTotals:
+    """Avoided money, in one accumulator per provenance — the whole never-mix rule, in one place.
+
+    WHY a type of its own rather than two fields wherever saved cost is tallied: the rule that
+    routes an amount to its provenance and refuses to combine the two (PRD S5/S7) is load-bearing
+    at BOTH scopes — `RunCacheCounters` extends this for the run, and `_SpanState` holds one for
+    the span. Two hand-written copies of that routing is two places for it to drift.
+
+    AIDEV-NOTE: extended rather than composed by `RunCacheCounters` deliberately — the field
+    names below are the run counter's own published names, and `test_the_counter_carries_exactly
+    _two_saved_cost_accumulators` reads them off `dataclasses.fields(RunCacheCounters)`.
+    """
+
+    # FEATURE: saved cost (ans:Q2). `None` until the first priceable hit of that provenance;
+    # NEVER defaulted to zero, because a zero total would read as "the cache saved nothing" when
+    # the honest answer is "no hit of this kind was observed". The two totals are separate
+    # accumulators by construction — no code path adds them.
+    saved_cost_usd: Decimal | None = None
+    saved_cost_archive_usd: Decimal | None = None
+
+    def add_saved_cost(
+        self, amount_usd: Decimal | None, provenance: SavedCostProvenance | None
+    ) -> SavedCostProvenance | None:
+        """Accumulate one cache HIT's avoided cost under its own provenance.
+
+        INVARIANT: ACCUMULATES, never assigns. Money is additive, so a scope that sees several
+        hits — a tool-calling turn is several round trips against one span (PRD §4.1) — must
+        report their sum. Assigning would publish one hit's amount as if it were the scope's.
+
+        Returns the total the amount landed in, or `None` when it landed in neither: no amount,
+        or a provenance this engine cannot price. The caller uses that to keep its own coverage
+        counts without re-deciding the routing.
+        """
+        if amount_usd is not None:
+            if provenance == "reported":
+                self.saved_cost_usd = _accumulated(self.saved_cost_usd, amount_usd)
+                return provenance
+            if provenance == "archive_matched":
+                self.saved_cost_archive_usd = _accumulated(self.saved_cost_archive_usd, amount_usd)
+                return provenance
+        return None
+
+
+@dataclass(slots=True)
+class RunCacheCounters(SavedCostTotals):
     """One run's cache tallies. Plain integers, lifted onto the wire by the executor.
 
     Not a `prometheus_client` object for the layering reason in the module docstring, and not one
@@ -106,12 +160,6 @@ class RunCacheCounters:
     hits: int = 0
     misses: int = 0
     bypasses: int = 0
-    # FEATURE: run-level saved cost (ans:Q2). `None` until the first priceable hit of that
-    # provenance; NEVER defaulted to zero, because a zero total would read as "the cache saved
-    # nothing" when the honest answer is "no hit of this kind was observed". The two totals are
-    # separate accumulators by construction — no code path adds them.
-    saved_cost_usd: Decimal | None = None
-    saved_cost_archive_usd: Decimal | None = None
     # Coverage counts, one per outcome. They make each partial total auditable (PRD §3.9):
     # `reported`/`archive_matched` count the priced hits behind their total, and `unpriced_hits`
     # counts hits whose stored cost this engine could not price (no reference, unknown unit).
@@ -157,18 +205,14 @@ class RunCacheCounters:
         `archive_matched` money is paired from the DRACO archive (PRD ans:Q5). Anything else —
         no reference, an unknown unit, a status this engine cannot price — is an unpriced hit and
         enters no total (PRD S14).
+
+        The routing itself lives on :meth:`SavedCostTotals.add_saved_cost`, shared with the
+        per-span totals; this adds only the coverage count the run publishes beside each total.
         """
-        if provenance == "reported" and amount_usd is not None:
-            self.saved_cost_usd = (
-                amount_usd if self.saved_cost_usd is None else self.saved_cost_usd + amount_usd
-            )
+        landed = self.add_saved_cost(amount_usd, provenance)
+        if landed == "reported":
             self.reported_hits += 1
-        elif provenance == "archive_matched" and amount_usd is not None:
-            self.saved_cost_archive_usd = (
-                amount_usd
-                if self.saved_cost_archive_usd is None
-                else self.saved_cost_archive_usd + amount_usd
-            )
+        elif landed == "archive_matched":
             self.archive_hits += 1
         else:
             self.unpriced_hits += 1
@@ -271,6 +315,7 @@ __all__ = [
     "SAVED_COST_UNPRICED_HITS",
     "SAVED_COST_USD",
     "SavedCostProvenance",
+    "SavedCostTotals",
     "UNSTATED_REASON",
     "RunCacheCounters",
 ]

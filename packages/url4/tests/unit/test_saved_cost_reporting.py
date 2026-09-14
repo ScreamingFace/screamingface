@@ -140,25 +140,28 @@ async def test_a_caller_that_reports_no_saved_cost_is_unaffected() -> None:
 
 
 def test_span_data_carries_both_saved_cost_fields() -> None:
+    # One field per provenance, each a total over this span's hits of that kind. The provenance
+    # is carried by the FIELD NAME rather than by a tag beside a single amount, so no consumer
+    # can add the tags away and produce a figure PRD S5 forbids.
     span = SpanData(
         name="aigateway",
         operation="chat",
         provider="openrouter",
         cache_status="hit",
         cache_saved_cost_usd=Decimal("0.0125"),
-        cache_saved_cost_provenance="reported",
+        cache_saved_cost_archive_usd=Decimal("5"),
         start=datetime.now(UTC),
     )
 
     assert span.cache_saved_cost_usd == Decimal("0.0125")
-    assert span.cache_saved_cost_provenance == "reported"
+    assert span.cache_saved_cost_archive_usd == Decimal("5")
 
 
 def test_both_saved_cost_fields_are_absent_by_default_on_a_span() -> None:
     span = SpanData(name="static", operation="fetch", start=datetime.now(UTC))
 
     assert span.cache_saved_cost_usd is None
-    assert span.cache_saved_cost_provenance is None
+    assert span.cache_saved_cost_archive_usd is None
 
 
 def test_the_cost_block_is_still_closed_to_saved_cost() -> None:

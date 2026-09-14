@@ -181,7 +181,7 @@ def test_a_saved_cost_becomes_an_exact_decimal_string_attribute() -> None:
             "data": frame.data.model_copy(
                 update={
                     "cache_saved_cost_usd": Decimal("0.0125"),
-                    "cache_saved_cost_provenance": "reported",
+                    "cache_saved_cost_archive_usd": Decimal("5"),
                 }
             )
         }
@@ -189,8 +189,11 @@ def test_a_saved_cost_becomes_an_exact_decimal_string_attribute() -> None:
 
     attributes = build_span_tree([frame]).spans[0].attributes
 
+    # Both totals make the trip, and each stays its own attribute: a backend may sum EITHER
+    # across a run's spans and land on the matching run total, and has no attribute to reach
+    # for that would combine them.
     assert attributes["url4.cache_saved_cost_usd"] == "0.0125"
-    assert attributes["url4.cache_saved_cost_provenance"] == "reported"
+    assert attributes["url4.cache_saved_cost_archive_usd"] == "5"
 
 
 def test_a_small_saved_cost_is_never_rendered_in_scientific_notation() -> None:
