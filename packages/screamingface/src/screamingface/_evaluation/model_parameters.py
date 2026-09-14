@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 
 from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.model import Candidate
 from screamingface.discovery import ModelDetails
-from screamingface.errors import PlanningError
+from screamingface.errors import PlanningError, ProviderConnectionError
 
 type _Assignments = dict[str, tuple[GenerationParams, ...]]
 type _SyncDetailsLoading = Callable[[str], ModelDetails]
@@ -20,8 +20,9 @@ def preflight_sync(
     load: _SyncDetailsLoading,
     *,
     answer_seed: int | None = None,
+    prefetched: Mapping[str, ModelDetails] | None = None,
 ) -> None:
-    """Validate explicit parameters — and a declared answer seed — against each Model once.
+    """Validate access, explicit parameters and any answer seed against each Model once.
 
     FEATURE (OME-1193 review round): a declared answer seed is stamped onto every answer
     call, so every candidate Model must carry an enabled `seed` in its gateway contract.
@@ -33,9 +34,11 @@ def preflight_sync(
 
     assignments = _assignments(candidates)
     seed_models = _seed_models(candidates) if answer_seed is not None else ()
-    details_by_model: dict[str, ModelDetails] = {
-        model: load(model) for model in _preflight_models(assignments, seed_models)
-    }
+    known = prefetched if prefetched is not None else {}
+    details_by_model: dict[str, ModelDetails] = {}
+    for model in _preflight_models(candidates, assignments):
+        details = known.get(model)
+        details_by_model[model] = load(model) if details is None else details
     _validate(details_by_model, assignments, seed_models, answer_seed)
 
 
@@ -44,22 +47,25 @@ async def preflight_async(
     load: _AsyncDetailsLoading,
     *,
     answer_seed: int | None = None,
+    prefetched: Mapping[str, ModelDetails] | None = None,
 ) -> None:
     """Asynchronous counterpart of :func:`preflight_sync`."""
 
     assignments = _assignments(candidates)
     seed_models = _seed_models(candidates) if answer_seed is not None else ()
-    models = _preflight_models(assignments, seed_models)
+    models = _preflight_models(candidates, assignments)
     if not models:
         return
-    details = await asyncio.gather(*(load(model) for model in models))
-    details_by_model = dict(zip(models, details, strict=True))
+    details_by_model = dict(prefetched) if prefetched is not None else {}
+    missing = tuple(model for model in models if model not in details_by_model)
+    details = await asyncio.gather(*(load(model) for model in missing))
+    details_by_model.update(zip(missing, details, strict=True))
     _validate(details_by_model, assignments, seed_models, answer_seed)
 
 
-def _preflight_models(assignments: _Assignments, seed_models: tuple[str, ...]) -> tuple[str, ...]:
-    """Every Model whose contract this preflight must fetch, each exactly once."""
-    return tuple(dict.fromkeys((*assignments, *seed_models)))
+def _preflight_models(candidates: Sequence[Candidate], assignments: _Assignments) -> tuple[str, ...]:
+    """Check access for every required Model, including parameter-free evaluations."""
+    return tuple(dict.fromkeys((*_seed_models(candidates), *assignments)))
 
 
 def _seed_models(candidates: Sequence[Candidate]) -> tuple[str, ...]:
@@ -73,7 +79,9 @@ def _validate(
     seed_models: tuple[str, ...],
     answer_seed: int | None,
 ) -> None:
-    """Run both checks off the once-fetched contracts: explicit params, then the seed."""
+    """Validate access, explicit parameters and answer seed from once-fetched contracts."""
+    for details in details_by_model.values():
+        _validate_access(details)
     for model, selected in assignments.items():
         _validate_assignments(details_by_model[model], selected)
     if answer_seed is not None:
@@ -93,6 +101,24 @@ def _validate_assignments(details: ModelDetails, assignments: tuple[GenerationPa
     for values in assignments:
         for name, value in values.items():
             _validate_parameter(details, name, value)
+
+
+def _validate_access(details: ModelDetails) -> None:
+    # FEATURE: OME-1042 fails before observers or Candidate dispatch, including
+    # parameter-free recipes. Only Gateway's authoritative absence may reject;
+    # hosted/profileless configuration and legacy unknown access remain valid.
+    if details.execution_access == "missing":
+        raise ProviderConnectionError(
+            f"Provider {details.provider!r} is not connected for Model {details.id!r}",
+            provider=details.provider,
+            code="provider_not_connected",
+            permanent=True,
+            details={"model": details.id, "provider": details.provider},
+            hint=(
+                "Open sf.connect() to configure provider access, or enable the selected "
+                "provider profile on your hosted Engine, then retry."
+            ),
+        )
 
 
 def _validate_parameter(details: ModelDetails, name: str, value: object) -> None:
