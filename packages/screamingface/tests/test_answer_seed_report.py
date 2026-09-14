@@ -22,14 +22,17 @@ that appears only sometimes.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import httpx
 import pytest
-from test_client_run import REPLAY_URL4, _engine, _ReplayTransport
+from test_client_run import REPLAY_URL4, _AsyncReplayTransport, _engine, _ReplayTransport
+from test_draco_vertical_slice import _engine as _draco_engine
+from test_draco_vertical_slice import _FakeTransport
 from test_report import benchmark, case_results, report
 
 import screamingface as sf
-from screamingface._engine.transport import _start_sync
+from screamingface._engine.transport import _start_async, _start_sync
 from screamingface._evaluation.model import _compiled_operation
 
 TOKEN = "cap-token"
@@ -174,3 +177,101 @@ def test_evaluate_rejects_a_non_integer_seed_before_any_call(bad: object) -> Non
         client.evaluate(REPLAY_URL4, progress=False, answer_seed=bad)  # type: ignore[arg-type]
 
     assert transport.candidate is None
+
+
+# --- the untested twins: async starts, async evaluate, and the Recipe path --------------------
+
+
+@pytest.mark.asyncio
+async def test_start_async_sends_the_header_only_when_declared() -> None:
+    """The async twin of the two sync header tests — same absence rule, same wire word."""
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            202,
+            headers={"Preference-Applied": "respond-async", "Location": "/runs/1"},
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handle), base_url="https://engine.test"
+    ) as http:
+        await _start_async(http, TOKEN, URL4, answer_seed=7)
+        await _start_async(http, TOKEN, URL4)
+
+    assert seen[0].headers["X-Answer-Seed"] == "7"
+    assert "X-Answer-Seed" not in seen[1].headers
+
+
+@pytest.mark.asyncio
+async def test_async_replay_evaluate_threads_the_seed_to_the_transport_and_report() -> None:
+    """A refactor dropping the replay branch's stamp would run unseeded while the report
+    claims sitting 7 — the exact dishonesty this feature ends; this pins the async path."""
+    transport = _AsyncReplayTransport()
+    client = sf.AsyncClient(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_engine),
+        run_transport=transport,
+    )
+
+    result = await client.evaluate(REPLAY_URL4, progress=False, answer_seed=7)
+    await client.aclose()
+
+    assert transport.candidate is not None
+    assert transport.candidate.answer_seed == 7
+    assert result.candidates[0].answer_seed == 7
+
+
+class _CandidateRecordingTransport(_FakeTransport):
+    """`_FakeTransport`, plus the compiled Candidate objects the Recipe path hands it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.candidates: list[Any] = []
+
+    def run(self, candidate: Any, on_event: object) -> Any:
+        self.candidates.append(candidate)
+        return super().run(candidate, on_event)
+
+
+def test_recipe_evaluation_stamps_the_seed_on_every_compiled_candidate() -> None:
+    """Pins the runner's stamp-once step (`_seeded_candidates`) — the Recipe path is a
+    different branch from the url4 replay the earlier end-to-end tests exercise."""
+    transport = _CandidateRecordingTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_draco_engine),
+        run_transport=transport,
+    )
+
+    with client:
+        result = client.evaluate(
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
+            limit=1,
+            answer_seed=7,
+        )
+
+    assert [candidate.answer_seed for candidate in transport.candidates] == [7]
+    assert result.candidates.only.answer_seed == 7
+    assert json.loads(result.to_json())["candidates"][0]["answer_seed"] == 7
+
+
+def test_recipe_evaluation_without_a_seed_stays_unseeded() -> None:
+    transport = _CandidateRecordingTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_draco_engine),
+        run_transport=transport,
+    )
+
+    with client:
+        result = client.evaluate(
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
+            limit=1,
+        )
+
+    assert [candidate.answer_seed for candidate in transport.candidates] == [None]
+    assert result.candidates.only.answer_seed is None

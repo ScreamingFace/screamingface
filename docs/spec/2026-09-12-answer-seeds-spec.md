@@ -93,7 +93,8 @@ aggregates within the run; one report carries mean ± CI.
   in-expression.
 
 **Recommendation: Option A.** It is the YAGNI shape — the entire feature reduces to (1) a
-client/run-config field `answer_seeds: list[int]`, (2) the candidate call rendering
+client kwarg `evaluate(answer_seed: int)` — one sitting per run, N sittings = N
+`evaluate` calls, (2) the candidate call rendering
 `("seed", str(s))`, (3) `answer_seed` in the report metadata, (4) a scoreboard
 aggregation sub-issue. Option B's single-report elegance can be layered later without
 undoing A; A ships without touching the spine the epic just stabilized.
@@ -111,7 +112,7 @@ undoing A; A ships without touching the spine the epic just stabilized.
 
 ## Acceptance (falsifiable)
 
-1. A run declaring `answer_seeds=[1, 2, 3]` produces 3 reports, each naming its seed, and
+1. Three runs declaring `answer_seed=1`, `2`, `3` produce 3 reports, each naming its seed, and
    re-running with the same seeds renders byte-identical expression text (asserted by
    comparing rendered expressions, not scores).
 2. A run declaring nothing renders expressions byte-identical to today: the existing
