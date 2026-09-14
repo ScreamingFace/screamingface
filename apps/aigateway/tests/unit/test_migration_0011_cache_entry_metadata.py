@@ -236,9 +236,12 @@ def _migration_0011() -> ModuleType:
     return import_module("aigateway.migrations.0011_cache_entry_metadata")
 
 
-def test_the_migration_is_not_atomic_so_a_lock_attempt_can_be_retried() -> None:
-    """A failed statement aborts an atomic migration's transaction, so retry needs atomic=False."""
-    assert _migration_0011().Migration.atomic is False
+def test_the_migration_is_atomic_so_a_crash_mid_downgrade_cannot_half_apply() -> None:
+    """Non-atomic would run the downgrade's reverse operations in separate transactions — a
+    crash between `AddMetadataColumn`'s reverse (drops the column, rebuilds the SQLite table)
+    and the index-restore step would then leave the database with both the column AND the
+    indexes gone, with nothing to roll it back. Atomic keeps the whole migration one unit."""
+    assert _migration_0011().Migration.atomic is True
 
 
 def test_the_postgres_ddl_runs_under_a_bounded_lock_timeout() -> None:
@@ -250,12 +253,10 @@ def test_the_postgres_ddl_runs_under_a_bounded_lock_timeout() -> None:
     assert "0" != module._SET_LOCK_TIMEOUT_SQL.strip().rstrip(";").split("=")[-1].strip()
 
 
-def test_a_lock_timeout_is_retried_a_bounded_number_of_times() -> None:
-    """Fail fast enough not to queue readers, retry often enough not to fail a deploy."""
-    module = _migration_0011()
-
-    assert 1 <= module._LOCK_ATTEMPTS <= 10
-    assert module._LOCK_RETRY_DELAY_S > 0
+def test_the_lock_timeout_is_scoped_to_the_migration_transaction_not_the_session() -> None:
+    """`SET LOCAL`, not plain `SET` — a session-wide `SET` would leak the timeout into whatever
+    runs next on the same connection once the migration's (atomic) transaction commits."""
+    assert "SET LOCAL" in _migration_0011()._SET_LOCK_TIMEOUT_SQL
 
 
 def test_0011_still_applies_cleanly_on_sqlite_under_the_bounded_lock_change(

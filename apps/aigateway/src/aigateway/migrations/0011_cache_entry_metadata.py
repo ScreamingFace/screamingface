@@ -24,9 +24,18 @@ never happened, and every future writer would inherit it.
 ROLLBACK. ``DROP COLUMN metadata_json`` — nullable, unindexed and referenced by no old code, so
 nothing else has to move with it. A pre-change gateway reading a table that still has the column
 is unaffected by its presence.
+
+LOCK WAIT. ``ADD COLUMN`` still needs ``ACCESS EXCLUSIVE`` for the instant it applies, and a
+*queued* request for that lock sits at the head of the lock queue — every later cache read then
+queues behind it. The forward Postgres DDL runs under ``SET LOCAL lock_timeout`` (see
+``_SET_LOCK_TIMEOUT_SQL``) so it fails fast and leaves the queue instead of leading it. It is
+tried exactly once: if the timeout fires, the migration fails and the operator reruns it — no
+retry is attempted here, because retrying against a lock held by a 600 s snapshot export
+(``snapshot_export.py``) would mostly just fail slower. The DOWNGRADE path sets no
+``lock_timeout``: a rollback's ``DROP COLUMN`` can still queue for as long as whatever holds the
+conflicting lock does. That is out of scope for this migration to fix.
 """
 
-import asyncio
 from typing import Any
 
 from tortoise import fields, migrations
@@ -44,13 +53,11 @@ _LOCKING_DIALECTS = frozenset({"postgres"})
 # that wants the table behind it waits too, which is how a "catalog-only" ADD COLUMN stalls every
 # cache read. Long enough to win an ordinary gap between statements.
 _LOCK_TIMEOUT_MS = 3_000
-# The snapshot exporter sets `lock_timeout = 0` and can hold ACCESS SHARE for its whole 600 s
-# COPY (`snapshot_export.py:54,71-72`), so one attempt can lose to a legitimate export. Retrying
-# spreads the attempts across it instead of failing a deploy on first contact.
-_LOCK_ATTEMPTS = 5
-_LOCK_RETRY_DELAY_S = 5.0
 # Named so the unit test has a stable thing to read rather than re-deriving the statement.
-_SET_LOCK_TIMEOUT_SQL = f"SET lock_timeout = '{_LOCK_TIMEOUT_MS}ms'"
+# `SET LOCAL`, not `SET`: this migration is atomic (the `Migration` default — nothing here
+# overrides it), so it runs inside a transaction and `SET LOCAL` scopes the timeout to that
+# transaction instead of leaking into whatever session runs after the migration.
+_SET_LOCK_TIMEOUT_SQL = f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT_MS}ms'"
 
 
 def _dialect_of(schema_editor: BaseSchemaEditor | None) -> str:
@@ -65,8 +72,9 @@ async def _bound_lock_wait(apps: Any, schema_editor: BaseSchemaEditor) -> None:
     `ADD COLUMN` is catalog-only and takes ACCESS EXCLUSIVE for microseconds — once it HAS the
     lock. The hazard is the wait: a waiting ACCESS EXCLUSIVE sits at the head of the lock queue
     and every later reader queues behind it, so a migration that blocks for a 600 s export takes
-    the cache down with it for 600 s. With a bounded timeout the DDL loses quickly and leaves the
-    queue instead.
+    the cache down with it for 600 s. With a bounded timeout the DDL fails fast and leaves the
+    queue instead of leading it — there is no retry, so an operator whose migration lands during
+    a long export must rerun it once the export clears.
     """
     if _dialect_of(schema_editor) not in _LOCKING_DIALECTS:
         return
@@ -112,7 +120,10 @@ async def _restore_sqlite_indexes(apps: Any, schema_editor: BaseSchemaEditor) ->
 
 
 class AddMetadataColumn(ops.AddField):
-    """`AddField`, but it gives up the lock queue and comes back instead of waiting in it."""
+    """`AddField`, but on Postgres it fails fast under `_bound_lock_wait`'s timeout instead of
+    queuing for the table lock. One attempt only: a lock-timeout failure propagates and aborts
+    the migration's transaction, so the operator reruns it rather than the migration retrying
+    against a lock it will likely still lose (a snapshot export can hold it for 600 s)."""
 
     async def database_forward(
         self,
@@ -121,24 +132,10 @@ class AddMetadataColumn(ops.AddField):
         new_state: State,
         state_editor: BaseSchemaEditor | None = None,
     ) -> None:
-        if _dialect_of(state_editor) not in _LOCKING_DIALECTS:
-            await super().database_forward(app_label, old_state, new_state, state_editor)
-            return
-        for attempt in range(_LOCK_ATTEMPTS):
-            try:
-                await super().database_forward(app_label, old_state, new_state, state_editor)
-                return
-            except Exception as exc:  # asyncpg raises LockNotAvailableError (SQLSTATE 55P03)
-                if getattr(exc, "sqlstate", None) != "55P03" or attempt == _LOCK_ATTEMPTS - 1:
-                    raise
-                await asyncio.sleep(_LOCK_RETRY_DELAY_S)
+        await super().database_forward(app_label, old_state, new_state, state_editor)
 
 
 class Migration(migrations.Migration):
-    # A failed statement aborts an atomic migration's transaction, which makes retrying a lock
-    # timeout impossible. Every operation here is independently idempotent, so giving up the
-    # single enclosing transaction costs nothing and buys the retry.
-    atomic = False
     dependencies = [("models", "0010_simplify_request_cache")]
 
     operations = [

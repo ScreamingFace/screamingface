@@ -18,7 +18,6 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
-from importlib import import_module
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -26,11 +25,12 @@ from urllib.parse import quote
 import asyncpg  # type: ignore[import-untyped]
 import pytest
 from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
+from tortoise.migrations.api.migrate import migrate as _run_migration
 
 from aigateway.core.request_cache.bulk_loader import load_snapshot
 from aigateway.core.request_cache.models import RequestCacheEntry
 from aigateway.core.request_cache.snapshot import CANONICAL_COLUMNS, LEGACY_COLUMNS
-from aigateway.db import close_db, init_db
+from aigateway.db import build_tortoise_config, close_db, init_db
 
 pytestmark = pytest.mark.needs_postgres
 
@@ -443,6 +443,38 @@ async def test_a_racing_write_to_an_unrelated_row_blocks_the_merge(
 # --- Finding 2 — the migration must give up the lock queue instead of leading it ---------------
 
 
+@pytest.fixture
+def postgres_at_0010() -> Generator[str, None, None]:
+    """A fresh Postgres migrated only to ``0010`` — one migration short of ``0011``, so ``0011``
+    can still be applied (and observed failing under a held lock) against it.
+
+    Deliberately its own container rather than reusing ``migrated_postgres``: that fixture is
+    module-scoped and already carries ``0011``, so there would be nothing left to apply.
+    """
+    if os.environ.get("AIGW_TEST_PG") != "1":
+        pytest.skip("AIGW_TEST_PG=1 not set")
+    with PostgresContainer("postgres:16-alpine", driver=None) as postgres:
+        database_url = _database_url(postgres)
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tortoise",
+                "-c",
+                "aigateway.db.TORTOISE_CONFIG",
+                "migrate",
+                "models",
+                "0010_simplify_request_cache",
+            ],
+            cwd=_APP_DIR,
+            env={**os.environ, "AIGATEWAY_DATABASE_URL": database_url},
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        yield database_url
+
+
 @asynccontextmanager
 async def _holding_access_share_on_request_cache_entries(
     database_url: str,
@@ -463,19 +495,24 @@ async def _holding_access_share_on_request_cache_entries(
         await conn.close()
 
 
-async def _run_add_column_once_with_bounded_timeout(database_url: str) -> None:
-    """One DDL attempt under the migration's own bounded lock_timeout — no retry, no state change.
+async def _apply_migration_0011(database_url: str) -> None:
+    """Runs the REAL migration 0011 in-process, through Tortoise's own `migrate()` API.
 
-    Reads ``_SET_LOCK_TIMEOUT_SQL`` off the real migration module rather than restating the SQL,
-    so this test fails if the migration's bound ever drifts from what it actually runs.
+    Not hand-rolled SQL: this goes through ``AddMetadataColumn.database_forward`` and the
+    ``RunPython(code=_bound_lock_wait, ...)`` entry exactly as a real deploy would, so a broken
+    wiring — the `RunPython` dropped from `operations`, or a `_dialect_of` that misreads the
+    dialect — fails THIS test even though the unit tests only check the constants in isolation.
     """
-    module = import_module("aigateway.migrations.0011_cache_entry_metadata")
-    conn = await asyncpg.connect(database_url)  # type: ignore[arg-type]
+    await close_db()
+    await init_db(database_url)
     try:
-        await conn.execute(module._SET_LOCK_TIMEOUT_SQL)
-        await conn.execute(f"ALTER TABLE {_TABLE} ADD COLUMN _lock_probe TEXT")
+        await _run_migration(
+            config=build_tortoise_config(database_url),
+            app_labels=["models"],
+            target="models.0011_cache_entry_metadata",
+        )
     finally:
-        await conn.close()
+        await close_db()
 
 
 async def _select_one_from_request_cache_entries(database_url: str) -> int | None:
@@ -488,23 +525,20 @@ async def _select_one_from_request_cache_entries(database_url: str) -> int | Non
 
 @pytest.mark.asyncio
 async def test_the_migration_gives_up_the_lock_queue_instead_of_blocking_readers(
-    migrated_postgres: str,
+    postgres_at_0010: str,
 ) -> None:
-    """With a conflicting lock held, the DDL must fail fast — not sit at the head of the queue.
-
-    A waiting ACCESS EXCLUSIVE makes every later reader wait too, which is how a catalog-only
-    ADD COLUMN takes the cache down for the length of somebody else's export.
+    """With a conflicting lock held, migration 0011 must fail fast under its own bounded
+    ``lock_timeout`` — not sit at the head of the lock queue for as long as whatever holds the
+    conflicting lock does.
     """
-    async with _holding_access_share_on_request_cache_entries(migrated_postgres):
+    async with _holding_access_share_on_request_cache_entries(postgres_at_0010):
         with pytest.raises(Exception) as caught:
-            await _run_add_column_once_with_bounded_timeout(migrated_postgres)
+            # Bounded so a regression (an unbounded wait) fails the test instead of hanging it.
+            await asyncio.wait_for(_apply_migration_0011(postgres_at_0010), timeout=10.0)
 
-        assert getattr(caught.value, "sqlstate", None) == "55P03"
-        # And a reader was never made to wait behind it — bounded so a regression fails fast
-        # instead of hanging the suite.
-        assert (
-            await asyncio.wait_for(
-                _select_one_from_request_cache_entries(migrated_postgres), timeout=3.0
-            )
-            is not None
-        )
+    assert getattr(caught.value, "sqlstate", None) == "55P03"
+    # This does NOT show a concurrent reader was never made to wait: by the time this select
+    # runs, the DDL has already given up the queue AND the ACCESS SHARE lock above has been
+    # released. What it shows is that the failed, rolled-back attempt left the table in a
+    # normal, queryable state — the connection was not wedged by the aborted DDL.
+    assert await _select_one_from_request_cache_entries(postgres_at_0010) is not None
