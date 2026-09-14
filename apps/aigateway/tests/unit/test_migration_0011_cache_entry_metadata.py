@@ -268,3 +268,30 @@ def test_0011_still_applies_cleanly_on_sqlite_under_the_bounded_lock_change(
     _migrate(url)
 
     assert _COLUMN in _columns(db)
+
+
+# --- Finding 1 — a stale metadata block must be impossible, whatever binary writes -------------
+
+
+def test_the_trigger_fires_only_when_the_response_changes_without_its_block() -> None:
+    """The WHEN clause is the whole design: it keeps the hot path out of the function body."""
+    sql = _migration_0011()._CREATE_TRIGGER_SQL
+
+    assert "BEFORE UPDATE" in sql
+    assert "NEW.response_json IS DISTINCT FROM OLD.response_json" in sql
+    assert "NEW.metadata_json IS NOT DISTINCT FROM OLD.metadata_json" in sql
+
+
+def test_the_reverse_drops_the_trigger_and_its_function() -> None:
+    """A rollback leaving a trigger that references a dropped column breaks every write."""
+    sql = _migration_0011()._DROP_TRIGGER_SQL
+
+    assert "DROP TRIGGER" in sql
+    assert "DROP FUNCTION" in sql
+
+
+def test_the_trigger_is_installed_on_postgres_only() -> None:
+    """SQLite is local single-binary development; the rolling-upgrade hazard cannot arise there."""
+    module = _migration_0011()
+
+    assert module._LOCKING_DIALECTS == frozenset({"postgres"})

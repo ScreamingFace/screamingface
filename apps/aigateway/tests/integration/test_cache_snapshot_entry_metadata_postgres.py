@@ -542,3 +542,118 @@ async def test_the_migration_gives_up_the_lock_queue_instead_of_blocking_readers
     # released. What it shows is that the failed, rolled-back attempt left the table in a
     # normal, queryable state — the connection was not wedged by the aborted DDL.
     assert await _select_one_from_request_cache_entries(postgres_at_0010) is not None
+
+
+# --- Finding 1 — a stale metadata block must be impossible, whatever binary writes -------------
+
+
+@pytest.mark.asyncio
+async def test_replacing_a_response_alone_clears_its_metadata_block(
+    migrated_postgres: str,
+) -> None:
+    """An old binary updates the body and not the block; the pairing must not survive that.
+
+    This is what a rolling upgrade or a rollback produces: a new response beside the PREVIOUS
+    response's cost, tokens and latency. Nothing downstream could detect it, because the block
+    is perfectly well-formed — it just describes a different answer.
+    """
+    key = "4" * 64
+    async with _db(migrated_postgres) as raw:
+        await RequestCacheEntry.create(
+            key_hash=key,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"body": "old"}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"cost_for": "old"}',
+        )
+
+        await raw.execute(
+            f"UPDATE {_TABLE} SET response_json = $1 WHERE key_hash = $2",
+            '{"body": "new"}',
+            key,
+        )
+
+        after = await _fetch(raw, key)
+        assert after["metadata_json"] is None
+
+
+@pytest.mark.asyncio
+async def test_replacing_a_response_with_its_own_block_keeps_the_block(
+    migrated_postgres: str,
+) -> None:
+    """The current writer sets both together and must not be punished for it."""
+    key = "5" * 64
+    async with _db(migrated_postgres) as raw:
+        await RequestCacheEntry.create(
+            key_hash=key,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"body": "old"}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"cost_for": "old"}',
+        )
+
+        await raw.execute(
+            f"UPDATE {_TABLE} SET response_json = $1, metadata_json = $2 WHERE key_hash = $3",
+            '{"body": "new"}',
+            '{"cost_for": "new"}',
+            key,
+        )
+
+        after = await _fetch(raw, key)
+        assert after["metadata_json"] == '{"cost_for": "new"}'
+
+
+@pytest.mark.asyncio
+async def test_a_hit_count_bump_never_touches_the_block(migrated_postgres: str) -> None:
+    """The hot path. The trigger's WHEN clause must keep it free of the trigger entirely."""
+    key = "6" * 64
+    async with _db(migrated_postgres) as raw:
+        await RequestCacheEntry.create(
+            key_hash=key,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"body": "b"}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"cost_for": "b"}',
+        )
+
+        await raw.execute(f"UPDATE {_TABLE} SET hit_count = hit_count + 1 WHERE key_hash = $1", key)
+
+        after = await _fetch(raw, key)
+        assert after["metadata_json"] == '{"cost_for": "b"}'
+
+
+@pytest.mark.asyncio
+async def test_the_merge_still_carries_a_real_block_through(
+    migrated_postgres: str, tmp_path: Path
+) -> None:
+    """Regression guard: the loader sets both columns, so the trigger must not fire on it."""
+    key = "7" * 64
+    archive_row = _base_row(key, metadata='{"cost_for": "archived"}')
+    dump = tmp_path / "archived-metadata.sql"
+    dump.write_bytes(_dump(CANONICAL_COLUMNS, [archive_row]))
+
+    async with _db(migrated_postgres) as raw:
+        await RequestCacheEntry.create(
+            key_hash=key,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"body": "old"}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"cost_for": "old"}',
+        )
+
+        await load_snapshot(dump, mode="merge", expected_rows=1, acknowledge_loss=False)
+
+        after = await _fetch(raw, key)
+        assert after["metadata_json"] == '{"cost_for": "archived"}'

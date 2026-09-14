@@ -45,6 +45,7 @@ from tortoise.migrations.schema_editor.base import BaseSchemaEditor
 from tortoise.migrations.schema_generator.state import State
 
 _MODEL_NAME = "RequestCacheEntry"
+_TABLE = "request_cache_entries"
 # The only dialect whose DROP COLUMN rebuilds the table (and so loses its indexes).
 _REBUILDING_DIALECTS = frozenset({"sqlite"})
 # The dialects whose DDL takes a blocking relation lock worth bounding.
@@ -58,6 +59,48 @@ _LOCK_TIMEOUT_MS = 3_000
 # overrides it), so it runs inside a transaction and `SET LOCAL` scopes the timeout to that
 # transaction instead of leaking into whatever session runs after the migration.
 _SET_LOCK_TIMEOUT_SQL = f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT_MS}ms'"
+
+_TRIGGER_FN = "request_cache_entries_clear_stale_metadata"
+_TRIGGER = "request_cache_entries_metadata_follows_response"
+
+# WHY a trigger and not a check in the loader: migration 0011 leaves pre-0011 binaries fully
+# operational against the widened table, and an old writer updates `response_json` without
+# knowing `metadata_json` exists. During pod overlap or a rollback that pairs a NEW response
+# with the PREVIOUS response's cost, tokens and latency — a block that is perfectly well-formed
+# and simply describes a different answer, which nothing downstream can detect. The loader is
+# only where the reviewer found it; the ordinary cache-fill upsert has the same hole. A database
+# rule is the only one that binds a binary that has never heard of it.
+#
+# It degrades to NULL — "unknown" — and never to a wrong number, which is the direction this
+# whole feature commits to (PRD I1: unknown is not free).
+#
+# KNOWN FALSE POSITIVE, deliberately accepted: a writer that replaces the body and computes a
+# byte-identical block loses it. The block carries provider latency, so two calls colliding on
+# every field is vanishingly rare, and the cost of the collision is one row degraded to unknown
+# — the safe direction. A session GUC that new writers set to opt out would be exact, but it
+# puts the invariant back in the application, where forgetting it is silent again.
+_CREATE_TRIGGER_SQL = f"""
+CREATE OR REPLACE FUNCTION {_TRIGGER_FN}() RETURNS trigger AS $$
+BEGIN
+    NEW.metadata_json := NULL;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER {_TRIGGER}
+BEFORE UPDATE ON {_TABLE}
+FOR EACH ROW
+WHEN (NEW.response_json IS DISTINCT FROM OLD.response_json
+      AND NEW.metadata_json IS NOT DISTINCT FROM OLD.metadata_json)
+EXECUTE FUNCTION {_TRIGGER_FN}();
+"""
+
+# The WHEN clause is evaluated by Postgres without entering the function body, so a
+# `hit_count`/`last_hit_at` bump — the hot path — never pays for this.
+_DROP_TRIGGER_SQL = f"""
+DROP TRIGGER IF EXISTS {_TRIGGER} ON {_TABLE};
+DROP FUNCTION IF EXISTS {_TRIGGER_FN}();
+"""
 
 
 def _dialect_of(schema_editor: BaseSchemaEditor | None) -> str:
@@ -119,6 +162,18 @@ async def _restore_sqlite_indexes(apps: Any, schema_editor: BaseSchemaEditor) ->
         await schema_editor._run_sql(statement)  # noqa: SLF001
 
 
+async def _install_stale_metadata_guard(apps: Any, schema_editor: BaseSchemaEditor) -> None:
+    if _dialect_of(schema_editor) not in _LOCKING_DIALECTS:
+        return
+    await schema_editor._run_sql(_CREATE_TRIGGER_SQL)  # noqa: SLF001
+
+
+async def _remove_stale_metadata_guard(apps: Any, schema_editor: BaseSchemaEditor) -> None:
+    if _dialect_of(schema_editor) not in _LOCKING_DIALECTS:
+        return
+    await schema_editor._run_sql(_DROP_TRIGGER_SQL)  # noqa: SLF001
+
+
 class AddMetadataColumn(ops.AddField):
     """`AddField`, but on Postgres it fails fast under `_bound_lock_wait`'s timeout instead of
     queuing for the table lock. One attempt only: a lock-timeout failure propagates and aborts
@@ -152,5 +207,12 @@ class Migration(migrations.Migration):
             model_name=_MODEL_NAME,
             name="metadata_json",
             field=fields.TextField(null=True),
+        ),
+        # Last, so the trigger (which references metadata_json) is installed only after the
+        # column exists. Its reverse therefore runs FIRST on downgrade, dropping the trigger
+        # before AddMetadataColumn's reverse removes the column it references.
+        ops.RunPython(
+            code=_install_stale_metadata_guard,
+            reverse_code=_remove_stale_metadata_guard,
         ),
     ]
