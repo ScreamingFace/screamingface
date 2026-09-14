@@ -51,8 +51,14 @@ the privacy form of any non-colliding address.
   `scores/schemas.py`; three additive tests in `test_multiple_authors.py`; and the planned
   task/spec/plan/ledger artifacts. No model, migration, store, portal, Client, or #841 file was
   changed.
-- **Commits:** one conventional Scoreboard feature commit on `OME-1109-author-credits`; the
-  immutable commit and eventual squash sha are recorded in the PR/Linear close record.
+- **Commits:** `76713851` — `fix(scoreboard): publish unambiguous author credits`, alongside
+  `7822bd80` — `docs(tasks): track client author-limit alignment` (the OME-1139 mirror). Landed
+  on `main` via PR #853 on 2026-09-11 as merge commit `8c62bfba`.
+
+  AIDEV-NOTE: #853 was merged with a merge commit, not squash-merged. The repository rule
+  (`CLAUDE.md` §6) is squash-merge only, so the two commits above are both on `main` history
+  rather than collapsed into one. Recorded rather than corrected — rewriting `main` is worse
+  than the inconsistency.
 - **Gates:** focused multiple-author suite 24 passed; full Scoreboard pytest 621 passed / 3
   skipped / 3 deselected; `run_gates.py scoreboard --base origin/main` ALL GREEN — append-only,
   Ruff check, Ruff format, Pyright, full pytest coverage ≥80%, and all three portal test files.
