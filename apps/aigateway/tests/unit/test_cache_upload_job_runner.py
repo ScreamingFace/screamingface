@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -282,3 +283,42 @@ async def test_history_is_bounded(tmp_path) -> None:
     assert len(runner.jobs()) == 2
     assert runner.get(record.id) is record
     assert runner.get(uuid.uuid4()) is None
+
+
+# --- ERD E7 — the job reports how much pricing evidence its merge erased ------------------------
+
+
+def _record(mode: str = "merge") -> CacheJobRecord:
+    return CacheJobRecord(
+        id=uuid.uuid4(),
+        actor="admin@example.com",
+        mode=mode,  # type: ignore[arg-type]
+        created_at=datetime.now(UTC),
+    )
+
+
+def test_a_merge_that_degraded_blocks_reports_the_count_and_warns() -> None:
+    """INVARIANT: the operator who ran the restore learns what it cost, from the job they ran.
+
+    The count is on the record rather than only in the gateway log because the admin who
+    uploaded a legacy archive reads the job, not the pod's stderr — and the erasure is
+    irreversible for those rows.
+    """
+    record = _record()
+
+    record.out_counts(
+        LoadOutcome(staged_rows=10, live_before=8, live_after=12, metadata_degraded=3)
+    )
+
+    assert record.metadata_degraded == 3
+    assert "metadata_degraded:3" in record.warnings
+
+
+def test_a_merge_that_degraded_nothing_adds_no_warning() -> None:
+    """A current archive carries blocks: the counter reads 0 and the operator is not alarmed."""
+    record = _record()
+
+    record.out_counts(LoadOutcome(staged_rows=10, live_before=8, live_after=12))
+
+    assert record.metadata_degraded == 0
+    assert not any(warning.startswith("metadata_degraded") for warning in record.warnings)

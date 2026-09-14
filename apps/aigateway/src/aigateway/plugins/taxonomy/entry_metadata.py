@@ -57,6 +57,11 @@ class CacheEntryMetadataReferenceError(RuntimeError):
 
 # The statuses whose stored cost the reference may certify. A ``partial`` capture is
 # deliberately excluded (ERD §3.5) — an incomplete observation is not evidence of a price.
+# AIDEV-NOTE: `archive_paired` has NO producer in this repo and is not dead code. Blocks
+# carrying it are written by the out-of-band archive loader, which constructs
+# `CacheEntryMetadata` directly; `cache_entry_metadata_from_session` below only ever emits
+# `complete` or `partial`. The READ path is what lives here, and it is exercised by
+# `test_an_archive_paired_block_is_certified_like_a_reported_one`.
 _CERTIFYING_STATUSES = frozenset({"complete", "archive_paired"})
 
 # The canonical status vocabularies, read off the Literals themselves so a new member added
@@ -208,9 +213,14 @@ def cache_entry_metadata_from_session(
     except Exception:
         # S8: a build failure writes the row with metadata_json = NULL. It never fails
         # the request and never loses the answer.
+        # AIDEV-NOTE: `exc_info` is deliberate and does NOT weaken S8 — the handler still
+        # swallows. Without it a genuine defect here (an AttributeError after a refactor of
+        # `collector`, say) logs identically to an expected malformed capture, and the cause is
+        # unrecoverable from the logs. The provider name alone cannot tell those two apart.
         logger.warning(
             "cache-entry metadata could not be built provider=%s",
             getattr(session, "provider", "unknown"),
+            exc_info=True,
         )
         return None
 

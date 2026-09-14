@@ -255,3 +255,34 @@ def test_a_run_that_saw_no_hit_publishes_no_saved_cost_at_all() -> None:
 
     assert SAVED_COST_USD not in attributes
     assert all(not key.startswith("cache.saved_cost") for key in attributes)
+
+
+# --- the three SavedCostProvenance spellings must not drift (S5/S7) -----------------------------
+
+
+def test_every_saved_cost_provenance_literal_declares_the_same_members() -> None:
+    """INVARIANT: one vocabulary, spelled in three places, with nothing to keep them equal.
+
+    `SavedCostProvenance` is declared independently in `url4.observe` (the dependency-free
+    observation leaf), in `runner.accounting`, and in `runner.cache_counters`. The duplication is
+    deliberate — `test_only_engine_extensions_import_url4` forbids the counters from importing the
+    engine — and each site carries a "change both together" comment. A comment cannot fail CI.
+
+    WHY drift is expensive rather than cosmetic: a third provenance added at the producer but not
+    at the counter does not raise. `SavedCostTotals` routes an unrecognised provenance to the
+    unpriced bucket, so the money silently stops being totalled while the hit still counts as
+    covered — a total that quietly understates itself is worse than one that breaks.
+    """
+    from typing import get_args
+
+    from screamingface_engine.runner.accounting import SavedCostProvenance as AccountingProvenance
+    from screamingface_engine.runner.cache_counters import SavedCostProvenance as CounterProvenance
+    from url4.observe import SavedCostProvenance as WireProvenance
+
+    wire = frozenset(get_args(WireProvenance.__value__))
+    accounting = frozenset(get_args(AccountingProvenance))
+    counter = frozenset(get_args(CounterProvenance))
+
+    assert wire == {"reported", "archive_matched"}
+    assert accounting == wire
+    assert counter == wire

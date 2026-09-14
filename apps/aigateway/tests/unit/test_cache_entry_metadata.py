@@ -133,3 +133,55 @@ def test_parse_accepts_none_and_a_prebuilt_dict() -> None:
 def test_an_unknown_metadata_status_is_rejected_at_construction() -> None:
     with pytest.raises(ValueError):
         _metadata(metadata_status="made_up")
+
+
+# --- PRD test #23 — line separators survive the codec byte-exactly ------------------------------
+
+# Spelled with chr() rather than as literals: these characters are invisible in a diff and in a
+# terminal, and a reviewer cannot tell a stray one from an intended one.
+_LINE_SEPARATOR = chr(0x2028)
+_PARAGRAPH_SEPARATOR = chr(0x2029)
+_NEXT_LINE = chr(0x85)
+_ZERO_WIDTH_NO_BREAK_SPACE = chr(0xFEFF)
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        pytest.param(_LINE_SEPARATOR, id="line-separator"),
+        pytest.param(_PARAGRAPH_SEPARATOR, id="paragraph-separator"),
+        pytest.param(_NEXT_LINE, id="next-line"),
+        pytest.param(f"model{_LINE_SEPARATOR}/{_PARAGRAPH_SEPARATOR}name", id="embedded"),
+        pytest.param(_ZERO_WIDTH_NO_BREAK_SPACE, id="zero-width-no-break-space"),
+    ],
+)
+def test_a_block_carrying_a_line_separator_round_trips_exactly(hostile: str) -> None:
+    """INVARIANT: the codec is byte-exact for every string the block can carry.
+
+    ``serialize`` writes with ``ensure_ascii=False``, so U+2028 / U+2029 reach the column raw.
+    They are legal in a JSON string and illegal in a JavaScript one, which is how this family
+    has broken hand-built payloads in this repo before — a value that survives the write and
+    dies on the read would silently cost the block. Pinned here so the codec is what decides,
+    not whichever parser happens to read the column next.
+    """
+    block = CacheEntryMetadata(
+        metadata_status="complete",
+        observed_at="2026-09-13T12:00:00Z",
+        response_model=hostile,
+        usage=_USAGE,
+        direct_cost={
+            "status": "reported",
+            "amount": "0.0038799200000000002",
+            "unit": "openrouter_credits",
+            "source": hostile,
+        },
+        provider_latency_ms=812,
+    )
+
+    payload = block.serialize()
+    assert payload is not None
+    assert CacheEntryMetadata.parse(payload) == block
+    # The raw character reaches the column: the codec never escapes it away behind the reader's
+    # back, so what is stored is what was measured.
+    assert hostile in payload
+    assert json.loads(payload)["response_model"] == hostile

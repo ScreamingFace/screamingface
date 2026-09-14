@@ -298,6 +298,11 @@ class TortoiseRequestCacheStore:
         """
         if entry.metadata is None:
             return None
+        # AIDEV-NOTE: the narrow catch below is deliberate — `serialize()` raises only these two
+        # — but it does NOT by itself deliver the "never fails the request" guarantee this
+        # docstring states. The caller in `routes/chat_cache_stage.py` wraps `set_if_absent` in a
+        # broad `except Exception`, and that is what covers an unexpected type from a future
+        # `serialize()`. Narrow that outer catch and this method stops being sufficient.
         try:
             payload = entry.metadata.serialize()
         except (ValueError, TypeError) as exc:

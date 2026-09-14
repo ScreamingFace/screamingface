@@ -10,6 +10,7 @@ Run with:
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -234,3 +235,132 @@ async def test_a_stale_twelve_column_staging_twin_is_widened_before_the_copy(
         assert after["metadata_json"] == '{"marker":"snapshot"}'
         staged = await raw.fetchval(f"SELECT count(*) FROM {_STAGING}")
         assert staged == 0
+
+
+# --- ERD E7 — a restore that degrades blocks must SAY how many ---------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_legacy_merge_reports_how_many_blocks_it_degraded(
+    migrated_postgres: str, tmp_path: Path, caplog
+) -> None:
+    """INVARIANT: an erasure a restore is allowed to perform is still an erasure worth reporting.
+
+    Merging a pre-0011 archive turns priced rows back into unknown ones — deliberate (ERD 5.2:
+    metadata_json is content, so EXCLUDED wins) and irreversible for that row. Without a count at
+    the moment it happens, the only trace is `cache.saved_cost.unpriced_hits` drifting upward on
+    some later engine run, which points at the engine rather than at the restore that caused it.
+    """
+    priced, unpriced, untouched = "e" * 64, "f" * 64, "1" * 64
+    dump = tmp_path / "legacy-degrades.sql"
+    dump.write_bytes(
+        _dump(LEGACY_COLUMNS, [_base_row(priced), _base_row(unpriced)]),
+    )
+
+    async with _db(migrated_postgres) as raw:
+        # Two live rows the archive overwrites — one carries a block, one does not — and a third
+        # the archive never mentions, so the count cannot simply be "rows that ended up NULL".
+        await RequestCacheEntry.create(
+            key_hash=priced,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"v":0}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"marker":"live"}',
+        )
+        await RequestCacheEntry.create(
+            key_hash=unpriced,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"v":0}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json=None,
+        )
+        await RequestCacheEntry.create(
+            key_hash=untouched,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"v":0}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"marker":"survivor"}',
+        )
+
+        with caplog.at_level(logging.WARNING, logger="aigateway.core.request_cache.bulk_loader"):
+            outcome = await load_snapshot(
+                dump, mode="merge", expected_rows=2, acknowledge_loss=False
+            )
+
+        # Only the row that HAD a block and lost it counts.
+        assert outcome.metadata_degraded == 1
+        assert (await _fetch(raw, priced))["metadata_json"] is None
+        assert (await _fetch(raw, unpriced))["metadata_json"] is None
+        assert (await _fetch(raw, untouched))["metadata_json"] == '{"marker":"survivor"}'
+
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "1" in warnings[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_a_merge_that_replaces_every_block_reports_no_degradation(
+    migrated_postgres: str, tmp_path: Path, caplog
+) -> None:
+    """A current archive carries blocks, so nothing is degraded and nothing is warned about."""
+    key = "2" * 64
+    dump = tmp_path / "current.sql"
+    dump.write_bytes(_dump(CANONICAL_COLUMNS, [_base_row(key, metadata='{"marker":"snapshot"}')]))
+
+    async with _db(migrated_postgres) as raw:
+        await RequestCacheEntry.create(
+            key_hash=key,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"v":0}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"marker":"live"}',
+        )
+
+        with caplog.at_level(logging.WARNING, logger="aigateway.core.request_cache.bulk_loader"):
+            outcome = await load_snapshot(
+                dump, mode="merge", expected_rows=1, acknowledge_loss=False
+            )
+
+        assert outcome.metadata_degraded == 0
+        assert (await _fetch(raw, key))["metadata_json"] == '{"marker":"snapshot"}'
+        assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+
+@pytest.mark.asyncio
+async def test_a_replace_reports_no_degradation_because_loss_was_acknowledged(
+    migrated_postgres: str, tmp_path: Path
+) -> None:
+    """Boundary: replace discards the whole table by contract, so per-row degradation is not the
+    fact being reported — the caller already acknowledged the loss."""
+    key = "3" * 64
+    dump = tmp_path / "replace.sql"
+    dump.write_bytes(_dump(LEGACY_COLUMNS, [_base_row(key)]))
+
+    async with _db(migrated_postgres) as raw:
+        await RequestCacheEntry.create(
+            key_hash=key,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"v":0}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"marker":"live"}',
+        )
+
+        outcome = await load_snapshot(dump, mode="replace", expected_rows=1, acknowledge_loss=True)
+
+        assert outcome.metadata_degraded == 0
+        assert (await _fetch(raw, key))["metadata_json"] is None

@@ -173,3 +173,66 @@ def test_the_cost_block_is_still_closed_to_saved_cost() -> None:
         CostBreakdown(total_usd=Decimal("0"), cache_saved_cost_usd=Decimal("1"))  # pyright: ignore[reportCallIssue]
 
     assert "cache_saved_cost_usd" not in CostBreakdown.model_fields
+
+
+# --- the pairing invariant is enforced, not merely documented ----------------------------------
+
+
+def test_an_amount_without_a_provenance_is_refused() -> None:
+    """INVARIANT: `cache_saved_cost_provenance` is set if and only if `cache_saved_cost_usd` is.
+
+    WHY this is a guard and not a convention: `observe` is a live seam and adapters construct
+    `ModelResponse` directly. An amount that arrives with no provenance cannot be routed to
+    either total, so it would be silently dropped into the unpriced bucket — money that was
+    measured, reported, and then quietly lost. `AvoidedCost` on the accounting side has enforced
+    the same pairing since it was written; the wire-adjacent seam must not be the weaker one.
+    """
+    with pytest.raises(ValueError):
+        ModelResponse(
+            "span",
+            "stop",
+            None,
+            "hit",
+            None,
+            cache_saved_cost_usd=Decimal("0.0038"),
+            cache_saved_cost_provenance=None,
+        )
+
+
+def test_a_provenance_without_an_amount_is_refused() -> None:
+    """The other half of the same invariant: a claim about evidence with no money to attach."""
+    with pytest.raises(ValueError):
+        ModelResponse(
+            "span",
+            "stop",
+            None,
+            "hit",
+            None,
+            cache_saved_cost_usd=None,
+            cache_saved_cost_provenance="reported",
+        )
+
+
+@pytest.mark.parametrize("provenance", ["reported", "archive_matched"])
+def test_a_paired_amount_and_provenance_is_accepted(provenance: SavedCostProvenance) -> None:
+    """Both provenances construct normally when paired — the guard refuses only the broken shape."""
+    response = ModelResponse(
+        "span",
+        "stop",
+        None,
+        "hit",
+        None,
+        cache_saved_cost_usd=Decimal("0.0038"),
+        cache_saved_cost_provenance=provenance,
+    )
+
+    assert response.cache_saved_cost_usd == Decimal("0.0038")
+    assert response.cache_saved_cost_provenance == provenance
+
+
+def test_a_round_trip_that_saved_nothing_still_constructs() -> None:
+    """Boundary: neither set is the common case — a miss, or a hit with nothing priceable."""
+    response = ModelResponse("span", "stop", None, "miss", "no-store")
+
+    assert response.cache_saved_cost_usd is None
+    assert response.cache_saved_cost_provenance is None

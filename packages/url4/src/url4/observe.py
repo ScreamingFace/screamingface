@@ -174,6 +174,18 @@ class ModelResponse:
     cache_saved_cost_usd: Decimal | None = None
     cache_saved_cost_provenance: SavedCostProvenance | None = None
 
+    def __post_init__(self) -> None:
+        # WHY a guard and not a comment: this seam is constructed directly by adapters, and an
+        # amount with no provenance cannot be routed to either total — it would land in the
+        # unpriced bucket, losing money that was measured and reported. `AvoidedCost` in the
+        # engine's accounting has enforced this same pairing from the start; the wire-adjacent
+        # seam is the one an outside adapter reaches first, so it must not be the weaker of the two.
+        if (self.cache_saved_cost_usd is None) != (self.cache_saved_cost_provenance is None):
+            raise ValueError(
+                "ModelResponse cache_saved_cost_usd and cache_saved_cost_provenance "
+                "must be set together or not at all"
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class RunFinished:

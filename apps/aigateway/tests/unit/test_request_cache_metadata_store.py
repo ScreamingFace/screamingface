@@ -13,7 +13,10 @@ import pytest
 import pytest_asyncio
 from tortoise import Tortoise
 
-from aigateway.core.request_cache.entry_metadata import CacheEntryMetadata
+from aigateway.core.request_cache.entry_metadata import (
+    CACHE_ENTRY_METADATA_MAX_BYTES,
+    CacheEntryMetadata,
+)
 from aigateway.core.request_cache.models import RequestCacheEntry
 from aigateway.core.request_cache.store import (
     RequestCacheWrite,
@@ -193,3 +196,84 @@ async def test_a_metadata_block_with_the_wrong_schema_is_treated_as_absent(store
     assert entry is not None
     assert entry.metadata is None
     assert entry.response == _RESPONSE
+
+
+# --- PRD §4.4 — one warning per unreadable KEY, never one per hit on it -------------------------
+
+
+@pytest.mark.asyncio
+async def test_repeated_hits_on_one_corrupt_block_warn_exactly_once(store, caplog) -> None:
+    """INVARIANT: the warning is per key, not per hit.
+
+    A popular corrupt row is read on every request that keys to it. Without the seen-set the
+    log fills with the same line forever, which is spam rather than signal — and the operator
+    stops reading the one channel that reports a degraded block.
+    """
+    await store.set_if_absent(_write(metadata=_metadata()))
+    row = await RequestCacheEntry.get(key_hash=_KEY)
+    row.metadata_json = "{not-json"
+    await row.save(update_fields=["metadata_json"])
+
+    with caplog.at_level(logging.WARNING, logger="aigateway.core.request_cache.store"):
+        entries = [await store.get(_KEY) for _ in range(4)]
+
+    assert all(entry is not None and entry.metadata is None for entry in entries)
+    assert all(entry.response == _RESPONSE for entry in entries if entry is not None)
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert _KEY[:12] in warnings[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_a_second_corrupt_key_gets_its_own_warning(store, caplog) -> None:
+    """The dedup is per key — a different corrupt row is a different fact and must be reported."""
+    other_key = "b" * 64
+    for key in (_KEY, other_key):
+        await store.set_if_absent(_write(key_hash=key, metadata=_metadata()))
+        row = await RequestCacheEntry.get(key_hash=key)
+        row.metadata_json = "{not-json"
+        await row.save(update_fields=["metadata_json"])
+
+    with caplog.at_level(logging.WARNING, logger="aigateway.core.request_cache.store"):
+        await store.get(_KEY)
+        await store.get(other_key)
+        await store.get(_KEY)
+
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 2
+    assert any(_KEY[:12] in record.getMessage() for record in warnings)
+    assert any(other_key[:12] in record.getMessage() for record in warnings)
+
+
+# --- M9 — an over-cap block is dropped WHOLE by the real store, never trimmed -------------------
+
+
+@pytest.mark.asyncio
+async def test_an_oversized_block_is_written_as_null_and_still_serves_the_body(
+    store, caplog
+) -> None:
+    """INVARIANT: over the cap the row is written with metadata_json = NULL and the answer stands.
+
+    Pinned through ``set_if_absent`` and not only on the value object: the store owns the
+    decision to keep the response when the block cannot be stored, and that is the behaviour
+    an operator depends on.
+    """
+    oversized = _metadata(response_model="m" * (CACHE_ENTRY_METADATA_MAX_BYTES + 1))
+
+    with caplog.at_level(logging.WARNING, logger="aigateway.core.request_cache.store"):
+        assert await store.set_if_absent(_write(metadata=oversized)) == "stored"
+
+    row = await RequestCacheEntry.get(key_hash=_KEY)
+    assert row.metadata_json is None
+    assert json.loads(row.response_json) == _RESPONSE
+
+    entry = await store.get(_KEY)
+    assert entry is not None
+    assert entry.metadata is None
+    assert entry.response == _RESPONSE
+
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert _KEY[:12] in warnings[0].getMessage()
+    assert str(CACHE_ENTRY_METADATA_MAX_BYTES) in warnings[0].getMessage()
+    assert "SECRET-ANSWER" not in warnings[0].getMessage()

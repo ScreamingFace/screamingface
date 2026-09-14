@@ -417,16 +417,25 @@ def attach_hit_metadata(
                 "stored cache-entry metadata rendering failed provider=%s gateway_call_id=%s",
                 session.provider,
                 session.gateway_call_id,
+                exc_info=True,
             )
     if reference is None:
         try:
             contribution = getattr(plugin, "cache_reference_from_cached_response")
             reference = contribution(cached)
-        except Exception:
+        except Exception as exc:
+            # AIDEV-NOTE: the exception TYPE, deliberately — NOT `exc_info`, unlike the two
+            # handlers above. This one wraps a provider plugin's mapper called on the cached
+            # RESPONSE BODY, and a mapper that raises with the payload in its message would put
+            # response content into the log through the traceback. The handlers above read the
+            # metadata block, which by PRD §4.5 carries no prompt, credential or identity, so a
+            # traceback there is safe. The type name is enough to tell a defect from an expected
+            # mapper failure, which is all the diagnostic was for.
             logger.warning(
-                "cache-reference mapper failed provider=%s gateway_call_id=%s",
+                "cache-reference mapper failed provider=%s gateway_call_id=%s error=%s",
                 session.provider,
                 session.gateway_call_id,
+                type(exc).__name__,
             )
     if reference is not None and type(reference) is not CacheReference:
         logger.warning(

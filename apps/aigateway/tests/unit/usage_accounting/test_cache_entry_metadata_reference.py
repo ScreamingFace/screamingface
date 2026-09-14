@@ -7,6 +7,7 @@ tests #2, #4, #13, #19, #20, #21, #23; ERD §3.2, §3.5.
 from __future__ import annotations
 
 import json
+import logging
 from importlib.resources import files
 from types import SimpleNamespace
 from typing import Any, cast
@@ -606,3 +607,63 @@ class TestPackagedSchema:
         body = attach_hit_metadata({"id": "gen-1"}, _session(), plugin=plugin, entry_metadata=None)
 
         Draft202012Validator(_schema()).validate(body["_aigw"])
+
+
+# --- S8 — the builder swallows, but never silently ----------------------------------------------
+
+
+def test_a_build_failure_logs_the_exception_it_swallowed(caplog) -> None:
+    """INVARIANT: S8 keeps the request alive; it does not require throwing the cause away.
+
+    WHY this is pinned: without `exc_info` a genuine defect in the builder — an AttributeError
+    after `collector` is refactored, say — writes exactly the line an expected malformed capture
+    writes. The two would then be indistinguishable in production, and the only signal that the
+    metadata feature had stopped working at all would be blocks quietly going NULL.
+    """
+
+    class _ExplodingCollector:
+        def records(self) -> list[object]:
+            raise RuntimeError("collector is broken")
+
+    session = SimpleNamespace(collector=_ExplodingCollector(), provider="openrouter")
+
+    with caplog.at_level(logging.WARNING, logger="aigateway.plugins.taxonomy.entry_metadata"):
+        assert cache_entry_metadata_from_session(cast(Any, session)) is None
+
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert warnings[0].exc_info is not None
+    assert "openrouter" in warnings[0].getMessage()
+    # The swallowed cause is recoverable from the record, which is the whole point.
+    assert warnings[0].exc_info[0] is RuntimeError
+
+
+def test_a_failing_provider_mapper_never_logs_the_cached_body(caplog) -> None:
+    """INVARIANT (PRD §4.5): a diagnostic must not become a content leak.
+
+    The provider mapper is handed the cached RESPONSE, so a plugin that raises with the payload
+    in its message would put response content into the log if the handler passed `exc_info`. The
+    exception TYPE separates a defect from an expected mapper failure just as well, and carries
+    nothing. The two handlers above it read the metadata block instead, which carries no content,
+    and they DO log `exc_info` — the difference is the point.
+    """
+
+    class _LeakyPlugin:
+        @staticmethod
+        def cache_reference_from_cached_response(cached: object) -> object:
+            raise ValueError(f"unexpected shape: {cached!r}")
+
+    cached = {"choices": [{"message": {"content": "SECRET-ANSWER"}}]}
+    session = _session()
+
+    with caplog.at_level(logging.WARNING, logger="aigateway.plugins.taxonomy.session"):
+        attach_hit_metadata(cached, session, plugin=_LeakyPlugin, entry_metadata=None)
+
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert warnings
+    rendered = "\n".join(
+        record.getMessage() + (str(record.exc_info) if record.exc_info else "")
+        for record in warnings
+    )
+    assert "SECRET-ANSWER" not in rendered
+    assert "ValueError" in rendered

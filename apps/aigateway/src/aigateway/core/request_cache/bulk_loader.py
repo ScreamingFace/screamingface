@@ -24,6 +24,7 @@ being padded with an invented block.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import BinaryIO, Final, Literal, NamedTuple, Protocol
@@ -32,6 +33,8 @@ from tortoise import Tortoise
 from tortoise.backends.asyncpg.client import AsyncpgDBClient
 
 from .snapshot import CopyBlockSource, open_snapshot_stream
+
+logger = logging.getLogger(__name__)
 
 _TABLE: Final = "request_cache_entries"
 _STAGING: Final = "request_cache_entries_staging"
@@ -71,6 +74,22 @@ _REPLACE_SQL: Final = (
     f"INSERT INTO {_TABLE} ({_REPLACE_COLUMNS}) SELECT {_REPLACE_COLUMNS} FROM {_STAGING} AS s"
 )
 
+# WHY this count exists: the merge above sets `metadata_json = EXCLUDED.metadata_json`, and for a
+# legacy 12-column archive EXCLUDED is NULL — so a restore silently turns priced rows back into
+# unknown ones (ERD E7). That is intended and irreversible for the row; what was missing is any
+# signal AT THE MOMENT IT HAPPENS. Without it the only trace is `cache.saved_cost.unpriced_hits`
+# drifting upward on a later engine run, which points the operator at the engine rather than at
+# the restore that caused it.
+# INVARIANT: counts rows the merge DEGRADES — live block present, incoming block absent — never
+# rows that were already unknown, and never rows the archive does not mention.
+_DEGRADED_COUNT_SQL: Final = f"""
+SELECT count(*)
+  FROM {_TABLE} AS t
+  JOIN {_STAGING} AS s USING (key_hash)
+ WHERE t.metadata_json IS NOT NULL
+   AND s.metadata_json IS NULL
+"""
+
 
 class CacheUploadUnsupportedDatabase(RuntimeError):
     """The active database is not Postgres, so the COPY protocol path cannot run."""
@@ -101,6 +120,10 @@ class LoadOutcome(NamedTuple):
     staged_rows: int
     live_before: int
     live_after: int
+    # How many live rows this load turned from "priced" back to "unknown" (ERD E7). Merge only:
+    # replace discards the whole table by contract, behind the caller's own loss acknowledgement,
+    # so per-row degradation is not the fact being reported there.
+    metadata_degraded: int = 0
 
 
 class _PhaseCallback(Protocol):
@@ -173,10 +196,15 @@ async def load_snapshot(
         if on_phase is not None:
             await on_phase("merging")
 
+        metadata_degraded = 0
+
         # One transaction for the load: readers see the old contents until commit (MVCC), and
         # a mid-load failure leaves the live table untouched rather than half-replaced.
         async with raw.transaction():
             if mode == "merge":
+                # Counted BEFORE the merge, inside the same transaction: afterwards the live
+                # block is already gone and the two states are indistinguishable.
+                metadata_degraded = await raw.fetchval(_DEGRADED_COUNT_SQL) or 0
                 await raw.execute(_MERGE_SQL)
             else:
                 await raw.execute(f"TRUNCATE {_TABLE}")
@@ -185,7 +213,20 @@ async def load_snapshot(
 
         await raw.execute(f"TRUNCATE {_STAGING}")
 
-    return LoadOutcome(staged_rows=staged_rows, live_before=live_before, live_after=live_after)
+    if metadata_degraded:
+        logger.warning(
+            "cache snapshot merge degraded %d of %d row(s) to unknown metadata: the archive "
+            "carries no block for them, so what those responses cost is no longer recorded",
+            metadata_degraded,
+            staged_rows,
+        )
+
+    return LoadOutcome(
+        staged_rows=staged_rows,
+        live_before=live_before,
+        live_after=live_after,
+        metadata_degraded=metadata_degraded,
+    )
 
 
 def _read_batch(source: CopyBlockSource) -> bytes:
