@@ -18,6 +18,7 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -437,3 +438,73 @@ async def test_a_racing_write_to_an_unrelated_row_blocks_the_merge(
         # applied: the target row must still read exactly as it did before the attempt.
         after = await _fetch(raw, target)
         assert after["metadata_json"] == '{"marker":"live"}'
+
+
+# --- Finding 2 — the migration must give up the lock queue instead of leading it ---------------
+
+
+@asynccontextmanager
+async def _holding_access_share_on_request_cache_entries(
+    database_url: str,
+) -> AsyncIterator[None]:
+    """Holds ACCESS SHARE on ``request_cache_entries`` for the life of the context.
+
+    The same lock mode, and the same "held open by a long transaction" shape, as the snapshot
+    exporter's COPY — which sets ``lock_timeout = 0`` and can hold it for the whole
+    ``_COPY_TIMEOUT_S = 600.0`` (``snapshot_export.py:54,71-72``).
+    """
+    conn = await asyncpg.connect(database_url)  # type: ignore[arg-type]
+    try:
+        await conn.execute("BEGIN")
+        await conn.execute(f"SELECT * FROM {_TABLE}")
+        yield
+    finally:
+        await conn.execute("ROLLBACK")
+        await conn.close()
+
+
+async def _run_add_column_once_with_bounded_timeout(database_url: str) -> None:
+    """One DDL attempt under the migration's own bounded lock_timeout — no retry, no state change.
+
+    Reads ``_SET_LOCK_TIMEOUT_SQL`` off the real migration module rather than restating the SQL,
+    so this test fails if the migration's bound ever drifts from what it actually runs.
+    """
+    module = import_module("aigateway.migrations.0011_cache_entry_metadata")
+    conn = await asyncpg.connect(database_url)  # type: ignore[arg-type]
+    try:
+        await conn.execute(module._SET_LOCK_TIMEOUT_SQL)
+        await conn.execute(f"ALTER TABLE {_TABLE} ADD COLUMN _lock_probe TEXT")
+    finally:
+        await conn.close()
+
+
+async def _select_one_from_request_cache_entries(database_url: str) -> int | None:
+    conn = await asyncpg.connect(database_url)  # type: ignore[arg-type]
+    try:
+        return await conn.fetchval(f"SELECT count(*) FROM {_TABLE}")
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_the_migration_gives_up_the_lock_queue_instead_of_blocking_readers(
+    migrated_postgres: str,
+) -> None:
+    """With a conflicting lock held, the DDL must fail fast — not sit at the head of the queue.
+
+    A waiting ACCESS EXCLUSIVE makes every later reader wait too, which is how a catalog-only
+    ADD COLUMN takes the cache down for the length of somebody else's export.
+    """
+    async with _holding_access_share_on_request_cache_entries(migrated_postgres):
+        with pytest.raises(Exception) as caught:
+            await _run_add_column_once_with_bounded_timeout(migrated_postgres)
+
+        assert getattr(caught.value, "sqlstate", None) == "55P03"
+        # And a reader was never made to wait behind it — bounded so a regression fails fast
+        # instead of hanging the suite.
+        assert (
+            await asyncio.wait_for(
+                _select_one_from_request_cache_entries(migrated_postgres), timeout=3.0
+            )
+            is not None
+        )

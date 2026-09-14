@@ -20,7 +20,9 @@ import subprocess
 import sys
 import uuid
 from datetime import UTC, datetime, timedelta
+from importlib import import_module
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -220,3 +222,48 @@ def test_0011_downgrade_keeps_the_standalone_indexes(
     _downgrade(url, "0010_simplify_request_cache")
 
     assert _indexes(db) == indexes_before
+
+
+# --- Finding 2 — the migration must not queue for the table lock -------------------------------
+
+
+def _migration_0011() -> ModuleType:
+    """The migration module.
+
+    Loaded through `import_module` because `0011_cache_entry_metadata` starts with a digit, so
+    it is not a valid identifier and `from aigateway.migrations import ...` cannot name it.
+    """
+    return import_module("aigateway.migrations.0011_cache_entry_metadata")
+
+
+def test_the_migration_is_not_atomic_so_a_lock_attempt_can_be_retried() -> None:
+    """A failed statement aborts an atomic migration's transaction, so retry needs atomic=False."""
+    assert _migration_0011().Migration.atomic is False
+
+
+def test_the_postgres_ddl_runs_under_a_bounded_lock_timeout() -> None:
+    """ADD COLUMN needs ACCESS EXCLUSIVE; WAITING for it is what queues every later reader."""
+    module = _migration_0011()
+
+    assert 0 < module._LOCK_TIMEOUT_MS <= 5_000
+    assert "lock_timeout" in module._SET_LOCK_TIMEOUT_SQL
+    assert "0" != module._SET_LOCK_TIMEOUT_SQL.strip().rstrip(";").split("=")[-1].strip()
+
+
+def test_a_lock_timeout_is_retried_a_bounded_number_of_times() -> None:
+    """Fail fast enough not to queue readers, retry often enough not to fail a deploy."""
+    module = _migration_0011()
+
+    assert 1 <= module._LOCK_ATTEMPTS <= 10
+    assert module._LOCK_RETRY_DELAY_S > 0
+
+
+def test_0011_still_applies_cleanly_on_sqlite_under_the_bounded_lock_change(
+    populated_0010: tuple[Path, str, str],
+) -> None:
+    """SQLite never executes the lock-timeout SQL, but the migration must still run end to end."""
+    db, url, _key = populated_0010
+
+    _migrate(url)
+
+    assert _COLUMN in _columns(db)
