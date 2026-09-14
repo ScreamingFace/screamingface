@@ -171,12 +171,9 @@ def create_local_app(
     # any import of this module. What it defers is `runner.connector`/`runner.executor` and httpx
     # — not the engine itself, which `url4/__init__` has already pulled in via any `url4.streaming`
     # import (see the SCOPE NOTE in `check_layering.py`).
-    from screamingface_engine.observation_plugins import observation_factories
     from screamingface_engine.runner.main import build_executor
 
-    run_env = dict(_with_runner_config(env if env is not None else os.environ))
-    run_env.setdefault(job_env.ACTIVITY_LEVEL, settings.activity_level)
-    observers = observation_factories(run_env)
+    run_env = _with_runner_config(env if env is not None else os.environ)
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)
     # INVARIANT: the local default is substituted ONCE, here, before anything reads the address —
@@ -197,7 +194,7 @@ def create_local_app(
     io_gate = FairShareGate(settings.local_io_capacity)
     job_runner = InProcessJobRunner(
         stream,
-        partial(build_executor, benchmarks=benchmarks, io_gate=io_gate, observers=observers),
+        partial(build_executor, benchmarks=benchmarks, io_gate=io_gate),
         base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,

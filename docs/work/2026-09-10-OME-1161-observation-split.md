@@ -72,21 +72,16 @@ Validate focused tests and full gates, then rebase PR 931 onto the updated integ
 Characterization test passes without runtime changes; full Engine gates pass. Review found
 no issues. OME-1201 remains open until PR 915 merges.
 
-## Complete activity plugin (2026-09-14)
+## Plugin split — contract and admission (2026-09-14)
 
-Owner approved one cohesive plugin draft stacked on PR 915, accepting the larger estimated
-1,200–1,400-line review unit. Base ed8ee03e. Keep the existing four shared artifacts.
-Intent: safe node-associated model activity with fixed 60-second heartbeats, rolling admission,
-revocable run ownership and deployment-owned full/off policy. No storage or Client UI.
-Plan: restore activity modules and tests selectively; wire only entry-point composition;
-preserve build_executor's empty injectable default and all existing tests. Restore config/Helm
-policy without overwriting intervening changes. Tests first, then full gates and independent review.
-Acceptance: real stream outcomes/retries/cancellation, privacy, pressure/recovery, three-day
-simulation, disabled-mode isolation, plugin removal, deployment precedence and chart checks.
-Outcome: producer tests failed before the activity module was restored. Reconciled wiring
-with the integrated empty-default factory and kept all prior tests intact. Fixed the new
-removal-test fixture to supply its own world configuration. All 49 focused checks pass; full
-Engine gates pass against ed8ee03e (append-only, Ruff, Pyright, layering, pytest/coverage).
-Helm renders full/off and rejects unsupported levels. Both independent reviews found no
-confirmed issues. The plugin keeps policy out of execution, adds no storage/dependencies,
-and preserves ordinary failures/cancellation. No merge until unstacked and review/CI green.
+Owner requested shrinking PR 931 to the first review boundary. Complete plugin and all its
+tests are preserved at 2bc435bb on OME-1161-complete-plugin-preserved.
+Plan: retain only contract/session modules and direct vocabulary/admission tests; defer
+operation scopes, adapter, timers, configuration and end-to-end tests with their implementation.
+No existing pre-931 tests change. This unit does not register or enable activity.
+Acceptance: field safety, state validation, exact reserve/refill, suppression/revocation,
+concurrent admission and multi-day recovery; full Engine gates against PR 915.
+Outcome: 29 direct tests pass and full Engine gates pass against ed8ee03e (append-only,
+Ruff lint/format, Pyright, layering, full pytest/coverage). Both reviews found no issues.
+The extracted production code is unchanged; no prior tests or execution behavior change.
+Follow-ups: lifecycle/adapter, then deployment/end-to-end verification.

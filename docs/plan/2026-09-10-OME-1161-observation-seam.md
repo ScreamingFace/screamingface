@@ -1,7 +1,6 @@
-Owner update, 2026-09-14: prepare the complete plugin as one draft stacked on PR 915.
-The owner accepted the larger estimated 1,200–1,400-line unit; report the measured diff.
-Unstack onto main after 915 merges. Entry points register the plugin; build_executor keeps
-its explicit empty-by-default observer argument. This supersedes the earlier size/split plan.
+Owner update, 2026-09-14: split PR 931 into contract/admission first, lifecycle/adapter
+second, then deployment/end-to-end verification. Complete plugin preserved at 2bc435bb.
+The first slice enables no producer. Preserve deferred tests with their implementation.
 
 Update, 2026-09-14: PR 899 merged at dcaba228. PR 915 is rebased onto main; the
 temporary stack is removed. Preferred remaining split: integration, then the complete

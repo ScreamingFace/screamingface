@@ -34,7 +34,6 @@
     "config": {
       "type": "object",
       "properties": {
-        "activityLevel": {"type": "string", "enum": ["off", "full"]},
         "natsUrl": {
           "type": "string",
           "description": "Empty is legal: the natsUrl helper then derives it from nats.fullnameOverride, or fails the render.",
