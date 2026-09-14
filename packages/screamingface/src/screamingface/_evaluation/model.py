@@ -48,6 +48,10 @@ class Candidate:
     operations: tuple[OperationInfo, ...]
     members: tuple[_MemberProjection, ...]
     parameter_assignments: tuple[_ModelParameterAssignment, ...]
+    # FEATURE (OME-1193): the run's declared answer seed rides the Candidate the transport
+    # already receives, so the run-transport protocol (and every fake implementing it)
+    # never widens. None = unseeded, the default for every compiled Candidate.
+    answer_seed: int | None
 
     def __init__(self) -> NoReturn:
         raise TypeError("Candidate values are derived internally; they are not constructed")
@@ -147,7 +151,38 @@ def _compiled_candidate(
         "parameter_assignments",
         _candidate_parameter_assignments(parameter_assignments, operation_ids),
     )
+    object.__setattr__(candidate, "answer_seed", None)
     return candidate
+
+
+def _answer_seed_value(value: object) -> int | None:
+    """Validate a declared answer seed: any integer, or None for an unseeded run.
+
+    WHY the explicit bool exclusion: ``bool`` is an ``int`` subclass, so ``True`` would
+    type-check and then serialize as ``true`` — a sitting no engine run can have.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("answer_seed must be an integer or None")
+    return value
+
+
+def _with_answer_seed(candidate: Candidate, answer_seed: int) -> Candidate:
+    """Copy one compiled Candidate with the run's declared sitting stamped on."""
+    stamped = object.__new__(Candidate)
+    for name in (
+        "name",
+        "kind",
+        "models",
+        "url4",
+        "operations",
+        "members",
+        "parameter_assignments",
+    ):
+        object.__setattr__(stamped, name, getattr(candidate, name))
+    object.__setattr__(stamped, "answer_seed", answer_seed)
+    return stamped
 
 
 def _candidate_members(
