@@ -94,3 +94,6 @@ or claiming delivery. Correct the earlier test expectation to match the approved
 RED reproduced three failures; sink-local containment fixes them. All 31 focused tests and
 full Engine gates pass; targeted review found no further issues. Future extraction must keep
 this corrected session, not restore the stale copy from the complete-plugin snapshot.
+
+PR 915 merged at c9c6761f; PR 931 rebased onto main without conflicts (2026-09-14).
+Full Engine gates passed against main; Standards and Spec reviews found no actionable issues.

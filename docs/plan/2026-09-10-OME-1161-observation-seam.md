@@ -1,6 +1,7 @@
 Owner update, 2026-09-14: split PR 931 into contract/admission first, lifecycle/adapter
 second, then deployment/end-to-end verification. Complete plugin preserved at 2bc435bb.
-The first slice enables no producer. Preserve deferred tests with their implementation.
+PR 915 merged at c9c6761f; PR 931 now targets main. The first slice enables no producer.
+Preserve deferred tests with their implementation.
 
 Update, 2026-09-14: PR 899 merged at dcaba228. PR 915 is rebased onto main; the
 temporary stack is removed. Preferred remaining split: integration, then the complete
