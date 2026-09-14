@@ -38,6 +38,7 @@ from url4.observe import (
     NodeStarted,
     ObservationEvent,
     RunStarted,
+    SavedCostProvenance,
     Usage,
 )
 from url4.streaming.interfaces import Completed, ExecStep, Executor, SpanRef, TraceContext, Traced
@@ -294,6 +295,11 @@ class _SpanState:
     # beside a reason from another would describe a call that never happened.
     cache_status: Literal["hit", "miss", "bypass"] | None = field(default=None)
     cache_reason: str | None = field(default=None)
+    # FEATURE: run-level saved cost (ans:Q2). Held as a pair, like the status beside it, and
+    # last-wins for the same reason: one span carries ONE cache outcome while a tool-calling turn
+    # may make several hits. `None` means no hit reported a priceable saving — never zero.
+    cache_saved_cost_usd: Decimal | None = field(default=None)
+    cache_saved_cost_provenance: SavedCostProvenance | None = field(default=None)
 
 
 class _RunState:
@@ -396,6 +402,13 @@ class _RunState:
         # from a real one. A run TOTAL has no such problem: the round trip happened and it either
         # cost or saved money, so dropping it would under-report the run's own summary.
         self.cache_counters.record(event.cache_status, event.cache_reason)
+        if event.cache_status == "hit":
+            # Beside the outcome, and only for a HIT: a miss or a bypass avoided nothing. The
+            # counters keep the two provenances in separate accumulators, so the provider-authored
+            # total and the archive-paired total can never be summed into one figure (PRD S7).
+            self.cache_counters.record_saved_cost(
+                event.cache_saved_cost_usd, event.cache_saved_cost_provenance
+            )
         span = self.spans.get(event.span_id) if event.span_id is not None else None
         if span is None:
             return
@@ -404,6 +417,11 @@ class _RunState:
         if event.refusal is not None:
             # Last refusal wins: for a multi-call turn the final one is the turn's outcome.
             span.refusal = event.refusal
+        if event.cache_saved_cost_usd is not None:
+            # Guarded on the PRICE rather than on the status so a hit with nothing priceable
+            # cannot blank an earlier hit's figure. Written as a pair, for the pair invariant.
+            span.cache_saved_cost_usd = event.cache_saved_cost_usd
+            span.cache_saved_cost_provenance = event.cache_saved_cost_provenance
         if event.cache_status is not None:
             # Same rule, and guarded on the STATUS rather than on the event: a later round trip
             # that reported no outcome at all — an older gateway, a non-cache error path — must
@@ -503,6 +521,11 @@ class _RunState:
             # read as "the cache refused this call" — a claim nobody made.
             cache_status=span.cache_status,
             cache_reason=span.cache_reason,
+            # The counterfactual this span's hits avoided, and how it was established. A wire
+            # field and NOT part of `CostBreakdown`, which is closed — mixing avoided money into
+            # the cost block would let one call be counted twice.
+            cache_saved_cost_usd=span.cache_saved_cost_usd,
+            cache_saved_cost_provenance=span.cache_saved_cost_provenance,
             start=start,
             end=datetime.now(UTC),
             status="ok" if event.status == "ok" else "error",

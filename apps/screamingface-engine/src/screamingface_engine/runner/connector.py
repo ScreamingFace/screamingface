@@ -32,6 +32,7 @@ from screamingface_engine.retrieval_policy import (
 )
 from screamingface_engine.runner.accounting import (
     CallAccounting,
+    avoided_usd_from_aigw,
     read_aigw,
     retained_operation_accounting,
 )
@@ -142,7 +143,7 @@ async def _logged_round_trip(
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
         # capture.
-        _report_response(choice, outcome)
+        _report_response(choice, outcome, data.get("_aigw"))
         _raise_if_unusable_with_accounting(
             choice,
             max_tokens=max_tokens,
@@ -396,9 +397,9 @@ async def build_aigateway_world(
     )
 
 
-def _report_response(choice: Choice, cache: CacheOutcome) -> None:
-    """Report how one model round trip ended — and whether the gateway served it from its
-    response cache — onto the currently-resolving node's span.
+def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -> None:
+    """Report how one model round trip ended — whether the gateway served it from its response
+    cache, and what that hit avoided — onto the currently-resolving node's span.
 
     Null-safe exactly like `_report_usage`: outside a run, or with no observer attached, the
     sink is absent and this is a no-op.
@@ -407,15 +408,23 @@ def _report_response(choice: Choice, cache: CacheOutcome) -> None:
     costs nothing upstream while `_report_usage` bills it as a fresh call, so a span that
     carries the tokens without the outcome states a cost that was never paid — an error in the
     direction that hides savings, and therefore one nobody reports.
+
+    INVARIANT: the saved cost is derived from `aigw` — the accounting of the round trip whose
+    outcome `cache` describes — and never from a discarded one. `_fetch_completion` may refuse a
+    hit and re-issue the call, returning the SECOND trip's outcome; deriving from that same
+    returned pair is what keeps the discarded hit's cost out of the run total (PRD test 17).
     """
     sink = current_response_sink()
     if sink is None:
         return
+    saved = avoided_usd_from_aigw(aigw)
     sink(
         finish_reason=choice.finish_reason,
         refusal=choice.refusal,
         cache_status=cache.status,
         cache_reason=cache.reason,
+        cache_saved_cost_usd=saved.usd,
+        cache_saved_cost_provenance=saved.provenance,
     )
 
 
