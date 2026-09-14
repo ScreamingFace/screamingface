@@ -149,7 +149,7 @@ def test_oversize_invalid_and_sink_fault_recover_with_safe_counts():
     emit(session, sink)
     assert len(sink.records) == 1
     assert sink.records[0][1]["sf.activity.suppressed.oversize"] == 2
-    assert sink.records[0][1]["sf.activity.suppressed.invalid"] == 2
+    assert sink.records[0][1]["sf.activity.suppressed.invalid"] == 1
     assert "PRIVATE" not in str(sink.records)
 
 
@@ -212,3 +212,23 @@ def test_suppression_counters_saturate():
     session.suppress("invalid")
     emit(session, sink)
     assert sink.records[0][1]["sf.activity.suppressed.invalid"] == MAX_INTEGER
+
+
+@pytest.mark.parametrize("delivered", [False, True])
+def test_sink_failure_is_not_producer_suppression(delivered):
+    session, sink = ActivitySession(), Sink()
+    session.suppress("oversize")
+
+    def broken(body, attributes, *, severity):
+        if delivered:
+            sink(body, attributes, severity=severity)
+        raise RuntimeError("private sink failure")
+
+    emit(session, broken)
+    emit(session, sink)
+    assert len(sink.records) == (2 if delivered else 1)
+    assert session._suppressed == {"invalid": 0, "oversize": 1, "rate": 0}
+    assert sink.records[-1][1]["sf.activity.suppressed.oversize"] == 1
+    assert sink.records[-1][1]["sf.activity.suppressed.invalid"] == 0
+    emit(session, sink)
+    assert "sf.activity.suppressed.oversize" not in sink.records[-1][1]

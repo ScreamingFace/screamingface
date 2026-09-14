@@ -85,3 +85,12 @@ Outcome: 29 direct tests pass and full Engine gates pass against ed8ee03e (appen
 Ruff lint/format, Pyright, layering, full pytest/coverage). Both reviews found no issues.
 The extracted production code is unchanged; no prior tests or execution behavior change.
 Follow-ups: lifecycle/adapter, then deployment/end-to-end verification.
+
+## Sink-fault accounting correction (2026-09-14)
+
+Review identified sink exceptions incorrectly counted as producer-invalid suppression.
+Test before/after-delivery sink failures; contain faults without changing producer counters
+or claiming delivery. Correct the earlier test expectation to match the approved contract.
+RED reproduced three failures; sink-local containment fixes them. All 31 focused tests and
+full Engine gates pass; targeted review found no further issues. Future extraction must keep
+this corrected session, not restore the stale copy from the complete-plugin snapshot.

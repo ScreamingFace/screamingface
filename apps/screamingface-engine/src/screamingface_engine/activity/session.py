@@ -76,8 +76,14 @@ class ActivitySession:
             severity = "WARN" if state in {"retrying", "refused", "cancelled"} else "INFO"
             if state == "failed":
                 severity = "ERROR"
-            sink(body, MappingProxyType(record), severity=severity)
-            self._reported = snapshot
+            try:
+                sink(body, MappingProxyType(record), severity=severity)
+            except Exception:
+                # INVARIANT: uncertain sink delivery is not producer suppression. Keep the
+                # snapshot pending; consumers merge cumulative counters by maxima.
+                pass
+            else:
+                self._reported = snapshot
 
 
 def current_session() -> ActivitySession | None:
