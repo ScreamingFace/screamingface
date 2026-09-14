@@ -63,3 +63,11 @@ Commit: feat: connect optional observers to Engine execution. Activity remains a
 PR 899 merged at dcaba228. Rebased only the integration commit onto updated main without
 conflicts, preserving intervening execution changes. Full Engine gates passed against main
 (append-only, Ruff, Pyright, layering, full pytest/coverage). PR 915 targets main; no new scope.
+
+## OME-1201 — observer latency contract (2026-09-14)
+
+Owner approved adding the rule to PR 915. Document prompt inline callbacks and separate
+async cleanup responsibilities; add a caller-task/ordering test. No runtime enforcement.
+Validate focused tests and full gates, then rebase PR 931 onto the updated integration head.
+Characterization test passes without runtime changes; full Engine gates pass. Review found
+no issues. OME-1201 remains open until PR 915 merges.

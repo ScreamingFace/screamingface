@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def test_unregistered_engine_preserves_requests_accounting_and_cancellation(tmp_path):
     source = Path(__file__).resolve().parents[2] / "src/screamingface_engine"
@@ -117,3 +119,36 @@ asyncio.run(main())
         timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.asyncio
+async def test_hook_latency_is_the_observers_responsibility():
+    import asyncio
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    from screamingface_engine.observations import (
+        ModelCall,
+        ModelObservation,
+        RunObservations,
+        RunObserver,
+    )
+
+    task, seen = asyncio.current_task(), []
+    observer = Mock(spec=RunObserver)
+    observer.bind.return_value = nullcontext()
+    call = Mock(spec=ModelObservation)
+    observer.model_call.return_value = call
+
+    def completed(reason):
+        assert asyncio.current_task() is task
+        seen.append(reason)
+
+    call.completed.side_effect = completed
+    run = RunObservations((lambda: observer,))
+    with run.bind():
+        async with ModelCall("model", None) as observation:
+            observation.completed("stop")
+            # WHY: dispatch does not offload hooks; their latency is on the caller's path.
+            assert seen == ["stop"]
+    await run.aclose()

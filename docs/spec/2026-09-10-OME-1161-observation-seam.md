@@ -90,3 +90,7 @@ The activity PRs add fake-provider streams, heartbeat/revocation, pressure/recov
 long-duration simulation and deployment tests. Each PR passes its own gates independently.
 The preserved implementation is evidence that these interfaces have a concrete consumer;
 it is not shipped by this docs PR. OME-1161 stays open until the feature deliveries land.
+
+OME-1201 clarification: inline hooks must return promptly; slow I/O belongs to observer-owned
+resources. Async cleanup cancels/joins owned tasks without waiting for remote delivery.
+Dispatch provides exception containment, not runtime latency enforcement.
