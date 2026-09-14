@@ -57,3 +57,9 @@ cleanup leakage, reproduced RED and fixed. All 30 focused cases and full Engine 
 Both reviews have no remaining findings. Existing tests remain intact. The narrow integration
 keeps policy in the future plugin; no new dependencies or public wire schema changes.
 Commit: feat: connect optional observers to Engine execution. Activity remains a separate delivery.
+
+## Unstack integration (2026-09-14)
+
+PR 899 merged at dcaba228. Rebased only the integration commit onto updated main without
+conflicts, preserving intervening execution changes. Full Engine gates passed against main
+(append-only, Ruff, Pyright, layering, full pytest/coverage). PR 915 targets main; no new scope.

@@ -1,7 +1,6 @@
-Owner update, 2026-09-11: temporarily stack the integration draft on PR 899; rebase onto
-main after 899 merges. Preferred remaining split: integration, then the complete activity
-plugin. Integration retains the 500-line cap; plugin size will be reviewed separately.
-This explicit exception supersedes the no-stack instructions below.
+Update, 2026-09-14: PR 899 merged at dcaba228. PR 915 is rebased onto main; the
+temporary stack is removed. Preferred remaining split: integration, then the complete
+activity plugin. Integration retains the 500-line cap; plugin size is reviewed separately.
 
 # OME-1161 — Docs first, then sequential code PRs
 
