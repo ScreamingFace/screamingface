@@ -90,6 +90,13 @@ SELECT count(*)
    AND s.metadata_json IS NULL
 """
 
+# The merge's degraded count and the merge itself are two statements, and READ COMMITTED gives
+# each its own snapshot while `ON CONFLICT DO UPDATE` re-reads the latest committed row. A fill
+# landing between them is therefore degraded but never counted, and the operator is told the
+# restore cost nothing. SHARE ROW EXCLUSIVE blocks concurrent WRITERS for the merge transaction
+# and leaves readers alone, so the cache keeps serving while the two statements agree.
+_LOCK_FOR_MERGE_SQL: Final = f"LOCK TABLE {_TABLE} IN SHARE ROW EXCLUSIVE MODE"
+
 
 class CacheUploadUnsupportedDatabase(RuntimeError):
     """The active database is not Postgres, so the COPY protocol path cannot run."""
@@ -202,6 +209,8 @@ async def load_snapshot(
         # a mid-load failure leaves the live table untouched rather than half-replaced.
         async with raw.transaction():
             if mode == "merge":
+                # Before the count, so no write can land between the two statements that follow.
+                await raw.execute(_LOCK_FOR_MERGE_SQL)
                 # Counted BEFORE the merge, inside the same transaction: afterwards the live
                 # block is already gone and the two states are indistinguishable.
                 metadata_degraded = await raw.fetchval(_DEGRADED_COUNT_SQL) or 0

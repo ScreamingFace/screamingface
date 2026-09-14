@@ -10,6 +10,7 @@ Run with:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import subprocess
@@ -364,3 +365,75 @@ async def test_a_replace_reports_no_degradation_because_loss_was_acknowledged(
 
         assert outcome.metadata_degraded == 0
         assert (await _fetch(raw, key))["metadata_json"] is None
+
+
+# --- Finding 4 — the count and the merge must see ONE state, under concurrent fills ------------
+
+
+@pytest.mark.asyncio
+async def test_a_racing_write_to_an_unrelated_row_blocks_the_merge(
+    migrated_postgres: str, tmp_path: Path
+) -> None:
+    """The count and the merge must see ONE state, and the lock is what guarantees it.
+
+    Under READ COMMITTED each statement takes its own snapshot while `ON CONFLICT DO UPDATE`
+    re-reads the latest committed row, so a fill landing between the count and the merge is
+    degraded and never counted — the operator is told the restore cost nothing while a later
+    run's saved-cost coverage quietly drops.
+
+    Asserted as EXCLUSION rather than as a racing outcome on purpose: once the lock is held the
+    interleaving this bug needs can no longer occur, so there is no post-fix state in which a
+    racing fill is both degraded and uncounted. What is observable, and deterministic, is that a
+    concurrent writer cannot commit while the merge transaction is open.
+    """
+    target, unrelated = "e" * 64, "f" * 64
+    dump = tmp_path / "legacy-target-only.sql"
+    dump.write_bytes(_dump(LEGACY_COLUMNS, [_base_row(target)]))  # mentions "target" only
+
+    async with _db(migrated_postgres) as raw:
+        await RequestCacheEntry.create(
+            key_hash=target,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"v":0}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"marker":"live"}',
+        )
+        await RequestCacheEntry.create(
+            key_hash=unrelated,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"v":0}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json=None,
+        )
+
+        other = await asyncpg.connect(migrated_postgres)  # type: ignore[arg-type]
+        try:
+            await other.execute("BEGIN")
+            # A row the archive never mentions, so the merge's own INSERT never contends for it
+            # directly. What this DOES hold for the life of the transaction is a table-level
+            # ROW EXCLUSIVE — the mode SHARE ROW EXCLUSIVE conflicts with. Without the fix the
+            # merge sails past (ACCESS SHARE for the count, no row conflict for the upsert) and
+            # completes; with it, the merge waits for this transaction to end.
+            await other.execute(
+                f"UPDATE {_TABLE} SET hit_count = hit_count + 1 WHERE key_hash = $1", unrelated
+            )
+
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    load_snapshot(dump, mode="merge", expected_rows=1, acknowledge_loss=False),
+                    timeout=3.0,
+                )
+        finally:
+            await other.execute("ROLLBACK")
+            await other.close()
+
+        # The merge transaction was aborted by the timeout's cancellation, not partially
+        # applied: the target row must still read exactly as it did before the attempt.
+        after = await _fetch(raw, target)
+        assert after["metadata_json"] == '{"marker":"live"}'
