@@ -18,6 +18,7 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -657,3 +658,95 @@ async def test_the_merge_still_carries_a_real_block_through(
 
         after = await _fetch(raw, key)
         assert after["metadata_json"] == '{"cost_for": "archived"}'
+
+
+async def _reverse_migration_0011(database_url: str) -> None:
+    """Runs the REAL migration 0011 downgrade in-process, back to 0010.
+
+    Mirrors `_apply_migration_0011` exactly but targets the prior migration, so Tortoise's own
+    executor computes and runs the BACKWARD plan — the same code path a real rollback takes,
+    not a hand-rolled `DROP TRIGGER`.
+    """
+    await close_db()
+    await init_db(database_url)
+    try:
+        await _run_migration(
+            config=build_tortoise_config(database_url),
+            app_labels=["models"],
+            target="models.0010_simplify_request_cache",
+        )
+    finally:
+        await close_db()
+
+
+@pytest.mark.asyncio
+async def test_the_trigger_and_function_drop_together_on_reverse_and_recreate_idempotently(
+    postgres_at_0010: str,
+) -> None:
+    """The Postgres reverse path had zero coverage: the SQLite downgrade tests no-op the
+    `_LOCKING_DIALECTS` guard, so `_DROP_TRIGGER_SQL` was never executed by any test. A trigger
+    left behind after a rollback that already dropped its column would break every subsequent
+    write to the table — the worst outcome this task could produce.
+
+    This also pins the fix for the brief's own SQL defect: a bare `CREATE TRIGGER` is not
+    idempotent, so re-running the forward trigger SQL against an already-migrated table used to
+    raise "trigger already exists". `CREATE OR REPLACE TRIGGER` must not.
+    """
+    key = "9" * 64
+    await _apply_migration_0011(postgres_at_0010)
+
+    # 1-2: the trigger actually works forward, proven before its removal is tested.
+    async with _db(postgres_at_0010) as raw:
+        await RequestCacheEntry.create(
+            key_hash=key,
+            prompt_hash="p" * 64,
+            provider="openrouter",
+            model="m",
+            response_json='{"body": "old"}',
+            response_size_bytes=7,
+            expires_at=None,
+            metadata_json='{"cost_for": "old"}',
+        )
+        await raw.execute(
+            f"UPDATE {_TABLE} SET response_json = $1 WHERE key_hash = $2",
+            '{"body": "new"}',
+            key,
+        )
+        after = await _fetch(raw, key)
+        assert after["metadata_json"] is None
+
+    # Re-applying the forward trigger SQL against the still-migrated table must not raise
+    # "trigger already exists" — the exact defect CREATE OR REPLACE TRIGGER fixes.
+    module = import_module("aigateway.migrations.0011_cache_entry_metadata")
+    conn = await asyncpg.connect(postgres_at_0010)  # type: ignore[arg-type]
+    try:
+        await conn.execute(module._CREATE_TRIGGER_SQL)  # noqa: SLF001
+    finally:
+        await conn.close()
+
+    # 3: reverse the migration for real.
+    await _reverse_migration_0011(postgres_at_0010)
+
+    conn = await asyncpg.connect(postgres_at_0010)  # type: ignore[arg-type]
+    try:
+        # 4: the trigger is gone.
+        trigger = await conn.fetchval(
+            "SELECT 1 FROM pg_trigger WHERE tgname = $1",
+            "request_cache_entries_metadata_follows_response",
+        )
+        assert trigger is None
+        # 5: so is its function — a stranded function alone would not break writes, but the
+        # brief requires both dropped, and only checking the trigger would miss this.
+        function = await conn.fetchval(
+            "SELECT 1 FROM pg_proc WHERE proname = $1",
+            "request_cache_entries_clear_stale_metadata",
+        )
+        assert function is None
+        # 6: nothing dangling was left behind — a plain UPDATE on the reverted table still works.
+        await conn.execute(
+            f"UPDATE {_TABLE} SET response_json = $1 WHERE key_hash = $2",
+            '{"body": "post-downgrade"}',
+            key,
+        )
+    finally:
+        await conn.close()
