@@ -39,6 +39,7 @@ from .core.parameter_discovery_cache import (
 )
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
+from .core.provider_access import ProfileBackedProviderAccess
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
@@ -411,6 +412,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     credential_store = ORMStore()
     app.state.credential_store = credential_store
     app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
+    # OME-1200: the provider-access port; routes reach it via the chat_credentials shims until A2.
+    app.state.provider_access = ProfileBackedProviderAccess(app)
     app.state.request_cache_store = TortoiseRequestCacheStore(
         availability=ConfiguredCacheAvailability(settings.request_cache_enabled)
     )
