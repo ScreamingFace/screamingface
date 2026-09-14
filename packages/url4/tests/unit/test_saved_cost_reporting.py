@@ -1,0 +1,172 @@
+"""Saved-cost reporting on the observation seam (PRD tasks E1/E2, ERD §4).
+
+FEATURE: run-level saved cost (PRD ans:Q2). A cache hit costs nothing upstream; the amount it
+avoided must travel BESIDE the cache outcome that says so, on the same round trip, so the engine
+can total it without inventing a second seam or mixing it into token accounting.
+STORY: as an operator I can see what the run's cache hits would have cost, and from WHICH kind of
+evidence — provider-authored or archive-paired — each figure came.
+
+WHY the two values must stay out of `CostBreakdown`: that wire object is CLOSED
+(`extra="forbid"`), and avoided money is not consumption. Smuggling it into the cost block would
+let one call be counted twice — once as spend and once as saving.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from decimal import Decimal
+
+import pytest
+from pydantic import ValidationError
+
+from url4.dag import run
+from url4.io.static import StaticIOLayer
+from url4.observe import (
+    ModelResponse,
+    NodeStarted,
+    ObservationEvent,
+    SavedCostProvenance,
+    current_response_sink,
+)
+from url4.streaming.protocol import SpanData
+from url4.streaming.protocol.taxonomy import CostBreakdown
+
+
+class RecordingObserver:
+    def __init__(self) -> None:
+        self.events: list[ObservationEvent] = []
+
+    def on_event(self, event: ObservationEvent) -> None:
+        self.events.append(event)
+
+
+class _CtxSavedCostNode:
+    deps: dict = {}
+
+    async def resolve(self, inputs, ctx):
+        ctx.report_response(
+            finish_reason="stop",
+            refusal=None,
+            cache_status="hit",
+            cache_reason="fresh",
+            cache_saved_cost_usd=Decimal("0.0125"),
+            cache_saved_cost_provenance="reported",
+        )
+        return "ok"
+
+
+class _SinkSavedCostNode:
+    deps: dict = {}
+
+    async def resolve(self, inputs, ctx):
+        sink = current_response_sink()
+        assert sink is not None
+        sink(
+            finish_reason="stop",
+            refusal=None,
+            cache_status="hit",
+            cache_reason=None,
+            cache_saved_cost_usd=Decimal("4.5"),
+            cache_saved_cost_provenance="archive_matched",
+        )
+        return "ok"
+
+
+class _CtxNoSavedCostNode:
+    deps: dict = {}
+
+    async def resolve(self, inputs, ctx):
+        ctx.report_response(
+            finish_reason="stop",
+            refusal=None,
+            cache_status="hit",
+            cache_reason="fresh",
+        )
+        return "ok"
+
+
+def test_a_model_response_defaults_both_saved_cost_fields_to_none() -> None:
+    # Boundary: an older gateway, or a hit with nothing priceable, reports neither. `None` is
+    # "not priced", deliberately distinct from `Decimal("0")` ("was genuinely free").
+    response = ModelResponse("span", "stop", None, "hit", None)
+
+    assert response.cache_saved_cost_usd is None
+    assert response.cache_saved_cost_provenance is None
+
+
+def test_the_provenance_literal_names_exactly_the_two_claims() -> None:
+    # Both provenances exist and nothing else does. `reported` is provider-authored money;
+    # `archive_matched` is a paired seed price whose per-row attribution is unproven (ans:Q5) —
+    # and the engine never sums the two.
+    provenances: tuple[SavedCostProvenance, ...] = ("reported", "archive_matched")
+
+    assert set(provenances) == {"reported", "archive_matched"}
+
+
+@pytest.mark.asyncio
+async def test_ctx_report_response_forwards_the_saved_cost_to_the_observer() -> None:
+    rec = RecordingObserver()
+    await run(_CtxSavedCostNode(), StaticIOLayer(), observer=rec)
+
+    (response,) = [e for e in rec.events if isinstance(e, ModelResponse)]
+    assert response.cache_saved_cost_usd == Decimal("0.0125")
+    assert response.cache_saved_cost_provenance == "reported"
+
+
+@pytest.mark.asyncio
+async def test_the_ctx_less_sink_carries_the_archive_provenance_too() -> None:
+    rec = RecordingObserver()
+    await run(_SinkSavedCostNode(), StaticIOLayer(), observer=rec)
+
+    (response,) = [e for e in rec.events if isinstance(e, ModelResponse)]
+    assert response.cache_saved_cost_usd == Decimal("4.5")
+    assert response.cache_saved_cost_provenance == "archive_matched"
+    (start,) = [e for e in rec.events if isinstance(e, NodeStarted)]
+    assert response.span_id == start.span_id
+
+
+@pytest.mark.asyncio
+async def test_a_caller_that_reports_no_saved_cost_is_unaffected() -> None:
+    # INVARIANT: a live seam. Existing callers must keep compiling and must read as "nothing
+    # reported" rather than a fabricated zero saving, so a node that reports only its cache
+    # outcome leaves both saved-cost fields None downstream.
+    rec = RecordingObserver()
+    await run(_CtxNoSavedCostNode(), StaticIOLayer(), observer=rec)
+
+    (response,) = [e for e in rec.events if isinstance(e, ModelResponse)]
+    assert response.cache_status == "hit"
+    assert response.cache_saved_cost_usd is None
+    assert response.cache_saved_cost_provenance is None
+
+
+def test_span_data_carries_both_saved_cost_fields() -> None:
+    span = SpanData(
+        name="aigateway",
+        operation="chat",
+        provider="openrouter",
+        cache_status="hit",
+        cache_saved_cost_usd=Decimal("0.0125"),
+        cache_saved_cost_provenance="reported",
+        start=datetime.now(UTC),
+    )
+
+    assert span.cache_saved_cost_usd == Decimal("0.0125")
+    assert span.cache_saved_cost_provenance == "reported"
+
+
+def test_both_saved_cost_fields_are_absent_by_default_on_a_span() -> None:
+    span = SpanData(name="static", operation="fetch", start=datetime.now(UTC))
+
+    assert span.cache_saved_cost_usd is None
+    assert span.cache_saved_cost_provenance is None
+
+
+def test_the_cost_block_is_still_closed_to_saved_cost() -> None:
+    # E2's load-bearing decision. `CostBreakdown` is `extra="forbid"`, so saved cost cannot be
+    # smuggled into it — it must be its own field on `SpanData`.
+    with pytest.raises(ValidationError):
+        # The unknown keyword is the point of the test: pyright is right that the field does
+        # not exist, and `extra="forbid"` is what turns that into a runtime rejection too.
+        CostBreakdown(total_usd=Decimal("0"), cache_saved_cost_usd=Decimal("1"))  # pyright: ignore[reportCallIssue]
+
+    assert "cache_saved_cost_usd" not in CostBreakdown.model_fields

@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -107,6 +108,18 @@ class SpanData(BaseModel):
 
     Recorded rather than mapped so "I asked for no caching and something still cached" stays an
     answerable question; normalising it here would erase exactly the distinction that answers it."""
+    cache_saved_cost_usd: Decimal | None = Field(default=None)
+    """What the provider would have charged had the gateway not served this span from its cache.
+
+    A COUNTERFACTUAL, not consumption: the current-request cost stays 0 on a hit (PRD I1), and
+    `CostBreakdown` is a closed object (`extra="forbid"`) so this deliberately does NOT ride in
+    the cost block. Absent when nothing priceable was saved — `None` is not `Decimal("0")`."""
+    cache_saved_cost_provenance: Literal["reported", "archive_matched"] | None = Field(default=None)
+    """How `cache_saved_cost_usd` was established — and the reason the two are never summed.
+
+    `reported` is provider-authored money. `archive_matched` is a price paired from the DRACO
+    archive whose per-row attribution is unproven (PRD ans:Q5), so it may only ever be reported
+    and totalled on its own. Set if and only if `cache_saved_cost_usd` is."""
     start: datetime
     end: datetime | None = None
     status: Literal["ok", "error"] = "ok"

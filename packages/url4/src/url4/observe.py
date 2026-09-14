@@ -118,6 +118,11 @@ class Usage:
     cost_usd: Decimal | None = None
 
 
+type SavedCostProvenance = Literal["reported", "archive_matched"]
+"""How a saved-cost amount was established. Deliberately duplicated on
+:class:`url4.streaming.protocol.SpanData` — see the AIDEV-NOTE on `cache_status`."""
+
+
 @dataclass(frozen=True, slots=True)
 class ModelResponse:
     """Emitted once per model round trip, carrying HOW that call ended.
@@ -154,6 +159,20 @@ class ModelResponse:
     # and coupling the two to save three tokens would be the worse trade. Change both together.
     cache_status: Literal["hit", "miss", "bypass"] | None = None
     cache_reason: str | None = None
+    # FEATURE: run-level saved cost (ans:Q2). What this round trip would have cost the provider
+    # had the gateway not served it from its store — read off the SAME `_aigw` reference
+    # `cache_status` describes, on the same round trip. It rides HERE and not on `Usage` because
+    # it is not consumption: mixing avoided money into token accounting would let one call be
+    # billed twice, once as spend and once as saving.
+    #
+    # INVARIANT: `cache_saved_cost_provenance` is set if and only if `cache_saved_cost_usd` is.
+    # There are exactly two provenances and they are NEVER summed into one figure: `reported` is
+    # provider-authored money, `archive_matched` is a paired seed price whose per-row attribution
+    # is unproven. A caller that adds them cannot tell the two claims apart again.
+    # `None` means the round trip saved nothing the engine can price, which is not the same claim
+    # as `Decimal("0")` (the call was genuinely free).
+    cache_saved_cost_usd: Decimal | None = None
+    cache_saved_cost_provenance: SavedCostProvenance | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,8 +237,10 @@ def current_usage_sink() -> UsageSink | None:
 ResponseSink = Callable[..., None]  # matches ExecutionContext.report_response's kwargs:
 # (*, finish_reason: str | None, refusal: str | None,
 #     cache_status: Literal["hit", "miss", "bypass"] | None = None,
-#     cache_reason: str | None = None) -> None
-# INVARIANT: the two cache kwargs are OPTIONAL. This is a live seam with callers already written
+#     cache_reason: str | None = None,
+#     cache_saved_cost_usd: Decimal | None = None,
+#     cache_saved_cost_provenance: SavedCostProvenance | None = None) -> None
+# INVARIANT: every cache kwargs is OPTIONAL. This is a live seam with callers already written
 # against it, and an adapter that learns no cache outcome must be able to say nothing rather
 # than be forced to invent one.
 
@@ -409,6 +430,7 @@ __all__ = [
     "ResponseSink",
     "RunFinished",
     "RunStarted",
+    "SavedCostProvenance",
     "Usage",
     "UsageSink",
     "current_log_sink",
