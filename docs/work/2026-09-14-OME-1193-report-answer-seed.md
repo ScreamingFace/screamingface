@@ -53,7 +53,7 @@ shipped in PR #927.
   `client.py` (kwarg on 4 overloads + 2 impls), `CHANGELOG.md`, regenerated
   `tests/public_surface_snapshot.json` (sanctioned procedure), new
   `tests/test_answer_seed_report.py` (13 tests).
-- **Commits:** rides OME-1038-answer-seeds / PR #927 (owner decision) — sha filled on commit.
+- **Commits:** rides OME-1038-answer-seeds / PR #927 (owner decision) — 9d389103 feat(screamingface): name the answer seed in the run report.
 - **Gates:** run_gates.py screamingface ALL GREEN (ruff, pyright, pytest 1480 passed cov ≥95,
   notebooks, build, distribution). Append-only waived once with owner approval for the
   regenerated public-surface snapshot.
