@@ -71,3 +71,22 @@ async cleanup responsibilities; add a caller-task/ordering test. No runtime enfo
 Validate focused tests and full gates, then rebase PR 931 onto the updated integration head.
 Characterization test passes without runtime changes; full Engine gates pass. Review found
 no issues. OME-1201 remains open until PR 915 merges.
+
+## Complete activity plugin (2026-09-14)
+
+Owner approved one cohesive plugin draft stacked on PR 915, accepting the larger estimated
+1,200–1,400-line review unit. Base ed8ee03e. Keep the existing four shared artifacts.
+Intent: safe node-associated model activity with fixed 60-second heartbeats, rolling admission,
+revocable run ownership and deployment-owned full/off policy. No storage or Client UI.
+Plan: restore activity modules and tests selectively; wire only entry-point composition;
+preserve build_executor's empty injectable default and all existing tests. Restore config/Helm
+policy without overwriting intervening changes. Tests first, then full gates and independent review.
+Acceptance: real stream outcomes/retries/cancellation, privacy, pressure/recovery, three-day
+simulation, disabled-mode isolation, plugin removal, deployment precedence and chart checks.
+Outcome: producer tests failed before the activity module was restored. Reconciled wiring
+with the integrated empty-default factory and kept all prior tests intact. Fixed the new
+removal-test fixture to supply its own world configuration. All 49 focused checks pass; full
+Engine gates pass against ed8ee03e (append-only, Ruff, Pyright, layering, pytest/coverage).
+Helm renders full/off and rejects unsupported levels. Both independent reviews found no
+confirmed issues. The plugin keeps policy out of execution, adds no storage/dependencies,
+and preserves ordinary failures/cancellation. No merge until unstacked and review/CI green.

@@ -2,9 +2,11 @@
 
 Approved direction, 2026-09-10. This documents the execution interface supporting the
 activity contract in `docs/spec/2026-09-09-OME-887-evaluation-activity.md`.
-PR 897 is documentation-only. Code follows in sequential main-based PRs, each at most
-500 added plus deleted lines including tests/docs. The temporary integration stack was
-removed on 2026-09-14 after PR 899 merged; PR 915 now builds on main.
+PR 897 is documentation-only; PR 899 supplies interfaces and PR 915 integrates execution.
+Owner update (2026-09-14): the complete activity plugin is one larger draft stacked on
+PR 915, then rebased onto main after its merge. The earlier 500-line cap does not apply
+to this cohesive plugin delivery. Entry-point composition registers activity; the generic
+executor factory keeps its empty-by-default injectable observers.
 
 ## Problem and useful behavior
 

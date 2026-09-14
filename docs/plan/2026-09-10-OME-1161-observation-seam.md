@@ -1,3 +1,8 @@
+Owner update, 2026-09-14: prepare the complete plugin as one draft stacked on PR 915.
+The owner accepted the larger estimated 1,200–1,400-line unit; report the measured diff.
+Unstack onto main after 915 merges. Entry points register the plugin; build_executor keeps
+its explicit empty-by-default observer argument. This supersedes the earlier size/split plan.
+
 Update, 2026-09-14: PR 899 merged at dcaba228. PR 915 is rebased onto main; the
 temporary stack is removed. Preferred remaining split: integration, then the complete
 activity plugin. Integration retains the 500-line cap; plugin size is reviewed separately.

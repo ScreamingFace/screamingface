@@ -12,8 +12,9 @@ closed:
 Docs PR 897 merged at af58b5c1. The first code unit adds observation interfaces/dispatch
 and unit tests in PR 899, merged at dcaba228. PR 915 integrates execution and is rebased
 onto main (2026-09-14). Integration retains the 500-line cap.
-The first code PR supplies observation interfaces; later units integrate execution, activity
-and deployment policy. Keep this overall feature open until delivery is complete.
+The complete activity plugin draft follows on PR 915 with explicit owner approval for a
+larger cohesive delivery and temporary stack. It includes model-call records, rolling limits,
+heartbeats and full/off deployment wiring. Keep this feature open until delivery is complete.
 Client rendering, benchmark-stage producers and provisional scores remain separate.
 
 Update these same four shared artifacts across the deliveries; do not create one set per PR.
