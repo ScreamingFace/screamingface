@@ -50,6 +50,7 @@ from screamingface_engine.runner.model_response import (
 )
 from screamingface_engine.runner.request_parameters import (
     WEB_SEARCH_PARAM,
+    apply_answer_seed,
     apply_retrieval_policy,
     caller_exclusions,
     model_params,
@@ -270,6 +271,7 @@ class _ModelEndpoint:
     """
 
     __slots__ = (
+        "_answer_seed",
         "_cache",
         "_cfg",
         "_http_client",
@@ -291,6 +293,7 @@ class _ModelEndpoint:
         tavily_api_key: str | None,
         identity_headers: Mapping[str, str] | None = None,
         cache: CachePolicy,
+        answer_seed: int | None = None,
     ) -> None:
         self._http_client = http_client
         self._cfg = cfg
@@ -299,6 +302,9 @@ class _ModelEndpoint:
         self._tavily_http = tavily_http
         self._tavily_api_key = tavily_api_key
         self._identity_headers = identity_headers
+        # INVARIANT: per-RUN, like `_cache` below — one run has exactly one declared sitting.
+        # Held as the wire string so the merge into params is allocation-free and typo-proof.
+        self._answer_seed = None if answer_seed is None else str(answer_seed)
         # INVARIANT: held HERE and not on `cfg`. This object is built once per RUN, while `cfg` is
         # the world every run in the process shares — and in local mode those runs share an event
         # loop, so a policy parked on `cfg` is the previous caller's answer applied to this one.
@@ -311,6 +317,11 @@ class _ModelEndpoint:
             spec = self._routes[request.path]
             retrieval_policy = current_retrieval_policy()
             params = apply_retrieval_policy(request.params, retrieval_policy)
+            # FEATURE (OME-1038): the run's declared answer seed, stamped AFTER the retrieval
+            # ceiling and only onto calls that pin no seed of their own — the judge's per-pass
+            # seeds and any caller-written seed always win. None is a no-op, so an undeclared
+            # run's egress stays byte-identical to today's.
+            params = apply_answer_seed(params, self._answer_seed)
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
             # source text — the policy-applied set may differ from what was written.
@@ -349,6 +360,7 @@ async def build_aigateway_world(
     tavily_client: httpx.AsyncClient | None = None,
     identity_headers: Mapping[str, str] | None = None,
     cache: CachePolicy | None = None,
+    answer_seed: int | None = None,
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
 
@@ -405,6 +417,7 @@ async def build_aigateway_world(
         # `is not None`, not `or`: a policy is a pydantic model and always truthy, but spelling the
         # fallback explicitly says what it is — an unstated policy, not a stated default.
         cache=cache if cache is not None else CachePolicy(),
+        answer_seed=answer_seed,
     )
 
     # WHY: `outbound=StaticIOLayer()` denies every absolute-URL fetch: an unmapped target raises

@@ -154,8 +154,9 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         # Accepted so this fake still satisfies the port, and deliberately NOT recorded onto
         # `ScheduledRun`: that tuple is compared whole by an existing test, so widening it would
         # change what an already-written assertion means. A test that needs to observe the policy
-        # subclasses this and records it there.
+        # subclasses this and records it there. `answer_seed` (OME-1038) rides the same rule.
         cache: CachePolicy | None = None,
+        answer_seed: int | None = None,
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)

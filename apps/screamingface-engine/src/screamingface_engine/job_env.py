@@ -119,6 +119,15 @@ Absent means the App stated nothing, which the run mode carries through as
 (:mod:`screamingface_engine.rest.cache_policy`) and is decided exactly once, there.
 """
 
+ANSWER_SEED = "URL4_CLOUD_ANSWER_SEED"
+"""The run's declared answer seed — one integer stamped onto every answer call (OME-1038).
+
+Per-run for the same reason ``AIGATEWAY_PROFILE`` is: it does not exist until a caller declares
+it, so Helm cannot supply it and the App must. Absent means the run declared nothing, and the
+connector then adds NO seed param at all — egress stays byte-identical to an unseeded run's,
+which is what keeps every request-keyed replay fixture valid.
+"""
+
 CACHE_MAX_AGE_S = "URL4_CLOUD_CACHE_MAX_AGE_S"
 """The caller's freshness bound in whole seconds, when they stated one.
 
@@ -197,6 +206,38 @@ def cache_policy_from_env(env: Mapping[str, str]) -> CachePolicy:
         participate=None if raw_participate is None else raw_participate.strip().lower() == _TRUE,
         max_age=int(raw_max_age) if raw_max_age is not None and raw_max_age.isdigit() else None,
     )
+
+
+def answer_seed_to_env(answer_seed: int | None) -> dict[str, str]:
+    """Render a run's declared answer seed as the Job env key that carries it.
+
+    ``None`` renders NOTHING — an undeclared seed stays distinguishable from a declared one
+    all the way down, so the connector can express absence as an unchanged request body.
+    """
+    if answer_seed is None:
+        return {}
+    return {ANSWER_SEED: str(answer_seed)}
+
+
+def answer_seed_from_env(env: Mapping[str, str]) -> int | None:
+    """Read a run's declared answer seed back out of its environment.
+
+    WHY this one RAISES where the cache/io readers are total: their cheap failure is a missed
+    cache hit or a default budget, but a run silently executed WITHOUT its declared seed would
+    publish a score claiming a sitting it never had — the exact dishonesty answer seeds exist
+    to end. This env is App-written, so a non-integer value is a bug, and the loud answer is
+    the safe one. Negative seeds are legal: aigateway's ``seed`` is an arbitrary integer.
+
+    Raises:
+        ValueError: the variable is present but not an integer.
+    """
+    raw = env.get(ANSWER_SEED)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{ANSWER_SEED} must be an integer, got {raw!r}") from exc
 
 
 def io_concurrency_from_env(env: Mapping[str, str]) -> int | None:
@@ -382,6 +423,7 @@ WRITTEN_BY_APP = frozenset(
         STREAM_GRACE_S,
         TRACEPARENT,
         AIGATEWAY_PROFILE,
+        ANSWER_SEED,
         CACHE_PARTICIPATE,
         CACHE_MAX_AGE_S,
         EXTRA_MODELS,

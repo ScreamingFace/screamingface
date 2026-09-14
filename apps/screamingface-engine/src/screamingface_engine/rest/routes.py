@@ -130,6 +130,25 @@ def _as_float(value: str) -> float | None:
         return None
 
 
+def _parse_answer_seed(raw: str | None) -> int | None:
+    """Read the caller's declared answer seed, or raise 400 on a non-integer (OME-1038).
+
+    Caller input, so refused at the edge — a run silently scheduled without its declared
+    seed would publish a score claiming a sitting it never had. Any integer is legal:
+    aigateway's ``seed`` is an arbitrary-integer sampling control (OME-585).
+    """
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return int(raw.strip())
+    except ValueError:
+        raise ProblemException(
+            status=400,
+            title="Bad Request",
+            detail="the X-Answer-Seed header must be an integer",
+        ) from None
+
+
 def _require_q(q: str | None) -> str:
     """Return the url4 expression, or raise 400 if the ``q`` query parameter is missing/empty."""
     if not q:
@@ -162,6 +181,7 @@ async def _schedule(
     profile: str | None = None,
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy,
+    answer_seed: int | None = None,
 ) -> None:
     """Schedule the run on the job runner, or raise 409 if one already exists for ``topic``.
 
@@ -197,6 +217,7 @@ async def _schedule(
             profile=profile,
             identity=identity,
             cache=cache,
+            answer_seed=answer_seed,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
@@ -486,6 +507,16 @@ async def start_run(
         str | None,
         Header(alias="X-Profile", description="Optional aigateway routing profile label."),
     ] = None,
+    x_answer_seed: Annotated[
+        str | None,
+        Header(
+            alias="X-Answer-Seed",
+            description="Optional integer answer seed: stamped as the `seed` param on every "
+            "answer call the run makes (calls pinning their own seed win), so N seeded runs "
+            "are N labelled samples and a re-run with the same seed replays the same sitting. "
+            "Absent, the run's requests are byte-identical to an unseeded run's.",
+        ),
+    ] = None,
     # DECLARED HERE, RESOLVED IN `_converge_cache`. The run's cache intent has two carriers — this
     # header and the WS attach frame — and the header wins when both speak. Reading it into a
     # policy is therefore not this handler's business alone: `cache_header.parse_cache_control`
@@ -515,6 +546,7 @@ async def start_run(
     # document. `or None`: absent identity is None, the same "nothing to forward" every other
     # optional forwarded value uses — one representation rather than an empty mapping meaning it.
     identity = job_env.identity_from_headers(request.headers) or None
+    answer_seed = _parse_answer_seed(x_answer_seed)
     clock = getattr(request.app.state, "clock", _default_clock)
     await _schedule(
         deps,
@@ -524,6 +556,7 @@ async def start_run(
         profile=x_profile,
         identity=identity,
         cache=_converge_cache(deps, topic, cache_control, clock),
+        answer_seed=answer_seed,
     )
     pref = _parse_prefer(prefer or "")
     if pref.respond_async:

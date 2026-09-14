@@ -17,5 +17,9 @@ Recommendation: seed-per-run (Option A in the spec): candidate calls mirror the 
 existing `seed` param idiom, the spine stays untouched, an undeclared run stays
 byte-identical to today so zero replay fixtures are invalidated.
 
-Awaiting the owner's decision on the spec's three questions (option choice, no-default-seed
-stance, scoreboard sub-issue timing). Implementation is a follow-up unit.
+Owner approved seed-per-run on 2026-09-12; implemented in the same branch (PR #927):
+`X-Answer-Seed` header → job env → connector stamps `seed` onto every answer call
+(calls pinning their own seed win — judge pass seeds never re-keyed); undeclared runs
+byte-identical to today, zero fixtures re-recorded; `benchmarks/spine/` untouched.
+SDK exposure (client kwarg + report field) and scoreboard mean±CI are follow-up
+sub-issues per the cross-cutting rule.
