@@ -3,7 +3,8 @@
 Approved direction, 2026-09-10. This documents the execution interface supporting the
 activity contract in `docs/spec/2026-09-09-OME-887-evaluation-activity.md`.
 PR 897 is documentation-only. Code follows in sequential main-based PRs, each at most
-500 added plus deleted lines including tests/docs. No stacked PRs.
+500 added plus deleted lines including tests/docs. The temporary integration stack was
+removed on 2026-09-14 after PR 899 merged; PR 915 now builds on main.
 
 ## Problem and useful behavior
 
@@ -89,3 +90,7 @@ The activity PRs add fake-provider streams, heartbeat/revocation, pressure/recov
 long-duration simulation and deployment tests. Each PR passes its own gates independently.
 The preserved implementation is evidence that these interfaces have a concrete consumer;
 it is not shipped by this docs PR. OME-1161 stays open until the feature deliveries land.
+
+OME-1201 clarification: inline hooks must return promptly; slow I/O belongs to observer-owned
+resources. Async cleanup cancels/joins owned tasks without waiting for remote delivery.
+Dispatch provides exception containment, not runtime latency enforcement.

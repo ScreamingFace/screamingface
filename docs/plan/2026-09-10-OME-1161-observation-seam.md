@@ -1,3 +1,7 @@
+Update, 2026-09-14: PR 899 merged at dcaba228. PR 915 is rebased onto main; the
+temporary stack is removed. Preferred remaining split: integration, then the complete
+activity plugin. Integration retains the 500-line cap; plugin size is reviewed separately.
+
 # OME-1161 — Docs first, then sequential code PRs
 
 PR 897 reviews the shared design and delivery plan only. Every subsequent PR starts from
@@ -30,3 +34,6 @@ Re-run gates and review independently after each extraction; old results do not 
 Use one shared spec, plan, task mirror and work ledger for OME-1161, updating these same files
 across deliveries. Keep the overall ticket open until activity is delivered; the docs/interface
 PRs alone do not provide researcher logging. Do not open later PRs before predecessors merge.
+
+OME-1201: add protocol documentation and a caller-task/inline-ordering test to PR 915;
+no dispatch changes. Rebase PR 931 after this commit lands on the integration branch.

@@ -10,8 +10,8 @@ closed:
 # Stream safe model-call activity
 
 Docs PR 897 merged at af58b5c1. The first code unit adds observation interfaces/dispatch
-and unit tests; execution integration follows after its merge. Each main-based PR changes
-at most 500 added plus deleted lines including tests/docs. No stacked PRs.
+and unit tests in PR 899, merged at dcaba228. PR 915 integrates execution and is rebased
+onto main (2026-09-14). Integration retains the 500-line cap.
 The first code PR supplies observation interfaces; later units integrate execution, activity
 and deployment policy. Keep this overall feature open until delivery is complete.
 Client rendering, benchmark-stage producers and provisional scores remain separate.

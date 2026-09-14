@@ -1,6 +1,7 @@
 """Execution-owned observation ports and fault-isolated lifecycle dispatch.
 
 Observers receive facts; they never control requests, results or retry decisions.
+Hooks run inline: observers must keep them prompt. Dispatch does not enforce latency.
 """
 
 from __future__ import annotations
@@ -29,6 +30,9 @@ class LogEmitter(Protocol):
 class ModelObservation(Protocol):
     """Observe facts without controlling requests, retries or results.
 
+    Hooks must return promptly without blocking: slow network/disk I/O belongs on
+    observer-owned resources, not inside callbacks. Async close cancels/joins owned
+    tasks promptly; it must not wait for remote delivery.
     Close receives the original exit information and must tolerate partial startup.
     Adapters own resources; ordinary failures are contained, process control propagates.
     """
@@ -48,6 +52,9 @@ class ModelObservation(Protocol):
 class RunObserver(Protocol):
     """One factory-created observer per execution, reused across its inner steps.
 
+    Hooks must return promptly without blocking: slow network/disk I/O belongs on
+    observer-owned resources, not inside callbacks. Async cleanup cancels/joins owned
+    tasks promptly; it must not wait for remote delivery.
     Each bind returns a fresh context manager that restores context on exit. Binding
     teardown receives the current step exception, but cannot suppress it or declare
     the whole run outcome; model close receives the call outcome separately.
