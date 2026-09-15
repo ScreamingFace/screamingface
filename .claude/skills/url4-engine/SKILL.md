@@ -25,17 +25,28 @@ ensemble execution protocol."
 > `docs/spec/2026-09-04-OME-1110-url4-topology-reframing.md` — it defines the words used here
 > and supersedes this skill where they disagree. F4 is **resolved** there (§7).
 
-## Terms (OME-1110, locked; realigned to the spec 2026-09-08)
+## Terms (OME-1110; realigned to Part A §1.4 at PR #19 `2a939bff`, 2026-09-15)
 
-| Word | Meaning | Spec (Part A §1.4) |
+Most of these are now the spec's own words — Kevin's Part A §1.4 refresh adopted them. Cite the
+spec, not this table, when writing a spec delta.
+
+| Word | Meaning | Spec (Part A §1.4 @ 2a939bff) |
 |---|---|---|
-| **Endpoint** | a stateless function at a path (`/claude`); `GET <path>?q=<expr>`; every endpoint evaluates url4 | *Endpoint*, same word |
-| **Node** | an origin that serves a set of endpoints; `/` is its default; owns discovery, credentials, outbound traffic; every evaluating requester is one | *Node*, same word |
-| **Mount** | how a path binds to an endpoint: `local` (in-process) · `command` (subprocess, N4) · `proxy` (declared target) = spec processor types `internal`/`function`, `code`, `abc_delegate` | Part G §27.3 |
-| **Evaluator** | whatever runs an expression; every endpoint contains one | "the node executes" |
-| **Request tree** | the nodes and endpoints one expression touches (strict tree, Part H §29.1) | request/call tree |
+| **Endpoint** | a logical interface on a node that evaluates url4, named by an endpoint path | §1.4.2 — now *an interface*, distinct from its path |
+| **Endpoint path** | the URI path (`/claude`) identifying an endpoint relative to the node address | §1.4.2, new |
+| **Node** | an origin that serves a set of endpoints; `/` is its default; owns discovery, credentials, outbound traffic; every evaluating requester is one | §1.4.2, same word |
+| **Node address**, **Target** | the node's scheme + authority; a target is node address + endpoint path | §1.4.2, §1.4.3 |
+| **Mount** | how an endpoint path binds to its evaluator: `local` (in-process) · `command` (subprocess, N4) · `proxy` (declared target) = spec processor types `internal`/`function`, `code`, `abc_delegate` | §1.4.3 — **adopted from us verbatim**, Part G §27.3 |
+| **Evaluator** | whatever runs an expression; every endpoint contains one | §1.4.3 — adopted, and *may or may not* be the intent processor |
+| **Dry run** | evaluate without executing the intent; envelope, no result body | §1.4.3 — adopted; only its *shape* is open |
+| **Response ladder** | answer with the richest mode supported, WebSocket → SSE → sync; answering lower is a reported degradation | §1.4.4 — adopted; **Part C not yet updated** |
+| **Request tree** | the nodes and endpoints one expression touches | §1.4.3 — adopted, but strictness dropped ("may expand the tree") vs Part H §29.1. **Unresolved**; do not rely on either reading |
 
-Not protocol words: host, ensembler, orchestrator, swarm, composition, plan, fusion.
+Not protocol words: ensembler, orchestrator, swarm, composition, fusion.
+
+**"Host" is not ours.** Part A §1.4.2 defines a `Host system` (the machine a node runs on) and we
+do not use it. Where §1.4.4 and the `Scheme adapter` row say "host", they mean the **node**; that
+is an open erratum (spec doc Appendix A delta 13). Never write "host" for "node" here.
 
 This doctrine is the CLAUDE.md hexagonal mandate applied to a *recursive network of
 processes*: the url4 grammar/AST/resolver is a **port** (the SDK); the engine wires backends
@@ -98,14 +109,17 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
 - **T1 — One GET, the node picks the richest delivery it has (OME-1110 §6).** The evaluator
   sends `GET <node>?delivery=stream&q=…` with `Upgrade: websocket` and `Accept:
   text/event-stream, application/json`. The node answers `101` (WebSocket frames), or `200
-  text/event-stream` (SSE, spec v0.2 §11.2), or `200 application/json` (sync), or `202 +
-  poll_url` (async, `delivery=async`). Live events — log records, OTel spans, `cost.usage` (O2), then `result`,
+  text/event-stream` (SSE, Part C §11.2), or `200 application/json` (sync), or `202 +
+  poll_url` (async, `delivery=async`). **Part A §1.4.4 has adopted this**: `websocket` is a
+  fourth `delivery` value and the `Response ladder` is a spec term. Part C still describes
+  three modes, so cite §1.4.4 and note the gap. Live events — log records, OTel spans, `cost.usage` (O2), then `result`,
   then `envelope` — carry the same names over WS and SSE. **sync is the only MUST**; SSE, WS
   and async are SHOULD, advertised per node in the capabilities document.
 - **T2 — HTTP GET = transactional.** Sync: `Accept: application/url4-envelope+json` returns the
   envelope; any other `Accept` returns the bare result in its negotiated type with no telemetry (`meta=summary`
   by default; `meta=full` adds a `telemetry` block with logs and spans, redactable per node
-  policy, v0.2 §14.4). `fmt` is the answer's content format and is orthogonal.
+  policy, Part D §18.4). `fmt` is the answer's content format and is orthogonal. The
+  `application/url4-envelope+json` switch is now Part A §1.4.4's own `Envelope` row.
   Async (`delivery=async`, spec Part C §9.1): `202 Accepted` with `poll_url` in the body (a
   `Location` header may mirror it) so the caller can poll status, read the durable record, or
   `DELETE <poll_url>` to cancel (F3).
@@ -113,7 +127,8 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
   land on WS, SSE, sync or async. In **all** cases the three signals forward upstream (F) —
   mode changes the *delivery channel*, never *whether* telemetry propagates. Ladder:
   WS → SSE → sync, decided by the node in one round trip; `sync → async` on timeout; `any →
-  sync` is always legal (sync is the universal floor).
+  sync` is always legal (sync is the universal floor). This is Part A §1.4.4's `Response ladder`
+  and `Degradation` — no longer ours alone.
 
 ## Observability — three signals, one trace (O)
 

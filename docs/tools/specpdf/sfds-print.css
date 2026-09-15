@@ -228,6 +228,11 @@ table.matrix td { word-break: break-word; }
 
 /* ---- figures ------------------------------------------------------------- */
 
+/* `break-before: avoid` was tried here to pull a figure's lead-in paragraph along with it. It
+ * made things worse: the gap moved up a page rather than closing, and the core render grew from
+ * 16 pages to 17. With 980x580 figures on A4 some whitespace above a figure is unavoidable; what
+ * matters, and what `break-after: avoid` on headings fixes, is that a heading never sits alone
+ * at the foot of a page. */
 figure, p:has(> img:only-child) {
   margin: 11pt 0 12pt;
   padding: 10pt;

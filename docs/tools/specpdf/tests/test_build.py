@@ -143,3 +143,30 @@ class TestMatrixTables:
     def test_leaves_an_ordinary_table_alone(self):
         html = "<table>\n<thead>\n<tr>\n<th>Term</th>\n<th>A</th>\n</tr>"
         assert 'class="matrix"' not in build.tag_matrix_tables(html)
+
+    def test_leaves_spec_anchors_alone(self):
+        """ "Part C §11" is a spec anchor; linking it to this document's §11 misleads."""
+        assert build.linkify_sections("<p>Part C §11</p>", {"11"}) == "<p>Part C §11</p>"
+
+    @pytest.mark.parametrize("part", list("ABCDEFGHI"))
+    def test_every_part_letter_is_excluded(self, part):
+        body = f"<p>Part {part} §7</p>"
+        assert build.linkify_sections(body, {"7"}) == body
+
+
+class TestDeltaRefs:
+    APPENDIX = (
+        "# Appendix A\n\n| # | Was |\n|---|---|\n| 1 | landed |\n\n"
+        "- **13. Part A §1.4.2 — host vs node.** Text.\n\n# Appendix B\n"
+    )
+
+    def test_accepts_resolvable_references(self):
+        build.check_delta_refs("See delta 13 and delta 1.\n\n" + self.APPENDIX)
+
+    def test_rejects_a_dangling_reference(self):
+        """Markdown renumbers ordered lists, so a delta reference can drift invisibly."""
+        with pytest.raises(SystemExit, match="delta\\(s\\) 99"):
+            build.check_delta_refs("See delta 99.\n\n" + self.APPENDIX)
+
+    def test_noop_without_an_appendix(self):
+        build.check_delta_refs("A document with no appendices, mentioning delta 4.\n")

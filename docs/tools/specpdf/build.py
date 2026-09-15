@@ -141,6 +141,26 @@ def check_table_pipes(source: str) -> None:
         )
 
 
+def check_delta_refs(source: str) -> None:
+    """Refuse a `delta N` reference with no matching entry in Appendix A.
+
+    The appendix numbers deltas by hand, because markdown renumbers an ordered list from 1 and
+    silently broke every cross-reference the first time this was written as one. Sections all
+    over the document point at deltas by number, so a drift is invisible in the render.
+    """
+    if "# Appendix A" not in source:
+        return
+    appendix = source[source.index("# Appendix A") : source.index("# Appendix B")]
+    defined = set(re.findall(r"^- \*\*(\d+)\. ", appendix, re.M))
+    defined |= set(re.findall(r"^\| (\d+) \|", appendix, re.M))
+    dangling = sorted(set(re.findall(r"delta (\d+)", source)) - defined, key=int)
+    if dangling:
+        raise SystemExit(
+            f"Appendix A has no entry for delta(s) {', '.join(dangling)} — "
+            f"defined: {', '.join(sorted(defined, key=int))}"
+        )
+
+
 def claim(sections: list[Section], parts: list[dict]) -> dict[str, list[Section]]:
     """Assign each section to exactly one part, or fail loudly.
 
@@ -199,7 +219,8 @@ def linkify_sections(body: str, present: set[str]) -> str:
 
     Only sections rendered in *this* PDF become links — a `§11` reference from the core document
     points into the companion, and a dead internal link is worse than plain text. Code spans are
-    masked first so `§` inside a literal is left alone.
+    masked first so `§` inside a literal is left alone, and a `§N` carrying a `Part X ` prefix is
+    a spec anchor, not one of ours: "Part C §11" must not jump the reader to this document's §11.
     """
     masked: list[str] = []
 
@@ -215,7 +236,12 @@ def linkify_sections(body: str, present: set[str]) -> str:
             return m.group(0)
         return f'<a class="xref" href="#sec-{number}">§{number}</a>'
 
-    body = re.sub(r"§(\d+)(?![\d.])", link, body)
+    body = re.sub(
+        r"(?<!Part A )(?<!Part B )(?<!Part C )(?<!Part D )(?<!Part E )"
+        r"(?<!Part F )(?<!Part G )(?<!Part H )(?<!Part I )§(\d+)(?![\d.])",
+        link,
+        body,
+    )
     body = re.sub(r"\x00(\d+)\x00", lambda m: masked[int(m.group(1))], body)
     return body
 
@@ -300,6 +326,7 @@ def main() -> int:
 
     source = (root / doc["source"]).read_text()
     check_table_pipes(source)
+    check_delta_refs(source)
     meta, sections = parse_source(source)
     claimed = claim(sections, parts)
 

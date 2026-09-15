@@ -1,18 +1,24 @@
 ---
 title: "url4 topology — endpoint, node, discovery, addressing, transport"
 subtitle: "Sharp definitions before the Engine grows further"
-status: proposed — owner review; one decision left open in §5; aligned with the url4-refactor drafts 2026-09-08 (§12); vocabulary realigned to the spec's Node/Endpoint
+status: proposed — owner review; one decision left open in §5; reconciled 2026-09-15 with Kevin's Part A §1.4 refresh, PR #19 commit 2a939bff (draft, unmerged) — see §12 and Appendix D
 created: 2026-09-04
 ticket: OME-1110
 owner: Sergey Bershadsky (execution and telemetry architecture)
 grammar-owner: Kevin McDonough (URL4 spec, Parts A/B)
-spec-pointers: URL4.ai Specification v0.5 DRAFT — Parts A/B (main) and Parts C–I drafts (url4-refactor branch)
+spec-pointers: URL4.ai Specification v0.5 DRAFT — Part A §1.4 at PR #19 (2a939bff), Parts A/B on main, Parts C–I drafts on url4-refactor
 ---
 
 # 0. The eight answers
 
 This document fixes the words we use for the pieces of url4. It is short on purpose.
 Each section states a definition, says where the spec agrees or is silent, and stops.
+
+**Reconciled 2026-09-15.** Kevin's Part A §1.4 refresh — `screamingface-design` PR #19, commit
+`2a939bff`, still a **draft** — adopted most of what this document proposed, so much of what
+follows now cites the spec rather than arguing with it. Where the two differ, Kevin's text wins
+and the difference is recorded as a delta. §12 lists what changed; Appendix D is the term-by-term
+crosswalk.
 
 | # | Question | Answer |
 |---|---|---|
@@ -22,39 +28,62 @@ Each section states a definition, says where the spec agrees or is silent, and s
 | 4 | `.well-known` or OPTIONS? | Three mechanisms now: the node document (Part G §27.1), the `Capabilities` response header (also §27.1), and OPTIONS (ours). §5 documents all three; the owner picks there. |
 | 5 | `/name` vs `url4://name`? | `/name` is an endpoint on the node that is evaluating. `url4://name` is node `name`'s default endpoint `/`. Spec Part B §5.4 already says this. |
 | 6 | Where does an ensemble run? | Wherever an evaluator runs: the SDK on a laptop, or a node. A local node may mount remote endpoints under local names (proxy mounts). |
-| 7 | Can I test a node first? | One fetch of the node's capabilities document, or one OPTIONS per endpoint (§5). A dry-run **plan** on the node is reopened as a question (§10). |
-| 8 | Streaming fallback? | One GET asks for the richest mode; the endpoint answers with the best it has: WebSocket, then SSE, then sync (§6). Sync is the only MUST. Async is the spec's third `delivery` value. |
+| 7 | Can I test a node first? | One fetch of the node's capabilities document, or one OPTIONS per endpoint (§5). A **dry run** — evaluate without executing, envelope and no result — is now the spec's own word (Part A §1.4.3); only its shape is open (§10). |
+| 8 | Streaming fallback? | One GET asks for the richest mode; the endpoint answers with the best it has: WebSocket, then SSE, then sync (§6). Sync is the only MUST. The spec now carries this as the **response ladder** and lists `websocket` as a fourth `delivery` value (Part A §1.4.4); Part C has yet to catch up. |
 | 9 | Text in, text out? | A habit, not a rule. Every edge carries a **typed payload** (text, image, audio, video, embeddings) named by its media type. Text is the default. No grammar change (§8). |
 
 **What changes against today**
 
 - The Engine becomes a url4 **node**. Today no url4 endpoint is reachable over HTTP; the SDK's endpoint-to-endpoint code is unused.
 - Every endpoint speaks the same GET. The endpoint picks the richest delivery it supports: **WebSocket → SSE → sync**, in one round trip. Sync is the only MUST.
-- We keep the spec's two words: a **node** is an origin that serves a set of **endpoints** (`/claude`, `/codex`, …). No rename is asked of Kevin; "host" is gone from this document.
+- We keep the spec's two words: a **node** is an origin that serves a set of **endpoints** (`/claude`, `/codex`, …). No rename is asked of Kevin. Part A §1.4.2 has since added a **host system** — the machine a node runs on — which we do not need and do not use; §1 says why "host" stays out of this document.
 - An endpoint is a **universal inference processor**: image generation, speech, video and multimodal ensembles become ordinary expressions on the same engine, telemetry and cost accounting (§8).
+- **Most of this is no longer a proposal.** `Mount`, `Evaluator`, `Dry run`, `Degradation`, the response ladder, `Scheme adapter`, `Flow constraints`, `Attribution`, `Run handle` and the `application/url4-envelope+json` envelope switch are all in Part A §1.4 as of PR #19. What is left open is in the companion PDF.
 
 # 1. Terms
 
-Eight words. Each has one meaning. The first two are the spec's own, unchanged.
+Eleven words. Each has one meaning. **Almost all of them are now the spec's own:** Kevin's Part A
+§1.4 refresh (PR #19, `2a939bff`, still a draft) adopted most of what this document proposed, so
+the "spec word today" column has largely stopped saying *not defined*. Appendix D records the
+crosswalk term by term; what follows is the short list a reader needs to get through §2–§9.
 
-| Our word | Meaning | Spec word today | In the SDK | In the Engine |
+| Our word | Meaning | In the spec (Part A §1.4 @ 2a939bff) | In the SDK | In the Engine |
 |---|---|---|---|---|
-| **Endpoint** | A stateless function at a path. Accepts `GET <path>?q=<expr>`, evaluates it, returns a result plus envelope. | *Endpoint* (Part A §1.4), same word | an entry in `Url4Node`'s endpoint registry | a route such as `/anthropic/<model>` |
-| **Node** | An origin that serves a set of endpoints, `/` being the default, and answers discovery. | *Node* (Part A §1.4), same word | `Url4Node` | the App, after this change |
-| **Mount** | The binding of a path to an endpoint implementation: `local` (in-process), `command` (subprocess), or `proxy` (forwards to a declared remote endpoint). | not defined | `endpoint()`, `[commands]`, — | in-process handlers only |
-| **Evaluator** | Whatever runs an expression: resolves sources, fans out, reduces, runs the intent. Every endpoint contains one. | "the endpoint executes" (Part A §1) | `url4.dag.run` | `Url4Executor` in the Runner |
-| **Intent processor** | The thing inside an endpoint that turns resolved context plus intent into a result: a model call, a script, a command. | *Intent processor* (Part A §1.4) | endpoint handler | one `httpx` call to aigateway |
-| **Requestor** | Whoever sends an expression. | *Requestor* (Part A §1.4) | `Client` | product client |
-| **Request tree** | The nodes and endpoints one expression touches. Strict tree, never a graph (Part H §29.1). | "request tree", "call tree" (Part H §31) | the compiled DAG, per endpoint | one run |
-| **Capabilities document** | JSON a node publishes to say which endpoints, mounts, features and delivery modes it offers. | Part G §27.2 (draft; single endpoint, `collections`, `intent_processors`) | none | none |
+| **Endpoint** | A logical interface on a node that evaluates url4, reached at an endpoint path. | §1.4.2, same word — now *an interface*, distinct from the path that names it | an entry in `Url4Node`'s endpoint registry | a route such as `/anthropic/<model>` |
+| **Endpoint path** | The URI path (`/claude`) identifying an endpoint relative to the node address. | §1.4.2, **new** — the spec now separates interface from path | the registry key | the route |
+| **Node** | An origin that serves a set of endpoints, `/` being the default, and answers discovery. | §1.4.2, same word | `Url4Node` | the App, after this change |
+| **Node address** | The node's network address: a URI scheme plus an RFC 3986 authority. | §1.4.2, **new** | `Url4Node`'s origin | the App's origin |
+| **Target** | The absolute or relative endpoint URI an expression is addressed to: node address + endpoint path. | §1.4.3, sharpened — it was "an absolute/relative URI defining the Node + Endpoint" | `FetchRequest`'s destination | the route the Runner calls |
+| **Mount** | The binding of an endpoint path to its evaluator: `local` (in-process), `command` (subprocess), `proxy` (declared target). | §1.4.3, **adopted verbatim from this document** (was *not defined*) | `endpoint()`, `[commands]`, — | in-process handlers only |
+| **Evaluator** | Whatever runs an expression: resolves sources, fans out, reduces, runs the intent. | §1.4.3, **adopted** — and widened: it *may or may not* also be the intent processor | `url4.dag.run` | `Url4Executor` in the Runner |
+| **Intent processor** | What turns resolved context plus intent into a result: a model call, a script, a command. | §1.4.3, same word | endpoint handler | one `httpx` call to aigateway |
+| **Requestor** | Whoever submits an expression to a target for evaluation. | §1.4.3, same word | `Client` | product client |
+| **Request tree** | The nodes and endpoints one expression touches. | §1.4.3, **adopted with a change** — the spec now says an evaluator *may expand* the tree and drops "strict tree, never a graph" (Part H §29.1). Appendix A delta 14 asks whether that is deliberate. | the compiled DAG, per endpoint | one run |
+| **Capabilities document** | JSON a node publishes to say which endpoints, mounts, features, delivery modes and schemes it offers. | §1.4.5 and Part G §27.1–§27.2 — now also naming the `Capabilities` response header | none | none |
 
-Words we do not use in the protocol: *ensembler*, *orchestrator*, *swarm*, *composition*, *plan*, *fusion*. "Fusion" stays product copy.
+Words we do not use in the protocol: *ensembler*, *orchestrator*, *swarm*, *composition*, *fusion*.
+"Fusion" stays product copy. *Plan* has left this list: the spec now defines **dry run** (§1.4.3),
+and §10 asks only what shape it takes.
 
-Naming note: Parts C–I on the `url4-refactor` branch still use the older `abc://` scheme and `ABC-*` headers; Parts A/B use `url4://`. This document writes `url4` and `URL4-*` throughout and assumes the rename Kevin lists as his open question 19 (Part I §43).
+**"Host" is not one of our words.** Part A §1.4.2 now defines a **host system** — a physical or
+virtual machine supporting one or more nodes — which is a useful deployment word and changes
+nothing here. But §1.4.4 and the §1.4.3 `Scheme adapter` row then use "host" to mean the *node*:
+it is the node that negotiates delivery, picks a ladder rung and holds scheme credentials. A host
+system negotiates nothing. This document keeps "host" out entirely; Appendix A delta 13 proposes
+the same for those four rows.
+
+Naming note: Parts C–I on the `url4-refactor` branch still use the older `abc://` scheme and
+`ABC-*` headers; Parts A/B use `url4://`. This document writes `url4` and `URL4-*` throughout and
+assumes the rename Kevin lists as his open question 19 (Part I §43).
 
 # 2. Addressing
 
-Three address forms, plus any other scheme as data. The spec fixes their meaning in Part B §3.1.1, §3.5 and §5.4; we add one rule about the root and one about other schemes.
+Three address forms, plus any other scheme as data. The spec fixes their meaning in Part B §3.1.1,
+§3.5 and §5.4; we add one rule about the root.
+
+Part A §1.4.2–§1.4.3 now names the parts: a **node address** is the scheme plus RFC 3986 authority,
+an **endpoint path** identifies an endpoint relative to it, and a **target** is the two together —
+the endpoint URI an expression is addressed to. The forms below are targets.
 
 ![addressing](../diagrams/url4-topology-addressing.svg)
 
@@ -67,7 +96,14 @@ Three address forms, plus any other scheme as data. The spec fixes their meaning
 
 **Scheme inheritance.** A bare relative data URI inherits the scheme of the request that carried it (Part B §5.4.1). Under `url4://` it is a url4 read; under `https://` it is a plain read.
 
-**Any scheme is a source.** The spec fixes the roles of `url4://` (evaluate) and `https://` (read), lists `s3://` with the rule "the endpoint uses its own credentials", and fails unknown schemes with `unsupported_mode` (Part B §3.5). We generalise the `s3://` rule: any other scheme is a **read through a scheme adapter that the evaluating node mounts**. The SDK already has the slot: `FetchRequest.kind` is `url4`, `http`, `relative`, or `other`.
+**Any scheme is a source — now the spec's own rule.** This document proposed generalising the
+spec's `s3://` line into a **scheme adapter**; Part A §1.4.3 adopted it, as "a non-url4 source
+reader mounted on a node for fetching non-HTTP scheme data (`s3://`, `pg://`, `sqlite://`), typing
+its result, and advertised in the node's capabilities document", generalising Part B §3.5. The
+rules below therefore describe the spec, not a proposal. Two notes on the adopted row: it says the
+adapter uses "the **host's** own credentials" where it means the node's (Appendix A delta 13), and
+it carries a stray trailing period. The SDK already has the slot: `FetchRequest.kind` is `url4`,
+`http`, `relative`, or `other`.
 
 ```
 (sales=pg://warehouse/analytics.monthly_sales,
@@ -89,6 +125,11 @@ What a scheme's path means (bucket and key; database, schema and table; file and
 
 An endpoint is a function. That is the whole idea.
 
+Part A §1.4.2 now says it more precisely than we did: an endpoint is *a logical application
+interface, supporting url4 evaluation, exposed by a node and identified relative to the node
+address by an **endpoint path***. The interface and the path that names it are two words now, and
+this document follows the spec: "endpoint" for the function, "endpoint path" for `/claude`.
+
 ![anatomy](../diagrams/url4-topology-anatomy.svg)
 
 An endpoint:
@@ -108,14 +149,25 @@ Endpoints share nothing. An endpoint knows another endpoint only by address, and
 A node is an origin. It routes; it does not evaluate.
 
 - Mounts one or more endpoints at paths. `/` is the default endpoint.
-- Mount kinds: `local` (a function in the process), `command` (a subprocess; doctrine N4), `proxy` (forwards to a declared target on another node). These are the spec's intent-processor types under our names: `internal`/`function`, `code`, and `abc_delegate` (Part G §27.3). A proxied relative call is exactly the spec's delegation: the caller has already resolved the context, so what crosses the wire is materialised sources plus the intent, never a raw sub-expression. A `command` mount is code execution and inherits the pinning and signing rules of Part H §36.
+- Mount kinds: `local` (a function in the process), `command` (a subprocess), `proxy` (forwards to a declared target on another node). **Part A §1.4.3 adopted `Mount` and these three kinds verbatim**, alongside the spec's own intent-processor types `internal`/`function`, `code` and `abc_delegate` (Part G §27.3). One correction to pass back: the adopted row annotates `command` as "(subprocess, **N4**)", but N4 is a doctrine item in `.claude/skills/url4-engine/SKILL.md`, not a spec anchor (Appendix A delta 15). A proxied relative call is exactly the spec's delegation: the caller has already resolved the context, so what crosses the wire is materialised sources plus the intent, never a raw sub-expression. A `command` mount is code execution and inherits the pinning and signing rules of Part H §36.
 - Declares proxy mounts with their targets in its capabilities document. Attribution and consumer disclosure (Part H §29.2.1) need the real target, so proxies are never hidden; a source may also cap redistribution depth or name permitted consumers (Part H §29.2.2), and a proxy target is a consumer.
 - Serves discovery (§5) and the version alias `/v1` (§2).
 - A local SDK process that mounts remote endpoints under local names is a node. That is how "run the ensemble on my laptop, but call `/claude` as if it were mine" works.
 
 # 5. Discovery — the open decision
 
-Three ways for a requestor to learn what a node can do. The draft Part G specifies the first two: a capabilities document at `/.well-known/abc-capabilities` (SHOULD) and a `Capabilities` response header that MAY point to it (Part G §27.1). OPTIONS is ours; it appears nowhere in the spec. The spec also reaches for `.well-known` for the policy registry (`/.well-known/abc-policy`, Part H §30.2), so two well-known documents will coexist.
+Three ways for a requestor to learn what a node can do. The draft Part G specifies the first two: a
+capabilities document (SHOULD) and a `Capabilities` response header that MAY point to it (Part G
+§27.1). OPTIONS is ours; it appears nowhere in the spec. The spec also reaches for `.well-known`
+for the policy registry (`/.well-known/abc-policy`, Part H §30.2), so two well-known documents will
+coexist.
+
+**One thing settled since 2026-09-08.** Part A §1.4.5 now writes the path as
+`/.well-known/url4-capabilities` — the url4-named form this document has used throughout, where
+Part G still says `abc-capabilities`. That is Kevin's open question 19 (Part I §43) resolving in
+passing for this one document. §1.4.5 also states the `Capabilities` header in the same row, which
+is mechanism C below; the choice between A, B and C is still the owner's, and the recommendation
+stays A + C.
 
 ![discovery](../diagrams/url4-topology-discovery.svg)
 
@@ -166,7 +218,23 @@ One point to settle with Kevin: the spec's document describes one node whose pro
 
 # 6. Delivery and transport
 
-The spec defines three delivery modes and a fallback rule (Part C §11), and a graceful-degradation rule that an endpoint MUST degrade rather than fail and MUST report what it did (Part C §10.2). We adopt them, add WebSocket as a fourth answer, and make the whole ladder one request. Part I §43 question 26 rules `ws://` *sources* out of scope; that is a different question from a WebSocket *answer* on the endpoint's own GET.
+**This section is no longer a proposal.** Part A §1.4.4 has adopted both halves of it. `Delivery
+mode` now lists four values — `sync` (one body), `stream` (SSE on the same GET), `async` (202 plus
+`poll_url`) and **`websocket`** (101 on the same GET) — with `sync` the only one every endpoint
+MUST support. And the **response ladder** is now a spec term in its own right: "the mechanism by
+which a node responds with the richest delivery mode it supports, WebSocket → SSE → sync… answering
+below a requested mode level is reported as a degradation, not an error", recorded as an extension
+of Part C §10.2. `Degradation` itself is likewise now defined (§1.4.4).
+
+Two things to carry forward. Kevin's own row is annotated **"SPEC SECTION NEEDS UPDATING"** — Part
+C §11 still describes three modes and two ladder edges, so §1.4.4 and Part C disagree until that
+lands; Appendix A delta 4 is now about closing that gap rather than proposing the ladder. And both
+new rows say a "**host**" responds, where it is the node that negotiates and answers (Appendix A
+delta 13).
+
+Part I §43 question 26 rules `ws://` *sources* out of scope; that is a different question from a
+WebSocket *answer* on the endpoint's own GET, and adopting `websocket` as a delivery value settles
+it in our favour.
 
 ![delivery](../diagrams/url4-topology-delivery.svg)
 
@@ -190,8 +258,8 @@ The endpoint answers with the best it supports. RFC 6455 lets a WebSocket handsh
 Rules:
 
 - **sync is the only MUST.** SSE, WebSocket and async are SHOULD, advertised per endpoint in the capabilities document (§5). A serverless function that offers only sync and SSE is conformant.
-- **Ladder, not error.** WebSocket → SSE → sync. An endpoint answering below the ask is normal; the envelope's `delivery` field says what happened (Part C §11.4), and the degradation is reported like any other (Part C §10.2.2). The spec's ladder has two edges, `stream → sync` and `sync → async`; the WebSocket rung and `any → sync` are ours.
-- **Async is the spec's third `delivery` value.** It is requested with `delivery=async` (Part C §9.1), or entered by the endpoint when a sync run would outlive the timeout (Part C §11.4 `sync → async`). The Engine's `Prefer: respond-async` becomes an alias. The run handle is the `poll_url` field of the 202 body; a `Location` header mirroring it is our addition.
+- **Ladder, not error.** WebSocket → SSE → sync. An endpoint answering below the ask is normal; the envelope's `delivery` field says what happened (Part C §11.4), and the degradation is reported like any other (Part C §10.2.2). Part C §11.4 still lists only two edges, `stream → sync` and `sync → async`; Part A §1.4.4 now carries the full WebSocket → SSE → sync ladder and the `any → sync` rule, so the two parts disagree until Part C is updated.
+- **Async is one of the spec's four `delivery` values** (§1.4.4: `sync`, `stream`, `async`, `websocket`). It is requested with `delivery=async` (Part C §9.1), or entered by the endpoint when a sync run would outlive the timeout (Part C §11.4 `sync → async`). The Engine's `Prefer: respond-async` becomes an alias. The run handle is the `poll_url` field of the 202 body; a `Location` header mirroring it is our addition.
 - **Browsers go SSE-first.** A browser cannot attach `Accept` to a WebSocket handshake, so a browser evaluator asks for SSE and upgrades only where the capabilities document says WebSocket is offered.
 - **The Engine's product session** keeps its WebSocket at `/ws`. It is one instance of the WebSocket rung, not a separate protocol.
 - **Telemetry is always in-band.** Whatever the mode, the caller receives logs, spans and cost on the same connection or in the envelope. A remote node's own OTLP export is its business, never something the caller depends on (§7).
@@ -202,7 +270,7 @@ Sync has no room for that: the body is the answer. The spec always returns the J
 
 | Knob | Governs | Values |
 |---|---|---|
-| `Accept` header | the wrapper, by one dedicated type | `application/url4-envelope+json`: the envelope (Part D §17). Anything else: the bare answer in the negotiated content type, no logs, no telemetry, what `url4 serve` returns today. Our addition; the spec has no bare mode |
+| `Accept` header | the wrapper, by one dedicated type | `application/url4-envelope+json`: the envelope (Part D §17). Anything else: the bare answer in the negotiated content type, no logs, no telemetry, what `url4 serve` returns today. **Adopted** — Part A §1.4.4's `Envelope` row now states exactly this |
 | `meta` param | how much the envelope carries | `none`: result and status. `summary`: counts, latency, cost. `full`: per-source detail, nested child envelopes (Part D §17.3), and a `telemetry` block with logs and spans. The `telemetry` block is ours; per the Hybrid Rule it is present and `null` at `summary` (Part D §17.2.2) |
 | `fmt` param | the shape of the answer *content* | `text`, `markdown`, `json` (Part C §9.1); orthogonal, a JSON envelope can wrap a markdown answer |
 
@@ -213,6 +281,11 @@ An envelope answer with no `meta` gets `summary` (the spec's default is `none`, 
 # 7. Telemetry
 
 Three signals, one trace, as in the doctrine skill. What changes is where a one-shot GET puts them.
+
+Part A §1.4.3 now defines **attribution** in the terms this document used — "a per-source influence
+score of the impact of each source on the response body, reported in the envelope, shaped by the
+request's source weights and budgets" — so what follows sits on a defined word rather than an
+implied one.
 
 - **sync**: in the body, only when the caller asked for the envelope (`Accept: application/url4-envelope+json`, §6). `meta` sets the level (`summary` by default, `full` adds logs and spans; Part D §17.2). At `meta=full` a child's envelope nests in `source.envelope` (Part D §17.3). Each endpoint aggregates only what it saw itself (Part D §18.1). A bare `text/plain` answer carries nothing.
 - **stream** and **WebSocket**: as events: logs, spans, `cost.usage` (self and subtree), then `result`, then `envelope`. Same names in both.
@@ -293,19 +366,30 @@ Questions to answer before this becomes a section:
 
 Recommendation to explore first: node-issued run capability for endpoints (the Engine's pattern), spec §22 tokens between nodes, identity carried in the capability claims. Attribution, consent and audit (Parts E and H) then attach to the same run identity.
 
-**A plan endpoint on the node (question, reopened).** Deferred in the design session; reopened because three later additions give it inputs it did not have: per-endpoint `accepts` and `emits` (§8), per-endpoint `delivery` and `schemes` (§5, §2), and a node egress that already resolves every target's policy before spending (§11). Today the SDK's `Graph.validate()` checks syntax only and the Engine's preflight checks routes on one node.
+**A dry-run endpoint on the node (narrowed 2026-09-15: the word is settled, the shape is not).**
+Deferred in the design session; reopened because three later additions gave it inputs it did not
+have: per-endpoint `accepts` and `emits` (§8), per-endpoint `delivery` and `schemes` (§5, §2), and
+a node egress that already resolves every target's policy before spending (§11). Today the SDK's
+`Graph.validate()` checks syntax only and the Engine's preflight checks routes on one node.
 
-The idea: a **dry run** on the node. The draft already obliges an endpoint to do most of it: compute the consumer set by static analysis before resolving anything (Part H §29.2.1), be ready to show a source the full call tree (Part H §30.2), and estimate before executing under a hard budget (Part E §24). Steps 3 and 4 of §11 without step 5: parse, resolve mounts, type-check every edge against `accepts`/`emits`, check schemes and delivery modes, consult policy and budgets, and return the request tree with per-source verdicts and an estimated cost. Spend nothing. The answer is the envelope (Part D §17) with `sources[]` and `meta` filled in and no `result`; a refused source carries its error code, so "can this node run my expression?" becomes one call with a structured no.
+**Kevin has now defined it.** Part A §1.4.3 carries **dry run** — "the process of evaluating an
+expression *without* executing the intent, returning only the envelope without a result body" —
+which is precisely the semantic proposed below. So the *what* is no longer a question, and this
+document stops arguing for it. What Part A does not say is *how you ask for one*, what it costs, or
+what happens across nodes; questions 1, 2, 4 and 5 below survive unchanged, and question 3 is now a
+question about the spec's own term rather than about ours.
+
+The shape, in full, so the questions have something to bite on. The draft already obliges an endpoint to do most of it: compute the consumer set by static analysis before resolving anything (Part H §29.2.1), be ready to show a source the full call tree (Part H §30.2), and estimate before executing under a hard budget (Part E §24). Steps 3 and 4 of §11 without step 5: parse, resolve mounts, type-check every edge against `accepts`/`emits`, check schemes and delivery modes, consult policy and budgets, and return the request tree with per-source verdicts and an estimated cost. Spend nothing. The answer is the envelope (Part D §17) with `sources[]` and `meta` filled in and no `result`; a refused source carries its error code, so "can this node run my expression?" becomes one call with a structured no.
 
 Questions:
 
-1. **Shape.** `Prefer: dry-run` on the ordinary GET (the RFC 7240 pattern we already use for `respond-async`), a `plan` protocol parameter beside `q=`, or a separate path? The header keeps the address identical for plan and run, which suits caching and audit.
+1. **Shape.** `Prefer: dry-run` on the ordinary GET (the RFC 7240 pattern we already use for `respond-async`), a `dry_run` protocol parameter beside `q=`, or a separate path? The header keeps the address identical for dry run and run, which suits caching and audit. Part A §1.4.3 defines the operation and says nothing about how it is requested, so this is the open half.
 2. **Does a plan spend?** Policy-registry consults and budget reservations are real calls. Is a plan free by definition, with `meta.total_cost` as an estimate from `pricing_version`, or may it reserve?
-3. **Is the plan an artifact?** A plan id returned as a handle, so a later run can say "execute this plan" and skip re-planning. That ties to idempotency (§7) and to the token binding of §11.
-4. **Federation.** For a remote subtree, does the node forward `Prefer: dry-run` to the other node and merge its plan, or plan only from that node's capabilities document? The first is exact and costs a round trip; the second is instant and approximate.
-5. **Ownership.** The Engine's preflight admission (OME-880) becomes this endpoint's single-node case. Does the SDK gain `url4 plan`, calling the same thing?
+3. **Is the result an artifact?** A dry-run id returned as a handle, so a later run can say "execute this" and skip re-evaluating. That ties to idempotency (§7) and to the token binding of §11. Note the spec's definition returns "only the envelope without a result body", which does not by itself give the caller anything to hold on to.
+4. **Federation.** For a remote subtree, does the node forward the dry run to the other node and merge its answer, or answer only from that node's capabilities document? The first is exact and costs a round trip; the second is instant and approximate. Part A §1.4.3 is silent, and a dry run that silently stops at the first remote edge is worse than one that says it did.
+5. **Ownership.** The Engine's preflight admission (OME-880) becomes this endpoint's single-node case. Does the SDK gain `url4 dry-run`, calling the same thing?
 
-Recommendation to explore first: `Prefer: dry-run` on the same GET, envelope-only answer, cacheable like any GET, forwarded to remote nodes that advertise it and approximated from capabilities where they do not.
+Recommendation to explore first: `Prefer: dry-run` on the same GET, envelope-only answer, cacheable like any GET, forwarded to remote nodes that advertise it and approximated from capabilities where they do not. The word `plan` is retired from this document — the spec's word is **dry run**.
 
 **Deferred**
 
@@ -355,7 +439,7 @@ A brainstorm, not a decision. It answers one question from §10 concretely: **ho
 - Can an endpoint ever be granted direct egress (mechanism B at endpoint level)? Probably only for trusted local mounts, and only by node policy.
 - Where does the egress endpoint live for command mounts: a Unix socket, a loopback port, or the node's public origin with S as the credential?
 
-# 12. Alignment with the url4-refactor drafts (2026-09-08)
+# 12. Alignment with the spec (2026-09-08 drafts, 2026-09-15 Part A)
 
 The `url4-refactor` branch of `OpenMined/screamingface-design` carries draft Parts C–I (cut 2026-04-28 from the v0.4 text, not yet reviewed) and a v0.4 monolith that renumbers everything after §20. This document was first written from the v0.2 monolith. Every citation has been re-anchored to the Part numbering. The table records what the drafts changed, and how this document resolved it.
 
@@ -381,6 +465,32 @@ The `url4-refactor` branch of `OpenMined/screamingface-design` carries draft Par
 | Naming | `url4://`, `URL4-*` | C–I still `abc://`, `ABC-*`; consolidation is open question 19 (Part I §43) | kept `url4`; assumption stated in §1 |
 
 Confirmed by the drafts without change: the three trust relationships and token bindings (Part H §31), the strict request tree (Part H §29.1), `/name` ensembles on one node (Part I §41.9), a weighted image source (Part I §41.20), consumer disclosure before resolution (Part H §29.2.1), the idempotency wording we dispute (Part C §15.1), and every element of our cancel shape (Part C §16.2).
+
+## Kevin's Part A §1.4 refresh (2026-09-15, PR #19 `2a939bff`, draft)
+
+A week after the round above, Kevin rewrote Part A §1.4 in response to it. The flat 26-row
+terminology table became five sub-tables — **1.4.1 Grammar**, **1.4.2 Network**, **1.4.3 Expression
+Processing**, **1.4.4 Transport**, **1.4.5 General** — and most of Appendix D was absorbed into the
+spec. Where his text differs from ours, his wins; the table records what we changed in response.
+
+| Topic | We wrote | Part A §1.4 now says | Resolution here |
+|---|---|---|---|
+| `Mount` | ours: `local`/`command`/`proxy`, "not defined" in the spec | §1.4.3, **adopted verbatim**, alongside the processor types | §1 and §4 cite the spec; delta 1 retired; the stray "N4" annotation becomes delta 15 |
+| `Evaluator`, `Evaluation` | ours (§1) | §1.4.3, adopted and **widened**: the evaluator may or may not also be the intent processor | §1 adopts the wider reading |
+| `Dry run` | our open question, called "plan" (§10) | §1.4.3, **defined**: evaluate without executing; envelope, no result body | §10 narrowed to shape, cost, federation; "plan" retired as a word |
+| Response ladder | ours, WS → SSE → sync | §1.4.4, **adopted**, marked "SPEC SECTION NEEDS UPDATING" | §6 rewritten as adopted; delta 4 becomes "close the Part C gap" |
+| `websocket` delivery | our fourth rung, an addition | §1.4.4, a fourth `delivery` value beside `sync`/`stream`/`async` | §6; settles Part I question 26 for answers |
+| Envelope switch | ours: `application/url4-envelope+json` | §1.4.4, **adopted**, with the `meta` parameter | §6 marked adopted; delta 7 retired |
+| `Scheme adapter` | ours (§2) | §1.4.3, **adopted**, "generalizes Part B §3.5" | §2 cites the spec; says "host's credentials" → delta 13 |
+| `Degradation`, `Flow constraints`, `Attribution`, `Run handle`, `Collection`, `Holdings` | ours or implied | §1.4.3–§1.4.5, all now defined | Appendix D becomes a crosswalk rather than a parallel glossary |
+| `Request Tree` | strict tree, never a graph (Part H §29.1) | §1.4.3: "the full set of all sources and targets… an **evaluator may expand the tree**" — strictness dropped | §1 flags the change; delta 14 asks whether it is deliberate. §13's peer-to-peer question depends on the answer |
+| "Host" | deleted from this document 2026-09-08 | §1.4.2 adds `Host system` (a machine); §1.4.4 and the Scheme adapter row then use "host" to mean *node* | §1 keeps "host" out; delta 13 proposes `s/host/node/` in those four rows |
+| Capabilities path | `/.well-known/url4-capabilities` | §1.4.5 now writes exactly that, where Part G still says `abc-capabilities` | §5: question 19 resolving in passing |
+| `Self-reference`, `Identity-reference` | two rows in the old §1.4 | dropped as rows; folded into `Holdings` | delta 16 asks for confirmation; `Holdings` also carries `Collection`'s anchors |
+| Branch | Parts C–I live on `url4-refactor` | PR #19 targets **`main`**, where C–I are stubs, but its rows cite Part C §10.2, Part G §27.3, Part H §31 | delta 17: those anchors do not resolve on the branch the PR merges into |
+
+**Status of that PR.** It is a **draft**, one commit, opened 2026-09-15, no reviews. Everything above
+is pinned to `2a939bff` and may move. Appendix B carries the re-review item.
 
 # 13. url4 as a network protocol: submit, not call (question)
 
@@ -414,20 +524,40 @@ Raised 2026-09-08. Today a url4 expression is *called*: one requester sends a GE
 
 # Appendix A — proposed spec deltas for Kevin
 
-Each item names the anchor and the change. All are proposals.
+Each item names the anchor and the change. All are proposals. Re-triaged 2026-09-15 against Part A
+§1.4 at PR #19 (`2a939bff`, draft).
 
-1. **Part A §1.4 — endpoint kinds.** Keep *Node* and *Endpoint* as defined. Add that an endpoint is bound to an evaluator and an intent processor, and name the binding kinds `local | command | proxy` (the processor types `internal`/`function`, `code`, `abc_delegate` of Part G §27.3); a proxy declares its target. Confirm that Part H §31 tokens address nodes, never endpoint paths (§10).
-2. **Part B §3.1.1, Part D §19 — root.** `url4://node` ≡ `url4://node/`; `/` is the node's default endpoint at the current version; `/v1` is a version alias. Your own examples already do this (Part I §41.27). Also resolve §19.1 (path primary) against §19.4 (`v` outranks path).
-3. **Part C §11.2 — bindings.** `delivery=stream` is SSE on the same GET, requested with `Accept: text/event-stream` (§11.2 names SSE but no media type). An endpoint MAY also offer WebSocket by honouring `Upgrade: websocket` on that same GET (`101`); frames carry the same event names. Orthogonal to Part I question 26, which is about `ws://` sources.
-4. **Part C §10.2, §11.4 — ladder and floor.** Extend graceful degradation to `delivery`: the endpoint answers with the richest mode it supports, WebSocket → SSE → sync, in one round trip; sync is the only MUST and `any → sync` is always legal. An endpoint answering below the ask is a reported degradation (§10.2.2), not an error. Add a `delivery` list per processor to the capabilities document.
-5. **Part C §15.1 — idempotency.** Replace "the protocol does not guarantee idempotency" with: GET is idempotent per RFC 9110 §9.2.2; results are not guaranteed deterministic. §15.2's `budget_exceeded` row stays as the stated exception.
-6. **Part C §16 — cancellation.** Take your first option: `DELETE <poll_url>`; drop `cancel=<rid>`. Terminal state `cancelled`; SSE event `request.cancelled`; propagates to in-flight children; partial result when quorum was met. Add `cancelled` to the status enum in Part D §17.4 and to the state machine in Part C §13.4.
-7. **Part D §17 — envelope for sync callers.** A dedicated media type, `application/url4-envelope+json`, selects the envelope; any other `Accept` returns the bare result in its negotiated type. Envelope default `meta=summary` (override of §9.1's `none`). At `meta=full` the envelope carries a `telemetry` block (`logs[]`, `spans[]`, `cost`), present and `null` at `summary` per the Hybrid Rule (§17.2.2), redactable per §18.4. `total_cost` is the roll-up of a separate `cost.usage` stream event.
-8. **Part F §25, Part G §26 — typed payloads.** Add image, audio and video rows with aliases (`png`, `jpeg`, `wav`, `mp4`) to the §25.5 registry; extend §26.2.3's data-URI rule to results (`result.content` + `result.content_type`); add `result.artifact` for by-reference results above an endpoint-declared `inline_max_bytes`, subject to §29.2.2 flow constraints; WebSocket binary frames MAY carry bytes, SSE goes by reference. Part E: say how weights and budgets apply to non-text sources. Slot §41.24 is free for a multimodal example.
-9. **Part B §3.5 — other schemes.** Generalise the `s3://` row: any scheme other than `url4://`, `https://`, `http://` is a read through a scheme adapter on the evaluating node, resolved with the node's own credentials, typed by the adapter, advertised in the capabilities document (`schemes`), and otherwise `unsupported_mode` (permanent). Path semantics per scheme are the adapter's contract.
-10. **Part G §27.2 — capabilities document.** Keep the schema; add `intent_processors[].path` so a processor is addressable as an endpoint, `delivery` per processor, `schemes` the node reads (§2), `inline_max_bytes`, and a `default_processor`. Rename `abc_*` to `url4_*` with the header consolidation (your question 19).
-11. **Part H §31.4 — credential targets.** Either widen `target_type` beyond `abc_node | http_source`, or state that non-HTTP schemes are resolved with the node's own credentials only (§2).
-12. **Part D §17.2.2, §20 — additions must respect the Hybrid Rule and `propagated`.** Our `telemetry` and `session` blocks are present-and-null at `summary`; unknown fields pass through unaggregated.
+## Landed in PR #19
+
+Kept as the record of what was proposed and taken. Nothing is asked here.
+
+| # | Was | Where it landed |
+|---|---|---|
+| 1 | **Part A §1.4 — endpoint kinds.** Name the binding kinds `local \| command \| proxy`. | §1.4.3 `Mount`, **verbatim**. Superseded in one respect: no rename was needed — Node and Endpoint stayed, and §1.4.2 added `Node address` and `Endpoint path` instead. |
+| 4 | **Part C §10.2, §11.4 — ladder and floor.** WebSocket → SSE → sync in one round trip; sync the only MUST; answering below the ask is a reported degradation. | §1.4.4 `Response ladder` and `Degradation`, plus `websocket` as a fourth `delivery` value. **Still open below** — Part C itself is unchanged, as Kevin's own row notes. |
+| 7 | **Part D §17 — envelope for sync callers.** `application/url4-envelope+json` selects the envelope; `meta` sets the depth. | §1.4.4 `Envelope`. The `telemetry` block and the `meta=summary` default are not stated there; delta 12 still stands. |
+| 9 | **Part B §3.5 — other schemes.** Any non-HTTP scheme is a read through a node-mounted adapter, advertised in capabilities. | §1.4.3 `Scheme adapter`, "generalizes Part B §3.5". Says "host's own credentials"; see delta 13. |
+| 10 | **Part G §27.2 — capabilities document.** Add `delivery`, `schemes`; `url4_*` naming. | §1.4.5 `Capabilities document` now lists delivery modes and schemes and writes `/.well-known/url4-capabilities`. `intent_processors[].path`, `inline_max_bytes` and `default_processor` are **still open** below. |
+
+## Still open
+
+- **2. Part B §3.1.1, Part D §19 — root.** `url4://node` ≡ `url4://node/`; `/` is the node's default endpoint at the current version; `/v1` is a version alias. Your own examples already do this (Part I §41.27). Also resolve §19.1 (path primary) against §19.4 (`v` outranks path). Untouched by PR #19.
+- **3. Part C §11.2 — bindings.** `delivery=stream` is SSE on the same GET, requested with `Accept: text/event-stream` (§11.2 names SSE but no media type). Part A §1.4.4 now says `stream` is "SSE events on the same GET", so this is a Part C catch-up.
+- **4. Part C §10.2, §11.4 — make Part C match Part A.** §1.4.4 now carries the four delivery modes and the full ladder; Part C §11 still describes three modes and Part C §11.4 two degradation edges. Your own §1.4.4 row is annotated *SPEC SECTION NEEDS UPDATING*. Add a `delivery` list per processor to the capabilities document at the same time.
+- **5. Part C §15.1 — idempotency.** Replace "the protocol does not guarantee idempotency" with: GET is idempotent per RFC 9110 §9.2.2; results are not guaranteed deterministic. §15.2's `budget_exceeded` row stays as the stated exception.
+- **6. Part C §16 — cancellation.** Take your first option: `DELETE <poll_url>`; drop `cancel=<rid>`. Terminal state `cancelled`; SSE event `request.cancelled`; propagates to in-flight children; partial result when quorum was met. Add `cancelled` to the status enum in Part D §17.4 and to the state machine in Part C §13.4.
+- **8. Part F §25, Part G §26 — typed payloads.** Add image, audio and video rows with aliases (`png`, `jpeg`, `wav`, `mp4`) to the §25.5 registry; extend §26.2.3's data-URI rule to results (`result.content` + `result.content_type`); add `result.artifact` for by-reference results above an endpoint-declared `inline_max_bytes`, subject to §29.2.2 flow constraints. Part E: say how weights and budgets apply to non-text sources. Slot §41.24 is free for a multimodal example.
+- **11. Part H §31.4 — credential targets.** Either widen `target_type` beyond `abc_node | http_source`, or state that non-HTTP schemes are resolved with the node's own credentials only (§2). §1.4.3's `Scheme adapter` now assumes the latter without saying so.
+- **12. Part D §17.2.2, §20 — additions must respect the Hybrid Rule and `propagated`.** Our `telemetry` and `session` blocks are present-and-null at `summary`; unknown fields pass through unaggregated.
+
+## New, raised by PR #19
+
+- **13. Part A §1.4.2, §1.4.4 — host vs node.** `Host system` is welcome in §1.4.2 as a deployment word: a machine supporting one or more nodes. But §1.4.4 `Delivery mode` ("the negotiated method by which a **host** responds") and `Response ladder` ("the mechanism by which a **host** responds with the richest delivery mode"), and the §1.4.3 `Scheme adapter` row ("using the **host's** own credentials"), all use "host" where the actor is the **node**. It is the node that negotiates delivery, picks a rung and holds scheme credentials; a host system negotiates nothing, and on a machine running two nodes the sentence has no referent. Proposal: `s/host/node/` in those rows and keep `Host system` to §1.4.2 alone.
+- **14. Part A §1.4.3 — `Request Tree` lost its strictness.** The new row reads "the full set of all **sources** and **targets** defined in an **expression**. An **evaluator** may expand the tree during **source** **resolution** and sub-expression **evaluation**." Part H §29.1 says the request tree is strictly a tree, never a graph, and this document relies on that in §3, §7 and §13. Is the relaxation deliberate — is a node allowed to converge two branches onto one sub-expression — or is "expand" only meant to say the tree is discovered lazily? The answer decides whether §13's publish-and-claim model is a transport change or a model change.
+- **15. Part A §1.4.3 — a doctrine reference leaked into the spec.** The `Mount` row annotates `command` as "(subprocess, **N4**)". N4 is an item in our internal doctrine skill (`.claude/skills/url4-engine/SKILL.md`), not a spec anchor; a reader of Part A cannot resolve it. Drop it, or replace it with Part H §36, which is the rule that actually governs command mounts.
+- **16. Part A §1.4.1 — `Holdings` anchors, and two dropped rows.** `Holdings` carries `Part B §5.3, Part G §27.4`, which are `Collection`'s anchors; holdings and the `@` token are Part B §5.6. Separately, `Self-reference` and `Identity-reference` were rows in the old §1.4 and are now gone, apparently folded into `Holdings` — please confirm that is intended, because `@alice` carries an access-control and consent rule (Part B §5.6.4) that the single `Holdings` line does not state.
+- **17. Branch and anchors.** PR #19 targets `main`, where Parts C–I are "Not yet written" stubs. Its new rows nonetheless cite Part C §10.2, Part C §11, Part C §12.5, Part G §27.3 and Part H §31 — anchors that resolve only on `url4-refactor`. Either the drafts merge first, or Part A §1.4 ships with references a reader of `main` cannot follow.
+- **18. Part A §1.4 — typos and markup.** `Inter-host tone` should be `Inter-host token` (and, per delta 13, *inter-node token*). `Request identifer` ×2 → `identifier`. `Extention` → *extension*. Unclosed bold in "nested **Expression\*" (§1.4.1 `Source`) and "one or more **nodes\*" (§1.4.2 `Host system`). "one **ore** more" (§1.4.3 `Resolution`). "without executing **then** intent" (§1.4.3 `Dry run`). "advertising **a its** collections" (§1.4.5 `Capabilities document`). A stray `.` before "Generalizes" in `Scheme adapter`.
 
 # Appendix B — follow-up work items
 
@@ -447,80 +577,85 @@ To file after owner review, one per landing.
 | screamingface-engine | Non-text processors over aigateway (image, speech); artifact store as the by-reference path; `accepts`/`emits` in capabilities |
 | url4-sdk | `Url4Node` → node naming retrofit with a deprecation alias |
 | repo | Doctrine skill synced in this unit (T1, N1, F2, F4, term table) |
-| Kevin | Review Appendix A |
+| repo | Re-review this document when PR #19 leaves draft: every "adopted" claim here is pinned to `2a939bff` and the PR has had no review yet |
+| Kevin | Review Appendix A — deltas 2, 3, 4, 5, 6, 8, 11, 12 still open; 13–18 raised by PR #19 itself |
 
 # Appendix C — where the spec lives
 
 - Parts A and B, v0.5 DRAFT (2026-07-10): `secondbrain/kevin-mcdonough/docs/adrs/URL4-Spec-A.md`, `URL4-Spec-B.md`.
+- **Part A §1.4 as cited throughout this document** is not that file but the version in `OpenMined/screamingface-design` **PR #19** (`url4/terminology-refresh`, commit `2a939bff`, opened 2026-09-15), which is a **draft against `main`** and has had no review. Every "§1.4.x" anchor here resolves there and nowhere else yet.
 - Parts C–I: draft markdown on the **`url4-refactor` branch** of `OpenMined/screamingface-design`, `kevin-mcdonough/docs/adrs/refactor/URL4-Spec-{C…I}.md`, cut 2026-04-28 from the v0.4 text, not yet reviewed, never merged to `main` (where the site shows "Not yet written" stubs). Cited here as "Part X §N". The same branch holds the v0.4 monolith (commit `f28608a`); the v0.2 monolith this document was first written from is `8a052dc`, and its numbering diverges from §21 on.
 - Public docs: `public-docs/src/pages/learn/Url4Page.vue`. They use "fusion" and "typed DAG"; the spec uses neither.
 - Doctrine: `.claude/skills/url4-engine/SKILL.md`, updated with this document.
 
-# Appendix D — Vocabulary
+# Appendix D — Vocabulary crosswalk
 
-One line each: what it is, why it matters, where the spec grounds it. Terms marked *ours* are proposals in this document.
+Until 2026-09-15 this appendix was a glossary of its own, written because Part A §1.4 was a flat
+26-row table that left most of this document's vocabulary undefined. PR #19 changed that: §1.4 is
+now five sub-tables and **most of these terms are the spec's own**. A second glossary would only
+drift from it, so what remains is the crosswalk — for each term, where it lives in Part A §1.4 as of
+`2a939bff`, and whether anything is still owed.
 
-**Language**
+Read the definitions in the spec. Read this to know which of them came from here, which changed on
+the way, and which are still only ours.
 
-| Term | Definition | Anchor |
+**Status key.** *adopted* — in Part A §1.4, saying what we meant · *changed* — adopted, but the
+meaning moved; see the delta · *spec's own* — the spec's word before this document existed ·
+*ours* — not in the spec; this document is the only definition.
+
+## Adopted from this document
+
+| Term | Part A §1.4 | Status | Still owed |
+|---|---|---|---|
+| **Mount** | §1.4.3 | adopted | The row annotates `command` with "N4", our doctrine numbering (delta 15). |
+| **Evaluator**, **Evaluation** | §1.4.3 | adopted, widened | The evaluator "may or may not" also be the intent processor — wider than §1's reading, and we take the wider one. |
+| **Dry run** | §1.4.3 | adopted | The operation is defined; how you ask for one, what it costs and how it federates are open (§10). |
+| **Response ladder** | §1.4.4 | adopted | Part C §11.4 still lists two edges. Kevin's own row says *SPEC SECTION NEEDS UPDATING* (delta 4). |
+| **Degradation** | §1.4.4 | adopted | — |
+| **Scheme adapter** | §1.4.3 | adopted | Says "the **host's** own credentials"; it is the node's (delta 13). |
+| **Envelope** | §1.4.4 | adopted | Carries the `Accept: application/url4-envelope+json` switch and `meta`. The `telemetry` block and the `meta=summary` default are still deltas (12). |
+| **Run handle**, `poll_url` | §1.4.4 | adopted | — |
+| **Flow constraints** | §1.4.5 | adopted | — |
+| **Attribution** | §1.4.3 | adopted | — |
+| **Delivery mode** | §1.4.4 | adopted | `websocket` is now the fourth value; `sync` the only MUST. |
+| **Request tree** | §1.4.3 | **changed** | Strictness is gone: "an evaluator may expand the tree". Part H §29.1 says strictly a tree. §3, §7 and §13 depend on which is true (delta 14). |
+| **Inter-node token** | §1.4.4 | **changed** | Appears as "Inter-host **tone**" — a typo, and "host" for "node" (deltas 13, 18). |
+
+## The spec's own, before this document
+
+| Term | Part A §1.4 | Note |
 |---|---|---|
-| **Expression** | `(sources)!intent`: given this data, do this. The atomic unit of work and the whole composition; sources may be expressions, so expressions nest into a tree. | Part A §1.4, Part B §2 |
-| **Source** | One input: inline text, a URI, or a nested expression. Carries attribution annotations (`name:weight:budget`) and execution annotations (`;t`, `;retry`, `;accept`). | Part B §4 |
-| **Intent** | The right side of `!`: a prompt, a code pointer, a relative or remote URI, or a computed expression. | Part B §6 |
-| **Intent processor** | What turns resolved context plus intent into a result: a model call, a script, a command, or a delegate on another node. | Part A §1.4, Part G §27.3 |
-| **Holdings, `@`** | The endpoint's own data via the self-reference token; `@alice` names a principal's data under access control and consent. | Part B §5.6 |
-| **Collection** | A source that parses into rows; `*` iterates it. A sub-path after an endpoint also selects a collection. | Part B §5.3, Part G §27.4 |
+| **Expression**, **Source**, **Intent** | §1.4.1 | `Intent` is newly spelled out: a prompt, a code pointer, a URI, or an expression that must resolve to one of the first two. |
+| **Collection**, **Holdings** | §1.4.1 | `Holdings` is new as a row and folds in the old `Self-reference` / `Identity-reference`; its anchors are `Collection`'s (delta 16). |
+| **Broadcast**, **Expansion** | §1.4.1 | Unchanged. |
+| **Node**, **Endpoint** | §1.4.2 | `Endpoint` is now *an interface*, named by an **endpoint path** — see below. |
+| **Requestor**, **Target** | §1.4.3 | `Target` is now explicitly node address + endpoint path. |
+| **Intent processor** | §1.4.3 | Unchanged in substance. |
+| **Resolution**, **Execution** | §1.4.3 | Unchanged. |
+| **Terminal state**, **Quorum**, **Trigger** | §1.4.3 | `Trigger` now says *intermediate* result. |
+| **Agent session** | §1.4.3 | The basis for the statelessness carve-out in §3. |
+| **Policy registry**, **Data owner**, **Purpose**, **Jurisdiction**, **Settlement**, **Attestation** | §1.4.5 | Governance vocabulary; unchanged. |
+| **URL4-aware**, **Non-URL4 source** | §1.4.5 | Unchanged. |
+| **Capabilities document** | §1.4.5 | Now written `/.well-known/url4-capabilities` and naming the `Capabilities` header (§5). |
+| **Idempotent** | Part C §15 | Not in §1.4. Wording still disputed (delta 5). |
 
-**Topology**
+## New in PR #19, adopted here
 
-| Term | Definition | Anchor |
+| Term | Part A §1.4 | How this document uses it |
 |---|---|---|
-| **Endpoint** | A stateless function at a path (`/claude`). Answers `GET <path>?q=<expr>`, evaluates it, returns a result. One grade: every endpoint evaluates url4. The spec's word. | §3, Part A §1.4 |
-| **Node** | The origin that serves a set of endpoints, `/` being the default, publishes discovery, owns credentials and outbound traffic. Every requester running an evaluator is one. The spec's word. | §4, Part A §1.4 |
-| **Mount** | The binding of a path to an endpoint implementation: `local`, `command`, `proxy`. The spec's processor types `internal`/`function`, `code`, `abc_delegate`. | §4, Part G §27.3 |
-| **Evaluator** | The code that runs an expression: resolves sources, fans out, reduces, runs the intent. Every endpoint contains one. | §1 |
-| **Requestor** | Whoever submits an expression. | Part A §1.4 |
-| **Request tree** | The nodes and endpoints one expression touches; strictly a tree. No plan object, no swarm. | Part H §29.1 |
-| **Capabilities document** | JSON a node publishes at `/.well-known/url4-capabilities`: processors, collections, delivery modes, schemes. A `Capabilities` header may point to it. | Part G §27.1, §27.2 |
-| **Scheme adapter** (*ours*) | A node-mounted reader for a non-url4 scheme (`s3://`, `pg://`, `sqlite://`) with the node's own credentials, typing its result, advertised in capabilities. | §2, Part B §3.5 |
+| **Node address** | §1.4.2 | §2: scheme + RFC 3986 authority. |
+| **Endpoint path** | §1.4.2 | §1, §2, §3: `/claude` is the path; the endpoint is the interface it names. |
+| **Host system** | §1.4.2 | **Not used.** A machine supporting one or more nodes is a fine deployment word and has no protocol role here; §1 and delta 13 explain why "host" stays out. |
 
-**Transport**
+## Still only ours
 
-| Term | Definition | Anchor |
+Nothing in Part A §1.4 defines these. Each is a live proposal with a delta behind it.
+
+| Term | Definition | Where |
 |---|---|---|
-| **Delivery mode** | How the answer returns: `sync`, `stream` (SSE on the same GET), `async` (202 + `poll_url`), and our WebSocket rung (`101` on the same GET). Sync is the only MUST. | §6, Part C §11 |
-| **Ladder** (*ours*) | The endpoint answers with the richest mode it supports, WebSocket → SSE → sync, in one round trip; answering below the ask is a reported degradation. | §6, Part C §10.2 |
-| **Envelope** | The JSON wrapper: `result`, `status`, `delivery`, `sources[]`, `meta`. Requested with `Accept: application/url4-envelope+json`; otherwise the bare result. | Part D §17 |
-| **`meta`** | Envelope depth: `none`, `summary` (counts, latency, cost), `full` (per-source detail, nested envelopes, telemetry). | Part D §17.2 |
-| **Run handle, `poll_url`** | The address of an async run: `GET` for status, `DELETE` to cancel. | Part C §12.5, §16 |
-| **`rid`** | The request id; fresh per child request, recorded by the parent, bound into tokens. | Part C §9.1 |
-| **Telemetry signals** | Logs, spans (tokens live here), and `cost.usage` events (money lives here). In-band in every mode; OTLP is the durable copy. | §7 |
-
-**Data**
-
-| Term | Definition | Anchor |
-|---|---|---|
-| **Typed payload** (*ours*) | Every edge carries a value named by its media type; text is the default. Sources declare by `Content-Type`, results by `result.content_type`. | §8 |
-| **Artifact** (*ours*) | A large result returned as an `https://` URL the next endpoint fetches as data, above an endpoint-declared `inline_max_bytes`; inherits flow constraints. | §8 |
-| **`;accept`, `ct_mismatch`** | A source's wanted format, as a short alias, and what to do when the fetched type differs: `fail`, `ignore`, `transform_ignore`, `transform_fail`. | Part F §25.6, Part G §26.3 |
-
-**Trust**
-
-| Term | Definition | Anchor |
-|---|---|---|
-| **Run session** (*ours*) | A node-issued capability scoped to one run (`rid`, tree, purpose, expiry, identity) that endpoints carry instead of credentials. | §10, §11 |
-| **Inter-node token** | The requestor's credential for one node, encrypted to that node's key, bound to `rid`, a timestamp (≤ 300 s) and the destination; intermediaries forward what they cannot decrypt. | Part H §31 |
-| **Egress** (*ours*) | The node component that performs every outbound request for its endpoints: policy, disclosure, cache, budgets, credentials, token forwarding. | §11 |
-| **Policy registry** | The out-of-band service a source exposes to state its terms; consulted before resolution. | Part H §30 |
-| **Flow constraints** | A source's limits on where its output may travel: permitted or denied consumers, redistribution depth. | Part H §29.2.2 |
-| **Attribution** | The per-source influence score the envelope reports; weights and budgets shape it. | Part E |
-
-**Execution**
-
-| Term | Definition | Anchor |
-|---|---|---|
-| **Quorum, trigger** | Quorum: how many sources must succeed before the intent may run. Trigger: the terminal-source count at which the endpoint decides whether to produce a result. | Part C §12 |
-| **Degradation** | An endpoint must fall back rather than fail when it cannot honour a request, and must report it. | Part C §10.2 |
-| **Agent session** | A multi-turn interaction among `mode=agent` sources coordinated by the resolving endpoint, which holds the transcript; `coord=` selects the mode. | Part G §28 |
-| **Plan, dry run** (*ours*) | A node endpoint that resolves and type-checks an expression, consults policy and budgets, and returns the envelope with no result. Open question. | §10 |
-| **Idempotent** | A url4 GET has no extra server-side effect on repeat (RFC 9110); results need not be identical. Disputed wording in the spec. | Part C §15 |
+| **Typed payload** | Every edge carries a value named by its media type; text is the default. Sources declare by `Content-Type`, results by `result.content_type`. | §8, delta 8 |
+| **Artifact** | A large result returned as an `https://` URL the next endpoint fetches as data, above an endpoint-declared `inline_max_bytes`; inherits flow constraints. | §8, delta 8 |
+| **Run session** | A node-issued capability scoped to one run (`rid`, tree, purpose, expiry, identity) that endpoints carry instead of credentials. | §10, §11 |
+| **Egress** | The node component that performs every outbound request for its endpoints: policy, disclosure, cache, budgets, credentials, token forwarding. | §11 |
+| **Telemetry signals** | Logs, spans (tokens live here), and `cost.usage` events (money lives here). In-band in every mode; OTLP is the durable copy. | §7, delta 7 |
+| **OPTIONS discovery** | One answer per endpoint, mechanism B of §5. Appears nowhere in the spec, and PR #19 did not add it. | §5 |
