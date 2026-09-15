@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from ._auth_mode import (
+from .auth_mode import (
     allows_chatless,
     auth_mode,
     auth_mode_for,
@@ -20,10 +20,25 @@ from ._auth_mode import (
     profileless_auth_mode,
     provider_name_of,
 )
-from ._defaults import apply_defaults
-from ._ports import ProviderAccess, ProviderCredentialAdmin
-from ._selector import DEFAULT_SELECTOR_NAME, Selector, SelectorPolicy
-from ._types import (
+from .defaults import apply_defaults
+from .ports import ProviderAccess, ProviderCredentialAdmin
+from .profile_authorize import (
+    apply_authorization,
+    invalidate_session,
+    mark_profile_error_fresh,
+    oauth_connection_store,
+    reauth_url_for,
+)
+from .profile_backed import (
+    ProfileBackedProviderAccess,
+    context_stamp,
+    legacy_target_parts,
+    provider_access_for,
+    target_from_legacy,
+)
+from .profile_defaults import read_defaults
+from .selector import DEFAULT_SELECTOR_NAME, Selector, SelectorPolicy
+from .types import (
     Authorization,
     AvailabilityRow,
     AvailabilityStatus,
@@ -42,21 +57,6 @@ from ._types import (
     UnsupportedAuthMode,
     WriteConflict,
 )
-from .profile_authorize import (
-    apply_authorization,
-    invalidate_session,
-    mark_profile_error_fresh,
-    oauth_connection_store,
-    reauth_url_for,
-)
-from .profile_backed import (
-    ProfileBackedProviderAccess,
-    context_stamp,
-    legacy_target_parts,
-    provider_access_for,
-    target_from_legacy,
-)
-from .profile_defaults import read_defaults
 
 __all__ = [
     "DEFAULT_SELECTOR_NAME",

@@ -1,7 +1,7 @@
 """Two harnesses for the provider-access PORT CONTRACT suite (OME-1200, A1 of OME-1138).
 
 # FEATURE: the contract tests run unchanged over a pure in-memory fake
-# (`_provider_access_fake.py`) and over the Profile-backed implementation on the real app, so
+# (`provider_access_fake.py`) and over the Profile-backed implementation on the real app, so
 # any later backing must pass the same suite.
 # AIDEV-NOTE: the harness hides HOW a state is seeded (a `Profile` row + blob today, a slot
 # tomorrow) and HOW a side effect is observed (a recorder on the strategy cache and the plugin
@@ -18,7 +18,7 @@ from functools import partial
 from typing import Any, Protocol, cast
 from uuid import uuid4
 
-from _provider_access_fake import PROVIDER, FakeHarness, FakeProviderAccess
+from provider_access_fake import PROVIDER, FakeHarness, FakeProviderAccess
 
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.errors import AuthError

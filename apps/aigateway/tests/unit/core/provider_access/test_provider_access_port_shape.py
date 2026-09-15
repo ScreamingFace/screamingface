@@ -13,8 +13,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from _provider_access_fake import FakeProviderAccess
-from _provider_access_harness import ANTHROPIC, PROVIDER, FakeHarness, Harness, ProfileBackedHarness
+from provider_access_fake import FakeProviderAccess
+from provider_access_harness import ANTHROPIC, PROVIDER, FakeHarness, Harness, ProfileBackedHarness
 
 from aigateway.core.provider_access import (
     AvailabilityRow,

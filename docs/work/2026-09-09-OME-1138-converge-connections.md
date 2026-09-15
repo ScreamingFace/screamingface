@@ -220,6 +220,10 @@ from 17048f5d on branch `OME-1138-converge-connections` in the shared checkout. 
   failed once in the first full gate run (five lanes sharing the CPU) and 1 of 3 isolated reruns on
   the same tree; it is the bcrypt timing failure already recorded in the 2026-09-09 baseline.
 - **Not started (per instruction):** A2–A4, any backing migration, the Hosted Engine switch.
+- **A1 follow-up — `OME-1204` (2026-09-15):** the five provider-access package modules and the two
+  test helpers renamed without the leading underscore (owner decision, spec §8 D19); rename-only —
+  imports and the facade updated, every export unchanged, OpenAPI byte-identical against `fb4c414e`,
+  a filename-policy test added. Ledger `docs/work/2026-09-15-OME-1204-rename-provider-access-modules.md`.
 
 ## Test plan
 

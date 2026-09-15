@@ -29,7 +29,7 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 | P0 baseline | G0 | done 2026-09-09 at b47853ea (gates, consumer/meta maps); anchors re-verified at 17048f5d in this pass; gates not rerun |
 | P1 design | G1 | **revised to adapter-first**: consumer evidence, adversarial checks and review feedback incorporated; spec §3–§9 written; open D11–D18 and the D7 conflict presented; not approved |
 | Stage 0 characterisation | G1 | **done** as U0 (gateway) and U0e (Engine); commits `48fa1d78`, `c7d767f7` |
-| A1 port + Profile-backed read implementation | G2a | **done** as U1; review findings closed; stop before A2 |
+| A1 port + Profile-backed read implementation | G2a | **done** as U1; review findings closed; module names follow D19 (`OME-1204`, 2026-09-15); stop before A2 |
 | A2 in-process consumers | G2b | not started |
 | A3 admin interface + management shells | G2c | not started |
 | A4 Hosted Engine on the availability successor | G3 | not started; D15 and D17 decided 2026-09-14 (explicit mutability flag; `GET /v1/provider-access` with provider + status only); not authorised yet |
@@ -49,8 +49,9 @@ Linear needs explicit permission; this table is not evidence that issues exist.
 | U0 | `OME-1198` — Pin the current credential-selection behaviour with characterisation tests | `aigateway` | 0 | G1 |
 | U0e | `OME-1199` — Pin the worker's ambient `AIGATEWAY_PROFILE` inheritance and the in-process pop | `screamingface-engine` | 0 | G1 |
 | U1 | `OME-1200` — Add the provider-access port and the Profile-backed read implementation behind the existing routes | `aigateway` | A1 | U0 |
-| U2 | Move chat, model parameters, admission and dispatch marking onto the provider-access port | `aigateway` | A2 | U1 |
-| U3 | Add the provider-credential admin interface and reduce the Profile management routes to shells | `aigateway` | A3 | U1 |
+| U1n | `OME-1204` — Rename the provider-access modules and test helpers without leading underscores (D19; rename-only) | `aigateway` | A1 follow-up | U1 |
+| U2 | Move chat, model parameters, admission and dispatch marking onto the provider-access port | `aigateway` | A2 | U1, U1n |
+| U3 | Add the provider-credential admin interface and reduce the Profile management routes to shells | `aigateway` | A3 | U1, U1n |
 | U4 | Publish the backing-neutral availability listing | `aigateway` | A4 | U3, D15, D17 |
 | U4e | Move the Hosted Engine listing onto the availability successor | `screamingface-engine` | A4 | U4 |
 | S1 | Add the provider-credential slot store with generation fencing and a locator-authoritative strategy factory | `aigateway` | B (D11 a) | D11, D14 |

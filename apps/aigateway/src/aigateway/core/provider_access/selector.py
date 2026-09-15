@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from ._types import SelectorUnsupported
+from .types import SelectorUnsupported
 
 DEFAULT_SELECTOR_NAME = "default"
 

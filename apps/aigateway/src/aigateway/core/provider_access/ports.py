@@ -13,8 +13,8 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 from ..profile_models import AuthMode
-from ._selector import Selector
-from ._types import (
+from .selector import Selector
+from .types import (
     Authorization,
     AvailabilityRow,
     CredentialSummary,

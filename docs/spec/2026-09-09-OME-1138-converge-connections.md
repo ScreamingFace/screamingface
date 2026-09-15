@@ -90,12 +90,13 @@ re-pointed; the shim's resolver renders refusals through the edge table, so by-p
 see today's `HTTPException` bodies. Every new module stays at or below 450 lines (`chat_credentials.py` is 483 today); the
 relocated bodies total roughly 550 lines, so the Profile-backed implementation is split by
 responsibility into at least three modules (resolve + defaults read, authorize + dispatch failure,
-admin + availability) rather than one. Proposed layout, mirroring `core/plugin_base/_*.py` and
-budgeted from today's line counts (final split fixed at the A1 RED step): `_selector.py`, `_types.py`,
-`_ports.py`, `_auth_mode.py`, `_defaults.py` (pure `apply_defaults`), `profile_backed.py` (resolve,
-repair, Connection fallback), `profile_authorize.py` (strategy, reauth URL, authorization, dispatch
-failure), `profile_defaults.py` (legacy-defaults reader), at A3 `profile_admin.py` (admin bodies,
-availability); the rendering table is `routes/provider_access_http.py`.
+admin + availability) rather than one. Layout (split fixed at the A1 RED step; module names carry
+no leading underscore by owner decision D19, `__init__.py` being the one Python-required exception):
+`selector.py`, `types.py`, `ports.py`, `auth_mode.py`, `defaults.py` (pure `apply_defaults`),
+`profile_backed.py` (resolve, repair, Connection fallback), `profile_authorize.py` (strategy, reauth
+URL, authorization, dispatch failure), `profile_defaults.py` (legacy-defaults reader), at A3
+`profile_admin.py` (admin bodies, availability); the rendering table is
+`routes/provider_access_http.py`.
 
 ### 3.2 Contract: types
 
@@ -380,7 +381,8 @@ mechanism for option (a) and as the semantic requirements for option (b):
 
 ## 8. Decision register
 
-D1–D10 are preserved as decided; D11–D18 are new and open. Conflicts are presented, not resolved.
+D1–D10 are preserved as decided; D11–D19 are new (D15, D17 and D19 decided, the rest open).
+Conflicts are presented, not resolved.
 
 | ID | Decision | Contract | Status |
 | --- | --- | --- | --- |
@@ -402,6 +404,7 @@ D1–D10 are preserved as decided; D11–D18 are new and open. Conflicts are pre
 | D16 | Defaults during transition | (a) legacy index read-only for defaults until cutover; (b) cutover precedes the switch | **open**; either satisfies D2 |
 | D17 | Availability successor | (a) neutral `GET /v1/provider-access` (recommended); (b) `?effective=true`; plus whether Connection-only accounts fold into the window listing | **decided 2026-09-14: (a)** caller-scoped read-only `GET /v1/provider-access` returning only `provider` and `status` ∈ {not_connected, pending, connected, needs_reauth, error}; the Profile-backed implementation never emits `needs_reauth` in the window; no ids, labels, defaults, `auth_method`, `account_label` or secrets; `private, no-store`; `X-Profile` non-selecting; A3 reproduces the Engine aggregation with golden-equivalence tests; the Hosted Engine switch is A4, separately |
 | D18 | Admin HTTP successor | pair-addressed neutral resource: publish after D11, or now beside the legacy routes | **open**; the UI attach call cannot move before C regardless; the UI defaults fieldset stays until C unless the owner drops it earlier; conflict codes on the successor to confirm — the legacy contract has two (503 retry-exhausted, 409 superseded-by-delete) |
+| D19 | Module naming | no file introduced by the provider-access unit has a name beginning with `_`; `__init__.py` is the required Python exception; underscores between words in `snake_case` names are allowed | **decided 2026-09-15**; applied by `OME-1204` (A1 follow-up: five package modules and two test helpers renamed, rename-only); binds A3's `profile_admin.py` and every later module of the package |
 
 Q01–Q07 and M0 stand as in the previous revision (versions and external callers; authorised census
 and key access; writer fencing; rollback rehearsal; D3/D4 compatibility; clean branch; catalog

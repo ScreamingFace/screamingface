@@ -35,3 +35,7 @@ Stage 0 and A1 executed and committed 2026-09-14 (`OME-1198`, `OME-1199`, `OME-1
 code green; stopped after owner review before A2. Stage 0 commits are `48fa1d78` and `c7d767f7`;
 A1 is the OME-1200 feature commit. Details are in the ledger section "Stage 0 + A1 execution
 (2026-09-14)".
+
+A1 follow-up `OME-1204` (2026-09-15): provider-access modules and test helpers renamed without
+leading underscores (owner decision D19); rename-only, OpenAPI byte-identical. Ledger
+`docs/work/2026-09-15-OME-1204-rename-provider-access-modules.md`.

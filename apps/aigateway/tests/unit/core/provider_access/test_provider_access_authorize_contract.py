@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from _provider_access_harness import (
+from provider_access_harness import (
     ANTHROPIC,
     PROVIDER,
     FakeHarness,

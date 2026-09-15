@@ -21,7 +21,7 @@ from ..oauth.store import OAuthConnectionStore
 from ..plugin_base import credential_strategy_from
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
 from ..profile_models import AuthType, Profile
-from ._types import Authorization, CredentialTarget, TargetReauthRequired, UnsupportedAuthMode
+from .types import Authorization, CredentialTarget, TargetReauthRequired, UnsupportedAuthMode
 
 
 def reauth_url_for(

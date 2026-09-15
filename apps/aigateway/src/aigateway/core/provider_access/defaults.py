@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._types import RequestDefaults
+from .types import RequestDefaults
 
 _BUCKET_A_FIELDS = (
     "model",

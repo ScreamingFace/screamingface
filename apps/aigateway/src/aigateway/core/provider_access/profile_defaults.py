@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 
 from ..profile_index import ProfileIndexStore
-from ._selector import Selector
-from ._types import RequestDefaults
+from .selector import Selector
+from .types import RequestDefaults
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from _provider_access_harness import (
+from provider_access_harness import (
     ANTHROPIC,
     PROVIDER,
     FakeHarness,

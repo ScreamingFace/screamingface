@@ -205,3 +205,13 @@ Owner review of the A1 diff returned six findings; fixed in this same unit befor
   package and its tests. Full `run_gates.py aigateway --base 17048f5d` after round 2: **ALL GATES
   GREEN**, exit 0. Engine untouched this round (its gate stayed green from round 1).
 - **Commit:** included in `feat(aigateway): introduce provider access port`.
+
+## Follow-up (2026-09-15) — `OME-1204`
+
+The module and helper names recorded above are the names this unit shipped with; they are kept here
+as history. By owner decision (spec §8 D19: no provider-access file name begins with `_`,
+`__init__.py` excepted) the five package halves and the two test helpers were renamed in
+`OME-1204`, a separate rename-only unit: `_types.py → types.py`, `_selector.py → selector.py`,
+`_ports.py → ports.py`, `_auth_mode.py → auth_mode.py`, `_defaults.py → defaults.py`;
+`_provider_access_fake.py → provider_access_fake.py`, `_provider_access_harness.py →
+provider_access_harness.py`. Ledger: `docs/work/2026-09-15-OME-1204-rename-provider-access-modules.md`.

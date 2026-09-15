@@ -1,7 +1,7 @@
 """The pure in-memory witness of the provider-access PORT CONTRACT (OME-1200, A1 of OME-1138).
 
 # FEATURE: the contract suite runs unchanged over this fake and over the Profile-backed
-# implementation on the real app (`_provider_access_harness.py`), so any later backing must pass
+# implementation on the real app (`provider_access_harness.py`), so any later backing must pass
 # the same suite. The fake models every side effect the contract names — eviction, marking,
 # session invalidation, the last-used touch — so a test asserting one of them is meaningful on
 # both witnesses.

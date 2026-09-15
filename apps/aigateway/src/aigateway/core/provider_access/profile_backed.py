@@ -17,7 +17,7 @@ from ..oauth.models import OAuthConnection
 from ..oauth.store import credential_key_for
 from ..profile_index import ProfileIndexStore
 from ..profile_models import AuthMode, Profile, ProfileDefaults, ProfileState, credential_name_for
-from ._auth_mode import (
+from .auth_mode import (
     allows_chatless,
     auth_mode,
     auth_type_of,
@@ -25,9 +25,17 @@ from ._auth_mode import (
     contract_auth_mode,
     profileless_auth_mode,
 )
-from ._ports import ProviderAccess
-from ._selector import Selector
-from ._types import (
+from .ports import ProviderAccess
+from .profile_authorize import (
+    authorize,
+    backing_rows,
+    oauth_connection_store,
+    reauth_url_for,
+    record_dispatch_failure,
+)
+from .profile_defaults import read_defaults
+from .selector import Selector
+from .types import (
     Authorization,
     AvailabilityRow,
     CredentialTarget,
@@ -41,14 +49,6 @@ from ._types import (
     TargetReauthRequired,
     WriteConflict,
 )
-from .profile_authorize import (
-    authorize,
-    backing_rows,
-    oauth_connection_store,
-    reauth_url_for,
-    record_dispatch_failure,
-)
-from .profile_defaults import read_defaults
 
 
 def context_stamp(

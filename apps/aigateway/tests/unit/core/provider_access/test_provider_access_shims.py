@@ -194,7 +194,7 @@ def test_the_shim_defaults_read_still_never_raises(authenticated_client, monkeyp
 def test_the_context_stamp_is_byte_identical_to_the_legacy_context_identity(
     authenticated_client, credential_blobs, monkeypatch
 ) -> None:
-    from _provider_access_harness import ProfileBackedHarness
+    from provider_access_harness import ProfileBackedHarness
 
     from aigateway.core.provider_access import Selector
 

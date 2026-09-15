@@ -11,7 +11,7 @@ from typing import Any, cast
 
 from ..oauth.models import OAuthConnection
 from ..profile_models import AuthMode, AuthType, Profile
-from ._types import CredentialTarget, UnsupportedAuthMode
+from .types import CredentialTarget, UnsupportedAuthMode
 
 
 def auth_type_of(profile: Profile | None, connection: OAuthConnection | None) -> AuthType:
