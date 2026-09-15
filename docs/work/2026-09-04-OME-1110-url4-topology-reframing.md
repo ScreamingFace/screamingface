@@ -1,7 +1,7 @@
 ---
 ticket: OME-1110
 stack: repo
-status: in-progress
+status: in-review
 started: 2026-09-04
 finished:
 ---
@@ -157,3 +157,25 @@ single internal link across 240+ `§` cross-references; both files shared one `/
 **Risk.** PR #19 is a draft opened hours before this round and can change. The front matter, §12
 and the crosswalk pin `2a939bff`; Appendix B carries a re-review follow-up for when it leaves
 draft.
+
+**Gates (2026-09-15).** 34 builder tests pass. Both PDFs render via
+`uv run --directory docs/tools/specpdf build.py --part all`: core 16pp, open-work 14pp, distinct
+`/Title`, 12 bookmarks each, 22 and 15 internal links. `rsvg-convert` 16/16 SVGs; all 16 have PNG
+twins. Citations: 5/5 `§1.4.x` anchors resolve against Part A at `2a939bff`, 228 `Part X §N`
+citations, 0 dangling `delta N` references, 0 internal `§N` pointing at a section that does not
+exist. No prose uses "host" for "node" — the 22 remaining occurrences are `Host system`, quoted
+Kevin text, the `s/host/node/` proposal, or the `Inter-host tone` typo being flagged. No ASCII box
+diagrams in this document, so that check is N/A.
+
+**Deviations this round.** (a) Continued on OME-1110 rather than filing a new work item — see the
+reasoning at the top of this round. (b) `break-before: avoid` on figures was tried to close the
+whitespace above §2's diagram and **reverted**: it moved the gap up a page and grew the core render
+to 17 pages. With 980×580 figures on A4 some whitespace above a figure is unavoidable; the defect
+that mattered — a heading alone at the foot of a page — is fixed. (c) The eight diagrams needed no
+regeneration: their text carries no ownership claim and no stale term, so `diagrams.py` was not
+reconstructed this round. `docs/tools/specpdf/README.md` records what the builder does and does not
+yet own.
+
+**Open for the owner.** `docs/diagrams/url4-topology-request-tree.{svg,png}` is committed but
+referenced nowhere in the source (pre-existing, not introduced this round). Delta 14 is precisely
+about request-tree strictness, so it could earn a place in §13 — or it should be removed.
