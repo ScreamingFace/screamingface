@@ -51,7 +51,7 @@ byte-identical expressions to today — zero replay fixtures invalidated.
   `adapters/inprocess.py`, `adapters/queue_runner.py`, `runner_queue.py`,
   `rest/routes.py` (`X-Answer-Seed`), `runner/main.py`, `runner/connector.py`;
   new `tests/unit/test_answer_seed_threading.py` (21 tests).
-- **Commits:** 51063440 docs(spec) — the proposal; a3070d9d feat(screamingface-engine) — the seam.
+- **Commits:** 98e6fdb3 docs(spec) — the proposal; 343b8ef8 feat(screamingface-engine) — the seam.
 - **Gates:** run_gates.py screamingface-engine ALL GREEN (ruff check/format, pyright,
   layering, pytest 2831 passed / cov ≥80). Append-only check waived ONCE with owner
   approval (2026-09-14) for 4 fake-signature widenings.
