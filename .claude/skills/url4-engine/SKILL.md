@@ -34,7 +34,7 @@ spec, not this table, when writing a spec delta.
 |---|---|---|
 | **Endpoint** | a logical interface on a node that evaluates url4, named by an endpoint path | §1.4.2 — now *an interface*, distinct from its path |
 | **Endpoint path** | the URI path (`/claude`) identifying an endpoint relative to the node address | §1.4.2, new |
-| **Node** | an origin that serves a set of endpoints; `/` is its default; owns discovery, credentials, outbound traffic; every evaluating requester is one | §1.4.2, same word |
+| **Node** | an origin that serves a set of endpoints; `/` is its default; owns discovery, credentials, outbound traffic; every evaluating requestor is one | §1.4.2, same word |
 | **Node address**, **Target** | the node's scheme + authority; a target is node address + endpoint path | §1.4.2, §1.4.3 |
 | **Mount** | how an endpoint path binds to its evaluator: `local` (in-process) · `command` (subprocess, N4) · `proxy` (declared target) = spec processor types `internal`/`function`, `code`, `abc_delegate` | §1.4.3 — **adopted from us verbatim**, Part G §27.3 |
 | **Evaluator** | whatever runs an expression; every endpoint contains one | §1.4.3 — adopted, and *may or may not* be the intent processor |
@@ -125,7 +125,7 @@ L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduc
   `DELETE <poll_url>` to cancel (F3).
 - **T3 — Either edge may be either mode.** Client→node and node→node edges independently
   land on WS, SSE, sync or async. In **all** cases the three signals forward upstream (F) —
-  mode changes the *delivery channel*, never *whether* telemetry propagates. Ladder:
+  mode changes the *delivery channel*, never *whether* telemetry propagates. Response ladder:
   WS → SSE → sync, decided by the node in one round trip; `sync → async` on timeout; `any →
   sync` is always legal (sync is the universal floor). This is Part A §1.4.4's `Response ladder`
   and `Degradation` — no longer ours alone.

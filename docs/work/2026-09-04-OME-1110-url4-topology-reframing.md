@@ -179,3 +179,17 @@ yet own.
 **Open for the owner.** `docs/diagrams/url4-topology-request-tree.{svg,png}` is committed but
 referenced nowhere in the source (pre-existing, not introduced this round). Delta 14 is precisely
 about request-tree strictness, so it could earn a place in §13 — or it should be removed.
+
+**Vocabulary validation (2026-09-15, owner-requested).** A mechanical audit of the rendered PDF
+text against every term in Part A §1.4 at `2a939bff` (45 terms; local copy verified byte-identical,
+blob `0d9d071b`) found drift the reconciliation pass had missed: "requester" ×7 where the spec's
+word is **requestor**; §0 Q1 still defining an endpoint as "a stateless function behind a path"
+(the 2026-09-08 wording, contradicting §1's own row and §1.4.2's *logical interface … identified by
+an endpoint path*); "plan" as a noun ×3 after the word was retired for **dry run**; and bare
+"ladder" as the headword where the spec's term is **response ladder**. The anatomy diagram caption
+carried the stale endpoint definition and the delivery diagram the bare "Ladder, not error"; both
+fixed in light + dark with PNGs regenerated. Doctrine skill: "requester" and "Ladder:" corrected.
+Residuals judged legitimate: three "ladder" anaphora inside the §6 paragraph that names the
+response ladder one sentence earlier; "host" only inside delta 13, which quotes Kevin verbatim;
+sentence-case "request tree" against Kevin's "Request Tree", noted in the crosswalk — his other
+terms are sentence case. Rebuilt PDFs are text-identical to a fresh build from source.

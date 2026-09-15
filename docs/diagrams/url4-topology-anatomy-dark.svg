@@ -31,7 +31,7 @@
 <rect x="24" y="160" width="198.29999999999998" height="19.5" fill="#05070b" stroke="#3c485b" stroke-width="1"/>
 <text x="123.14999999999999" y="173.775" font-family="'IBM Plex Mono', Menlo, monospace" font-size="11.5" font-weight="400" fill="#d2e6ff" text-anchor="middle">GET /summarize?q=(ctx)!&#x27;go&#x27;</text>
 <path d="M 686,357 L 764,367" fill="none" stroke="#e2a35b" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#h-e2a35b)"/>
-<text x="24" y="500" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">An endpoint is a stateless function behind a path. A node is the origin that mounts endpoints and answers discovery.</text>
+<text x="24" y="500" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">An endpoint is an interface on a node, named by an endpoint path, and is stateless. A node is the origin that mounts endpoints and answers discovery.</text>
 <text x="24" y="518" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="12.5" font-weight="400" fill="#c8ccd2" text-anchor="start">Endpoints share nothing. They know each other only by address.</text>
 <rect x="24" y="539" width="14" height="10" fill="#0c0f13" stroke="#44484d" stroke-width="1"/>
 <text x="44" y="548" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#c8ccd2" text-anchor="start">node (origin)</text>
