@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 import pytest
+from _model_parameter_fixtures import details as _model_details
 from test_client_run import REPLAY_URL4, _AsyncReplayTransport, _engine, _ReplayTransport
 from test_draco_vertical_slice import _engine as _draco_engine
 from test_draco_vertical_slice import _FakeTransport
@@ -237,11 +238,12 @@ class _CandidateRecordingTransport(_FakeTransport):
 
 def test_recipe_evaluation_stamps_the_seed_on_every_compiled_candidate() -> None:
     """Pins the runner's stamp-once step (`_seeded_candidates`) — the Recipe path is a
-    different branch from the url4 replay the earlier end-to-end tests exercise."""
+    different branch from the url4 replay the earlier end-to-end tests exercise. The
+    seed-capable engine, because a declared seed now preflights every candidate model."""
     transport = _CandidateRecordingTransport()
     client = sf.Client(
         engine_url="https://engine.example",
-        http_transport=httpx.MockTransport(_draco_engine),
+        http_transport=httpx.MockTransport(_seed_capable_engine),
         run_transport=transport,
     )
 
@@ -274,4 +276,101 @@ def test_recipe_evaluation_without_a_seed_stays_unseeded() -> None:
         )
 
     assert [candidate.answer_seed for candidate in transport.candidates] == [None]
+    assert result.candidates.only.answer_seed is None
+
+
+# --- the review round: a seed the candidate's model cannot honour is refused pre-spend --------
+
+
+def _details_with_seed(model: str) -> dict[str, object]:
+    """The fixture contract plus an enabled `seed` parameter (OME-585's shape)."""
+    value = _model_details(model)
+    parameters = value["parameters"]
+    assert isinstance(parameters, dict)
+    parameters["seed"] = {
+        "request_path": "seed",
+        "schema": {"type": "integer"},
+        "provider": {
+            "support": "supported",
+            "source": "openrouter-model-catalog",
+            "stale": False,
+            "deprecated": False,
+        },
+        "gateway": {
+            "status": "enabled",
+            "projection": "direct",
+            "cache_behavior": "bypass",
+            "applicable_auth_modes": ["api_key"],
+        },
+    }
+    return value
+
+
+def _seed_capable_engine(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/v1/model-parameters":
+        return httpx.Response(200, json=_details_with_seed(request.url.params["model"]))
+    return _draco_engine(request)
+
+
+def test_a_seeded_evaluation_is_refused_when_a_candidate_model_lacks_seed() -> None:
+    """The Anthropic case (review finding): the gateway's contract for some routes has no
+    `seed`, and the stamped param would fail mid-run at the provider. The model-parameters
+    preflight already exists for explicit params — a declared answer seed goes through the
+    same gate, so the refusal is loud and PRE-SPEND, never a silently unseeded sample."""
+    transport = _CandidateRecordingTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_draco_engine),
+        run_transport=transport,
+    )
+
+    with client, pytest.raises(sf.PlanningError) as caught:
+        client.evaluate(
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
+            limit=1,
+            answer_seed=7,
+        )
+
+    assert caught.value.code == "unsupported_model_parameter"
+    assert transport.candidates == []
+
+
+def test_a_seeded_evaluation_proceeds_when_every_candidate_model_supports_seed() -> None:
+    transport = _CandidateRecordingTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_seed_capable_engine),
+        run_transport=transport,
+    )
+
+    with client:
+        result = client.evaluate(
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
+            limit=1,
+            answer_seed=7,
+        )
+
+    assert [candidate.answer_seed for candidate in transport.candidates] == [7]
+    assert result.candidates.only.answer_seed == 7
+
+
+def test_an_unseeded_evaluation_never_demands_seed_support() -> None:
+    """The compatibility half: today's models without a `seed` contract keep evaluating
+    exactly as before when no seed is declared — the check exists only for declared seeds."""
+    transport = _CandidateRecordingTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_draco_engine),
+        run_transport=transport,
+    )
+
+    with client:
+        result = client.evaluate(
+            sf.Model("anthropic/claude-haiku-4-5", name="haiku"),
+            benchmark="draco",
+            limit=1,
+        )
+
     assert result.candidates.only.answer_seed is None

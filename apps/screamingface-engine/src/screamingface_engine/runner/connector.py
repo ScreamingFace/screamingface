@@ -19,6 +19,7 @@ from typing import NoReturn
 import httpx
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
+from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.models.registry import decode_route_id
 from screamingface_engine.observations import ModelCall, current_model_call
@@ -318,10 +319,12 @@ class _ModelEndpoint:
             retrieval_policy = current_retrieval_policy()
             params = apply_retrieval_policy(request.params, retrieval_policy)
             # FEATURE (OME-1038): the run's declared answer seed, stamped AFTER the retrieval
-            # ceiling and only onto calls that pin no seed of their own — the judge's per-pass
-            # seeds and any caller-written seed always win. None is a no-op, so an undeclared
-            # run's egress stays byte-identical to today's.
-            params = apply_answer_seed(params, self._answer_seed)
+            # ceiling, ONLY inside the Candidate invocation (answering, never benchmark-authored
+            # grading — a judge whose pinned params carry no seed must not be re-keyed per
+            # sitting), and only onto calls that pin no seed of their own. None is a no-op, so
+            # an undeclared run's egress stays byte-identical to today's.
+            ambient_seed = self._answer_seed if in_candidate_invocation() else None
+            params = apply_answer_seed(params, ambient_seed)
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
             # source text — the policy-applied set may differ from what was written.

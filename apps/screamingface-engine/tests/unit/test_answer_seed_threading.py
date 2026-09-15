@@ -300,15 +300,48 @@ class _MockAigateway:
         )
 
 
+def _candidate_wrapped(inner_ctx: str = "case-ctx", *, inner_params: str = "") -> str:
+    """One Candidate invocation around one model call — the shape every answer call has.
+
+    WHY every seeded assertion runs through this (review round): the seed is an ANSWER
+    seed — it exists only inside the Candidate invocation, so a bare model call is the
+    judge's shape and must stay unseeded.
+    """
+    from url4 import RelExpr, expr, render, src, text
+
+    # `;k=v` is the post-call param chain (the same form test_native_web_search uses) —
+    # the only way to pin a param in hand-written url4 without fighting nested quoting.
+    inner = f"/{MODEL}('{inner_ctx}')!'answer'{inner_params}"
+    return render(
+        expr(
+            src(
+                RelExpr(
+                    path="/benchmarks/candidate",
+                    context=inner_ctx,
+                    intent=text(inner),
+                    params=(("web_search", "false"),),
+                ),
+                name="answer",
+                weight=0.0,
+            ),
+            intent=text("$answer"),
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_the_runs_env_reaches_the_connectors_request_body() -> None:
     """The one hop no unit below this can prove: `build_executor` reading the seed back."""
+    from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+
     gw = _MockAigateway()
     env = job_env.answer_seed_to_env(7)
 
     async with gw.client() as client:
-        executor = build_executor(env, _declared(), client=client)
-        async for _ in executor.execute(f"/{MODEL}(ctx)!go"):
+        # The builtin registry is what installs the Candidate adapter, exactly as the run
+        # mode does — the seed only ever applies inside a Candidate invocation.
+        executor = build_executor(env, _declared(), client=client, benchmarks=BUILTIN_BENCHMARKS)
+        async for _ in executor.execute(_candidate_wrapped()):
             pass
 
     # `model_params` JSON-coerces "7" → 7, so the gateway sees the integer form OME-585 admits.
@@ -318,14 +351,15 @@ async def test_the_runs_env_reaches_the_connectors_request_body() -> None:
 # --- egress: what the gateway actually receives -----------------------------------------------
 
 
-async def _bodies(
-    answer_seed: int | None, *, expression: str = f"/{MODEL}('ctx')!'go'"
-) -> _MockAigateway:
+async def _bodies(answer_seed: int | None, *, expression: str | None = None) -> _MockAigateway:
+    from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
+
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client, answer_seed=answer_seed)
-        await url4_run(expression, io=world.node)
+        install_candidate_invocation(world.node)
+        await url4_run(expression or _candidate_wrapped(), io=world.node)
     return gw
 
 
@@ -335,7 +369,7 @@ async def test_an_undeclared_runs_body_is_byte_identical_to_todays() -> None:
     run's request — which is what keeps every recorded replay fixture (request-keyed) valid."""
     unseeded = await _bodies(None)
 
-    assert set(unseeded.bodies[0]) == {"model", "messages"}
+    assert all(set(body) == {"model", "messages"} for body in unseeded.bodies)
 
 
 @pytest.mark.asyncio
@@ -344,6 +378,7 @@ async def test_a_declared_seed_reaches_every_answer_call() -> None:
 
     assert gw.bodies[0]["seed"] == 7
     assert set(gw.bodies[0]) == {"model", "messages", "seed"}
+    assert gw.bodies[0]["messages"][-1]["content"] == "case-ctx"
 
 
 @pytest.mark.asyncio
@@ -367,7 +402,7 @@ async def test_different_seeds_produce_different_requests() -> None:
 @pytest.mark.asyncio
 async def test_a_call_stating_its_own_seed_is_never_rekeyed_by_the_run() -> None:
     """End-to-end form of the judge protection: the expression's own `seed` param survives."""
-    gw = await _bodies(7, expression=f"/{MODEL}('ctx')!'go';seed=3")
+    gw = await _bodies(7, expression=_candidate_wrapped(inner_params=";seed=3"))
 
     assert gw.bodies[0]["seed"] == 3
 
@@ -384,18 +419,72 @@ async def test_two_concurrent_runs_with_different_seeds_do_not_contaminate_each_
     gw = _MockAigateway()
     shared_cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
 
+    from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
+
     async with gw.client() as client:
         first = await build_aigateway_world(shared_cfg, client=client, answer_seed=1)
         second = await build_aigateway_world(shared_cfg, client=client, answer_seed=2)
         unseeded = await build_aigateway_world(shared_cfg, client=client)
+        for world in (first, second, unseeded):
+            install_candidate_invocation(world.node)
 
         await asyncio.gather(
-            url4_run(f"/{MODEL}('run-a')!'go'", io=first.node),
-            url4_run(f"/{MODEL}('run-b')!'go'", io=second.node),
-            url4_run(f"/{MODEL}('run-c')!'go'", io=unseeded.node),
+            url4_run(_candidate_wrapped("run-a"), io=first.node),
+            url4_run(_candidate_wrapped("run-b"), io=second.node),
+            url4_run(_candidate_wrapped("run-c"), io=unseeded.node),
         )
 
     by_context = {body["messages"][-1]["content"]: body for body in gw.bodies}
     assert by_context["run-a"]["seed"] == 1
     assert by_context["run-b"]["seed"] == 2
     assert "seed" not in by_context["run-c"]
+
+
+# --- the review round: the seed is an ANSWER seed, never a judge seed -------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_seed_reaches_candidate_calls_and_never_judge_calls() -> None:
+    """INVARIANT (review finding): grading identity never varies with the answer seed.
+
+    HealthBench and GDPVal judges carry pinned params WITH NO seed — an ambient seed
+    stamped onto them would re-key every judge call per sitting under an unchanged
+    benchmark revision. The seed therefore applies ONLY inside the Candidate invocation
+    (the boundary between caller-authored answering and benchmark-authored grading);
+    a benchmark-authored call outside it must render byte-identically, seeded run or not.
+    """
+    from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
+    from url4 import RelExpr, expr, render, src, text
+
+    gw = _MockAigateway()
+    cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
+    inner_candidate = f"/{MODEL}('case-ctx')!'answer'"
+    outer = render(
+        expr(
+            src(
+                RelExpr(
+                    path="/benchmarks/candidate",
+                    context="case-ctx",
+                    intent=text(inner_candidate),
+                    params=(("web_search", "false"),),
+                ),
+                name="answer",
+                weight=0.0,
+            ),
+            src(
+                RelExpr(path=f"/{MODEL}", context="judge-ctx", intent=text("grade")),
+                name="judge",
+                weight=0.0,
+            ),
+            intent=text("$answer"),
+        )
+    )
+
+    async with gw.client() as client:
+        world = await build_aigateway_world(cfg, client=client, answer_seed=7)
+        install_candidate_invocation(world.node)
+        await url4_run(outer, io=world.node)
+
+    by_context = {body["messages"][-1]["content"]: body for body in gw.bodies}
+    assert by_context["case-ctx"]["seed"] == 7
+    assert "seed" not in by_context["judge-ctx"]
