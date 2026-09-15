@@ -59,6 +59,8 @@ Notes the boxes can't carry:
   fresh trace) and the optional `X-Profile` / Envoy-verified `X-User-Email` pair. Provider
   credentials never travel on this request — they are stored via `rest/connections.py` →
   AI Gateway, and the run selects one by profile.
+- The 428 check in the GET pipeline goes through the `SubscriberGate` **port**
+  (`rest/interest.py`); `ws/registry.py`'s live-WS counts are what answer it.
 - The sync scanner and the WS bridge are **independent consumers** of the same JetStream
   stream; neither feeds the other.
 - The third mode, `screamingface-engine worker`, is the queue's consumer loop — the worker
