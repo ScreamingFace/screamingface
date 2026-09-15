@@ -39,6 +39,6 @@ verify pass found four stale references. Convert the two flows and the call sequ
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** `apps/screamingface-engine/docs/execution-flow-diagrams.md` (as planned)
-- **Commits:** 6bc9145c — docs(screamingface-engine): render the execution-flow doc as mermaid and fix stale references
+- **Commits:** 6bc9145c — docs(screamingface-engine): render the execution-flow doc as mermaid and fix stale references; 8cb98102 — restore the SubscriberGate step lost in the conversion (found by the old-vs-new re-verify)
 - **Gates:** docs-only; all 3 mermaid blocks validated with mmdc; every file/symbol the doc names re-verified by grep against the tree
 - **Deviations:** §3's ASCII "file purpose" box folded into the run-mode table as a Layer column (it duplicated the table); added the missing `rest/connections.py` row
