@@ -1,0 +1,54 @@
+# Split manifest for the OME-1110 url4 topology document.
+#
+# One markdown source renders as two PDFs. The 2026-09-08 build hardcoded these ranges in a
+# scratchpad script that has since been lost (ledger deviation 2); they live here now.
+#
+# `match` selects top-level headings by prefix, so a heading may be retitled without touching
+# this file. Every heading in the source must be claimed by exactly one part — build.py fails
+# loudly if one is orphaned or claimed twice.
+
+[doc]
+source = "docs/spec/2026-09-04-OME-1110-url4-topology-reframing.md"
+out_dir = "docs/spec"
+diagram_dir = "docs/diagrams"
+# The markdown embeds the light diagrams so it reads correctly on GitHub; the dark register
+# swaps in the -dark variant of the same file.
+diagram_suffix = "-dark"
+css = "sfds-print.css"
+running_header_right = "URL4 spec v0.5 · Parts A–I (C–I drafts)"
+footer_left = "ScreamingFace · OpenMined · 2026-09-04"
+
+[[part]]
+id = "core"
+out = "2026-09-04-OME-1110-url4-topology-reframing.dark.pdf"
+kicker = "ScreamingFace · url4 · Design decision"
+title = "url4 topology — endpoint, node, discovery, addressing, transport"
+subtitle = "Sharp definitions before the Engine grows further"
+running_header_left = "url4 topology · OME-1110 · proposed"
+strapline = """
+Read §0 first. Everything else is the reasoning behind one line of that table.
+Open questions and spec deltas live in the companion, open-work PDF.
+"""
+match = ["0.", "1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "Appendix C"]
+
+[[part]]
+id = "open-work"
+out = "2026-09-04-OME-1110-url4-topology-reframing-open-work.dark.pdf"
+kicker = "ScreamingFace · url4 · Open work"
+title = "url4 topology — endpoint, node, discovery, addressing, transport — open work"
+subtitle = "Questions, sketches, spec deltas: the part still moving"
+running_header_left = "url4 topology · open work · OME-1110"
+strapline = """
+Read the core document first; this part assumes its vocabulary.
+"""
+intro_heading = "What this part is"
+intro = """
+The companion to the core document. It carries what is not yet decided: the questions on
+authentication (§10), the networking sketch (§11), the alignment with Kevin's spec (§12), the
+peer-to-peer direction (§13), the spec deltas for Kevin (Appendix A), the follow-up work items
+(Appendix B) and the vocabulary crosswalk (Appendix D). Read the core first; every term used
+here is defined there.
+"""
+# Appendix D moved here on 2026-09-15: it is a delta record against Part A §1.4, the same genre
+# as §12, and the core document is better as purely the settled definitions.
+match = ["10.", "11.", "12.", "13.", "Appendix A", "Appendix B", "Appendix D"]
