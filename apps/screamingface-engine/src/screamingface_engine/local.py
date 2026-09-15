@@ -175,7 +175,12 @@ def create_local_app(
     from screamingface_engine.runner.main import build_executor
 
     run_env = dict(_with_runner_config(env if env is not None else os.environ))
-    run_env.setdefault(job_env.ACTIVITY_LEVEL, settings.activity_level)
+    # WHY: configured Settings win; only an unset default falls back to injected env.
+    run_env[job_env.ACTIVITY_LEVEL] = (
+        settings.activity_level
+        if "activity_level" in settings.model_fields_set
+        else run_env.get(job_env.ACTIVITY_LEVEL, settings.activity_level)
+    )
     observers = observation_factories(run_env)
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)

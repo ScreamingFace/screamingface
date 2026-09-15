@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextvars import ContextVar, Token
 from types import TracebackType
 from uuid import uuid4
@@ -161,9 +161,7 @@ class Operation:
                 self._token = None
 
     async def stop_heartbeat(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            await asyncio.gather(self._task, return_exceptions=True)
+        await stop_heartbeats((self,))
 
     async def __aexit__(
         self,
@@ -175,6 +173,26 @@ class Operation:
             await self.stop_heartbeat()
         finally:
             self.__exit__(exc_type, exc, tb)
+
+
+async def stop_heartbeats(operations: Iterable[Operation]) -> None:
+    """Cancel every owned timer before yielding; preserve cancellation after joining."""
+
+    tasks = tuple(op._task for op in operations if op._task is not None)
+    for task in tasks:
+        task.cancel()
+    if not tasks:
+        return
+    joined = asyncio.gather(*tasks, return_exceptions=True)
+    interrupted: asyncio.CancelledError | None = None
+    # INVARIANT: cancelling cleanup cannot abandon timers or interrupt their finalizers.
+    while not joined.done():
+        try:
+            await asyncio.shield(joined)
+        except asyncio.CancelledError as exc:
+            interrupted = exc
+    if interrupted is not None:
+        raise interrupted
 
 
 def operation(

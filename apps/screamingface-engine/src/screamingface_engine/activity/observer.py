@@ -6,9 +6,9 @@ from contextlib import AbstractContextManager
 from types import TracebackType
 
 from screamingface_engine.activity.contract import MAX_INTEGER, ActivityKind
-from screamingface_engine.activity.scope import Operation, operation
+from screamingface_engine.activity.scope import Operation, operation, stop_heartbeats
 from screamingface_engine.activity.session import ActivitySession, activate
-from screamingface_engine.observations import LogEmitter, Scalar
+from screamingface_engine.observations import LogEmitter, ModelObservation, Scalar
 
 
 class ActivityObserver:
@@ -23,11 +23,13 @@ class ActivityObserver:
         if self.session is not None:
             self.session.revoke()
         # INVARIANT: abandoned call tasks cannot retain heartbeat resources after the run.
-        for call in tuple(self._calls):
-            await call.stop_heartbeat()
+        calls = tuple(self._calls)
         self._calls.clear()
+        await stop_heartbeats(calls)
 
-    def model_call(self, model_id: str, emit: LogEmitter | None) -> ActivityModelCall:
+    def model_call(self, model_id: str, emit: LogEmitter | None) -> ModelObservation:
+        if self.session is None or not self.session.active:
+            return _INERT_MODEL_CALL
         return ActivityModelCall(
             self, operation(emit=emit, kind=ActivityKind.MODEL_CALL, model_id=model_id)
         )
@@ -71,3 +73,30 @@ class ActivityModelCall:
 
     def retry(self, *, attempt: int, delay_seconds: float) -> None:
         self._scope.retry(attempt=attempt, delay_seconds=delay_seconds)
+
+
+class _InertModelCall:
+    """Shared stateless callbacks: disabled runs need only their run-level context mask."""
+
+    async def start(self) -> None:
+        pass
+
+    async def close(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        pass
+
+    def completed(self, finish_reason: str | None) -> None:
+        pass
+
+    def failed(self, code: str) -> None:
+        pass
+
+    def retry(self, *, attempt: int, delay_seconds: float) -> None:
+        pass
+
+
+_INERT_MODEL_CALL = _InertModelCall()

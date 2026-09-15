@@ -112,3 +112,23 @@ regressions. Generic observation interfaces, connector and executor are unchange
 focused tests and full Engine gates passed. Standards and Spec reviews found no actionable
 issues. Helm renders full/off correctly and rejects aggregate. Benchmark-stage logging and
 Client UI remain outside this delivery; PR stays draft pending review and merge.
+
+## Review corrections in PR 931 (2026-09-15)
+
+Intent: fix interrupted timer cleanup, explicit local policy precedence and disabled
+per-call bookkeeping. Owner approved all three corrections in the existing PR.
+Plan: cancel all owned timers synchronously, join them collectively despite cleanup
+cancellation and re-raise cancellation afterward; reuse one inert model observation when
+disabled while retaining run-level masking; prefer a configured Settings activity field
+before the injected runner environment (an unset default still permits injected env).
+Tests: several abandoned calls with interrupted/repeatedly cancelled cleanup; explicit
+full/off versus opposite ambient/injected values; off callbacks allocate no operations,
+track no calls and preserve nested masking. Existing tests remain unchanged.
+Acceptance: regression RED, focused tests and full Engine gates green; no generic core
+interface edits.
+Outcome: all eight added regression cases pass (seven reproduced the original defects).
+The previous 78 focused cases also pass; full Engine gates are green. Targeted Standards
+and Spec reviews found no remaining issues. Existing tests, generic observation interfaces,
+connector, executor and sink-accounting fix are unchanged. Shared cleanup serves operation
+and run teardown; the disabled singleton has no state. No latency enforcement or timer-count
+limit was added; simulated tests are not production-load evidence. Ready for PR review.

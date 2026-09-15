@@ -92,3 +92,42 @@ async def test_local_entrypoint_registers_deployment_policy(level):
         assert (current_session() is not None) == (level == "full")
     await observers.aclose()
     await app.state.job_runner.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("level,ambient", [("off", "full"), ("full", "off")])
+@pytest.mark.parametrize("injected", [False, True])
+async def test_explicit_local_settings_win_over_conflicting_environment(
+    monkeypatch, level, ambient, injected
+):
+    from screamingface_engine.activity.session import current_session
+    from screamingface_engine.local import create_local_app
+
+    monkeypatch.setenv("URL4_CLOUD_ACTIVITY_LEVEL", ambient)
+    app = create_local_app(
+        settings=Settings(activity_level=level),
+        env={"URL4_CLOUD_ACTIVITY_LEVEL": ambient} if injected else None,
+    )
+    observers = RunObservations(app.state.job_runner._factory.keywords["observers"])
+    try:
+        with observers.bind():
+            assert (current_session() is not None) == (level == "full")
+    finally:
+        await observers.aclose()
+        await app.state.job_runner.aclose()
+
+
+@pytest.mark.asyncio
+async def test_unset_local_settings_keep_injected_activity_policy(monkeypatch):
+    from screamingface_engine.activity.session import current_session
+    from screamingface_engine.local import create_local_app
+
+    monkeypatch.delenv("URL4_CLOUD_ACTIVITY_LEVEL", raising=False)
+    app = create_local_app(settings=Settings(), env={"URL4_CLOUD_ACTIVITY_LEVEL": "full"})
+    observers = RunObservations(app.state.job_runner._factory.keywords["observers"])
+    try:
+        with observers.bind():
+            assert current_session() is not None
+    finally:
+        await observers.aclose()
+        await app.state.job_runner.aclose()
