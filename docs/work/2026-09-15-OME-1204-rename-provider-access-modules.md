@@ -74,8 +74,8 @@ started.
     this ledger and its mirror.
   - Untouched: routes, schemas, stores, `main.py`, the shims, OpenAPI; all 42 names in `__all__`;
     no A2 work.
-- **Commits:** `refactor(aigateway): drop leading underscores from provider-access modules` (this
-  commit; body `Refs: OME-1204`). Staged by explicit path after the owner's authorisation of
+- **Commits:** `de395d9e` `refactor(aigateway): drop leading underscores from provider-access
+  modules` (body `Refs: OME-1204`). Staged by explicit path after the owner's authorisation of
   2026-09-15; git records seven renames with 97–100 % similarity (R097–R100).
 - **RED → GREEN:** the naming test at `fb4c414e` fails twice, listing exactly `_auth_mode.py,
   _defaults.py, _ports.py, _selector.py, _types.py` and `_provider_access_fake.py,
@@ -124,3 +124,7 @@ started.
   command stays red at the append-only check for the three rename-caused entries, which the owner
   accepted.
 - **Owner-verify:** none.
+- **Corrections (post-commit owner review, 2026-09-15):** facade export count stated as 43,
+  actual 42 at both `fb4c414e` and `de395d9e`; the rename record now states only the verifiable
+  git result (seven renames, 97–100 % similarity) instead of the command used. The commit holds
+  23 paths: 16 code/test entries and 7 Markdown files.
