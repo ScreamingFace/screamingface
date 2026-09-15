@@ -193,3 +193,11 @@ Residuals judged legitimate: three "ladder" anaphora inside the §6 paragraph th
 response ladder one sentence earlier; "host" only inside delta 13, which quotes Kevin verbatim;
 sentence-case "request tree" against Kevin's "Request Tree", noted in the crosswalk — his other
 terms are sentence case. Rebuilt PDFs are text-identical to a fresh build from source.
+
+**Plain-English rewrite (2026-09-15, owner-requested).** Every section rewritten for short
+sentences and plain words, then a dedup pass so each fact is stated once and referenced elsewhere
+(the adoption story lives in §12 + Appendix D; the host/node erratum in §1 + delta 13; the PR's
+draft status in Appendix C). Sentences over 30 words: 72 → 25. Words: 11,719 → 10,933 (−7%). No
+fact, citation or delta was removed; all gates unchanged (34 tests; 5/5 `§1.4.x`; 219 `Part X §N`;
+0 dangling deltas or `§N`; 0 "requester"; 0 "plan" as noun). The residual volume is tables and
+reference material — further reduction means dropping content, which is the owner's call.
