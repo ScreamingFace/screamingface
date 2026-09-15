@@ -1,12 +1,12 @@
 ---
 id: OME-1193
 linear_url: https://linear.app/openmined/issue/OME-1193
-status: In Review
+status: Done
 type: task
 priority: Medium
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-09-14
-closed:
+closed: 2026-09-15
 ---
 
 # The run report doesn't name the answer seed, so a researcher can't cite which sitting produced a score
