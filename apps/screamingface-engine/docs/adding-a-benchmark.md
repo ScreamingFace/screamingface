@@ -1,11 +1,23 @@
 # Adding a benchmark
 
-**TLDR: a benchmark is an exam. You bring the question paper (dataset mapping), the
-marking rule (`grade_case`), and the cover sheet (declaration); the shared spine runs the
-exam hall.** You never edit another board or a shared spine file — if you have to, the
-spine failed its deletion test and that is a bug to file, not a pattern to copy.
+**TLDR: a benchmark is an exam, and you only author the exam-specific parts. You bring
+the question paper (dataset mapping), the rule for grading one answer (`grade_case`),
+and the cover sheet stating how the exam is run and scored (declaration). Everything
+every exam does the same way — seating the candidate, collecting the answers, filing
+results, totalling the score — is the exam hall, run by shared code called the spine
+(`benchmarks/spine/`).** You never edit another board or a shared spine file — if you
+have to, the spine failed its deletion test and that is a bug to file, not a pattern to
+copy.
 
-<img src="diagrams/benchmark-authoring-seam.png" width="950">
+The whole journey at a glance — each box is one step below, stating what you change
+there:
+
+<img src="diagrams/benchmark-onboarding-steps.png" width="1550">
+
+And the seam that journey stays inside — what a board author owns vs what the spine
+runs:
+
+<img src="diagrams/benchmark-authoring-seam.png" width="1350">
 
 Realistic size, from the boards in production: a rubric board on the shared factories is
 ~122 lines of grading code (`gdpval/grade.py`, `healthbench/grade.py` — both exactly
@@ -16,7 +28,7 @@ the module to open.
 
 ## Step 0 — pick your cell on the two axes
 
-<img src="diagrams/benchmark-two-axes.png" width="900">
+<img src="diagrams/benchmark-two-axes.png" width="1400">
 
 `interaction` and `failure_policy` live on `BenchmarkDeclaration`
 (`benchmarks/definition.py`) — both **required, no defaults**: a defaulted policy is a
@@ -36,6 +48,7 @@ One directory: `src/screamingface_engine/benchmarks/<board>/`. MedXpertQA's layo
 | `definition.py` | the exam's public listing — the `Benchmark` record, `compute_revision()`, the url4 protocol template, the declaration |
 | `runtime.py` | the exam hall's doors — the board's FastAPI routes |
 | `aggregate.py` | the marking room — `grade_case`, the `ScoredPath` wiring, the scorer |
+| `case_evaluation.py` | the board's answer-sheet format — schema-validated per-Case evaluation envelopes |
 | `grading.py` / `answering.py` / `prompts.py` | board-private marking and prompting helpers |
 
 Unit tests go to `tests/unit/test_<board>_*.py` (medxpert ships seven). Spine tests
@@ -73,19 +86,19 @@ Two row shapes, one public, one board-owned:
   and a non-blank `str` `input`; every other key rides through as Case metadata. The
   spine decodes it into `SelectedCase` (`benchmarks/aggregation.py`).
 - **The evaluation row** your `grade_case` receives: an **opaque, board-owned envelope**
-  (`spine/rows.py` files it and never looks inside). Your
+  (`benchmarks/spine/rows.py` files it and never looks inside). Your
   `RowReader.decode_case_evaluation` shapes it; the one sub-key the spine reads is
   `row["case"]` — the candidate fields (`status`, `output`, `finish_reason`, `refusal`,
   `execution`, `operations`, `metadata`) — so your decode must hoist that mapping (copy
   `medxpert/aggregate.py` or `ifeval/grade.py`).
 
-Inputs and answers cross the seam as kind-tagged payloads (`spine/payloads.py`);
+Inputs and answers cross the seam as kind-tagged payloads (`benchmarks/spine/payloads.py`);
 `TextPayload` (`kind="text"`) is the only kind implemented — `text+attachments` and
 `environment` arrive as new dataclasses, never as a spine rewrite.
 
 ## Step 4 — write `grade_case`, the marking rule
 
-<img src="diagrams/grade-case-hourglass.png" width="900">
+<img src="diagrams/grade-case-hourglass.png" width="1300">
 
 ```python
 type GradeCase = Callable[[GradeRequest], Awaitable[CaseGradeOutcome]]
@@ -126,7 +139,7 @@ Read the example's grammar: `material` is the answer key your board baked in Ste
 auditable per Case.
 
 **Rubric boards don't write this at all.** The shared factory gives you the judged
-marking rule in one line (`spine/rubric.py`):
+marking rule in one line (`benchmarks/spine/rubric.py`):
 
 ```python
 grade_case = rubric_grade_case(case_score=case_score, judge_producer_id="gdpval/judge")
@@ -135,7 +148,7 @@ grade_case = rubric_grade_case(case_score=case_score, judge_producer_id="gdpval/
 where `case_score: (points, verdicts) -> float | None` is your board's official scoring
 formula. The factory owns the two rubric failure codes (`"incomplete_verdicts"`,
 `"no_positive_points"`) and judge replies are parsed by the one shared parser
-(`spine/verdict.py`) — never write your own.
+(`benchmarks/spine/verdict.py`) — never write your own.
 
 ## Step 5 — declare the cover sheet and wire the path
 
@@ -146,13 +159,13 @@ declaration = BenchmarkDeclaration(
 )
 ```
 
-<img src="diagrams/failure-ladder-and-policy.png" width="900">
+<img src="diagrams/failure-ladder-and-policy.png" width="1300">
 
 The invariant every board factory repeats: **declare `withhold` only if your aggregate
 actually withholds** — every current board reduces through the shared path, which scores
 exactly the gradeable subset and publishes coverage, i.e. `coverage_declare`.
 
-Bundle the hooks into a `ScoredPath` (`spine/scored.py`) — MedXpertQA's is the smallest
+Bundle the hooks into a `ScoredPath` (`benchmarks/spine/scored.py`) — MedXpertQA's is the smallest
 complete registration of the whole surface (`medxpert/aggregate.py`):
 
 ```python
@@ -171,7 +184,7 @@ then call `_PATH.aggregate(raw_rows, benchmark_id=..., benchmark_revision=...,
 selected_cases=..., grading_material=..., scorer=..., case_metadata=...)`. Four optional
 hooks let a board reshape a ladder rung's result — `ifeval` sets `missing_row_result`,
 `draco` sets all four; don't set any until a golden or a spec forces you to. For the
-scorer: rubric boards use the shared `exam_scorer(mean)` (`spine/exam.py`, fixed metric
+scorer: rubric boards use the shared `exam_scorer(mean)` (`benchmarks/spine/exam.py`, fixed metric
 vocabulary); other boards pass their own function (medxpert's `_accuracy`, ifeval's
 `_ifeval_score`).
 
@@ -246,7 +259,7 @@ serializable data in and `CaseGradeOutcome` out, that is a new ticket against
 - **Case statuses are two:** `scored` | `failed`. A graded refusal is an ordinary scored
   Case carrying `refusal` text; an ungradeable one is a failed Case with the
   `provider_refusal` failure code (OME-1037).
-- The five-stage marking-room narrative at the top of `spine/scored.py` is the best
+- The five-stage marking-room narrative at the top of `benchmarks/spine/scored.py` is the best
   30-line orientation in the codebase — read it before your first board.
 
 ## Related docs

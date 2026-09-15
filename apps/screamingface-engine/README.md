@@ -12,6 +12,9 @@ The Engine is the trust boundary: it holds provider credentials (via the AI
 gateway), the benchmark answer keys, and the grading. Prompts cross to the
 models; answer keys and rubrics do not.
 
+Adding a new benchmark? The author walk-through is
+[`docs/adding-a-benchmark.md`](docs/adding-a-benchmark.md).
+
 REST + WebSocket url4 execution runner (k8s Jobs + NATS). Design: `docs/spec/2026-07-21-url4-cloud.md`
 · epic OME-513.
 
