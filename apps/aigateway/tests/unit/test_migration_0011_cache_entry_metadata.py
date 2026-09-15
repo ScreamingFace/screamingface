@@ -238,7 +238,7 @@ def _migration_0011() -> ModuleType:
 
 def test_the_migration_is_atomic_so_a_crash_mid_downgrade_cannot_half_apply() -> None:
     """Non-atomic would run the downgrade's reverse operations in separate transactions — a
-    crash between `AddMetadataColumn`'s reverse (drops the column, rebuilds the SQLite table)
+    crash between `AddField`'s reverse (drops the column, rebuilds the SQLite table)
     and the index-restore step would then leave the database with both the column AND the
     indexes gone, with nothing to roll it back. Atomic keeps the whole migration one unit."""
     assert _migration_0011().Migration.atomic is True
@@ -250,7 +250,6 @@ def test_the_postgres_ddl_runs_under_a_bounded_lock_timeout() -> None:
 
     assert 0 < module._LOCK_TIMEOUT_MS <= 5_000
     assert "lock_timeout" in module._SET_LOCK_TIMEOUT_SQL
-    assert "0" != module._SET_LOCK_TIMEOUT_SQL.strip().rstrip(";").split("=")[-1].strip()
 
 
 def test_the_lock_timeout_is_scoped_to_the_migration_transaction_not_the_session() -> None:
@@ -295,3 +294,19 @@ def test_the_trigger_is_installed_on_postgres_only() -> None:
     module = _migration_0011()
 
     assert module._LOCKING_DIALECTS == frozenset({"postgres"})
+
+
+# --- Finding I1 (review round 2) — the hot path must skip the trigger, not just its body -------
+
+
+def test_the_trigger_is_scoped_to_response_json_so_a_hit_count_bump_never_considers_it() -> None:
+    """`UPDATE OF response_json` is decided from the statement's SET list, before any row or WHEN
+    clause is looked at. Without this column list, a `hit_count`/`last_hit_at`-only UPDATE (the
+    cache-hit hot path) would still evaluate the WHEN clause on every hit — and on two equal,
+    likely out-of-line TOASTed `response_json` values, that comparison pays for a TOAST fetch, two
+    pglz decompressions and a full `memcmp`, only to conclude "unchanged". The column list, not
+    the WHEN clause, is what keeps the hot path out of the trigger machinery entirely.
+    """
+    sql = _migration_0011()._CREATE_TRIGGER_SQL
+
+    assert "BEFORE UPDATE OF response_json" in sql

@@ -499,7 +499,7 @@ async def _holding_access_share_on_request_cache_entries(
 async def _apply_migration_0011(database_url: str) -> None:
     """Runs the REAL migration 0011 in-process, through Tortoise's own `migrate()` API.
 
-    Not hand-rolled SQL: this goes through ``AddMetadataColumn.database_forward`` and the
+    Not hand-rolled SQL: this goes through the real `AddField.database_forward` and the
     ``RunPython(code=_bound_lock_wait, ...)`` entry exactly as a real deploy would, so a broken
     wiring — the `RunPython` dropped from `operations`, or a `_dialect_of` that misreads the
     dialect — fails THIS test even though the unit tests only check the constants in isolation.

@@ -20,6 +20,7 @@ import pytest
 
 from aigateway.core.request_cache.bulk_loader import (
     LoadOutcome,
+    MergeLockTimedOut,
     ReplaceGuardBlocked,
     StagedRowCountMismatch,
 )
@@ -238,6 +239,23 @@ async def test_an_unexpected_loader_failure_lands_as_failed_not_refused(tmp_path
     assert record.state == "failed"
     assert record.refusal is None
     assert "disk vanished" in (record.error or "")
+
+
+# --- I2 (review round 2): a merge lock timeout must be legible, not a bare timeout -------------
+
+
+@pytest.mark.asyncio
+async def test_a_merge_lock_timeout_maps_to_its_code_and_is_legible(tmp_path) -> None:
+    """A merge that cannot get its table lock must land as a legible `refused` job, not a bare
+    `TimeoutError` swallowed into the generic `failed` branch."""
+    loader = FakeLoader(raises=MergeLockTimedOut(timeout_ms=3000))
+    runner = _runner(loader)
+    record = await _start_and_wait(
+        runner, _acceptance(tmp_path, mode="merge", manifest_raw=_manifest_raw())
+    )
+    assert record.refusal == "merge_lock_timeout"
+    assert record.state == "refused"
+    assert "3000" in (record.error or "")
 
 
 # --- the single slot ----------------------------------------------------------------------------

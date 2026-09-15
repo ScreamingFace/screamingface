@@ -29,6 +29,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import BinaryIO, Final, Literal, NamedTuple, Protocol
 
+import asyncpg
 from tortoise import Tortoise
 from tortoise.backends.asyncpg.client import AsyncpgDBClient
 
@@ -93,9 +94,22 @@ SELECT count(*)
 # The merge's degraded count and the merge itself are two statements, and READ COMMITTED gives
 # each its own snapshot while `ON CONFLICT DO UPDATE` re-reads the latest committed row. A fill
 # landing between them is therefore degraded but never counted, and the operator is told the
-# restore cost nothing. SHARE ROW EXCLUSIVE blocks concurrent WRITERS for the merge transaction
-# and leaves readers alone, so the cache keeps serving while the two statements agree.
+# restore cost nothing. SHARE ROW EXCLUSIVE blocks concurrent WRITERS for the merge transaction —
+# and serving a cache HIT is a write too (it bumps `hit_count`/`last_hit_at` under an ordinary
+# UPDATE, `ROW EXCLUSIVE`, which conflicts with `SHARE ROW EXCLUSIVE`), so reads stall for the
+# merge's duration as well. That stall is what makes the count below exact rather than
+# approximate (review round 2, I2) and is not fixed here — see DEPLOYMENT.md and the ERD.
 _LOCK_FOR_MERGE_SQL: Final = f"LOCK TABLE {_TABLE} IN SHARE ROW EXCLUSIVE MODE"
+
+# Bounds how long the merge WAITS to acquire the lock above, never how long it HOLDS it once
+# acquired — the hold time is the merge transaction's own duration, by design (I2). Mirrors
+# migration 0011's `_bound_lock_wait`: a merge that is itself queued for the lock must not sit at
+# the head of the lock queue with every reader's hit-count bump stacked behind it. 3000ms matches
+# the migration's own `_LOCK_TIMEOUT_MS` for the same reason — long enough to win an ordinary gap
+# between statements, short enough that a merge stuck behind something else fails fast instead of
+# parking every cache hit behind it.
+_MERGE_LOCK_TIMEOUT_MS: Final = 3_000
+_SET_MERGE_LOCK_TIMEOUT_SQL: Final = f"SET LOCAL lock_timeout = '{_MERGE_LOCK_TIMEOUT_MS}ms'"
 
 
 class CacheUploadUnsupportedDatabase(RuntimeError):
@@ -109,6 +123,24 @@ class StagedRowCountMismatch(RuntimeError):
         self.staged = staged
         self.declared = declared
         super().__init__(f"staged {staged} rows but the manifest declared {declared}")
+
+
+class MergeLockTimedOut(RuntimeError):
+    """The merge could not acquire `SHARE ROW EXCLUSIVE` within `_MERGE_LOCK_TIMEOUT_MS`.
+
+    A bounded WAIT, not a bounded HOLD (I2): something else already held a conflicting lock on
+    ``request_cache_entries`` for longer than the merge was willing to queue behind it. The merge
+    made no changes — Postgres cancels the whole statement, and the caller's transaction is never
+    committed — so rerunning it once the conflicting lock clears is safe.
+    """
+
+    def __init__(self, timeout_ms: int) -> None:
+        self.timeout_ms = timeout_ms
+        super().__init__(
+            f"the cache snapshot merge could not acquire its table lock within {timeout_ms}ms; "
+            "something else is holding a conflicting lock on request_cache_entries — retry once "
+            "it clears"
+        )
 
 
 class ReplaceGuardBlocked(RuntimeError):
@@ -209,8 +241,14 @@ async def load_snapshot(
         # a mid-load failure leaves the live table untouched rather than half-replaced.
         async with raw.transaction():
             if mode == "merge":
+                # Bounds the WAIT for the lock below, not the merge's own duration once it has
+                # the lock (I2) — see `_SET_MERGE_LOCK_TIMEOUT_SQL`.
+                await raw.execute(_SET_MERGE_LOCK_TIMEOUT_SQL)
                 # Before the count, so no write can land between the two statements that follow.
-                await raw.execute(_LOCK_FOR_MERGE_SQL)
+                try:
+                    await raw.execute(_LOCK_FOR_MERGE_SQL)
+                except asyncpg.exceptions.LockNotAvailableError as exc:
+                    raise MergeLockTimedOut(_MERGE_LOCK_TIMEOUT_MS) from exc
                 # Counted BEFORE the merge, inside the same transaction: afterwards the live
                 # block is already gone and the two states are indistinguishable.
                 metadata_degraded = await raw.fetchval(_DEGRADED_COUNT_SQL) or 0
@@ -276,6 +314,7 @@ async def _copy_stream_into_staging(
 __all__ = [
     "CacheUploadUnsupportedDatabase",
     "LoadOutcome",
+    "MergeLockTimedOut",
     "ReplaceGuardBlocked",
     "StagedRowCountMismatch",
     "load_snapshot",

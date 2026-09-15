@@ -34,6 +34,13 @@ retry is attempted here, because retrying against a lock held by a 600 s snapsho
 (``snapshot_export.py``) would mostly just fail slower. The DOWNGRADE path sets no
 ``lock_timeout``: a rollback's ``DROP COLUMN`` can still queue for as long as whatever holds the
 conflicting lock does. That is out of scope for this migration to fix.
+
+The ``ADD COLUMN`` itself is plain ``ops.AddField`` — no dedicated subclass. ``_bound_lock_wait``
+(above) already runs first and sets ``SET LOCAL lock_timeout`` for the whole migration
+transaction, so ``AddField`` inherits the bound for free: if the timeout fires while it waits for
+``ACCESS EXCLUSIVE``, the ordinary exception that raises propagates out of ``AddField`` and aborts
+the migration's (atomic) transaction, and the operator reruns the migration rather than the
+migration retrying against a lock it will likely still lose.
 """
 
 from typing import Any
@@ -42,7 +49,6 @@ from tortoise import fields, migrations
 from tortoise.indexes import Index
 from tortoise.migrations import operations as ops
 from tortoise.migrations.schema_editor.base import BaseSchemaEditor
-from tortoise.migrations.schema_generator.state import State
 
 _MODEL_NAME = "RequestCacheEntry"
 _TABLE = "request_cache_entries"
@@ -79,6 +85,20 @@ _TRIGGER = "request_cache_entries_metadata_follows_response"
 # every field is vanishingly rare, and the cost of the collision is one row degraded to unknown
 # — the safe direction. A session GUC that new writers set to opt out would be exact, but it
 # puts the invariant back in the application, where forgetting it is silent again.
+#
+# WHY `BEFORE UPDATE OF response_json`, not a bare `BEFORE UPDATE` (review round 2, I1): `UPDATE
+# OF <col>` is decided from the statement's own SET list before any row is even considered, so a
+# `hit_count`/`last_hit_at` bump (`record_hit_metadata`, the cache-hit hot path — and serving a
+# hit IS a write, awaited inline before the cached body returns) never names `response_json` in
+# its SET list and skips the trigger entirely, at zero cost. A bare `BEFORE UPDATE` would still
+# evaluate the WHEN clause on every hit, and "evaluated" is not "cheap": `response_json` is TEXT
+# with default EXTENDED storage, so a hit's two equal, unchanged values are typically stored
+# out-of-line and compressed — Postgres must fetch both out of TOAST and pglz-decompress them
+# before `texteq`'s length-shortcut can even apply, then `memcmp` the result, only to learn they
+# are equal. The column list, not the WHEN clause, is what keeps the hot path out of all of that.
+# The WHEN clause stays exactly as it was: every writer this trigger exists for (a pre-0011
+# binary, and the merge's `ON CONFLICT DO UPDATE`) already names `response_json` in its SET list,
+# so the column list changes nothing about when the function actually fires.
 _CREATE_TRIGGER_SQL = f"""
 CREATE OR REPLACE FUNCTION {_TRIGGER_FN}() RETURNS trigger AS $$
 BEGIN
@@ -88,15 +108,16 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE TRIGGER {_TRIGGER}
-BEFORE UPDATE ON {_TABLE}
+BEFORE UPDATE OF response_json ON {_TABLE}
 FOR EACH ROW
 WHEN (NEW.response_json IS DISTINCT FROM OLD.response_json
       AND NEW.metadata_json IS NOT DISTINCT FROM OLD.metadata_json)
 EXECUTE FUNCTION {_TRIGGER_FN}();
 """
 
-# The WHEN clause is evaluated by Postgres without entering the function body, so a
-# `hit_count`/`last_hit_at` bump — the hot path — never pays for this.
+# `UPDATE OF response_json` in `_CREATE_TRIGGER_SQL` above means Postgres never even LOOKS at
+# this trigger for a `hit_count`/`last_hit_at`-only UPDATE — decided from the statement's SET
+# list, not from the WHEN clause — so the hot path pays nothing for it.
 _DROP_TRIGGER_SQL = f"""
 DROP TRIGGER IF EXISTS {_TRIGGER} ON {_TABLE};
 DROP FUNCTION IF EXISTS {_TRIGGER_FN}();
@@ -174,43 +195,30 @@ async def _remove_stale_metadata_guard(apps: Any, schema_editor: BaseSchemaEdito
     await schema_editor._run_sql(_DROP_TRIGGER_SQL)  # noqa: SLF001
 
 
-class AddMetadataColumn(ops.AddField):
-    """`AddField`, but on Postgres it fails fast under `_bound_lock_wait`'s timeout instead of
-    queuing for the table lock. One attempt only: a lock-timeout failure propagates and aborts
-    the migration's transaction, so the operator reruns it rather than the migration retrying
-    against a lock it will likely still lose (a snapshot export can hold it for 600 s)."""
-
-    async def database_forward(
-        self,
-        app_label: str,
-        old_state: State,
-        new_state: State,
-        state_editor: BaseSchemaEditor | None = None,
-    ) -> None:
-        await super().database_forward(app_label, old_state, new_state, state_editor)
-
-
 class Migration(migrations.Migration):
     dependencies = [("models", "0010_simplify_request_cache")]
 
     operations = [
         # First, so the timeout is in force for every operation that follows it.
         ops.RunPython(code=_bound_lock_wait, reverse_code=ops.RunPython.noop),
-        # Runs LAST on downgrade — after AddMetadataColumn's reverse has rebuilt the table and
-        # taken the indexes with it. The forward direction is a no-op by design: ADD COLUMN
-        # rebuilds nothing.
+        # Runs LAST on downgrade — after AddField's reverse has rebuilt the table and taken the
+        # indexes with it. The forward direction is a no-op by design: ADD COLUMN rebuilds
+        # nothing.
         ops.RunPython(code=ops.RunPython.noop, reverse_code=_restore_sqlite_indexes),
         # Mirrors `BaseRequestCacheEntry.metadata_json` exactly — any drift here re-arms the
         # autodetector, which would propose the same add again (`makemigrations` drift is caught
-        # by `test_autodetector_proposes_no_request_cache_change`).
-        AddMetadataColumn(
+        # by `test_autodetector_proposes_no_request_cache_change`). Plain `ops.AddField`: no
+        # dedicated subclass is needed to get the bounded-lock-wait behaviour documented under
+        # LOCK WAIT above — `_bound_lock_wait` already set `SET LOCAL lock_timeout` for this
+        # whole transaction before this operation runs.
+        ops.AddField(
             model_name=_MODEL_NAME,
             name="metadata_json",
             field=fields.TextField(null=True),
         ),
         # Last, so the trigger (which references metadata_json) is installed only after the
         # column exists. Its reverse therefore runs FIRST on downgrade, dropping the trigger
-        # before AddMetadataColumn's reverse removes the column it references.
+        # before AddField's reverse removes the column it references.
         ops.RunPython(
             code=_install_stale_metadata_guard,
             reverse_code=_remove_stale_metadata_guard,

@@ -368,13 +368,18 @@ would have cost the downgrade path its all-or-nothing property. The realistic co
 is a snapshot export in progress; avoid running a migration and an export at the same time. On
 SQLite it is a plain in-place `ADD COLUMN`.
 
-**A snapshot merge also takes a table lock.** Restoring a snapshot with `merge` now opens with
-`LOCK TABLE request_cache_entries IN SHARE ROW EXCLUSIVE MODE` for the length of the merge
-transaction. This is new behaviour operators should expect: concurrent cache **writes** block
-until the merge finishes; concurrent **reads** are unaffected and the cache keeps serving. The
-lock is what makes the degraded-row count below exact rather than approximate. On a deployment
-that sets a global `lock_timeout`, the merge will **fail** rather than wait — the safe direction,
-but not a surprise you want to discover during an incident.
+**A snapshot merge also takes a table lock, and it stalls cache reads too.** Restoring a snapshot
+with `merge` opens with a 3-second `SET LOCAL lock_timeout`, then `LOCK TABLE
+request_cache_entries IN SHARE ROW EXCLUSIVE MODE`, for the length of the merge transaction.
+Serving a cache **hit is a write**: it bumps `hit_count`/`last_hit_at` under an ordinary `UPDATE`,
+which takes `ROW EXCLUSIVE` — and `ROW EXCLUSIVE` conflicts with `SHARE ROW EXCLUSIVE`. **Every
+cache hit stalls for as long as the merge transaction runs, not only concurrent cache writes.**
+The `lock_timeout` bounds only how long the merge WAITS to acquire the lock — three seconds, so a
+merge stuck behind something else fails loudly (a `merge_lock_timeout` refusal on the job) instead
+of parking every hit-count bump behind it. It does **not** bound how long the merge HOLDS the lock
+once acquired, and that hold time is the merge's own duration — the price of making the
+degraded-row count below exact. **Run a `merge` restore in a maintenance window.** It is not safe
+to run against live traffic expecting normal latency.
 
 **The block is roughly 400 bytes.** It holds the canonical token usage, the direct cost, the
 provider latency, the response model and a schema id. The gateway writes the block at write time
@@ -403,15 +408,29 @@ API, and as a warning. Those keys also stop reporting saved cost and start count
 does not, expect to lose the block on every overlapping key and re-accumulate it through live
 traffic. A post-`0011` archive is unaffected — it carries the column and restores real blocks.
 
+The `metadata_degraded` count is exact only for what the merge's own `SET metadata_json =
+EXCLUDED.metadata_json` changes. A row whose incoming block happens to be byte-identical to the
+live one, but whose `response_json` differs, is cleared by the stale-metadata trigger below
+instead — and the count's query requires the incoming block to be `NULL`, so that row is not
+counted here either. Same accepted false positive the trigger itself carries, just reached
+through the merge.
+
 **A second, automatic path degrades a row the same way.** A Postgres-only `BEFORE UPDATE`
 trigger, `request_cache_entries_metadata_follows_response`, clears `metadata_json` on any
 `UPDATE` that changes `response_json` without setting `metadata_json` in the same statement. This
 is what protects the deployment from a **pre-`0011` binary** running against the widened table —
 a rolling upgrade or a rollback pod that has never heard of `metadata_json` still updates
 `response_json`, and without the trigger the row would keep its previous block, now describing an
-answer it did not produce. The trigger's `WHEN` clause is cheap on the hot path: an ordinary
-`hit_count`/`last_hit_at` bump changes neither column it inspects, so it never enters the
-function body. Like the merge above, this degrades to `NULL` — unknown — and never to a wrong
+answer it did not produce. It is installed as `CREATE OR REPLACE TRIGGER`, which needs **Postgres
+14 or newer**. The trigger is scoped to `BEFORE UPDATE OF response_json`, so Postgres decides
+whether to even consider it from the statement's own `SET` list, before it looks at any row or
+its `WHEN` clause. An ordinary `hit_count`/`last_hit_at` bump never sets `response_json`, so the
+hot path skips the trigger entirely, at zero cost — **this is not because the `WHEN` clause is
+cheap.** Without the column list, the `WHEN` clause would still run on every hit, and comparing
+two equal, unchanged `response_json` values is not free: they are typically stored out-of-line
+and compressed, so Postgres would fetch both out of TOAST, decompress them, and `memcmp` the
+result, only to conclude "unchanged." The column list is what removes that cost, not the
+comparison itself. Like the merge above, this degrades to `NULL` — unknown — and never to a wrong
 number. It has one accepted false positive: a writer that replaces the body with a
 byte-identical block still loses it, because the trigger cannot tell "same answer" from "no
 answer computed."

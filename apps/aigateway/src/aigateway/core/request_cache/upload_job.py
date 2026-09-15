@@ -28,6 +28,7 @@ from typing import Literal
 from .bulk_loader import (
     CacheUploadUnsupportedDatabase,
     LoadOutcome,
+    MergeLockTimedOut,
     ReplaceGuardBlocked,
     StagedRowCountMismatch,
     load_snapshot,
@@ -60,6 +61,7 @@ REFUSAL_CODES = (
     "row_count_mismatch",
     "newer_rows_would_be_lost",
     "unsupported_database",
+    "merge_lock_timeout",
 )
 
 
@@ -219,6 +221,7 @@ class CacheUploadRunner:
                 StagedRowCountMismatch,
                 ReplaceGuardBlocked,
                 CacheUploadUnsupportedDatabase,
+                MergeLockTimedOut,
             ) as exc:
                 code = _REFUSAL_FOR[type(exc)]
                 self._refuse(record, code, detail=str(exc))
@@ -252,6 +255,7 @@ _REFUSAL_FOR: dict[type[Exception], str] = {
     StagedRowCountMismatch: "row_count_mismatch",
     ReplaceGuardBlocked: "newer_rows_would_be_lost",
     CacheUploadUnsupportedDatabase: "unsupported_database",
+    MergeLockTimedOut: "merge_lock_timeout",
 }
 
 

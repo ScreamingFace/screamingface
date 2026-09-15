@@ -121,14 +121,22 @@ Since PR #930's review, the load **counts and reports** the rows it degrades, on
 `LoadOutcome`, on the job record, in the admin API, and as a warning. The erasure remains
 permitted; it is no longer silent.
 
-> **Added in review round 2 (OME-1203).** The merge transaction opens with `LOCK TABLE
-> request_cache_entries IN SHARE ROW EXCLUSIVE MODE` before it counts and before it merges.
-> Without it, the count and the merge are two statements under READ COMMITTED, each with its own
-> snapshot; a cache fill landing between them would be degraded by the merge but missed by the
-> count, so the report would understate the loss. `SHARE ROW EXCLUSIVE` blocks concurrent cache
-> **writes** for the length of the transaction and leaves **reads** unaffected, which is what
-> makes `metadata_degraded` exact rather than approximate. On a deployment with a global
-> `lock_timeout`, the merge fails rather than waits.
+> **Added in review round 2 (OME-1203).** The merge transaction opens with `SET LOCAL
+> lock_timeout = '3000ms'` (mirroring migration `0011`'s own bound), then `LOCK TABLE
+> request_cache_entries IN SHARE ROW EXCLUSIVE MODE`, before it counts and before it merges.
+> Without the lock, the count and the merge are two statements under READ COMMITTED, each with its
+> own snapshot; a cache fill landing between them would be degraded by the merge but missed by the
+> count, so the report would understate the loss.
+>
+> **This also stalls cache reads, not only writes.** `SHARE ROW EXCLUSIVE` blocks concurrent
+> `ROW EXCLUSIVE` writers, and serving a cache hit IS a write — `record_hit_metadata` bumps
+> `hit_count`/`last_hit_at` under an ordinary `UPDATE`, awaited inline before the cached body
+> returns. So every cache hit stalls for as long as the merge transaction runs. `lock_timeout`
+> bounds only how long the merge WAITS to acquire the lock (a merge stuck behind something else
+> fails as `MergeLockTimedOut`, surfaced as the job refusal `merge_lock_timeout`, rather than
+> parking every reader behind it); it does not bound how long the merge HOLDS the lock once
+> acquired — that hold time is the merge's own duration, and is what keeps `metadata_degraded`
+> exact rather than approximate. Run a `merge` restore in a maintenance window.
 >
 > *Pinned by `test_a_legacy_merge_reports_how_many_blocks_it_degraded` and
 > `test_a_racing_write_to_an_unrelated_row_blocks_the_merge` in
@@ -144,7 +152,7 @@ A Postgres-only `BEFORE UPDATE` trigger, `request_cache_entries_metadata_follows
 snapshot loader:
 
 ```sql
-BEFORE UPDATE ON request_cache_entries
+BEFORE UPDATE OF response_json ON request_cache_entries
 FOR EACH ROW
 WHEN (NEW.response_json IS DISTINCT FROM OLD.response_json
       AND NEW.metadata_json IS NOT DISTINCT FROM OLD.metadata_json)
@@ -159,8 +167,15 @@ different answer, which nothing downstream can detect. The trigger degrades the 
 unknown — instead, which is the direction this feature already commits to (**E7**): unknown, not
 wrong.
 
-The `WHEN` clause is evaluated without entering the function body, so an ordinary
-`hit_count`/`last_hit_at` bump — the hot path — never pays for this. Installed with `CREATE OR
+**The `UPDATE OF response_json` column list, not the `WHEN` clause, is what makes the hot path
+free (review round 2, I1).** Postgres decides whether a trigger applies at all from the
+statement's own `SET` list, before it looks at any row — so a `hit_count`/`last_hit_at`-only
+`UPDATE` (`record_hit_metadata`, the cache-hit hot path) never even reaches the `WHEN` clause. A
+bare `BEFORE UPDATE` would still evaluate that clause on every hit, and `response_json IS
+DISTINCT FROM` on two equal, unchanged values is not cheap: `response_json` is `TEXT` with
+default `EXTENDED` storage, so the values are typically stored out-of-line and compressed, and
+Postgres must fetch both out of TOAST and decompress them before `texteq`'s cheap length check
+can even run — then `memcmp` the result, only to learn nothing changed. Installed with `CREATE OR
 REPLACE TRIGGER` (Postgres 14+) so re-running the forward migration against an already-migrated
 table is idempotent; both the trigger and its function are dropped on reverse.
 
@@ -174,7 +189,10 @@ is vanishingly rare, and the cost is one row degraded to the safe direction (unk
 `test_a_hit_count_bump_never_touches_the_block`,
 `test_the_merge_still_carries_a_real_block_through` and
 `test_the_trigger_and_function_drop_together_on_reverse_and_recreate_idempotently` in
-`apps/aigateway/tests/integration/test_cache_snapshot_entry_metadata_postgres.py`.*
+`apps/aigateway/tests/integration/test_cache_snapshot_entry_metadata_postgres.py`. The column
+list itself is pinned by
+`test_the_trigger_is_scoped_to_response_json_so_a_hit_count_bump_never_considers_it` in
+`apps/aigateway/tests/unit/test_migration_0011_cache_entry_metadata.py`.*
 
 ### §5.4 Write path
 
@@ -200,7 +218,7 @@ preferred over the provider plugin's mapper (**PRD S3/S4**).
 | **M8** | Archive-matched money is never summed with provider-authored money. |
 | **R2** | `CacheEntryMetadataReferenceError` is narrow and internal. No value is ever inferred from the cached response body. |
 | **E10** | *(Added in review round 2, OME-1203.)* Any `UPDATE` that changes `response_json` without setting `metadata_json` in the same statement clears the block to `NULL` (§5.3). This is the automatic counterpart to E7's merge case — the same "unknown, never wrong" direction, enforced against every writer, not only the loader. |
-| **E11** | *(Added in review round 2, OME-1203.)* A snapshot merge holds `SHARE ROW EXCLUSIVE` on `request_cache_entries` for its whole transaction (§5.2), so its `metadata_degraded` count is exact under a concurrent cache write, not merely likely. |
+| **E11** | *(Added in review round 2, OME-1203.)* A snapshot merge holds `SHARE ROW EXCLUSIVE` on `request_cache_entries` for its whole transaction (§5.2), so its `metadata_degraded` count is exact under a concurrent cache write, not merely likely — for what the merge's own `SET metadata_json = EXCLUDED.metadata_json` changes. A row the stale-metadata trigger degrades in the same merge because its incoming block is byte-identical to the live one (§5.3's own accepted false positive) is not counted here either, since the count's query requires the incoming block to be `NULL`. |
 
 ## Snapshot scenarios
 
