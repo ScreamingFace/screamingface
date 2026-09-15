@@ -9,6 +9,7 @@ from screamingface_engine.benchmarks.deployment import (
     BenchmarkDeployment,
     BenchmarkRegistration,
 )
+from screamingface_engine.benchmarks.discovery import discovered_registrations
 from screamingface_engine.benchmarks.draco.definition import (
     ASSET_BUNDLE_ID as DRACO_ASSET_BUNDLE_ID,
 )
@@ -80,23 +81,25 @@ HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
 # prepares it once: the two HealthBench boards are independent identities over one baked
 # answer key, and the two DRACO boards re-run the same archived case/rubric assets with
 # different judge-pass counts.
-BUILTIN_DEPLOYMENT = BenchmarkDeployment(
-    (
-        BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),
-        BenchmarkRegistration(benchmark=DRACO_3PASS, asset_bundle=DRACO_ASSETS),
-        BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
-        BenchmarkRegistration(
-            benchmark=HEALTHBENCH_WORST30,
-            asset_bundle=HEALTHBENCH_ASSETS,
-        ),
-        BenchmarkRegistration(
-            benchmark=HEALTHBENCH_PROFESSIONAL,
-            asset_bundle=HEALTHBENCH_ASSETS,
-        ),
-        BenchmarkRegistration(benchmark=GDPVAL_TEXT, asset_bundle=GDPVAL_ASSETS),
-        BenchmarkRegistration(benchmark=MEDXPERT, asset_bundle=MEDXPERT_ASSETS),
-    )
+STATIC_REGISTRATIONS = (
+    BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),
+    BenchmarkRegistration(benchmark=DRACO_3PASS, asset_bundle=DRACO_ASSETS),
+    BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
+    BenchmarkRegistration(
+        benchmark=HEALTHBENCH_WORST30,
+        asset_bundle=HEALTHBENCH_ASSETS,
+    ),
+    BenchmarkRegistration(
+        benchmark=HEALTHBENCH_PROFESSIONAL,
+        asset_bundle=HEALTHBENCH_ASSETS,
+    ),
+    BenchmarkRegistration(benchmark=GDPVAL_TEXT, asset_bundle=GDPVAL_ASSETS),
+    BenchmarkRegistration(benchmark=MEDXPERT, asset_bundle=MEDXPERT_ASSETS),
 )
+# FEATURE: plugin-contributed benchmarks (OME-1115). The static tuple comes first and the
+# discovered extensions after, so with the entry-point group empty (no plugin, or the
+# plugin's optional dependencies absent) this deployment is byte-identical to before.
+BUILTIN_DEPLOYMENT = BenchmarkDeployment((*STATIC_REGISTRATIONS, *discovered_registrations()))
 BUILTIN_BENCHMARKS = BUILTIN_DEPLOYMENT.benchmarks
 
-__all__ = ["BUILTIN_BENCHMARKS", "BUILTIN_DEPLOYMENT"]
+__all__ = ["BUILTIN_BENCHMARKS", "BUILTIN_DEPLOYMENT", "STATIC_REGISTRATIONS"]
