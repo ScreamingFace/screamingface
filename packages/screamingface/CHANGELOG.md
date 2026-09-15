@@ -5,6 +5,14 @@
 ### Features
 
 * **screamingface:** expose and render why a published score will not rank
+* **screamingface:** send the candidate's declared model routes on a leaderboard submission.
+  The payload gains a `models` array carrying `CandidateResult.models` verbatim, alongside the
+  existing `ran_with_providers`, which is unchanged. Previously each route was truncated to its
+  provider prefix, so a fusion of open-weight models submitted as `["openrouter"]` and was
+  published as closed.
+
+  **Requires a Scoreboard that accepts the field.** Submissions reject with HTTP 422 against a
+  Scoreboard deployed before `OME-1181`.
 
 ## 0.1.1 (2026-08-13)
 

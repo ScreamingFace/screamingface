@@ -440,6 +440,7 @@ def _submission(
         "url4_expression": candidate_result.url4,
         "score": _score_value(candidate_result),
         "total_questions": len(candidate_result.cases),
+        "models": list(candidate_result.models),
         "ran_with_providers": list(_providers(candidate_result.models)),
         "ran_at_local": _timestamp_text(candidate_result.completed_at),
         "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
