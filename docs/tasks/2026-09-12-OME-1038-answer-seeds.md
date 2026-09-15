@@ -1,12 +1,12 @@
 ---
 id: OME-1038
 linear_url: https://linear.app/openmined/issue/OME-1038
-status: In Progress
+status: Done
 type: decision
 priority: Low
 labels: [screamingface-engine, agentic, design-session]
 created: 2026-08-29
-closed:
+closed: 2026-09-15
 ---
 
 # A run can't declare answer seeds, so score variance can't be measured or reproduced
