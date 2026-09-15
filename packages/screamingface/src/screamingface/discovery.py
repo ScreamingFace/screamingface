@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
+from typing import Literal
 
 from screamingface._benchmark_identity import benchmark_id as _benchmark_id
 
@@ -178,6 +179,7 @@ class ModelDetails:
     expires_at: datetime | None
     stale: bool
     degraded: bool
+    execution_access: Literal["configured", "missing"] | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -198,6 +200,8 @@ class ModelDetails:
             )
         if self.auth_mode not in _AUTH_MODES:
             raise ValueError("Model auth_mode is invalid")
+        if self.execution_access not in (None, "configured", "missing"):
+            raise ValueError("Model execution_access must be configured, missing, or None")
         _validate_freshness(self.observed_at, self.expires_at, self.stale, self.degraded)
         for name in ("parameters", "tools", "transport"):
             value = getattr(self, name)

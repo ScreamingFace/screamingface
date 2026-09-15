@@ -4,7 +4,13 @@
 
 ### Features
 
+* **screamingface:** expose `ModelDetails.execution_access` (`configured`, `missing`, or `None` for older Gateways).
+
 * **screamingface:** expose and render why a published score will not rank
+
+### Bug Fixes
+
+* **screamingface:** check every required Candidate Model before evaluation dispatch and raise `ProviderConnectionError` for Gateway-reported missing access. Sync and async Clients reuse model admission details; older Gateways preserve existing behavior.
 
 ## 0.1.1 (2026-08-13)
 

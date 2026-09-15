@@ -22,7 +22,9 @@ Stages of one rehearsal, in execution order:
    answers 200 so the stand-in boots like the real gateway, and ``GET /v1/models``
    answers the OpenAI-style listing of EXACTLY the tape's models — the SDK's run
    planning reads the engine's catalogue (which proxies this route) before any model
-   call, and a projection of the tape is still the tape, not an improvised answer.
+   call. ``GET /v1/model-parameters`` projects minimal configured-access metadata
+   for those same taped identities. A projection of the tape is still the tape,
+   not an improvised answer.
 3. **Refuse loudly** — anything else gets a named 404 and a row in ``refusals``:
    an untaped model is ``fake_gateway_unmatched_request`` (the Tape contract —
    ``lookup`` returns the exchange or ``None``, and ``None`` surfaces as a loud error,
@@ -51,7 +53,7 @@ import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 from .tape import RecordedExchange, Tape
 
@@ -245,7 +247,40 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == _MODELS_PATH:
             self._reply(200, self.gateway._catalog_projection(), "application/json")
             return
-        self._refuse_unroutable()
+        parsed = urlsplit(self.path)
+        if parsed.path == "/v1/model-parameters":
+            self._reply_model_details(parsed.query)
+        else:
+            self._refuse_unroutable()
+
+    def _reply_model_details(self, query: str) -> None:
+        model = parse_qs(query).get("model", [None])[0]
+        exchange = self.gateway._lookup_model(model)
+        if exchange is None:
+            self._refuse_unmatched(model)
+            return
+        # WHY: taped failures require configured access so evaluation reaches
+        # the scripted completion. Discovery must never invent untaped models.
+        document = {
+            "schema_version": 1,
+            "contract_id": "authored-replay",
+            "model": {
+                "id": exchange.normalized.model,
+                "gateway_provider": exchange.normalized.provider,
+                "upstream_id": exchange.normalized.model.split("/", 1)[-1],
+            },
+            "context": {
+                "scope": "account_profile",
+                "auth_mode": "none",
+                "revision": "authored-replay",
+                "execution_access": "configured",
+            },
+            "parameters": {},
+            "tools": {},
+            "transport": {},
+            "freshness": {"stale": False, "degraded": False},
+        }
+        self._reply(200, json.dumps(document).encode(), "application/json")
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler naming
         self.gateway._record_headers(dict(self.headers))
