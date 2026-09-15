@@ -4,131 +4,92 @@ Static reference for the execution flow through the screamingface-engine codebas
 purpose of each source file. Companion to `docs/request-workflow.md` (the
 narrative) and `docs/protocol.md` (the wire contract).
 
+Diagrams are mermaid: GitHub renders them, and edits diff as plain text.
+
 ---
 
-## 1. End-to-end execution flow (`serve` + `run` — one image, two modes)
+## 1. End-to-end execution flow (`serve` + `run` — two of the image's three modes)
 
+```mermaid
+flowchart TD
+    client["CLIENT (browser / CLI)"]
+
+    subgraph control["CONTROL PLANE — screamingface-engine serve (the default subcommand, the image's CMD)"]
+        routes["rest/routes.py<br>POST /token · GET /?q= · DELETE /"]
+        jwt["auth/jwt.py<br>JwtCodec"]
+        wsend["ws/endpoint.py<br>verify ticket, register interest"]
+        registry["ws/registry.py<br>ConnectionRegistry — the real 428 source"]
+        bridge["ws/bridge.py<br>EventStream → WS, single-writer"]
+        queue["adapters/queue_runner.py<br>durable run queue + fixed worker pool (OME-1092)"]
+    end
+
+    subgraph runmode["RUN MODE — the SAME image, entered as screamingface-engine run (serves no port, exits at end)"]
+        main["runner/main.py<br>params_from_env · build_executor"]
+        lifecycle["url4.streaming.lifecycle.run — ORCHESTRATOR<br>Started → telemetry → CostUsage{subtree} → Result → Terminated"]
+        executor["runner/executor.py Url4Executor<br>_Bridge (sync→async) · _RunState (events→Traced) · drives url4.dag.run"]
+        aigw["aigateway<br>POST /v1/chat/completions<br>± Tavily web_search/web_fetch loop"]
+    end
+
+    subgraph nats["NATS JetStream — shared append-log"]
+        jetstream["adapters/jetstream.py — a SHARED leaf<br>JetStreamPublisher (run writes) ⇄ JetStreamConsumer (serve reads)"]
+    end
+
+    client -->|"① POST /token"| routes
+    routes -->|mint_token| jwt
+    client -->|"② WS /ws?ticket=jwt"| wsend
+    wsend --> registry
+    wsend --> bridge
+    client -->|"③ GET /?q="| routes
+    routes -->|"400 no q · 428 no WS subscriber · 409 run exists<br>then _schedule via the abstract JobRunner port"| queue
+    queue -->|"the worker forks each run as a child of its own image:<br>screamingface-engine run (env from job_env.py, never a credential)"| main
+    main --> lifecycle
+    lifecycle -->|"async for step in executor.execute(url4, trace=…)"| executor
+    executor -->|"declared route (runner/connector.py world)"| aigw
+    lifecycle -->|"bus.publish(topic, CloudEvent)<br>one per frame, monotonic sequence"| jetstream
+    jetstream -->|same stream, independent consumer| bridge
+    jetstream -->|"sync scanner (_run_sync)"| routes
+    bridge -->|WS frames| client
+    routes -->|"inline 200 (sync) or 202 Accepted (_accepted)"| client
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  CLIENT (browser / CLI)                                                      │
-└──────┬──────────────────────────────────────────────────────────────────────┘
-       │  ① POST /token                          ② WS /ws?ticket=<jwt>
-       ▼                                          ▼
-┌─────────────────────────── CONTROL PLANE (screamingface_engine) ───────────────────────┐
-│  entered as `screamingface-engine serve` — the default subcommand, the image's CMD     │
-│  rest/routes.py ──mint_token──► auth/jwt.py  ──sign──► {token}               │
-│                                                                              │
-│  ws/endpoint.py ──verify ticket──► ws/registry.py .add(topic)  ◄── 428 GATE  │
-│                  └─► ws/bridge.py  (EventStream → WS, single-writer)         │
-│                                          ▲                                   │
-│  rest/routes.py  GET /?q=                 │ same JetStream stream            │
-│   ├─ _require_q            (400)          │   (sync scanner + WS bridge are  │
-│   ├─ rest/interest.py      (428 if no WS) │    independent consumers)        │
-│   ├─ trace.parse_traceparent (drop bad)   │                                   │
-│   ├─ _forwarded_credential (CF→Bearer)    │                                   │
-│   ├─ _schedule ─► JobRunner (abstract)    │                                   │
-│   │      └─ exists? (409) else schedule   │                                   │
-│   │            ┌─────────────┴── ADAPTER ──┐                                  │
-│   │            ▼                                                               │
-│   │   adapters/queue_runner.py (the deployed adapter)                          │
-│   │   durable run queue + fixed worker pool (OME-1092)                         │
-│   │   the worker forks each run as a child of its own image                    │
-│   │            │                                                               │
-│   └─ _run_sync (sync) OR _accepted (202)                                       │
-└──────────────────────────────────────────────────┼────────────────────────────┘
-                                                   │
-                                                   ▼
-┌─────────────────────────── RUN MODE (screamingface_engine.runner) ─────────────────────┐
-│  the SAME image, entered as `screamingface-engine run` — serves no port, exits at end   │
-│                                                                               │
-│  runner/main.py  ◄── entrypoint (screamingface-engine run)                              │
-│   ├─ params_from_env   ──► RunnerParams(topic,url4,nats)                      │
-│   └─ build_executor    ──► world_config.py load_config (url4.toml)            │
-│         ├─ [aigateway] ► runner/connector.build_aigateway_world ─► Url4Executor│
-│         └─ no table    ► runner/executor.deny_by_default_world  ─► Url4Executor│
-│                                                                               │
-│  url4.streaming.lifecycle.run(bus, executor, topic, url4, tp)  ◄── ORCHESTRATOR│
-│   │  trace.py.parse_traceparent → run-root trace context                      │
-│   │  Started → (telemetry…) → CostUsage{subtree} → Result → Terminated        │
-│   │            │                                                               │
-│   │            ▼ async for step in executor.execute(url4, trace=…)            │
-│   │  ┌──────────────────────────────────────────────────────────────────┐     │
-│   │  │ runner/executor.Url4Executor                                       │     │
-│   │  │   _Bridge  (sync Observer ─► async generator, priority-drop)      │     │
-│   │  │   _RunState (engine events ─► Traced Span/Cost/Log + subtree)     │     │
-│   │  │   drives url4.dag.run(io = aigateway Url4Node world) ─────────┐   │     │
-│   │  └──────────────────────────────────────────────────────────────│───┘     │
-│   │                                                                 ▼         │
-│   │              runner/connector ── POST /v1/chat/completions ──► aigateway  │
-│   │                              └─ optional Tavily web_search/web_fetch loop │
-│   └─► bus.publish(topic, CloudEvent)  ── one per frame, monotonic sequence    │
-└──────────────────────────────────────────────────┬────────────────────────────┘
-                                                  │
-                                                  ▼  NATS JetStream (shared append-log)
-                          ┌───────────────────────┐
-                          │ adapters/jetstream.py │
-                          │ Publisher (run) ⇄     │
-                          │ Consumer (serve)      │
-                          │ — a SHARED leaf       │
-                          └───────────┬───────────┘
-                                      │ frames flow back up
-                                      ▼
-   ws/bridge.py ──► WS frames to client   AND   rest/routes.py._run_sync (inline 200)
-```
+
+Notes the boxes can't carry:
+
+- `GET /?q=` also reads two headers before scheduling: a strictly W3C-valid `traceparent`
+  (checked by `url4.streaming.trace.valid_traceparent`; malformed → dropped, the run mints a
+  fresh trace) and the optional `X-Profile` / Envoy-verified `X-User-Email` pair. Provider
+  credentials never travel on this request — they are stored via `rest/connections.py` →
+  AI Gateway, and the run selects one by profile.
+- The 428 check in the GET pipeline goes through the `SubscriberGate` **port**
+  (`rest/interest.py`); `ws/registry.py`'s live-WS counts are what answer it.
+- The sync scanner and the WS bridge are **independent consumers** of the same JetStream
+  stream; neither feeds the other.
+- The third mode, `screamingface-engine worker`, is the queue's consumer loop — the worker
+  pool's Deployment pins it, and it execs `run` as a child per claimed run (see §4).
 
 ---
 
 ## 2. Run mode — execution flow (`screamingface_engine/runner/`)
 
-```
-                         ┌─────────────────────────────────────┐
-   entrypoint ──────────►│  runner/main.py                     │
-   screamingface-engine run        │   params_from_env() → topic/url4    │
-   (via cli.py, lazily)  │   build_executor()  ────────────┐   │
-                         └────────────────────────────────┬──┘
-                                                          │
-                         ┌────────────────────────────────┘
-                         ▼
-                    ┌──────────────────────────────┐   no [aigateway]
-                    │  runner/connector.py         │◄─────────────┐
-                    │  build_aigateway_world()     │             │
-                    │  → Url4Node world (routes    │   deny_by_default_world()
-                    │     DECLARED by url4.toml →  │             │
-                    │     POST /v1/chat/completions│             │
-                    │     [+ Tavily tools])        │             │
-                    └──────────────┬───────────────┘             │
-                                   │  io=world.node              │
-                                   ▼                             │
-                    ┌──────────────────────────────┐             │
-                    │  runner/executor.py          │◄────────────┘
-                    │  Url4Executor.execute()      │
-                    │   ├─ _Bridge  (sync Observer │
-                    │   │   ─► async generator)    │
-                    │   ├─ _RunState (engine evt → │
-                    │   │   Traced Span/Cost/Log)  │
-                    │   └─ drives url4.dag.run(io) │
-                    └──────────────┬───────────────┘
-                                   │ async yield ExecStep
-                                   ▼
-                    ┌──────────────────────────────┐
-   orchestrator ◄───│  url4.streaming.lifecycle    │
-   (shared, in      │   .run()                     │◄─── url4.streaming.trace
-    packages/url4)  │   establish root trace       │     parse_traceparent()
-                    │   Started → telemetry… →     │
-                    │   CostUsage{subtree} →       │
-                    │   Result → Terminated        │
-                    └──────────────┬───────────────┘
-                                   │ bus.publish(CloudEvent)
-                                   ▼
-                          JetStream ──► control plane ──► client
+```mermaid
+flowchart TD
+    main["runner/main.py — entrypoint<br>(screamingface-engine run, via cli.py, lazily)<br>params_from_env() → topic/url4 · build_executor()"]
+    config["world_config.py<br>load_config(url4.toml)"]
+    connector["runner/connector.py<br>build_aigateway_world() → Url4Node world<br>(routes DECLARED by url4.toml → POST /v1/chat/completions, + Tavily tools)"]
+    deny["runner/executor.deny_by_default_world()"]
+    executor["runner/executor.py<br>Url4Executor.execute()<br>_Bridge (sync Observer → async generator)<br>_RunState (engine events → Traced Span/Cost/Log)<br>drives url4.dag.run(io)"]
+    lifecycle["url4.streaming.lifecycle.run() — orchestrator<br>(shared, in packages/url4)<br>establish root trace (trace.parse_traceparent)<br>Started → telemetry… → CostUsage{subtree} → Result → Terminated"]
+    port["url4.streaming.interfaces.executor — the PORT<br>Executor · ExecStep · Traced · Completed · Telemetry · TraceContext<br>(lifecycle + runner/executor both depend on it, and on nothing of each other)"]
+    downstream["JetStream → control plane → client"]
 
-   ┌─────────────────────────────────────────────────────────────┐
-   │  url4.streaming.interfaces.executor                         │
-   │                the PORT — Executor, ExecStep,               │
-   │                Traced, Completed, Telemetry, TraceContext   │
-   │                (lifecycle + runner/executor both depend     │
-   │                 on it, and on nothing of each other)        │
-   └─────────────────────────────────────────────────────────────┘
+    main --> config
+    config -->|"[aigateway] table present"| connector
+    config -->|no table| deny
+    connector -->|io = world.node| executor
+    deny --> executor
+    executor -->|async yield ExecStep| lifecycle
+    lifecycle -->|"bus.publish(CloudEvent)"| downstream
+    lifecycle -. typed by .- port
+    executor -. typed by .- port
 ```
 
 `world_config.py` is the single parser for the DECLARED model world. The control plane uses it to
@@ -138,42 +99,34 @@ project discovery and the run mode uses it to build routes, so the two cannot di
 
 ### Run-mode call sequence (one run)
 
-```
-runner/main.py::main()
- │
- │  ① params_from_env(env) ───────────────────► trace.py (not here; pure env parse)
- │
- │  ② build_executor(env)
- │        │  load_config(env) → url4.toml; [aigateway] table?
- │        ├─ yes ─► runner/connector.build_aigateway_world()
- │        │              └─► routes_for(declared models) → Url4Node  (+ Tavily client)
- │        │           Url4Executor(world_factory=…)  ◄── world resolved on first execute
- │        └─ no  ─► Url4Executor over deny_by_default_world()
- │
- │  ③ url4.streaming.lifecycle.run(bus, executor, topic, url4, traceparent)
- │        │
- │        │  trace.parse_traceparent(traceparent) → trace_id (or mint fresh)
- │        │  TraceContext + _Sequencer ;  bus.ensure_stream(topic)
- │        │  publish StartedEvent
- │        │
- │        │  async for step in executor.execute(url4, trace=ctx):   ◄── ④
- │        │     │
- │        │     │  ┌── inside Url4Executor.execute() ──────────────┐
- │        │     │  │ url4.dag.run(io=Url4Node, observer=_Bridge)   │
- │        │     │  │   engine → runner/connector route →           │
- │        │     │  │     POST /v1/chat/completions (± Tavily loop) │
- │        │     │  │   engine calls _Bridge.on_event() INLINE/sync │
- │        │     │  │ _RunState.map() → Traced(Span/Cost/Log)       │
- │        │     │  │ finally: cancel task, _aclose_world()         │
- │        │     │  └───────────────────────────────────────────────┘
- │        │     │
- │        │     ├─ Telemetry/Traced → _trace_fields + _wrap_telemetry → publish
- │        │     └─ Completed         → break
- │        │
- │        │  publish CostUsage{subtree} → ResultEvent → TerminatedEvent{succeeded}
- │        └─ except ─► publish TerminatedEvent{failed} + ErrorInfo
- │
- └─  asyncio.run(_main())
+```mermaid
+sequenceDiagram
+    participant M as runner/main.py
+    participant L as url4.streaming.lifecycle
+    participant X as Url4Executor<br>(runner/executor.py)
+    participant E as url4.dag engine<br>(io = connector world)
+    participant G as aigateway
+    participant B as JetStream bus
+
+    M->>M: ① params_from_env(env) → topic / url4
+    M->>M: ② build_executor(env): load_config → [aigateway] table?<br>yes → connector.build_aigateway_world (world resolved on first execute)<br>no → deny_by_default_world
+    M->>L: ③ run(bus, executor, topic, url4, traceparent)
+    L->>L: parse_traceparent(traceparent) → trace_id (or mint fresh)<br>TraceContext + _Sequencer
+    L->>B: ensure_stream(topic) · publish StartedEvent
+
+    loop ④ async for step in executor.execute(url4, trace=ctx)
+        L->>X: pull next step
+        X->>E: url4.dag.run(io=Url4Node, observer=_Bridge)
+        E->>G: POST /v1/chat/completions (± Tavily loop)
+        E-->>X: _Bridge.on_event() INLINE/sync → _RunState.map() → Traced(Span/Cost/Log)
+        X-->>L: Telemetry / Traced
+        L->>B: _trace_fields + _wrap_telemetry → publish frame
+    end
+
+    X-->>L: Completed → break
+    X->>X: finally: cancel task, _aclose_world()
+    L->>B: CostUsage{subtree} → ResultEvent → TerminatedEvent{succeeded}
+    Note over L,B: on exception: TerminatedEvent{failed} + ErrorInfo
 ```
 
 ---
@@ -182,47 +135,30 @@ runner/main.py::main()
 
 ### Run mode (`src/screamingface_engine/runner/`)
 
-```
-┌─ entrypoint ──────────────────────────────────────────────────┐
-│ runner/main.py   env → publisher + executor → lifecycle.run() │
-├─ orchestrator (shared: url4.streaming) ───────────────────────┤
-│ lifecycle.py  drives executor, wraps frames as CloudEvents,   │
-│               publishes the Started…Terminated lifecycle      │
-├─ adapter (the only url4 importer) ────────────────────────────┤
-│ runner/executor.py   Url4Executor: _Bridge (sync→async),      │
-│                      _RunState (events→Traced), drives the DAG│
-├─ world builder ───────────────────────────────────────────────┤
-│ runner/connector.py   declared routes + credential → Url4Node │
-│                       (+ optional Tavily web tools)           │
-├─ declared world ──────────────────────────────────────────────┤
-│ world_config.py    parses url4.toml (/etc/url4/url4.toml)     │
-├─ boundary doc ────────────────────────────────────────────────┤
-│ runner/__init__.py   states the layering rule the gate proves │
-└───────────────────────────────────────────────────────────────┘
-```
-
-| File | Purpose |
-|---|---|
-| `runner/main.py` | `screamingface-engine run` entrypoint: read env (names from `screamingface_engine/job_env.py`) → wire `JetStreamPublisher` + executor → call `lifecycle.run` |
-| `runner/executor.py` | The **only** url4-engine adapter (`_Bridge` sync→async, `_RunState`, `Url4Executor`) |
-| `runner/connector.py` | Builds the `Url4Node` "world" of declared routes → aigateway chat (+ optional Tavily tools) |
-| `world_config.py` | Parses `url4.toml` once for both control-plane discovery and Runner execution |
-| `runner/__init__.py` | No re-exports — it carries the layering rule (what this half may and may not import) |
+| Layer | File | Purpose |
+|---|---|---|
+| entrypoint | `runner/main.py` | `screamingface-engine run` entrypoint: read env (names from `screamingface_engine/job_env.py`) → wire `JetStreamPublisher` + executor → call `lifecycle.run` |
+| orchestrator (shared: `url4.streaming`) | `lifecycle.py` | Drives the executor, wraps frames as CloudEvents, publishes the Started…Terminated lifecycle |
+| adapter (the **only** url4-engine importer) | `runner/executor.py` | `Url4Executor`: `_Bridge` (sync→async), `_RunState` (events→Traced), drives the DAG |
+| world builder | `runner/connector.py` | Builds the `Url4Node` "world" of declared routes → aigateway chat (+ optional Tavily tools) |
+| declared world | `world_config.py` | Parses `url4.toml` (`/etc/url4/url4.toml`) once for both control-plane discovery and Runner execution |
+| boundary doc | `runner/__init__.py` | No re-exports — it carries the layering rule (what this half may and may not import) |
 
 ### Control plane (`src/screamingface_engine/`)
 
 | File | Purpose |
 |---|---|
-| `cli.py` | The one console script, `screamingface-engine` — argv picks `serve` (default) or `run`; imports each mode lazily and is the only module exempt from the layering gate |
+| `cli.py` | The one console script, `screamingface-engine` — argv picks `serve` (default), `run`, or `worker`; imports each mode lazily and is the only module exempt from the layering gate |
 | `app.py` | FastAPI factory — `create_app` (DI) / `create_app_from_env` (prod) |
 | `config.py` | `Settings` + replay-window TTL validation |
 | `rest/routes.py` | REST control plane — `POST /token`, `GET /?q=` (sync/async), `DELETE /` |
+| `rest/connections.py` | Provider-credential intake — accepted only long enough to forward to AI Gateway, never stored here |
 | `rest/interest.py` | `SubscriberGate` **port** behind the 428 gate |
 | `ws/endpoint.py` | `GET /ws` — verify ticket, register interest, start bridge |
 | `ws/bridge.py` | `Bridge` — EventStream→WS streaming, single-writer, `Attach`/`Stop`, heartbeats, nacks |
 | `ws/registry.py` | `ConnectionRegistry` — live-WS counts per topic (the real 428 source) |
 | `adapters/queue_runner.py` | Prod adapter — durable run queue + worker pool (OME-1092); the queue message carries the per-run env, never a credential |
-| `testing/memory_stream.py` | `InMemoryEventStream` — the headless suite's stream double (no broker) |
+| `adapters/memory.py` | `InMemoryEventStream` — the headless suite's stream double (no broker); re-exported by `testing/__init__.py` for the suite's convenience |
 | `adapters/jetstream.py` | **Shared leaf** — `JetStreamPublisher` (run mode writes) + `JetStreamConsumer` (control plane reads); one binding, no second copy to keep in sync |
 | `job_env.py`, `subjects.py` | The other two **shared leaves** — the Job env-var contract (per-run + per-deploy sections in one module) and the NATS subject/stream naming |
 | `adapters/factory.py` | Composition root — `URL4_CLOUD_RUNNER` → queue adapter or `None` |

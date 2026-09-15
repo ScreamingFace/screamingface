@@ -1,4 +1,7 @@
-"""Public definition and installation surface for Engine-owned Benchmarks."""
+"""Public definition and installation surface for Engine-owned Benchmarks.
+
+Adding a benchmark: see ``apps/screamingface-engine/docs/adding-a-benchmark.md``.
+"""
 
 from screamingface_engine.benchmarks.definition import (
     CANDIDATE_REF,

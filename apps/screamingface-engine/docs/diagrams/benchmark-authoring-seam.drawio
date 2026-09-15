@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="authoring-seam">
+    <mxGraphModel dx="1200" dy="800" background="#0a0f1c" grid="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="laneA" value="IMAGE BUILD TIME — print the exam (prepare.py, runs once per image)" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="1320" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="prep" value="pins.py + prepare.py&#xa;(dataset → baked assets)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneA">
+          <mxGeometry x="30" y="55" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="casesjson" value="cases.json&#xa;{id, input}&#xa;PUBLIC — all a client sees" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneA">
+          <mxGeometry x="400" y="45" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="privkey" value="private material&#xa;(answer key / rubric)&#xa;EXAMINER ONLY — leak = cheating" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneA">
+          <mxGeometry x="750" y="45" width="260" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="eP1" value="writes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.35;entryX=0;entryY=0.5;" edge="1" parent="laneA" source="prep" target="casesjson">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eP2" value="writes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" edge="1" parent="laneA" source="prep" target="privkey">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="150" y="160" />
+              <mxPoint x="880" y="160" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="laneB" value="RUN TIME — sit + mark the exam (ScoredPath.aggregate, per candidate run)" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="280" width="1320" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="sel" value="select&#xa;cases" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
+          <mxGeometry x="30" y="70" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="invoke" value="invoke&#xa;Candidate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
+          <mxGeometry x="210" y="70" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="decode" value="decode rows&#xa;your RowReader" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
+          <mxGeometry x="390" y="70" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ladder" value="failure&#xa;ladder" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
+          <mxGeometry x="600" y="70" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="grade" value="grade_case&#xa;your marking rule" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="laneB">
+          <mxGeometry x="780" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="scorer" value="scorer&#xa;your formula" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
+          <mxGeometry x="1010" y="70" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="report" value="report card&#xa;score + coverage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
+          <mxGeometry x="1150" y="160" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="eB1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneB" source="sel" target="invoke">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eB2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneB" source="invoke" target="decode">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eB3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneB" source="decode" target="ladder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eB4" value="gradeable" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneB" source="ladder" target="grade">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eB5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneB" source="grade" target="scorer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eB6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="laneB" source="scorer" target="report">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eX1" value="/cases" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.25;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="casesjson" target="sel">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="135" y="250" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="eX2" value="material — examiner only" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="privkey" target="grade">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" value="Legend" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;verticalAlign=top;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="530" width="330" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1" value="" style="rounded=0;html=1;fillColor=#0a2b1e;strokeColor=#34d399;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="30" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1t" value="you write (the board)" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="28" width="270" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2" value="" style="rounded=0;html=1;fillColor=#1a2233;strokeColor=#8b98ab;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="54" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2t" value="spine owns (never edit)" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="52" width="270" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3" value="" style="shape=cylinder3;html=1;fillColor=#221a33;strokeColor=#a78bfa;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="78" width="30" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3t" value="baked asset" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="78" width="270" height="20" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

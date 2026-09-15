@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="hourglass">
+    <mxGraphModel dx="1200" dy="800" background="#0a0f1c" grid="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="req" value="GradeRequest&#xa;(one script to mark)" style="swimlane;startSize=50;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="320" height="290" as="geometry" />
+        </mxCell>
+        <mxCell id="rf1" value="case_id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="req">
+          <mxGeometry x="20" y="60" width="280" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rf2" value="input: CasePayload (kind=&quot;text&quot;)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="req">
+          <mxGeometry x="20" y="100" width="280" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rf3" value="answer: CasePayload | None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="req">
+          <mxGeometry x="20" y="140" width="280" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="rf4" value="row — YOUR opaque envelope&#xa;(row[&quot;case&quot;] carries refusal etc.)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="req">
+          <mxGeometry x="20" y="180" width="280" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="rf5" value="material — YOUR answer key&#xa;(opaque to the spine)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="req">
+          <mxGeometry x="20" y="234" width="280" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="hook" value="async grade_case&#xa;(may be a network hop —&#xa;an enclave judge)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="450" y="150" width="230" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="out" value="CaseGradeOutcome&#xa;(one marked script)" style="swimlane;startSize=50;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="770" y="60" width="330" height="290" as="geometry" />
+        </mxCell>
+        <mxCell id="of1" value="score: float | None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="out">
+          <mxGeometry x="20" y="60" width="290" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="of2" value="metrics — board vocabulary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="out">
+          <mxGeometry x="20" y="100" width="290" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="of3" value="checks[] — Check/Evidence shapes&#xa;(the judge&#39;s auditable work)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="out">
+          <mxGeometry x="20" y="140" width="290" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="of4" value="failure_code: str | None&#xa;(score XOR failure_code — never both)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="out">
+          <mxGeometry x="20" y="194" width="290" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="eH1" value="in" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="req" target="hook">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eH2" value="out" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="hook" target="out">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="waist" value="THE HOURGLASS WAIST — plain, serializable data ONLY.&#xa;No Path, no engine objects, no callbacks." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="330" y="420" width="480" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="con1" value="enclave judge&#xa;(privacy boundary)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="180" y="540" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="con2" value="inspect_evals&#xa;scorer shim" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="480" y="540" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="con3" value="agentic boards&#xa;(Later)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="780" y="540" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="eW0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#d7b357;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="waist" target="hook">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eW1" value="forces it" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=0;entryX=0.2;entryY=1;" edge="1" parent="1" source="con1" target="waist">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eW2" value="forces it" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="con2" target="waist">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eW3" value="forces it" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=0;entryX=0.8;entryY=1;" edge="1" parent="1" source="con3" target="waist">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
