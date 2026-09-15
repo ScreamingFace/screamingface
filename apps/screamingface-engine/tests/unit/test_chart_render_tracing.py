@@ -48,6 +48,15 @@ def _render(*settings: str) -> list[dict]:
     return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
 
 
+def _render_ns(namespace: str, *settings: str) -> list[dict]:
+    """Render into a specific namespace — `OME-1190`'s attribute default is derived from it."""
+    args = ["helm", "template", _RELEASE, str(_CHART), "-n", namespace, "--set-string", _NATS]
+    for setting in settings:
+        args += ["--set", setting]
+    result = subprocess.run(args, capture_output=True, text=True, check=True)
+    return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+
+
 def _render_error(*settings: str) -> str:
     """Render expecting REFUSAL, and return what helm said. Fails loudly if it succeeded."""
     args = ["helm", "template", _RELEASE, str(_CHART), "--set-string", _NATS]
@@ -83,23 +92,38 @@ def _pool(docs: list[dict]) -> dict:
 # --- off by default ---------------------------------------------------------------------------
 
 
-def test_tracing_is_off_by_default_and_renders_no_otlp_variables() -> None:
-    """`OME-1130` treats an absent endpoint as off, so the default chart must leave it absent.
+def test_tracing_is_ON_by_default_and_points_at_the_in_cluster_collector() -> None:
+    """INVERTED by `OME-1190`, deliberately. This used to assert off-by-default.
 
-    Asserted across the WHOLE manifest rather than one ConfigMap: a stray OTLP name anywhere
-    would turn export on for some deployment, and "off by default" is the property that keeps
-    every existing installation unaffected by this change.
+    ArgoCD merges chart defaults UNDER the deployment's values file, which lives in a repo this
+    project's agent cannot reach — so defaulting here is what actually ships tracing. Defensible
+    ONLY while the chart is unpublished; see the sunset note on `tracing.enabled` in values.yaml.
     """
-    rendered = yaml.safe_dump_all(_render())
+    data = _runner_env(_render())
 
-    for name in (ENDPOINT_VAR, HEADERS_VAR, SERVICE_VAR, ATTRIBUTES_VAR):
-        assert name not in rendered, f"{name} renders by default — tracing must be opt-in"
+    assert data[ENDPOINT_VAR] == "http://signoz-otel-collector.signoz.svc.cluster.local:4318"
 
 
-def test_the_default_values_state_tracing_is_disabled() -> None:
+def test_the_default_values_state_tracing_is_enabled() -> None:
     values = yaml.safe_load((_CHART / "values.yaml").read_text(encoding="utf-8"))
 
-    assert values["tracing"]["enabled"] is False
+    assert values["tracing"]["enabled"] is True
+
+
+def test_the_off_switch_still_works() -> None:
+    """Defaulting ON must not remove the ability to turn it OFF — an operator, or a cluster with
+    no collector, has to be able to render a chart that exports nothing."""
+    rendered = yaml.safe_dump_all(_render("tracing.enabled=false"))
+
+    for name in (ENDPOINT_VAR, HEADERS_VAR, SERVICE_VAR, ATTRIBUTES_VAR):
+        assert name not in rendered, f"{name} renders with tracing explicitly disabled"
+
+
+def test_the_default_endpoint_is_never_the_signoz_UI_hostname() -> None:
+    """The verified footgun, pinned now that the chart ships a default: the UI host answers
+    200 text/html for /v1/traces, OTel treats any 2xx as success, and every span would be
+    discarded while the exporter reported healthy."""
+    assert "signoz.pulse.dev.openmined.org" not in yaml.safe_dump_all(_render())
 
 
 # --- turning it on ------------------------------------------------------------------------
@@ -127,7 +151,7 @@ def test_enabling_tracing_without_an_endpoint_fails_the_render() -> None:
     to prevent, and it is invisible at runtime — there is no error, just an empty trace view.
     Refusing at `helm template` makes that state unrepresentable rather than merely discouraged.
     """
-    stderr = _render_error("tracing.enabled=true")
+    stderr = _render_error("tracing.enabled=true", "tracing.endpoint=")
 
     # helm renders the schema path as `/tracing/endpoint`; the property that matters is that
     # the refusal NAMES the missing value rather than saying "invalid values" and stopping.
@@ -151,6 +175,8 @@ def test_the_template_refuses_too_when_schema_validation_is_skipped() -> None:
             _NATS,
             "--set",
             "tracing.enabled=true",
+            "--set",
+            "tracing.endpoint=",
             "--skip-schema-validation",
         ],
         capture_output=True,
@@ -243,15 +269,50 @@ def test_the_service_name_and_resource_attributes_reach_the_configmap() -> None:
     assert data[ATTRIBUTES_VAR] == "deployment.environment=dev"
 
 
-def test_unset_descriptive_values_are_ABSENT_rather_than_empty() -> None:
+def test_an_unset_service_name_is_ABSENT_rather_than_empty() -> None:
     """Rendering `""` OVERRIDES the code's own default with an empty string rather than leaving
     it unset — the trap `URL4_CLOUD_ARTIFACTS_DIR` documents in this same ConfigMap, where an
     empty path silently became the working directory.
 
     Here it would report every engine span under a blank service name, which in a tracing
     backend is indistinguishable from an unconfigured service.
+
+    UNCHANGED by `OME-1190`. Its sibling assertion about `resourceAttributes` moved into the
+    tests below, because the chart gained a MEANINGFUL default for that one — it knows the
+    namespace, which the code cannot. There is no equivalent for the service name: the code
+    already has the right default, so the chart's job is to stay out of the way.
     """
     data = _runner_env(_render("tracing.enabled=true", "tracing.endpoint=http://collector:4318"))
 
     assert SERVICE_VAR not in data
-    assert ATTRIBUTES_VAR not in data
+
+
+def test_resource_attributes_default_to_the_release_NAMESPACE() -> None:
+    """OME-1190. Without this a preview environment's spans are indistinguishable from dev's:
+    a direct OTLP export carries the app's OWN Resource, and the k8s collector's namespace
+    enrichment applies to the LOGS it scrapes, not to spans an app posts itself."""
+    data = _runner_env(_render_ns("sf-fusion"))
+
+    assert data[ATTRIBUTES_VAR] == "deployment.environment=sf-fusion"
+
+
+def test_the_namespace_attribute_is_DERIVED_not_a_fixed_string() -> None:
+    """The assertion above would pass against a hardcoded `deployment.environment=sf-fusion`.
+    Two namespaces rendering differently is what proves it is computed.
+
+    It also pins the thing most likely to be got wrong: Helm does NOT template values files, so
+    `{{ .Release.Namespace }}` written in values.yaml renders as that literal string.
+    """
+    dev = _runner_env(_render_ns("sf-fusion"))[ATTRIBUTES_VAR]
+    preview = _runner_env(_render_ns("sf-preview-pr-999"))[ATTRIBUTES_VAR]
+
+    assert dev != preview
+    assert "{{" not in preview, "the values file was templated by hand and never evaluated"
+    assert preview == "deployment.environment=sf-preview-pr-999"
+
+
+def test_an_explicit_resource_attributes_value_still_wins() -> None:
+    """A default an operator cannot override is a hardcode wearing a default's clothes."""
+    data = _runner_env(_render_ns("sf-fusion", "tracing.resourceAttributes=team=platform"))
+
+    assert data[ATTRIBUTES_VAR] == "team=platform"
