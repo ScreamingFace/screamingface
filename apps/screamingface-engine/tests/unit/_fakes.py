@@ -156,6 +156,7 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         # change what an already-written assertion means. A test that needs to observe the policy
         # subclasses this and records it there.
         cache: CachePolicy | None = None,
+        client_version: str | None = None,
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)

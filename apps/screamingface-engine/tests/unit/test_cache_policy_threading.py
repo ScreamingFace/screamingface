@@ -234,6 +234,7 @@ class _CacheRecordingRunner(RecordingJobRunner):
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
+        client_version: str | None = None,
     ) -> str:
         self.cache_policies.append(cache)
         return await super().schedule(
