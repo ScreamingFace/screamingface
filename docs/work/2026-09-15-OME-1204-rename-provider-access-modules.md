@@ -48,9 +48,9 @@ started.
 
 - Naming test green; no reference to the old module names in `apps/aigateway` code or the active
   spec/plan; every `aigateway.core.provider_access` export importable under the same name.
-- Focused suite green; `run_gates.py aigateway --base fb4c414e --skip-append-only` ALL GREEN;
+- Focused suite green; `run_gates.py aigateway --base 837ab5b6 --skip-append-only` ALL GREEN;
   the exact append-only check is red only for the accepted rename exception. OpenAPI export
-  byte-identical to `fb4c414e`; `git diff --check` clean; staged index empty (commit is a
+  byte-identical to `837ab5b6`; `git diff --check` clean; staged index empty (commit is a
   separately authorised step).
 
 ## Outcome
@@ -74,22 +74,22 @@ started.
     this ledger and its mirror.
   - Untouched: routes, schemas, stores, `main.py`, the shims, OpenAPI; all 42 names in `__all__`;
     no A2 work.
-- **Commits:** `de395d9e` `refactor(aigateway): drop leading underscores from provider-access
+- **Commits:** `a762e7eb` `refactor(aigateway): drop leading underscores from provider-access
   modules` (body `Refs: OME-1204`). Staged by explicit path after the owner's authorisation of
   2026-09-15; git records seven renames with 97–100 % similarity (R097–R100).
-- **RED → GREEN:** the naming test at `fb4c414e` fails twice, listing exactly `_auth_mode.py,
+- **RED → GREEN:** the naming test at `837ab5b6` fails twice, listing exactly `_auth_mode.py,
   _defaults.py, _ports.py, _selector.py, _types.py` and `_provider_access_fake.py,
   _provider_access_harness.py` (the exemption pin passes); green after the renames.
 - **Gates:**
   - Focused `pytest tests/unit/core/provider_access`: **164 passed** — per-file collection identical
-    to `fb4c414e` (161) plus the 3 new tests; the "170" in the OME-1200 ledger came from a wider
+    to `837ab5b6` (161) plus the 3 new tests; the "170" in the OME-1200 ledger came from a wider
     invocation, no test was lost.
-  - `run_gates.py aigateway --base fb4c414e` (the exact command): **red at the append-only check**,
+  - `run_gates.py aigateway --base 837ab5b6` (the exact command): **red at the append-only check**,
     offenders exactly `D _provider_access_fake.py`, `D _provider_access_harness.py`,
     `M test_provider_access_shims.py (line 197)` — the rename itself; the runner stops there.
-  - `run_gates.py aigateway --base fb4c414e --skip-append-only`: ruff check ✓, ruff format --check ✓,
+  - `run_gates.py aigateway --base 837ab5b6 --skip-append-only`: ruff check ✓, ruff format --check ✓,
     pyright ✓, check_no_enterprise ✓, pytest --cov ≥80 % ✓ — **ALL GATES GREEN**, exit 0.
-  - OpenAPI: `create_app().openapi()` as sorted JSON from the committed `fb4c414e` sources and from
+  - OpenAPI: `create_app().openapi()` as sorted JSON from the committed `837ab5b6` sources and from
     the renamed tree, same method and environment: **byte-identical** (55 563 bytes both).
   - `git diff --check` clean. No residual reference to the old names in the provider-access code,
     the active spec/plan or the umbrella docs; the OME-1200 ledger keeps 15 historical mentions by
@@ -120,11 +120,11 @@ started.
 - **F2 P3 — dependency graph.** Plan §2: `U2` and `U3` now depend on `U1, U1n`, so the rename
   precedes A2 and A3 (D19 binds A3's `profile_admin.py`).
 - **Re-run:** focused suite 164 passed; ruff check and ruff format --check clean; pyright 0 errors;
-  `run_gates.py aigateway --base fb4c414e --skip-append-only` ALL GATES GREEN (exit 0). The exact
+  `run_gates.py aigateway --base 837ab5b6 --skip-append-only` ALL GATES GREEN (exit 0). The exact
   command stays red at the append-only check for the three rename-caused entries, which the owner
   accepted.
 - **Owner-verify:** none.
 - **Corrections (post-commit owner review, 2026-09-15):** facade export count stated as 43,
-  actual 42 at both `fb4c414e` and `de395d9e`; the rename record now states only the verifiable
+  actual 42 at both `837ab5b6` and `a762e7eb`; the rename record now states only the verifiable
   git result (seven renames, 97–100 % similarity) instead of the command used. The commit holds
   23 paths: 16 code/test entries and 7 Markdown files.
