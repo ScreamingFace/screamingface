@@ -399,9 +399,6 @@ whether that is benign depends entirely on what the fallback means: a byte count
 default, a storage LOCATION does not. Both directions are now checked —
 `test_deploy_time_chart_contract.py` asserts the chart actually writes these."""
 
-ACTIVITY_LEVEL = "URL4_CLOUD_ACTIVITY_LEVEL"
-"""Deployment-owned full/off activity policy; absent means off, never request-controlled."""
-
 DEPLOY_TIME = frozenset(
     {
         NATS_URL,
@@ -413,7 +410,6 @@ DEPLOY_TIME = frozenset(
         RESULT_INLINE_CAP_BYTES,
         RESULT_HARD_CAP_BYTES,
         BRIDGE_MEMORY_BUDGET_BYTES,
-        ACTIVITY_LEVEL,
         ARTIFACT_STORE,
         ARTIFACT_S3_ENDPOINT_URL,
         ARTIFACT_S3_BUCKET,

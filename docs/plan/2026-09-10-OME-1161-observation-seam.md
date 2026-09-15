@@ -1,31 +1,34 @@
-# OME-1161 — Complete model-activity producer
+# OME-1161 — Plugin and deployment review split
 
-Owner update, 2026-09-15: combine the remaining plugin work into PR 931 against main.
-This replaces the earlier split and its 500-line cap for this PR. Report the complete diff,
-including tests/docs, and preserve the rationale and reviewable module boundaries.
+Owner update, 2026-09-15: keep plugin implementation in PR 931 against main and mark it
+ready for review. Stack deployment/integration as a separate draft; rebase that child onto
+main after 931 merges. This supersedes the combined-PR plan, without a 500-line cap.
 
 ## Delivered foundation
 
-PR 897 merged the design, PR 899 the observation ports, and PR 915 the generic execution
-integration and OME-1201 latency contract. Core reports execution facts; the activity
-plugin owns schema, policy, identity, admission and heartbeat resources.
+PR 897 merged the design, PR 899 the observation ports, and PR 915 generic execution
+integration and the OME-1201 prompt inline-hook contract. No generic core edits are needed.
 
-## Combined PR 931
+## PR 931: plugin implementation
 
-1. Keep the current activity contract/session and direct tests, including the fix that
-   excludes uncertain sink delivery from producer-suppression counters.
-2. Restore operation scopes, fixed 60-second heartbeats and the activity observer.
-3. Restore local/deployed entry-point registration, full/off settings and Helm wiring.
-4. Restore lifecycle/stream/deployment/removal tests and verify with fake providers.
-5. Run full Engine gates, Helm renders and independent Standards/Spec reviews.
+Keep activity schema, safe fields, rolling admission/session, operation lifecycle, observer,
+fixed heartbeats and direct tests. Preserve sink-loss accounting, interruption-safe collective
+timer cleanup and inert disabled callbacks. This PR does not register or enable the plugin.
 
-The generic executor factory keeps its explicit empty-by-default observer argument.
-Do not add activity imports to connector/executor or change requests, retries or results.
+## Stacked draft: deployment and integration
 
-## Preservation and follow-ups
+Move observation registration, local/worker configuration, Helm wiring and deployment,
+run-scope, stream/Client-decoding and removal tests here. Preserve explicit local Settings
+precedence and run-level disabled masking. This is the PR that makes deployment full/off
+selectable; generic executor defaults stay empty. It depends on PR 931 and stays draft.
+After 931 merges, rebase only the child's commits onto main and retarget its base.
 
-The complete snapshot is 2bc435bb on OME-1161-complete-plugin-preserved. Extract only
-missing components; its old session must not overwrite the sink-accounting fix.
-Use the same shared spec, plan, task mirror and ledger. Keep the ticket open until merge.
-Client rendering, benchmark-stage producers, semantic attribution and provisional scores
-remain separate. PR 931 completes the planned Engine model-call producer, not full-stage UI.
+## Verification and scope
+
+Both branches run full Engine gates. The combined runtime must match f418f53e exactly;
+relocated direct observer tests plus child integration tests preserve all prior coverage.
+Review both axes and report each PR's actual diff. Keep the same shared spec, plan, task
+mirror and work ledger. OME-1161 remains open until both PRs merge.
+
+Client rendering, benchmark-stage producers, semantic attribution, aggregate policy and
+provisional scores remain separate. This pair completes the Engine model-call producer.

@@ -10,11 +10,11 @@ closed:
 # Stream safe model-call activity
 
 PRs 897, 899 and 915 merged the design, interfaces and generic execution integration.
-PR 931 now combines the complete activity producer with owner approval (2026-09-15):
-record contract, admission, operation lifecycle/adapter, fixed heartbeats, deployment full/off
-registration and end-to-end verification. The larger combined diff replaces the earlier split.
-Keep the sink-accounting correction and current tests; extract deferred code from 2bc435bb.
-This feature remains In Review until merge. Client rendering, benchmark-stage producers
+Owner update (2026-09-15): PR 931 contains the plugin and direct tests, ready for review.
+Deployment registration, settings/Helm and integration tests are a dependent stacked draft.
+Keep all review fixes, including sink accounting, interrupted cleanup, disabled bookkeeping
+and explicit local Settings precedence. Rebase the child onto main after 931 merges.
+The feature stays In Review until both land. Client rendering, benchmark-stage producers
 and provisional scores remain separate.
 
 [Spec](../spec/2026-09-10-OME-1161-observation-seam.md) ·

@@ -3,9 +3,10 @@
 Approved direction, 2026-09-10. This documents the execution interface supporting the
 activity contract in `docs/spec/2026-09-09-OME-887-evaluation-activity.md`.
 The generic foundation is merged in PRs 899 and 915. Owner update (2026-09-15): PR 931
-combines the complete model-activity plugin, deployment wiring and tests against main.
-The earlier 500-line split is superseded for this combined draft. Core interfaces and
-execution hooks remain independent of activity policy.
+contains plugin implementation and direct tests, ready for review against main. Deployment
+registration/configuration and integration tests land in a stacked draft, rebased onto main
+after 931 merges. The pair delivers model-call activity; 931 alone does not enable it.
+Core interfaces and execution hooks remain independent of activity policy.
 
 ## Problem and useful behavior
 

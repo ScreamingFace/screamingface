@@ -132,3 +132,22 @@ and Spec reviews found no remaining issues. Existing tests, generic observation 
 connector, executor and sink-accounting fix are unchanged. Shared cleanup serves operation
 and run teardown; the disabled singleton has no state. No latency enforcement or timer-count
 limit was added; simulated tests are not production-load evidence. Ready for PR review.
+
+## Two-PR review split (2026-09-15)
+
+Owner requested plugin implementation in PR 931, ready for review, with deployment and
+integration stacked above it as a draft. Preserve full reviewed head f418f53e on
+OME-1161-activity-complete-20260915. Reuse this ledger and the existing spec/plan/task.
+Plan: keep activity package, contract/scope tests and direct observer cleanup/off regressions
+in 931; move registration, deployment configuration and all integration tests to the child.
+Move tests with their implementation without removing coverage from the combined stack.
+Acceptance: both Engine gate runs green, combined runtime tree identical to f418f53e,
+all prior tests represented, Standards/Spec review, clear dependency and rebase instructions.
+Outcome: both standalone plugin and combined deployment branches passed full Engine gates.
+Standards and Spec reviews found no actionable issues. Combined source/deployment files
+match f418f53e byte-for-byte; AST comparison confirms every moved test/helper body is
+unchanged. Cleanup/off tests now live in test_activity_observer.py; remaining run-scope
+coverage stays with deployment. No behavior redesign or benchmark-stage instrumentation.
+PR 931 is the ready-for-review parent; OME-1161-activity-deployment is the dependent draft.
+After parent squash-merge, rebase only the child's commit(s) onto main, retarget and rerun
+gates before promoting the draft. Keep OME-1161 open until both PRs land.
