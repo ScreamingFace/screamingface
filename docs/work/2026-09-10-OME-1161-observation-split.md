@@ -151,3 +151,19 @@ coverage stays with deployment. No behavior redesign or benchmark-stage instrume
 PR 931 is the ready-for-review parent; OME-1161-activity-deployment is the dependent draft.
 After parent squash-merge, rebase only the child's commit(s) onto main, retarget and rerun
 gates before promoting the draft. Keep OME-1161 open until both PRs land.
+
+## Injected environment precedence correction (2026-09-15)
+
+Reported on draft 935: create_local_app(env={activity: off}) under ambient full creates
+Settings from the process environment and mistakenly treats its populated fields as an
+explicit caller override. Intent: supplied configured Settings > injected environment >
+process environment when env is omitted > off. An injected mapping replaces ambient runner
+configuration, including when empty. Preserve unrelated Settings loading behavior.
+Plan/tests: distinguish supplied Settings before defaults are constructed; regressions for
+both conflicting directions and empty injected mapping; preserve existing explicit Settings
+and invalid-policy tests. Run deployment tests, full gates and review before push.
+Outcome: four regression cases reproduced the two conflicting directions, empty mapping
+and invalid shadowed ambient value; two additional cases preserve omitted-env behavior.
+All 19 deployment-policy cases and full Engine gates pass. Standards/Spec reviews found no
+remaining issues. Automatic Settings construction receives the selected policy, preserving
+unrelated environment-loaded configuration. No parent PR or plugin behavior changes.

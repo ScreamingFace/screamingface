@@ -131,3 +131,48 @@ async def test_unset_local_settings_keep_injected_activity_policy(monkeypatch):
     finally:
         await observers.aclose()
         await app.state.job_runner.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ambient,injected,enabled",
+    [
+        ("full", "off", False),
+        ("off", "full", True),
+        ("full", None, False),
+        ("limited", "off", False),
+    ],
+)
+async def test_injected_environment_wins_when_settings_are_not_supplied(
+    monkeypatch, ambient, injected, enabled
+):
+    from screamingface_engine.activity.session import current_session
+    from screamingface_engine.local import create_local_app
+
+    monkeypatch.setenv("URL4_CLOUD_ACTIVITY_LEVEL", ambient)
+    env = {} if injected is None else {"URL4_CLOUD_ACTIVITY_LEVEL": injected}
+    app = create_local_app(env=env)
+    observers = RunObservations(app.state.job_runner._factory.keywords["observers"])
+    try:
+        with observers.bind():
+            assert (current_session() is not None) == enabled
+    finally:
+        await observers.aclose()
+        await app.state.job_runner.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ambient", ["off", "full"])
+async def test_omitted_environment_uses_process_activity_policy(monkeypatch, ambient):
+    from screamingface_engine.activity.session import current_session
+    from screamingface_engine.local import create_local_app
+
+    monkeypatch.setenv("URL4_CLOUD_ACTIVITY_LEVEL", ambient)
+    app = create_local_app()
+    observers = RunObservations(app.state.job_runner._factory.keywords["observers"])
+    try:
+        with observers.bind():
+            assert (current_session() is not None) == (ambient == "full")
+    finally:
+        await observers.aclose()
+        await app.state.job_runner.aclose()
