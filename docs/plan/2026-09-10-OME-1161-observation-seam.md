@@ -1,44 +1,31 @@
-Owner update, 2026-09-14: split PR 931 into contract/admission first, lifecycle/adapter
-second, then deployment/end-to-end verification. Complete plugin preserved at 2bc435bb.
-PR 915 merged at c9c6761f; PR 931 now targets main. The first slice enables no producer.
-Preserve deferred tests with their implementation.
+# OME-1161 — Complete model-activity producer
 
-Update, 2026-09-14: PR 899 merged at dcaba228. PR 915 is rebased onto main; the
-temporary stack is removed. Preferred remaining split: integration, then the complete
-activity plugin. Integration retains the 500-line cap; plugin size is reviewed separately.
+Owner update, 2026-09-15: combine the remaining plugin work into PR 931 against main.
+This replaces the earlier split and its 500-line cap for this PR. Report the complete diff,
+including tests/docs, and preserve the rationale and reviewable module boundaries.
 
-# OME-1161 — Docs first, then sequential code PRs
+## Delivered foundation
 
-PR 897 reviews the shared design and delivery plan only. Every subsequent PR starts from
-updated origin/main after its predecessor merges. No stacked PRs. Maximum 500 changed lines
-per PR means additions plus deletions across production code, tests and docs, not net growth.
-Check the final diff against main before opening/pushing; subdivide any unit exceeding the cap.
+PR 897 merged the design, PR 899 the observation ports, and PR 915 the generic execution
+integration and OME-1201 latency contract. Core reports execution facts; the activity
+plugin owns schema, policy, identity, admission and heartbeat resources.
 
-## Proposed code units
+## Combined PR 931
 
-1. Observation ports/dispatch and unit tests (preserved source/test files total 407 lines).
-2. Connector/executor/run-wrapper/composition hooks and integration tests.
-3. Activity schema and bounded admission, with tests.
-4. Operation scopes and heartbeat lifetime, with tests.
-5. Model-call activity adapter and stream tests; subdivide if over the cap.
-6. Deployment full/off policy and wiring, with tests.
+1. Keep the current activity contract/session and direct tests, including the fix that
+   excludes uncertain sink delivery from producer-suppression counters.
+2. Restore operation scopes, fixed 60-second heartbeats and the activity observer.
+3. Restore local/deployed entry-point registration, full/off settings and Helm wiring.
+4. Restore lifecycle/stream/deployment/removal tests and verify with fake providers.
+5. Run full Engine gates, Helm renders and independent Standards/Spec reviews.
 
-These are review boundaries, not a promise to squeeze six units under the cap. Split further
-where the measured diff requires it; never reduce meaningful tests to meet the line budget.
-Each description retains its problem, justification, ownership, evidence and follow-up scope.
+The generic executor factory keeps its explicit empty-by-default observer argument.
+Do not add activity imports to connector/executor or change requests, retries or results.
 
-## Preserved implementation and verification
+## Preservation and follow-ups
 
-Local branches retain ports at `OME-1161-ports-preserved` (f9aa283f), integrated foundation
-at `OME-1161-foundation-preserved` (1344cb62), and complete activity at
-`OME-1161-activity-preserved` (01b3a0f1). All passed Engine gates before preservation.
-Restore only each unit's files/tests and reconcile with merged main; never overwrite previously
-landed tests. The two activity-only tests in the complete seam-test file belong with activity.
-Re-run gates and review independently after each extraction; old results do not replace checks.
-
-Use one shared spec, plan, task mirror and work ledger for OME-1161, updating these same files
-across deliveries. Keep the overall ticket open until activity is delivered; the docs/interface
-PRs alone do not provide researcher logging. Do not open later PRs before predecessors merge.
-
-OME-1201: add protocol documentation and a caller-task/inline-ordering test to PR 915;
-no dispatch changes. Rebase PR 931 after this commit lands on the integration branch.
+The complete snapshot is 2bc435bb on OME-1161-complete-plugin-preserved. Extract only
+missing components; its old session must not overwrite the sink-accounting fix.
+Use the same shared spec, plan, task mirror and ledger. Keep the ticket open until merge.
+Client rendering, benchmark-stage producers, semantic attribution and provisional scores
+remain separate. PR 931 completes the planned Engine model-call producer, not full-stage UI.

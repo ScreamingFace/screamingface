@@ -97,3 +97,18 @@ this corrected session, not restore the stale copy from the complete-plugin snap
 
 PR 915 merged at c9c6761f; PR 931 rebased onto main without conflicts (2026-09-14).
 Full Engine gates passed against main; Standards and Spec reviews found no actionable issues.
+
+## Restore complete producer into PR 931 (2026-09-15)
+
+Owner explicitly chose one combined draft again, accepting the larger review size.
+Plan: restore lifecycle/adapter, deployment composition and deferred tests from 2bc435bb,
+while preserving current contract/session, direct tests and the sink-accounting correction.
+Do not restore the stale session from the snapshot. Keep generic core interfaces unchanged.
+Acceptance: model outcomes/retries/cancellation, fixed heartbeat/revocation, real wire and
+Client decoding, deployment precedence, plugin removal, Helm validation, full Engine gates
+and both review axes. Keep PR 931 on main; no additional model-activity Engine PR planned.
+Outcome: restored the complete producer, preserving the sink-accounting fix and all direct
+regressions. Generic observation interfaces, connector and executor are unchanged. All 78
+focused tests and full Engine gates passed. Standards and Spec reviews found no actionable
+issues. Helm renders full/off correctly and rejects aggregate. Benchmark-stage logging and
+Client UI remain outside this delivery; PR stays draft pending review and merge.
