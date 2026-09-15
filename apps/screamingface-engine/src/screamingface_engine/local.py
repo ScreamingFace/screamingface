@@ -146,6 +146,20 @@ def _with_local_gateway(settings: Settings) -> Settings:
     return settings.model_copy(update={"aigateway_base_url": settings.local_aigateway_base_url})
 
 
+def _local_activity_configuration(
+    supplied: Settings | None, env: Mapping[str, str] | None
+) -> tuple[Settings, str]:
+    # WHY: environment-loaded fields are also in model_fields_set. Only a supplied
+    # Settings object may override injected env; auto-created Settings must not do so.
+    source = env if env is not None else os.environ
+    level = (
+        supplied.activity_level
+        if supplied is not None and "activity_level" in supplied.model_fields_set
+        else source.get(job_env.ACTIVITY_LEVEL, "off")
+    )
+    return supplied or Settings.model_validate({"activity_level": level}), level
+
+
 def create_local_app(
     settings: Settings | None = None,
     *,
@@ -158,7 +172,7 @@ def create_local_app(
     Job would receive via `envFrom`); it defaults to the process environment and is a parameter
     so tests need not mutate `os.environ`.
     """
-    settings = settings or Settings()
+    settings, activity_level = _local_activity_configuration(settings, env)
     _warn_if_insecure(settings)
     _configure_engine_logging()
 
@@ -171,9 +185,12 @@ def create_local_app(
     # any import of this module. What it defers is `runner.connector`/`runner.executor` and httpx
     # — not the engine itself, which `url4/__init__` has already pulled in via any `url4.streaming`
     # import (see the SCOPE NOTE in `check_layering.py`).
+    from screamingface_engine.observation_plugins import observation_factories
     from screamingface_engine.runner.main import build_executor
 
-    run_env = _with_runner_config(env if env is not None else os.environ)
+    run_env = dict(_with_runner_config(env if env is not None else os.environ))
+    run_env[job_env.ACTIVITY_LEVEL] = activity_level
+    observers = observation_factories(run_env)
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)
     # INVARIANT: the local default is substituted ONCE, here, before anything reads the address —
@@ -194,7 +211,7 @@ def create_local_app(
     io_gate = FairShareGate(settings.local_io_capacity)
     job_runner = InProcessJobRunner(
         stream,
-        partial(build_executor, benchmarks=benchmarks, io_gate=io_gate),
+        partial(build_executor, benchmarks=benchmarks, io_gate=io_gate, observers=observers),
         base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
