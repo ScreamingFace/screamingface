@@ -1,9 +1,9 @@
 ---
 ticket: OME-1110
 stack: repo
-status: done
+status: in-progress
 started: 2026-09-04
-finished: 2026-09-04
+finished:
 ---
 
 # OME-1110 — Reframe url4 topology: node, host, discovery, addressing, transport (spec + PDF)
@@ -95,3 +95,65 @@ No code. Verification gates:
   renders from one source: core (§0–§9 + Appendix C/D, 16 pages) and open-work (§10–§13 +
   Appendix A/B, 10 pages). New §13: url4 as a network protocol (submit, not call; peer-to-peer
   resolution) recorded as a question with what the spec already gives it and what is new.
+  (14) 2026-09-15, owner: reconcile against **Kevin's reply** — `OpenMined/screamingface-design`
+  PR #19 (`url4/terminology-refresh`, **draft**, one commit `2a939bff`, opened 2026-09-15, no
+  reviews, branched off `main` — *not* `url4-refactor`). It rewrites Part A §1.4 from one flat
+  26-row table into five sub-tables (1.4.1 Grammar · 1.4.2 Network · 1.4.3 Expression Processing ·
+  1.4.4 Transport · 1.4.5 General) and absorbs most of our Appendix D into the spec. **Kevin's text
+  has priority wherever the two differ.** Scope of this round is recorded below.
+
+## Round 2026-09-15 — reconciliation with Part A §1.4 (PR #19) + committed builder
+
+**Why a continuation of OME-1110, not a new item.** Linear had OME-1110 *In Review* and draft PR
+[#838](https://github.com/ScreamingFace/screamingface/pull/838) open on `OME-1110-url4-topology`
+(14 commits ahead of `main`): the document has never landed. Kevin's PR #19 is review feedback on
+an unmerged deliverable, so it continues this unit rather than splitting one document across two
+issues and two PRs. Issue moved back to In Progress; this ledger is reopened rather than replaced.
+
+**Adopted by Kevin from our Appendix A / Appendix D** — `Mount` (our three kinds verbatim),
+`Evaluator` / `Evaluation`, `Dry run`, `Degradation`, `Response ladder` (WS → SSE → sync),
+`Scheme adapter`, `Flow constraints`, `Attribution`, `Collection`, `Holdings`, `Request Tree`,
+`Run handle`, the `Accept: application/url4-envelope+json` envelope switch, and `websocket` as a
+fourth `delivery` value. Appendix A deltas 1, 4, 7, 9, 10 have therefore landed; delta 1
+("endpoint kinds") is superseded — Kevin kept Node/Endpoint and added `Node address` and
+`Endpoint path`.
+
+**Decisions locked by the owner this round**
+
+1. **Appendix D → crosswalk.** The 2-page parallel glossary is replaced by a one-page
+   `our term → Part A §1.4.x → adopted / delta / still ours` table, moved beside §12 in the
+   open-work render: it is a delta record, and core is better as purely the settled definitions.
+2. **host vs node — flag as erratum, stay node-only.** Our prose keeps zero uses of "host".
+3. **Commit the builder** to `docs/tools/specpdf/`.
+
+**New Appendix A deltas this round** — (13) host vs node: `Host system` is welcome in §1.4.2 as a
+deployment word, but §1.4.4 `Delivery mode` / `Response ladder` and the §1.4.3 `Scheme adapter`
+row all write "host" where the actor is the **node**; (14) `Request Tree` lost its strictness
+("an evaluator may expand the tree") against Part H §29.1; (15) our doctrine numbering leaked into
+the spec — the `Mount` row cites "**N4**", which is `.claude/skills/url4-engine/SKILL.md`, not a
+spec anchor; (16) `Holdings` carries `Collection`'s anchors (Part B §5.3, Part G §27.4) where ours
+had Part B §5.6, and `Self-reference` / `Identity-reference` were dropped as rows — confirm the
+fold is intentional; (17) branch/anchor hazard — PR #19 targets `main`, where Parts C–I are "Not
+yet written" stubs, yet its new rows cite Part C §10.2, Part G §27.3 and Part H §31, which resolve
+only on `url4-refactor`; (18) typos: "Inter-host **tone**" → token, "Request **identifer**" ×2,
+"Extention", unclosed bold in "nested **Expression\*" and "one or more **nodes\*", "ore more",
+"executing **then** intent", "advertising **a its** collections", stray `.` in `Scheme adapter`.
+
+**The build had to be reconstructed, not re-run.** Deviation (2) above put the pandoc → SFDS CSS →
+WeasyPrint pipeline, the core/open-work split and the SVG diagram generator in the session
+scratchpad; `/private/tmp/…/4eaaa65c-…/scratchpad/build/` has since been emptied by the tmp
+reaper. The committed SVGs were the only surviving diagram artifact and the `weasyprint` on PATH
+is still broken (tinycss2 mismatch, deviation 2). Hence decision 3: `docs/tools/specpdf/` now
+carries `build.py`, `sfds-print.css`, `diagrams.py`, `split.toml`, vendored Plex fonts and a
+pinned WeasyPrint, so the next revision recompiles instead of reconstructing. This also retires
+deviation (3) — the build no longer depends on `~/Library/Fonts`.
+
+**Layout defects fixed in the same pass** (all verified against the 2026-09-08 renders): the
+"Three candidate mechanisms" table on open-work p4–p5 overlapped its own cells
+("Whereredentialslive", "Policy,disclosure,cache,budgets,ratelimits"); core p6 (§5) and p8 (§6)
+each stranded ~40% of a page under an orphaned heading; neither PDF carried bookmarks, a TOC or a
+single internal link across 240+ `§` cross-references; both files shared one `/Title`.
+
+**Risk.** PR #19 is a draft opened hours before this round and can change. The front matter, §12
+and the crosswalk pin `2a939bff`; Appendix B carries a re-review follow-up for when it leaves
+draft.

@@ -374,7 +374,7 @@ The `url4-refactor` branch of `OpenMined/screamingface-design` carries draft Par
 | Telemetry events, cost event | ours | 21 SSE types (Part C §12.5); `total_cost` scalar, `budgets_spent` (Part D §17, Part E §24) | kept as additions, roll-up mapped to `total_cost` |
 | Statelessness | every endpoint keeps nothing | the coordinating node owns an agent session and transcript (Part G §28) | §3: state on the node, endpoints stay stateless |
 | Node-minted tokens | egress mints T(B) | originator encrypts every token; intermediaries forward or hold (Part H §31.2, §31.5) | §11 corrected: node forwards, mints only its internal session |
-| Non-HTTP credentials | node's own | `target_type` is `abc_node | http_source` only (Part H §31.4) | stated; question for Kevin |
+| Non-HTTP credentials | node's own | `target_type` is `abc_node \| http_source` only (Part H §31.4) | stated; question for Kevin |
 | Artifacts and proxies | free to forward | flow constraints and redistribution depth (Part H §29.2.2) | cautions added to §4 and §8 |
 | Root `/` | ours | unaddressed; examples use bare `abc://node?q=` (Part I §41.27); `v` param outranks the path (Part D §19.4) | kept; tensions listed in §2 |
 | Cancel | `DELETE` on `Location` | `DELETE <poll_url>` or `cancel=<rid>` (Part C §16.2); `cancelled` not in the status enum (Part D §17.4) | `DELETE <poll_url>`; enum gap flagged |

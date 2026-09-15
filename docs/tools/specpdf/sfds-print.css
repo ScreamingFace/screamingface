@@ -1,0 +1,256 @@
+/* SFDS dark print register for the OME-1110 url4 topology document.
+ *
+ * Palette is the screamingface-design [data-theme="dark"] scale, inlined because WeasyPrint
+ * renders a standalone file with no design-system build step. Keep the values in step with
+ * .claude/skills/screamingface-design/reference/tokens.css — this is the brand law.
+ */
+
+:root {
+  --bg: #05070b;
+  --surface: #0c0f13;
+  --surface-2: #15181c;
+  --border: #44484d;
+  --line: #35383d;
+  --text: #e0e5eb;
+  --text-2: #c8ccd2;
+  --text-3: #585c61;
+  --code: #ffdebb;          /* gain-text-high — literals, paths, headers */
+  --accent: #75affe;        /* accent-solid   — callout rules, links */
+  --accent-text: #d2e6ff;
+
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", Menlo, monospace;
+}
+
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; src: url("fonts/IBMPlexSans-400.ttf"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; src: url("fonts/IBMPlexSans-500.ttf"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; src: url("fonts/IBMPlexSans-600.ttf"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url("fonts/IBMPlexMono-400.ttf"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url("fonts/IBMPlexMono-500.ttf"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 600; src: url("fonts/IBMPlexMono-600.ttf"); }
+
+/* ---- page ---------------------------------------------------------------- */
+
+@page {
+  size: A4;
+  margin: 52pt 42pt 48pt;
+  background: var(--bg);
+
+  @top-left    { font: 500 7.5pt var(--mono); letter-spacing: .09em; color: var(--text-2); }
+  @top-right   { font: 400 7.5pt var(--mono); color: var(--text-3); }
+  @bottom-left { font: 400 7.5pt var(--mono); color: var(--text-3); }
+  @bottom-right {
+    content: "page " counter(page) " of " counter(pages);
+    font: 400 7.5pt var(--mono); color: var(--text-3);
+  }
+}
+
+/* The title page carries the brand, not the running furniture. */
+@page :first {
+  @top-left { content: ""; } @top-right { content: ""; }
+}
+
+html { background: var(--bg); }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 9.3pt/1.55 var(--sans);
+  orphans: 3;
+  widows: 3;
+}
+
+/* ---- title page ---------------------------------------------------------- */
+
+.title-page { break-after: page; padding-top: 168pt; }
+
+.title-page .kicker {
+  margin: 0 0 18pt;
+  font: 600 8pt var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #ffbf76;
+}
+
+.doc-title {
+  margin: 0;
+  font: 600 25pt/1.2 var(--sans);
+  letter-spacing: -.01em;
+  color: var(--text);
+  border: 0;
+  padding: 0;
+}
+
+.doc-subtitle { margin: 10pt 0 0; font: 400 12pt var(--sans); color: var(--text-2); }
+
+.title-page .meta {
+  width: 100%;
+  margin: 34pt 0 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 10pt 0;
+  font-size: 8.5pt;
+}
+
+.title-page .meta th {
+  width: 23%;
+  padding: 1.5pt 0;
+  text-align: left;
+  vertical-align: top;
+  font: 500 7.5pt var(--mono);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  background: none;
+  border: 0;
+}
+
+.title-page .meta td {
+  padding: 1.5pt 0;
+  vertical-align: top;
+  color: var(--text-2);
+  border: 0;
+  background: none;
+}
+
+.title-page .strapline {
+  margin: 14pt 0 0;
+  font: 400 8.5pt/1.6 var(--mono);
+  color: var(--text-3);
+  white-space: pre-line;
+}
+
+/* ---- headings ------------------------------------------------------------ */
+
+h1 {
+  margin: 22pt 0 8pt;
+  padding-top: 10pt;
+  border-top: 1px solid var(--line);
+  font: 600 15pt/1.3 var(--sans);
+  color: var(--text);
+  /* A heading stranded at the foot of a page with its content overleaf wastes half a sheet;
+     this is what left core p6 and p8 40% empty in the 2026-09-08 render. */
+  break-after: avoid;
+  bookmark-level: 1;
+  bookmark-label: content();
+}
+
+.doc-section:first-of-type h1, .intro h1 { margin-top: 0; }
+
+h2 {
+  margin: 15pt 0 5pt;
+  font: 600 10.5pt var(--sans);
+  color: var(--text);
+  break-after: avoid;
+  bookmark-level: 2;
+}
+
+h3 { margin: 12pt 0 4pt; font: 600 9.5pt var(--sans); color: var(--text-2); break-after: avoid; }
+
+p { margin: 0 0 7pt; }
+strong { font-weight: 600; color: var(--text); }
+a { color: inherit; text-decoration: none; }
+a.xref { color: var(--accent-text); }
+
+ul, ol { margin: 0 0 7pt; padding-left: 14pt; }
+li { margin-bottom: 3pt; }
+li::marker { color: var(--text-3); }
+
+/* ---- code ---------------------------------------------------------------- */
+
+code {
+  font: 400 8.3pt var(--mono);
+  color: var(--code);
+  background: var(--surface-2);
+  padding: .5pt 2.5pt;
+  border-radius: 2px;
+  /* Long URIs and header names must be allowed to break, or they push a table column wide. */
+  word-break: break-word;
+}
+
+pre {
+  margin: 8pt 0 10pt;
+  padding: 9pt 11pt;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  break-inside: avoid;
+}
+
+pre code { font-size: 8pt; color: var(--text-2); background: none; padding: 0; }
+
+/* ---- tables -------------------------------------------------------------- */
+
+table {
+  width: 100%;
+  margin: 9pt 0 11pt;
+  border-collapse: collapse;
+  font-size: 8.4pt;
+  break-inside: auto;
+}
+
+thead { display: table-header-group; }   /* repeat the header when a table splits a page */
+tr { break-inside: avoid; }
+
+th {
+  padding: 5pt 7pt 5pt 0;
+  text-align: left;
+  vertical-align: bottom;
+  font: 500 7.3pt var(--mono);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  padding: 5pt 7pt 5pt 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+}
+
+td:last-child, th:last-child { padding-right: 0; }
+tbody tr:nth-child(even) { background: var(--surface); }
+.title-page .meta tr { background: none; }
+td strong { color: var(--text); }
+
+/* A matrix table — one whose first header cell is empty, so column 1 holds row labels rather
+ * than a heading. Auto layout gives that column almost no width and the labels then overlap
+ * their neighbour, which is what mangled "Three candidate mechanisms" on open-work p4-p5.
+ * build.py tags these; fixed layout with an explicit first column is the fix. */
+table.matrix { table-layout: fixed; }
+table.matrix th:first-child, table.matrix td:first-child { width: 20%; padding-right: 10pt; }
+table.matrix td { word-break: break-word; }
+
+/* ---- figures ------------------------------------------------------------- */
+
+figure, p:has(> img:only-child) {
+  margin: 11pt 0 12pt;
+  padding: 10pt;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  break-inside: avoid;
+  text-align: center;
+}
+
+img { width: 100%; height: auto; }
+
+/* ---- callouts ------------------------------------------------------------ */
+
+blockquote {
+  margin: 11pt 0;
+  padding: 9pt 12pt;
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+  color: var(--text-2);
+  break-inside: avoid;
+}
+
+blockquote p:last-child { margin-bottom: 0; }
+
+hr { height: 0; margin: 14pt 0; border: 0; border-top: 1px solid var(--line); }
