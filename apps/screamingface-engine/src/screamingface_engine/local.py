@@ -146,6 +146,20 @@ def _with_local_gateway(settings: Settings) -> Settings:
     return settings.model_copy(update={"aigateway_base_url": settings.local_aigateway_base_url})
 
 
+def _local_activity_configuration(
+    supplied: Settings | None, env: Mapping[str, str] | None
+) -> tuple[Settings, str]:
+    # WHY: environment-loaded fields are also in model_fields_set. Only a supplied
+    # Settings object may override injected env; auto-created Settings must not do so.
+    source = env if env is not None else os.environ
+    level = (
+        supplied.activity_level
+        if supplied is not None and "activity_level" in supplied.model_fields_set
+        else source.get(job_env.ACTIVITY_LEVEL, "off")
+    )
+    return supplied or Settings.model_validate({"activity_level": level}), level
+
+
 def create_local_app(
     settings: Settings | None = None,
     *,
@@ -158,7 +172,7 @@ def create_local_app(
     Job would receive via `envFrom`); it defaults to the process environment and is a parameter
     so tests need not mutate `os.environ`.
     """
-    settings = settings or Settings()
+    settings, activity_level = _local_activity_configuration(settings, env)
     _warn_if_insecure(settings)
     _configure_engine_logging()
 
@@ -175,12 +189,7 @@ def create_local_app(
     from screamingface_engine.runner.main import build_executor
 
     run_env = dict(_with_runner_config(env if env is not None else os.environ))
-    # WHY: configured Settings win; only an unset default falls back to injected env.
-    run_env[job_env.ACTIVITY_LEVEL] = (
-        settings.activity_level
-        if "activity_level" in settings.model_fields_set
-        else run_env.get(job_env.ACTIVITY_LEVEL, settings.activity_level)
-    )
+    run_env[job_env.ACTIVITY_LEVEL] = activity_level
     observers = observation_factories(run_env)
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)
