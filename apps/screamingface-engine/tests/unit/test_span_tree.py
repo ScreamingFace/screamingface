@@ -14,6 +14,7 @@ a run that never happened, which is worse than a visibly short trace.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Literal
 
 from screamingface_engine.tracing.span_tree import build_span_tree
@@ -165,3 +166,60 @@ def test_an_empty_stream_yields_no_spans_and_no_trace() -> None:
 
     assert tree.spans == ()
     assert tree.trace_id is None
+
+
+# --- money survives the trip onto the attribute bag -------------------------------------------
+
+
+def test_a_saved_cost_becomes_an_exact_decimal_string_attribute() -> None:
+    # `cache_saved_cost_usd` is the first Decimal ever carried on `SpanData`, and OTel attributes
+    # admit no such type: the OTLP encoder rejects it and only LOGS, so an uncoerced Decimal
+    # disappears from the exported span instead of failing loudly. It must arrive as text.
+    frame = span_event("a" * 16)
+    frame = frame.model_copy(
+        update={
+            "data": frame.data.model_copy(
+                update={
+                    "cache_saved_cost_usd": Decimal("0.0125"),
+                    "cache_saved_cost_archive_usd": Decimal("5"),
+                }
+            )
+        }
+    )
+
+    attributes = build_span_tree([frame]).spans[0].attributes
+
+    # Both totals make the trip, and each stays its own attribute: a backend may sum EITHER
+    # across a run's spans and land on the matching run total, and has no attribute to reach
+    # for that would combine them.
+    assert attributes["url4.cache_saved_cost_usd"] == "0.0125"
+    assert attributes["url4.cache_saved_cost_archive_usd"] == "5"
+
+
+def test_a_small_saved_cost_is_never_rendered_in_scientific_notation() -> None:
+    # `str(Decimal("1E-7"))` is `"1E-7"`, which reads as a different number to anything parsing
+    # the attribute back. `format(…, "f")` is what keeps a sub-cent amount legible.
+    frame = span_event("a" * 16)
+    frame = frame.model_copy(
+        update={"data": frame.data.model_copy(update={"cache_saved_cost_usd": Decimal("1E-7")})}
+    )
+
+    attributes = build_span_tree([frame]).spans[0].attributes
+
+    assert attributes["url4.cache_saved_cost_usd"] == "0.0000001"
+
+
+def test_a_saved_cost_attribute_survives_otlp_encoding() -> None:
+    # The regression this guards is silent: `_encode_attributes` drops a key it cannot encode
+    # and carries on, so a wrong type costs the attribute rather than the export.
+    from opentelemetry.exporter.otlp.proto.common._internal import _encode_attributes
+
+    frame = span_event("a" * 16)
+    frame = frame.model_copy(
+        update={"data": frame.data.model_copy(update={"cache_saved_cost_usd": Decimal("0.0125")})}
+    )
+
+    attributes = build_span_tree([frame]).spans[0].attributes
+    encoded = {kv.key for kv in _encode_attributes(attributes)}
+
+    assert "url4.cache_saved_cost_usd" in encoded

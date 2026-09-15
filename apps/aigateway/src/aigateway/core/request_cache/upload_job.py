@@ -28,6 +28,7 @@ from typing import Literal
 from .bulk_loader import (
     CacheUploadUnsupportedDatabase,
     LoadOutcome,
+    MergeLockTimedOut,
     ReplaceGuardBlocked,
     StagedRowCountMismatch,
     load_snapshot,
@@ -60,6 +61,7 @@ REFUSAL_CODES = (
     "row_count_mismatch",
     "newer_rows_would_be_lost",
     "unsupported_database",
+    "merge_lock_timeout",
 )
 
 
@@ -78,6 +80,11 @@ class CacheJobRecord:
     live_after: int | None = None
     inserted_rows: int | None = None
     updated_rows: int | None = None
+    # How many live rows this load turned from "priced" back to "unknown" (ERD E7). It rides on
+    # the RECORD and not only in the gateway's log because the admin who uploaded a legacy
+    # archive reads the job they started, not the pod's stderr — and for those rows the erasure
+    # cannot be undone from anything the gateway still holds.
+    metadata_degraded: int = 0
     manifest_present: bool = False
     forced: bool = False
     warnings: list[str] = field(default_factory=list)
@@ -95,6 +102,9 @@ class CacheJobRecord:
         self.staged_rows = outcome.staged_rows
         self.live_before = outcome.live_before
         self.live_after = outcome.live_after
+        self.metadata_degraded = outcome.metadata_degraded
+        if outcome.metadata_degraded:
+            self.warnings.append(f"metadata_degraded:{outcome.metadata_degraded}")
         if self.mode == "merge":
             inserted = max(outcome.live_after - outcome.live_before, 0)
             self.inserted_rows = inserted
@@ -211,6 +221,7 @@ class CacheUploadRunner:
                 StagedRowCountMismatch,
                 ReplaceGuardBlocked,
                 CacheUploadUnsupportedDatabase,
+                MergeLockTimedOut,
             ) as exc:
                 code = _REFUSAL_FOR[type(exc)]
                 self._refuse(record, code, detail=str(exc))
@@ -244,6 +255,7 @@ _REFUSAL_FOR: dict[type[Exception], str] = {
     StagedRowCountMismatch: "row_count_mismatch",
     ReplaceGuardBlocked: "newer_rows_would_be_lost",
     CacheUploadUnsupportedDatabase: "unsupported_database",
+    MergeLockTimedOut: "merge_lock_timeout",
 }
 
 

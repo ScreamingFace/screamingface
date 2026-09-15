@@ -51,6 +51,7 @@ def test_request_cache_contract_has_one_lane() -> None:
         "model",
         "response",
         "response_size_bytes",
+        "metadata",
     }
 
     model_fields = set(RequestCacheEntry._meta.fields_map)
@@ -72,7 +73,9 @@ async def test_request_cache_round_trip_uses_plain_json(store: TortoiseRequestCa
     )
 
     assert await store.set_if_absent(write) == "stored"
-    assert await store.get(_KEY) == _RESPONSE
+    entry = await store.get(_KEY)
+    assert entry is not None
+    assert entry.response == _RESPONSE
 
     row = await RequestCacheEntry.get(key_hash=_KEY)
     assert row.response_json == json.dumps(_RESPONSE, separators=(",", ":"), ensure_ascii=False)

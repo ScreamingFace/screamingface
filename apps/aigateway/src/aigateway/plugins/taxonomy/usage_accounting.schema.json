@@ -75,7 +75,7 @@
       "additionalProperties": false,
       "required": ["status", "amount", "unit", "source"],
       "properties": {
-        "status": {"enum": ["reported", "absent", "unavailable", "invalid", "unit_unknown"]},
+        "status": {"enum": ["reported", "absent", "unavailable", "invalid", "unit_unknown", "archive_matched"]},
         "amount": {
           "oneOf": [
             {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})(\\.[0-9]{0,32}[1-9])?$", "maxLength": 64},
@@ -97,7 +97,7 @@
       },
       "allOf": [
         {
-          "if": {"properties": {"status": {"const": "reported"}}},
+          "if": {"properties": {"status": {"enum": ["reported", "archive_matched"]}}},
           "then": {
             "properties": {
               "amount": {"type": "string"},
@@ -251,7 +251,17 @@
         "coverage": {"const": "final_successful_response_only"},
         "incurred_in_current_request": {"const": false},
         "usage": {"$ref": "#/$defs/usage"},
-        "direct_cost": {"$ref": "#/$defs/direct_cost"}
+        "direct_cost": {"$ref": "#/$defs/direct_cost"},
+        "latency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider_latency_ms"],
+          "properties": {
+            "provider_latency_ms": {
+              "oneOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]
+            }
+          }
+        }
       }
     },
     "usage_accounting": {

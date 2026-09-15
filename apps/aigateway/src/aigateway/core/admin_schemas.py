@@ -163,6 +163,12 @@ class AdminCacheJobOut(BaseModel):
     """Merge mode only, best-effort: derived from the before/after counts, not row RETURNING."""
 
     updated_rows: int | None = None
+    metadata_degraded: int = 0
+    """Live rows this load turned from "priced" back to "unknown" — a legacy archive carries no
+    metadata block, and the merge treats the block as content, so those rows lose what their
+    responses cost. Irreversible for the row; reported here so the restore is what gets blamed,
+    not a later run's drifting saved-cost coverage."""
+
     manifest_present: bool = False
     forced: bool = False
     """A revision mismatch was overridden with ``force`` — visible on the job and the audit line."""

@@ -20,7 +20,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -31,6 +31,10 @@ from ...core.usage_accounting.hooks import AccountingAsyncHTTPHandler
 from ...core.usage_accounting.signals import bound_collector
 from .classify import classify_conversion_failure, classify_transport_failure
 from .collector import RequestAccountingCollector
+from .entry_metadata import (
+    CacheEntryMetadataReferenceError,
+    cache_reference_from_entry_metadata,
+)
 from .render import (
     CacheStatusWord,
     attach_metadata,
@@ -40,6 +44,11 @@ from .render import (
 from .types import CacheReference, ProviderUsageAccountingEvidence, UsageAccountingStrategy
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    # Annotation only: the type is owned by core, and importing it at runtime would drag
+    # the request-cache store into every taxonomy import.
+    from ...core.request_cache.entry_metadata import CacheEntryMetadata
 
 _STATE_ATTR: Final = "aigw_accounting"
 
@@ -370,7 +379,11 @@ def _restore_cached_json_numbers(value: Any) -> Any:
 
 
 def attach_hit_metadata(
-    cached: dict[str, Any], session: AccountingSession | None, *, plugin: object
+    cached: dict[str, Any],
+    session: AccountingSession | None,
+    *,
+    plugin: object,
+    entry_metadata: CacheEntryMetadata | None = None,
 ) -> dict[str, Any]:
     """Return an accounted response body on a cache HIT.
 
@@ -379,21 +392,51 @@ def attach_hit_metadata(
     that did not happen. Limited historical evidence goes under ``cache.reference`` and
     is structurally marked as not incurred by the current request.
 
+    INVARIANT (ERD §5.5, PRD S3/S4): ``entry_metadata`` is the stored block for THIS row.
+    When present it is preferred, and the plugin mapper is NOT asked. When it is absent,
+    or when it cannot be rebuilt, the provider's existing mapper runs exactly as before —
+    no value is ever inferred from the cached body.
+
     INVARIANT: ``cached`` is the store's replayed row. It is copied, never mutated.
     """
     response = _restore_cached_json_numbers(cached)
     if session is None:
         return response
     reference: CacheReference | None = None
-    try:
-        contribution = getattr(plugin, "cache_reference_from_cached_response")
-        reference = contribution(cached)
-    except Exception:
-        logger.warning(
-            "cache-reference mapper failed provider=%s gateway_call_id=%s",
-            session.provider,
-            session.gateway_call_id,
-        )
+    if entry_metadata is not None:
+        try:
+            reference = cache_reference_from_entry_metadata(entry_metadata)
+        except CacheEntryMetadataReferenceError:
+            logger.warning(
+                "stored cache-entry metadata was not usable provider=%s gateway_call_id=%s",
+                session.provider,
+                session.gateway_call_id,
+            )
+        except Exception:
+            logger.warning(
+                "stored cache-entry metadata rendering failed provider=%s gateway_call_id=%s",
+                session.provider,
+                session.gateway_call_id,
+                exc_info=True,
+            )
+    if reference is None:
+        try:
+            contribution = getattr(plugin, "cache_reference_from_cached_response")
+            reference = contribution(cached)
+        except Exception as exc:
+            # AIDEV-NOTE: the exception TYPE, deliberately — NOT `exc_info`, unlike the two
+            # handlers above. This one wraps a provider plugin's mapper called on the cached
+            # RESPONSE BODY, and a mapper that raises with the payload in its message would put
+            # response content into the log through the traceback. The handlers above read the
+            # metadata block, which by PRD §4.5 carries no prompt, credential or identity, so a
+            # traceback there is safe. The type name is enough to tell a defect from an expected
+            # mapper failure, which is all the diagnostic was for.
+            logger.warning(
+                "cache-reference mapper failed provider=%s gateway_call_id=%s error=%s",
+                session.provider,
+                session.gateway_call_id,
+                type(exc).__name__,
+            )
     if reference is not None and type(reference) is not CacheReference:
         logger.warning(
             "cache-reference mapper returned invalid evidence provider=%s gateway_call_id=%s",

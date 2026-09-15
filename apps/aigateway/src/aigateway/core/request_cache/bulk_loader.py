@@ -10,22 +10,32 @@ per-row guarantees (key validity, payload shape) were established by the gateway
 them; moving them is a bulk COPY plus one set-based merge, seconds rather than minutes.
 
 MERGE keeps the live row's identity and serving history (``id``, ``created_at``, ``hit_count``,
-``last_hit_at``) and replaces only the content columns — the same create-or-replace discipline
+``last_hit_at``) and replaces only the content columns — ``response_json``, ``metadata_json`` and
+the rest — the same create-or-replace discipline
 as ``set_if_absent``: a stored answer may be replaced by its snapshot version, never removed.
 REPLACE is a wholesale contents swap behind the caller's loss acknowledgement.
+
+TWO ARCHIVE LAYOUTS are accepted (``snapshot.ACCEPTED_COLUMN_LAYOUTS``): the current 13-column
+layout and the 12-column layout written before the metadata column existed. The COPY names the
+columns the dump's own header lists, so a legacy row leaves ``metadata_json`` NULL instead of
+being padded with an invented block.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import BinaryIO, Final, Literal, NamedTuple, Protocol
 
+import asyncpg
 from tortoise import Tortoise
 from tortoise.backends.asyncpg.client import AsyncpgDBClient
 
 from .snapshot import CopyBlockSource, open_snapshot_stream
+
+logger = logging.getLogger(__name__)
 
 _TABLE: Final = "request_cache_entries"
 _STAGING: Final = "request_cache_entries_staging"
@@ -37,17 +47,18 @@ _BATCH_BYTES: Final = 1 << 20  # 1 MiB per asyncpg chunk — enough for throughp
 # collisions impossible) and `updated_at` reads `now()` — the row changed here.
 _MERGE_INSERT_COLUMNS: Final = (
     "id, key_hash, prompt_hash, provider, model, response_json, response_size_bytes, "
-    "created_at, updated_at, expires_at, last_hit_at, hit_count"
+    "created_at, updated_at, expires_at, last_hit_at, hit_count, metadata_json"
 )
 _REPLACE_COLUMNS: Final = (
     "id, key_hash, prompt_hash, provider, model, response_json, response_size_bytes, "
-    "created_at, updated_at, expires_at, last_hit_at, hit_count"
+    "created_at, updated_at, expires_at, last_hit_at, hit_count, metadata_json"
 )
 
 _MERGE_SQL: Final = f"""
 INSERT INTO {_TABLE} ({_MERGE_INSERT_COLUMNS})
 SELECT gen_random_uuid(), s.key_hash, s.prompt_hash, s.provider, s.model, s.response_json,
-       s.response_size_bytes, s.created_at, now(), s.expires_at, s.last_hit_at, s.hit_count
+       s.response_size_bytes, s.created_at, now(), s.expires_at, s.last_hit_at, s.hit_count,
+       s.metadata_json
   FROM {_STAGING} AS s
 ON CONFLICT (key_hash) DO UPDATE SET
     prompt_hash         = EXCLUDED.prompt_hash,
@@ -55,6 +66,7 @@ ON CONFLICT (key_hash) DO UPDATE SET
     model               = EXCLUDED.model,
     response_json       = EXCLUDED.response_json,
     response_size_bytes = EXCLUDED.response_size_bytes,
+    metadata_json       = EXCLUDED.metadata_json,
     expires_at          = EXCLUDED.expires_at,
     updated_at          = now()
 """
@@ -62,6 +74,42 @@ ON CONFLICT (key_hash) DO UPDATE SET
 _REPLACE_SQL: Final = (
     f"INSERT INTO {_TABLE} ({_REPLACE_COLUMNS}) SELECT {_REPLACE_COLUMNS} FROM {_STAGING} AS s"
 )
+
+# WHY this count exists: the merge above sets `metadata_json = EXCLUDED.metadata_json`, and for a
+# legacy 12-column archive EXCLUDED is NULL — so a restore silently turns priced rows back into
+# unknown ones (ERD E7). That is intended and irreversible for the row; what was missing is any
+# signal AT THE MOMENT IT HAPPENS. Without it the only trace is `cache.saved_cost.unpriced_hits`
+# drifting upward on a later engine run, which points the operator at the engine rather than at
+# the restore that caused it.
+# INVARIANT: counts rows the merge DEGRADES — live block present, incoming block absent — never
+# rows that were already unknown, and never rows the archive does not mention.
+_DEGRADED_COUNT_SQL: Final = f"""
+SELECT count(*)
+  FROM {_TABLE} AS t
+  JOIN {_STAGING} AS s USING (key_hash)
+ WHERE t.metadata_json IS NOT NULL
+   AND s.metadata_json IS NULL
+"""
+
+# The merge's degraded count and the merge itself are two statements, and READ COMMITTED gives
+# each its own snapshot while `ON CONFLICT DO UPDATE` re-reads the latest committed row. A fill
+# landing between them is therefore degraded but never counted, and the operator is told the
+# restore cost nothing. SHARE ROW EXCLUSIVE blocks concurrent WRITERS for the merge transaction —
+# and serving a cache HIT is a write too (it bumps `hit_count`/`last_hit_at` under an ordinary
+# UPDATE, `ROW EXCLUSIVE`, which conflicts with `SHARE ROW EXCLUSIVE`), so reads stall for the
+# merge's duration as well. That stall is what makes the count below exact rather than
+# approximate (review round 2, I2) and is not fixed here — see DEPLOYMENT.md and the ERD.
+_LOCK_FOR_MERGE_SQL: Final = f"LOCK TABLE {_TABLE} IN SHARE ROW EXCLUSIVE MODE"
+
+# Bounds how long the merge WAITS to acquire the lock above, never how long it HOLDS it once
+# acquired — the hold time is the merge transaction's own duration, by design (I2). Mirrors
+# migration 0011's `_bound_lock_wait`: a merge that is itself queued for the lock must not sit at
+# the head of the lock queue with every reader's hit-count bump stacked behind it. 3000ms matches
+# the migration's own `_LOCK_TIMEOUT_MS` for the same reason — long enough to win an ordinary gap
+# between statements, short enough that a merge stuck behind something else fails fast instead of
+# parking every cache hit behind it.
+_MERGE_LOCK_TIMEOUT_MS: Final = 3_000
+_SET_MERGE_LOCK_TIMEOUT_SQL: Final = f"SET LOCAL lock_timeout = '{_MERGE_LOCK_TIMEOUT_MS}ms'"
 
 
 class CacheUploadUnsupportedDatabase(RuntimeError):
@@ -75,6 +123,24 @@ class StagedRowCountMismatch(RuntimeError):
         self.staged = staged
         self.declared = declared
         super().__init__(f"staged {staged} rows but the manifest declared {declared}")
+
+
+class MergeLockTimedOut(RuntimeError):
+    """The merge could not acquire `SHARE ROW EXCLUSIVE` within `_MERGE_LOCK_TIMEOUT_MS`.
+
+    A bounded WAIT, not a bounded HOLD (I2): something else already held a conflicting lock on
+    ``request_cache_entries`` for longer than the merge was willing to queue behind it. The merge
+    made no changes — Postgres cancels the whole statement, and the caller's transaction is never
+    committed — so rerunning it once the conflicting lock clears is safe.
+    """
+
+    def __init__(self, timeout_ms: int) -> None:
+        self.timeout_ms = timeout_ms
+        super().__init__(
+            f"the cache snapshot merge could not acquire its table lock within {timeout_ms}ms; "
+            "something else is holding a conflicting lock on request_cache_entries — retry once "
+            "it clears"
+        )
 
 
 class ReplaceGuardBlocked(RuntimeError):
@@ -93,6 +159,10 @@ class LoadOutcome(NamedTuple):
     staged_rows: int
     live_before: int
     live_after: int
+    # How many live rows this load turned from "priced" back to "unknown" (ERD E7). Merge only:
+    # replace discards the whole table by contract, behind the caller's own loss acknowledgement,
+    # so per-row degradation is not the fact being reported there.
+    metadata_degraded: int = 0
 
 
 class _PhaseCallback(Protocol):
@@ -135,6 +205,10 @@ async def load_snapshot(
         # defaults — the dump supplies every column, and a bare copy of the column shape loads
         # fastest. Dropping it between runs would trade a CREATE per upload for nothing.
         await raw.execute(f"CREATE TABLE IF NOT EXISTS {_STAGING} (LIKE {_TABLE})")
+        # A staging twin left behind by a gateway that pre-dates the metadata column is 12
+        # columns wide, and `CREATE TABLE IF NOT EXISTS` will not widen it — the next 13-column
+        # COPY would then fail on the missing column. Idempotent, and a no-op on a fresh twin.
+        await raw.execute(f"ALTER TABLE {_STAGING} ADD COLUMN IF NOT EXISTS metadata_json TEXT")
         await raw.execute(f"TRUNCATE {_STAGING}")
 
         stream: BinaryIO = open_snapshot_stream(path)
@@ -142,8 +216,11 @@ async def load_snapshot(
         # beneath a gzip wrapper is closed by the wrapper itself.
         try:
             source = CopyBlockSource(stream)
-            await asyncio.to_thread(source.header)
-            staged_rows = await _copy_stream_into_staging(raw, source)
+            # The dump's OWN header names the columns the data lines carry — the current 13, or
+            # the legacy 12. Feeding exactly those to COPY is what makes a legacy row load with
+            # metadata_json NULL rather than be refused or padded.
+            columns = await asyncio.to_thread(source.header)
+            staged_rows = await _copy_stream_into_staging(raw, source, columns=columns)
         finally:
             await asyncio.to_thread(stream.close)
 
@@ -158,10 +235,23 @@ async def load_snapshot(
         if on_phase is not None:
             await on_phase("merging")
 
+        metadata_degraded = 0
+
         # One transaction for the load: readers see the old contents until commit (MVCC), and
         # a mid-load failure leaves the live table untouched rather than half-replaced.
         async with raw.transaction():
             if mode == "merge":
+                # Bounds the WAIT for the lock below, not the merge's own duration once it has
+                # the lock (I2) — see `_SET_MERGE_LOCK_TIMEOUT_SQL`.
+                await raw.execute(_SET_MERGE_LOCK_TIMEOUT_SQL)
+                # Before the count, so no write can land between the two statements that follow.
+                try:
+                    await raw.execute(_LOCK_FOR_MERGE_SQL)
+                except asyncpg.exceptions.LockNotAvailableError as exc:
+                    raise MergeLockTimedOut(_MERGE_LOCK_TIMEOUT_MS) from exc
+                # Counted BEFORE the merge, inside the same transaction: afterwards the live
+                # block is already gone and the two states are indistinguishable.
+                metadata_degraded = await raw.fetchval(_DEGRADED_COUNT_SQL) or 0
                 await raw.execute(_MERGE_SQL)
             else:
                 await raw.execute(f"TRUNCATE {_TABLE}")
@@ -170,7 +260,20 @@ async def load_snapshot(
 
         await raw.execute(f"TRUNCATE {_STAGING}")
 
-    return LoadOutcome(staged_rows=staged_rows, live_before=live_before, live_after=live_after)
+    if metadata_degraded:
+        logger.warning(
+            "cache snapshot merge degraded %d of %d row(s) to unknown metadata: the archive "
+            "carries no block for them, so what those responses cost is no longer recorded",
+            metadata_degraded,
+            staged_rows,
+        )
+
+    return LoadOutcome(
+        staged_rows=staged_rows,
+        live_before=live_before,
+        live_after=live_after,
+        metadata_degraded=metadata_degraded,
+    )
 
 
 def _read_batch(source: CopyBlockSource) -> bytes:
@@ -183,8 +286,13 @@ def _read_batch(source: CopyBlockSource) -> bytes:
     return bytes(buffer)
 
 
-async def _copy_stream_into_staging(raw: object, source: CopyBlockSource) -> int:
-    """Feed the block to Postgres COPY; return the row count actually delivered."""
+async def _copy_stream_into_staging(
+    raw: object, source: CopyBlockSource, *, columns: tuple[str, ...]
+) -> int:
+    """Feed the block to Postgres COPY; return the row count actually delivered.
+
+    ``columns`` is the dump's own header list, so the column set is never guessed here.
+    """
     rows = 0
 
     async def chunks() -> AsyncIterator[bytes]:
@@ -198,7 +306,7 @@ async def _copy_stream_into_staging(raw: object, source: CopyBlockSource) -> int
             yield chunk
 
     await raw.copy_to_table(  # type: ignore[attr-defined]
-        _STAGING, source=chunks(), timeout=600
+        _STAGING, source=chunks(), columns=columns, timeout=600
     )
     return rows
 
@@ -206,6 +314,7 @@ async def _copy_stream_into_staging(raw: object, source: CopyBlockSource) -> int
 __all__ = [
     "CacheUploadUnsupportedDatabase",
     "LoadOutcome",
+    "MergeLockTimedOut",
     "ReplaceGuardBlocked",
     "StagedRowCountMismatch",
     "load_snapshot",
