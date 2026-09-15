@@ -20,6 +20,7 @@ seed overwriting those would silently re-key the judge cache and change grading 
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -369,3 +370,32 @@ async def test_a_call_stating_its_own_seed_is_never_rekeyed_by_the_run() -> None
     gw = await _bodies(7, expression=f"/{MODEL}('ctx')!'go';seed=3")
 
     assert gw.bodies[0]["seed"] == 3
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_runs_with_different_seeds_do_not_contaminate_each_other() -> None:
+    """All three worlds share ONE `AigatewayConfig` — the placement the design forbids.
+
+    A seed parked on the shared world config would stamp one researcher's sitting onto
+    another's concurrent run, corrupting BOTH records — and in local mode concurrent runs
+    share one event loop, so the hazard is not hypothetical. The per-run endpoint field is
+    what this test pins, exactly as the cache policy's twin test pins `_cache`.
+    """
+    gw = _MockAigateway()
+    shared_cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
+
+    async with gw.client() as client:
+        first = await build_aigateway_world(shared_cfg, client=client, answer_seed=1)
+        second = await build_aigateway_world(shared_cfg, client=client, answer_seed=2)
+        unseeded = await build_aigateway_world(shared_cfg, client=client)
+
+        await asyncio.gather(
+            url4_run(f"/{MODEL}('run-a')!'go'", io=first.node),
+            url4_run(f"/{MODEL}('run-b')!'go'", io=second.node),
+            url4_run(f"/{MODEL}('run-c')!'go'", io=unseeded.node),
+        )
+
+    by_context = {body["messages"][-1]["content"]: body for body in gw.bodies}
+    assert by_context["run-a"]["seed"] == 1
+    assert by_context["run-b"]["seed"] == 2
+    assert "seed" not in by_context["run-c"]
