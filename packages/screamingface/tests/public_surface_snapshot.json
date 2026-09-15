@@ -73,7 +73,7 @@
           "connect": "method (self, provider: 'str', *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | AsyncOAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
           "scoreboard_url": "property"
@@ -127,7 +127,8 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', trace_id: 'str | None' = None) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', trace_id: 'str | None' = None, answer_seed: 'int | None' = None) -> 'None'",
+          "answer_seed": "field",
           "benchmark": "field",
           "cases": "field",
           "completed_at": "field",
@@ -210,7 +211,7 @@
           "connect": "method (self, provider: 'str | None' = None, *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | ConnectionPanel | OAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
           "scoreboard_url": "property"
@@ -1005,7 +1006,8 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', trace_id: 'str | None' = None) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', trace_id: 'str | None' = None, answer_seed: 'int | None' = None) -> 'None'",
+          "answer_seed": "field",
           "benchmark": "field",
           "cases": "field",
           "completed_at": "field",

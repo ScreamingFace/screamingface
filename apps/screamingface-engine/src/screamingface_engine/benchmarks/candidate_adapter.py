@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from screamingface_engine.benchmarks.case_execution import install_case_execution
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
+from screamingface_engine.candidate_scope import candidate_invocation_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     RetrievalPolicyError,
@@ -36,7 +37,10 @@ class _CandidateInvocation:
             )
         policy = _candidate_policy(request.params)
         try:
-            with retrieval_scope(policy):
+            # WHY both scopes: retrieval narrows what the candidate may fetch; the
+            # candidate-invocation flag marks its calls as ANSWERING, which is what lets
+            # the run's answer seed reach them and never the benchmark's judges (OME-1038).
+            with retrieval_scope(policy), candidate_invocation_scope():
                 return await evaluate_candidate_recipe(
                     self._node,
                     request.intent,

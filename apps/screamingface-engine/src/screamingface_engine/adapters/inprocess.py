@@ -161,6 +161,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         profile: str | None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
+        answer_seed: int | None = None,
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
@@ -202,6 +203,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         env.pop(job_env.EXTRA_MODELS, None)
         if self._extra_models is not None:
             env.update(job_env.extra_models_to_env(self._extra_models()))
+        # INVARIANT: same reset as cache/identity — a leftover seed in `_base_env` would stamp
+        # one caller's sitting onto the next caller's run, corrupting both records (OME-1038).
+        env.pop(job_env.ANSWER_SEED, None)
+        env.update(job_env.answer_seed_to_env(answer_seed))
         # INVARIANT (OME-908): local mode's downstream bound is the shared fair-share gate,
         # NEVER this env — a copy exported in the operator's shell would stack a per-run
         # `BoundedIOLayer` UNDER the gate and re-introduce exactly the static bound local
@@ -223,6 +228,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
+        answer_seed: int | None = None,
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -241,7 +247,16 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # is always set. Left to `lifecycle.run`, the id would be minted after this returns and
         # this adapter — and the runner's log context — would never learn it.
         run_traceparent = adopt_or_mint_traceparent(traceparent)
-        env = self._env(topic, url4, deadline_s, run_traceparent, profile, identity, cache)
+        env = self._env(
+            topic,
+            url4,
+            deadline_s,
+            run_traceparent,
+            profile,
+            identity,
+            cache,
+            answer_seed=answer_seed,
+        )
         # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
         # that raised now would take down the caller's request with nothing on the stream, where a
         # failure inside the run terminates the topic properly. See `Url4Executor._resolve_world`.

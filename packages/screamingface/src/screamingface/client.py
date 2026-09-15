@@ -31,7 +31,8 @@ if TYPE_CHECKING:
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.events import Event
     from screamingface.recipe import Recipe
-    from screamingface.report import Report
+from screamingface._evaluation.model import _answer_seed_value
+from screamingface.report import Report
 
 DEFAULT_ENGINE_URL = "https://fusion.dev.screamingface.ai"
 DEFAULT_SCOREBOARD_URL = "https://leaderboard.dev.screamingface.ai"
@@ -209,6 +210,7 @@ class Client:
         limit: None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
+        answer_seed: int | None = None,
     ) -> Report: ...
 
     @overload
@@ -220,6 +222,7 @@ class Client:
         limit: int | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
+        answer_seed: int | None = None,
     ) -> Report: ...
 
     def evaluate(
@@ -230,6 +233,7 @@ class Client:
         limit: int | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
+        answer_seed: int | None = None,
     ) -> Report:
         """Evaluate Recipes, or replay one complete evaluation URL4 unchanged."""
 
@@ -237,6 +241,9 @@ class Client:
         from screamingface._evaluation.url4 import evaluate_url4_sync
 
         self._require_open()
+        # FEATURE (OME-1193): validate the declared sitting at the door — a bad seed must
+        # fail before any token is minted or run scheduled.
+        selected_seed = _answer_seed_value(answer_seed)
         if isinstance(candidates, str):
             _raw_url4_options(benchmark, limit)
             return evaluate_url4_sync(
@@ -244,6 +251,7 @@ class Client:
                 candidates,
                 on_event,
                 progress,
+                answer_seed=selected_seed,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
@@ -257,6 +265,7 @@ class Client:
             limit,
             on_event,
             progress,
+            answer_seed=selected_seed,
         )
 
     @overload
@@ -534,6 +543,7 @@ class AsyncClient:
         limit: None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
+        answer_seed: int | None = None,
     ) -> Report: ...
 
     @overload
@@ -545,6 +555,7 @@ class AsyncClient:
         limit: int | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
+        answer_seed: int | None = None,
     ) -> Report: ...
 
     async def evaluate(
@@ -555,6 +566,7 @@ class AsyncClient:
         limit: int | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
+        answer_seed: int | None = None,
     ) -> Report:
         """Asynchronously evaluate Recipes, or replay one complete evaluation URL4."""
 
@@ -562,6 +574,8 @@ class AsyncClient:
         from screamingface._evaluation.url4 import evaluate_url4_async
 
         self._require_open()
+        # FEATURE (OME-1193): see the sync twin — validate at the door.
+        selected_seed = _answer_seed_value(answer_seed)
         if isinstance(candidates, str):
             _raw_url4_options(benchmark, limit)
             return await evaluate_url4_async(
@@ -569,6 +583,7 @@ class AsyncClient:
                 candidates,
                 on_event,
                 progress,
+                answer_seed=selected_seed,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
@@ -582,6 +597,7 @@ class AsyncClient:
             limit,
             on_event,
             progress,
+            answer_seed=selected_seed,
         )
 
     @overload

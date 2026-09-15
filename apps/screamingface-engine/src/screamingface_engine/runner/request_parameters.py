@@ -78,6 +78,30 @@ def caller_exclusions(params: Mapping[str, str]) -> tuple[str, ...]:
         ) from exc
 
 
+ANSWER_SEED_PARAM = "seed"
+"""The wire name of the sampling seed — the same param the draco judge already stamps per pass,
+and a standard aigateway parameter (OME-585), so discovery/preflight admit it unchanged."""
+
+
+def apply_answer_seed(params: Mapping[str, str], answer_seed: str | None) -> Mapping[str, str]:
+    """Stamp the run's declared answer seed onto one model call's params, if it declared one.
+
+    FEATURE: answer seeds (OME-1038) — N seeded runs are N labelled samples, so a score can
+    be published as mean ± CI and any sitting replayed.
+
+    INVARIANT: ``None`` is a NO-OP that returns ``params`` itself, not a copy — a run that
+    declared nothing must produce byte-identical egress to today's, which is what keeps every
+    request-keyed replay fixture valid.
+
+    INVARIANT: a call that states its own ``seed`` always wins. The draco judge pins one
+    stable seed per pass for independent cache slots; an ambient seed overwriting those would
+    silently re-key the judge cache and change grading identity.
+    """
+    if answer_seed is None or ANSWER_SEED_PARAM in params:
+        return params
+    return {**params, ANSWER_SEED_PARAM: answer_seed}
+
+
 def model_params(params: Mapping[str, str]) -> dict[str, object]:
     """Project URL4 parameters into the model request without Runner-owned fields."""
     selected = {key: value for key, value in params.items() if key not in _INTERPRETED_PARAMS}

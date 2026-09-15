@@ -160,6 +160,15 @@ class _CaseResults(Sequence[CaseResult]):
             raise KeyError(f"unknown Case id {selected!r}") from None
 
 
+def _answer_seed(value: object) -> int | None:
+    """Validate the declared sitting: any integer or None; bool is not a sitting."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("Candidate answer_seed must be an integer or None")
+    return value
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class CandidateResult:
     """One independently executed Candidate outcome; a higher score is always better."""
@@ -167,6 +176,7 @@ class CandidateResult:
     benchmark: BenchmarkInfo
     run_id: str
     trace_id: str | None
+    answer_seed: int | None
     started_at: datetime
     completed_at: datetime
     name: str
@@ -202,6 +212,7 @@ class CandidateResult:
         failures: Sequence[Failure],
         usage: Usage,
         trace_id: str | None = None,
+        answer_seed: int | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -243,6 +254,12 @@ class CandidateResult:
             # id that joins to nothing. Empty is normalized to None so callers have one
             # falsy case to test rather than two.
             "trace_id": trace_id or None,
+            # FEATURE (OME-1193): the sitting this run declared (OME-1038). Serialized —
+            # unlike trace_id — because the report is the artifact a researcher cites:
+            # a variance study's N samples must each name their seed or the raw data is
+            # unlabeled. None = unseeded, and the key still appears (null) per the
+            # report's stable-key convention.
+            "answer_seed": _answer_seed(answer_seed),
             "started_at": start,
             "completed_at": end,
             "name": _nonblank(name, "Candidate name"),
@@ -278,6 +295,7 @@ class CandidateResult:
             # recognisably partial on reload, which the submission advisory depends on.
             "benchmark": self.benchmark._result_dict(self.benchmark.case_count),
             "run_id": self.run_id,
+            "answer_seed": self.answer_seed,
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),
             "name": self.name,

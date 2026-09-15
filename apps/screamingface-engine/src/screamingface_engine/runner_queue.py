@@ -206,6 +206,7 @@ def _env_mapping(
     profile: str | None = None,
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy | None = None,
+    answer_seed: int | None = None,
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
 ) -> dict[str, str]:
@@ -228,6 +229,7 @@ def _env_mapping(
         env[job_env.AIGATEWAY_PROFILE] = profile
     env.update(job_env.identity_to_env(identity or {}))
     env.update(job_env.cache_policy_to_env(cache))
+    env.update(job_env.answer_seed_to_env(answer_seed))
     env[job_env.EXTRA_MODELS] = job_env.extra_models_to_env(extra_models).get(
         job_env.EXTRA_MODELS, ""
     )
@@ -244,6 +246,7 @@ def encode_message(
     profile: str | None = None,
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy | None = None,
+    answer_seed: int | None = None,
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
 ) -> bytes:
@@ -257,6 +260,7 @@ def encode_message(
             profile=profile,
             identity=identity,
             cache=cache,
+            answer_seed=answer_seed,
             io_concurrency=io_concurrency,
             extra_models=extra_models,
         ),

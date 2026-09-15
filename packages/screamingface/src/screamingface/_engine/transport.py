@@ -200,7 +200,13 @@ class Url4CloudTransport:
                     _require_subprotocol(websocket.subprotocol)
                     if not run_started:
                         websocket.send(lifecycle.initial_attach())
-                        _start_sync(self._http, minted[-1], candidate.url4, trace=trace)
+                        _start_sync(
+                            self._http,
+                            minted[-1],
+                            candidate.url4,
+                            trace=trace,
+                            answer_seed=candidate.answer_seed,
+                        )
                         run_started = True
                     else:
                         websocket.send(lifecycle.resume_attach())
@@ -473,7 +479,13 @@ class AsyncUrl4CloudTransport:
                     _require_subprotocol(websocket.subprotocol)
                     if not run_started:
                         await websocket.send(lifecycle.initial_attach())
-                        await _start_async(self._http, minted[-1], candidate.url4, trace=trace)
+                        await _start_async(
+                            self._http,
+                            minted[-1],
+                            candidate.url4,
+                            trace=trace,
+                            answer_seed=candidate.answer_seed,
+                        )
                         run_started = True
                     else:
                         await websocket.send(lifecycle.resume_attach())
@@ -654,7 +666,12 @@ def _token(response: httpx.Response) -> str:
 
 
 def _start_sync(
-    http: httpx.Client, token: str, url4: str, *, trace: TraceContext | None = None
+    http: httpx.Client,
+    token: str,
+    url4: str,
+    *,
+    trace: TraceContext | None = None,
+    answer_seed: int | None = None,
 ) -> None:
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
@@ -667,6 +684,7 @@ def _start_sync(
                     "URL4-Capability": token,
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
+                    **_answer_seed_header(answer_seed),
                 },
             )
         except httpx.HTTPError as exc:
@@ -726,7 +744,12 @@ def _require_stopped(response: httpx.Response) -> None:
 
 
 async def _start_async(
-    http: httpx.AsyncClient, token: str, url4: str, *, trace: TraceContext | None = None
+    http: httpx.AsyncClient,
+    token: str,
+    url4: str,
+    *,
+    trace: TraceContext | None = None,
+    answer_seed: int | None = None,
 ) -> None:
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
@@ -739,6 +762,7 @@ async def _start_async(
                     "URL4-Capability": token,
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
+                    **_answer_seed_header(answer_seed),
                 },
             )
         except httpx.HTTPError as exc:
@@ -750,6 +774,18 @@ async def _start_async(
         if not _attachment_is_still_registering(response):
             break
     _accepted(response, trace_id=trace.trace_id if trace else None)
+
+
+def _answer_seed_header(answer_seed: int | None) -> dict[str, str]:
+    """The run's declared sitting as its start header — nothing at all when undeclared.
+
+    INVARIANT (OME-1193): absence is the default. An unseeded run's start request must be
+    byte-identical to today's, mirroring the engine's own rule; the engine reads the header
+    per OME-1038 and stamps the seed onto every answer call the run makes.
+    """
+    if answer_seed is None:
+        return {}
+    return {"X-Answer-Seed": str(answer_seed)}
 
 
 def _attachment_is_still_registering(response: httpx.Response) -> bool:

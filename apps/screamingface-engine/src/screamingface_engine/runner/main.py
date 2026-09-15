@@ -276,6 +276,13 @@ def build_executor(
         # is anonymous. The old unconditional token requirement made every deployed run fail
         # before it issued a single request, because a deployed caller has no way to obtain one.
         cache = job_env.cache_policy_from_env(env)
+        # FEATURE (OME-1038): the run's declared answer seed. Read per RUN like the cache
+        # policy; a malformed value REFUSES the run — executed unseeded, it would publish a
+        # score claiming a sitting it never had (see `job_env.answer_seed_from_env`).
+        try:
+            answer_seed = job_env.answer_seed_from_env(env)
+        except ValueError as exc:
+            raise RunnerConfigError(str(exc)) from exc
         world = await build_aigateway_world(
             AigatewayConfig(
                 base_url=section.base_url,
@@ -293,6 +300,7 @@ def build_executor(
             # yields a policy that states nothing, which the connector sends as no `cache` field
             # at all — participation, without this half re-deciding what silence means.
             cache=cache,
+            answer_seed=answer_seed,
             client=client,
             tavily_api_key=env.get(job_env.TAVILY_API_KEY),
             tavily_client=tavily_client,
