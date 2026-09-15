@@ -1,12 +1,12 @@
 ---
 id: OME-1102
 linear_url: https://linear.app/openmined/issue/OME-1102/write-the-adding-a-benchmark-guide-and-review-the-grade-case-hook-as-a
-status: in_progress
+status: done
 type: task
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-03
-closed:
+closed: 2026-09-15
 ---
 
 # Write the adding-a-benchmark guide and review the grade_case hook as a public seam

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1102
 stack: repo
-status: in_progress
+status: done
 started: 2026-09-14
-finished:
+finished: 2026-09-15
 ---
 
 # OME-1102 — Write the adding-a-benchmark guide and review the grade_case hook as a public seam
@@ -44,7 +44,21 @@ seam is a reviewed contract, not an accident of extraction.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus a diagram-first rework on owner feedback:
+  `apps/screamingface-engine/docs/adding-a-benchmark.md` +
+  `apps/screamingface-engine/docs/diagrams/` (5 diagrams, `.drawio` + PNG:
+  authoring-seam, two-axes, grade-case-hourglass, failure-ladder-and-policy from this
+  unit; benchmark-onboarding-steps added by the owner), plus this ledger + mirror.
+- **Commits:** b58a866e — docs(screamingface-engine): write the adding-a-benchmark
+  author guide; 5871e86f — docs(screamingface-engine): make the adding-a-benchmark guide
+  diagram-first; f5abae23 — 8 steps diagram + pointers (owner); merged as PR #934
+  (d0f16a6e).
+- **Gates:** pre-push engine gates ALL GREEN both pushes (ruff check/format, pyright,
+  layering, pytest cov≥80). Acceptance dry run: every step MedXpertQA's merged module
+  needed is named in the doc; `grade_case` + `failure_policy` stated with worked
+  examples; seam review recorded as a decision in the doc.
+- **Deviations:** external-judge review ran against the epic's description of the
+  in-enclave judge, not a contract doc from its owners (caveat recorded in the doc's
+  Decision section). Stale `BenchmarkDeclaration` docstring (`single_shot` only) flagged
+  in the PR, left out of this doc-only unit. Docs closed via this fallback PR instead of
+  a last pre-merge commit — the owner merged before the flip.
