@@ -107,6 +107,80 @@ the migration ships in this iteration; full Scoreboard gates green.
 5. **Bounds are 32 routes / 255 chars / 4096 bytes** as specced. The route pattern is the
    Client's own grammar, anchored, so the two ends cannot disagree about what a route is.
 
+## Review round 2 (PR #922, 2026-09-16)
+
+Two blocking findings from HupBaHa. Both reproduced before touching code.
+
+### R2-1 — the fill-only rule had a race
+
+`_replay_updates` reads `existing.models is None` from a `Score` loaded BEFORE the transaction
+opens. The write that follows filters on `id`, `benchmark_id`, `content_hash` and
+`submitted_by` — none of which change when `models` is filled — and takes no lock on the Score
+row. The `select_for_update()` already in this file locks the **Benchmark**, which is a
+different row protecting a different thing (the visibility flip).
+
+So two same-owner replays can both observe null and both pass the filter, and the second
+overwrites the first. That is precisely what Q3 was corrected to forbid: a replay flipping a
+published openness verdict without changing recipe identity. Round 1 closed the unconditional
+overwrite; it did not close the check-then-act window.
+
+**Fix:** re-read the row under `select_for_update()` INSIDE the transaction and recompute
+`_replay_updates` against the locked row. Not a `models IS NULL` predicate on the shared update
+filter — that would make a concurrent fill also reject a legitimate `authors`/`metadata`
+correction, because `updated != 1` raises for all three fields at once.
+
+### R2-2 — family prefixes were unbounded
+
+`_owner_verdict` matched families with a bare `startswith`, so with owner matching exact:
+
+    open     openrouter/google/gemmalicious-proprietary
+    open     openrouter/openai/gpt-ossification-api
+
+Both pass `_MODEL_ROUTE_PATTERN`, so a client can send them. Same class as round 1's finding 2
+— owner matching was made structural and the family prefix was left open.
+
+**Fix:** require a token boundary — `gemma`/`gpt-oss` exactly, or followed by `-`. Fails closed
+for a hypothetical un-dashed future name, which is the D4 contract.
+
+### Test plan
+
+Append-only. No prior test is edited; the round-1 cases
+(`google/gemma-2-27b-it`, `openai/gpt-oss-120b` open) stay green under the boundary rule.
+
+- crafted names at the boundary, both families, both directions
+- the exact family token with no suffix
+- a stale pre-transaction read cannot overwrite a value written in between (deterministic on
+  SQLite: mutate the row after `existing` is loaded)
+- the replay read really emits `FOR UPDATE` on PostgreSQL, rendered on the asyncpg dialect —
+  the same idiom as `test_the_persist_and_purge_paths_really_lock_the_row`, for the same
+  reason: SQLite cannot hold this behaviourally
+
+### Outcome
+
+- **Commits:**
+  - `8e983017` — `fix(scoreboard): match an open family as a whole token`
+  - `699278be` — `fix(scoreboard): decide the replay fill against the locked row`
+
+- **Gates:** `run_gates.py scoreboard` ALL GREEN — append-only, ruff check, ruff format,
+  pyright, pytest at 80% coverage (**695 passed**, 3 skipped), and all three portal suites.
+  Four tests added, no prior test touched, so no append-only exception was needed.
+
+- **Base note:** the gate runner diffs two-dot, so `--base origin/main` reported
+  `test_portal_static.py` as modified — a file this branch never touches. `origin/main` has moved
+  70 commits ahead (PR #892 added a test to it), and the two-dot diff reads main's additions as
+  this branch's deletions. Re-run against the merge-base `b052aca6`, which is what the append-only
+  question actually means, it is green. The branch still wants a rebase before merge.
+
+- **`replay_row_query` is deliberately not on the visibility-exit guard's list.** Adding the method
+  first tripped `test_no_visibility_dependent_exit_is_unguarded_without_a_recorded_reason`, but
+  only because its docstring named `visibility_query` and that guard selects functions by matching
+  the string `visibility` anywhere in the body. The function queries `Score` by identity: it reads
+  no visibility, takes no visibility-derived decision, and carries neither `per_submitter` nor
+  `identity_verified`. The false positive was removed by not naming a sibling in prose, NOT by
+  adding an `EXPECTED_UNGUARDED` entry — an entry would have recorded a visibility exemption for a
+  function that has nothing to exempt, and would have cost an append-only exception to write.
+  Flagged here because the reviewer should get to disagree with that call.
+
 ## Follow-on
 
 `OME-1180` may now be built, but must not be **released** until this is deployed and confirmed

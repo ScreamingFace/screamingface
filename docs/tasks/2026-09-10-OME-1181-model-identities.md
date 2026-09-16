@@ -44,6 +44,17 @@ Four findings, all confirmed empirically, two of which invalidated claims made w
 4. `gemini-cli`, `codex` and `antigravity` are registered Gateway providers and were missing
    from the closed-owner set, corrupting the unrecognised-model count.
 
+## Review round 2 (PR #922, 2026-09-16)
+
+Two blocking findings, both reproduced before any code changed:
+
+1. The fill-only rule was a check-then-act on a pre-transaction read. The write filtered on
+   identity columns only and locked the Benchmark, not the Score, so two same-owner replays
+   could both see a null and the second could replace the first. The decision is now recomputed
+   against the row re-read under `select_for_update()` inside the transaction.
+2. Family exceptions matched by bare prefix, so `google/gemmalicious-proprietary` and
+   `openai/gpt-ossification-api` classified open. Matching is now on a whole token.
+
 ## Artifacts
 
 - Spec: `docs/spec/2026-09-11-OME-1181-model-identities.md`
