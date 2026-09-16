@@ -15,23 +15,21 @@ bare body. The cache must treat my two profiles' bare bodies as the two DIFFEREN
 requests they really are, while still sharing a row with anyone whose request happens
 to be identical once defaults are applied.
 
-AIDEV-NOTE: deliberately NOT in ``chat_credentials``. That module resolves a
-dispatchable credential and does so by RAISING — 404 ``profile_not_found``, 409
-``profile_pending_auth``, 401 ``auth_required``. The read below runs BEFORE the cache
-lookup, where any of those raises would refuse a request the cache could have served.
+AIDEV-NOTE (OME-1200): ``profile_defaults_for_key`` is now a compatibility shim over the
+provider-access port's ``defaults_for`` (``core/provider_access/profile_defaults.py`` holds the
+read and its invariants). It stays deliberately separate from ``chat_credentials``: that path
+resolves a dispatchable credential by RAISING — 404 ``profile_not_found``, 409
+``profile_pending_auth``, 401 ``auth_required`` — while this read runs BEFORE the cache lookup,
+where any of those raises would refuse a request the cache could have served.
 """
 
 from __future__ import annotations
 
-import logging
-
 from fastapi import HTTPException, Request
 
 from ..core.parameter_projection import UnsupportedParametersError
-from ..core.profile_index import ProfileIndexStore
 from ..core.profile_models import ProfileDefaults
-
-logger = logging.getLogger(__name__)
+from ..core.provider_access import Selector, provider_access_for
 
 
 async def profile_defaults_for_key(
@@ -50,39 +48,20 @@ async def profile_defaults_for_key(
     — a wrong ANSWER, not a missed saving. Merging before the key closes that, and
     this is the narrowest read that makes the merge possible.
 
-    INVARIANT: never raises, and never inspects ``ProfileState``. Its sibling
-    ``_credential_target_for_chat`` raises at ``chat_credentials.py`` :185 (404), :196
-    (409) and :205 (401). Put any of those ahead of the cache lookup and an absent,
-    PENDING or ERRORED profile would be REFUSED where today it is SERVED from cache —
-    destroying the inversion this whole ticket exists for. So this function also
-    resolves no OAuth connection and consults no chatless-profile allowance; Stage 2
-    still does every one of those things, unchanged.
+    INVARIANT: never raises, and never inspects ``ProfileState`` — the port's
+    ``defaults_for`` carries both guarantees. ``None`` means the index could not be READ
+    — never "this profile has no defaults", which is an empty ``ProfileDefaults``. That
+    distinction IS the fail-safe: the caller must bypass the cache instead, and then merge
+    the defaults Stage 2 resolves so the request still DISPATCHES with them.
 
-    INVARIANT: ``None`` means the index could not be READ — never "this profile has no
-    defaults", which is an empty ``ProfileDefaults``. That distinction IS the
-    fail-safe: carrying on with empty defaults after a failed read would key the bare
-    body and manufacture precisely the wrong-hit class ruling 57 closes. The caller
-    must bypass the cache instead, and then merge the defaults Stage 2 resolves so the
-    request still DISPATCHES with them.
-
-    AIDEV-NOTE: a hit now costs one profile-index read, and that index is itself a
+    AIDEV-NOTE: a hit costs one profile-index read, and that index is itself a
     ``credential_blobs`` row — so a hit performs one master-key decryption where it
     previously performed none. No provider credential is read, decrypted or injected,
     and no auth mode is resolved; that is the property the inversion needs.
     """
-    idx: ProfileIndexStore = request.app.state.profile_index
-    try:
-        profile = await idx.get(account_id, provider, profile_name)
-    except Exception:
-        # WHY the broad catch: this is a fail-safe boundary, not error handling. The
-        # index read decrypts and validates a stored blob, so its failure modes are
-        # open-ended, and every one of them must degrade to "do not use the cache"
-        # rather than fail a request the provider can serve. Same posture as the
-        # availability and read guards in ``chat_cache_stage``. Nothing is swallowed:
-        # the failure is logged and the return value forces the caller to bypass.
-        logger.warning("profile index unreadable before the cache stage; bypassing the cache")
-        return None
-    return ProfileDefaults() if profile is None else profile.defaults
+    return await provider_access_for(request.app).defaults_for(
+        account_id, provider, Selector.from_header(profile_name)
+    )
 
 
 def _parameter_rejection_exception(
