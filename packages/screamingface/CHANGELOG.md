@@ -4,6 +4,7 @@
 
 ### Features
 
+* **screamingface:** show the benchmark catalogue as one tab per origin, each linking to its source collection (`Benchmark.origin` — any non-blank string, `"screamingface"` when an older Engine omits it; the benchmark card links the origin to its source)
 * **screamingface:** declare an answer seed per evaluation and name the sitting in the report (`evaluate(answer_seed=…)` sends `X-Answer-Seed`; `CandidateResult.answer_seed` serializes into report.json, null when unseeded)
 * **screamingface:** expose and render why a published score will not rank
 

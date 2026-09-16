@@ -273,10 +273,12 @@ class Benchmark:
     description: str
     revision: str
     case_count: int
+    # FEATURE: provenance tabs (OME-1114) — origin verbatim, open set; default = old Engines.
+    origin: str = "screamingface"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _benchmark_id(self.id))
-        for name in ("title", "description", "revision"):
+        for name in ("title", "description", "revision", "origin"):
             object.__setattr__(self, name, _nonblank(getattr(self, name), f"Benchmark {name}"))
         if (
             isinstance(self.case_count, bool)
