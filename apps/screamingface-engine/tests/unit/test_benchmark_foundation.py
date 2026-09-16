@@ -122,6 +122,9 @@ async def test_list_is_complete_metadata_and_detail_is_an_exact_selection() -> N
                 "description": "One non-comparable structural probe.",
                 "revision": "example-smoke-v1",
                 "case_count": 3,
+                # OME-1112: provenance is part of the public catalog — every entry
+                # carries it, defaulting to the Engine's own authorship.
+                "origin": "screamingface",
                 # OME-1039: the declared grading contract is part of the public catalog —
                 # reviewers approve the policy by reading the manifest, never engine source.
                 "failure_policy": "coverage_declare",
