@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from screamingface_engine.benchmarks import prepare as prepare_module
-from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
+from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT, BUILTIN_REGISTRATIONS
 from screamingface_engine.benchmarks.definition import Benchmark, BenchmarkDeclaration
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
@@ -200,13 +200,18 @@ def test_asset_bundle_ids_are_safe_directory_names(bundle_id: str) -> None:
 def _installer_bundle_id(registration: BenchmarkRegistration) -> str | None:
     """The bundle directory the board's OWN installer reads, or None when it declares none.
 
-    A board's installer is defined in its family module beside that family's
-    ``ASSET_BUNDLE_ID`` constant, and reads ``assets_root / ASSET_BUNDLE_ID`` — see
-    ``benchmarks/gdpval/exam.py``. So the constant exported next to the installer is the
-    directory the board actually opens at runtime, read here from the board itself rather
-    than from a second list.
+    Two declaration protocols, closest-to-the-installer first (owner-approved
+    amendment, 2026-09-16): a table-registered board (boards-as-rows plugins) stamps
+    ``ASSET_BUNDLE_ID`` on the installer FUNCTION itself; a home-grown family module
+    exports it as a module constant beside the installer — see
+    ``benchmarks/gdpval/exam.py``. Either way the value is read from the board itself
+    rather than from a second list, and it is the directory the installer actually
+    opens at runtime.
     """
 
+    stamped = getattr(registration.benchmark.install, "ASSET_BUNDLE_ID", None)
+    if stamped is not None:
+        return stamped
     module = sys.modules.get(registration.benchmark.install.__module__)
     return getattr(module, "ASSET_BUNDLE_ID", None)
 
@@ -368,8 +373,11 @@ def test_the_family_guard_covers_every_family_preparer_package() -> None:
     """
 
     assert FAMILY_PACKAGES
+    # WHY STATIC only (OME-1115): plugin-contributed registrations install from their
+    # own top-level package, outside the core benchmarks/<family> geography this guard
+    # derives from; the per-board bundle-id conformance above still covers them.
     assert set(FAMILY_PACKAGES) == {
-        _family_package(registration) for registration in BUILTIN_DEPLOYMENT.registrations
+        _family_package(registration) for registration in BUILTIN_REGISTRATIONS
     }
     for family in FAMILY_PACKAGES:
         assert _FAMILY_PREPARER.search(f"-m screamingface_engine.benchmarks.{family}.prepare")
