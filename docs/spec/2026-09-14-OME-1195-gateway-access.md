@@ -9,3 +9,5 @@ This is configuration discovery, not credential validation: configured does not 
 The new field is per-request context, outside parameter-contract identity: changing access does not itself change model parameter semantics. Existing private/no-store and Vary policy applies. Consumers must treat an absent field from older Gateways as unknown, never as missing.
 
 Use the existing route and resolver; no new endpoint, provider-name switches or new dependency. Engine already relays the full response bytes and permits unknown fields; its existing proxy tests assert unchanged forwarding. No Engine implementation is needed (planned OME-1196 canceled). Client OME-1042 checks all required models before dispatch. This PR only implements Gateway OME-1195 under coordinating OME-1194.
+
+Review cleanup approved 2026-09-16: document execution_access as excluded from parameter-contract identity, add an isolated access-only identity regression, and annotate configured as bool. The test fixes auth mode and target identity: real Gemini environment changes may also change auth mode, which legitimately changes contract identity. No behavioral change is intended.

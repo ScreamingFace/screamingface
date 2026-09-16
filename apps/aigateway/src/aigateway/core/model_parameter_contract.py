@@ -160,10 +160,12 @@ def build_model_parameter_document(
 
     projection_revision = _rules_revision(normalized)
     evidence_revision = _evidence_revision(observations)
-    # INVARIANT: the digests are the cache key for the SERVED document, so every
-    # published section is folded in — ``freshness`` alone excepted, because it is
-    # time-varying and would move the id on essentially every request, destroying
-    # its value as a cache key. That asymmetry is deliberate: omitting a published
+    # INVARIANT: the digests identify parameter semantics, not every response field.
+    # ``freshness`` is excluded because time-varying evidence would churn the id.
+    # The route also adds ``context.execution_access`` AFTER composition: access
+    # configuration is request-time information, deliberately outside this identity.
+    # Consumers must not cache access state by contract_id or context.revision.
+    # Other published sections are folded in: omitting a semantic
     # field fails DANGEROUSLY (a stale contract served under a frozen id), while
     # including a superfluous one fails SAFELY (extra churn). Include by default;
     # every exclusion is a stated decision. ``gateway_provider`` is hashed even
@@ -202,10 +204,10 @@ def build_model_parameter_document(
             "scope": scope,
             "auth_mode": auth_mode,
             "revision": _opaque_id(_CONTEXT_REVISION_PREFIX, "context", digest_inputs),
-            # OME-648: published HERE and not in ``freshness`` on purpose. Every other
-            # field in this block is a digest input, whereas ``freshness`` is the one
-            # block deliberately EXCLUDED from the digest (see above) — so a hashed
-            # value living there would tell the next reader the opposite of the truth.
+            # OME-648: source_revision is published HERE and hashed, unlike
+            # ``freshness`` and the route-added ``context.execution_access``.
+            # Those two are deliberate identity exclusions (see above); placing
+            # source_revision in freshness would falsely suggest it is excluded too.
             # Null when the provider declares no dynamic source; the key is always
             # present, so "read from nothing" needs no key-presence check to detect.
             # Non-secret by construction: a provider-authored label naming its own

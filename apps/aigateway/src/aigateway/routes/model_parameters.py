@@ -192,7 +192,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     # INVARIANT: configuration is separate from the datasheet's auth-mode binding.
     # A keyless datasheet still exists; only chat's resolved target or an allowed
     # profileless mode establishes configuration. Never inject/validate secrets here.
-    configured = profile is not None or connection is not None
+    configured: bool = profile is not None or connection is not None
     if not configured and plugin.allows_chatless_profile():
         configured = (
             plugin.profileless_auth_mode() is not None or plugin.available_auth_modes() == ("none",)

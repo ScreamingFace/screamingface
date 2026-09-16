@@ -180,3 +180,33 @@ def test_active_connection_and_ambiguous_selection(authenticated_client):
     response = _details(authenticated_client, profile="absent")
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "connection_not_found"
+
+
+@pytest.mark.parametrize("env_name", ["GEMINI_API_KEY", "GOOGLE_API_KEY"])
+def test_access_only_changes_preserve_parameter_contract_identity(
+    authenticated_client, monkeypatch, env_name
+):
+    from aigateway.routes import model_parameters
+
+    # WHY: real Gemini key changes can also select a different auth mode. Hold
+    # that independent digest input fixed to isolate the access-only contract.
+    monkeypatch.setattr(model_parameters, "_contract_auth_mode", Mock(return_value="api_key"))
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    missing = _details(authenticated_client, _GEMINI)
+    _assert_access(missing, "missing")
+    before = missing.json()
+
+    monkeypatch.setenv(env_name, "private-provider-secret")
+    configured = _details(authenticated_client, _GEMINI)
+    _assert_access(configured, "configured")
+    monkeypatch.delenv(env_name)
+    missing_again = _details(authenticated_client, _GEMINI)
+    _assert_access(missing_again, "missing")
+
+    for response in (configured, missing_again):
+        after = response.json()
+        assert after["context"]["auth_mode"] == before["context"]["auth_mode"] == "api_key"
+        assert after["parameters"] == before["parameters"]
+        assert after["contract_id"] == before["contract_id"]
+        assert after["context"]["revision"] == before["context"]["revision"]
