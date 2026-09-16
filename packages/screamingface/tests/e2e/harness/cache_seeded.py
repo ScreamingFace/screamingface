@@ -1,7 +1,7 @@
 """CacheSeededGateway — the happy-path replay backend (OME-961).
 
 Mental model: the REAL aigateway, booted the way production boots it, whose only source
-of model answers is a pre-loaded response cache. Nothing is faked: real Postgres (a
+of model answers is a pre-loaded response cache. The response path uses real Postgres (a
 testcontainer), real migrations, the real ``/v1/admin/cache/snapshots`` upload route
 (OME-951/952), the real pre-credential cache stage on ``/v1/chat/completions``.
 
@@ -10,13 +10,15 @@ Stages of ``start()``, in execution order:
 1. **Postgres** — a ``postgres:16-alpine`` testcontainer, then the gateway's own
    Tortoise migrations (``python -m tortoise -c aigateway.db.TORTOISE_CONFIG migrate``,
    the exact invocation the Helm migrate job and aigateway's Postgres tests use).
-2. **Gateway** — ``uvicorn aigateway.main:app`` as a subprocess from
+2. **Gateway** — ``uvicorn --factory harness.cache_discovery:create_app`` as a subprocess from
    ``apps/aigateway``'s own venv, on a free loopback port. The environment is built
    from scratch (see ``_local_proc.clean_env``): auth ``disabled`` (loopback-only —
    admin routes answer without headers, the engine calls anonymously), request cache
    ON, openrouter plugin ON (participation gates both cache reads and writes),
    discovery OFF (no public-catalog egress), and **zero provider keys** — the gateway
-   cannot spend because there is nothing to spend with.
+   cannot spend because there is nothing to spend with. A test-only discovery adapter
+   omits the optional live execution_access assertion so Client preflight uses its
+   legacy/unknown compatibility path; the rest of the datasheet is unchanged.
 3. **Seed** — the snapshot (a gzip'd single-table pg_dump COPY block) is uploaded
    through the admin route with its manifest sidecar, and the job is polled to a
    terminal state. Anything but ``complete`` fails the boot loudly — including a
@@ -163,7 +165,10 @@ class CacheSeededGateway:
             name="aigateway",
             command=[
                 str(venv_bin(gateway_dir, "uvicorn")),
-                "aigateway.main:app",
+                "--factory",
+                "harness.cache_discovery:create_app",
+                "--app-dir",
+                str(Path(__file__).resolve().parents[1]),
                 "--host",
                 "127.0.0.1",
                 "--port",

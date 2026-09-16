@@ -9,3 +9,7 @@ Evaluate all required Candidate models in the existing preflight, including mode
 Configured and unknown access retain existing behavior. Configured means configuration exists, not that credentials are validated. This compatibility path means older Gateways cannot provide the new early-error guarantee. Existing auth/transport/discovery failures retain their types. Doctor stays independent. Fetch one details document per required Candidate model, reusing admission probes. Parameter-free evaluation now needs these discovery requests too. No separate access endpoint or inference request.
 
 Approved review rebase (2026-09-16): combine all-model access preflight and admission-document reuse with main's answer-seed validation. Keep prefetched keyword-only alongside answer_seed, use explicit None handling for sync lookups, and validate both guarantees before observers/dispatch. Shared test-helper extraction remains separate. Run combined regressions and full Client gates, then push the existing PR without merging.
+
+## Approved CI compatibility follow-up — 2026-09-17
+
+Keyless response-cache replay must remain executable without provider credentials. Its test-only discovery adapter omits live execution_access metadata to exercise supported legacy/unknown compatibility, while real Gateway chat/cache/error paths and production access checks remain unchanged. Cache misses must still fail with profile_not_found and no provider dispatch.
