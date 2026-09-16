@@ -4,7 +4,7 @@ FEATURE: imported inspect_evals benchmarks ship in a sealed plugin package; engi
 gains ONE generic entry-point discovery loop and zero knowledge of any plugin's name.
 
 INVARIANT the suite defends: with the entry-point group empty, the composed
-BUILTIN_DEPLOYMENT is byte-identical to the static registration tuple — installing the
+BUILTIN_DEPLOYMENT is byte-identical to the built-in registration tuple — installing the
 engine without the `inspect` extra changes nothing.
 """
 
@@ -18,7 +18,7 @@ import pytest
 
 from screamingface_engine.benchmarks.builtins import (
     BUILTIN_DEPLOYMENT,
-    STATIC_REGISTRATIONS,
+    BUILTIN_REGISTRATIONS,
 )
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
@@ -86,16 +86,16 @@ def test_non_registration_contribution_is_refused_by_name() -> None:
         discovered_registrations(entry_points_for_group=fake_group)
 
 
-def test_builtin_deployment_is_static_plus_discovered() -> None:
-    """The composition rule itself: static tuple first, discovered extensions after.
+def test_builtin_deployment_is_builtins_plus_discovered() -> None:
+    """The composition rule itself: built-in tuple first, discovered extensions after.
 
     With no plugin installed (or the plugin's optional deps absent) the discovered part
-    is empty and the deployment is byte-identical to the static tuple.
+    is empty and the deployment is byte-identical to the built-in tuple.
     """
 
     registrations = BUILTIN_DEPLOYMENT.registrations
-    assert registrations[: len(STATIC_REGISTRATIONS)] == STATIC_REGISTRATIONS
-    for extra in registrations[len(STATIC_REGISTRATIONS) :]:
+    assert registrations[: len(BUILTIN_REGISTRATIONS)] == BUILTIN_REGISTRATIONS
+    for extra in registrations[len(BUILTIN_REGISTRATIONS) :]:
         assert isinstance(extra, BenchmarkRegistration)
 
 

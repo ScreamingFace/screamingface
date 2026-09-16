@@ -81,7 +81,7 @@ HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
 # prepares it once: the two HealthBench boards are independent identities over one baked
 # answer key, and the two DRACO boards re-run the same archived case/rubric assets with
 # different judge-pass counts.
-STATIC_REGISTRATIONS = (
+BUILTIN_REGISTRATIONS = (
     BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),
     BenchmarkRegistration(benchmark=DRACO_3PASS, asset_bundle=DRACO_ASSETS),
     BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
@@ -96,10 +96,10 @@ STATIC_REGISTRATIONS = (
     BenchmarkRegistration(benchmark=GDPVAL_TEXT, asset_bundle=GDPVAL_ASSETS),
     BenchmarkRegistration(benchmark=MEDXPERT, asset_bundle=MEDXPERT_ASSETS),
 )
-# FEATURE: plugin-contributed benchmarks (OME-1115). The static tuple comes first and the
+# FEATURE: plugin-contributed benchmarks (OME-1115). The built-in tuple comes first and the
 # discovered extensions after, so with the entry-point group empty (no plugin, or the
 # plugin's optional dependencies absent) this deployment is byte-identical to before.
-BUILTIN_DEPLOYMENT = BenchmarkDeployment((*STATIC_REGISTRATIONS, *discovered_registrations()))
+BUILTIN_DEPLOYMENT = BenchmarkDeployment((*BUILTIN_REGISTRATIONS, *discovered_registrations()))
 BUILTIN_BENCHMARKS = BUILTIN_DEPLOYMENT.benchmarks
 
-__all__ = ["BUILTIN_BENCHMARKS", "BUILTIN_DEPLOYMENT", "STATIC_REGISTRATIONS"]
+__all__ = ["BUILTIN_BENCHMARKS", "BUILTIN_DEPLOYMENT", "BUILTIN_REGISTRATIONS"]
