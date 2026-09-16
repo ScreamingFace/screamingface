@@ -1,12 +1,12 @@
 ---
 id: OME-1115
 linear_url: https://linear.app/openmined/issue/OME-1115/evaluate-a-fusion-against-an-imported-inspect-evals-benchmark
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-04
-closed:
+closed: 2026-09-16
 ---
 
 # Evaluate a fusion against an imported inspect_evals benchmark
