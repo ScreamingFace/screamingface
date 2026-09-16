@@ -35,9 +35,12 @@ report.export(format="inspect")                   # report.eval, single-candidat
 report.export("runs/gsm8k.eval", format="inspect", candidate="fusion")
 ```
 
-- `Report.export(path=None, *, format="json" | "inspect", candidate=None) -> Path`.
-  `path=None` selects the format's default name (`report.json` / `report.eval`);
-  the JSON branch is byte-identical to today's behavior.
+- `Report.export(path="report.json", *, format="json" | "inspect", candidate=None)
+  -> Path`. The historical `'report.json'` default stays in the signature (owner
+  decision 2026-09-16); under `format="inspect"` the untouched default name
+  becomes `report.eval` (an inspect log is never a `.json` file), and any other
+  `.json` path still fails the writer's suffix rule. The JSON branch is
+  byte-identical to today's behavior.
 - **One `.eval` file = one candidate's run** — that is inspect's own unit (a log is
   one task × one model). A single-candidate report exports directly; a
   multi-candidate report requires `candidate=<name>` and refuses otherwise, naming

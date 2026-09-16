@@ -742,7 +742,11 @@ def test_report_export_inspect_format_defaults_to_report_dot_eval(
     monkeypatch.chdir(tmp_path)
 
     assert report(candidate("opus")).export(format="inspect") == Path("report.eval")
-    assert observed == [Path("report.eval")]
+    # WHY: the signature keeps the historical 'report.json' default, so the
+    # DEFAULT name (even spelled out) follows the format; any OTHER .json path
+    # still fails the writer's .eval suffix rule.
+    assert report(candidate("opus")).export("report.json", format="inspect") == Path("report.eval")
+    assert observed == [Path("report.eval"), Path("report.eval")]
 
 
 def test_report_export_json_format_refuses_a_candidate_selector(tmp_path: Path) -> None:

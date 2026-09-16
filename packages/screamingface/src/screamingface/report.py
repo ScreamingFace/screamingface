@@ -404,7 +404,7 @@ class Report:
 
     def export(
         self,
-        path: str | PathLike[str] | None = None,
+        path: str | PathLike[str] = "report.json",
         *,
         format: Literal["json", "inspect"] = "json",
         candidate: str | None = None,
@@ -418,7 +418,8 @@ class Report:
           export, default name ``report.json``.
         - ``format="inspect"`` writes ONE Candidate's run as an inspect ``.eval``
           log (FEATURE OME-1117): a one-way, provenance-labeled copy their
-          ``inspect view`` opens. Default name ``report.eval``; a
+          ``inspect view`` opens. The untouched default name becomes
+          ``report.eval`` (an inspect log is never a ``.json`` file); a
           multi-Candidate Report must name the Candidate to export, because an
           inspect log is one task × one model by their own convention. Needs
           the ``inspect`` extra (``pip install "screamingface[inspect]"``).
@@ -427,7 +428,8 @@ class Report:
         repeated notebook runs deterministically leave one current artifact.
 
         Args:
-            path: destination file; ``None`` selects the format's default name.
+            path: destination file; the ``report.json`` default adapts to
+                ``report.eval`` under ``format="inspect"``.
             format: ``"json"`` for the whole-report document, ``"inspect"``
                 for one Candidate's ``.eval`` log.
             candidate: which Candidate an inspect log describes; refused for
@@ -444,9 +446,13 @@ class Report:
             # when it asks for this format.
             from screamingface import _inspect_log
 
+            # WHY the name swap: the signature keeps the historical
+            # 'report.json' default, but an inspect log is never a .json file —
+            # the DEFAULT name follows the format; any other .json path still
+            # fails the writer's .eval suffix rule.
             return _inspect_log.write_inspect_log(
                 self,
-                Path(path) if path is not None else Path("report.eval"),
+                Path("report.eval") if str(path) == "report.json" else Path(path),
                 candidate=candidate,
             )
         if format != "json":
@@ -455,7 +461,7 @@ class Report:
             # WHY refused: the JSON document is whole-report; a selector here
             # would silently drop Candidates rather than select one log.
             raise ValueError("candidate= applies only to format='inspect'")
-        selected = Path(path) if path is not None else Path("report.json")
+        selected = Path(path)
         if selected.suffix.lower() != ".json":
             raise ValueError("Report export path must be a .json file")
         selected.parent.mkdir(parents=True, exist_ok=True)
