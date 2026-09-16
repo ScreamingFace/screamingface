@@ -1,3 +1,8 @@
+# pyright: reportMissingImports=false
+# WHY file-level: this module imports the `inspect` extra's packages, absent in the
+# default (extra-less) install the typecheck gate runs against. Only unresolved-import
+# reporting is relaxed; every other diagnostic stays on, and with the extra installed
+# these imports type-check normally.
 """The inspect scorer shim — their marking scheme, our marking room (spec §3.2).
 
 INVARIANT the suite defends: ONE translator with zero per-scorer branches wraps any

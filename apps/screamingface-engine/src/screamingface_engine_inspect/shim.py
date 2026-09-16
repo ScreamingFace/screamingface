@@ -1,3 +1,8 @@
+# pyright: reportMissingImports=false
+# WHY file-level: this module imports the `inspect` extra's packages, absent in the
+# default (extra-less) install the typecheck gate runs against. Only unresolved-import
+# reporting is relaxed; every other diagnostic stays on, and with the extra installed
+# these imports type-check normally.
 """Wrap one inspect scorer as a board's ``grade_case`` hook — the hourglass waist proof.
 
 Think of an inspect scorer as an external examiner who only reads their own exam-office
