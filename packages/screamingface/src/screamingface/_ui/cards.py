@@ -94,6 +94,52 @@ def models_rows_html(records: Sequence[ModelInfo]) -> str:
     )
 
 
+# FEATURE: benchmark provenance tabs (OME-1114) — origin → (tab label, source URL).
+# WHY SDK-side: pure presentation of one server field; the Engine ships no links.
+# An origin absent from this map still renders — its own tab, named by the origin
+# string, with no source link — so a newer Engine's new origin degrades gracefully.
+_ORIGIN_SOURCES: Mapping[str, tuple[str, str]] = {
+    "screamingface": ("ScreamingFace", "https://leaderboard.dev.screamingface.ai/"),
+    "inspect_evals": ("inspect_evals", "https://ukgovernmentbeis.github.io/inspect_evals/"),
+}
+
+
+def origin_label(origin: str) -> str:
+    """Human tab title for one origin; an unmapped origin names itself."""
+
+    label, _ = _ORIGIN_SOURCES.get(origin, (origin, ""))
+    return label
+
+
+def origin_source_html(origin: str) -> str:
+    """One escaped source-collection link for a mapped origin; empty otherwise."""
+
+    _, url = _ORIGIN_SOURCES.get(origin, (origin, ""))
+    if not url:
+        return ""
+    return (
+        f"<div class='sf-card__hint'><a href='{escape(url)}' target='_blank' "
+        f"rel='noopener'>{escape(url)}</a></div>"
+    )
+
+
+def benchmark_origin_panel_html(origin: str, records: Sequence[Benchmark]) -> str:
+    """One tab body: the origin's source link above its benchmark rows."""
+
+    return origin_source_html(origin) + benchmarks_rows_html(records)
+
+
+def benchmark_origin_sections_html(
+    groups: Sequence[tuple[str, Sequence[Benchmark]]],
+) -> str:
+    """Static fallback for the tabbed catalogue: one titled section per origin."""
+
+    return "".join(
+        _section(origin_label(origin), benchmark_origin_panel_html(origin, records))
+        for origin, records in groups
+    )
+
+
 def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
     if not records:
         return "<div class='sf-catalog__empty'>No benchmarks match.</div>"
@@ -113,6 +159,7 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
         _field("id", _mono(benchmark.id))
         + _field("cases", escape(str(benchmark.case_count)))
         + _field("revision", _mono(benchmark.revision))
+        + _field("origin", _origin_value_html(benchmark.origin))
         + _field("description", escape(benchmark.description), wide=True)
     )
     return (
@@ -233,6 +280,15 @@ def _synthesizer_fields(recipe: Recipe) -> str:
 def _provider_of(route: str) -> str:
     head = route.split("/", 1)[0]
     return head if head and head != route else "—"
+
+
+def _origin_value_html(origin: str) -> str:
+    """Origin as a link to its source collection when the map knows it."""
+
+    _, url = _ORIGIN_SOURCES.get(origin, (origin, ""))
+    if not url:
+        return escape(origin)
+    return f"<a href='{escape(url)}' target='_blank' rel='noopener'>{escape(origin)}</a>"
 
 
 def _mono(value: str) -> str:

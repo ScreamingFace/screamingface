@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any, overload
 
 from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.cards import (
+    benchmark_origin_panel_html,
+    benchmark_origin_sections_html,
     benchmarks_rows_html,
     catalog_html,
     models_rows_html,
+    origin_label,
 )
 from screamingface.discovery import Benchmark, ModelInfo
 
@@ -80,12 +83,10 @@ class _Catalog[T](Sequence[T], ABC):
             )
         )
         search = widgets.Text(placeholder=self._placeholder)
-        body = widgets.HTML(value=self._rows(self._values))
+        body, refresh = self._body(widgets)
 
         def on_change(change: dict[str, Any]) -> None:
-            query = str(change["new"]).strip().casefold()
-            visible = tuple(value for value in self._values if self._matches(value, query))
-            body.value = self._rows(visible)
+            refresh(str(change["new"]).strip().casefold())
 
         search.observe(on_change, names="value")
         root = widgets.VBox(children=(header, search, body))
@@ -93,6 +94,17 @@ class _Catalog[T](Sequence[T], ABC):
         root.add_class("sf-catalog-widget")
         root.add_class("sf-catalog")
         return root
+
+    def _body(self, widgets: Any) -> tuple[Any, Callable[[str], None]]:
+        """One flat searchable HTML body; catalogues with structure override this."""
+
+        body = widgets.HTML(value=self._rows(self._values))
+
+        def refresh(query: str) -> None:
+            visible = tuple(value for value in self._values if self._matches(value, query))
+            body.value = self._rows(visible)
+
+        return body, refresh
 
     def _matches(self, value: T, query: str) -> bool:
         return not query or query in self._search_text(value).casefold()
@@ -119,6 +131,10 @@ class _ModelCatalog(_Catalog[ModelInfo]):
 
 
 class _BenchmarkCatalog(_Catalog[Benchmark]):
+    """FEATURE: benchmark provenance tabs (OME-1114) — one tab per origin, each
+    linking to its source collection; the static fallback renders the same
+    grouping as titled sections."""
+
     _title = "Benchmarks"
     _aria = "ScreamingFace benchmark catalogue"
     _placeholder = "Filter benchmarks…"
@@ -127,7 +143,50 @@ class _BenchmarkCatalog(_Catalog[Benchmark]):
         return f"{value.id} {value.title} {value.description}"
 
     def _rows(self, values: Sequence[Benchmark]) -> str:
-        return benchmarks_rows_html(values)
+        if not values:
+            return benchmarks_rows_html(values)
+        return benchmark_origin_sections_html(_origin_groups(values))
+
+    def _body(self, widgets: Any) -> tuple[Any, Callable[[str], None]]:
+        groups = _origin_groups(self._values)
+        if not groups:
+            return super()._body(widgets)
+        panels = tuple(
+            widgets.HTML(value=benchmark_origin_panel_html(origin, records))
+            for origin, records in groups
+        )
+        tabs = widgets.Tab(children=panels)
+        for index, (origin, _) in enumerate(groups):
+            tabs.set_title(index, origin_label(origin))
+
+        def refresh(query: str) -> None:
+            # INVARIANT: filtering hides rows inside each tab; the tabs themselves
+            # stay, so provenance structure never flickers away while typing.
+            for panel, (origin, records) in zip(panels, groups, strict=True):
+                visible = tuple(record for record in records if self._matches(record, query))
+                panel.value = benchmark_origin_panel_html(origin, visible)
+
+        return tabs, refresh
+
+
+def _origin_groups(
+    values: Sequence[Benchmark],
+) -> tuple[tuple[str, tuple[Benchmark, ...]], ...]:
+    """Group benchmarks by origin — our shelf first, then first-appearance order."""
+
+    order: list[str] = []
+    groups: dict[str, list[Benchmark]] = {}
+    for value in values:
+        if value.origin not in groups:
+            order.append(value.origin)
+            groups[value.origin] = []
+        groups[value.origin].append(value)
+    # WHY: deterministic display regardless of wire order — the reader always
+    # finds our boards in the first tab when any are present.
+    if "screamingface" in groups:
+        order.remove("screamingface")
+        order.insert(0, "screamingface")
+    return tuple((origin, tuple(groups[origin])) for origin in order)
 
 
 __all__: list[str] = []
