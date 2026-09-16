@@ -63,7 +63,9 @@ async def preflight_async(
     _validate(details_by_model, assignments, seed_models, answer_seed)
 
 
-def _preflight_models(candidates: Sequence[Candidate], assignments: _Assignments) -> tuple[str, ...]:
+def _preflight_models(
+    candidates: Sequence[Candidate], assignments: _Assignments
+) -> tuple[str, ...]:
     """Check access for every required Model, including parameter-free evaluations."""
     return tuple(dict.fromkeys((*_seed_models(candidates), *assignments)))
 

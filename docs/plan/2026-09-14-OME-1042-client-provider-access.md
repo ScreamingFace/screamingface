@@ -5,3 +5,5 @@
 3. Check that metadata in existing model preflight before parameter validation and Candidate dispatch; retain unknown compatibility.
 4. Run focused tests, then all screamingface gates (including notebook/distribution checks).
 5. Record wisdom/validation, commit, push with SSH keepalives, and open a Client-only draft PR linked to Gateway #932.
+
+Approved review rebase (2026-09-16): combine all-model access preflight and admission-document reuse with main's answer-seed validation. Keep prefetched keyword-only alongside answer_seed, use explicit None handling for sync lookups, and validate both guarantees before observers/dispatch. Shared test-helper extraction remains separate. Run combined regressions and full Client gates, then push the existing PR without merging.

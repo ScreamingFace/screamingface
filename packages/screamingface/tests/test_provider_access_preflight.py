@@ -207,3 +207,49 @@ async def test_transport_failure_is_not_reclassified_as_missing_access(mode: str
     with pytest.raises(sf.EngineUnavailableError):
         await _evaluate(mode, engine, sf.Model(_MODEL), [], runs)
     assert runs.calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["sync", "async"])
+@pytest.mark.parametrize("listed", [True, False])
+@pytest.mark.parametrize("access", ["missing", "configured"])
+async def test_seeded_access_preflight_reuses_details_and_rejects_before_dispatch(
+    mode: str, listed: bool, access: str
+) -> None:
+    # INVARIANT: semantic rebase must retain both access and seed gates, including
+    # the admission-probe path. This fixture intentionally has no seed parameter.
+    engine = _Engine({_MODEL: access})
+    engine.listed = (_MODEL,) if listed else ()
+    events: list[Any] = []
+    runs = _Run() if mode == "sync" else _AsyncRun()
+    options = {
+        "engine_url": engine.url,
+        "http_transport": httpx.MockTransport(engine),
+        "run_transport": runs,
+    }
+    expected = sf.ProviderConnectionError if access == "missing" else sf.PlanningError
+    with pytest.raises(expected) as caught:
+        if mode == "sync":
+            with sf.Client(**options) as client:
+                client.evaluate(
+                    sf.Model(_MODEL),
+                    benchmark="fixture",
+                    answer_seed=7,
+                    progress=False,
+                    on_event=events.append,
+                )
+        else:
+            async with sf.AsyncClient(**options) as client:
+                await client.evaluate(
+                    sf.Model(_MODEL),
+                    benchmark="fixture",
+                    answer_seed=7,
+                    progress=False,
+                    on_event=events.append,
+                )
+    assert caught.value.code == (
+        "provider_not_connected" if access == "missing" else "unsupported_model_parameter"
+    )
+    assert engine.details == [_MODEL]
+    assert runs.calls == 0
+    assert events == []

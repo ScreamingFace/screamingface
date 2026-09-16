@@ -81,7 +81,9 @@ def evaluate_sync(
             prefetched[model] = load_model_details(model)
         except PlanningError as exc:
             _reraise_probe_miss(model, exc)
-    preflight_sync(selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched)
+    preflight_sync(
+        selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
+    )
     observer = _sync_event_observer(
         on_event,
         progress,
@@ -136,7 +138,9 @@ async def evaluate_async(
             prefetched[model] = await load_model_details(model)
         except PlanningError as exc:
             _reraise_probe_miss(model, exc)
-    await preflight_async(selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched)
+    await preflight_async(
+        selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
+    )
     observer = _async_event_observer(
         on_event,
         progress,
