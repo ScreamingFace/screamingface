@@ -96,3 +96,5 @@ it is not shipped by this docs PR. OME-1161 stays open until the feature deliver
 OME-1201 clarification: inline hooks must return promptly; slow I/O belongs to observer-owned
 resources. Async cleanup cancels/joins owned tasks without waiting for remote delivery.
 Dispatch provides exception containment, not runtime latency enforcement.
+
+Review cleanup approved 2026-09-16: remove the unused on_heartbeat callback, name the unchanged 200-token burst/100-per-second refill/40-token reserve, clamp bridge-loss snapshots to the nonnegative safe-integer range, and document reserved vocabulary. Keep the contract module standard-library-only; deployment remains in PR935.

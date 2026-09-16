@@ -40,7 +40,7 @@ class ActivityObserver:
         return {
             "sf.telemetry.schema": "screamingface.telemetry.v1",
             "sf.telemetry.loss.scope": "engine_bridge_logs",
-            "sf.telemetry.loss.dropped_total": min(MAX_INTEGER, dropped),
+            "sf.telemetry.loss.dropped_total": max(0, min(MAX_INTEGER, dropped)),
         }
 
 

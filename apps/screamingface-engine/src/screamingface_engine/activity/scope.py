@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from contextvars import ContextVar, Token
 from types import TracebackType
 from uuid import uuid4
@@ -33,11 +33,9 @@ class Operation:
         emit: Emitter | None,
         kind: ActivityKind,
         values: dict[str, Scalar],
-        on_heartbeat: Callable[[], None] | None,
     ) -> None:
         self._session, self._emit, self.kind = session, emit, kind
         self._facts = values
-        self._on_heartbeat = on_heartbeat
         self._id = ""
         self._started = 0.0
         self._revision = 0
@@ -127,8 +125,6 @@ class Operation:
             await _sleep(60.0)
             if self.enabled and self._terminal is None:
                 self._record("running")
-                if self._on_heartbeat is not None:
-                    self._on_heartbeat()
 
     async def __aenter__(self) -> Operation:
         self.__enter__()
@@ -199,17 +195,16 @@ def operation(
     *,
     emit: Emitter | None,
     kind: ActivityKind,
-    on_heartbeat: Callable[[], None] | None = None,
     **values: object,
 ) -> Operation:
     session = current_session()
     if session is None or emit is None:
-        return Operation(None, None, kind, {}, None)
+        return Operation(None, None, kind, {})
     try:
-        return Operation(session, emit, kind, facts(values), on_heartbeat)
+        return Operation(session, emit, kind, facts(values))
     except Exception:
         session.suppress("invalid")
-        return Operation(None, None, kind, {}, None)
+        return Operation(None, None, kind, {})
 
 
 def current_operation() -> Operation | None:

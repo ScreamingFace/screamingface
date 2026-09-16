@@ -13,6 +13,12 @@ from typing import Literal
 
 from screamingface_engine.activity.contract import MAX_INTEGER, PREFIX, Emitter, Scalar
 
+BURST = 200.0
+REFILL_PER_S = 100.0
+RESERVED_FOR_OUTCOMES = 40
+# WHY: routine records spend one token while leaving the outcome/retry reserve intact.
+_ROUTINE_MIN_TOKENS = RESERVED_FOR_OUTCOMES + 1
+
 _CURRENT: ContextVar[ActivitySession | None] = ContextVar("activity_session", default=None)
 
 
@@ -26,7 +32,7 @@ class ActivitySession:
         self.monotonic = monotonic
         self.wall = wall
         self.active = True
-        self._tokens = 200.0
+        self._tokens = BURST
         self._last = monotonic()
         self._lock = threading.RLock()
         self._suppressed = dict.fromkeys(("invalid", "oversize", "rate"), 0)
@@ -42,9 +48,9 @@ class ActivitySession:
 
     def _admit(self, state: str) -> bool:
         now = self.monotonic()
-        self._tokens = min(200.0, self._tokens + max(0.0, now - self._last) * 100.0)
+        self._tokens = min(BURST, self._tokens + max(0.0, now - self._last) * REFILL_PER_S)
         self._last = max(now, self._last)
-        if self._tokens < (41 if state in {"started", "running"} else 1):
+        if self._tokens < (_ROUTINE_MIN_TOKENS if state in {"started", "running"} else 1):
             self.suppress("rate")
             return False
         self._tokens -= 1

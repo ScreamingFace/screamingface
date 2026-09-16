@@ -107,3 +107,18 @@ async def assert_off_model_dispatch(off):
         async with ModelCall("a", None):
             assert current_session() is None
     await run.aclose()
+
+
+@pytest.mark.parametrize(
+    "dropped, expected",
+    [(-1, 0), (-(10**30), 0), (0, 0), (7, 7), (10**30, 9_007_199_254_740_991)],
+)
+def test_bridge_loss_is_nonnegative_and_saturated(dropped, expected):
+    from screamingface_engine.activity.observer import ActivityObserver
+
+    attributes = ActivityObserver().bridge_loss(dropped)
+    assert attributes == {
+        "sf.telemetry.schema": "screamingface.telemetry.v1",
+        "sf.telemetry.loss.scope": "engine_bridge_logs",
+        "sf.telemetry.loss.dropped_total": expected,
+    }

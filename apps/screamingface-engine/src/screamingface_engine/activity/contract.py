@@ -1,4 +1,10 @@
-"""Safe v1 activity vocabulary and explicit producer facts (OME-1161)."""
+"""Safe v1 activity vocabulary and explicit producer facts (OME-1161).
+
+The shared v1 contract reserves stage kinds, count facts, public identifiers and
+failure codes for future producers. Only model-call activity is produced today;
+accepted vocabulary does not imply instrumentation or stage coverage.
+This module stays standard-library-only, including its structural Emitter protocol.
+"""
 
 from __future__ import annotations
 

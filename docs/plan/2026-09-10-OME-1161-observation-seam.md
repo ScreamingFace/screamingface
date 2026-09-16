@@ -32,3 +32,7 @@ mirror and work ledger. OME-1161 remains open until both PRs merge.
 
 Client rendering, benchmark-stage producers, semantic attribution, aggregate policy and
 provisional scores remain separate. This pair completes the Engine model-call producer.
+
+## Approved small review cleanup (2026-09-16)
+
+Add failing negative-loss coverage, apply the bounded-count correction, remove the unused heartbeat hook, name existing admission constants, and clarify reserved vocabulary. Run direct activity tests and full Engine gates, then commit and push PR931. Existing test bodies remain unchanged.

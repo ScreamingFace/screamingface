@@ -20,3 +20,5 @@ and provisional scores remain separate.
 [Spec](../spec/2026-09-10-OME-1161-observation-seam.md) ·
 [Plan](../plan/2026-09-10-OME-1161-observation-seam.md) ·
 [Ledger](../work/2026-09-10-OME-1161-observation-split.md).
+
+PR931 cleanup (2026-09-16): removed unused heartbeat callback, named unchanged admission constants, clamped bridge loss to nonnegative safe integers, and clarified reserved vocabulary. 60 direct tests and full Engine gates pass, coverage 93.26%. Ledger: `docs/work/2026-09-16-OME-1161-plugin-cleanup.md`. Deployment remains separate in PR935.
