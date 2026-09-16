@@ -1,9 +1,10 @@
 """Typed settings for the screamingface-engine App, loaded from `URL4_CLOUD_*`
 environment variables."""
 
-from typing import Literal, Self
+from collections.abc import Mapping
+from typing import Any, Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
@@ -39,6 +40,25 @@ class Settings(BaseSettings):
     and model-catalog cache tuning."""
 
     model_config = SettingsConfigDict(env_prefix="URL4_CLOUD_")
+
+    # INVARIANT: deployment policy, never a per-run request parameter.
+    activity_level: Literal["off", "full"] = "off"
+    _activity_level_explicit: bool = PrivateAttr(default=False)
+
+    def __init__(self, **values: Any) -> None:
+        super().__init__(**values)
+        # WHY: model_fields_set includes environment values, losing caller provenance.
+        self._activity_level_explicit = "activity_level" in values
+
+    @property
+    def activity_level_is_explicit(self) -> bool:
+        return self._activity_level_explicit
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        copied = super().model_copy(update=update, deep=deep)
+        if update is not None and "activity_level" in update:
+            copied._activity_level_explicit = True
+        return copied
 
     # WHY: HS256 signing secret for the JWT topic-capability token (spec §4). Never logged.
     #

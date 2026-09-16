@@ -22,3 +22,5 @@ and provisional scores remain separate.
 [Ledger](../work/2026-09-10-OME-1161-observation-split.md).
 
 PR931 cleanup (2026-09-16): removed unused heartbeat callback, named unchanged admission constants, clamped bridge loss to nonnegative safe integers, and clarified reserved vocabulary. 60 direct tests and full Engine gates pass, coverage 93.26%. Ledger: `docs/work/2026-09-16-OME-1161-plugin-cleanup.md`. Deployment remains separate in PR935.
+
+Deployment follow-up approved 2026-09-17: rebase PR935 onto main, correct ambient/injected Settings precedence, add regression coverage and commit. Ledger: docs/work/2026-09-17-OME-1161-deployment-review.md.

@@ -36,3 +36,7 @@ provisional scores remain separate. This pair completes the Engine model-call pr
 ## Approved small review cleanup (2026-09-16)
 
 Add failing negative-loss coverage, apply the bounded-count correction, remove the unused heartbeat hook, name existing admission constants, and clarify reserved vocabulary. Run direct activity tests and full Engine gates, then commit and push PR931. Existing test bodies remain unchanged.
+
+## Approved deployment follow-up — 2026-09-17
+
+Rebase only the two deployment commits onto main after PR931; preserve its cleanup. Track explicit activity constructor/copy-update provenance in Settings, resolve and validate policy before local composition, copy supplied settings to synchronize effective policy, and reuse the environment-key constant. Add regression cases before implementation; run all Engine gates and commit. No Linear comments.

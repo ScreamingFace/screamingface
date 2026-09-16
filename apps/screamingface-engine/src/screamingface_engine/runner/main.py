@@ -536,7 +536,14 @@ async def _run_and_log(
 def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
     async def _main() -> None:
         params = params_from_env(os.environ)
-        executor = build_executor(os.environ, benchmarks=BUILTIN_BENCHMARKS)
+        # WHY: entry-point composition owns plugin registration; the executor stays optional.
+        from screamingface_engine.observation_plugins import observation_factories
+
+        executor = build_executor(
+            os.environ,
+            benchmarks=BUILTIN_BENCHMARKS,
+            observers=observation_factories(os.environ),
+        )
         traceparent = os.environ.get(job_env.TRACEPARENT)
         publisher = JetStreamPublisher(params.nats_url)
         _log_boot(params, traceparent)

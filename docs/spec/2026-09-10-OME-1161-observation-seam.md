@@ -98,3 +98,5 @@ resources. Async cleanup cancels/joins owned tasks without waiting for remote de
 Dispatch provides exception containment, not runtime latency enforcement.
 
 Review cleanup approved 2026-09-16: remove the unused on_heartbeat callback, name the unchanged 200-token burst/100-per-second refill/40-token reserve, clamp bridge-loss snapshots to the nonnegative safe-integer range, and document reserved vocabulary. Keep the contract module standard-library-only; deployment remains in PR935.
+
+Deployment review approved 2026-09-17: local activity precedence is explicitly supplied Settings activity, then injected environment (including empty mapping as off), then process environment when injection is omitted, then off. Environment-loaded Settings values are not explicit caller overrides. Effective app settings must reflect the selected policy without mutating caller settings.
