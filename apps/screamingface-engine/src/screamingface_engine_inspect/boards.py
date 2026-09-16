@@ -99,6 +99,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # Provenance: inspect_evals.mmlu.mmlu's Task declares scorer=choice().
         scorer="inspect_ai.scorer:choice",
     ),
+    # --- importer: generated BoardSpec rows land above this line ---
 )
 
 

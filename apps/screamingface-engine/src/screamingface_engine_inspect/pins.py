@@ -54,6 +54,8 @@ MMLU_CASE_COUNT = 14042
 # cases a limit selects), so it rides the revision hash.
 MMLU_SHUFFLE_SEED = 20260915
 
+# --- importer: generated pin rows land above this line ---
+
 # WHY: prepare's emission rules are part of the exam; bump when they change.
 PREPARER_REVISION = "inspect-single-shot-v1"
 # WHY: the exchange itself — one candidate invocation, aggregate-side scoring.

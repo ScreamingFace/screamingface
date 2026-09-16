@@ -109,6 +109,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # raw order would examine one subject; the seed rides the revision hash.
         shuffle_seed=MMLU_SHUFFLE_SEED,
     ),
+    # --- importer: generated SnapshotSpec rows land above this line ---
 }
 
 
