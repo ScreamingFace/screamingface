@@ -12,11 +12,12 @@ from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 def board_registrations() -> tuple[BenchmarkRegistration, ...]:
     """Every imported board, in catalogue order.
 
-    AIDEV-NOTE: empty while the seam lands first — the two proof boards
-    (`inspect-gsm8k`, `inspect-mmlu`) register here in this ticket's later commits.
+    AIDEV-NOTE: `inspect-mmlu` registers here in this ticket's next PR.
     """
 
-    return ()
+    from screamingface_engine_inspect.gsm8k import GSM8K_BOARD
+
+    return (GSM8K_BOARD.registration,)
 
 
 __all__ = ["board_registrations"]
