@@ -68,3 +68,15 @@ tool's docstring).
 | `fixtures/goldens/<board>.golden.json` | ✅ | frozen answer key: expression sha, case statuses, per-case failure codes, score |
 | `fixtures/snapshots/synthetic.*` | manifest ❌ (generated) | plumbing-only fixture; regenerate via `generate_synthetic.py` in the aigateway venv |
 | dump / report / answers | ❌ never | owner-held recordings, referenced only by content sha |
+
+
+### Keyless replay and access preflight
+
+`CacheSeededGateway` boots the real Gateway with a test-only discovery adapter. It
+omits `context.execution_access` from successful `/v1/model-parameters` responses,
+exercising the Client's supported legacy/unknown-access path. The harness has no
+provider credentials: live access would truthfully be missing, while cached answers
+remain executable before credential resolution. It does not fabricate configured
+access or change production preflight behavior. All other datasheet fields, errors,
+chat/cache handling and the existing `profile_not_found` cache-miss assertions remain
+unchanged. Provider-access rejection itself stays covered by Client preflight tests.

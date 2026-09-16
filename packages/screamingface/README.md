@@ -489,12 +489,17 @@ expose the same interface at `client.leaderboards`; asynchronous Clients use `aw
 Scoreboard is the deployed data system, while a Leaderboard is the ranked domain resource returned
 to callers.
 
-Explicit Candidate parameters are preflighted against those details before execution. The SDK
-fetches one detail document per distinct Model with explicit overrides on an operation the selected
-Benchmark actually invokes; parameter-free Candidates and unused structural components perform no
-detail lookup. Missing, disabled, wrong-type, or out-of-range values fail before any paid Run
-begins. Model capability data always comes from the Engine/AI Gateway contract—there is no GPT- or
-provider-specific parameter table in the SDK.
+Provider access and explicit Candidate parameters are preflighted before execution. The SDK
+fetches one detail document per distinct required Candidate Model, including parameter-free
+Models, and reuses any document fetched during model admission. Authoritative missing provider
+access raises `ProviderConnectionError` before any Candidate dispatch or progress events, with a
+hint to configure BYOK via `sf.connect()` or enable the selected hosted provider profile.
+`ModelDetails.execution_access` is `"configured"`, `"missing"`, or `None` when an older Gateway
+omits the field. Unknown access preserves existing behavior; the early missing-access guarantee
+requires a Gateway that publishes the field. Configured access is not credential validation.
+Missing, disabled, wrong-type, or out-of-range parameters also fail before any paid Run begins.
+Access and capability data come from Engine/AI Gateway discovery, with no provider-specific
+credential or parameter rules in the SDK. Sync and async Clients use the same checks.
 
 The returned catalogues are immutable ordered sequences: iteration, indexing, slicing, and
 `len()` work normally in scripts and sidecars. Evaluating one in Jupyter automatically renders a
