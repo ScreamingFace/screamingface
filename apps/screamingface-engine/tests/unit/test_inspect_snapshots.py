@@ -26,9 +26,9 @@ pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
 from screamingface_engine_inspect.prepare import (  # noqa: E402
+    SNAPSHOTS,
     PrepareError,
-    emit_gsm8k,
-    emit_mmlu,
+    emit_snapshot,
     mcq_prompt,
 )
 
@@ -38,9 +38,12 @@ _GSM8K_ROWS: list[dict[str, Any]] = [
 ]
 
 _MMLU_ROWS: list[dict[str, Any]] = [
-    {"question": "Pick B.", "choices": ["no", "yes", "never", "maybe"], "answer": 1},
-    {"question": "Pick A.", "choices": ["yes", "no", "never", "maybe"], "answer": 0},
-    {"question": "Pick D.", "choices": ["no", "never", "maybe", "yes"], "answer": 3},
+    {"question": "Pick B.", "choices": ["no", "yes", "never", "maybe"], "answer": 1}
+    | {"subject": "s"},
+    {"question": "Pick A.", "choices": ["yes", "no", "never", "maybe"], "answer": 0}
+    | {"subject": "s"},
+    {"question": "Pick D.", "choices": ["no", "never", "maybe", "yes"], "answer": 3}
+    | {"subject": "s"},
 ]
 
 
@@ -50,7 +53,7 @@ _MMLU_ROWS: list[dict[str, Any]] = [
 def test_gsm8k_snapshot_bakes_their_template_and_the_private_target(
     tmp_path: Path,
 ) -> None:
-    summary = emit_gsm8k(_GSM8K_ROWS, tmp_path)
+    summary = emit_snapshot(SNAPSHOTS["gsm8k"], _GSM8K_ROWS, tmp_path)
     cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
     assert [case["id"] for case in cases] == [1, 2]
     assert all(case["case_id"] == str(case["id"]) for case in cases)
@@ -66,22 +69,26 @@ def test_gsm8k_snapshot_bakes_their_template_and_the_private_target(
 
 
 def test_gsm8k_snapshot_refuses_a_row_without_a_target(tmp_path: Path) -> None:
+    """An answer whose '####' tail is empty must fail the bake, not bake an unkeyed Case."""
+
     with pytest.raises(PrepareError, match="case 1"):
-        emit_gsm8k([{"question": "Q?", "answer": "no delimiter"}], tmp_path)
+        emit_snapshot(
+            SNAPSHOTS["gsm8k"], [{"question": "Q?", "answer": "reasoning ####   "}], tmp_path
+        )
 
 
 # ── mmlu ─────────────────────────────────────────────────────────────────────
 
 
 def test_mcq_prompt_is_their_single_answer_template() -> None:
-    prompt = mcq_prompt(_MMLU_ROWS[0])
+    prompt = mcq_prompt(_MMLU_ROWS[0]["question"], _MMLU_ROWS[0]["choices"])
     assert "ANSWER: $LETTER" in prompt
     assert "A) no" in prompt and "B) yes" in prompt and "D) maybe" in prompt
     assert "Pick B." in prompt
 
 
 def test_mmlu_snapshot_bakes_letter_and_choices_privately(tmp_path: Path) -> None:
-    emit_mmlu(_MMLU_ROWS, tmp_path)
+    emit_snapshot(SNAPSHOTS["mmlu"], _MMLU_ROWS, tmp_path)
     cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
     assert len(cases) == 3
     targets = [
@@ -102,39 +109,51 @@ def test_mmlu_snapshot_shuffles_deterministically(tmp_path: Path) -> None:
     second_dir = tmp_path / "second"
     first_dir.mkdir()
     second_dir.mkdir()
-    emit_mmlu(_MMLU_ROWS, first_dir)
-    emit_mmlu(_MMLU_ROWS, second_dir)
+    emit_snapshot(SNAPSHOTS["mmlu"], _MMLU_ROWS, first_dir)
+    emit_snapshot(SNAPSHOTS["mmlu"], _MMLU_ROWS, second_dir)
     first = (first_dir / "cases.json").read_text(encoding="utf-8")
     assert first == (second_dir / "cases.json").read_text(encoding="utf-8")
     # And the shuffle visibly leaves the subject-grouped dataset order.
     questions = [case["input"] for case in json.loads(first)]
-    assert questions != [mcq_prompt(row) for row in _MMLU_ROWS]
+    assert questions != [mcq_prompt(row["question"], row["choices"]) for row in _MMLU_ROWS]
 
 
 def test_mmlu_snapshot_refuses_a_row_without_a_question(tmp_path: Path) -> None:
     """A malformed row fails the whole bake by case number, never a raw KeyError."""
 
     with pytest.raises(PrepareError, match="case 1"):
-        emit_mmlu([{"choices": ["a", "b", "c", "d"], "answer": 0}], tmp_path)
+        emit_snapshot(
+            SNAPSHOTS["mmlu"],
+            [{"choices": ["a", "b", "c", "d"], "answer": 0, "subject": "s"}],
+            tmp_path,
+        )
+
+
+def test_mmlu_snapshot_refuses_an_out_of_range_answer(tmp_path: Path) -> None:
+    """The eval's own conversion blowing up on a bad row is a named bake failure."""
+
+    row = {"question": "Q?", "choices": ["a", "b", "c", "d"], "answer": 9, "subject": "s"}
+    with pytest.raises(PrepareError, match="case 1"):
+        emit_snapshot(SNAPSHOTS["mmlu"], [row], tmp_path)
 
 
 # ── exam-size and re-bake guards (shared by both boards) ─────────────────────
 
 
-@pytest.mark.parametrize(("emit", "rows"), [(emit_gsm8k, _GSM8K_ROWS), (emit_mmlu, _MMLU_ROWS)])
-def test_wrong_sized_dataset_refuses_the_bake(emit: Any, rows: Any, tmp_path: Path) -> None:
+@pytest.mark.parametrize(("board", "rows"), [("gsm8k", _GSM8K_ROWS), ("mmlu", _MMLU_ROWS)])
+def test_wrong_sized_dataset_refuses_the_bake(board: str, rows: Any, tmp_path: Path) -> None:
     """INVARIANT: the pinned case count is exam identity — a config/revision typo that
     yields the wrong number of rows (0 included) must fail loudly, never bake a
     smaller exam with a green build."""
 
     with pytest.raises(PrepareError, match="pinned case count"):
-        emit(rows, tmp_path, expected_cases=len(rows) + 1)
+        emit_snapshot(SNAPSHOTS[board], rows, tmp_path, expected_cases=len(rows) + 1)
 
 
 def test_rebake_into_a_used_directory_is_refused(tmp_path: Path) -> None:
     """INVARIANT: no orphan answer keys — a second bake into the same directory could
     leave stale targets/*.json from a previous, larger bake, so it is refused."""
 
-    emit_gsm8k(_GSM8K_ROWS, tmp_path)
+    emit_snapshot(SNAPSHOTS["gsm8k"], _GSM8K_ROWS, tmp_path)
     with pytest.raises(PrepareError, match="non-empty"):
-        emit_gsm8k(_GSM8K_ROWS, tmp_path)
+        emit_snapshot(SNAPSHOTS["gsm8k"], _GSM8K_ROWS, tmp_path)
