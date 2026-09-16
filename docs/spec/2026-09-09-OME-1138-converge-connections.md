@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first revision; D2 REMOVE retained; execution approval remains separate
 created: 2026-09-09
-updated: 2026-09-14
+updated: 2026-09-16
 base: 17048f5d9794dc39401352cc049dc1b17a54f7c0
 catalog: screamingface-design 679aa8f (branch OME-1178-add-the-aigateway-metamodel, PR #18); generator inputs 802bed9a
 revises: 2026-09-10 revision (Connection-first ordering; its verified content is retained below)
@@ -27,8 +27,19 @@ compatibility only inside a declared window with a defined removal point.
 first and back it with the existing Profile mechanisms; move every consumer onto it while Profiles
 remain the only storage; then transition the storage/authority behind the same boundary. Profiles
 are not removed in this pass. Which model finally backs the boundary — a transfer to Connections
-(plus the retained slot design) or a rework of Profiles into a "provider account" model — is an
-open owner decision (D11). The boundary is designed so either backing satisfies the same contract.
+(plus the retained slot design) or an internal aggregate that absorbs the current Profile mechanisms
+— is an open owner decision (D11). The boundary is designed so either backing satisfies the same
+contract.
+
+**Naming decision (OME-1210, 2026-09-16):** the final product/API/domain noun is **Connection**.
+`Provider access` names the internal boundary and its HTTP successor family, not a persisted
+credential resource. `Profile` is a legacy compatibility surface and current backing implementation;
+new docs should say `legacy Profile` when the distinction matters. `Provider Account` is not
+introduced as a resource, API object or UI noun because it conflicts with account ownership and would
+create a third credential concept; if a future internal implementation keeps a provider-account-like
+aggregate, it must still publish and document the effective credential as a Connection. `Credential
+target` remains an internal per-request resolution value, and `effective credential` remains an
+invariant, not a user-facing object name.
 
 **Approval boundary:** this revision authorises nothing. No runtime code, no catalog write, no data
 migration, no task mutation, no staging or push follows from it. Implementation starts only after
@@ -311,7 +322,7 @@ Each stage is its own gate; later stages inherit nothing from an earlier approva
 | **A2** in-process consumers | four routes call the port; three normalisations, `_context_identity` and target inspection deleted; import guard; the two suites patching `_inject_credentials` / `_credential_target_for_chat` on the `routes.chat` namespace re-expressed at the port seam | HTTP pins green; no test edits beyond those two suites; guard test: `Profile`/`ProfileState`/`ProfileIndexStore`/`OAuthConnection` imported only by allowed modules; Vary/scope/codes unchanged | import-boundary test; `DATASHEET` equivalence table; admission relay test |
 | **A3** admin interface + shells | facade bodies relocated; tenant/admin PUT/DELETE/list become shells; `availability` implemented | OME-307 suites and PostgreSQL races green unmodified; wholesale-replacement pin; JSON parity for tenant listing; no secret build on availability; both conflict contracts preserved (503 retry-exhausted, 409 delete-wins); `availability` equals Engine `decode_profile_statuses` per fixture | admin adapter tests; listing parity; availability golden |
 | **A4** Hosted Engine on the successor listing (needs D17; two units — gateway route and Engine adapter, rule 8) | successor route; Engine hosted branch switched; `listing_source` → mutability flag; decoder replaced | per-fixture equality with today's aggregation; hosted mutations still refused before I/O; Engine `/v1/connections` DTO field set unchanged; SDK suites untouched and green; e2e replay lane green | gateway route tests (scoping, no defaults/ids/labels, no-store); Engine adapter tests incl. malformed body; layering gate |
-| **B** backing transition (needs D11, D14, Q01–Q04) | option (a): S1 slot store + pair-marker authority + S4 backfill + R1 rehearsal + Connection-backed implementations; option (b): provider-account aggregate and its migration; bootstrap through the admin interface; fixture swap of the 18 feature suites; the 2 facade suites split (HTTP contract kept, storage assertions moved); the bootstrap suite re-targeted; the 4 storage-invariant suites untouched and new-store invariant suites added | port contract suites pass against the new implementation with consumers unedited; commit-time authority checks on every writer; quarantine keeps legacy authority; rollback rehearsed | §11 storage/authority/mapping/backfill/rollback matrices |
+| **B** backing transition (needs D11, D14, Q01–Q04) | option (a): S1 slot store + pair-marker authority + S4 backfill + R1 rehearsal + Connection-backed implementations; option (b): internal aggregate and its migration, still publishing Connections as the credential resource; bootstrap through the admin interface; fixture swap of the 18 feature suites; the 2 facade suites split (HTTP contract kept, storage assertions moved); the bootstrap suite re-targeted; the 4 storage-invariant suites untouched and new-store invariant suites added | port contract suites pass against the new implementation with consumers unedited; commit-time authority checks on every writer; quarantine keeps legacy authority; rollback rehearsed | §11 storage/authority/mapping/backfill/rollback matrices |
 | **C** D2 cutover | §3.7 removals; legacy writes with defaults rejected; UI fieldset drops; attach/replace moves | saved defaults never influence requests; explicit parameters validate; no ignored writes; no wrong cache hits across the transition | REMOVE matrix; retired defaults tests with recorded mapping |
 | **D** D4 selector sunset + carriers + vocabulary | reject policy; Engine stops emitting (S6), URL4 retires (S9); Vary/scope; neutral codes if adopted; SDK/e2e/UI copy in the same train | accepted work drained or dispositioned; ambient env audited; no silent retarget anywhere | 400 tests; carrier matrix; SDK mapping incl. retryable pending |
 | **E** retirement and cleanup (G6, D6) | legacy Profile routes, classes, index store, bootstrap path, shims, hooks rename; tooling retirement list; guarded blob cleanup | named rollback build reads all it needs; no referenced blob deleted; catalog checks green after M0 | reference-fencing tests; tooling tests |
@@ -381,7 +392,7 @@ mechanism for option (a) and as the semantic requirements for option (b):
 
 ## 8. Decision register
 
-D1–D10 are preserved as decided; D11–D19 are new (D15, D17 and D19 decided, the rest open).
+D1–D10 are preserved as decided; D11–D20 are new (D15, D17, D19 and D20 decided, the rest open).
 Conflicts are presented, not resolved.
 
 | ID | Decision | Contract | Status |
@@ -396,7 +407,7 @@ Conflicts are presented, not resolved.
 | D8 | Admin API | API-key only, masked, no OAuth start, no defaults editor | preserved; correction: the UI has a defaults fieldset on attach today (no PATCH editor) |
 | D9 | Desktop output | untouched | preserved |
 | D10 | Catalog retirement | built-in `supersedes`, deprecate without deletion | preserved |
-| D11 | Backing model | (a) transfer to Connections + slot, remove Profiles; (b) rework Profiles into a provider-account model absorbing Connections | **open**; boundary agnostic; Stage B content, D17/D18 shapes and whether `Selector` survives depend on it |
+| D11 | Backing model | (a) transfer to Connections + slot, remove Profiles; (b) rework the current Profile mechanisms into an internal aggregate that still publishes Connections as the credential resource | **open**; boundary agnostic; Stage B content, D17/D18 shapes and whether `Selector` survives depend on it; D20 settles naming only, not the storage/authority design |
 | D12 | Selector after cutover | (a) selector-less pair → one target, multi-Connection pairs dispositioned (D3); (b) label disambiguation stays supported (today's 409) | **open**; the 2026-09-10 selector-less `resolve_effective` would change today's 409 behaviour, so it is not the consumer signature in the window |
 | D13 | Approved protocol surface | removing `X-Profile` from solution `completions` v6 / `model-catalog` v5: successor protocols vs prose bump | **open** (M0) |
 | D14 | Dual OAuth write owner | (a) gate the Profile flip and stop shadow Connections; (b) shadow Connection canonical, Profile a view; (c) both until B with a reconciliation rule | **open**; precondition of Stage B; census is a Q02 item |
@@ -405,6 +416,7 @@ Conflicts are presented, not resolved.
 | D17 | Availability successor | (a) neutral `GET /v1/provider-access` (recommended); (b) `?effective=true`; plus whether Connection-only accounts fold into the window listing | **decided 2026-09-14: (a)** caller-scoped read-only `GET /v1/provider-access` returning only `provider` and `status` ∈ {not_connected, pending, connected, needs_reauth, error}; the Profile-backed implementation never emits `needs_reauth` in the window; no ids, labels, defaults, `auth_method`, `account_label` or secrets; `private, no-store`; `X-Profile` non-selecting; A3 reproduces the Engine aggregation with golden-equivalence tests; the Hosted Engine switch is A4, separately |
 | D18 | Admin HTTP successor | pair-addressed neutral resource: publish after D11, or now beside the legacy routes | **open**; the UI attach call cannot move before C regardless; the UI defaults fieldset stays until C unless the owner drops it earlier; conflict codes on the successor to confirm — the legacy contract has two (503 retry-exhausted, 409 superseded-by-delete) |
 | D19 | Module naming | no file introduced by the provider-access unit has a name beginning with `_`; `__init__.py` is the required Python exception; underscores between words in `snake_case` names are allowed | **decided 2026-09-15**; applied by `OME-1204` (A1 follow-up: five package modules and two test helpers renamed, rename-only); binds A3's `profile_admin.py` and every later module of the package |
+| D20 | Provider identity naming | final product/API/domain noun is `Connection`; `provider access` is the boundary/successor family; `Profile` is legacy compatibility/current backing only; `Provider Account` is not a resource/API/UI noun | **decided 2026-09-16** by `OME-1210`; binds OME-1207 wording and every successor API/doc/UI change; D11 remains open for backing mechanics |
 
 Q01–Q07 and M0 stand as in the previous revision (versions and external callers; authorised census
 and key access; writer fencing; rollback rehearsal; D3/D4 compatibility; clean branch; catalog
