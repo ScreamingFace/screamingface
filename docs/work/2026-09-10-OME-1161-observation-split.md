@@ -71,3 +71,83 @@ async cleanup responsibilities; add a caller-task/ordering test. No runtime enfo
 Validate focused tests and full gates, then rebase PR 931 onto the updated integration head.
 Characterization test passes without runtime changes; full Engine gates pass. Review found
 no issues. OME-1201 remains open until PR 915 merges.
+
+## Plugin split — contract and admission (2026-09-14)
+
+Owner requested shrinking PR 931 to the first review boundary. Complete plugin and all its
+tests are preserved at 2bc435bb on OME-1161-complete-plugin-preserved.
+Plan: retain only contract/session modules and direct vocabulary/admission tests; defer
+operation scopes, adapter, timers, configuration and end-to-end tests with their implementation.
+No existing pre-931 tests change. This unit does not register or enable activity.
+Acceptance: field safety, state validation, exact reserve/refill, suppression/revocation,
+concurrent admission and multi-day recovery; full Engine gates against PR 915.
+Outcome: 29 direct tests pass and full Engine gates pass against ed8ee03e (append-only,
+Ruff lint/format, Pyright, layering, full pytest/coverage). Both reviews found no issues.
+The extracted production code is unchanged; no prior tests or execution behavior change.
+Follow-ups: lifecycle/adapter, then deployment/end-to-end verification.
+
+## Sink-fault accounting correction (2026-09-14)
+
+Review identified sink exceptions incorrectly counted as producer-invalid suppression.
+Test before/after-delivery sink failures; contain faults without changing producer counters
+or claiming delivery. Correct the earlier test expectation to match the approved contract.
+RED reproduced three failures; sink-local containment fixes them. All 31 focused tests and
+full Engine gates pass; targeted review found no further issues. Future extraction must keep
+this corrected session, not restore the stale copy from the complete-plugin snapshot.
+
+PR 915 merged at c9c6761f; PR 931 rebased onto main without conflicts (2026-09-14).
+Full Engine gates passed against main; Standards and Spec reviews found no actionable issues.
+
+## Restore complete producer into PR 931 (2026-09-15)
+
+Owner explicitly chose one combined draft again, accepting the larger review size.
+Plan: restore lifecycle/adapter, deployment composition and deferred tests from 2bc435bb,
+while preserving current contract/session, direct tests and the sink-accounting correction.
+Do not restore the stale session from the snapshot. Keep generic core interfaces unchanged.
+Acceptance: model outcomes/retries/cancellation, fixed heartbeat/revocation, real wire and
+Client decoding, deployment precedence, plugin removal, Helm validation, full Engine gates
+and both review axes. Keep PR 931 on main; no additional model-activity Engine PR planned.
+Outcome: restored the complete producer, preserving the sink-accounting fix and all direct
+regressions. Generic observation interfaces, connector and executor are unchanged. All 78
+focused tests and full Engine gates passed. Standards and Spec reviews found no actionable
+issues. Helm renders full/off correctly and rejects aggregate. Benchmark-stage logging and
+Client UI remain outside this delivery; PR stays draft pending review and merge.
+
+## Review corrections in PR 931 (2026-09-15)
+
+Intent: fix interrupted timer cleanup, explicit local policy precedence and disabled
+per-call bookkeeping. Owner approved all three corrections in the existing PR.
+Plan: cancel all owned timers synchronously, join them collectively despite cleanup
+cancellation and re-raise cancellation afterward; reuse one inert model observation when
+disabled while retaining run-level masking; prefer a configured Settings activity field
+before the injected runner environment (an unset default still permits injected env).
+Tests: several abandoned calls with interrupted/repeatedly cancelled cleanup; explicit
+full/off versus opposite ambient/injected values; off callbacks allocate no operations,
+track no calls and preserve nested masking. Existing tests remain unchanged.
+Acceptance: regression RED, focused tests and full Engine gates green; no generic core
+interface edits.
+Outcome: all eight added regression cases pass (seven reproduced the original defects).
+The previous 78 focused cases also pass; full Engine gates are green. Targeted Standards
+and Spec reviews found no remaining issues. Existing tests, generic observation interfaces,
+connector, executor and sink-accounting fix are unchanged. Shared cleanup serves operation
+and run teardown; the disabled singleton has no state. No latency enforcement or timer-count
+limit was added; simulated tests are not production-load evidence. Ready for PR review.
+
+## Two-PR review split (2026-09-15)
+
+Owner requested plugin implementation in PR 931, ready for review, with deployment and
+integration stacked above it as a draft. Preserve full reviewed head f418f53e on
+OME-1161-activity-complete-20260915. Reuse this ledger and the existing spec/plan/task.
+Plan: keep activity package, contract/scope tests and direct observer cleanup/off regressions
+in 931; move registration, deployment configuration and all integration tests to the child.
+Move tests with their implementation without removing coverage from the combined stack.
+Acceptance: both Engine gate runs green, combined runtime tree identical to f418f53e,
+all prior tests represented, Standards/Spec review, clear dependency and rebase instructions.
+Outcome: both standalone plugin and combined deployment branches passed full Engine gates.
+Standards and Spec reviews found no actionable issues. Combined source/deployment files
+match f418f53e byte-for-byte; AST comparison confirms every moved test/helper body is
+unchanged. Cleanup/off tests now live in test_activity_observer.py; remaining run-scope
+coverage stays with deployment. No behavior redesign or benchmark-stage instrumentation.
+PR 931 is the ready-for-review parent; OME-1161-activity-deployment is the dependent draft.
+After parent squash-merge, rebase only the child's commit(s) onto main, retarget and rerun
+gates before promoting the draft. Keep OME-1161 open until both PRs land.
