@@ -12,7 +12,9 @@ closed:
 # Add Client and generated-notebook version provenance
 
 First delivery: deterministic namespaced notebook-generation version and standard User-Agent on
-Engine HTTP clients. Engine run-associated retention and returned typed provenance remain open.
+Engine HTTP clients. Client delivery merged in [PR 918](https://github.com/ScreamingFace/screamingface/pull/918).
+Engine retention is In Review under OME-1191 / PR 924. Returned typed Report
+provenance remains outstanding, so this issue stays In Progress.
 
 Spec: `docs/spec/2026-09-11-OME-416-client-version-provenance.md`
 Plan: `docs/plan/2026-09-11-OME-416-client-version-provenance.md`

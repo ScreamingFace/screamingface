@@ -69,4 +69,5 @@ class IdentityAwareJobRunner(JobRunner):
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
+        client_version: str | None = None,
     ) -> str: ...

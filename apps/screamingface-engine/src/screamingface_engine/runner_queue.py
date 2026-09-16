@@ -41,6 +41,7 @@ from nats.js.api import AckPolicy, ConsumerConfig, RetentionPolicy, StorageType
 from nats.js.errors import BadRequestError
 
 from screamingface_engine import job_env, subjects
+from screamingface_engine.client_provenance import CLIENT_VERSION_ENV, valid_version
 from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import valid_traceparent
 
@@ -207,6 +208,7 @@ def _env_mapping(
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy | None = None,
     answer_seed: int | None = None,
+    client_version: str | None = None,
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
 ) -> dict[str, str]:
@@ -230,6 +232,9 @@ def _env_mapping(
     env.update(job_env.identity_to_env(identity or {}))
     env.update(job_env.cache_policy_to_env(cache))
     env.update(job_env.answer_seed_to_env(answer_seed))
+    version = valid_version(client_version)
+    if version is not None:
+        env[CLIENT_VERSION_ENV] = version
     env[job_env.EXTRA_MODELS] = job_env.extra_models_to_env(extra_models).get(
         job_env.EXTRA_MODELS, ""
     )
@@ -247,6 +252,7 @@ def encode_message(
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy | None = None,
     answer_seed: int | None = None,
+    client_version: str | None = None,
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
 ) -> bytes:
@@ -261,6 +267,7 @@ def encode_message(
             identity=identity,
             cache=cache,
             answer_seed=answer_seed,
+            client_version=client_version,
             io_concurrency=io_concurrency,
             extra_models=extra_models,
         ),

@@ -157,6 +157,7 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         # subclasses this and records it there. `answer_seed` (OME-1038) rides the same rule.
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
+        client_version: str | None = None,
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)

@@ -232,6 +232,7 @@ class _AtCapacityRunner(IdentityAwareJobRunner):
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
+        client_version: str | None = None,
     ) -> str:
         raise JobRunnerAtCapacity(active=100, limit=10, retry_after_s=42)
 
