@@ -18,9 +18,11 @@ FEATURE: imported inspect_evals benchmarks run in our product like any board
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -38,11 +40,13 @@ from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetPreparer,
     BenchmarkRegistration,
 )
+from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
     attempt_records_endpoint,
     candidate_answer,
     compact_json,
+    json_object,
     positive_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
@@ -51,8 +55,13 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.spine.payloads import TextPayload
 from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.scored import ScoredPath
+from screamingface_engine.benchmarks.spine.scored import (
+    CaseGradeOutcome,
+    GradeRequest,
+    ScoredPath,
+)
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -79,6 +88,14 @@ _FAILURE_MESSAGES: Mapping[str, str] = {
     "missing_case_row": "no evaluation row for this Case reached the aggregate",
     "case_error": "the Case pipeline collected an error instead of an evaluation",
 }
+
+# WHY this text and nothing richer: mid-run feedback crosses into the candidate's
+# context, so it must never carry the target or the scorer's explanation (which may
+# quote it). Wrong-ness is the entire message; the sealed envelope holds.
+_CHECK_FEEDBACK = (
+    "The committed answer does not match the expected solution. "
+    "Re-derive the result step by step and commit a corrected final answer."
+)
 
 
 class AggregateError(ValueError):
@@ -305,6 +322,10 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
             ),
         ),
     ]
+    if board.benchmark.check_surface is not None:
+        # Spec §4 — the SAME scorer, second office hour: the advertised
+        # check-surface port for the corrective loop.
+        endpoints.append((routes["check_surface"], _check_surface(board, root)))
     for route, handler in endpoints:
         if route not in installed:
             node.endpoint(route)(handler)
@@ -404,6 +425,88 @@ def _check(root: Path) -> Callable[[Request], str]:
         return compact_json(record)
 
     return check
+
+
+def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]:
+    def check_surface(request: Request) -> str:
+        if request.intent == "feedback":
+            return _surface_feedback(request.context)
+        if request.intent != "check":
+            raise _unavailable(f"unsupported check-surface operation {request.intent!r}")
+        try:
+            payload = json_object(request.context, "imported board check surface")
+            if set(payload) != {"input", "invocation"}:
+                raise ValueError("check surface context must carry exactly input and invocation")
+            input_text, invocation = payload["input"], payload["invocation"]
+            if not isinstance(input_text, str) or not isinstance(invocation, str):
+                raise ValueError("check surface input and invocation must be text")
+            verdict = check_surface_verdict(
+                board, root, input_text=input_text, invocation=invocation
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            raise _unavailable(str(exc)) from exc
+        return compact_json(verdict)
+
+    return check_surface
+
+
+def _surface_feedback(record_json: object) -> str:
+    record = json_object(record_json, "imported board check-surface feedback")
+    if record.get("schema") != CHECK_SURFACE_SCHEMA:
+        raise _unavailable(f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record")
+    feedback = record.get("feedback")
+    if not isinstance(feedback, str):
+        raise _unavailable("check-surface record feedback must be text")
+    return feedback
+
+
+def check_surface_verdict(
+    board: ImportedBoard, root: Path, *, input_text: str, invocation: str
+) -> dict[str, Any]:
+    """Run the board's own scorer mid-run — the §4 dual registration, second office.
+
+    Input-addressed (the OME-796 port rule): a black-box ``$candidate`` only ever sees
+    ``$input``, so the case resolves by exact prompt text. The verdict record is the
+    sealed-envelope boundary — it carries pass/fail and sanitized feedback, NEVER the
+    target or the scorer's explanation (which may quote it).
+
+    AIDEV-NOTE: each call re-reads cases.json (linear scan) and rebuilds the
+    ScoredPath + scorer + a fresh executor — fine at proof-board scale, but cache a
+    per-root case→id index and the scored path before a bulk import lands.
+    """
+
+    case_id: int = _case_by_input(root, input_text)
+    material: Mapping[str, Any] | None = _target(root, case_id)
+    if material is None:
+        # INVARIANT: failure wording is this plugin's published voice — refuse
+        # here, or the shim's internal TypeError vocabulary reaches the candidate.
+        raise ValueError(_FAILURE_MESSAGES["missing_target_asset"])
+    answer: str = candidate_answer(invocation).text
+    outcome: CaseGradeOutcome = _run_sync(
+        board.scored_path().grade_case(
+            GradeRequest(
+                case_id=case_id,
+                input=TextPayload(text=input_text),
+                answer=TextPayload(text=answer),
+                row={},
+                material=material,
+            )
+        )
+    )
+    if outcome.failure_code is not None:
+        # .get(code, code): an unknown future shim code stays a clean refusal,
+        # never a KeyError swallowing the real cause.
+        raise ValueError(_FAILURE_MESSAGES.get(outcome.failure_code, outcome.failure_code))
+    assert outcome.score is not None
+    passed: bool = outcome.score >= 1.0
+    return {
+        "schema": CHECK_SURFACE_SCHEMA,
+        "passed": passed,
+        "satisfaction": outcome.score,
+        "feedback": "" if passed else _CHECK_FEEDBACK,
+        "answer": answer,
+        "invocation": invocation,
+    }
 
 
 def board_aggregate(
@@ -506,6 +609,26 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
             "scored_cases": len(values),
         },
     )
+
+
+def _run_sync[T](coroutine: Awaitable[T]) -> T:
+    """Drive the async shim from a sync route handler (the spine's own pattern).
+
+    WHY a verbatim copy of spine ``scored._run_sync`` instead of an import: it is
+    private there, and acceptance §8.2 demands ZERO spine edits in this ticket —
+    exporting it is a one-line core follow-up when a third caller appears.
+    """
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_awaited(coroutine))
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, _awaited(coroutine)).result()
+
+
+async def _awaited[T](coroutine: Awaitable[T]) -> T:
+    return await coroutine
 
 
 __all__ = [

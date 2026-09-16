@@ -60,9 +60,29 @@ class BoardSpec:
 
 
 #: Every imported board, in catalogue order. Importing another eval = one row here
-#: plus its SnapshotSpec row — never a new module. The first rows (gsm8k, mmlu)
-#: land in this ticket's next PRs.
-BOARDS: tuple[BoardSpec, ...] = ()
+#: plus its SnapshotSpec row — never a new module. The mmlu row lands in this
+#: ticket's next PR.
+BOARDS: tuple[BoardSpec, ...] = (
+    BoardSpec(
+        key="gsm8k",
+        title="GSM8K",
+        description=(
+            "1,319 grade-school math word problems (the GSM8K test split), imported "
+            "from inspect_evals. The model reasons step by step and commits a final "
+            "numeric answer; grading is inspect's own numeric match against the "
+            "published solution, so no judge tokens are spent. Benchmark score = "
+            "plain accuracy over the cases run."
+        ),
+        focus="Grade-school math word problems",
+        dataset_url="https://huggingface.co/datasets/openai/gsm8k",
+        # Provenance: inspect_evals.gsm8k.gsm8k's Task declares scorer=match(numeric=True).
+        scorer="inspect_ai.scorer:match",
+        scorer_kwargs={"numeric": True},
+        # Free-form answers make mid-run feedback legitimate: the same scorer serves
+        # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
+        with_check_surface=True,
+    ),
+)
 
 
 def imported_board(key: str) -> ImportedBoard:
