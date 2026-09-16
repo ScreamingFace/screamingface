@@ -368,18 +368,16 @@ would have cost the downgrade path its all-or-nothing property. The realistic co
 is a snapshot export in progress; avoid running a migration and an export at the same time. On
 SQLite it is a plain in-place `ADD COLUMN`.
 
-**A snapshot merge also takes a table lock, and it stalls cache reads too.** Restoring a snapshot
-with `merge` opens with a 3-second `SET LOCAL lock_timeout`, then `LOCK TABLE
-request_cache_entries IN SHARE ROW EXCLUSIVE MODE`, for the length of the merge transaction.
-Serving a cache **hit is a write**: it bumps `hit_count`/`last_hit_at` under an ordinary `UPDATE`,
-which takes `ROW EXCLUSIVE` — and `ROW EXCLUSIVE` conflicts with `SHARE ROW EXCLUSIVE`. **Every
-cache hit stalls for as long as the merge transaction runs, not only concurrent cache writes.**
-The `lock_timeout` bounds only how long the merge WAITS to acquire the lock — three seconds, so a
-merge stuck behind something else fails loudly (a `merge_lock_timeout` refusal on the job) instead
-of parking every hit-count bump behind it. It does **not** bound how long the merge HOLDS the lock
-once acquired, and that hold time is the merge's own duration — the price of making the
-degraded-row count below exact. **Run a `merge` restore in a maintenance window.** It is not safe
-to run against live traffic expecting normal latency.
+**A snapshot merge takes no table lock, and does not stall serving.** An earlier revision of this
+feature had `merge` take `SHARE ROW EXCLUSIVE` on `request_cache_entries` for its whole
+transaction, to make the degraded-row count below exact. That was withdrawn: serving a cache
+**hit is a write** — it bumps `hit_count`/`last_hit_at` under an ordinary `UPDATE`, taking `ROW
+EXCLUSIVE`, which conflicts with `SHARE ROW EXCLUSIVE` — and the store awaits that bump before
+returning the cached body, so every hit on the table stalled for the merge's duration. That
+contradicts this deployment's standing guarantee that a load never blocks serving, and a sharper
+telemetry field does not buy it back. **A `merge` restore needs no maintenance window**; it runs
+beside live traffic, and the cost is that `metadata_degraded` is a lower bound rather than an
+exact count (below).
 
 **The block is roughly 400 bytes.** It holds the canonical token usage, the direct cost, the
 provider latency, the response model and a schema id. The gateway writes the block at write time
@@ -400,20 +398,21 @@ taken before migration `0011` has 12 columns and no `metadata_json`, so every st
 `NULL` there — and both load modes write content columns wholesale, `merge` included. Merging such
 an archive to patch a gap therefore sets `metadata_json = NULL` on each live row whose cache key it
 matches, discarding blocks the gateway had already accumulated. The erasure is still permitted —
-nothing fails — but it is no longer silent: the merge counts exactly the rows it degrades (the
-`SHARE ROW EXCLUSIVE` lock above is what keeps that count exact under a concurrent cache fill) and
-reports the total as `metadata_degraded` on the load outcome, on the job record, in the admin
-API, and as a warning. Those keys also stop reporting saved cost and start counting as
+nothing fails — but it is no longer silent: the merge counts the rows it degrades and reports the
+total as `metadata_degraded` on the load outcome, on the job record, in the admin API, and as a
+warning. Those keys also stop reporting saved cost and start counting as
 `cache.saved_cost.unpriced_hits` on later runs. Before merging an archive, check whether its header lists `metadata_json`; if it
 does not, expect to lose the block on every overlapping key and re-accumulate it through live
 traffic. A post-`0011` archive is unaffected — it carries the column and restores real blocks.
 
-The `metadata_degraded` count is exact only for what the merge's own `SET metadata_json =
-EXCLUDED.metadata_json` changes. A row whose incoming block happens to be byte-identical to the
-live one, but whose `response_json` differs, is cleared by the stale-metadata trigger below
-instead — and the count's query requires the incoming block to be `NULL`, so that row is not
-counted here either. Same accepted false positive the trigger itself carries, just reached
-through the merge.
+**`metadata_degraded` is a lower bound — read `0` as "none observed", never "none occurred".** It
+covers both ways a merge degrades a row: the archive carries no block for the key, and the archive
+carries the block the row already had beside a *different* `response_json`, which trips the
+stale-metadata trigger below. What it cannot cover is timing. The count is taken one statement
+before the merge and without a table lock, so a cache fill that commits in that window is degraded
+without being counted. The error only ever runs downward: the number never blames a restore for a
+degradation that did not happen. If you need to reconcile exactly, compare
+`count(*) FILTER (WHERE metadata_json IS NULL)` before and after the load on a quiet deployment.
 
 **A second, automatic path degrades a row the same way.** A Postgres-only `BEFORE UPDATE`
 trigger, `request_cache_entries_metadata_follows_response`, clears `metadata_json` on any

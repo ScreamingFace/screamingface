@@ -29,7 +29,6 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import BinaryIO, Final, Literal, NamedTuple, Protocol
 
-import asyncpg
 from tortoise import Tortoise
 from tortoise.backends.asyncpg.client import AsyncpgDBClient
 
@@ -81,35 +80,53 @@ _REPLACE_SQL: Final = (
 # signal AT THE MOMENT IT HAPPENS. Without it the only trace is `cache.saved_cost.unpriced_hits`
 # drifting upward on a later engine run, which points the operator at the engine rather than at
 # the restore that caused it.
-# INVARIANT: counts rows the merge DEGRADES — live block present, incoming block absent — never
-# rows that were already unknown, and never rows the archive does not mention.
+# INVARIANT: counts rows the merge DEGRADES — a live block this load turns to NULL — never rows
+# that were already unknown, and never rows the archive does not mention.
+#
+# There are TWO ways a row degrades, and round 2 counted only the first (review round 3, finding
+# 4). The second arm mirrors the stale-metadata TRIGGER's own `WHEN` clause, substituting the
+# merge's `EXCLUDED` (which is `s`) for `NEW` and the live row (`t`) for `OLD`:
+#
+#   arm 1 — the archive carries NO block: `EXCLUDED.metadata_json` is NULL and the SET writes
+#           NULL straight onto the row.
+#   arm 2 — the archive carries the SAME block beside a DIFFERENT response: the SET leaves
+#           `metadata_json` unchanged while `response_json` changes, which is precisely the
+#           trigger's firing condition, and the trigger then clears the block to NULL.
+#
+# Without arm 2 a load could clear blocks and still report `metadata_degraded = 0` — a figure the
+# API documents as "this load degraded nothing", which is the one reading it must never support.
+#
+# AIDEV-NOTE: the `response_json` comparison in arm 2 DETOASTS both sides for every colliding row.
+# Deliberate, and not a regression of the hot-path detoast fix in the trigger's column list: this
+# statement runs once per merge, off the serving path. Do not copy it into anything a hit reaches.
 _DEGRADED_COUNT_SQL: Final = f"""
 SELECT count(*)
   FROM {_TABLE} AS t
   JOIN {_STAGING} AS s USING (key_hash)
  WHERE t.metadata_json IS NOT NULL
-   AND s.metadata_json IS NULL
+   AND (s.metadata_json IS NULL
+        OR (s.response_json IS DISTINCT FROM t.response_json
+            AND s.metadata_json IS NOT DISTINCT FROM t.metadata_json))
 """
 
-# The merge's degraded count and the merge itself are two statements, and READ COMMITTED gives
+# INVARIANT: the load never blocks serving (OME-951 spec §7). Round 2 took SHARE ROW EXCLUSIVE on
+# the live table for the merge's whole duration to make the count above EXACT. That mode conflicts
+# with the ROW EXCLUSIVE every cache hit takes to bump `hit_count`/`last_hit_at` — and the store
+# AWAITS that bump before returning the cached body — so every hit stalled until the merge
+# committed. Sharpening a telemetry field does not justify suspending an approved availability
+# contract (review round 3, finding 2), so the lock is gone and the count is a LOWER BOUND.
+#
+# What that costs, precisely: the count and the merge are two statements, and READ COMMITTED gives
 # each its own snapshot while `ON CONFLICT DO UPDATE` re-reads the latest committed row. A fill
-# landing between them is therefore degraded but never counted, and the operator is told the
-# restore cost nothing. SHARE ROW EXCLUSIVE blocks concurrent WRITERS for the merge transaction —
-# and serving a cache HIT is a write too (it bumps `hit_count`/`last_hit_at` under an ordinary
-# UPDATE, `ROW EXCLUSIVE`, which conflicts with `SHARE ROW EXCLUSIVE`), so reads stall for the
-# merge's duration as well. That stall is what makes the count below exact rather than
-# approximate (review round 2, I2) and is not fixed here — see DEPLOYMENT.md and the ERD.
-_LOCK_FOR_MERGE_SQL: Final = f"LOCK TABLE {_TABLE} IN SHARE ROW EXCLUSIVE MODE"
-
-# Bounds how long the merge WAITS to acquire the lock above, never how long it HOLDS it once
-# acquired — the hold time is the merge transaction's own duration, by design (I2). Mirrors
-# migration 0011's `_bound_lock_wait`: a merge that is itself queued for the lock must not sit at
-# the head of the lock queue with every reader's hit-count bump stacked behind it. 3000ms matches
-# the migration's own `_LOCK_TIMEOUT_MS` for the same reason — long enough to win an ordinary gap
-# between statements, short enough that a merge stuck behind something else fails fast instead of
-# parking every cache hit behind it.
-_MERGE_LOCK_TIMEOUT_MS: Final = 3_000
-_SET_MERGE_LOCK_TIMEOUT_SQL: Final = f"SET LOCAL lock_timeout = '{_MERGE_LOCK_TIMEOUT_MS}ms'"
+# that commits between them is degraded but uncounted. The error is one-directional — the figure
+# can UNDERSTATE the damage, never overstate it — which is the safe direction for a number an
+# operator acts on: it never blames a restore for a degradation that did not happen.
+#
+# AIDEV-NOTE: do not "fix" the bound by reintroducing a table lock. Exactness here needs an
+# approved change to the snapshot contract first, not a lock added under a telemetry rationale.
+# Row-level `SELECT … FOR UPDATE` over the colliding join was considered and rejected for round 3:
+# it cannot lock a row that does not exist yet, so it buys accuracy under concurrency without
+# reaching exactness — the published wording stays "at least" either way.
 
 
 class CacheUploadUnsupportedDatabase(RuntimeError):
@@ -123,24 +140,6 @@ class StagedRowCountMismatch(RuntimeError):
         self.staged = staged
         self.declared = declared
         super().__init__(f"staged {staged} rows but the manifest declared {declared}")
-
-
-class MergeLockTimedOut(RuntimeError):
-    """The merge could not acquire `SHARE ROW EXCLUSIVE` within `_MERGE_LOCK_TIMEOUT_MS`.
-
-    A bounded WAIT, not a bounded HOLD (I2): something else already held a conflicting lock on
-    ``request_cache_entries`` for longer than the merge was willing to queue behind it. The merge
-    made no changes — Postgres cancels the whole statement, and the caller's transaction is never
-    committed — so rerunning it once the conflicting lock clears is safe.
-    """
-
-    def __init__(self, timeout_ms: int) -> None:
-        self.timeout_ms = timeout_ms
-        super().__init__(
-            f"the cache snapshot merge could not acquire its table lock within {timeout_ms}ms; "
-            "something else is holding a conflicting lock on request_cache_entries — retry once "
-            "it clears"
-        )
 
 
 class ReplaceGuardBlocked(RuntimeError):
@@ -159,7 +158,8 @@ class LoadOutcome(NamedTuple):
     staged_rows: int
     live_before: int
     live_after: int
-    # How many live rows this load turned from "priced" back to "unknown" (ERD E7). Merge only:
+    # How many live rows this load was OBSERVED to turn from "priced" back to "unknown" (ERD E7).
+    # A lower bound — see `_DEGRADED_COUNT_SQL`. Merge only:
     # replace discards the whole table by contract, behind the caller's own loss acknowledgement,
     # so per-row degradation is not the fact being reported there.
     metadata_degraded: int = 0
@@ -241,16 +241,10 @@ async def load_snapshot(
         # a mid-load failure leaves the live table untouched rather than half-replaced.
         async with raw.transaction():
             if mode == "merge":
-                # Bounds the WAIT for the lock below, not the merge's own duration once it has
-                # the lock (I2) — see `_SET_MERGE_LOCK_TIMEOUT_SQL`.
-                await raw.execute(_SET_MERGE_LOCK_TIMEOUT_SQL)
-                # Before the count, so no write can land between the two statements that follow.
-                try:
-                    await raw.execute(_LOCK_FOR_MERGE_SQL)
-                except asyncpg.exceptions.LockNotAvailableError as exc:
-                    raise MergeLockTimedOut(_MERGE_LOCK_TIMEOUT_MS) from exc
                 # Counted BEFORE the merge, inside the same transaction: afterwards the live
-                # block is already gone and the two states are indistinguishable.
+                # block is already gone and the two states are indistinguishable. Nothing locks
+                # the gap between this statement and the merge below — the count is a lower
+                # bound by design; see `_DEGRADED_COUNT_SQL` for why that beats a stalled cache.
                 metadata_degraded = await raw.fetchval(_DEGRADED_COUNT_SQL) or 0
                 await raw.execute(_MERGE_SQL)
             else:
@@ -262,8 +256,9 @@ async def load_snapshot(
 
     if metadata_degraded:
         logger.warning(
-            "cache snapshot merge degraded %d of %d row(s) to unknown metadata: the archive "
-            "carries no block for them, so what those responses cost is no longer recorded",
+            "cache snapshot merge degraded at least %d of %d row(s) to unknown metadata: the "
+            "archive carries no block for them, or replaces their response while carrying the "
+            "block they already had, so what those responses cost is no longer recorded",
             metadata_degraded,
             staged_rows,
         )
@@ -314,7 +309,6 @@ async def _copy_stream_into_staging(
 __all__ = [
     "CacheUploadUnsupportedDatabase",
     "LoadOutcome",
-    "MergeLockTimedOut",
     "ReplaceGuardBlocked",
     "StagedRowCountMismatch",
     "load_snapshot",

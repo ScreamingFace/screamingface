@@ -445,8 +445,8 @@ def _token_count(*candidates: object) -> int:
     return 0
 
 
-def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
-    """Report a cache hit: priced at zero, and zero tokens consumed.
+def _report_served_from_cache(model: str, call: CallAccounting | None, *, retried: bool) -> None:
+    """Report a cache hit: zero tokens consumed, and priced at zero unless a retry preceded it.
 
     WHY zero rather than the numbers the response carries: a hit replays a STORED response, whose
     body still contains the original call's `usage`. aigateway says so explicitly — it labels the
@@ -459,8 +459,22 @@ def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
     gateway reported something definite — nothing was consumed — and a run total must be able to
     add that in rather than treat it as a gap.
 
-    INVARIANT: the price stays `Decimal("0")` and never `None`. Zero is a real claim about a real
-    saving; a dash would hide it. `usd_from_aigw` derives it from the SAME hit, so the two agree.
+    INVARIANT: an UNRETRIED hit stays `Decimal("0")` and never `None`. Zero is a real claim about
+    a real saving; a dash would hide it. `usd_from_aigw` derives it from the SAME hit, so the two
+    agree.
+
+    INVARIANT: a RETRIED hit is `None` — "not priced" — because nobody can know what it cost.
+    `_post_completion` retries a lost reply, and the attempt whose reply was lost may already have
+    been processed and billed upstream, in which case the row this attempt hit is the very one it
+    paid for and wrote. `avoided_usd_for_outcome` already withdraws the SAVING on exactly this
+    evidence; withdrawing the saving while still asserting a spend of zero would state two
+    opposite confidences about one ambiguous fact, and the zero is the more misleading half —
+    a run total sums it in as certainty. `_fold_usage` latches the run UNPRICED on it instead.
+
+    AIDEV-NOTE: scoped to the HIT path deliberately. A retried MISS carries the gateway's own
+    attempt accounting and keeps its provider-authored price; that figure is a lower bound rather
+    than a false zero, and widening the withdrawal to every retried round trip would cost every
+    run its cost total on a single transport blip. Revisit only with that trade stated.
 
     AIDEV-NOTE: hit-ness is decided by the caller from the published `CacheOutcome` (the response
     headers), NOT from `_aigw`. That is deliberate — an older gateway emits the header and no
@@ -479,8 +493,14 @@ def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
         cache_read_tokens=0,
         cache_creation_tokens=0,
         reasoning_tokens=0,
-        cost_usd=call.cost_usd if call is not None else Decimal(0),
+        cost_usd=None if retried else _hit_cost(call),
     )
+
+
+def _hit_cost(call: CallAccounting | None) -> Decimal:
+    """A non-retried hit's price: the gateway's own figure, or an explicit zero when it reported
+    no accounting at all. Never `None` — see the invariant above."""
+    return call.cost_usd if call is not None and call.cost_usd is not None else Decimal(0)
 
 
 def _report_usage(
@@ -509,7 +529,7 @@ def _report_usage(
     if call is None and usage is None:
         return
     if cache is not None and cache.status == "hit":
-        _report_served_from_cache(model, call)
+        _report_served_from_cache(model, call, retried=cache.retried)
         return
     reported = usage or {}
     sink(

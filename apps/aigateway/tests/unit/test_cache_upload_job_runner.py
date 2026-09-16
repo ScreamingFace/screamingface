@@ -20,7 +20,6 @@ import pytest
 
 from aigateway.core.request_cache.bulk_loader import (
     LoadOutcome,
-    MergeLockTimedOut,
     ReplaceGuardBlocked,
     StagedRowCountMismatch,
 )
@@ -244,18 +243,14 @@ async def test_an_unexpected_loader_failure_lands_as_failed_not_refused(tmp_path
 # --- I2 (review round 2): a merge lock timeout must be legible, not a bare timeout -------------
 
 
-@pytest.mark.asyncio
-async def test_a_merge_lock_timeout_maps_to_its_code_and_is_legible(tmp_path) -> None:
-    """A merge that cannot get its table lock must land as a legible `refused` job, not a bare
-    `TimeoutError` swallowed into the generic `failed` branch."""
-    loader = FakeLoader(raises=MergeLockTimedOut(timeout_ms=3000))
-    runner = _runner(loader)
-    record = await _start_and_wait(
-        runner, _acceptance(tmp_path, mode="merge", manifest_raw=_manifest_raw())
-    )
-    assert record.refusal == "merge_lock_timeout"
-    assert record.state == "refused"
-    assert "3000" in (record.error or "")
+# REMOVED in review round 3 (finding 2): `test_a_merge_lock_timeout_maps_to_its_code_and_is_legible`
+# covered the `merge_lock_timeout` refusal, which round 2 introduced along with the merge's
+# `SHARE ROW EXCLUSIVE` table lock. That lock is gone — it stalled every cache hit for the merge's
+# duration, contradicting OME-951 §7 ("The load never blocks serving") — so there is no lock to
+# time out on and no refusal to map. Deleted rather than weakened: a test for a code path that
+# cannot be reached is not evidence of anything. `test_the_merge_no_longer_offers_a_lock_timeout_
+# refusal` in `tests/integration/test_cache_snapshot_merge_serving_postgres.py` now pins the
+# ABSENCE, so the refusal cannot quietly return without a decision.
 
 
 # --- the single slot ----------------------------------------------------------------------------

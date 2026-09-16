@@ -121,26 +121,31 @@ Since PR #930's review, the load **counts and reports** the rows it degrades, on
 `LoadOutcome`, on the job record, in the admin API, and as a warning. The erasure remains
 permitted; it is no longer silent.
 
-> **Added in review round 2 (OME-1203).** The merge transaction opens with `SET LOCAL
-> lock_timeout = '3000ms'` (mirroring migration `0011`'s own bound), then `LOCK TABLE
-> request_cache_entries IN SHARE ROW EXCLUSIVE MODE`, before it counts and before it merges.
-> Without the lock, the count and the merge are two statements under READ COMMITTED, each with its
-> own snapshot; a cache fill landing between them would be degraded by the merge but missed by the
-> count, so the report would understate the loss.
+> **Revised in review round 3.** Round 2 made this count EXACT by opening the merge transaction
+> with `SET LOCAL lock_timeout = '3000ms'` and `LOCK TABLE request_cache_entries IN SHARE ROW
+> EXCLUSIVE MODE`, held for the merge's whole duration. **That has been withdrawn.** `SHARE ROW
+> EXCLUSIVE` conflicts with the `ROW EXCLUSIVE` every served cache hit takes — `record_hit_metadata`
+> bumps `hit_count`/`last_hit_at` under an ordinary `UPDATE`, awaited inline before the cached body
+> returns — so the lock stalled every hit for as long as the merge ran. That contradicts
+> `docs/spec/2026-08-22-OME-951-admin-cache-snapshot-upload.md` §7, "The load never blocks serving",
+> which is an approved contract; a telemetry field may not suspend it.
 >
-> **This also stalls cache reads, not only writes.** `SHARE ROW EXCLUSIVE` blocks concurrent
-> `ROW EXCLUSIVE` writers, and serving a cache hit IS a write — `record_hit_metadata` bumps
-> `hit_count`/`last_hit_at` under an ordinary `UPDATE`, awaited inline before the cached body
-> returns. So every cache hit stalls for as long as the merge transaction runs. `lock_timeout`
-> bounds only how long the merge WAITS to acquire the lock (a merge stuck behind something else
-> fails as `MergeLockTimedOut`, surfaced as the job refusal `merge_lock_timeout`, rather than
-> parking every reader behind it); it does not bound how long the merge HOLDS the lock once
-> acquired — that hold time is the merge's own duration, and is what keeps `metadata_degraded`
-> exact rather than approximate. Run a `merge` restore in a maintenance window.
+> **`metadata_degraded` is therefore a LOWER BOUND.** The count and the merge are two statements
+> under READ COMMITTED, each with its own snapshot, and `ON CONFLICT DO UPDATE` re-reads the latest
+> committed row — so a cache fill landing between them is degraded by the merge and missed by the
+> count. The error is one-directional: the figure can understate the loss, never overstate it, and
+> never reports a degradation that did not happen. `0` means "none observed", not "none occurred".
+>
+> Row-level `SELECT … FOR UPDATE` over the colliding join was considered and rejected: it preserves
+> serving for non-colliding keys but still cannot lock a row that does not yet exist, so it buys
+> accuracy under concurrency without reaching exactness — the published wording would stay "at
+> least" either way, at the cost of row locks across the whole colliding set.
 >
 > *Pinned by `test_a_legacy_merge_reports_how_many_blocks_it_degraded` and
-> `test_a_racing_write_to_an_unrelated_row_blocks_the_merge` in
-> `apps/aigateway/tests/integration/test_cache_snapshot_entry_metadata_postgres.py`.*
+> `test_a_racing_write_to_an_unrelated_row_no_longer_blocks_the_merge` in
+> `apps/aigateway/tests/integration/test_cache_snapshot_entry_metadata_postgres.py`, and by
+> `test_a_hit_count_bump_is_served_while_a_merge_is_open` in
+> `apps/aigateway/tests/integration/test_cache_snapshot_merge_serving_postgres.py`.*
 
 ### §5.3 Stale-metadata trigger
 
@@ -218,7 +223,7 @@ preferred over the provider plugin's mapper (**PRD S3/S4**).
 | **M8** | Archive-matched money is never summed with provider-authored money. |
 | **R2** | `CacheEntryMetadataReferenceError` is narrow and internal. No value is ever inferred from the cached response body. |
 | **E10** | *(Added in review round 2, OME-1203.)* Any `UPDATE` that changes `response_json` without setting `metadata_json` in the same statement clears the block to `NULL` (§5.3). This is the automatic counterpart to E7's merge case — the same "unknown, never wrong" direction, enforced against every writer, not only the loader. |
-| **E11** | *(Added in review round 2, OME-1203.)* A snapshot merge holds `SHARE ROW EXCLUSIVE` on `request_cache_entries` for its whole transaction (§5.2), so its `metadata_degraded` count is exact under a concurrent cache write, not merely likely — for what the merge's own `SET metadata_json = EXCLUDED.metadata_json` changes. A row the stale-metadata trigger degrades in the same merge because its incoming block is byte-identical to the live one (§5.3's own accepted false positive) is not counted here either, since the count's query requires the incoming block to be `NULL`. |
+| **E11** | *(Added in review round 2, OME-1203; revised in round 3.)* A snapshot merge takes **no** table lock — the load never blocks serving (OME-951 §7) — so its `metadata_degraded` count is a **lower bound**, not an exact figure: a cache fill committing between the count and the merge is degraded without being counted. The error is one-directional and never claims a degradation that did not occur. The count covers **both** degradation paths: an incoming block that is `NULL`, and an incoming block byte-identical to the live one beside a changed `response_json`, which the stale-metadata trigger (§5.3) clears. Round 2 counted only the first, so a load could clear blocks and still report `0`. |
 
 ## Snapshot scenarios
 

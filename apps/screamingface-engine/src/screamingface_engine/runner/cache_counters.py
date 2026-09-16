@@ -106,12 +106,37 @@ def _accumulated(total: Decimal | None, amount: Decimal) -> Decimal:
     default, while `avoided_usd_from_aigw` converts each amount at `AMOUNT_PRECISION`. Adding
     under the smaller context would round a value that was deliberately preserved one step
     earlier — and silently, since `Decimal` signals inexactness only if the caller asks.
+
+    WHY the precision is DERIVED rather than fixed at `AMOUNT_PRECISION`: that constant sizes ONE
+    amount at the producer's published bound (18 integer + 33 fractional digits = 51 significant
+    digits, plus 2 of headroom). A SUM of N such amounts needs `51 + ceil(log10(N))`, so a fixed
+    53 rounds the total once N reaches 1000 — a running total can require more digits than any
+    single contribution to it, and no constant can bound a sum with no bound on its length.
     """
     if total is None:
         return amount
     with localcontext() as ctx:
-        ctx.prec = AMOUNT_PRECISION
+        ctx.prec = max(AMOUNT_PRECISION, _exact_sum_precision(total, amount))
         return total + amount
+
+
+def _exact_sum_precision(total: Decimal, amount: Decimal) -> int:
+    """Significant digits enough that `total + amount` rounds nothing away.
+
+    The figure a sum needs is set by the EXPONENT SPAN of its operands, not by their digit counts:
+    it must reach from the most significant place either operand occupies — plus one, for a carry
+    out of the top — down to the least significant place either one occupies.
+
+    INVARIANT: total. A non-finite operand has no exponent to reason about and falls back to
+    `AMOUNT_PRECISION`; it cannot reach here through any live path (`ModelResponse` and
+    `_CANONICAL_AMOUNT` both reject non-finite amounts at the seam) and must not be able to turn
+    accounting into an exception if one ever does. The provider call is long paid for by then.
+    """
+    low, high = total.as_tuple().exponent, amount.as_tuple().exponent
+    if not isinstance(low, int) or not isinstance(high, int):
+        return AMOUNT_PRECISION
+    most_significant = max(total.adjusted(), amount.adjusted()) + 1
+    return most_significant - min(low, high) + 1
 
 
 @dataclass(slots=True)
