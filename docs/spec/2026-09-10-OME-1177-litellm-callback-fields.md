@@ -51,3 +51,8 @@ The user approved fixing PR903 review: strip the entire internal `litellm_truste
 ## Approved second review follow-up
 
 The owner asked to add the security review fixes now. Comparison of installed 1.97.0 and 1.100.1 shows new native chat dispatch and OTel auth-metadata routing. The complete gateway pipeline already rejects caller `rust` as unknown; the earlier direct-handler reproduction omitted parameter projection and did not establish an ingress bypass. The owner narrowed this follow-up to the confirmed telemetry gap; do not change Rust handling. Strip `user_api_key_auth_metadata` from body and metadata: this container survives projection and reaches the new OTel trusted reader. Preserve other metadata and caller input. Native execution enabled by the operator's `LITELLM_RUST` environment is a separate configuration concern; this change does not claim to disable it.
+
+
+## Approved main refresh (2026-09-16)
+
+The owner approved the review recommendation to rebase PR #903 onto current main, regenerate/validate the gateway lock while preserving LiteLLM 1.100.1 and main's OpenTelemetry dependencies, rerun checks, and push the refreshed existing PR. No new behavior is intended. Record local live-provider prerequisites and any validation limitation; leave merging to the owner.

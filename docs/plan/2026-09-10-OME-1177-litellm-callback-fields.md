@@ -59,3 +59,8 @@ The owner asked to add the security review fixes now. Comparison of installed 1.
 1. Add regression tests for the full strip/project/prepare pipeline and real OTel auth-metadata reader, including malformed containers and input preservation. Confirm RED.
 2. Extend metadata reserved-name set, and the independent exact-set test inventory (additive contract extension; preserve all prior assertions).
 3. Run focused tests, full gateway gates, review, commit, and push PR #903 without merging.
+
+
+## Approved main refresh (2026-09-16)
+
+The owner approved the review recommendation to rebase PR #903 onto current main, regenerate/validate the gateway lock while preserving LiteLLM 1.100.1 and main's OpenTelemetry dependencies, rerun checks, and push the refreshed existing PR. No new behavior is intended. Record local live-provider prerequisites and any validation limitation; leave merging to the owner.
