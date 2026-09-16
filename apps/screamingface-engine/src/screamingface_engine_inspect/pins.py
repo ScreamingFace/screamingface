@@ -15,6 +15,7 @@ from __future__ import annotations
 from importlib.metadata import version
 
 # gsm8k — their gsm8k.py pins (hf_dataset path/data_dir/split/revision).
+# https://huggingface.co/datasets/openai/gsm8k/tree/cc7b047b6e5bb11b4f1af84efc572db110a51b3c
 GSM8K_DATASET = "openai/gsm8k"
 GSM8K_DATA_DIR = "main"
 GSM8K_SPLIT = "test"
@@ -22,6 +23,7 @@ GSM8K_DATASET_REVISION = "cc7b047b6e5bb11b4f1af84efc572db110a51b3c"
 GSM8K_CASE_COUNT = 1319
 
 # mmlu — their mmlu.py pins (mmlu_0_shot's EN_US path).
+# https://huggingface.co/datasets/cais/mmlu/tree/c30699e8356da336a370243923dbaf21066bb9fe
 MMLU_DATASET = "cais/mmlu"
 MMLU_CONFIG = "all"
 MMLU_SPLIT = "test"

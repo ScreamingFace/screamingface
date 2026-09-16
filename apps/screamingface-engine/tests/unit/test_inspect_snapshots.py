@@ -109,3 +109,32 @@ def test_mmlu_snapshot_shuffles_deterministically(tmp_path: Path) -> None:
     # And the shuffle visibly leaves the subject-grouped dataset order.
     questions = [case["input"] for case in json.loads(first)]
     assert questions != [mcq_prompt(row) for row in _MMLU_ROWS]
+
+
+def test_mmlu_snapshot_refuses_a_row_without_a_question(tmp_path: Path) -> None:
+    """A malformed row fails the whole bake by case number, never a raw KeyError."""
+
+    with pytest.raises(PrepareError, match="case 1"):
+        emit_mmlu([{"choices": ["a", "b", "c", "d"], "answer": 0}], tmp_path)
+
+
+# ── exam-size and re-bake guards (shared by both boards) ─────────────────────
+
+
+@pytest.mark.parametrize(("emit", "rows"), [(emit_gsm8k, _GSM8K_ROWS), (emit_mmlu, _MMLU_ROWS)])
+def test_wrong_sized_dataset_refuses_the_bake(emit: Any, rows: Any, tmp_path: Path) -> None:
+    """INVARIANT: the pinned case count is exam identity — a config/revision typo that
+    yields the wrong number of rows (0 included) must fail loudly, never bake a
+    smaller exam with a green build."""
+
+    with pytest.raises(PrepareError, match="pinned case count"):
+        emit(rows, tmp_path, expected_cases=len(rows) + 1)
+
+
+def test_rebake_into_a_used_directory_is_refused(tmp_path: Path) -> None:
+    """INVARIANT: no orphan answer keys — a second bake into the same directory could
+    leave stale targets/*.json from a previous, larger bake, so it is refused."""
+
+    emit_gsm8k(_GSM8K_ROWS, tmp_path)
+    with pytest.raises(PrepareError, match="non-empty"):
+        emit_gsm8k(_GSM8K_ROWS, tmp_path)

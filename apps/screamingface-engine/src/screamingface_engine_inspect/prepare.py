@@ -33,10 +33,12 @@ from typing import Any
 
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine_inspect.pins import (
+    GSM8K_CASE_COUNT,
     GSM8K_DATA_DIR,
     GSM8K_DATASET,
     GSM8K_DATASET_REVISION,
     GSM8K_SPLIT,
+    MMLU_CASE_COUNT,
     MMLU_CONFIG,
     MMLU_DATASET,
     MMLU_DATASET_REVISION,
@@ -73,6 +75,9 @@ def mcq_prompt(row: dict[str, Any]) -> str:
     per-board ``template=`` parameter waits until a board actually needs it (YAGNI).
     """
 
+    # AIDEV-NOTE: private-module import (inspect_ai.solver._multiple_choice) — safe
+    # under the exact == pin; re-verify on any pin bump (the SINGLE_ANSWER snapshot
+    # test breaks loudly if their formatter moves or changes).
     from inspect_ai.solver import Choices, MultipleChoiceTemplate
     from inspect_ai.solver._multiple_choice import prompt as choice_prompt
 
@@ -83,9 +88,12 @@ def mcq_prompt(row: dict[str, Any]) -> str:
     )
 
 
-def emit_gsm8k(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
+def emit_gsm8k(
+    rows: list[dict[str, Any]], out: Path, *, expected_cases: int | None = None
+) -> dict[str, Any]:
     """Bake gsm8k rows: templated prompt public, the ``####`` tail as the private target."""
 
+    _require_case_count(rows, expected_cases)
     # Their gsm8k task: solver=[prompt_template(MATH_PROMPT_TEMPLATE), generate()].
     from inspect_evals.gsm8k.gsm8k import MATH_PROMPT_TEMPLATE
 
@@ -101,14 +109,20 @@ def emit_gsm8k(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
         if not delimiter or not target:
             raise PrepareError(f"case {case_id}: answer carries no '####'-delimited target")
         prompt: str = templated_prompt(question, MATH_PROMPT_TEMPLATE)
+        # WHY "case_id" beside "id": the board's url4 protocol template reads
+        # $item.case_id per Case (the transport contract's string spelling);
+        # "id" is the integer the engine's row/target files key on.
         cases.append({"id": case_id, "case_id": str(case_id), "input": prompt})
         targets[case_id] = {"target": target}
     return _emit(cases, targets, out, dataset_revision=GSM8K_DATASET_REVISION)
 
 
-def emit_mmlu(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
+def emit_mmlu(
+    rows: list[dict[str, Any]], out: Path, *, expected_cases: int | None = None
+) -> dict[str, Any]:
     """Bake mmlu rows: seeded shuffle, their MCQ prompt public, letter + choices private."""
 
+    _require_case_count(rows, expected_cases)
     # INVARIANT: the shuffle is part of the exam identity — same rows, same seed, same
     # order (the seed rides the revision hash). WHY shuffle at all: the HF split is
     # subject-grouped, so a limit=N run over the raw order would examine one subject.
@@ -117,6 +131,9 @@ def emit_mmlu(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
     cases: list[dict[str, Any]] = []
     targets: dict[int, dict[str, Any]] = {}
     for case_id, row in enumerate(shuffled, start=1):
+        question: object = row.get("question")
+        if not isinstance(question, str) or not question.strip():
+            raise PrepareError(f"case {case_id}: question is empty or not text")
         choices: object = row.get("choices")
         if not isinstance(choices, list) or len(choices) != len(_MMLU_LETTERS):
             raise PrepareError(f"case {case_id}: choices must be a list of 4 options")
@@ -133,6 +150,18 @@ def emit_mmlu(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
     return _emit(cases, targets, out, dataset_revision=MMLU_DATASET_REVISION)
 
 
+def _require_case_count(rows: list[dict[str, Any]], expected: int | None) -> None:
+    """Refuse a wrong-sized bake — a config/revision typo must never ship a smaller exam.
+
+    WHY: the row count is part of the exam's identity (the pinned CASE_COUNT rides the
+    revision hash); an upstream change or a wrong split silently yielding 0 or N±k rows
+    would bake a DIFFERENT exam with a green build.
+    """
+
+    if expected is not None and len(rows) != expected:
+        raise PrepareError(f"dataset yielded {len(rows)} rows, pinned case count is {expected}")
+
+
 def _emit(
     cases: list[dict[str, Any]],
     targets: dict[int, dict[str, Any]],
@@ -141,6 +170,11 @@ def _emit(
     dataset_revision: str,
 ) -> dict[str, Any]:
     targets_dir: Path = out / "targets"
+    # WHY refuse a dirty out: a re-bake into a used directory would leave orphan
+    # targets/*.json from a previous, larger bake — the image build always starts
+    # fresh, and this makes that assumption loud instead of silent.
+    if (out / "cases.json").exists() or (targets_dir.is_dir() and any(targets_dir.iterdir())):
+        raise PrepareError(f"refusing to bake into non-empty directory {out}")
     targets_dir.mkdir(parents=True, exist_ok=True)
     for case_id, record in targets.items():
         (targets_dir / f"{case_id}.json").write_text(
@@ -156,14 +190,20 @@ def prepare_gsm8k(out: Path) -> dict[str, Any]:
     """Snapshot the pinned gsm8k split and bake its assets (build time only)."""
 
     return emit_gsm8k(
-        _load_rows(GSM8K_DATASET, GSM8K_DATA_DIR, GSM8K_SPLIT, GSM8K_DATASET_REVISION), out
+        _load_rows(GSM8K_DATASET, GSM8K_DATA_DIR, GSM8K_SPLIT, GSM8K_DATASET_REVISION),
+        out,
+        expected_cases=GSM8K_CASE_COUNT,
     )
 
 
 def prepare_mmlu(out: Path) -> dict[str, Any]:
     """Snapshot the pinned mmlu split and bake its assets (build time only)."""
 
-    return emit_mmlu(_load_rows(MMLU_DATASET, MMLU_CONFIG, MMLU_SPLIT, MMLU_DATASET_REVISION), out)
+    return emit_mmlu(
+        _load_rows(MMLU_DATASET, MMLU_CONFIG, MMLU_SPLIT, MMLU_DATASET_REVISION),
+        out,
+        expected_cases=MMLU_CASE_COUNT,
+    )
 
 
 def _load_rows(dataset: str, config: str, split: str, revision: str) -> list[dict[str, Any]]:
