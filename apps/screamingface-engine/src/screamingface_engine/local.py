@@ -149,15 +149,21 @@ def _with_local_gateway(settings: Settings) -> Settings:
 def _local_activity_configuration(
     supplied: Settings | None, env: Mapping[str, str] | None
 ) -> tuple[Settings, str]:
-    # WHY: environment-loaded fields are also in model_fields_set. Only a supplied
-    # Settings object may override injected env; auto-created Settings must not do so.
+    """Resolve explicit Settings > injected env > process env > off."""
     source = env if env is not None else os.environ
     level = (
         supplied.activity_level
-        if supplied is not None and "activity_level" in supplied.model_fields_set
+        if supplied is not None and supplied.activity_level_is_explicit
         else source.get(job_env.ACTIVITY_LEVEL, "off")
     )
-    return supplied or Settings.model_validate({"activity_level": level}), level
+    # WHY: align the effective Settings with observer policy without mutating the caller.
+    # INVARIANT: observation_factories validates this selection before app construction.
+    settings = (
+        supplied.model_copy(update={"activity_level": level})
+        if supplied is not None
+        else Settings(activity_level=level)
+    )
+    return settings, level
 
 
 def create_local_app(

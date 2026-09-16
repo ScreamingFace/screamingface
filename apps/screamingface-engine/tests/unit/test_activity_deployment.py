@@ -176,3 +176,73 @@ async def test_omitted_environment_uses_process_activity_policy(monkeypatch, amb
     finally:
         await observers.aclose()
         await app.state.job_runner.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ambient,injected,expected",
+    [("full", "off", "off"), ("full", None, "off"), ("off", "full", "full")],
+)
+async def test_supplied_ambient_settings_do_not_override_injected_activity(
+    monkeypatch, ambient, injected, expected
+):
+    from screamingface_engine.activity.session import current_session
+    from screamingface_engine.local import create_local_app
+
+    monkeypatch.setenv("URL4_CLOUD_ACTIVITY_LEVEL", ambient)
+    supplied = Settings(local_io_capacity=3)
+    env = {} if injected is None else {"URL4_CLOUD_ACTIVITY_LEVEL": injected}
+    app = create_local_app(settings=supplied, env=env)
+    observers = RunObservations(app.state.job_runner._factory.keywords["observers"])
+    try:
+        with observers.bind():
+            assert (current_session() is not None) == (expected == "full")
+        assert app.state.settings.activity_level == expected
+        assert app.state.settings.local_io_capacity == 3
+        assert supplied.activity_level == ambient
+    finally:
+        await observers.aclose()
+        await app.state.job_runner.aclose()
+
+
+@pytest.mark.parametrize("ambient", ["off", "full"])
+def test_supplied_ambient_settings_do_not_hide_invalid_injected_policy(monkeypatch, ambient):
+    from screamingface_engine.local import create_local_app
+
+    monkeypatch.setenv("URL4_CLOUD_ACTIVITY_LEVEL", ambient)
+    with pytest.raises(ValueError):
+        create_local_app(settings=Settings(), env={"URL4_CLOUD_ACTIVITY_LEVEL": "limited"})
+
+
+@pytest.mark.parametrize("level", ["off", "full"])
+@pytest.mark.parametrize("copy_update", [False, True])
+def test_explicit_activity_keeps_precedence_even_when_equal_to_ambient(
+    monkeypatch, level, copy_update
+):
+    from screamingface_engine.local import _local_activity_configuration
+
+    monkeypatch.setenv("URL4_CLOUD_ACTIVITY_LEVEL", level)
+    supplied = (
+        Settings().model_copy(update={"activity_level": level})
+        if copy_update
+        else Settings(activity_level=level)
+    )
+    supplied = supplied.model_copy(update={"local_io_capacity": 3})
+    other = "off" if level == "full" else "full"
+    effective, selected = _local_activity_configuration(
+        supplied, {"URL4_CLOUD_ACTIVITY_LEVEL": other}
+    )
+    assert selected == level
+    assert effective.activity_level == level
+
+
+@pytest.mark.parametrize("ambient", ["off", "full"])
+def test_supplied_implicit_settings_use_process_policy_when_env_omitted(monkeypatch, ambient):
+    from screamingface_engine.local import _local_activity_configuration
+
+    monkeypatch.delenv("URL4_CLOUD_ACTIVITY_LEVEL", raising=False)
+    supplied = Settings()
+    monkeypatch.setenv("URL4_CLOUD_ACTIVITY_LEVEL", ambient)
+    effective, selected = _local_activity_configuration(supplied, None)
+    assert selected == ambient
+    assert effective.activity_level == ambient
