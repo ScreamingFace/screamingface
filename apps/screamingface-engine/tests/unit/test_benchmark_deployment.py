@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from screamingface_engine.benchmarks import prepare as prepare_module
-from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
+from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT, STATIC_REGISTRATIONS
 from screamingface_engine.benchmarks.definition import Benchmark, BenchmarkDeclaration
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
@@ -368,8 +368,11 @@ def test_the_family_guard_covers_every_family_preparer_package() -> None:
     """
 
     assert FAMILY_PACKAGES
+    # WHY STATIC only (OME-1115): plugin-contributed registrations install from their
+    # own top-level package, outside the core benchmarks/<family> geography this guard
+    # derives from; the per-board bundle-id conformance above still covers them.
     assert set(FAMILY_PACKAGES) == {
-        _family_package(registration) for registration in BUILTIN_DEPLOYMENT.registrations
+        _family_package(registration) for registration in STATIC_REGISTRATIONS
     }
     for family in FAMILY_PACKAGES:
         assert _FAMILY_PREPARER.search(f"-m screamingface_engine.benchmarks.{family}.prepare")

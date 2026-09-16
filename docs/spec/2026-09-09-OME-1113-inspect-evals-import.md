@@ -210,7 +210,11 @@ Per eval, the importer:
 ## 7 · Scope
 
 - **Now:** the ~94 single-shot QA evals — `text` envelope, programmatic + model-graded
-  scorers. `OME-1115` proves one board end to end; `OME-1116` lands the importer + ten.
+  scorers. `OME-1115` proves two boards end to end (owner decision 2026-09-15, comment
+  on `OME-1115`): `inspect-gsm8k` (free-form — the §4 dual registration and the
+  corrective_loop acceptance) and `inspect-mmlu` (MCQ — the no-check-surface branch);
+  together they cover both declaration shapes the importer can produce, and both count
+  toward `OME-1116`'s ten. `OME-1116` lands the importer + the rest.
 - **Later:** 13 execution-graded evals (sandbox for the *grading step* only); 35 agentic
   evals (ride the `environment` envelope kind, `OME-1103`); report export in inspect's
   log format (`OME-1117`) — including a one-click "export this run + submit upstream"

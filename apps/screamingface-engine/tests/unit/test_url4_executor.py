@@ -659,9 +659,12 @@ def _may_import_url4_engine(py_file: Path) -> bool:
     """Engine adapters and Engine-owned Benchmark extensions may speak URL4 directly."""
 
     relative = py_file.relative_to(_SRC_ROOT)
-    return relative in _ALLOWED_RUNNER_IMPORTERS or relative.parts[:2] == (
-        "screamingface_engine",
-        "benchmarks",
+    # Plugin benchmark packages (OME-1115) are Benchmark extensions like the core
+    # benchmarks/ families: they build structured URL4 and install Runner routes.
+    return (
+        relative in _ALLOWED_RUNNER_IMPORTERS
+        or relative.parts[:2] == ("screamingface_engine", "benchmarks")
+        or relative.parts[0] == "screamingface_engine_inspect"
     )
 
 
