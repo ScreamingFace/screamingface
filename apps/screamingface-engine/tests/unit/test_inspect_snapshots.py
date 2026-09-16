@@ -29,7 +29,7 @@ from screamingface_engine_inspect.prepare import (  # noqa: E402
     PrepareError,
     emit_gsm8k,
     emit_mmlu,
-    mmlu_prompt,
+    mcq_prompt,
 )
 
 _GSM8K_ROWS: list[dict[str, Any]] = [
@@ -73,8 +73,8 @@ def test_gsm8k_snapshot_refuses_a_row_without_a_target(tmp_path: Path) -> None:
 # ── mmlu ─────────────────────────────────────────────────────────────────────
 
 
-def test_mmlu_prompt_is_their_single_answer_template() -> None:
-    prompt = mmlu_prompt(_MMLU_ROWS[0])
+def test_mcq_prompt_is_their_single_answer_template() -> None:
+    prompt = mcq_prompt(_MMLU_ROWS[0])
     assert "ANSWER: $LETTER" in prompt
     assert "A) no" in prompt and "B) yes" in prompt and "D) maybe" in prompt
     assert "Pick B." in prompt
@@ -108,4 +108,4 @@ def test_mmlu_snapshot_shuffles_deterministically(tmp_path: Path) -> None:
     assert first == (second_dir / "cases.json").read_text(encoding="utf-8")
     # And the shuffle visibly leaves the subject-grouped dataset order.
     questions = [case["input"] for case in json.loads(first)]
-    assert questions != [mmlu_prompt(row) for row in _MMLU_ROWS]
+    assert questions != [mcq_prompt(row) for row in _MMLU_ROWS]

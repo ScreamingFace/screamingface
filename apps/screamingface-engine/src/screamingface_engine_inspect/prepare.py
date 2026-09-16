@@ -52,16 +52,26 @@ class PrepareError(BenchmarkAssetPreparationError):
     """The build refuses to bake these assets. Always says which row and why."""
 
 
-def gsm8k_prompt(question: str) -> str:
-    """The exact prompt their solver chain renders — their template over the raw question."""
+def templated_prompt(question: str, template: str) -> str:
+    """The ``prompt_template(TEMPLATE), generate()`` eval family's render, baked.
 
-    from inspect_evals.gsm8k.gsm8k import MATH_PROMPT_TEMPLATE
+    One function for every free-text eval whose solver chain is
+    ``[prompt_template(SOME_TEMPLATE), generate()]`` (16 of the 131 inspect_evals
+    packages — gsm8k, math, aime, drop, paws, …): the board passes ITS eval's own
+    template constant, this applies their solver's one substitution.
+    """
 
-    return MATH_PROMPT_TEMPLATE.format(prompt=question)
+    return template.format(prompt=question)
 
 
-def mmlu_prompt(row: dict[str, Any]) -> str:
-    """Their 0-shot MCQ prompt — their SINGLE_ANSWER template, their formatter."""
+def mcq_prompt(row: dict[str, Any]) -> str:
+    """The ``multiple_choice()`` eval family's 0-shot render — their formatter, baked.
+
+    One function for every MCQ eval graded via the ``multiple_choice`` solver +
+    ``choice()`` scorer (36 of the 131 inspect_evals packages); the default
+    SINGLE_ANSWER template is the only one referenced by name across them, so a
+    per-board ``template=`` parameter waits until a board actually needs it (YAGNI).
+    """
 
     from inspect_ai.solver import Choices, MultipleChoiceTemplate
     from inspect_ai.solver._multiple_choice import prompt as choice_prompt
@@ -76,6 +86,9 @@ def mmlu_prompt(row: dict[str, Any]) -> str:
 def emit_gsm8k(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
     """Bake gsm8k rows: templated prompt public, the ``####`` tail as the private target."""
 
+    # Their gsm8k task: solver=[prompt_template(MATH_PROMPT_TEMPLATE), generate()].
+    from inspect_evals.gsm8k.gsm8k import MATH_PROMPT_TEMPLATE
+
     cases: list[dict[str, Any]] = []
     targets: dict[int, dict[str, Any]] = {}
     for case_id, row in enumerate(rows, start=1):
@@ -87,7 +100,8 @@ def emit_gsm8k(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
         target: str = tail.strip()
         if not delimiter or not target:
             raise PrepareError(f"case {case_id}: answer carries no '####'-delimited target")
-        cases.append({"id": case_id, "case_id": str(case_id), "input": gsm8k_prompt(question)})
+        prompt: str = templated_prompt(question, MATH_PROMPT_TEMPLATE)
+        cases.append({"id": case_id, "case_id": str(case_id), "input": prompt})
         targets[case_id] = {"target": target}
     return _emit(cases, targets, out, dataset_revision=GSM8K_DATASET_REVISION)
 
@@ -109,7 +123,7 @@ def emit_mmlu(rows: list[dict[str, Any]], out: Path) -> dict[str, Any]:
         answer: object = row.get("answer")
         if isinstance(answer, bool) or not isinstance(answer, int) or not 0 <= answer <= 3:
             raise PrepareError(f"case {case_id}: answer must be an index 0..3")
-        cases.append({"id": case_id, "case_id": str(case_id), "input": mmlu_prompt(row)})
+        cases.append({"id": case_id, "case_id": str(case_id), "input": mcq_prompt(row)})
         # The letter (their record_to_sample) plus the choice texts the shim needs to
         # replay their answer-marking step (state.choices).
         targets[case_id] = {
@@ -170,8 +184,8 @@ __all__ = [
     "PrepareError",
     "emit_gsm8k",
     "emit_mmlu",
-    "gsm8k_prompt",
-    "mmlu_prompt",
+    "templated_prompt",
+    "mcq_prompt",
     "prepare_gsm8k",
     "prepare_mmlu",
 ]
