@@ -85,7 +85,8 @@ The nine checks in `spec.md` §9. The three that decide it:
 
 - **Ask it the name of the core object with nothing else installed.** It answers with
   canon's word. If it says the retired doc's word, the whole unit failed.
-- **Ask it which benchmarks are supported.** Canon's four, no others.
+- **Ask it which benchmarks are supported.** The three policy identities plus `draco-3pass`,
+  flagged as real and correct but not yet folded into the formal policy.
 - **Ask it something canon marks provisional.** It answers and says the status is
   provisional. A skill that presents provisional material as settled has inherited the
   problem it was built to remove.

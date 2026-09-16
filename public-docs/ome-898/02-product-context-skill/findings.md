@@ -44,9 +44,14 @@ differentiator canon has stepped back from, and name benchmarks the product does
 support. It is also the only one of the two that a fresh checkout can see.
 
 **This is already leaking into shipped documentation.** The dogfood review of the Client docs
-found a benchmark id that is not in canon's list and a headline claim that does not carry the
-disclosure canon requires. Both are the predictable result of two sources disagreeing while
-only one is visible to whoever is writing.
+found `draco-3pass` in use, absent from canon and from the formal benchmark policy
+(`OME-836`). Traced through Linear: it is a validated replacement for a benchmark id the
+released Client now rejects, real and engine-tested, simply never added to the policy or to
+canon. The same review also found a headline result whose disclosure obligations are
+unclear, because canon names two different DRACO benchmarks with different provenance and
+does not say which one the docs reproduce. Both findings trace back to the same cause: a
+source of truth that lags a change already made elsewhere, or never resolves an ambiguity in
+the first place.
 
 **Canon is not fully settled either.** The top terminology entry is marked "Needs Review",
 and the personas file says the set is still being refined and warns against treating entries
@@ -64,9 +69,6 @@ user. Engineers only reliably see the repo. So: how does an engineer get the tru
 | **B. Declared dependency** | the repo declares the marketplace and plugin in its own settings, so every checkout resolves it | no copy, no drift, and it works for agents. Depends on the plugin staying available and on that declaration being honoured |
 | **C. Synced mirror** | a script pulls the mirrored files into the repo, stamped with their sync date | visible to everyone with no install. Creates a third copy, and a third copy is what we are trying to stop |
 
-Recommendation is **B**, with `docs/positioning.md` deleted and replaced by a short pointer
-that names what replaced it and why. A is not enough for agents, which is the case the ticket
-actually complains about. C reintroduces the failure mode.
-
-Not decided here. This needs the owner, because it commits the repo to a dependency on a
-plugin.
+None of the three: this skill has no dependency on the marketplace plugin. Its content is
+copied into a standalone skill in this repo, independent in the same way child 01 is. See
+`spec.md` §1 and §7.

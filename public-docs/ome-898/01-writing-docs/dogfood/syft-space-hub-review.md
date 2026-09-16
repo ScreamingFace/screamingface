@@ -45,9 +45,9 @@ environment-variable table, a constructor with every optional parameter enumerat
 comments, a requirements block, and a resource-cleanup section. It contains no numbered
 steps, no narrative, and no single path a newcomer can follow start to finish.
 
-This is the sharpest page-type violation in either run. The remedy is the split, not a trim:
-a short tutorial that installs the package, sets one URL, and makes one successful call,
-with the table and the full option list moving to a reference page.
+The remedy is the split, not a trim: a short tutorial that installs the package, sets one
+URL, and makes one successful call, with the table and the full option list moving to a
+reference page.
 
 **2. The page opens with no prose.** The first element after the title is `<h2>Installing the
 SDK</h2>` followed immediately by a code block. No sentence says what the SDK is for, what
@@ -91,8 +91,7 @@ into a wrong assertion, but a reader still cannot tell whether what they saw was
 
 The pages carry hard-coded colour utilities, for example `text-yellow-400` and `bg-zinc-900`,
 rather than theme tokens. That is a design-system concern about component-level presentation,
-which the skill explicitly cedes. Noting it here only to record that the boundary rule fired
-rather than being ignored.
+which the skill's boundary explicitly cedes.
 
 ## Verification result
 

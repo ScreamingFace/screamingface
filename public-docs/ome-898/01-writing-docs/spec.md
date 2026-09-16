@@ -249,34 +249,26 @@ Owner, 2026-09-02:
 - **Advisory only.** No lint, no CI gate in this unit.
 - **Completely agnostic.** No product and no organisation specifics in the skill. All of it
   arrives through §5.
-- **The skill is independent, and duplication is accepted.** This reverses an earlier
-  instruction on the same day. An intermediate version ran a house writing skill's passes and
-  let it win on conflict; that is removed. Where this skill's prose rules restate rules a
-  house skill also carries, the duplication stands. It also means the epic's "should use that
-  skill because it will evolve" is knowingly not satisfied: the owner chose independence over
-  inheritance. See §4.6.
-
-Recorded so they are not re-opened:
-
+- **Independent.** The skill calls no other skill. Where its prose rules restate a rule a
+  house skill also carries, the duplication stands rather than deferring to it. This means
+  the epic's suggestion to reuse the existing openmined writing skill is not followed;
+  independence was chosen over inheritance. See §4.6.
 - **Scope is a document class, not a path** (§3), read from the epic's two constraints:
-  product reviews docs manually at release, and docs must match product voice. Both point at
-  prose a reader outside the team sees.
-- **The review angles are de-specified into a procedure plus context slots** (§5). The source
-  prompt was written for one product, one reader, and one metric triad. The passes, scorecard,
-  and rules all survive removing those, and the specifics become contract slots.
+  product reviews docs manually at release, and docs must match product voice.
+- **The review angles are a procedure plus context slots, not a fixed prompt** (§5). The
+  source material named one product, one reader, and one metric triad; those became contract
+  slots so the procedure works for any project.
 - **Name: `writing-docs`.** Reads as an action at the invocation site, and carries no product
   noun.
-- **No design-system precedence section.** An earlier draft carried a rule about which
-  system wins on component copy. It was generic in wording but existed only because of one
-  specific design system, which is the coupling this decision forbids. Cut.
+- **No design-system precedence section.** Component-level copy is out of scope entirely
+  (§4 non-goals), so a rule about which system wins on it does not belong here.
 
-Mine rather than the epic's, and flagged as such:
+Not from the epic, the skill's own choice:
 
-- **The skill is authored and published standalone rather than inside a product
-  repository.** It follows from agnosticism but the epic does not say it. Authoring it inside
-  a product repo is what made the first draft of this spec fail: repository paths, a named
-  design system, and a hard dependency on one context skill all crept in. Where it is
-  published is a distribution question and does not appear anywhere in the skill's content.
+- **Authored and published standalone, not inside a product repository.** Follows from
+  agnosticism: a repository path, a named design system, or a dependency on one context
+  skill would each break it. Where it is published is a distribution question and does not
+  appear anywhere in the skill's content.
 
 ## 8. Acceptance
 

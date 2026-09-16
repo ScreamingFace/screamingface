@@ -39,10 +39,9 @@ by that name, and two skills with one name is the confusion this unit is meant t
 Decided by the owner, 2026-09-02: the content is publishable, and the skill lands in the
 public monorepo.
 
-That is a change of posture, not just a move, so it is worth stating what becomes public:
-the terminology and its status, the personas and their registers, the positioning line and
-what it replaced, the claims boundary, the supported benchmark list, and the relationship
-disclosure policy.
+This changes posture, not just location. What becomes public: the terminology and its
+status, the personas and their registers, the positioning line and what it replaced, the
+claims boundary, the supported benchmark list, and the relationship disclosure policy.
 
 **Three items need a named yes before merge, not before writing.** They are not ours to
 publish and publishing them cannot be undone:
@@ -101,11 +100,14 @@ finding a blank.
 
 ## 5. What this fixes downstream
 
-Two defects already shipped because the wrong source was the visible one. Both were found by
-the documentation review in child 01, and both are symptoms rather than causes:
+Two gaps found by the documentation review in child 01:
 
-- a benchmark id advertised on the docs site that is not in canon's supported list
-- a headline result carrying no disclosure, against a rule requiring it in the same sentence
+- `draco-3pass`, advertised on the docs site, is a validated replacement for a benchmark id
+  the released Client now rejects (`OME-1057`), and is real, engine-tested. The gap is that
+  the formal benchmark policy (`OME-836`) and canon were never updated to include it
+- a headline result whose disclosure obligations are unclear, because canon names two
+  different DRACO benchmarks with different provenance and does not say which one the docs
+  reproduce
 
 Neither is fixed by this unit. They are fixed by whoever owns the docs, using this skill.
 Listed here so the connection is on the record.
@@ -121,8 +123,7 @@ There is no script, so the copy goes stale when Notion changes. Two things inste
 **A stale-by** date at the top of the skill, so a reader can see the content has aged rather
 than having to guess. An expired date is not a failure, it is a prompt.
 
-This is the accepted cost of independence. Stated plainly here so nobody is surprised by it
-later.
+This is the accepted cost of independence.
 
 ## 7. Decisions
 
@@ -166,7 +167,8 @@ Recorded so they are not re-opened:
 
 - Ask the skill, with the marketplace plugin not installed, what the core object is called.
   It answers with canon's word, not the old one.
-- Ask it which benchmarks are supported. It gives canon's four and no others.
+- Ask it which benchmarks are supported. It gives the three policy identities plus
+  `draco-3pass`, flagged as real and correct but not yet folded into the formal policy.
 - Ask it who the primary reader is. It gives canon's top-priority persona, not the one from
   the retired doc.
 - Ask it whether a state-of-the-art claim can be made on a benchmark we authored. It says no

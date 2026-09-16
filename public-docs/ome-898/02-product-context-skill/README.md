@@ -1,6 +1,7 @@
 # 02: product and brand context skill
 
-Status: spec drafted, see `spec.md`. Evidence in `findings.md`. No plan yet.
+Status: spec, plan, and a first draft of the skill exist. See `spec.md`, `plan.md`,
+`findings.md`, and `product-context/SKILL.md`.
 
 Named `product-context` to avoid colliding with the marketplace skill of a similar name.
 
@@ -22,17 +23,16 @@ terminology casing, positioning language, the reader, and the operational metric
 
 ## Not blocked
 
-An earlier draft of this file recorded the two positioning Google Docs as a blocker needing
-someone's access. They are not. The upstream context skill already mirrors them into the
-marketplace repository, alongside the strategy doc, the canonical terminology, the four
-personas, and the launch deck, and all of it is readable with `gh`.
+The two positioning Google Docs are not a blocker. The upstream context skill already
+mirrors them into the marketplace repository, alongside the strategy doc, the canonical
+terminology, the four personas, and the launch deck, and all of it is readable with `gh`.
 
-What that means for this child: the content exists, so the work is reconciling it against
-what the repository currently carries, deciding what becomes canonical, and retiring the
-rest. There is nothing to wait for.
+The work is reconciling that content against what the repository currently carries, deciding
+what becomes canonical, and retiring the rest.
 
-## Expected contents
+## Contents
 
+- `findings.md`: what `docs/positioning.md` and the marketplace canon disagree on
 - `spec.md`
 - `plan.md`
-- the deliverable, or a pointer to where it landed
+- `product-context/SKILL.md`: the deliverable

@@ -59,7 +59,7 @@ Findings from running the skill, recorded so the reason for each rule survives.
 
 | Date | Change | Why |
 |---|---|---|
-| 2026-09-02 | `review-angles.md`: added the rule for when the examples cannot be run | The first real review ran in an environment with no runtime, and the file said only "run the code". A reviewer following it literally either stalls or quietly implies they ran something. The rule now names what to check instead. |
+| 2026-09-02 | `review-angles.md`: added the rule for when the examples cannot be run | A review ran in an environment with no runtime, and the file said only "run the code". A reviewer following it literally either stalls or quietly implies they ran something. The rule now names what to check instead. |
 | 2026-09-02 | `prose-tells.md`: added the rule on parallel implementations in tabs | A second review, on a set documenting one SDK in two languages, found three divergences that a tabbed layout hid: a unit difference, an availability difference, and a call-signature difference. Only the first was stated. The page-type model does not reach this, because the defect is the layout asserting parity rather than the page being the wrong type. |
 
 ## Agnosticism

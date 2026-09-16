@@ -15,8 +15,9 @@ organisation, or a repository. Everything specific arrives through the context c
 
 The work item is a Linear `OME-N` issue, so its spec, plan, and ledger belong to this
 monorepo's artifact trail. The skill itself does not: it is authored standalone and
-installed as a plugin. Worth stating plainly, because the worktree-per-unit rule applies to
-a repository this unit does not write to. The branch and PR happen where the skill lives.
+installed as a plugin, in a repository this unit does not write to, so the worktree-per-unit
+rule applies to that repository, not this one. The branch and PR happen where the skill
+lives.
 The ledger and this plan stay here.
 
 ## Steps
@@ -60,8 +61,9 @@ cover. Frontmatter carries `description` and `user_invocable: true`.
 **8. Checks.**
 Grep the whole skill, `reference/` included, for product names, organisation names,
 repository paths, and design-system names. Then grep for em-dashes and en-dashes. Then check
-that no reference file depends on another skill being loaded. All three expect zero hits. These run before review rather than after, because they are the checks
-that caught two coupling leaks and a punctuation breach in the drafts.
+that no reference file depends on another skill being loaded. All three expect zero hits.
+Run these before review rather than after, since a coupling leak or a punctuation breach is
+cheaper to catch mechanically than to spot by reading.
 
 **9. Ship it.**
 Land the skill, then confirm it installs through the host's plugin mechanism and is

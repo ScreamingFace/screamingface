@@ -140,36 +140,21 @@ failure modes with three remedies.
 
 ## What ships
 
-**For benchmark ids the code is the authority, not this file and not canon.** Canon itself
-says product facts belong to the product owners, and this was tested: canon's list omits
-`draco-3pass`, while the engine defines it and carries a dedicated test for its definition.
-Canon was behind. Verify an id against the engine before writing it into copy.
-
-**Benchmark families, canonical as of 2026-08-28, verified against the engine 2026-09-02:**
-`draco`, `ifeval`, `healthbench`.
+**Formal policy (`OME-836`): three flat public identities.** Canon matches this.
 
 | Id | Status | Note |
 |---|---|---|
 | `draco` | canonical | the deep-research benchmark. A third-party benchmark, not authored by us |
-| `draco-3pass` | canonical, code-verified | defined in the engine with its own test. Absent from canon's list, which is behind |
 | `ifeval` | canonical | instruction following |
-| `healthbench` | canonical | the family |
 | `healthbench-worst30` | canonical | the variant. Spelled with a hyphen, not `healthbench/worst30` |
+| `draco-lite` | retired | the released Client rejects it with `PlanningError`. Do not use |
+| `draco-3pass` | canonical, code-verified, not yet in policy | real, engine-tested board; correctly used in the docs since `draco-lite` broke. Owner: add it to `OME-836` and canon |
 
-Anything not listed here is not a supported benchmark. Entries visible on a hosted board that
-are not in this table are leftovers and must never be described externally as supported.
+Anything else is not a supported benchmark. Entries visible on a hosted board that are not in
+this table are leftovers and must never be described externally as supported.
 
-**The lite variant is `draco-lite`** (owner, 2026-09-03). Use that name in copy.
-
-**Open:** the code and the docs do not agree with it. The engine carries `draco-3pass` with
-its own definition test, the Client docs advertise `benchmark="draco-3pass"` in four places,
-and canon's list has neither. `draco-lite` appears only as `draco-lite@1` in a July task
-mirror and in a notebook filename, `05_draco_lite_e2e.ipynb`, which a live docs page links to
-and which is no longer in the examples directory.
-
-So three sources give three answers, and this file is not the place that settles it. Owner:
-whoever owns the supported-benchmark list. Until then, write `draco-lite` per the line above
-and do not assume the engine id matches it.
+**The lite notebook link.** One guides page still links to a notebook file that was
+correctly deleted when `draco-lite` was retired. Stale link, not a naming question.
 
 **Open, 2026-09-02:** canon names DRACO twice with different provenance, once as a
 third-party benchmark explicitly not created by us, and once as a board we would build and

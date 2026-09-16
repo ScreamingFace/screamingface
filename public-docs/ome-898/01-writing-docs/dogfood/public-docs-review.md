@@ -1,15 +1,15 @@
 # Dogfood run: the Client documentation site
 
-First real use of the `writing-docs` skill. Target: the `public-docs` site, reader path from
-the landing page through Overview, Installation, and Your first fusion, plus the navigation
-tree and router.
+Target: the `public-docs` site, reader path from the landing page through Overview,
+Installation, and Your first fusion, plus the navigation tree and router.
 
 Run on 2026-09-02 against commit `90a104e3` as named in the sidebar footer.
 
 ## Context slots: what was and was not available
 
-No context skill was loaded for this run, which makes it the degradation case as well as the
-dogfood.
+No context skill was loaded for this run. It exercises the degradation path the spec
+requires: with nothing loaded, the skill produces structure and prose guidance and does not
+invent product claims.
 
 | Slot | Available | Source |
 |---|---|---|
@@ -22,9 +22,8 @@ dogfood.
 | house voice, target voice | **no** | one house rule was supplied separately by the owner: no em-dashes |
 | house writing skill | **no** | its AI-tell pass did not run |
 
-Everything below that describes the product is therefore a claim the docs make, not a fact
-this review confirmed. That distinction is the behaviour the skill is supposed to have when
-it runs with nothing loaded, and it held.
+Everything below that describes the product is a claim the docs make, not a fact this review
+confirmed.
 
 ## Verdict
 
@@ -50,20 +49,20 @@ Chronological, following the reader path.
 
 | # | Location | What happened |
 |---|---|---|
-| 1 | `Index.vue:84` | "**Your own providers.** You connect the API keys you already have" reads as unconditional. Two pages later the hosted path says the opposite. Noted as a promise; it turns out to apply only to the local path |
+| 1 | `Index.vue:84` | "**Your own providers.** You connect the API keys you already have" reads as unconditional. Two pages later the hosted path says the opposite. Noted as a promise; it applies only to the local path |
 | 2 | `Index.vue:30` | `benchmark="draco-3pass"` appears with no explanation of what `draco-3pass` is or how it relates to `draco`. Guessed it was a benchmark id |
 | 3 | `Index.vue:142` | "Two ways to run" is a decision with two topologies, in prose. Had to hold both in mind to compare them |
-| 4 | `InstallationPage.vue:20` | The install check is `len(sf.__all__) # 56`. If it prints 57 I do not know whether I have a problem. It verifies a count, not that anything works |
+| 4 | `InstallationPage.vue:20` | The install check is `len(sf.__all__) # 56`. A count of 57 gives no way to tell whether that is a problem. It verifies a count, not that anything works |
 | 5 | `InstallationPage.vue:107` | "The fastest start" |
-| 6 | `InstallationPage.vue:109` | "Hosted access is currently by invitation. If you haven't been approved yet, use the local engine tab below while you wait." This is the single most important fact for a new reader and it arrives after the path was called the fastest start. My 30 minutes just changed shape |
-| 7 | `InstallationPage.vue:107` | "no provider key of your own: the hosted engine does not take one". Direct contradiction of friction 1. Scrolled back to re-read the Overview bullet |
-| 8 | `InstallationPage.vue:127` | "The **Quickstart** takes it from here", linking to `/sf-client/first-fusion`. There is no Quickstart in the sidebar. Looked for one |
-| 9 | `InstallationPage.vue:146` | `prepare draco` takes a family, but the Overview example used `draco-3pass`. Cannot tell whether preparing `draco` covers `draco-3pass` |
-| 10 | `InstallationPage.vue:176` | An FAQ with seven collapsibles opens inside what the nav calls a tutorial. Ports, TLS certificates, provider enablement, web-search keys. None of it is the task I came to do |
-| 11 | `FirstFusionPage.vue:39` | Prerequisites say the Client must be installed. They do not say the engine must be pointed at, which Installation established as mandatory. Guessed that `sf.connect()` implies a configured engine |
-| 12 | `FirstFusionPage.vue:63` | `sf.connect()`, with no preceding `sf.configure()`. Third distinct entry point after `sf.configure()` and `client.login()`. Unclear which I should be using |
-| 13 | `FirstFusionPage.vue:88` | The tutorial runs `ifeval`; the Overview example ran `draco-3pass`. Neither says why they differ |
-| 14 | `FirstFusionPage.vue:95` to `:107` | Five cells, no expected output on any of them. I cannot tell whether my run succeeded. The Overview, which is not the tutorial, is the only page that shows a result |
+| 6 | `InstallationPage.vue:109` | "Hosted access is currently by invitation. If you haven't been approved yet, use the local engine tab below while you wait." The single most important fact for a new reader, arriving after the path was called the fastest start. It changes the reader's 30 minutes |
+| 7 | `InstallationPage.vue:107` | "no provider key of your own: the hosted engine does not take one". Direct contradiction of friction 1. Requires scrolling back to the Overview bullet |
+| 8 | `InstallationPage.vue:127` | "The **Quickstart** takes it from here", linking to `/sf-client/first-fusion`. There is no Quickstart in the sidebar |
+| 9 | `InstallationPage.vue:146` | `prepare draco` takes a family, but the Overview example used `draco-3pass`. No way to tell whether preparing `draco` covers `draco-3pass` |
+| 10 | `InstallationPage.vue:176` | An FAQ with seven collapsibles opens inside what the nav calls a tutorial. Ports, TLS certificates, provider enablement, web-search keys. None of it is the task the reader came to do |
+| 11 | `FirstFusionPage.vue:39` | Prerequisites say the Client must be installed. They do not say the engine must be pointed at, which Installation established as mandatory. Requires guessing that `sf.connect()` implies a configured engine |
+| 12 | `FirstFusionPage.vue:63` | `sf.connect()`, with no preceding `sf.configure()`. Third distinct entry point after `sf.configure()` and `client.login()`. Unclear which to use |
+| 13 | `FirstFusionPage.vue:88` | The tutorial runs `ifeval`; the Overview example ran `draco-3pass`. Neither page says why they differ |
+| 14 | `FirstFusionPage.vue:95` to `:107` | Five cells, no expected output on any of them. No way to tell whether the run succeeded. The Overview, which is not the tutorial, is the only page that shows a result |
 | 15 | `FirstFusionPage.vue:118` | Fan-out, synthesizer, pipeline, and nesting are introduced as prose in one section. Four structural ideas, no picture |
 | 16 | `router/index.ts:27` | The Reproduce DRACO route renders `QuickstartPage.vue`. A file named for one page serving another |
 
@@ -126,12 +125,12 @@ one path.
 from the literature. Limits are stated plainly where the choice is made, for instance that a
 local engine starts with an empty cache and bills you for compute, and that the hosted
 engine runs your prompts on infrastructure the project operates. Cost appears next to
-accuracy rather than in an appendix. No marketing superlatives were found in the pages read.
+accuracy rather than in an appendix. No marketing superlatives appear in the pages read.
 
 **Not holding up.** There is no stability or versioning statement. The sidebar reads "Based
-on state at commit 90a104e3", which is honest about what the docs were checked against but
+on state at commit 90a104e3", which is accurate about what the docs were checked against but
 tells a reader nothing about whether the API will move under them. No changelog, no
-migration notes, and no contribution path was reachable from the pages on the reader path.
+migration notes, and no contribution path is reachable from the pages on the reader path.
 For a project asking a researcher to build on it, those are the signals of being safe to
 depend on, and their absence is the one thing that would make this reader hesitate.
 
@@ -179,8 +178,8 @@ graph TB
 ```
 
 **3. Which engine to run.** `Index.vue:142`, "Two ways to run". Answers: which engine should
-I point at? This replaces a two-bullet comparison the reader has to hold in their head, and
-it is where the invitation gate belongs.
+the reader point at? This replaces a two-bullet comparison held only in prose, and it is
+where the invitation gate belongs.
 
 ```mermaid
 graph TD
@@ -213,7 +212,7 @@ finding anything.
 **3. Move the invitation gate to where the choice is made.** `Index.vue:142` and
 `InstallationPage.vue:107`. Before, at 107: "The fastest start." After: "The shortest path
 once you have access. Hosted access is currently by invitation; the local engine has no
-waiting." And state it in the Overview's two-ways section, not only inside a tab.
+waiting." State it in the Overview's two-ways section too, not only inside a tab.
 
 **4. Fix the provider-keys contradiction.** `Index.vue:84`. Before: "**Your own providers.**
 You connect the API keys you already have, and calls are billed to your own accounts rather
@@ -249,7 +248,7 @@ doing.
 - **The Overview's opening two paragraphs.** They state what the thing is, then support the
   central claim with a number, a citation, and a second piece of literature, and then say
   plainly that the effect is not new and name what the project actually adds. That last move
-  is rare and it is the reason this reader kept reading.
+  is rare, and it is why this reader kept reading.
 - **The local-flow diagram** at `Index.vue:130`. Accurate, one idea, real alt text, and a
   caption that repeats the claim in words. It is the model the three proposed diagrams should
   follow.
@@ -265,57 +264,54 @@ doing.
 
 ## What this run says about the skill
 
-Findings the skill produced that a plain read would likely have missed: the page-type
-mismatch on Installation, which came from the nav declaring the type and the page not
-honouring it; the three diagram gaps, which came from the concept-to-diagram table rather
-than from noticing an absence; and the trust-check gap on versioning, which is easy to
-overlook because nothing on the page is wrong.
+Two findings depend on the skill's own method rather than on general attentiveness: the
+page-type mismatch on Installation, which follows from the nav declaring a type and the page
+not honouring it, and the three diagram gaps, which follow from the concept-to-diagram table
+rather than from noticing an absence. The trust-check gap on versioning is easy to overlook
+because nothing on the page is wrong; the trust check names it as a category to check
+regardless.
 
-One weakness found in the skill: `review-angles.md` says to run the code and report real
-output, but gives no guidance for a docs set whose examples cannot be run in the review
-environment. This run could not execute any Python. The file should say what to do in that
-case, which is to mark the examples unverified and check them for internal consistency
-instead, rather than staying silent.
-
-That rule is now in the skill, and the change is recorded in `PROVENANCE.md`.
+One gap in the skill: `review-angles.md` said only to run the code and report real output,
+with no guidance for a review environment that cannot execute anything. This run could not
+run any Python. The rule now covers that case: mark examples unverified and check them for
+internal consistency instead. Recorded in `PROVENANCE.md`.
 
 ## Second run: with the context skill loaded
 
-The same reader path, re-read with the project's canonical terminology loaded. Everything
-here is a finding the first run could not produce, because it needs an external authority on
-what is true and what may be claimed. In the first run these slots were reported as
-unavailable rather than guessed, which is the behaviour under test.
+The same reader path, re-read with the project's canonical terminology loaded. Every finding
+below needs an external authority on what is true and what may be claimed, which is why the
+first run, with that slot unavailable, could not produce any of them.
 
 Caveat on both directions: canon is stamped as current to 2026-08-29 and the docs are
 checked against commit `90a104e3`. Either can be the stale one, so each item below is a
 reconciliation, not a verdict that the docs are wrong.
 
-**1. A benchmark id that is not in canon.** Canon names the supported set as `draco`,
-`ifeval`, `healthbench`, and the `healthbench-worst30` variant. The Overview's smallest
-example runs `benchmark="draco-3pass"`, which appears nowhere in that list. Either canon is
-behind a shipped variant, or the docs are advertising something unsupported. This also
-sharpens friction 9: a reader cannot tell whether `prepare draco` covers it.
+**1. `draco-3pass` is correct and not yet in policy.** Canon and the formal benchmark policy
+(`OME-836`) name three identities: `draco`, `ifeval`, `healthbench-worst30`. The Overview's
+smallest example runs `benchmark="draco-3pass"`, absent from both. Traced through Linear: the
+docs previously used `draco-lite`, which the released Client now rejects with
+`PlanningError`; `draco-3pass` is the validated, working replacement (`OME-1057`), and is a
+real, tested engine board. The docs are right. The gap is that the policy and canon have not
+been updated to add it as a fourth sanctioned identity.
 
-**2. A disclosure rule the Overview does not satisfy.** Canon records that a result on a
-benchmark the organisation authored or hosts must name that fact in the same sentence as the
-result, and separately that no state-of-the-art claim may be made on a benchmark the
-organisation authored. Canon also lists DRACO among the boards the organisation would build
-and own because no authoritative one exists.
+**2. Ambiguity over which DRACO the claims rules govern.** Canon requires a result on a
+benchmark the organisation authored or hosts to name that fact in the same sentence, and
+bars a state-of-the-art claim on such a benchmark. Canon's own DRACO entry, though,
+describes DRACO as a third-party benchmark the organisation did not create, while a separate
+canon entry lists "DRACO (grounded)" among boards the organisation would build and own. The
+two entries do not obviously name the same board.
 
-The Overview states "A reproduction of the DRACO deep-research benchmark put the best fusion
-at 68.6% against 60.2% for the best single model" with no such disclosure. And the tutorial
-listed in the navigation is titled "Reproduce DRACO state-of-the-art".
-
-This is the highest-value finding of either run, and it is exactly the kind a purely
-structural review cannot reach. It needs a person who owns the claims policy, not a docs
-fix. Flagging, not rewriting.
+The Overview's headline result, 68.6% against 60.2%, reproduces the DRACO the docs link to.
+Whether the claims rules above apply depends on which of canon's two DRACO entries that is.
+This needs an answer from whoever owns the claims policy; the finding is the ambiguity
+between canon's two entries, not a proven breach.
 
 **3. "Reproducible" against "auditable".** Canon says results on held-out benchmarks are to
 be described as auditable rather than reproducible. Two adjacent Overview bullets say
 "**Held-out grading**" and "**A reproducible artifact for every run** ... Anyone holding it
-can run the same evaluation". Read together they claim the thing canon reserves. The
-distinction canon draws is real and worth keeping: the url4 expression is reproducible, the
-score on held-out data is auditable.
+can run the same evaluation". Read together they claim the word canon reserves. The
+distinction canon draws still holds: the url4 expression is reproducible, the score on
+held-out data is auditable.
 
 **4. Product-name casing.** Canon treats Client, Studio, Engine, Leaderboard, and Toolkit as
 product names. The docs write "engine" and "leaderboard" in lower case through most of the
@@ -325,7 +321,7 @@ deliberate exception.
 
 **5. Canon's own confidence.** The top term carries status "Needs Review", with a note that
 provisional wording should not ship in external copy unchecked. The Overview's opening is
-external copy. Worth knowing before treating any of the above as settled.
+external copy, so this qualifies every item above.
 
 **What went right.** The docs do not mention the parent organisation anywhere on the reader
 path, which matches canon's rule against leading with that connection. Nothing on the path
@@ -334,9 +330,10 @@ contradicted it.
 ## What the two runs together say
 
 The no-context run found structure, ordering, terminology drift inside the docs, missing
-outputs, and missing diagrams. The context-loaded run found a possible claims-policy breach,
-an unsupported benchmark id, and a word the project has explicitly reserved.
+outputs, and missing diagrams. The context-loaded run found a benchmark id canon's list was
+missing rather than the docs advertising something unsupported, an ambiguity in the claims
+policy, and a word the project has explicitly reserved.
 
 Neither run found the other's findings. That is the argument for the context contract being
-part of the skill rather than an optional extra, and it is also the argument against running
-a docs review with nothing loaded and calling it done.
+part of the skill rather than an optional extra, and against running a docs review with
+nothing loaded and calling it done.
