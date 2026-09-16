@@ -701,3 +701,57 @@ def test_a_run_without_a_trace_id_reports_none_rather_than_raising() -> None:
     # from a stored url4 replay has no live run behind it. Forcing a value would mean
     # inventing one, and an invented id joins to nothing.
     assert _outcome_for_trace(None).trace_id is None
+
+
+def test_report_export_inspect_format_delegates_to_the_quarantined_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # INVARIANT: export() owns FORMAT DISPATCH only — the .eval mechanics live in
+    # screamingface._inspect_log, so the JSON branch never grows an inspect import.
+    from screamingface import _inspect_log
+
+    observed: list[tuple[sf.Report, Path, str | None]] = []
+
+    def _fake_writer(value: sf.Report, path: Path, *, candidate: str | None = None) -> Path:
+        observed.append((value, path, candidate))
+        return Path(path)
+
+    monkeypatch.setattr(_inspect_log, "write_inspect_log", _fake_writer)
+    value = report(candidate("opus"), candidate("gpt"))
+
+    selected = value.export(tmp_path / "draco.eval", format="inspect", candidate="gpt")
+
+    assert selected == tmp_path / "draco.eval"
+    assert observed == [(value, tmp_path / "draco.eval", "gpt")]
+
+
+def test_report_export_inspect_format_defaults_to_report_dot_eval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from screamingface import _inspect_log
+
+    observed: list[Path] = []
+
+    def _fake_writer(value: sf.Report, path: Path, *, candidate: str | None = None) -> Path:
+        observed.append(Path(path))
+        return Path(path)
+
+    monkeypatch.setattr(_inspect_log, "write_inspect_log", _fake_writer)
+    monkeypatch.chdir(tmp_path)
+
+    assert report(candidate("opus")).export(format="inspect") == Path("report.eval")
+    assert observed == [Path("report.eval")]
+
+
+def test_report_export_json_format_refuses_a_candidate_selector(tmp_path: Path) -> None:
+    # WHY: the JSON document is whole-report; a selector there would silently
+    # drop candidates, so it is refused instead.
+    with pytest.raises(ValueError, match="candidate"):
+        report(candidate("opus")).export(tmp_path / "report.json", candidate="opus")
+
+
+def test_report_export_rejects_an_unknown_format(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="format"):
+        report(candidate("opus")).export(tmp_path / "report.json", format="csv")  # type: ignore[arg-type]

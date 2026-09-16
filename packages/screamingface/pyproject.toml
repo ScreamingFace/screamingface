@@ -39,6 +39,13 @@ screamingface = "screamingface._runtime.cli:main"
 notebook = [
     "ipywidgets>=8.1",
 ]
+# WHY exact ==: the .eval log contract is version-shaped, and the Engine's inspect extra
+# (apps/screamingface-engine) already pins this exact version as revision identity — the
+# exporter and the importer must speak the same dialect. FEATURE: OME-1117 one-way
+# report export in inspect's log format.
+inspect = [
+    "inspect-ai==0.3.263",
+]
 runtime = [
     "aiosqlite==0.22.1",
     "bcrypt==5.0.0",
@@ -69,6 +76,20 @@ runtime = [
     "python-multipart>=0.0.20",
     "tortoise-orm[asyncpg]==1.1.8",
     "uvicorn[standard]>=0.52.3",
+]
+
+# WHY: inspect-ai==0.3.263 (hard aioboto3 dependency) and the runtime extra's
+# litellm==1.98.0 cannot co-install on ANY platform (verified 2026-09-16: their boto3
+# windows never intersect). The extras serve different personas — runtime bundles the
+# local engine stack, inspect adds the one-way log exporter — so declare the genuine
+# conflict instead of loosening either contract pin. Export from a runtime env means a
+# separate env (e.g. uvx) for the inspect extra.
+[tool.uv]
+conflicts = [
+    [
+        { extra = "inspect" },
+        { extra = "runtime" },
+    ],
 ]
 
 [build-system]

@@ -402,14 +402,60 @@ class Report:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
 
-    def export(self, path: str | PathLike[str] = "report.json") -> Path:
-        """Write the complete Report JSON document and return its selected path.
+    def export(
+        self,
+        path: str | PathLike[str] | None = None,
+        *,
+        format: Literal["json", "inspect"] = "json",
+        candidate: str | None = None,
+    ) -> Path:
+        """Write the Report as a file artifact and return its selected path.
 
-        Parent directories are created as needed. An existing file is replaced so repeated
-        notebook runs deterministically leave one current artifact.
+        Two dialects, one door:
+
+        - ``format="json"`` (the default) writes the complete report.v1 JSON
+          document — byte-identical behavior to the original single-format
+          export, default name ``report.json``.
+        - ``format="inspect"`` writes ONE Candidate's run as an inspect ``.eval``
+          log (FEATURE OME-1117): a one-way, provenance-labeled copy their
+          ``inspect view`` opens. Default name ``report.eval``; a
+          multi-Candidate Report must name the Candidate to export, because an
+          inspect log is one task × one model by their own convention. Needs
+          the ``inspect`` extra (``pip install "screamingface[inspect]"``).
+
+        Parent directories are created as needed. An existing file is replaced so
+        repeated notebook runs deterministically leave one current artifact.
+
+        Args:
+            path: destination file; ``None`` selects the format's default name.
+            format: ``"json"`` for the whole-report document, ``"inspect"``
+                for one Candidate's ``.eval`` log.
+            candidate: which Candidate an inspect log describes; refused for
+                JSON, whose document is always whole-report.
+
+        Returns:
+            The selected path, now holding the exported artifact.
         """
 
-        selected = Path(path)
+        if format == "inspect":
+            # WHY the lazy import: the .eval mechanics (and the optional
+            # inspect_ai dependency behind them) stay quarantined in
+            # screamingface._inspect_log — an extra-less install only pays
+            # when it asks for this format.
+            from screamingface import _inspect_log
+
+            return _inspect_log.write_inspect_log(
+                self,
+                Path(path) if path is not None else Path("report.eval"),
+                candidate=candidate,
+            )
+        if format != "json":
+            raise ValueError("Report export format must be 'json' or 'inspect'")
+        if candidate is not None:
+            # WHY refused: the JSON document is whole-report; a selector here
+            # would silently drop Candidates rather than select one log.
+            raise ValueError("candidate= applies only to format='inspect'")
+        selected = Path(path) if path is not None else Path("report.json")
         if selected.suffix.lower() != ".json":
             raise ValueError("Report export path must be a .json file")
         selected.parent.mkdir(parents=True, exist_ok=True)
