@@ -35,6 +35,9 @@ Carry the optional version explicitly through Engine-local scheduling context,
 including queued worker handoff and local mode. Deployed workers run in Kubernetes;
 there is no separate Kubernetes scheduling adapter in the current tree. Never put it into
 shared world configuration or reuse verified caller identity fields.
+A directly launched runner trusts its explicit process environment, including
+`URL4_CLOUD_CLIENT_VERSION`; launchers outside the queue-worker path must clear or
+set that value for each run rather than inheriting a shell-wide export.
 
 Evidence carrier: one existing structured `ai.url4.log` INFO event after the
 root Started event, body `Client software version`, with scalar attribute

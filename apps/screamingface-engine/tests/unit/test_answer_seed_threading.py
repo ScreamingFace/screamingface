@@ -196,6 +196,7 @@ class _SeedRecordingRunner(RecordingJobRunner):
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
+        client_version: str | None = None,
     ) -> str:
         self.answer_seeds.append(answer_seed)
         return await super().schedule(

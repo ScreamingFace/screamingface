@@ -16,3 +16,5 @@ Implementation and draft PR approved on 11 September 2026.
 
 PR [924](https://github.com/ScreamingFace/screamingface/pull/924) is ready for review.
 Implementation: 63a3d361; scheduling simplification: 1486e151. Awaiting review and merge.
+
+Review refresh (2026-09-16): rebased onto `f31084a5`, preserving answer_seed and client_version. Clarified direct-runner environment responsibility and consolidated the test import. Fixed main's new fake signature without assertion changes; 50 focused tests and full Engine gates pass, coverage 93.35%. See `docs/work/2026-09-16-OME-1191-review-refresh.md`. PR remains in review.

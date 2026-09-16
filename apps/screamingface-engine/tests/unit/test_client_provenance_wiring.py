@@ -3,7 +3,7 @@
 import asyncio
 
 import pytest
-from _fakes import FixedGate
+from _fakes import FixedGate, RecordingJobRunner
 from test_client_provenance import _FailingExecutor, _frames
 from test_inprocess_runner import _runner as local_runner
 from test_queue_runner_status import _FakeClock, _FakePublisher
@@ -13,6 +13,7 @@ from test_rest import SECRET, T0, WINDOW_S, _cap, _client, _make_app
 from test_worker_claim import _FakeMsg, _FakeQueue, _worker
 from test_worker_claim import _FakePublisher as WorkerPublisher
 
+from screamingface_engine import job_env
 from screamingface_engine.app import create_app
 from screamingface_engine.client_provenance import CLIENT_VERSION_ENV, VERSION_ATTRIBUTE
 from screamingface_engine.config import Settings
@@ -68,8 +69,6 @@ async def test_local_requests_capture_versions_per_run_and_ignore_ambient_values
 @pytest.mark.asyncio
 @pytest.mark.parametrize("present, expected", [(False, 428), (True, 409)])
 async def test_rejected_admission_does_not_publish_version(present: bool, expected: int) -> None:
-    from _fakes import RecordingJobRunner
-
     stream = InMemoryEventStream()
     runner = RecordingJobRunner(exists=True)
     app = _make_app(stream=stream, job_runner=runner, gate_present=present)
@@ -104,3 +103,48 @@ def test_worker_cannot_inherit_an_unrelated_client_version(
     worker = _worker(_FakeQueue(), WorkerPublisher())
     env = worker._supervisor._child_env(message)
     assert env.get(CLIENT_VERSION_ENV) == version
+
+
+@pytest.mark.asyncio
+async def test_rest_local_run_preserves_answer_seed_and_client_version_together() -> None:
+    stream = InMemoryEventStream()
+    runner, environments = local_runner(stream)
+    app = create_app(
+        Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S),
+        stream=stream,
+        job_runner=runner,
+        interest=FixedGate(True),
+        clock=lambda: T0,
+    )
+    try:
+        async with _client(app) as client:
+            response = await client.get(
+                "/",
+                params={"q": "'hi'"},
+                headers={
+                    **_cap("seeded-version"),
+                    "Prefer": "respond-async",
+                    "User-Agent": "screamingface/1.2.3",
+                    "X-Answer-Seed": "7",
+                },
+            )
+        assert response.status_code == 202
+        assert job_env.answer_seed_from_env(environments[0]) == 7
+        assert _versions(await _frames(stream, "seeded-version")) == ["1.2.3"]
+    finally:
+        await runner.aclose()
+
+
+@pytest.mark.asyncio
+async def test_queued_run_preserves_answer_seed_and_client_version_together() -> None:
+    runner = queue_runner(_FakeClock(), _FakePublisher())
+    await runner.schedule("seeded-queue", "'hi'", 60, answer_seed=7, client_version="1.2.3")
+    assert isinstance(runner._queue, SubmissionQueue)
+    worker = _worker(_FakeQueue(), WorkerPublisher())
+    env = worker._supervisor._child_env(_FakeMsg(runner._queue.published[0]))
+    assert job_env.answer_seed_from_env(env) == 7
+    params = params_from_env(env)
+    assert params.client_version == "1.2.3"
+    stream = InMemoryEventStream()
+    await _run_and_log(OperationCapturingExecutor(_FailingExecutor()), stream, params, None)
+    assert _versions(await _frames(stream, "seeded-queue")) == ["1.2.3"]

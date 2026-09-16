@@ -11,3 +11,7 @@
 
 User approved implementation and draft PR creation on 11 September 2026. The current
 Engine supports local and queued-worker substrates; there is no separate k8s adapter file.
+
+## Approved review refresh — 2026-09-16
+
+Rebase onto current main retaining answer_seed and client_version together; update conflicting test-double signatures without changing assertions. Clarify direct-runner environment responsibility in the spec and move RecordingJobRunner into the existing module-level import. Verify both values survive REST/local and queued/worker handoff, run Engine gates, and push the existing PR. UA comment parsing and shared-helper extraction remain separate follow-ups.
