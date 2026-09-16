@@ -88,6 +88,42 @@ Scope grew across the unit as facts came in. Recorded honestly rather than back-
      was deleted between sessions. It was rebuilt INSIDE `packages/url4` with a
      self-contained corpus — the reason the tests no longer reference `examples/`.
 
+## Confidence-Gate decision — append-only tests (approved 2026-09-16)
+
+`run_gates.py url4` refused the push:
+
+    append-only test check — prior tests were modified/deleted (vs origin/main)
+    Tests are append-only across cycles (sdlc rule 5). Changing a prior test is
+    a Confidence-Gate decision — STOP and ask.
+
+**Five url4 test modules were modified, not merely added:**
+
+| module | diff |
+|---|---|
+| `test_serve_config.py` | +96 -41 |
+| `test_serve_reads.py` | +76 -44 |
+| `test_cli.py` | +18 -9 |
+| `test_serve_hardening.py` | +16 -7 |
+| `test_serve_command_stdin.py` | +1 -1 |
+
+They wrote `url4.toml` fixtures. `url4.toml` no longer exists, so leaving them
+untouched was not available: a config-format migration inherently rewrites the tests
+that write config in the old format. The same applies to the 13 engine test modules,
+which that stack's gate did not flag.
+
+**Evidence offered for the decision.** Parity was checked by diffing COLLECTED TEST
+NAMES, not counts: 66 -> 73. Four renames (`..._toml` -> `..._file`) and one deliberate
+split — the argv string form went from supported to rejected, so it needs a test on
+each side. No test was dropped. Every other url4 gate passes: ruff, ruff format,
+pyright (whole package), 1411 tests. `aigateway` and `screamingface-engine` are green
+in full.
+
+**Owner approved** the modification and authorised ONE `--no-verify` push on that basis.
+
+**Unexplained:** the same check printed a GREEN line during an earlier push attempt and
+fails deterministically on the same commits now. The discrepancy is recorded rather
+than rationalised; it means neither result should be trusted on its own.
+
 ## Errors worth keeping
 
 Recorded because each was a wrong belief that testing corrected, not merely a typo.
