@@ -1,4 +1,4 @@
-"""The Engine's declared world — ``url4.toml``, read once at startup.
+"""The Engine's declared world — ``url4.json``, read once at startup.
 
 Both the control plane and Runner consume this module. Discovery must project onto the exact
 configuration the Runner executes; a second partial TOML reader would let the two disagree.
@@ -20,7 +20,7 @@ must also be renderable as a URL4 expression path (see ``models.registry.ROUTE_I
 The MODEL LIST itself lives in
 :data:`screamingface_engine.models.builtins.BUILTIN_MODEL_WORLD`, seeded from every
 aigateway provider plugin (OME-859). This module merges that world with the optional,
-additive ``[[aigateway.models]]`` array, so one function still produces the single
+additive ``world.models`` array, so one function still produces the single
 world both halves consume.
 
 ``[data]``, ``[commands]``,
@@ -35,7 +35,6 @@ loud error rather than a silent no-op, so a config that looks like it works actu
 from __future__ import annotations
 
 import json
-import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -50,14 +49,14 @@ from screamingface_engine.models.registry import (
     is_route_legal,
 )
 
-DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
+DEFAULT_CONFIG_PATH = "/etc/url4/url4.json"
 
 """Where the declared world lives unless :data:`job_env.RUNNER_CONFIG` overrides it. Image-level
 wiring: the App never writes that variable — the file is baked into the image."""
 
 DEFAULT_WEB_TOOL_MAX_ITERATIONS = 5
 
-_AIGATEWAY_KEYS = frozenset(
+_WORLD_KEYS = frozenset(
     {
         "base_url",
         "default_route",
@@ -68,8 +67,43 @@ _AIGATEWAY_KEYS = frozenset(
     }
 )
 _MODEL_KEYS = frozenset({"id", "web_search"})
-_RESERVED_TABLES = frozenset({"data", "commands", "holdings", "identities"})
-_TOP_LEVEL_KEYS = frozenset({"aigateway"})
+WORLD_KEY = "world"
+"""What ``[aigateway]`` is called in ``engine-node.schema.json``.
+
+The rename is not cosmetic: the section describes the declared MODEL WORLD, read by both
+the App and the Runner. Naming it after one upstream made it read like gateway plumbing.
+"""
+
+# The groups `engine-node.schema.json` declares. This module consumes exactly one of them
+# -- the other eleven are the Settings layer's, so they must be TOLERATED here rather than
+# rejected. `test_top_level_groups_match_the_catalog` holds this tuple to the catalog: a
+# group added there and not here would make a VALID url4.json fail to load.
+_TOP_LEVEL_KEYS = frozenset(
+    {
+        "artifacts",
+        "auth",
+        "benchmarks",
+        "catalog",
+        "expression_params",
+        "local",
+        "queue",
+        "request",
+        "runs",
+        "tools",
+        "worker",
+        "world",
+    }
+)
+
+# `url4 serve`'s groups. Legal in A url4.json -- just not in the ENGINE'S, whose catalog
+# does not declare them. Naming them buys a message that says which component owns the key
+# instead of a bare "unknown". This replaces the old _RESERVED_TABLES: those four tables
+# were never "reserved", they were another component's, and now they have a real home.
+_SERVE_GROUPS = frozenset({"server", "limits", "routes", "reads", "mounts"})
+
+# Structural, not configuration. `$schema` lets an editor find the catalog and validate
+# while the file is being typed, which is most of the point of moving to JSON.
+_STRUCTURAL_KEYS = frozenset({"$schema"})
 
 
 class WorldConfigError(ValueError):
@@ -213,9 +247,13 @@ def load_config(
     path = Path(env.get(job_env.RUNNER_CONFIG, DEFAULT_CONFIG_PATH))
     try:
         with path.open("rb") as handle:
-            raw = tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+            raw = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
         raise WorldConfigError(f"cannot read world config {str(path)!r}: {exc}") from exc
+    if not isinstance(raw, Mapping):
+        raise WorldConfigError(
+            f"world config {str(path)!r} must be a JSON object, got {_kind(raw)}"
+        )
     return parse_config(raw, env, registry=registry, include_extra_models=include_extra_models)
 
 
@@ -226,9 +264,9 @@ def parse_config(
     registry: ModelRegistry = BUILTIN_MODEL_WORLD,
     include_extra_models: bool = False,
 ) -> WorldConfig:
-    """Validate a parsed TOML mapping into a :class:`WorldConfig`. Fail-fast.
+    """Validate a parsed JSON mapping into a :class:`WorldConfig`. Fail-fast.
 
-    INVARIANT: ``registry`` is the base world and the TOML array layers on top of it. Both the
+    INVARIANT: ``registry`` is the base world and the file's array layers on top of it. Both the
     App and the Runner call through here, so their views of the world cannot diverge — the
     property that lets discovery promise exactly what execution accepts.
 
@@ -238,30 +276,48 @@ def parse_config(
     absorb an ambient value: a leftover key can neither 503 discovery nor smuggle
     un-admitted ids into the declared projection.
     """
-    _reject_unsupported_tables(raw)
-    table = raw.get("aigateway")
+    _reject_unsupported_groups(raw)
+    table = raw.get(WORLD_KEY)
     if table is None:
         return WorldConfig()
     if not isinstance(table, Mapping):
-        raise WorldConfigError(f"[aigateway] must be a table, got {table!r}")
+        raise WorldConfigError(f"{WORLD_KEY!r} must be an object, got {_kind(table)}")
     return WorldConfig(
         aigateway=_parse_aigateway(table, env, registry, include_extra_models=include_extra_models)
     )
 
 
-def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
-    declared = set(map(str, raw))
-    reserved = sorted(declared & _RESERVED_TABLES)
-    if reserved:
+def _reject_unsupported_groups(raw: Mapping[str, object]) -> None:
+    """Fail on a group this engine's catalog does not declare."""
+    declared = set(map(str, raw)) - _STRUCTURAL_KEYS
+    misplaced = sorted(declared & _SERVE_GROUPS)
+    if misplaced:
         raise WorldConfigError(
-            f"{reserved} is reserved in the world config format but not supported yet — "
-            "remove it, or land the endpoint kind that reads it"
+            f"{misplaced} belongs to `url4 serve`, not the engine — this url4.json is an "
+            f"instance of engine-node.schema.json, which does not declare it"
         )
-    unknown = sorted(declared - _TOP_LEVEL_KEYS - _RESERVED_TABLES)
+    unknown = sorted(declared - _TOP_LEVEL_KEYS)
     if unknown:
         raise WorldConfigError(
-            f"unknown top-level table(s) {unknown} (expected {sorted(_TOP_LEVEL_KEYS)})"
+            f"unknown top-level group(s) {unknown} (expected {sorted(_TOP_LEVEL_KEYS)})"
         )
+
+
+def _kind(value: object) -> str:
+    """The JSON name for a value's type, so errors speak the file's language."""
+    for kind, types in _JSON_KINDS:
+        if isinstance(value, types):
+            return kind
+    return "null" if value is None else type(value).__name__
+
+
+_JSON_KINDS: tuple[tuple[str, type | tuple[type, ...]], ...] = (
+    ("boolean", bool),
+    ("string", str),
+    ("number", (int, float)),
+    ("object", Mapping),
+    ("array", list),
+)
 
 
 def _parse_aigateway(
@@ -271,10 +327,10 @@ def _parse_aigateway(
     *,
     include_extra_models: bool = False,
 ) -> AigatewaySection:
-    unknown = sorted(set(map(str, table)) - _AIGATEWAY_KEYS)
+    unknown = sorted(set(map(str, table)) - _WORLD_KEYS)
     if unknown:
         raise WorldConfigError(
-            f"[aigateway] has unknown key(s) {unknown} (expected {sorted(_AIGATEWAY_KEYS)})"
+            f"{WORLD_KEY!r} has unknown key(s) {unknown} (expected {sorted(_WORLD_KEYS)})"
         )
     models = _merge(registry, _declared_models(table.get("models")))
     section = AigatewaySection(
@@ -379,7 +435,7 @@ def _require_declared(default_model: str, models: tuple[ModelSpec, ...]) -> None
 
 
 def _declared_models(value: object) -> tuple[ModelSpec, ...]:
-    """The `[[aigateway.models]]` array — OPTIONAL, because the registry is the base world.
+    """The `world.models` array — OPTIONAL, because the registry is the base world.
 
     WHY it stayed after OME-859 moved the list into code: ollama discovers its models at run
     time and two provider seed lists are env-overridable
@@ -389,13 +445,13 @@ def _declared_models(value: object) -> tuple[ModelSpec, ...]:
     if value is None:
         return ()
     if not isinstance(value, list):
-        raise WorldConfigError(f"[aigateway] models must be a list, got {value!r}")
+        raise WorldConfigError(f"world.models must be an array, got {_kind(value)}")
     models: list[ModelSpec] = []
     seen: set[str] = set()
     for entry in value:
         spec = _model_spec(entry)
         if spec.id in seen:
-            raise WorldConfigError(f"[aigateway] declares duplicate model id {spec.id!r}")
+            raise WorldConfigError(f"world.models declares duplicate model id {spec.id!r}")
         seen.add(spec.id)
         models.append(spec)
     return tuple(models)
@@ -431,14 +487,14 @@ def _merge(registry: ModelRegistry, declared: tuple[ModelSpec, ...]) -> tuple[Mo
         merged[spec.id] = spec
     if not merged:
         raise WorldConfigError(
-            "[aigateway] must declare at least one model — neither the built-in world nor "
-            "[[aigateway.models]] names one, and a world with no routes can serve nothing"
+            "world must declare at least one model — neither the built-in world nor "
+            "world.models names one, and a world with no routes can serve nothing"
         )
     return tuple(merged.values())
 
 
 def _model_spec(entry: object) -> ModelSpec:
-    """One `[[aigateway.models]]` entry — a table, or a bare id string as shorthand.
+    """One `world.models` entry — a table, or a bare id string as shorthand.
 
     The string form is exactly ``{ id = "<it>" }``. It stays supported because "declare a
     plain route" should not require a table, and because both spellings take `web_search`'s
@@ -449,7 +505,7 @@ def _model_spec(entry: object) -> ModelSpec:
     if isinstance(entry, str):
         return ModelSpec(id=_model_id(entry))
     raise WorldConfigError(
-        f"[aigateway] model entry must be a table or an id string, got {entry!r}"
+        f"world.models entry must be an object or an id string, got {_kind(entry)}"
     )
 
 
@@ -457,20 +513,20 @@ def _model_table(table: Mapping[str, object]) -> ModelSpec:
     unknown = sorted(set(map(str, table)) - _MODEL_KEYS)
     if unknown:
         raise WorldConfigError(
-            f"[[aigateway.models]] has unknown key(s) {unknown} (expected {sorted(_MODEL_KEYS)})"
+            f"world.models entry has unknown key(s) {unknown} (expected {sorted(_MODEL_KEYS)})"
         )
     raw_id = table.get("id")
     if raw_id is None:
-        raise WorldConfigError("[[aigateway.models]] entry is missing its `id`")
+        raise WorldConfigError("world.models entry is missing its `id`")
     value = table.get("web_search", True)
     if not isinstance(value, bool):
-        raise WorldConfigError(f"[[aigateway.models]] web_search must be a boolean, got {value!r}")
+        raise WorldConfigError(f"world.models web_search must be a boolean, got {value!r}")
     return ModelSpec(id=_model_id(str(raw_id)), web_search=value)
 
 
 def _model_id(model: str) -> str:
     if not model:
-        raise WorldConfigError("[aigateway] declares an empty model id")
+        raise WorldConfigError("world.models declares an empty model id")
     if model.startswith("/"):
         raise WorldConfigError(
             f"model id {model!r} must not start with '/' — the route path is derived as '/' + id"
@@ -498,7 +554,7 @@ def _bool(table: Mapping[str, object], key: str, *, default: bool) -> bool:
     if value is None:
         return default
     if not isinstance(value, bool):
-        raise WorldConfigError(f"[aigateway] {key} must be a boolean, got {value!r}")
+        raise WorldConfigError(f"world.{key} must be a boolean, got {_kind(value)}")
     return value
 
 
@@ -509,13 +565,13 @@ def _float(table: Mapping[str, object], key: str, default: float) -> float:
     try:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
-        raise WorldConfigError(f"[aigateway] {key} must be a number, got {value!r}") from None
+        raise WorldConfigError(f"world.{key} must be a number, got {_kind(value)}") from None
 
 
 def _positive_int(table: Mapping[str, object], key: str, default: int) -> int:
     value = table.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise WorldConfigError(f"[aigateway] {key} must be a positive integer, got {value!r}")
+        raise WorldConfigError(f"world.{key} must be a positive integer, got {value!r}")
     return value
 
 

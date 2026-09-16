@@ -36,7 +36,7 @@ def test_the_shipped_world_totals_match_the_audited_gap() -> None:
 
 
 def test_the_default_route_is_routable() -> None:
-    # INVARIANT: url4.toml's default_route must resolve. OME-795 shipped a default_route that no
+    # INVARIANT: url4.json's default_route must resolve. OME-795 shipped a default_route that no
     # declared model matched; it failed inside a user's expression, not at boot.
     assert "anthropic/claude-haiku-4-5" in BUILTIN_MODEL_WORLD.routable
 
@@ -50,7 +50,7 @@ def test_the_pinned_benchmark_judges_are_routable() -> None:
 
 def test_every_huggingface_id_is_aigateway_only() -> None:
     # WHY: every HF router id pins a `:<provider>` backend, so all 24 are colon-blocked. The
-    # url4.toml footer used to claim HF was "undeclarable by construction" because it built its
+    # url4.json footer used to claim HF was "undeclarable by construction" because it built its
     # list at runtime — PR #583 gave it 24 compiled seeds, so the colon is the only reason now.
     hf = {i for i in BUILTIN_MODEL_WORLD.all_ids if i.startswith("huggingface/")}
 

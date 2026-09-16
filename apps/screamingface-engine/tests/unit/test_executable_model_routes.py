@@ -1,4 +1,10 @@
-"""Declared model ids must be valid URL4 expression paths before the world starts."""
+"""Declared model ids must be valid URL4 expression paths before the world starts.
+
+PORTED FROM url4.json (OME-1183). `_config`'s dict fixture only needed the `aigateway` -> `world`
+key rename. The one test that read the real repo file (`apps/screamingface-engine/url4.json`,
+via `job_env.RUNNER_CONFIG`) now points at this directory's `url4.json` instead — in the real
+migration this would point at the renamed repo file.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +24,7 @@ from screamingface_engine.world_config import (
 
 def _config(model: str) -> dict[str, object]:
     return {
-        "aigateway": {
+        "world": {
             "default_route": model,
             "models": [{"id": model}],
         }
@@ -42,7 +48,7 @@ def test_expression_path_compatible_model_id_remains_declared() -> None:
 
 
 def test_control_plane_and_runner_read_the_same_declared_ids() -> None:
-    config_path = Path(__file__).resolve().parents[2] / "url4.toml"
+    config_path = Path(__file__).resolve().parents[2] / "url4.json"
     env = {job_env.RUNNER_CONFIG: str(config_path)}
 
     section = load_config(env).aigateway

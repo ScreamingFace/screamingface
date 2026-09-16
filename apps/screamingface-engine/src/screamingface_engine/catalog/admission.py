@@ -5,7 +5,7 @@ frozen at boot; this module is the mutable overlay beside it, plus the shape
 gate and the answer type for the gateway's `POST /v1/models/admit`.
 
 Think of the overlay as a guest-list annex: the printed list (compiled seeds +
-url4.toml) never changes, but the doorman may pencil in a name the gateway has
+url4.json) never changes, but the doorman may pencil in a name the gateway has
 vouched for — in memory only, so a restart starts from the printed list again
 and a saved notebook simply re-admits at its next lookup.
 

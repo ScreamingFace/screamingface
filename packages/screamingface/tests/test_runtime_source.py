@@ -26,7 +26,7 @@ _MARKERS = (
     "apps/aigateway/src/aigateway/__init__.py",
     "apps/scoreboard/src/scoreboard/__init__.py",
     "apps/screamingface-engine/src/screamingface_engine/__init__.py",
-    "apps/screamingface-engine/url4.toml",
+    "apps/screamingface-engine/url4.json",
     "packages/url4/src/url4/__init__.py",
 )
 

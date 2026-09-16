@@ -94,23 +94,34 @@ def _warn_if_insecure(settings: Settings) -> None:
         )
 
 
-def _with_runner_config(env: Mapping[str, str]) -> Mapping[str, str]:
-    """Point an unconfigured local run at the repo's own ``url4.toml``.
+CHECKOUT_CONFIG_NAME = "url4.json"
+"""The checkout's own node file.
 
-    The declared world is baked into the IMAGE at ``/etc/url4/url4.toml`` (the Dockerfile copies
+Named once because three places must agree on it: the Dockerfile that bakes it to
+`world_config.DEFAULT_CONFIG_PATH`, the wheel resource lookup in
+`screamingface._runtime.config`, and this fallback. Two of those fail SILENTLY on a
+mismatch — the wheel simply ships no runner config, and checkout detection quietly
+reports installed mode.
+"""
+
+
+def _with_runner_config(env: Mapping[str, str]) -> Mapping[str, str]:
+    """Point an unconfigured local run at the repo's own ``url4.json``.
+
+    The declared world is baked into the IMAGE at ``/etc/url4/url4.json`` (the Dockerfile copies
     it there) and is not installed by the wheel — so in a dev checkout that path does not exist
     and every local run would terminate as ``failed`` with a missing-config error before it could
-    reach a model. Falling back to the checkout's own ``url4.toml``, which sits two levels above
+    reach a model. Falling back to the checkout's own ``url4.json``, which sits two levels above
     this package, is what makes `--local` usable straight out of a clone.
 
     Deliberately narrow: an explicit ``URL4_RUNNER_CONFIG`` always wins, and so does a real
-    ``/etc/url4/url4.toml`` — this only fills a gap that exists nowhere but a source checkout.
+    ``/etc/url4/url4.json`` — this only fills a gap that exists nowhere but a source checkout.
     """
     from screamingface_engine.world_config import DEFAULT_CONFIG_PATH
 
     if job_env.RUNNER_CONFIG in env or Path(DEFAULT_CONFIG_PATH).is_file():
         return env
-    candidate = Path(__file__).resolve().parents[2] / "url4.toml"
+    candidate = Path(__file__).resolve().parents[2] / CHECKOUT_CONFIG_NAME
     if not candidate.is_file():
         return env
     _logger.info("local mode: using the checkout's runner config at %s", candidate)

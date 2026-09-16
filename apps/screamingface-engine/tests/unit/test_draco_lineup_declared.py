@@ -13,8 +13,11 @@ INVARIANT: the lineup below is a HAND-COPY of
 `screamingface-benchmarks/benchmarks_config/draco.yaml`, and it duplicates that file ON PURPOSE.
 The two repos are not built together and this one cannot import the other, so a shared source is
 not available; the point of the copy is to FAIL when the lineup changes, which is exactly when a
-human needs to re-check both sides. A test that derived the list from url4.toml would assert
+human needs to re-check both sides. A test that derived the list from url4.json would assert
 nothing.
+
+PORTED FROM url4.json (OME-1183): the file it reads is JSON now; every assertion is
+unchanged.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ import pytest
 from screamingface_engine import job_env
 from screamingface_engine.world_config import ModelSpec, load_config
 
-_RUNNER_CONFIG = Path(__file__).resolve().parents[2] / "url4.toml"
+_RUNNER_CONFIG = Path(__file__).resolve().parents[2] / "url4.json"
 
 _GATEWAY_PREFIX = "openrouter/"
 """DRACO runs every model through OpenRouter (`draco.yaml`: "calls go through OpenRouter,
@@ -60,7 +63,7 @@ def _routes() -> dict[str, ModelSpec]:
 def test_every_lineup_model_has_a_declared_route(slug: str) -> None:
     declared = _routes()
     assert _GATEWAY_PREFIX + slug in declared, (
-        f"DRACO's lineup names {slug!r} but url4.toml declares no route for it. Routing is "
+        f"DRACO's lineup names {slug!r} but url4.json declares no route for it. Routing is "
         "exact-match, so every configuration using this model fails to resolve. Declare it here "
         "AND seed it in aigateway's `_default_model_slugs()` — "
         "`test_declared_models_match_aigateway.py` enforces the pair."

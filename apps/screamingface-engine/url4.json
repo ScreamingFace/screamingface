@@ -1,0 +1,10 @@
+{
+  "$schema": "./engine-node.schema.json",
+  "world": {
+    "base_url": "http://127.0.0.1:9105",
+    "default_route": "/anthropic/claude-haiku-4-5",
+    "timeout_s": 600.0,
+    "web_tool_max_iterations": 12,
+    "allow_outbound": true
+  }
+}

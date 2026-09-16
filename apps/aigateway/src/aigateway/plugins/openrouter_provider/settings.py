@@ -92,7 +92,7 @@ def _default_model_slugs() -> list[str]:
         "openrouter/anthropic/claude-opus-4.8",
         # AIDEV-NOTE: the DRACO benchmark judge. arXiv:2602.11685 §4.2 PINS it, and the
         # benchmarks repo warns that a different judge materially changes the scores — so it is
-        # seeded here rather than left to a deployment. `apps/screamingface-engine/url4.toml`
+        # seeded here rather than left to a deployment. `apps/screamingface-engine/url4.json`
         # declares the matching route; `test_declared_models_match_aigateway.py` fails if the
         # two drift.
         "openrouter/google/gemini-3.1-pro-preview",
@@ -108,7 +108,7 @@ def _default_model_slugs() -> list[str]:
         # OME-816: frontier + budget lineup from the Aug-2026 catalogs (OpenRouter 50 / OpenAI 15
         # / Anthropic-on-OpenRouter). Each was present in the live openrouter.ai/api/v1/models
         # catalog on 2026-08-13; re-check at release (D8 validation is syntactic only). The
-        # `:variant` slugs (`:batch`, `:free`) are aigateway-only — url4.toml cannot route a colon.
+        # `:variant` slugs (`:batch`, `:free`) are aigateway-only — url4.json cannot route a colon.
         "openrouter/anthropic/claude-opus-5",
         "openrouter/x-ai/grok-4.6",
         "openrouter/openai/gpt-5.6-sol",

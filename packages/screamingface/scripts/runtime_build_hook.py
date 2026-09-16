@@ -36,9 +36,9 @@ class CustomBuildHook(BuildHookInterface):
                 "screamingface-engine/src/screamingface_engine",
             ),
             (
-                apps / "screamingface-engine" / "url4.toml",
-                "screamingface/_runtime/resources/url4.toml",
-                "screamingface-engine/url4.toml",
+                apps / "screamingface-engine" / "url4.json",
+                "screamingface/_runtime/resources/url4.json",
+                "screamingface-engine/url4.json",
             ),
             (url4, "url4", "url4/src/url4"),
         )

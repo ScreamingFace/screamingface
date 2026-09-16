@@ -1,5 +1,11 @@
 """One declared flag, a derived mechanism.
 
+PORTED FROM url4.json (OME-1183). `_parse_models` used to build a TOML `models = [...]` text
+snippet and hand it to `tomllib.loads`; it now takes the `world.models` value directly as a
+Python list, per `_with()`/`_world()` in `test_runner_config_ported.py`. `_RUNNER_CONFIG` used
+to point at the real repo's `apps/screamingface-engine/url4.json`; it now points at this
+directory's `url4.json` (the migration's stand-in for the renamed repo file).
+
 FEATURE: web search on a model route.
 STORY: as an operator, I declare THAT a route may search, and the Engine decides HOW —
 so I never have to know which provider carries a native search envelope.
@@ -7,7 +13,6 @@ so I never have to know which provider carries a native search envelope.
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -23,18 +28,17 @@ from screamingface_engine.world_config import (
     provider_of,
 )
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_RUNNER_CONFIG = _REPO_ROOT / "apps/screamingface-engine/url4.toml"
+_RUNNER_CONFIG = Path(__file__).resolve().parents[2] / "url4.json"
 
 
-def _parse_models(models_toml: str) -> tuple[ModelSpec, ...]:
+def _parse_models(models: list) -> tuple[ModelSpec, ...]:
     """Parse a `models` list, pointing `default_route` at its first entry so it stays declared."""
-    first = tomllib.loads(f"models = {models_toml}")["models"][0]
+    first = models[0]
     default_id = first if isinstance(first, str) else first["id"]
-    text = f'[aigateway]\ndefault_route = "/{default_id}"\nmodels = {models_toml}\n'
+    doc = {"world": {"default_route": f"/{default_id}", "models": models}}
     # OME-859: EMPTY_MODEL_WORLD so this helper still returns exactly the routes its argument
     # declares. The production default adds the 88 compiled ids.
-    section = parse_config(tomllib.loads(text), {}, registry=EMPTY_MODEL_WORLD).aigateway
+    section = parse_config(doc, {}, registry=EMPTY_MODEL_WORLD).aigateway
     assert section is not None
     return section.models
 
@@ -113,18 +117,18 @@ def test_mechanisms_partition_the_flag(model_id: str, web_search: bool) -> None:
 
 
 def test_web_search_defaults_to_true() -> None:
-    assert _parse_models('["codex/gpt-5.5"]')[0] == ModelSpec(id="codex/gpt-5.5")
-    assert _parse_models('["codex/gpt-5.5"]')[0].web_search is True
+    assert _parse_models(["codex/gpt-5.5"])[0] == ModelSpec(id="codex/gpt-5.5")
+    assert _parse_models(["codex/gpt-5.5"])[0].web_search is True
 
 
 def test_a_route_may_opt_out() -> None:
-    (spec,) = _parse_models('[{ id = "codex/gpt-5.5", web_search = false }]')
+    (spec,) = _parse_models([{"id": "codex/gpt-5.5", "web_search": False}])
     assert spec.web_search is False
 
 
 def test_web_search_must_be_a_boolean() -> None:
     with pytest.raises(WorldConfigError, match="web_search must be a boolean"):
-        _parse_models('[{ id = "a", web_search = "yes" }]')
+        _parse_models([{"id": "a", "web_search": "yes"}])
 
 
 # --- reachability of the shipped config -------------------------------------------------

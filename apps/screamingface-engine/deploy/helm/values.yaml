@@ -129,8 +129,8 @@ config:
   # note on `RunQueue.pull`. Changing it re-binds the durable consumers, so treat it as a
   # cutover-sized change rather than a live tuning knob.
   runQueueBucketCount: 16
-  # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
-  # image's own default. Must be one of the models that url4.toml declares.
+  # Overrides the default model route declared in the Runner image's url4.json. Empty => the
+  # image's own default. Must be one of the models that url4.json declares.
   aigatewayModel: ""
   # Where the worker's children reach aigateway. Empty = forward nothing, and the Runner falls
   # back to loopback (127.0.0.1:9105) — which inside a worker pod is that pod itself, so any

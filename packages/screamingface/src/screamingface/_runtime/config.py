@@ -66,11 +66,11 @@ class RuntimeConfig:
 def bundled_runner_config() -> Path:
     from importlib.resources import files
 
-    resource = files("screamingface._runtime.resources").joinpath("url4.toml")
+    resource = files("screamingface._runtime.resources").joinpath("url4.json")
     path = Path(str(resource)).resolve()
     if path.is_file():
         return path
-    checkout = Path(__file__).resolve().parents[5] / "apps" / "screamingface-engine" / "url4.toml"
+    checkout = Path(__file__).resolve().parents[5] / "apps" / "screamingface-engine" / "url4.json"
     if checkout.is_file():
         return checkout
     raise FileNotFoundError(f"bundled URL4 runner config not found: {path}")

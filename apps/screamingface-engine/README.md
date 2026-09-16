@@ -134,15 +134,15 @@ What differs from a deployed App — and nothing else does:
 Runs still require an attached WebSocket subscriber first — the `428` gate is protocol discipline
 and local mode keeps it rather than relaxing it for `curl`.
 
-The declared world (`url4.toml`) is baked into the image at `/etc/url4/url4.toml` and is **not**
-installed by the wheel, so in a checkout local mode falls back to the checkout's `url4.toml`. Set
+The declared world (`url4.json`) is baked into the image at `/etc/url4/url4.json` and is **not**
+installed by the wheel, so in a checkout local mode falls back to the checkout's `url4.json`. Set
 `URL4_RUNNER_CONFIG` to override. Tuning: `URL4_CLOUD_LOCAL_MAX_CONCURRENT_RUNS`,
 `URL4_CLOUD_LOCAL_STREAM_MAX_FRAMES`, `URL4_CLOUD_LOCAL_MAX_RUN_HISTORY`.
 
 ## Model catalog — `GET /v1/models`
 
 Discover which models an expression can address: aigateway's own `/v1/models` for this caller,
-**intersected with the model routes this Engine declares** in `url4.toml`, served from a
+**intersected with the model routes this Engine declares** in `url4.json`, served from a
 per-caller cache. Every id it returns is a route the Runner can actually execute — a model
 aigateway could serve directly but the Engine has not declared is omitted rather than advertised
 and then failing at render time. Retained model documents are aigateway's, unchanged.
@@ -166,7 +166,7 @@ caller's identity and aigateway decides, including whether an absent identity is
 - **Enabled by `URL4_CLOUD_AIGATEWAY_BASE_URL`** — the same value the chart already sets as
   `config.aigatewayBaseUrl`. Unset ⇒ the endpoint answers `503`; everything else is a code default
   (see the `models_cache_*` fields in `config.py`).
-- **Also needs a readable declared world.** With a base URL set, the App reads `url4.toml` at boot
+- **Also needs a readable declared world.** With a base URL set, the App reads `url4.json` at boot
   (the same file the Runner uses — see above; baked into the image, `URL4_RUNNER_CONFIG` overrides
   the path). If it is missing or invalid, both catalog routes answer `503` and an `ERROR` is
   logged naming the cause; runs, streaming and health are unaffected. Discovery never guesses,
@@ -203,7 +203,7 @@ Operator notes that bound the design:
   ships here shapes arrivals, which already interleaves two equal runs near 50/50 at the queue.
 - `AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES` on the gateway can raise a specific provider's
   ceiling — bounded by the upstream account's real limits, which the cap exists to protect.
-- `timeout_s` in `url4.toml` must stay comfortably above the worst fair-share queue wait: two
+- `timeout_s` in `url4.json` must stay comfortably above the worst fair-share queue wait: two
   16-wide runs against 4 slots at ~30 s/call means a call can wait ~4 minutes, so the deployed
   600 s default is right and a lower one converts fairness into timeouts.
 - Runner Jobs must be able to co-schedule (see `runner.resources` in the chart): if the cluster

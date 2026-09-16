@@ -264,7 +264,7 @@ NATS_URL = "URL4_CLOUD_NATS_URL"
 AIGATEWAY_BASE_URL = "AIGATEWAY_BASE_URL"
 
 AIGATEWAY_MODEL = "AIGATEWAY_MODEL"
-"""Overrides the default route declared in the image's `url4.toml` (`config.aigatewayModel`)."""
+"""Overrides the default route declared in the image's `url4.json` (`config.aigatewayModel`)."""
 
 TAVILY_API_KEY = "TAVILY_API_KEY"
 """Injected from the Tavily Secret by `envFrom`, so the Secret's KEY must be this exact name.

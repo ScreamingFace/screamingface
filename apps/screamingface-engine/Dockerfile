@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 # Now the app source (siblings above are already in place).
 COPY apps/screamingface-engine/src ./src
-COPY apps/screamingface-engine/url4.toml ./url4.toml
+COPY apps/screamingface-engine/url4.json ./url4.json
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
@@ -60,7 +60,7 @@ COPY --from=builder --chown=1000:1000 /app/apps/screamingface-engine /app/apps/s
 # DEFAULT_CONFIG_PATH). Endpoints are declared here, never discovered from the gateway catalog —
 # the image decides what CAN exist. URL4_RUNNER_CONFIG overrides the path; a read-only rootfs is
 # fine, it is read once per process at boot.
-COPY --from=builder --chown=1000:1000 /app/apps/screamingface-engine/url4.toml /etc/url4/url4.toml
+COPY --from=builder --chown=1000:1000 /app/apps/screamingface-engine/url4.json /etc/url4/url4.json
 ENV PATH="/app/apps/screamingface-engine/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1

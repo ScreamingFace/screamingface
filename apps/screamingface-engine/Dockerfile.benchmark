@@ -80,7 +80,7 @@ USER 0
 # handed the thing it is being kept blind to.
 COPY --from=prepare --chown=1000:1000 /opt/benchmarks /opt/benchmarks
 # The Benchmark definition installs its own namespaced routes. This one root points those routes
-# at the immutable assets baked into this image; the shared url4.toml remains model-only.
+# at the immutable assets baked into this image; the shared url4.json remains model-only.
 ENV URL4_BENCHMARK_ASSETS=/opt/benchmarks
 USER 1000
 # Unchanged from the base: `url4-cloud` (serve) by default, `["url4-cloud","run"]` for a Job.
