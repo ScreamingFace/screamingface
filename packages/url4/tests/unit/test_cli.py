@@ -1,4 +1,6 @@
-"""The `url4` CLI entry point (url4.cli).
+"""PORTED to url4.json (OME-1183). See test_serve_config_ported.py for the rules.
+
+The `url4` CLI entry point (url4.cli).
 
 STORY: `url4 --version` and `url4 eval` work on the base install (no serving extra);
 `url4 serve` resolves a commands-only config, warns on risky exposure, and hands the
@@ -12,6 +14,7 @@ so the tests must not run inside one.
 from __future__ import annotations
 
 import io
+import json
 
 import pytest
 
@@ -19,9 +22,15 @@ import url4.cli.app as cli
 from url4 import __version__
 
 
-def _commands_toml(tmp_path, body: str = '[commands]\n"/py" = "python3 -"\n') -> str:
-    config_file = tmp_path / "url4.toml"
-    config_file.write_text(body, encoding="utf-8")
+def _commands_file(tmp_path, body: dict | None = None) -> str:
+    """Write a minimal valid url4.json and return its path.
+
+    PORTED (OME-1183): the default body's argv is an ARRAY -- the TOML spelling
+    "python3 -" went through shlex.split and no longer parses.
+    """
+    payload = body if body is not None else {"routes": {"commands": {"/py": ["python3", "-"]}}}
+    config_file = tmp_path / "url4.json"
+    config_file.write_text(json.dumps(payload), encoding="utf-8")
     return str(config_file)
 
 
@@ -70,7 +79,7 @@ def test_serve_wires_app_and_calls_uvicorn(monkeypatch, tmp_path, capsys) -> Non
         return 0
 
     monkeypatch.setattr(cli, "_serve_forever", fake_forever)
-    config = _commands_toml(tmp_path)
+    config = _commands_file(tmp_path)
     assert cli.main(["serve", "--port", "5001", "--config", config]) == 0
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 5001
@@ -81,20 +90,20 @@ def test_serve_wires_app_and_calls_uvicorn(monkeypatch, tmp_path, capsys) -> Non
 def test_serve_without_commands_is_usage_error(tmp_path, monkeypatch, capsys) -> None:
     # The aigateway connector is gone — zero-config serve has no backends and
     # must fail fast with an actionable message, not bind a useless node.
-    monkeypatch.chdir(tmp_path)  # isolate from any ambient ./url4.toml
+    monkeypatch.chdir(tmp_path)  # isolate from any ambient ./url4.json
     monkeypatch.delenv("URL4_CONFIG", raising=False)
     assert cli.main(["serve"]) == 2
     assert "requires at least one" in capsys.readouterr().err
 
 
 def test_serve_undeclared_default_route_is_usage_error(tmp_path, capsys) -> None:
-    config = _commands_toml(tmp_path)
+    config = _commands_file(tmp_path)
     assert cli.main(["serve", "--default-route", "/absent", "--config", config]) == 2
     assert "not a declared command route" in capsys.readouterr().err
 
 
 def test_serve_removed_connector_flags_are_rejected(tmp_path) -> None:
-    config = _commands_toml(tmp_path)
+    config = _commands_file(tmp_path)
     for flag in (
         ["--route", "/x=m"],
         ["--backend-url", "http://gw"],
@@ -108,7 +117,7 @@ def test_serve_removed_connector_flags_are_rejected(tmp_path) -> None:
 
 def test_serve_warns_on_non_loopback_bind_with_commands(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr(cli, "_serve_forever", lambda _app, _host, _port: 0)
-    config = _commands_toml(tmp_path)
+    config = _commands_file(tmp_path)
     assert cli.main(["serve", "--host", "0.0.0.0", "--config", config]) == 0
     err = capsys.readouterr().err
     assert "WARNING binding non-loopback" in err

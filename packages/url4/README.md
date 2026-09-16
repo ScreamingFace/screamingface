@@ -70,23 +70,31 @@ GET, and any leaf can be a local command. The `url4` console script runs the eng
 HTTP node (`url4 serve`) or evaluates an expression locally (`url4 eval`): `serve` needs the
 `url4[server]` extra above.
 
-### Configure: `url4.toml`
+### Configure: `url4.json`
 
-One file declares the node's whole surface: what it can **do** (`[commands]`) and what it can
-**read** (`[data]`, `[holdings]`, `[identities]`).
+One file declares the node's whole surface: what it can **do** (`routes.commands`) and what it
+can **read** (`reads.data`, `reads.holdings`, `reads.identities`).
 
-```toml
-# url4.toml
-host = "127.0.0.1"
-port = 4404
-eval_path = "/v1"          # GET-only eval endpoint
-default_route = "/model"   # reduce route for fan-out; defaults to first command
-
-[commands]
-"/upper" = ["tr", "a-z", "A-Z"]
-"/bash"  = "bash -lc {intent}"   # arbitrary local exec, 127.0.0.1 only
-"/model" = "python gateway.py --temp {param:temperature}"   # your own LLM backend
+```json
+{
+  "server": { "host": "127.0.0.1", "port": 4404, "eval_path": "/v1" },
+  "routes": {
+    "default_route": "/model",
+    "commands": {
+      "/upper": ["tr", "a-z", "A-Z"],
+      "/bash":  ["bash", "-lc", "{intent}"],
+      "/model": ["python", "gateway.py", "--temp", "{param:temperature}"]
+    }
+  }
+}
 ```
+
+`server.eval_path` is the GET-only eval endpoint. `routes.default_route` is the reduce route
+for fan-out; unset, it is the first declared command.
+
+**An argv is always an array.** There is no string form — a quoted string that splits one way
+in your shell and another in the parser is exactly the ambiguity an array removes. `/bash` above
+is arbitrary local exec: bind 127.0.0.1 only.
 
 > **Picking `default_route`.** A fan-out `(a, b)!'pick'` reduces by calling this route with
 > the per-source results **merged into its `{intent}`, and empty stdin**. So a reduce backend
@@ -112,28 +120,38 @@ token-shaped text in a caller's input stays literal: it never expands.
 #### Reads: what the node can see
 
 Without these, a served node has no sources: `(/rubrics/42)` has nothing to resolve against
-and `@` fails. Each entry is an inline string, or a table with **exactly one** of
+and `@` fails. Each entry is an inline string, or an object with **exactly one** of
 `value` / `file` / `command`.
 
-```toml
-[data]                                    # bare relative URIs in an expression
-"/rubrics/42" = "score 1-5 on clarity"
-"/corpus"     = { file = "corpus.md" }    # re-read per request, edit with no restart
-"/rows"       = { command = ["./rows.sh"], media_type = "application/json" }
-
-[holdings]                                # `@`, this node's own holdings
-default = "my working notes"              # the unqualified shelf
-science = { file = "shelves/science.md" }
-
-[identities.emily]                        # `@emily` / `@emily/notes`
-default = "Emily's default holdings"
-notes   = { file = "emily/notes.md" }
+```json
+{
+  "reads": {
+    "data": {
+      "/rubrics/42": "score 1-5 on clarity",
+      "/corpus":     { "file": "corpus.md" },
+      "/rows":       { "command": ["./rows.sh"], "media_type": "application/json" }
+    },
+    "holdings": {
+      "default": "my working notes",
+      "science": { "file": "shelves/science.md" }
+    },
+    "identities": {
+      "emily": {
+        "default": "Emily's default holdings",
+        "notes":   { "file": "emily/notes.md" }
+      }
+    }
+  }
+}
 ```
+
+`reads.data` serves bare relative URIs in an expression. `reads.holdings` backs `@`, this
+node's own holdings. `reads.identities.<name>` backs `@emily` / `@emily/notes`.
 
 - A `file` provider is read **per request**, so edits land without a restart.
 - A `command` provider runs your argv (no shell, empty stdin) and uses its stdout;
   `{collection}` substitutes the requested holdings collection.
-- `media_type` works on `[data]` only, and decides how a collection parses: a one-line JSON
+- `media_type` works on `reads.data` only, and decides how a collection parses: a one-line JSON
   array served as `text/plain` would collapse to a single element.
 - The key `default` means the unqualified shelf, so a collection can't be *named* `"default"`.
 
@@ -154,7 +172,7 @@ this, declaring a command or data route under it is a config error.
 ### Run
 
 ```bash
-uv run --extra server url4 serve --config url4.toml
+uv run --extra server url4 serve --config url4.json
 ```
 
 Flags override env vars (`URL4_HOST`, `URL4_PORT`, `URL4_DEFAULT_ROUTE`, `URL4_EVAL_PATH`,

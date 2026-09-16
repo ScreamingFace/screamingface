@@ -37,7 +37,7 @@ def _req(context: str = "the data", intent: str = "do it") -> Request:
 
 
 async def test_default_still_pipes_the_context() -> None:
-    """INVARIANT: unchanged for every existing caller and every existing url4.toml.
+    """INVARIANT: unchanged for every existing caller and every existing url4.json.
 
     `/read` is `["cat"]` and exists only to echo the piped context; a changed default would
     silently turn that bridge into an intent echo.

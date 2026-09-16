@@ -49,6 +49,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     return _run_serve(args)
 
 
+CONFIG_FILENAME = "url4.json"
+"""The node file `url4 serve` reads when neither --config nor URL4_CONFIG names one."""
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="url4", description="Run or query a url4 node.")
     parser.add_argument("--version", action="version", version=f"url4 {__version__}")
@@ -65,7 +69,7 @@ def _add_serve_parser(sub: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--default-route",
         dest="default_route",
-        help="reduce route (default: first declared [commands] route); must be a declared command",
+        help="reduce route (default: the first routes.commands entry); must be a declared command",
     )
     parser.add_argument("--eval-path", dest="eval_path", help="eval endpoint path (default /v1)")
     parser.add_argument("--concurrency", type=int, help="run-wide I/O cap (default 32)")
@@ -73,7 +77,7 @@ def _add_serve_parser(sub: argparse._SubParsersAction) -> None:
         "--max-inflight", dest="max_inflight", type=int, help="max concurrent evals (default 16)"
     )
     parser.add_argument("--timeout", type=float, help="per-request timeout seconds (default 120)")
-    parser.add_argument("--config", help="url4.toml path (default ./url4.toml if present)")
+    parser.add_argument("--config", help="url4.json path (default ./url4.json if present)")
 
 
 def _add_eval_parser(sub: argparse._SubParsersAction) -> None:
@@ -114,13 +118,39 @@ def _run_serve(args: argparse.Namespace) -> int:
         return 2
     _warn_exposure(config)
     node = _serve.build_node(config)
-    app = _serve.build_asgi_app(node, config)
+    app = _serve.build_asgi_app(node, config, discovery=_build_discovery(config))
     print(
         f"url4 serve: listening on http://{config.host}:{config.port} "
         f"(eval {config.eval_path}?q=…)",
         file=sys.stderr,
     )
     return _serve_forever(app, config.host, config.port)
+
+
+def _build_discovery(config):
+    """The composition root for discovery: the only place the fetcher is built.
+
+    Lives here rather than in `_serve.py` because fetching a mount's documents needs an
+    HTTP client, and `_serve.py` states — and `test_import_isolation` enforces — that it
+    imports none. `HttpIOLayer` is the package's single httpx module, so reusing it keeps
+    that count at one.
+
+    Returns None when nothing is mounted: a node with no mount table has no discovery
+    surface to serve, and answering an empty card would claim otherwise.
+    """
+    if not config.mounts:
+        return None
+    from url4.discovery import Discovery
+    from url4.discovery.resolver import TableResolver
+    from url4.io.http import HttpIOLayer
+
+    origin = f"http://{config.host}:{config.port}"
+    layer = HttpIOLayer(timeout=config.timeout)
+
+    async def fetch(url: str) -> str:
+        return await layer.fetch(url, relative=False)
+
+    return Discovery(origin, TableResolver(config.mounts, fetch, base_url=origin))
 
 
 def _overrides(args: argparse.Namespace) -> dict[str, object]:
@@ -131,7 +161,7 @@ def _config_path(args: argparse.Namespace) -> Path | None:
     explicit = args.config or os.environ.get("URL4_CONFIG")
     if explicit:
         return Path(explicit)
-    default = Path("url4.toml")
+    default = Path(CONFIG_FILENAME)
     return default if default.is_file() else None
 
 

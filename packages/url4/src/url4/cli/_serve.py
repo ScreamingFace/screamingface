@@ -10,9 +10,9 @@ bounded in-flight admission (503), a per-request timeout (504), and graceful
 node shutdown.
 
 Beside the processor routes, the config wires the node's READ-side registries
-(spec §5.4.2 relative data, §5.6 ``@``/``@name`` holdings): ``[data]`` maps a
-path to a plain data read, ``[holdings]`` declares the node's own ``@``
-shelves, and ``[identities.<name>]`` declares principals for ``@name``. All
+(spec §5.4.2 relative data, §5.6 ``@``/``@name`` holdings): ``reads.data`` maps a
+path to a plain data read, ``reads.holdings`` declares the node's own ``@``
+shelves, and ``reads.identities.<name>`` declares principals for ``@name``. All
 three share one provider shape — an inline string, or a table with exactly one
 of ``value`` / ``file`` / ``command`` — so a read backend follows the same
 operator-owned model as a command route (a ``command`` provider IS doctrine N4
@@ -29,11 +29,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import shlex
-import tomllib
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from url4.core.errors import ResolutionError
 
@@ -44,14 +43,44 @@ from url4.core.errors import ResolutionError
 # promised: it is absent from server's __all__, so a tidy-up there would break
 # config validation with no signal.
 from url4.core.grammar import _IDENTITY_NAME_RE
+from url4.discovery import (
+    CAPABILITIES_PATH,
+    CONFIG_PATH,
+    WELL_KNOWN_PATHS,
+    Discovery,
+    Document,
+    MountNotFound,
+    MountSpec,
+    canonical,
+)
+from url4.discovery.carrier import HEADER_PREFIX
+from url4.discovery.problem import PROBLEM_MEDIA_TYPE, config_rejected
+from url4.discovery.request import read_request_config
+from url4.discovery.resolver import read_mount_table
+from url4.discovery.scope import Code, Violation
+from url4.discovery.wellknown import IDENTITY_HEADERS
 from url4.peer.server import Request, Url4Node
 
 _HEALTH_PATH = "/healthz"
-# The TOML spelling of the unqualified shelf (`@` / `@name` with no collection
-# path). TOML has no null key, so this reserved key normalizes to ``None`` at
-# parse time — a collection literally named "default" cannot be declared, which
+# The JSON spelling of the unqualified shelf (`@` / `@name` with no collection
+# path). JSON has no null key either, so this reserved key normalizes to ``None``
+# at parse time — a collection literally named "default" cannot be declared, which
 # mirrors how the node itself treats ``None`` as the fallback shelf.
 _DEFAULT_COLLECTION = "default"
+
+# WHY: TOML let every scalar sit at the file's top level; url4.json is an instance of
+# `url4-node.schema.json`, which groups them. This map IS the migration for scalars --
+# there is no other translation step. A field absent from it is a bug rather than a
+# top-level fallback, so `_pick` raises instead of quietly reading nothing.
+_GROUP: Mapping[str, str] = {
+    "host": "server",
+    "port": "server",
+    "eval_path": "server",
+    "concurrency": "limits",
+    "max_inflight": "limits",
+    "timeout": "limits",
+    "default_route": "routes",
+}
 
 EndpointHandler = Callable[[Request], Awaitable[str]]
 HoldingsHandler = Callable[[str | None], Awaitable[str]]
@@ -82,9 +111,9 @@ class ProviderSpec:
 
 @dataclass(frozen=True, slots=True)
 class ServeConfig:
-    """Everything ``url4 serve`` needs, resolved from flags > env > toml > default.
+    """Everything ``url4 serve`` needs, resolved from flags > env > url4.json > default.
 
-    ``commands`` is the ONLY backend registry: url4.toml ``[commands]`` maps a
+    ``commands`` is the ONLY backend registry: url4.json ``routes.commands`` maps a
     route path to an operator-owned argv template. ``default_route`` names the
     command a fan-out reduce dispatches to; unset, the FIRST declared command
     is used (see :attr:`resolved_default_route`).
@@ -98,12 +127,16 @@ class ServeConfig:
     max_inflight: int = 16
     timeout: float = 120.0
     commands: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
-    # Read-side registries (url4.toml only, like commands — never flags/env).
+    # Read-side registries (url4.json only, like commands — never flags/env).
     # Holdings/identity collection keys are ``None`` for the default shelf
-    # ("default" in TOML, normalized at parse time).
+    # ("default" in the file, normalized at parse time).
     data: Mapping[str, ProviderSpec] = field(default_factory=dict)
     holdings: Mapping[str | None, ProviderSpec] = field(default_factory=dict)
     identities: Mapping[str, Mapping[str | None, ProviderSpec]] = field(default_factory=dict)
+    # The mount table (url4.json `mounts`): public path -> the endpoint served there.
+    # Empty is the ordinary case — a node that mounts nothing still answers the three
+    # `.well-known` documents, announcing zero processors rather than 404ing.
+    mounts: tuple[MountSpec, ...] = ()
 
     def validate(self) -> None:
         """Raise :class:`ConfigError` for any unusable setting, before bind."""
@@ -125,7 +158,7 @@ class ServeConfig:
         # node with zero commands has nothing to dispatch to. Fail fast.
         _require(
             bool(self.commands),
-            "url4 serve requires at least one [commands] route in url4.toml — "
+            "url4 serve requires at least one routes.commands entry in url4.json — "
             "define your backends as commands (e.g. your own gateway script)",
         )
         _require_paths(self.commands, "command")
@@ -152,6 +185,7 @@ class ServeConfig:
             f"routes {shadowed} live under the eval path {self.eval_path!r}, which is "
             f"reserved for self-holdings qualifiers (@ collections) — mount them elsewhere",
         )
+        self._validate_mounts()
         # INVARIANT: identity names must satisfy the node's own registration
         # rule (`Url4Node.identity`) — checking it here keeps the failure a
         # clean pre-bind ConfigError instead of a build-time ValueError.
@@ -176,6 +210,18 @@ class ServeConfig:
                 f"default route {self.default_route!r} is not a declared command "
                 f"route: {sorted(self.commands)}",
             )
+
+    def _validate_mounts(self) -> None:
+        """A mount key is a PUBLIC PATH, so it shares the node's path namespace.
+
+        A clash with a command, a data route or a reserved path would make which one
+        answers depend on dispatch order. Reject it before bind instead.
+        """
+        paths = {mount.path for mount in self.mounts}
+        clashes = sorted(paths & (set(self.commands) | set(self.data)))
+        _require(not clashes, f"mount paths clash with declared routes {clashes}")
+        reserved = sorted(paths & {self.eval_path, _HEALTH_PATH})
+        _require(not reserved, f"mount paths clash with reserved {reserved}")
 
     @property
     def resolved_default_route(self) -> str:
@@ -208,15 +254,15 @@ def _require_argv(commands: Mapping[str, tuple[str, ...]]) -> None:
 
 
 def resolve(
-    overrides: Mapping[str, object], env: Mapping[str, str], toml_path: Path | None
+    overrides: Mapping[str, object], env: Mapping[str, str], config_path: Path | None
 ) -> ServeConfig:
-    """Build a :class:`ServeConfig` — flag > env > url4.toml > default, per field.
+    """Build a :class:`ServeConfig` — flag > env > url4.json > default, per field.
 
     ``overrides`` holds CLI flag values (``None`` == unset). Commands come from
-    url4.toml ``[commands]`` only — argv templates are operator config, not
+    url4.json ``routes.commands`` only — argv templates are operator config, not
     something to squeeze through a flag.
     """
-    toml = _read_toml(toml_path)
+    toml = _read_config(config_path)
     raw_route = _pick("default_route", overrides, env, toml)
     return ServeConfig(
         host=_pick_str("host", overrides, env, toml, "127.0.0.1"),
@@ -226,10 +272,11 @@ def resolve(
         concurrency=_pick_int("concurrency", overrides, env, toml, 32),
         max_inflight=_pick_int("max_inflight", overrides, env, toml, 16),
         timeout=_pick_float("timeout", overrides, env, toml, 120.0),
-        commands=_toml_command_map(toml.get("commands")),
-        data=_toml_data_map(toml.get("data")),
-        holdings=_toml_shelf_map(toml.get("holdings"), "holdings"),
-        identities=_toml_identity_map(toml.get("identities")),
+        commands=_command_map(_section(toml, "routes", "commands")),
+        data=_data_map(_section(toml, "reads", "data")),
+        holdings=_shelf_map(_section(toml, "reads", "holdings"), "reads.holdings"),
+        identities=_identity_map(_section(toml, "reads", "identities")),
+        mounts=read_mount_table(_section(toml, "mounts")),  # type: ignore[arg-type]
     )
 
 
@@ -247,7 +294,41 @@ def _pick(
     from_env = env.get(f"URL4_{name.upper()}")
     if from_env:
         return from_env
-    return toml.get(name)
+    return _grouped(toml, name)
+
+
+def _grouped(config: Mapping, name: str) -> object:
+    """Read one scalar from the group `url4-node.schema.json` puts it in.
+
+    An absent group is an unset field, not an error: a url4.json need not declare
+    ``limits`` at all to run on the defaults.
+    """
+    try:
+        group = _GROUP[name]
+    except KeyError:  # pragma: no cover - a field added without a group is a bug
+        raise ConfigError(f"no group declared for config field {name!r}") from None
+    section = config.get(group)
+    if section is None:
+        return None
+    if not isinstance(section, Mapping):
+        raise ConfigError(f"{group!r} must be an object, got {_kind(section)}")
+    return section.get(name)
+
+
+def _section(config: Mapping, *path: str) -> object:
+    """Read a nested section, e.g. ``_section(cfg, "routes", "commands")``.
+
+    ``None`` when any level is absent; an error when a level is present but is not an
+    object, because that is a malformed file rather than an unset one.
+    """
+    current: object = config
+    for index, key in enumerate(path):
+        if current is None:
+            return None
+        if not isinstance(current, Mapping):
+            raise ConfigError(f"{'.'.join(path[:index]) or 'config'} must be an object")
+        current = current.get(key)
+    return current
 
 
 def _pick_str(name, overrides, env, toml, default: str) -> str:
@@ -275,61 +356,94 @@ def _pick_float(name, overrides, env, toml, default: float) -> float:
         raise ConfigError(f"{name} must be a number, got {value!r}") from None
 
 
-def _read_toml(path: Path | None) -> Mapping[str, object]:
+def _read_config(path: Path | None) -> Mapping[str, object]:
     if path is None:
         return {}
     try:
         with path.open("rb") as handle:
-            return tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+            loaded = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
         raise ConfigError(f"cannot read config {str(path)!r}: {exc}") from exc
+    if not isinstance(loaded, Mapping):
+        raise ConfigError(f"config {str(path)!r} must be a JSON object, got {_kind(loaded)}")
+    return loaded
 
 
-def _toml_command_map(value: object) -> dict[str, tuple[str, ...]]:
+def _command_map(value: object) -> dict[str, tuple[str, ...]]:
     return {str(k): _as_argv(v) for k, v in value.items()} if isinstance(value, Mapping) else {}
 
 
 def _as_argv(value: object) -> tuple[str, ...]:
+    """An argv is an ARRAY of strings. There is no string form.
+
+    TOML accepted a bare string and ``shlex.split`` it. JSON does not: a quoted string
+    that splits one way in the shell and another in ``shlex`` is exactly the ambiguity an
+    argv array exists to remove. The error hands the operator the array to paste, because
+    that is the whole of the fix.
+    """
     if isinstance(value, str):
-        return tuple(shlex.split(value))
-    if isinstance(value, Sequence):
+        import shlex  # local: the error path only, to build the suggestion
+
+        raise ConfigError(
+            f"command must be an array of strings, not a string — "
+            f"write {json.dumps(shlex.split(value))}"
+        )
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         return tuple(str(item) for item in value)
-    raise ConfigError(f"command must be a string or list, got {value!r}")
+    raise ConfigError(f"command must be an array of strings, got {_kind(value)}")
 
 
-def _toml_data_map(value: object) -> dict[str, ProviderSpec]:
+def _kind(value: object) -> str:
+    """The JSON name for a value's type, so errors speak the file's language."""
+    for kind, types in _JSON_KINDS:
+        if isinstance(value, types):
+            return kind
+    return "null" if value is None else type(value).__name__
+
+
+_JSON_KINDS: tuple[tuple[str, type | tuple[type, ...]], ...] = (
+    ("boolean", bool),
+    ("string", str),
+    ("number", (int, float)),
+    ("object", Mapping),
+    ("array", Sequence),
+)
+
+
+def _data_map(value: object) -> dict[str, ProviderSpec]:
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        raise ConfigError(f"[data] must be a table, got {value!r}")
+        raise ConfigError(f"reads.data must be an object, got {_kind(value)}")
     return {
         str(path): _as_provider(spec, f"data route {path!r}", allow_media_type=True)
         for path, spec in value.items()
     }
 
 
-def _toml_shelf_map(value: object, label: str) -> dict[str | None, ProviderSpec]:
+def _shelf_map(value: object, label: str) -> dict[str | None, ProviderSpec]:
     """Parse a collection→provider table, normalizing "default" to ``None``."""
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        raise ConfigError(f"[{label}] must be a table, got {value!r}")
+        raise ConfigError(f"{label} must be an object, got {_kind(value)}")
     shelves: dict[str | None, ProviderSpec] = {}
     for key, spec in value.items():
         collection = str(key)
-        _require(bool(collection), f"[{label}] collection name cannot be empty")
+        _require(bool(collection), f"{label} collection name cannot be empty")
         normalized = None if collection == _DEFAULT_COLLECTION else collection
         shelves[normalized] = _as_provider(spec, f"{label} collection {collection!r}")
     return shelves
 
 
-def _toml_identity_map(value: object) -> dict[str, dict[str | None, ProviderSpec]]:
+def _identity_map(value: object) -> dict[str, dict[str | None, ProviderSpec]]:
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        raise ConfigError(f"[identities] must be a table, got {value!r}")
+        raise ConfigError(f"reads.identities must be an object, got {_kind(value)}")
     return {
-        str(name): _toml_shelf_map(shelves, f"identities.{name}") for name, shelves in value.items()
+        str(name): _shelf_map(shelves, f"reads.identities.{name}")
+        for name, shelves in value.items()
     }
 
 
@@ -338,7 +452,7 @@ def _as_provider(value: object, label: str, *, allow_media_type: bool = False) -
     if isinstance(value, str):
         return ProviderSpec(value=value)
     if not isinstance(value, Mapping):
-        raise ConfigError(f"{label} must be a string or a table, got {value!r}")
+        raise ConfigError(f"{label} must be a string or an object, got {_kind(value)}")
     known = {"value", "file", "command"} | ({"media_type"} if allow_media_type else set())
     unknown = set(map(str, value)) - known
     _require(not unknown, f"{label} has unknown keys {sorted(unknown)} (expected {sorted(known)})")
@@ -571,12 +685,18 @@ def build_node(config: ServeConfig) -> Url4Node:
 AsgiApp = Callable[[Mapping, Callable, Callable], Awaitable[None]]
 
 
-def build_asgi_app(node: Url4Node, config: ServeConfig) -> AsgiApp:
+def build_asgi_app(
+    node: Url4Node, config: ServeConfig, *, discovery: Discovery | None = None
+) -> AsgiApp:
     """Wrap ``node.asgi()`` with admission control, timeout, and shutdown cleanup.
 
     The node owns dispatch and ``Url4Error`` -> HTTP mapping; this wrapper adds only
-    what the node does not: 503 over max-inflight, 504 on per-request timeout, and
-    closing the node on lifespan shutdown.
+    what the node does not: 503 over max-inflight, 504 on per-request timeout, the three
+    ``.well-known`` documents, and closing the node on lifespan shutdown.
+
+    ``discovery`` is INJECTED rather than built here, so this module keeps its
+    no-HTTP-client invariant: composing the documents is pure, fetching each mount is not,
+    and the fetcher lives with the composition root in :mod:`url4.cli.app`.
     """
     base = node.asgi()
     state = {"inflight": 0}
@@ -585,11 +705,154 @@ def build_asgi_app(node: Url4Node, config: ServeConfig) -> AsgiApp:
         if scope["type"] == "lifespan":
             await _lifespan(receive, send, node)
         elif scope["type"] == "http":
+            # Discovery answers BEFORE admission control: these documents are how a client
+            # learns what the node offers, and a node at capacity still has an answer.
+            if discovery is not None and _is_discovery(scope):
+                await _serve_discovery(discovery, scope, send)
+                return
+            # A request carrying config the node cannot apply must NOT reach dispatch:
+            # a 200 would tell the caller their values were honoured when they were
+            # dropped, and they have no way to tell that apart from success.
+            if await _config_refused(discovery, scope, send):
+                return
             await _serve_http(base, scope, receive, send, state, config)
         else:  # pragma: no cover - no websocket surface in v1
             await base(scope, receive, send)
 
     return app
+
+
+async def _config_refused(discovery: Discovery | None, scope: Mapping, send: Callable) -> bool:
+    """Judge any `URL4-Config-*` headers. True when the request was refused.
+
+    Returns False for the ordinary case — no config headers — so a node that nobody sends
+    config to pays one dict scan per request and nothing else.
+
+    A node with no discovery surface still refuses: it has no mount table, so it has no
+    schema to judge against, and answering 200 to values it cannot honour is the exact
+    failure this guards.
+    """
+    headers = scope.get("headers", ())
+    if not any(k.decode("latin-1").lower().startswith(HEADER_PREFIX) for k, _ in headers):
+        return False
+
+    expression = _query_expression(scope)
+    mounts = [] if discovery is None else list(await discovery.mounts_for(_caller(scope)))
+    applied = read_request_config(headers, expression, mounts, instance=scope.get("path"))
+    if not applied.rejected:
+        # INVARIANT: reaching here means the node CAN apply these values. Forwarding them
+        # to the mounted endpoint is the composer's job (OME-1187) and does not exist
+        # yet — so until it does, accepting them would be the same silent lie in reverse.
+        await _send_problem(
+            send,
+            config_rejected(
+                [
+                    Violation(
+                        Code.NOT_SETTABLE,
+                        "",
+                        "these values are yours to set and this node validated them, but "
+                        "it cannot yet FORWARD config to a mounted endpoint — so it will "
+                        "not pretend to have applied them",
+                    )
+                ],
+                instance=scope.get("path"),
+            ),
+            status=501,
+        )
+        return True
+    await _send_problem(send, applied.problem or {}, status=400)
+    return True
+
+
+def _query_expression(scope: Mapping) -> str:
+    """The `q=` expression, which names the routes the config belongs to."""
+    query = scope.get("query_string", b"")
+    text = query.decode("latin-1") if isinstance(query, bytes) else str(query)
+    return parse_qs(text).get("q", [""])[0]
+
+
+async def _send_problem(send: Callable, body: dict, *, status: int) -> None:
+    payload = json.dumps(body).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [(b"content-type", PROBLEM_MEDIA_TYPE.encode())],
+        }
+    )
+    await send({"type": "http.response.body", "body": payload})
+
+
+def _is_discovery(scope: Mapping) -> bool:
+    path = scope.get("path", "")
+    return path in WELL_KNOWN_PATHS or path.startswith(f"{CONFIG_PATH}/")
+
+
+async def _serve_discovery(discovery: Discovery, scope: Mapping, send: Callable) -> None:
+    """Answer one `.well-known` request.
+
+    ``GET``/``HEAD`` only — these are documents, and a write verb gets a 405 rather than a
+    404 so a client learns the path exists.
+    """
+    method = scope.get("method", "GET")
+    path = scope.get("path", "")
+    if method not in ("GET", "HEAD"):
+        await _send_error(send, 405, "method_not_allowed", f"{method} is not allowed here")
+        return
+
+    try:
+        document = await _discovery_document(discovery, path, _caller(scope))
+    except MountNotFound as exc:
+        document = None
+        detail = f"no mount named {exc.args[0]!r}"
+    else:
+        detail = f"{path} is not served by this node"
+
+    if document is None:
+        await _send_error(send, 404, "not_found", detail)
+        return
+
+    headers = [(b"content-type", b"application/schema+json")]
+    headers += [(k.lower().encode(), v.encode()) for k, v in document.headers().items()]
+    not_modified = _if_none_match(scope) == document.etag
+    status = 304 if not_modified else 200
+    body = b"" if not_modified or method == "HEAD" else canonical(document.body)
+    await send({"type": "http.response.start", "status": status, "headers": headers})
+    await send({"type": "http.response.body", "body": body})
+
+
+async def _discovery_document(
+    discovery: Discovery, path: str, caller: str | None
+) -> Document | None:
+    """Which document this path names, or None for a reserved-but-unserved one.
+
+    `POLICY_PATH` lands in that None: it is in the reserved set (so `_is_discovery` claims
+    it, and a client sees a deliberate answer rather than a route that does not exist) but
+    the policy registry belongs to the ENDPOINT, not this node.
+    """
+    if path.startswith(f"{CONFIG_PATH}/"):
+        return await discovery.mount(caller, path[len(CONFIG_PATH) + 1 :])
+    builders = {CAPABILITIES_PATH: discovery.card, CONFIG_PATH: discovery.bundle}
+    build = builders.get(path)
+    return None if build is None else await build(caller)
+
+
+def _caller(scope: Mapping) -> str | None:
+    """The caller's identity, or None when anonymous.
+
+    Read from `IDENTITY_HEADERS` rather than spelling the names again: these are exactly
+    what `Vary` announces, and a cache poisoning bug is what a divergence buys.
+    """
+    headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", ())}
+    present = [value for name in IDENTITY_HEADERS if (value := headers.get(name.lower()))]
+    return "|".join(present) if present else None
+
+
+def _if_none_match(scope: Mapping) -> str | None:
+    for key, value in scope.get("headers", ()):
+        if key.decode().lower() == "if-none-match":
+            return value.decode().strip().removeprefix("W/").strip('"')
+    return None
 
 
 async def _serve_http(base, scope, receive, send, state, config: ServeConfig) -> None:
