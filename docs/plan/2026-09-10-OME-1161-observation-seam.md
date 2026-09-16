@@ -1,39 +1,38 @@
-Update, 2026-09-14: PR 899 merged at dcaba228. PR 915 is rebased onto main; the
-temporary stack is removed. Preferred remaining split: integration, then the complete
-activity plugin. Integration retains the 500-line cap; plugin size is reviewed separately.
+# OME-1161 — Plugin and deployment review split
 
-# OME-1161 — Docs first, then sequential code PRs
+Owner update, 2026-09-15: keep plugin implementation in PR 931 against main and mark it
+ready for review. Stack deployment/integration as a separate draft; rebase that child onto
+main after 931 merges. This supersedes the combined-PR plan, without a 500-line cap.
 
-PR 897 reviews the shared design and delivery plan only. Every subsequent PR starts from
-updated origin/main after its predecessor merges. No stacked PRs. Maximum 500 changed lines
-per PR means additions plus deletions across production code, tests and docs, not net growth.
-Check the final diff against main before opening/pushing; subdivide any unit exceeding the cap.
+## Delivered foundation
 
-## Proposed code units
+PR 897 merged the design, PR 899 the observation ports, and PR 915 generic execution
+integration and the OME-1201 prompt inline-hook contract. No generic core edits are needed.
 
-1. Observation ports/dispatch and unit tests (preserved source/test files total 407 lines).
-2. Connector/executor/run-wrapper/composition hooks and integration tests.
-3. Activity schema and bounded admission, with tests.
-4. Operation scopes and heartbeat lifetime, with tests.
-5. Model-call activity adapter and stream tests; subdivide if over the cap.
-6. Deployment full/off policy and wiring, with tests.
+## PR 931: plugin implementation
 
-These are review boundaries, not a promise to squeeze six units under the cap. Split further
-where the measured diff requires it; never reduce meaningful tests to meet the line budget.
-Each description retains its problem, justification, ownership, evidence and follow-up scope.
+Keep activity schema, safe fields, rolling admission/session, operation lifecycle, observer,
+fixed heartbeats and direct tests. Preserve sink-loss accounting, interruption-safe collective
+timer cleanup and inert disabled callbacks. This PR does not register or enable the plugin.
 
-## Preserved implementation and verification
+## Stacked draft: deployment and integration
 
-Local branches retain ports at `OME-1161-ports-preserved` (f9aa283f), integrated foundation
-at `OME-1161-foundation-preserved` (1344cb62), and complete activity at
-`OME-1161-activity-preserved` (01b3a0f1). All passed Engine gates before preservation.
-Restore only each unit's files/tests and reconcile with merged main; never overwrite previously
-landed tests. The two activity-only tests in the complete seam-test file belong with activity.
-Re-run gates and review independently after each extraction; old results do not replace checks.
+Move observation registration, local/worker configuration, Helm wiring and deployment,
+run-scope, stream/Client-decoding and removal tests here. Preserve explicit local Settings
+precedence and run-level disabled masking. This is the PR that makes deployment full/off
+selectable; generic executor defaults stay empty. It depends on PR 931 and stays draft.
+After 931 merges, rebase only the child's commits onto main and retarget its base.
 
-Use one shared spec, plan, task mirror and work ledger for OME-1161, updating these same files
-across deliveries. Keep the overall ticket open until activity is delivered; the docs/interface
-PRs alone do not provide researcher logging. Do not open later PRs before predecessors merge.
+## Verification and scope
 
-OME-1201: add protocol documentation and a caller-task/inline-ordering test to PR 915;
-no dispatch changes. Rebase PR 931 after this commit lands on the integration branch.
+Both branches run full Engine gates. The combined runtime must match f418f53e exactly;
+relocated direct observer tests plus child integration tests preserve all prior coverage.
+Review both axes and report each PR's actual diff. Keep the same shared spec, plan, task
+mirror and work ledger. OME-1161 remains open until both PRs merge.
+
+Client rendering, benchmark-stage producers, semantic attribution, aggregate policy and
+provisional scores remain separate. This pair completes the Engine model-call producer.
+
+## Approved small review cleanup (2026-09-16)
+
+Add failing negative-loss coverage, apply the bounded-count correction, remove the unused heartbeat hook, name existing admission constants, and clarify reserved vocabulary. Run direct activity tests and full Engine gates, then commit and push PR931. Existing test bodies remain unchanged.

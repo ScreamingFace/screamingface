@@ -9,14 +9,16 @@ closed:
 
 # Stream safe model-call activity
 
-Docs PR 897 merged at af58b5c1. The first code unit adds observation interfaces/dispatch
-and unit tests in PR 899, merged at dcaba228. PR 915 integrates execution and is rebased
-onto main (2026-09-14). Integration retains the 500-line cap.
-The first code PR supplies observation interfaces; later units integrate execution, activity
-and deployment policy. Keep this overall feature open until delivery is complete.
-Client rendering, benchmark-stage producers and provisional scores remain separate.
+PRs 897, 899 and 915 merged the design, interfaces and generic execution integration.
+Owner update (2026-09-15): PR 931 contains the plugin and direct tests, ready for review.
+Deployment registration, settings/Helm and integration tests are a dependent stacked draft.
+Keep all review fixes, including sink accounting, interrupted cleanup, disabled bookkeeping
+and explicit local Settings precedence. Rebase the child onto main after 931 merges.
+The feature stays In Review until both land. Client rendering, benchmark-stage producers
+and provisional scores remain separate.
 
-Update these same four shared artifacts across the deliveries; do not create one set per PR.
 [Spec](../spec/2026-09-10-OME-1161-observation-seam.md) ·
 [Plan](../plan/2026-09-10-OME-1161-observation-seam.md) ·
 [Ledger](../work/2026-09-10-OME-1161-observation-split.md).
+
+PR931 cleanup (2026-09-16): removed unused heartbeat callback, named unchanged admission constants, clamped bridge loss to nonnegative safe integers, and clarified reserved vocabulary. 60 direct tests and full Engine gates pass, coverage 93.26%. Ledger: `docs/work/2026-09-16-OME-1161-plugin-cleanup.md`. Deployment remains separate in PR935.
