@@ -244,7 +244,7 @@ def test_every_guarded_global_still_exists_on_installed_litellm() -> None:
     """A rename or removal upstream must be a LOUD dependency-review event.
 
     INVARIANT: every name the guard inspects is a real ``litellm`` module attribute at the
-    pinned version (1.97.0). The guard reads them with ``getattr(litellm, field, None)``,
+    pinned version (1.100.1). The guard reads them with ``getattr(litellm, field, None)``,
     which is the right shape for fail-closed defaults but the wrong shape for detecting
     that a name has MOVED: a renamed global silently reads ``None``, the check passes, and
     a genuine ambient hazard stops being guarded with nothing failing.
@@ -253,8 +253,8 @@ def test_every_guarded_global_still_exists_on_installed_litellm() -> None:
     default value, because "what is safe" is the guard's decision to make, not this test's
     — and pinning defaults here would break on an upstream change that is not a hazard.
     """
-    assert importlib.metadata.version("litellm") == "1.97.0", (
-        "the guarded-global inventory is pinned against LiteLLM 1.97.0 — re-verify the "
+    assert importlib.metadata.version("litellm") == "1.100.1", (
+        "the guarded-global inventory is pinned against LiteLLM 1.100.1 — re-verify the "
         "tuple against the new release before moving this pin"
     )
     for field in (
@@ -339,8 +339,8 @@ def test_every_expected_global_exists_on_installed_litellm() -> None:
     the same assertion from the independent list keeps the upstream-rename alarm wired to
     every field this gateway is SUPPOSED to guard.
     """
-    assert importlib.metadata.version("litellm") == "1.97.0", (
-        "the guarded-global inventory is pinned against LiteLLM 1.97.0 — re-verify the "
+    assert importlib.metadata.version("litellm") == "1.100.1", (
+        "the guarded-global inventory is pinned against LiteLLM 1.100.1 — re-verify the "
         "expectations against the new release before moving this pin"
     )
     for field in (*_EXPECTED_GUARDED_FIELDS, _MODIFY_PARAMS_FIELD):
