@@ -156,6 +156,12 @@ def _derived_providers(submission: ScoreSubmission) -> list[str]:
     return list(dict.fromkeys(route.split("/", 1)[0] for route in submission.models))
 
 
+# INVARIANT: every column `_replay_updates` can return, and nothing else. `_apply_replay_updates`
+# reads these off the locked row to report what the row HOLDS after a replay, so a field that can
+# be written but is missing here would be answered from a pre-lock read instead.
+_REPLAY_FIELDS: tuple[str, ...] = ("authors", "metadata", "models", "ran_with_providers")
+
+
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
     """The ONLY fields a replay of an existing recipe may correct on the stored row.
 
@@ -929,9 +935,10 @@ class ScoreStore:
             and submission.submitted_by is not None
             and existing.submitted_by == submission.submitted_by
         )
-        updates = _replay_updates(submission, existing) if same_candidate_owner else {}
-
-        if not updates:
+        # A CHEAP PRE-CHECK ONLY. It decides whether this replay is worth a transaction; it does
+        # NOT decide what gets written. `existing` was read before the lock, so every value it
+        # carries may be stale by the time the write lands — see the recompute below.
+        if not (_replay_updates(submission, existing) if same_candidate_owner else {}):
             return readable
 
         async with in_transaction() as connection:
@@ -943,24 +950,93 @@ class ScoreStore:
                 connection=connection,
                 lock=True,
             )
-            updated = await (
-                Score.filter(
-                    id=existing.id,
-                    benchmark_id=submission.benchmark_id,
-                    content_hash=content_hash,
-                    submitted_by=submission.submitted_by,
-                )
-                .using_db(connection)
-                .update(**updates)
+            settled = await self._apply_replay_updates(
+                submission,
+                connection,
+                score_id=existing.id,
+                content_hash=content_hash,
             )
-            if updated != 1:
-                # The row's immutable identity changing would violate the model contract. Refuse
-                # instead of returning an in-memory correction the database did not accept.
-                raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
 
-        for name, value in updates.items():
+        for name, value in settled.items():
             setattr(readable, name, value)
         return readable
+
+    async def _apply_replay_updates(
+        self,
+        submission: ScoreSubmission,
+        connection: Any,
+        *,
+        score_id: Any,
+        content_hash: str,
+    ) -> dict[str, object]:
+        """Decide and write the replay's corrections against the LOCKED row. Returns what it holds.
+
+        INVARIANT: the fill-only rule of `_replay_updates` is a check-then-act, so it is only
+        sound against a row this transaction holds a lock on. The first version decided from a
+        `Score` loaded before the transaction and then wrote with a filter on identity columns
+        alone — `id`, `benchmark_id`, `content_hash`, `submitted_by`, none of which change when
+        `models` is filled. Two same-owner replays could therefore both observe a null and both
+        pass the filter, so the second silently replaced the first and flipped the entry's
+        published openness (review of PR #922, round 2).
+
+        WHY the recompute rather than a `models IS NULL` predicate on the update: the three
+        correctable fields share one statement and one `updated != 1` refusal, so a predicate
+        that fails for a concurrently-filled `models` would also reject a legitimate `authors`
+        or `metadata` correction riding the same request.
+
+        WHY it returns the settled values: the caller's response must report what the row HOLDS.
+        After a concurrent fill this request writes nothing, and echoing back its own rejected
+        claim would tell the client its routes were stored when another replay's were.
+        """
+        locked = await self.replay_row_query(
+            score_id=score_id,
+            benchmark_id=submission.benchmark_id,
+            content_hash=content_hash,
+            submitted_by=submission.submitted_by,
+            connection=connection,
+        ).first()
+        if locked is None:
+            # The row's immutable identity changing would violate the model contract. Refuse
+            # instead of returning an in-memory correction the database did not accept.
+            raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
+
+        updates = _replay_updates(submission, locked)
+        if updates:
+            updated = await Score.filter(id=locked.id).using_db(connection).update(**updates)
+            if updated != 1:
+                raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
+
+        return {field: updates.get(field, getattr(locked, field)) for field in _REPLAY_FIELDS}
+
+    def replay_row_query(
+        self,
+        *,
+        score_id: Any,
+        benchmark_id: str,
+        content_hash: str,
+        submitted_by: str | None,
+        connection: Any = None,
+    ) -> QuerySet[Score]:
+        """The locking re-read `_apply_replay_updates` runs, exposed so a test can render its SQL.
+
+        INVARIANT: a MODEL projection, and `select_for_update()` applied last. `values()` and
+        `values_list()` build a fresh query without copying the lock state, so projecting drops
+        `FOR UPDATE` silently — no error, no lock, and a claim in the docstring that nothing
+        checks. SQLite implements no row lock at all, so the only way to hold this claim is to
+        render the query on the asyncpg dialect: `test_the_replay_row_read_really_locks_the_row`.
+
+        The filter is the full identity tuple, not `id` alone: it re-proves under the lock exactly
+        what `same_candidate_owner` proved before it.
+        """
+        rows = Score.filter(
+            id=score_id,
+            benchmark_id=benchmark_id,
+            content_hash=content_hash,
+            submitted_by=submitted_by,
+        )
+        if connection is not None:
+            rows = rows.using_db(connection)
+        return rows.select_for_update()
 
     def visibility_query(
         self,

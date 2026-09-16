@@ -472,3 +472,96 @@ def test_models_do_not_change_recipe_identity() -> None:
     with_routes = _submission(models=ROUTES)
 
     assert _content_hash(without) == _content_hash(with_routes)
+
+
+@pytest.mark.asyncio
+async def test_a_stale_read_cannot_overwrite_routes_filled_while_the_replay_was_in_flight(
+    tortoise_db: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: the fill-only decision is made against the LOCKED row, not a pre-transaction read.
+
+    `test_a_replay_cannot_replace_routes_that_are_already_declared` closed the unconditional
+    overwrite. It did not close the window: `_replay_updates` ran against a `Score` loaded before
+    the transaction opened, and the write that followed filtered on identity columns only — none
+    of which change when `models` is filled — with no lock on the Score row. Two same-owner
+    replays could therefore both observe null and both pass the filter, and the second would
+    overwrite the first, flipping a published openness verdict (review of PR #922, round 2).
+
+    The concurrent fill is simulated at the lock, which is the last moment before the write: the
+    row gains routes after this request decided it was empty. The stale decision must not survive
+    that.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    first, _ = await store.submit(_submission(models=None))
+    assert (await Score.get(id=first.id)).models is None
+
+    winner = ["openrouter/deepseek/deepseek-v4-pro"]
+    original = ScoreStore._revalidate_visibility
+    already_filled: list[bool] = []
+
+    async def _fill_at_the_lock(
+        self: ScoreStore,
+        benchmark_id: str,
+        per_submitter: bool,
+        *,
+        connection: Any = None,
+        lock: bool = False,
+    ) -> None:
+        await original(self, benchmark_id, per_submitter, connection=connection, lock=lock)
+        if not lock or already_filled:
+            return
+        already_filled.append(True)
+        rows = Score.filter(id=first.id)
+        if connection is not None:
+            rows = rows.using_db(connection)
+        await rows.update(models=winner, ran_with_providers=["openrouter"])
+
+    monkeypatch.setattr(ScoreStore, "_revalidate_visibility", _fill_at_the_lock)
+
+    replay, created = await store.submit(
+        _submission(models=["openrouter/anthropic/claude-opus-4.8"])
+    )
+    stored = await Score.get(id=first.id)
+
+    assert created is False
+    assert already_filled, "the lock was never taken, so this test proved nothing"
+    assert stored.models == winner
+    assert stored.ran_with_providers == ["openrouter"]
+    # The response must report what the row HOLDS, not what this request hoped to write.
+    assert replay.models == winner
+
+
+@pytest.mark.asyncio
+async def test_the_replay_row_read_really_locks_the_row() -> None:
+    """The re-read must emit `FOR UPDATE` on PostgreSQL, or the recheck is only a narrower window.
+
+    Same reasoning as `test_the_persist_and_purge_paths_really_lock_the_row`, and the same reason a
+    behavioural test cannot hold it: SQLite does not implement the lock, so re-reading there closes
+    the check-then-act window inside one request but not across two. Rendering the SQL on the
+    dialect that does implement it is the available check.
+    """
+    from tortoise import Tortoise
+
+    await Tortoise.init(
+        db_url="asyncpg://user:pass@127.0.0.1:1/unused",
+        modules={"models": ["scoreboard.scores.models"]},
+        _create_db=False,
+    )
+    try:
+        # The query PRODUCTION runs, not one this test builds.
+        locked = (
+            ScoreStore()
+            .replay_row_query(
+                score_id=uuid4(),
+                benchmark_id="hle",
+                content_hash="deadbeef",
+                submitted_by="alice@example.test",
+            )
+            .sql()
+        )
+    finally:
+        await Tortoise.close_connections()
+
+    assert "FOR UPDATE" in locked.upper(), f"the replay re-read lost its lock: {locked}"
