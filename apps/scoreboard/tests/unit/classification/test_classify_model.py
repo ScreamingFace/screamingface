@@ -192,3 +192,34 @@ def test_the_existing_row_level_classifier_is_untouched() -> None:
     assert classify_providers(["openrouter"]) == "closed"
     assert classify_providers(["huggingface"]) == "open"
     assert classify_providers([]) == "closed"
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        "openrouter/google/gemmalicious-proprietary",
+        "openrouter/openai/gpt-ossification-api",
+        "openrouter/google/gemmini-secret",
+        "openrouter/openai/gpt-osszilla",
+    ],
+)
+def test_a_name_that_merely_starts_with_a_family_cannot_buy_an_open_verdict(route: str) -> None:
+    """INVARIANT: the family exception matches a TOKEN, not a prefix of the string.
+
+    Round 1 made the OWNER segment structural and left the family check a bare `startswith`, so
+    the same hole survived one owner deeper: `google/gemmalicious-proprietary` and
+    `openai/gpt-ossification-api` both returned `open` (review of PR #922, round 2). The owner is
+    right in each case, which is what made it look safe — but the model segment is still
+    client-chosen free text, and "begins with `gemma`" is not "is a Gemma".
+
+    The boundary is the family token exactly, or the family followed by `-`. An un-dashed future
+    name therefore reads `closed` rather than `open`, which is the direction OME-1179 D4 asks
+    for: a stale registry understates openness, it never overstates it.
+    """
+    assert classify_model(route) == "closed"
+
+
+def test_the_bare_family_token_is_itself_open() -> None:
+    """The boundary must not cost the unversioned name. `google/gemma` is a Gemma."""
+    assert classify_model("openrouter/google/gemma") == "open"
+    assert classify_model("openrouter/openai/gpt-oss") == "open"

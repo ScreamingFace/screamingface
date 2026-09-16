@@ -91,9 +91,10 @@ _CLOSED_OWNERS: frozenset[str] = frozenset(
     }
 )
 
-# The vendors that ship BOTH. A family exception is SCOPED TO ITS OWNER and matched as a prefix
-# of the model segment, so `google/gemma-*` is open while `openai/gemma-anything` is not —
-# Google ships Gemma's weights, OpenAI does not.
+# The vendors that ship BOTH. A family exception is SCOPED TO ITS OWNER and matched as a whole
+# token in the model segment (see `_in_family`), so `google/gemma-*` is open while
+# `openai/gemma-anything` and `google/gemmalicious-*` are not — Google ships Gemma's weights,
+# OpenAI does not, and neither ships whatever a client decided to call its model.
 #
 # INVARIANT (OME-1179 Q1): membership means "weights are downloadable and locally runnable", NOT
 # "permissively licensed". Gemma carries use restrictions and gpt-oss a usage policy; both are
@@ -180,6 +181,23 @@ def classify_model(route: str) -> ModelOpenness:
     return verdict
 
 
+def _in_family(model: str, families: tuple[str, ...]) -> bool:
+    """Whether the model segment IS a member of one of its owner's open families.
+
+    INVARIANT: a TOKEN boundary, not a string prefix. `startswith(family)` alone let
+    `google/gemmalicious-proprietary` and `openai/gpt-ossification-api` classify open — the owner
+    segment is right in both, which is what made the bare prefix look safe, but the model segment
+    is still client-chosen free text (review of PR #922, round 2).
+
+    AIDEV-NOTE: every published route in these two families is dash-separated
+    (`gemma-3-27b-it`, `gemma-3n-e4b-it`, `gpt-oss-120b`), so the boundary costs nothing today. An
+    un-dashed future name would read `closed`, not `open` — the direction OME-1179 D4 requires,
+    since a stale registry must understate openness rather than overstate it. Widen this by adding
+    the real name to the family tuple, never by loosening the boundary.
+    """
+    return any(model == family or model.startswith(f"{family}-") for family in families)
+
+
 def _owner_verdict(parsed: tuple[str, str] | None) -> ModelOpenness:
     """The rules themselves, so `classify_model` stays one decision and one log.
 
@@ -190,8 +208,7 @@ def _owner_verdict(parsed: tuple[str, str] | None) -> ModelOpenness:
     if parsed is None:
         return "unknown"
     owner, model = parsed
-    families = _OPEN_FAMILIES_BY_OWNER.get(owner, ())
-    if any(model.startswith(family) for family in families) or owner in _OPEN_OWNERS:
+    if _in_family(model, _OPEN_FAMILIES_BY_OWNER.get(owner, ())) or owner in _OPEN_OWNERS:
         return "open"
     return "closed" if owner in _CLOSED_OWNERS else "unknown"
 
