@@ -128,6 +128,13 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         # coverage_declare.
         "medxpert": ("coverage_declare", "multi_turn"),
     }
+    # Plugin-contributed boards (OME-1115) are present only when their extra is
+    # installed; their rows are still explicit, so a new imported board — or a changed
+    # declaration — trips here exactly like a home-grown one.
+    expected_plugin = {
+        "inspect-gsm8k": ("coverage_declare", "single_shot"),
+        "inspect-mmlu": ("coverage_declare", "single_shot"),
+    }
     actual = {
         benchmark.id: (
             benchmark.declaration.failure_policy,
@@ -135,7 +142,13 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         )
         for benchmark in BUILTIN_BENCHMARKS
     }
-    assert actual == expected
+    plugin_actual = {board: row for board, row in actual.items() if board.startswith("inspect-")}
+    core_actual = {board: row for board, row in actual.items() if board not in plugin_actual}
+    assert core_actual == expected
+    # Every registered imported board must have its explicit row (subset, not equality:
+    # which plugin boards are present depends on the installed extra and, mid-stack, on
+    # how many board PRs have landed).
+    assert plugin_actual == {board: expected_plugin[board] for board in plugin_actual}
 
 
 def test_each_board_aggregate_reduces_through_the_shared_finalizer() -> None:
