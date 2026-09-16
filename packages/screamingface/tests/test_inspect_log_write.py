@@ -140,3 +140,55 @@ def test_candidate_selector_passes_through(monkeypatch: pytest.MonkeyPatch, tmp_
     _stub_inspect_ai(monkeypatch, recorder)
     write_inspect_log(_report(), tmp_path / "opus.eval", candidate="opus")
     assert recorder.validated[0]["eval"]["model"] == "opus"
+
+
+def test_inspect_rejection_surfaces_as_a_domain_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # INVARIANT (defend at boundaries): if the pinned inspect-ai ever rejects
+    # our document, the user sees a ScreamingFace error naming the export —
+    # never a raw pydantic stack trace.
+    import screamingface.errors
+
+    recorder = _Recorder()
+    _stub_inspect_ai(monkeypatch, recorder)
+    log_module = sys.modules["inspect_ai.log"]
+
+    def _reject(payload: dict[str, Any]) -> None:
+        raise ValueError("1 validation error for EvalLog")
+
+    monkeypatch.setattr(
+        log_module, "EvalLog", type("_L", (), {"model_validate": staticmethod(_reject)})
+    )
+    with pytest.raises(screamingface.errors.ScreamingFaceError, match="inspect"):
+        write_inspect_log(_report(), tmp_path / "draco.eval")
+
+
+def test_write_failure_surfaces_as_a_domain_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import screamingface.errors
+
+    recorder = _Recorder()
+    _stub_inspect_ai(monkeypatch, recorder)
+    log_module = sys.modules["inspect_ai.log"]
+
+    def _fail_write(log: Any, location: str) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(log_module, "write_eval_log", _fail_write)
+    with pytest.raises(screamingface.errors.ScreamingFaceError, match="export"):
+        write_inspect_log(_report(), tmp_path / "draco.eval")
+
+
+def test_missing_dependency_error_warns_about_the_runtime_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WHY: the most likely person to hit this is a runtime-extra user, for whom
+    # `pip install "screamingface[inspect]"` is declared IMPOSSIBLE in the same
+    # environment — the message must say so or it names a fix that cannot work.
+    from screamingface._inspect_log import write as write_module
+
+    monkeypatch.setattr(write_module, "find_spec", lambda name: None)
+    with pytest.raises(ModuleNotFoundError, match="separate environment"):
+        write_inspect_log(_report(), Path("report.eval"))

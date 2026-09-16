@@ -29,6 +29,9 @@ _STOP_REASONS: dict[str, str] = {
 # The one scorer name the exported log speaks under — also the sample score key.
 _SCORER = "screamingface"
 
+# inspect's EvalLog schema version at the pinned inspect-ai 0.3.263.
+_LOG_VERSION = 2
+
 
 def eval_log_payload(report: Report, candidate: str | None = None) -> dict[str, Any]:
     """Project one Candidate's run into inspect's EvalLog document shape.
@@ -59,7 +62,7 @@ def eval_log_payload(report: Report, candidate: str | None = None) -> dict[str, 
     """
     selected: CandidateResult = _select_candidate(report, candidate)
     return {
-        "version": 2,
+        "version": _LOG_VERSION,
         # WHY status mirrors our scored/failed split: an unscored Candidate is a
         # run that did not complete its purpose, which is inspect's "error".
         "status": "success" if selected.score is not None else "error",

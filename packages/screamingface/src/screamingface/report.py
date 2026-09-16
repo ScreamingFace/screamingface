@@ -423,6 +423,8 @@ class Report:
           multi-Candidate Report must name the Candidate to export, because an
           inspect log is one task × one model by their own convention. Needs
           the ``inspect`` extra (``pip install "screamingface[inspect]"``).
+          Note: the log includes your recipe expression (url4), run id, seed,
+          and per-case texts — share the file as deliberately as the report.
 
         Parent directories are created as needed. An existing file is replaced so
         repeated notebook runs deterministically leave one current artifact.
