@@ -60,8 +60,7 @@ class BoardSpec:
 
 
 #: Every imported board, in catalogue order. Importing another eval = one row here
-#: plus its SnapshotSpec row — never a new module. The mmlu row lands in this
-#: ticket's next PR.
+#: plus its SnapshotSpec row — never a new module.
 BOARDS: tuple[BoardSpec, ...] = (
     BoardSpec(
         key="gsm8k",
@@ -81,6 +80,24 @@ BOARDS: tuple[BoardSpec, ...] = (
         # Free-form answers make mid-run feedback legitimate: the same scorer serves
         # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
         with_check_surface=True,
+    ),
+    BoardSpec(
+        key="mmlu",
+        title="MMLU",
+        description=(
+            "14,042 multiple-choice questions across 57 subjects (the MMLU test "
+            "split, 0-shot), imported from inspect_evals. The model answers with one "
+            "lettered choice; grading is inspect's own choice scorer against the "
+            "published key, so no judge tokens are spent. Cases are served in a "
+            "fixed seeded shuffle so a limited run spans subjects. Benchmark score = "
+            "plain accuracy over the cases run. No mid-run check surface: pass/fail "
+            "feedback over four options would let a loop eliminate choices rather "
+            "than improve answers."
+        ),
+        focus="Broad multi-subject knowledge (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/cais/mmlu",
+        # Provenance: inspect_evals.mmlu.mmlu's Task declares scorer=choice().
+        scorer="inspect_ai.scorer:choice",
     ),
 )
 

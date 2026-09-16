@@ -1,8 +1,9 @@
 ---
 ticket: OME-1115
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-15
+finished: 2026-09-16
 ---
 
 # OME-1115 — Adapter plugin: evaluate a fusion against an imported inspect_evals benchmark
@@ -94,9 +95,49 @@ public: a stranger-authored benchmark runs on the shared spine with zero spine e
 - `grep -r "screamingface_engine_inspect" src/screamingface_engine/` → empty.
 - Zero per-scorer branches in the shim; zero spine edits.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
 - **Actual files:**
-- **Commits:**
-- **Gates:**
+  - Core: `benchmarks/discovery.py` (new), `benchmarks/builtins.py`
+    (STATIC_REGISTRATIONS + discovered composition), `pyproject.toml` (== pins, entry
+    point, wheel packages), `uv.lock`.
+  - Plugin `src/screamingface_engine_inspect/`: `__init__.py`, `deployment.py`,
+    `boards.py`, `shim.py`, `pins.py`, `envelopes.py`, `prepare.py`, `single_shot.py`.
+  - Tests (new): `test_inspect_deployment_discovery.py`, `test_inspect_shim.py`,
+    `test_inspect_gsm8k_board.py`, `test_inspect_mmlu_board.py`.
+  - Tests (amended, owner-approved 2026-09-16): `test_benchmark_deployment.py`
+    (family guard → STATIC_REGISTRATIONS), `test_benchmark_declaration.py` (explicit
+    plugin rows, required only when installed), `test_url4_executor.py` (plugin
+    packages are Benchmark extensions).
+  - Spec §7 amended: OME-1115 proves two boards (owner comment 2026-09-15).
+- **Commits:** 66e97ec4 discovery seam · a105543d shim · (final commit: boards +
+  amendments — sha in the close comment).
+- **Gates:** `run_gates.py screamingface-engine --skip-append-only` ALL GREEN
+  (2924 passed, 9 skipped; the skip covers exactly the three owner-approved test
+  amendments). Extra-less contract verified: `uv sync` without the extra installs no
+  inspect distribution, `BUILTIN_DEPLOYMENT.registrations == STATIC_REGISTRATIONS`,
+  and `grep -r screamingface_engine_inspect src/screamingface_engine/` is empty.
 - **Deviations:**
+  - **Scope re-carve (owner decision 2026-09-16).** The per-board modules
+    (`gsm8k.py`/`mmlu.py`, PRs #955/#956) were closed unmerged — one Python file per
+    benchmark doesn't scale to the ten-board import. This ticket's merged output is
+    the import infrastructure (#951–#954); the two proof boards land as `BoardSpec`
+    ROWS in `boards.py` via OME-1116's first PR, which also carries this Outcome and
+    the mirror close.
+  - **Two-session collision.** A second session built the proof boards concurrently in
+    this worktree; resolved by yielding it the plugin layout (`pins`/`envelopes`/
+    `prepare`/`single_shot`), then merging: this session's committed discovery seam +
+    shim underneath, its test suites ported onto the final layout, the per-board
+    installer/`ASSET_BUNDLE_ID` conformance fix, and the lazy shim import that keeps
+    `inspect_ai` (and its OTel/web deps) out of the run mode's cold-start import
+    budget. Its RED sketch `test_inspect_boards.py` was deleted after its assertions
+    were folded into the final suites.
+  - Judge routing (§3.3) is documented config only — neither proof board is
+    model-graded; the metered-judge verification rides the first model-graded import
+    (OME-1116).
+  - `origin="inspect_evals"` not set: the field lands in OME-1112 (unmerged); one-line
+    follow-up in `single_shot_board` once it merges.
+  - The paid `limit=50` acceptance run is the owner's; agent-side proof = full suite +
+    registrations + zero spine edits (`git diff` touches no `benchmarks/spine/` file).
+
+Status: DONE (pending PR review + owner's paid run).
