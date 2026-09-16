@@ -1,3 +1,7 @@
+# pyright: reportMissingImports=false
+# WHY the file-level escape: CI typechecks against the extra-less install
+# (`uv sync --extra notebook`), where inspect_ai is deliberately absent — the
+# same pattern as the Engine's inspect shim and src/screamingface/_inspect_log/write.py.
 """Live round-trip against the real pinned inspect-ai (OME-1117 acceptance).
 
 Runs only where the `inspect` extra is installed (skipped in CI, whose install
