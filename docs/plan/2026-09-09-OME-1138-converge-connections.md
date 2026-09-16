@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first re-plan; no execution, task or publication approval is inferred
 created: 2026-09-09
-updated: 2026-09-14
+updated: 2026-09-16
 spec: ../spec/2026-09-09-OME-1138-converge-connections.md
 ---
 
@@ -10,9 +10,11 @@ spec: ../spec/2026-09-09-OME-1138-converge-connections.md
 
 Input: the adapter-first [spec](../spec/2026-09-09-OME-1138-converge-connections.md) revision of
 2026-09-13, the owner's adapter-first investigation brief and clarification (an adapter will exist;
-Profiles stay for now and are reached only through it; the later step is either a transfer to
-Connections and removal, or a rework into a provider-account model), and the retained P0/P1
-history. D2 (full defaults REMOVE at an explicit cutover) stands. This plan itself authorises no
+Profiles stay for now and are reached only through it; the later step is a backing/authority choice
+behind the boundary), and the retained P0/P1 history. D2 (full defaults REMOVE at an explicit cutover)
+stands; D20 settles the naming
+(`Connection` is the final resource noun, `provider access` is the boundary, `Profile` is legacy
+compatibility, and `Provider Account` is not introduced). This plan itself authorises no
 runtime code, catalog write, migration, Linear mutation, staging or push; Stage 0 and A1 were
 separately approved and executed on 2026-09-14.
 
@@ -24,13 +26,14 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 
 ## 1. Stage status
 
-| Stage | Gate | Status, 2026-09-14 |
+| Stage | Gate | Status, 2026-09-16 |
 | --- | --- | --- |
 | P0 baseline | G0 | done 2026-09-09 at b47853ea (gates, consumer/meta maps); anchors re-verified at 17048f5d in this pass; gates not rerun |
 | P1 design | G1 | **revised to adapter-first**: consumer evidence, adversarial checks and review feedback incorporated; spec §3–§9 written; open D11–D18 and the D7 conflict presented; not approved |
 | Stage 0 characterisation | G1 | **done** as U0 (gateway) and U0e (Engine); commits `48fa1d78`, `c7d767f7` |
 | A1 port + Profile-backed read implementation | G2a | **done** as U1; review findings closed; module names follow D19 (`OME-1204`, 2026-09-15); stop before A2 |
-| A2 in-process consumers | G2b | not started |
+| Naming decision | G2b precondition | **done** as `OME-1210` (D20): final domain/API/UI noun is Connection; provider-access is the boundary; Profile is legacy compatibility; Provider Account is not introduced as a resource name |
+| A2 in-process consumers | G2b | not started; use D20 terminology |
 | A3 admin interface + management shells | G2c | not started |
 | A4 Hosted Engine on the availability successor | G3 | not started; D15 and D17 decided 2026-09-14 (explicit mutability flag; `GET /v1/provider-access` with provider + status only); not authorised yet |
 | B backing transition | G4 | not started; needs D11, D14, Q01–Q04; retained S1/S2-marker/S4 content applies to option (a) |
@@ -50,8 +53,9 @@ Linear needs explicit permission; this table is not evidence that issues exist.
 | U0e | `OME-1199` — Pin the worker's ambient `AIGATEWAY_PROFILE` inheritance and the in-process pop | `screamingface-engine` | 0 | G1 |
 | U1 | `OME-1200` — Add the provider-access port and the Profile-backed read implementation behind the existing routes | `aigateway` | A1 | U0 |
 | U1n | `OME-1204` — Rename the provider-access modules and test helpers without leading underscores (D19; rename-only) | `aigateway` | A1 follow-up | U1 |
-| U2 | Move chat, model parameters, admission and dispatch marking onto the provider-access port | `aigateway` | A2 | U1, U1n |
-| U3 | Add the provider-credential admin interface and reduce the Profile management routes to shells | `aigateway` | A3 | U1, U1n |
+| U1t | `OME-1210` — Decide final provider identity naming (D20; docs/Linear only) | `aigateway` | A1 follow-up / A2 precondition | U1, U1n |
+| U2 | Move chat, model parameters, admission and dispatch marking onto the provider-access port | `aigateway` | A2 | U1, U1n, U1t |
+| U3 | Add the provider-credential admin interface and reduce the Profile management routes to shells | `aigateway` | A3 | U1, U1n, U1t |
 | U4 | Publish the backing-neutral availability listing | `aigateway` | A4 | U3, D15, D17 |
 | U4e | Move the Hosted Engine listing onto the availability successor | `screamingface-engine` | A4 | U4 |
 | S1 | Add the provider-credential slot store with generation fencing and a locator-authoritative strategy factory | `aigateway` | B (D11 a) | D11, D14 |
@@ -187,7 +191,7 @@ and the tooling retirement list.
 | G1 (first units) | owner approves Stage 0 + A1 scope in plain words and re-approves the D7 ordering; U0/U0e/U1 exist in Linear before code |
 | G2a/b/c | each A-stage's acceptance in §3 met; consumer lanes run explicitly; no OpenAPI change before A4 |
 | D15, D17 → G3 | successor route shape and hosted mutability rule decided; U4/U4e filed |
-| D11, D14, Q01–Q04 → G4 | backing chosen; dual-write owner decided and tested; versions, census and key access authorised; writer fencing in place; fixture swap of the 18 feature suites, the facade-suite split and the bootstrap re-target planned |
+| D11, D14, Q01–Q04 → G4 | backing chosen; dual-write owner decided and tested; versions, census and key access authorised; writer fencing in place; fixture swap of the 18 feature suites, the facade-suite split and the bootstrap re-target planned; public wording follows D20 even if backing mechanics choose an internal aggregate |
 | D16 → G5a | defaults source during the transition decided; impact plan approved; rehearsed rollback includes the defaults mode |
 | D4 date, D12 → G5b | sunset date; selector semantics after cutover; provenance census; accepted-work disposition; worker env audit |
 | D6 → G6 | retention fulfilled; reference-safe cleanup proven; deletion approved |

@@ -24,8 +24,8 @@ Plan: `docs/plan/2026-09-09-OME-1138-converge-connections.md`.
 
 Revision 2026-09-13: re-planned adapter-first — a provider-access boundary is introduced first,
 backed by the existing Profile mechanisms; Profiles are not removed yet; the final backing
-(Connections + slot, or a provider-account rework) is open (D11). First units await D7
-re-approval; no sub-issues were created. Linear updated 2026-09-14: description section
+(Connections + slot, or an internal aggregate that still publishes Connections) is open (D11).
+First units await D7 re-approval; no sub-issues were created. Linear updated 2026-09-14: description section
 "Adapter-first revision (2026-09-14)" appended and one comment added; status unchanged.
 
 Execution approved 2026-09-14 (D7, D15, D17). Sub-issues: `OME-1198` (U0), `OME-1199` (U0e),
@@ -39,3 +39,8 @@ A1 is the OME-1200 feature commit. Details are in the ledger section "Stage 0 + 
 A1 follow-up `OME-1204` (2026-09-15): provider-access modules and test helpers renamed without
 leading underscores (owner decision D19); rename-only, OpenAPI byte-identical. Ledger
 `docs/work/2026-09-15-OME-1204-rename-provider-access-modules.md`.
+
+A1 follow-up / A2 precondition `OME-1210` (2026-09-16): final provider identity naming decided.
+Use `Connection` for the final product/API/domain resource; `provider access` only for the boundary;
+`legacy Profile` for compatibility/current backing; do not introduce `Provider Account` as a resource
+or UI/API noun. Ledger `docs/work/2026-09-16-OME-1210-provider-identity-naming.md`.
