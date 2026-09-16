@@ -171,7 +171,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         discovered.snapshot,
     )
 
-    return build_model_parameter_document(
+    document = build_model_parameter_document(
         canonical_id=model,
         gateway_provider=provider,
         auth_mode=auth_mode,
@@ -187,6 +187,18 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         # contract_id is not silently handed evidence with a different provenance.
         source_revision=discovered.snapshot.source_revision if discovered.snapshot else None,
     )
+
+    # FEATURE: evaluation access preflight (OME-1195).
+    # INVARIANT: configuration is separate from the datasheet's auth-mode binding.
+    # A keyless datasheet still exists; only chat's resolved target or an allowed
+    # profileless mode establishes configuration. Never inject/validate secrets here.
+    configured: bool = profile is not None or connection is not None
+    if not configured and plugin.allows_chatless_profile():
+        configured = (
+            plugin.profileless_auth_mode() is not None or plugin.available_auth_modes() == ("none",)
+        )
+    document["context"]["execution_access"] = "configured" if configured else "missing"
+    return document
 
 
 def _contract_auth_mode(
