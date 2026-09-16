@@ -40,9 +40,16 @@ type FailurePolicy = Literal["withhold", "coverage_declare"]
 #                   to do: the exchange wraps the whole ensemble, not each member (OME-1126).
 # Agentic/tool-environment interactions arrive later as further declared values.
 type InteractionType = Literal["single_shot", "multi_turn"]
+# Where a benchmark's definition was authored (OME-1112).
+#   "screamingface"  — written in this repo, the Engine's own catalogue.
+#   "inspect_evals"  — imported from the inspect_evals catalogue (parent epic OME-1111).
+# Declared once at registration so downstream surfaces (SDK grouping, scoreboard) read
+# provenance as a fact instead of guessing it from naming conventions.
+type BenchmarkOrigin = Literal["screamingface", "inspect_evals"]
 
 _FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage_declare")
 _INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot", "multi_turn")
+_BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a
@@ -168,6 +175,12 @@ class Benchmark:
     # incomparable.
     focus: str | None = None
     dataset_url: str | None = None
+    # FEATURE: benchmark provenance in the public catalogue (OME-1112).
+    # WHY a default, unlike `declaration`: OME-1039's no-defaults rule guards
+    # score-changing declarations; provenance defaulting to "screamingface" states a
+    # true fact for every board authored in this repo, and the import lane must pass
+    # origin="inspect_evals" explicitly at registration.
+    origin: BenchmarkOrigin = "screamingface"
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -185,6 +198,10 @@ class Benchmark:
             raise ValueError("Benchmark case_count must be a positive integer")
         if not isinstance(self.declaration, BenchmarkDeclaration):
             raise TypeError("Benchmark declaration must be a BenchmarkDeclaration")
+        if self.origin not in _BENCHMARK_ORIGINS:
+            raise ValueError(
+                f"Benchmark origin must be one of {_BENCHMARK_ORIGINS!r}, got {self.origin!r}"
+            )
 
     def _validate_display_metadata(self) -> None:
         """Refuse text the leaderboard could not show (OME-904)."""
@@ -217,6 +234,9 @@ class Benchmark:
             "description": self.description,
             "revision": self.revision,
             "case_count": self.case_count,
+            # WHY unconditionally: provenance is part of the public contract — every
+            # entry carries it, so no downstream reader needs an absent-key branch.
+            "origin": self.origin,
             # WHY unconditionally: the declared policy is part of the benchmark's public
             # contract — reviewers approve it by reading the manifest, never engine source.
             **self.declaration.as_block(),
