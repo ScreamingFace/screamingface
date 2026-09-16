@@ -103,6 +103,18 @@ def hdr(**items: str) -> list[tuple[bytes, bytes]]:
     return [(f"url4-config-{k.replace('__', '.')}".encode(), v.encode()) for k, v in items.items()]
 
 
+def refusal(result: Applied) -> dict:
+    """The problem body of a refused request.
+
+    Asserting here rather than at each call site narrows `Applied.problem` from
+    `dict | None` for the type checker, and keeps "this must have been refused" and "here
+    is why" from drifting apart.
+    """
+    assert result.rejected, "expected this request to be refused"
+    assert result.problem is not None
+    return result.problem
+
+
 def test_no_config_headers_is_the_ordinary_case() -> None:
     result = read_request_config([(b"host", b"x")], "(/claude-fast)!'x'", [LIVE])
     assert result == Applied(values={})
@@ -123,8 +135,7 @@ def test_a_secret_is_refused() -> None:
     result = read_request_config(
         hdr(credentials__api_key="sk-attacker"), "/claude-fast(c)!'x'", [LIVE]
     )
-    assert result.rejected
-    codes = {v["code"] for v in result.problem["violations"]}
+    codes = {v["code"] for v in refusal(result)["violations"]}
     assert codes == {"config-not-settable"}
 
 
@@ -132,16 +143,15 @@ def test_a_model_outside_the_callers_enum_is_refused() -> None:
     result = read_request_config(
         hdr(models__name="anthropic/claude-opus-4-8"), "/claude-fast(c)!'x'", [LIVE]
     )
-    assert result.rejected
-    assert result.problem["violations"][0]["code"] == "config-out-of-enum"
+    assert refusal(result)["violations"][0]["code"] == "config-out-of-enum"
 
 
 def test_config_with_no_mounted_endpoint_addressed_is_refused() -> None:
     """There is no schema to judge it against, so the node cannot know whether these
     values are the caller's to set. Refusing beats guessing."""
     result = read_request_config(hdr(models__name=HAIKU), "(/echo)!'x'", [LIVE])
-    assert result.rejected
-    assert "addresses no mounted endpoint" in result.problem["violations"][0]["detail"]
+    detail = refusal(result)["violations"][0]["detail"]
+    assert "addresses no mounted endpoint" in detail
 
 
 def test_config_on_a_multi_mount_expression_is_refused_as_ambiguous() -> None:
@@ -151,14 +161,12 @@ def test_config_on_a_multi_mount_expression_is_refused_as_ambiguous() -> None:
     result = read_request_config(
         hdr(models__name=HAIKU), "(/claude-fast(a)!'x',/gpt(b)!'y')!'r'", [LIVE, other]
     )
-    assert result.rejected
-    assert "ambiguous" in result.problem["violations"][0]["detail"]
+    assert "ambiguous" in refusal(result)["violations"][0]["detail"]
 
 
 def test_config_for_an_unavailable_mount_is_refused() -> None:
     result = read_request_config(hdr(models__name=HAIKU), "/vendor(c)!'x'", [DEAD])
-    assert result.rejected
-    assert "unavailable" in result.problem["violations"][0]["detail"]
+    assert "unavailable" in refusal(result)["violations"][0]["detail"]
 
 
 def test_every_violation_is_reported_at_once() -> None:
@@ -167,7 +175,7 @@ def test_every_violation_is_reported_at_once() -> None:
         "/claude-fast(c)!'x'",
         [LIVE],
     )
-    assert {v["pointer"] for v in result.problem["violations"]} == {
+    assert {v["pointer"] for v in refusal(result)["violations"]} == {
         "credentials.api_key",
         "models.name",
     }
