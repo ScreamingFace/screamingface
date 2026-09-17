@@ -152,3 +152,35 @@ stacked on #966):
   - Shuffle seeds (exam identity, policy rows): mmlu_pro + race_h + none for
     the rest — grouping verified empirically (mmlu_pro first-100 rows are one
     discipline; race_h arrives in per-passage runs; all others mixed).
+
+## Review round 2026-09-17 (blocker + should-fixes 1–4, owner-scoped)
+
+- **Blocker confirmed and fixed — dataset-kwarg conservation.** Introspection
+  read six hf_dataset kwargs and silently dropped the rest. Probe of our own
+  evals: commonsense_qa / mmlu_pro / race_h / paws / boolq pass `shuffle=True`
+  (mmlu upstream even `seed=42`) — so commonsense_qa, paws, boolq had been
+  imported with the shuffle dropped. Fix: every kwarg is now conserved —
+  reproduced ({path,name,split,revision,sample_fields,shuffle,seed}), benign
+  ({auto_id,trust,cached,retry}), or a named refusal (limit, shuffle_choices,
+  data_dir, anything unknown). shuffle without a seed requires --shuffle-seed;
+  an upstream seed is reproduced into the row. The three under-pinned boards
+  gained policy seeds (20260917) + prose; regression pins:
+  `test_boards_whose_eval_shuffles_carry_a_pinned_seed` + the refusal tests.
+- **Should-fix 1** — positional hf_dataset args now signature-bound in the
+  recorder (17/80 real call sites pass path positionally).
+- **Should-fix 2** — data_dir no longer aliased to config: refused with "add
+  the row by hand" (gsm8k's merged row was hand-verified; the module docstring
+  example moved to arc_easy).
+- **Should-fix 3** — the single-call fallback now requires the Task's dataset
+  to still hold the recorder's stub; an HF fewshot load beside a local exam
+  refuses instead of importing the fewshot split as the exam.
+- **Should-fix 4** — injection guards: Hub-controlled strings (dataset, config,
+  refs, license) are charset-refused; the captured revision must be a 40-hex
+  sha at the tool; every composed file is ast.parse-verified before writing.
+- **Incident during RED:** a main()-level test without --engine-src wrote fake
+  rows into the real package (the CLI default). Removed; the test now pins an
+  explicit tmp engine-src and an AIDEV-NOTE warns the next agent.
+- **Deferred (flags-only follow-ups, unfiled):** non-literal scorer kwargs
+  flag; multiple_choice params (multiple_correct/cot) emission; epochs /
+  generation-config task settings; stage-2 network errors wrapped as
+  ImporterError; the CI inspect-extra test lane (review Lane 7).

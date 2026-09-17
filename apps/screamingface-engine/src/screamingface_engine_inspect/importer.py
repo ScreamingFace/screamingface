@@ -29,7 +29,11 @@ Stages, in execution order (``main``):
 Run from ``apps/screamingface-engine``::
 
     uv run python -m screamingface_engine_inspect.importer \
-        inspect_evals.gsm8k.gsm8k:gsm8k --key gsm8k --task-arg fewshot=0
+        inspect_evals.arc.arc:arc_easy --key arc_easy
+
+(gsm8k, the original example, now refuses: its hf_dataset call passes
+``data_dir``, which the bake does not reproduce — its merged row was
+hand-verified before the refusal existed.)
 
 STORY: onboarding is AI-first — an agent runs the command, writes the catalogue
 prose, and resolves every TODO(review); the human's whole job is verifying the
@@ -41,6 +45,8 @@ from __future__ import annotations
 import argparse
 import ast
 import datetime as _datetime
+import inspect as _inspect
+import re
 import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -93,6 +99,11 @@ class TaskFacts:
     #: resolves to one module attribute — captured as a fact instead of flagged
     #: (the family renderer, OME-1116 milestone C).
     choice_template: str | None = None
+    #: The eval shuffles its exam order (hf_dataset shuffle=True). Without a seed
+    #: the upstream order is random per run, so an import must pin one order —
+    #: the upstream seed when the eval has one, else a --shuffle-seed policy seed.
+    upstream_shuffle: bool = False
+    upstream_shuffle_seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -142,10 +153,13 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         )
 
     recorded: list[tuple[dict[str, Any], Any]] = []
+    # WHY bind against the REAL signature: 17 of 80 inspect_evals call sites pass
+    # path (some also split) positionally — a kwargs-only recorder would drop them.
+    signature = _inspect.signature(module.hf_dataset)
 
     def recorder(*args: Any, **kwargs: Any) -> Any:
         stub = MemoryDataset([Sample(input="stub", target="A", choices=["a", "b"])])
-        recorded.append((dict(kwargs), stub))
+        recorded.append((dict(signature.bind_partial(*args, **kwargs).arguments), stub))
         return stub
 
     original: Any = module.hf_dataset
@@ -156,13 +170,14 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         module.hf_dataset = original  # type: ignore[attr-defined]
 
     kwargs: dict[str, Any] = _exam_dataset_kwargs(task, recorded, task_ref)
+    _refuse_irreproducible_dataset_kwargs(kwargs, task_ref)
     sample_fields: Any = _module_level_row_rule(kwargs.get("sample_fields"), task_ref)
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
     template_ref, choice_template_ref, custom_solvers = _solver_facts(task, module, task_ref)
     return TaskFacts(
         task_ref=task_ref,
         dataset=str(kwargs["path"]),
-        config=str(kwargs.get("name") or kwargs.get("data_dir") or ""),
+        config=str(kwargs.get("name") or ""),
         split=str(kwargs.get("split", "")),
         pinned_revision=kwargs.get("revision"),
         record_to_sample=f"{sample_fields.__module__}:{sample_fields.__name__}",
@@ -172,6 +187,8 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         scorer_kwargs=scorer_kwargs,
         custom_solvers=custom_solvers,
         choice_template=choice_template_ref,
+        upstream_shuffle=bool(kwargs.get("shuffle")),
+        upstream_shuffle_seed=kwargs.get("seed") if kwargs.get("shuffle") else None,
     )
 
 
@@ -205,14 +222,59 @@ def _exam_dataset_kwargs(
     for kwargs, stub in recorded:
         if task.dataset is stub:
             return kwargs
-    if len(recorded) == 1:
+    if len(recorded) == 1 and _dataset_holds_the_stub(task.dataset):
         # WHY the fallback: some evals wrap the loaded dataset (shuffle/slice), so
-        # identity breaks — with a single load there is nothing else it could be.
+        # identity breaks — but the wrapped dataset still CONTAINS the stub sample.
+        # A single HF call whose stub never reached the Task (a json exam with HF
+        # fewshots) must refuse: that call is not the exam (review round 2026-09-17).
         return recorded[0][0]
     raise ImporterError(
-        f"{task_ref}: {len(recorded)} hf_dataset calls and none is the Task's dataset — "
+        f"{task_ref}: {len(recorded)} hf_dataset call(s) and none is the Task's dataset — "
         "cannot tell the exam load apart; pass task args that disable the extras"
     )
+
+
+def _dataset_holds_the_stub(dataset: Any) -> bool:
+    """True when the Task's dataset still yields the recorder's stub sample."""
+
+    try:
+        return any(getattr(sample, "input", None) == "stub" for sample in dataset)
+    except Exception:  # noqa: BLE001 — WHY broad: an exotic dataset wrapper failing
+        # to iterate must mean "cannot confirm", never crash the importer.
+        return False
+
+
+#: hf_dataset parameters the bake either reproduces (path/name/split/revision/
+#: sample_fields, shuffle via a pinned seed) or that cannot change the exam's
+#: content (auto_id renumbers ids the bake reassigns anyway; trust/cached/retry
+#: only affect how loading happens).
+_REPRODUCED_DATASET_KWARGS: frozenset[str] = frozenset(
+    {"path", "name", "split", "revision", "sample_fields", "shuffle", "seed"}
+)
+_BENIGN_DATASET_KWARGS: frozenset[str] = frozenset({"auto_id", "trust", "cached", "retry"})
+
+
+def _refuse_irreproducible_dataset_kwargs(kwargs: dict[str, Any], task_ref: str) -> None:
+    """Every hf_dataset kwarg is conserved: reproduced, benign, or a refusal.
+
+    WHY: dropped kwargs are exam identity vanishing silently — an eval with
+    ``limit=500`` imported as the full split publishes a different exam with
+    every guard green (review blocker, 2026-09-17).
+    """
+
+    dropped: list[str] = sorted(
+        name
+        for name, value in kwargs.items()
+        if name not in _REPRODUCED_DATASET_KWARGS
+        and name not in _BENIGN_DATASET_KWARGS
+        and value not in (None, False, {})
+    )
+    if dropped:
+        raise ImporterError(
+            f"{task_ref}: hf_dataset kwarg(s) {', '.join(dropped)} are not reproduced "
+            "by the bake — importing would silently change the exam; add the row by "
+            "hand or extend the importer for this family"
+        )
 
 
 def _scorer_reference(task: Any, module: Any) -> tuple[str, dict[str, Any], str]:
@@ -503,6 +565,7 @@ def generate_rows(
         path: path.read_text() for path in (pins_path, prepare_path, boards_path)
     }
     _refuse_existing_rows(key, _pin_prefix(key), texts)
+    _refuse_injectable_text(facts, observations)
     license_name: str = (observations.license or "UNKNOWN").lower()
     if license_name not in CLEARED_DATASET_LICENSES:
         print(
@@ -528,8 +591,49 @@ def generate_rows(
         ),
     }
     for path, text in new_texts.items():
-        path.write_text(text)
+        _write_verified_python(path, text)
     return fragments
+
+
+#: Character sets for text that gets interpolated into GENERATED PYTHON. The Hub
+#: controls dataset names and card licenses, so templating them into code is an
+#: injection sink (Lane 4): a hostile card could land an executable line in
+#: pins.py. Everything outside these charsets is refused, and the composed files
+#: are additionally ast.parse-verified before writing.
+_REFERENCE_CHARSET = re.compile(r"^[A-Za-z0-9._:/\- ]*$")
+_LICENSE_CHARSET = re.compile(r"^[A-Za-z0-9.,+\- ]*$")
+_COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _refuse_injectable_text(facts: TaskFacts, observations: Observations) -> None:
+    """Refuse any Hub-controlled string that could escape the generated rows."""
+
+    references: dict[str, str | None] = {
+        "dataset": facts.dataset,
+        "config": facts.config,
+        "split": facts.split,
+        "record_to_sample": facts.record_to_sample,
+        "prompt_template": facts.prompt_template,
+        "choice_template": facts.choice_template,
+        "scorer": facts.scorer,
+        "task_ref": facts.task_ref,
+    }
+    for name, value in references.items():
+        if value is not None and not _REFERENCE_CHARSET.match(value):
+            raise ImporterError(
+                f"{name} {value!r} contains characters that cannot be written into "
+                "generated code — refusing (injection guard)"
+            )
+    if observations.license is not None and not _LICENSE_CHARSET.match(observations.license):
+        raise ImporterError(
+            f"dataset license {observations.license!r} contains characters that cannot "
+            "be written into generated code — refusing (injection guard)"
+        )
+    if not _COMMIT_SHA.match(observations.revision):
+        raise ImporterError(
+            f"captured revision {observations.revision!r} is not a 40-hex commit sha — "
+            "the Hub client returned a mutable ref or nothing; refusing at the tool"
+        )
 
 
 def _refuse_existing_rows(key: str, prefix: str, texts: Mapping[Path, str]) -> None:
@@ -580,10 +684,23 @@ def _with_import_names(text: str, names: tuple[str, ...]) -> str:
             "prepare.py: cannot find the pins import block — the insertion contract is broken"
         ) from exc
     existing: list[str] = [lines[i].strip().rstrip(",") for i in range(start + 1, end)]
-    merged: list[str] = sorted(set(existing) | set(names))
+    merged: list[str] = sorted({name for name in (*existing, *names) if name})
     block: list[str] = [f"    {name},\n" for name in merged]
     lines[start + 1 : end] = block
     return "".join(lines)
+
+
+def _write_verified_python(path: Path, text: str) -> None:
+    """The last injection backstop: never write a file that does not parse."""
+
+    try:
+        ast.parse(text, filename=path.name)
+    except SyntaxError as exc:
+        raise ImporterError(
+            f"{path.name}: the composed file does not parse ({exc.msg}, line {exc.lineno}) — "
+            "refusing to write; the generated fragment is malformed"
+        ) from exc
+    path.write_text(text)
 
 
 # ---------------------------------------------------------------------------
@@ -628,6 +745,18 @@ def main(
 
     try:
         facts: TaskFacts = introspect_task(args.task_ref, _parse_task_args(args.task_arg))
+        # WHY: shuffle=True without a seed means the upstream order is random per
+        # run — the import must pin ONE order. An explicit --shuffle-seed (policy)
+        # wins; otherwise the eval's own seed reproduces its order (the seeded
+        # shuffle applies the same permutation to an equal-length list).
+        shuffle_seed: int | None = (
+            args.shuffle_seed if args.shuffle_seed is not None else facts.upstream_shuffle_seed
+        )
+        if facts.upstream_shuffle and shuffle_seed is None:
+            raise ImporterError(
+                f"{args.task_ref}: the eval shuffles its exam order with no seed — "
+                "pass --shuffle-seed to pin one order as exam identity"
+            )
         observations: Observations = capture_observations(
             facts, dataset_info=dataset_info, count_rows=count_rows
         )
@@ -636,7 +765,7 @@ def main(
             facts,
             observations,
             engine_src=args.engine_src,
-            shuffle_seed=args.shuffle_seed,
+            shuffle_seed=shuffle_seed,
         )
     except ImporterError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

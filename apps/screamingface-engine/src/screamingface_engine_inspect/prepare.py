@@ -56,11 +56,13 @@ from screamingface_engine_inspect.pins import (
     BOOLQ_CONFIG,
     BOOLQ_DATASET,
     BOOLQ_DATASET_REVISION,
+    BOOLQ_SHUFFLE_SEED,
     BOOLQ_SPLIT,
     COMMONSENSE_QA_CASE_COUNT,
     COMMONSENSE_QA_CONFIG,
     COMMONSENSE_QA_DATASET,
     COMMONSENSE_QA_DATASET_REVISION,
+    COMMONSENSE_QA_SHUFFLE_SEED,
     COMMONSENSE_QA_SPLIT,
     GSM8K_CASE_COUNT,
     GSM8K_DATA_DIR,
@@ -83,6 +85,7 @@ from screamingface_engine_inspect.pins import (
     PAWS_CONFIG,
     PAWS_DATASET,
     PAWS_DATASET_REVISION,
+    PAWS_SHUFFLE_SEED,
     PAWS_SPLIT,
     RACE_H_CASE_COUNT,
     RACE_H_CONFIG,
@@ -186,6 +189,10 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # letter target); prompt = the default MCQ render. Verified by a full
         # offline bake, 2026-09-17.
         record_to_sample="inspect_evals.commonsense_qa.commonsense_qa:record_to_sample",
+        # WHY the seed: the upstream eval shuffles this exam's order per run
+        # (hf_dataset shuffle=True, no seed) — the import pins one order as
+        # exam identity (review round 2026-09-17).
+        shuffle_seed=COMMONSENSE_QA_SHUFFLE_SEED,
     ),
     "paws": SnapshotSpec(
         dataset=PAWS_DATASET,
@@ -197,6 +204,10 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # Yes/No from the label. Verified by a full offline bake, 2026-09-17.
         record_to_sample="inspect_evals.paws.paws:record_to_sample",
         prompt_template="inspect_evals.paws.paws:TEMPLATE",
+        # WHY the seed: the upstream eval shuffles this exam's order per run
+        # (hf_dataset shuffle=True, no seed) — the import pins one order as
+        # exam identity (review round 2026-09-17).
+        shuffle_seed=PAWS_SHUFFLE_SEED,
     ),
     "boolq": SnapshotSpec(
         dataset=BOOLQ_DATASET,
@@ -208,6 +219,10 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # the question, Yes/No target); raw-input render (no template).
         # Verified by a full offline bake, 2026-09-17.
         record_to_sample="inspect_evals.boolq.boolq:record_to_sample",
+        # WHY the seed: the upstream eval shuffles this exam's order per run
+        # (hf_dataset shuffle=True, no seed) — the import pins one order as
+        # exam identity (review round 2026-09-17).
+        shuffle_seed=BOOLQ_SHUFFLE_SEED,
     ),
     "mmlu_pro": SnapshotSpec(
         dataset=MMLU_PRO_DATASET,

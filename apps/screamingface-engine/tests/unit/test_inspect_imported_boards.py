@@ -119,3 +119,12 @@ def test_board_row_prose_is_filled_not_todo(key: str) -> None:
     for prose in (spec.title, spec.description, spec.focus, spec.dataset_url):
         assert prose and "TODO" not in prose
     assert spec.dataset_url.startswith("https://huggingface.co/datasets/")
+
+
+def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
+    """The upstream evals of these boards randomize exam order per run
+    (hf_dataset shuffle=True); an import must pin one order — a dropped shuffle
+    was the 2026-09-17 review blocker, and this set is its regression pin."""
+
+    seeded: set[str] = {key for key, spec in SNAPSHOTS.items() if spec.shuffle_seed is not None}
+    assert seeded == {"mmlu", "commonsense_qa", "mmlu_pro", "race_h", "paws", "boolq"}

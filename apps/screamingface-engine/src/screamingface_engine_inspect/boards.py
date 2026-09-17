@@ -145,8 +145,9 @@ BOARDS: tuple[BoardSpec, ...] = (
             "distractors (the CommonsenseQA validation split — test answers are "
             "withheld upstream), imported from inspect_evals. Grading is "
             "inspect's own choice scorer against the published key; benchmark "
-            "score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over few options)."
+            "score = plain accuracy over the cases run, served in a fixed seeded "
+            "shuffle (the upstream eval randomizes order per run). No mid-run "
+            "check surface (elimination attack over few options)."
         ),
         focus="Everyday commonsense reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/tau/commonsense_qa",
@@ -162,9 +163,11 @@ BOARDS: tuple[BoardSpec, ...] = (
             "preserved the meaning (the PAWS labeled_final test split), imported "
             "from inspect_evals. The model answers Yes or No through the eval's "
             "own prompt template; grading is inspect's own includes scorer "
-            "against the published label, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. Free-form "
-            "replies make the mid-run check surface legitimate (corrective loop)."
+            "against the published label, so no judge tokens are spent. Cases are "
+            "served in a fixed seeded shuffle (the upstream eval randomizes "
+            "order per run); benchmark score = plain accuracy over the cases "
+            "run. Free-form replies make the mid-run check surface legitimate "
+            "(corrective loop)."
         ),
         focus="Paraphrase adjudication (yes/no)",
         dataset_url="https://huggingface.co/datasets/google-research-datasets/paws",
@@ -183,9 +186,10 @@ BOARDS: tuple[BoardSpec, ...] = (
             "given Wikipedia passage (the BoolQ validation split — test answers "
             "are withheld upstream), imported from inspect_evals. Grading is "
             "inspect's own pattern scorer over the reply's final Yes/No, so no "
-            "judge tokens are spent. Benchmark score = plain accuracy over the "
-            "cases run. Free-form replies make the mid-run check surface "
-            "legitimate (corrective loop)."
+            "judge tokens are spent. Cases are served in a fixed seeded shuffle "
+            "(the upstream eval randomizes order per run); benchmark score = "
+            "plain accuracy over the cases run. Free-form replies make the "
+            "mid-run check surface legitimate (corrective loop)."
         ),
         focus="Yes/no reading comprehension",
         dataset_url="https://huggingface.co/datasets/google/boolq",
