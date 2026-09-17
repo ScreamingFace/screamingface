@@ -102,10 +102,7 @@ async def test_healthy_boards_preserve_requests_and_full_results(
     assert {
         "case_loading",
         "answering",
-        "grading_check",
-        "grading_reduce",
+        "grading",
         "aggregation",
     } <= completed
-    if registration.asset_bundle.id in {"draco", "healthbench", "gdpval"}:
-        assert "grading_prepare" in completed
     assert all(e.attributes["sf.activity.state"] in {"started", "completed"} for e in logs)

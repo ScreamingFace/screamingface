@@ -10,9 +10,7 @@ from screamingface_engine.activity.contract import ActivityKind, message
     [
         (ActivityKind.CASE_LOADING, "Loading cases"),
         (ActivityKind.ANSWERING, "Answering"),
-        (ActivityKind.GRADING_PREPARE, "Grading"),
-        (ActivityKind.GRADING_CHECK, "Grading"),
-        (ActivityKind.GRADING_REDUCE, "Grading"),
+        (ActivityKind.GRADING, "Grading"),
         (ActivityKind.AGGREGATION, "Aggregating"),
     ],
 )
