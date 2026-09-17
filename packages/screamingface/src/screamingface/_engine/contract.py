@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -54,7 +55,8 @@ class _RunState:
         self._result: tuple[str | None, str | None, _ResultArtifact | None] | None = None
         self._root_usage: AccountingUsage | None = None
         self._last_sequence = 0
-        self._event_ids: set[str] = set()
+        self._event_ids: OrderedDict[str, int] = OrderedDict()
+        self._event_id_bytes = 0
         self._consecutive_replay_requests = 0
         self._stream_reattach_requests = 0
 
@@ -146,9 +148,21 @@ class _RunState:
                 )
             return _Accepted(replay_from=self._last_sequence + 1)
         self._consecutive_replay_requests = 0
-        self._event_ids.add(event_id)
+        self._remember_id(event_id)
         self._last_sequence = sequence
         return None
+
+    def _remember_id(self, event_id: str) -> None:
+        # INVARIANT: old sequences remain rejected by the scalar cursor. ID collision
+        # detection covers only this bounded window, never lifetime uniqueness.
+        size = len(event_id.encode("utf-8"))
+        if size > 1024 * 1024:
+            return
+        self._event_ids[event_id] = size
+        self._event_id_bytes += size
+        while len(self._event_ids) > 4096 or self._event_id_bytes > 1024 * 1024:
+            _, removed = self._event_ids.popitem(last=False)
+            self._event_id_bytes -= removed
 
     def _observe_run(self, run_id: str) -> None:
         if self._run_id is None:
