@@ -1,7 +1,7 @@
 ---
 id: OME-1222
 linear_url: https://linear.app/openmined/issue/OME-1222
-status: In Review
+status: In Progress
 type: feature
 priority: 2
 labels: [screamingface-engine, agentic, autonomous]
@@ -18,3 +18,5 @@ Plan: ../plan/2026-09-17-OME-1222-stage-activity.md
 Ledger: ../work/2026-09-17-OME-1222-stage-activity.md
 
 Validation: full Engine gates green; 33 new cases, seven healthy built-in board runs compared full/off with unchanged results/requests; independent Standards and Spec reviews clear. Implementation is ready as a draft, not merged.
+
+Owner workflow: remain In Progress while PR #980 is draft; move to In Review only when marked ready for review.

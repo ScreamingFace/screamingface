@@ -30,4 +30,6 @@ All six stage kinds have explicit owners, optional observers cannot change execu
 - **Review:** independent Standards and Spec reviews clear after fixing multi-observer cleanup and adding successful-board parity. Existing tests unchanged.
 - **Wisdom:** explicit owner declarations avoid route inference; the optional domain port keeps plugin imports out of core. No payload data crosses the port, no new dependency or storage, no scoring changes. Existing fault guard and timer cleanup are reused.
 - **Deviations:** minimal generic registry access/guard required because merged ports cover only model calls; execution core remains benchmark/activity-agnostic. New scope unwinding handles cancellation across multiple observers. Imported adapter installation tested without optional scorer packages; not a production-load or widget test.
-- **Delivery:** draft PR against main; implementation complete, ticket remains In Review until merge.
+- **Delivery:** draft PR against main; implementation complete, ticket remains In Progress while draft, then In Review when marked ready.
+
+Owner correction, 17 September: draft PRs remain In Progress in Linear; corrected the issue and task mirror.
