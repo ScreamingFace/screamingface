@@ -157,3 +157,36 @@ def test_rebake_into_a_used_directory_is_refused(tmp_path: Path) -> None:
     emit_snapshot(SNAPSHOTS["gsm8k"], _GSM8K_ROWS, tmp_path)
     with pytest.raises(PrepareError, match="non-empty"):
         emit_snapshot(SNAPSHOTS["gsm8k"], _GSM8K_ROWS, tmp_path)
+
+
+# ── mutable-ref refusal (review round 2026-09-17 on the pin generator) ───────
+
+
+def _spec_with_revision(revision: str) -> Any:
+    from dataclasses import replace
+
+    return replace(SNAPSHOTS["gsm8k"], dataset_revision=revision)
+
+
+@pytest.mark.parametrize("mutable_ref", ["main", "refs/tags/v1.0", "HEAD", ""])
+def test_bake_refuses_a_mutable_revision_ref(mutable_ref: str, tmp_path: Path) -> None:
+    """INVARIANT: only a 40-hex commit sha is exam identity. A branch/tag ref would
+    let upstream silently change a published board while its revision hash — built
+    from the unchanging ref STRING — stayed the same."""
+
+    with pytest.raises(PrepareError, match="commit sha"):
+        emit_snapshot(_spec_with_revision(mutable_ref), _GSM8K_ROWS, tmp_path)
+
+
+def test_board_assembly_refuses_a_mutable_revision_ref(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The same refusal fires at board-assembly time (CI), not only at image build —
+    a mutable pin lands in a red test suite, never in a published catalogue."""
+
+    from screamingface_engine_inspect import boards
+
+    monkeypatch.setitem(SNAPSHOTS, "gsm8k", _spec_with_revision("main"))
+    monkeypatch.setattr(boards, "_ASSEMBLED", {})
+    with pytest.raises(PrepareError, match="commit sha"):
+        boards.imported_board("gsm8k")

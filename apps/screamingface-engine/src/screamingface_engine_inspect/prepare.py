@@ -113,6 +113,25 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
 }
 
 
+def require_commit_sha(revision: str) -> str:
+    """Refuse a mutable revision ref — only a 40-hex commit sha is exam identity.
+
+    WHY: a branch/tag ref like ``main`` resolves to different data over time while
+    the board's revision hash — built from the unchanging ref STRING — stays the
+    same: two builds could carry different exams under one revision. The importer
+    resolves refs to shas at import time; this is the mechanical backstop for a
+    hand-written row (review round 2026-09-17).
+    """
+
+    if len(revision) != 40 or any(ch not in "0123456789abcdef" for ch in revision):
+        raise PrepareError(
+            f"dataset_revision {revision!r} is not a 40-hex commit sha — a mutable "
+            "ref (branch/tag) would let upstream change a published exam; pin the "
+            "resolved sha (the importer captures it for you)"
+        )
+    return revision
+
+
 def templated_prompt(question: str, template: str) -> str:
     """The ``prompt_template(TEMPLATE), generate()`` eval family's render, baked.
 
@@ -160,7 +179,8 @@ def emit_snapshot(
     eval's own row-to-Sample rule and prompt template, and the shop prints the public
     booklet plus the sealed answer keys. Stages, in execution order:
 
-        Stage 1 — refuse a wrong-sized dataset (the pinned case count is exam identity).
+        Stage 1 — refuse a mutable revision ref (only a 40-hex sha is exam identity)
+                  and a wrong-sized dataset (the pinned case count is, too).
         Stage 2 — shuffle when the spec pins a seed (the baked order is exam identity).
         Stage 3 — per row: the eval's ``record_to_sample`` builds the Sample; any raise
                   fails the bake by case number. The Sample then crosses the one
@@ -182,6 +202,7 @@ def emit_snapshot(
         The bake summary: case count, dataset revision, output directory.
     """
 
+    require_commit_sha(spec.dataset_revision)
     _require_case_count(rows, expected_cases)
     record_to_sample = _resolve(spec.record_to_sample)
     template: str | None = None if spec.prompt_template is None else _resolve(spec.prompt_template)
