@@ -123,5 +123,17 @@ def facts(values: Mapping[str, object]) -> dict[str, Scalar]:
     return result
 
 
+# WHY: producer kinds retain diagnostic detail; researcher stage labels stay simple.
+_LABELS = {
+    ActivityKind.CASE_LOADING: "Loading cases",
+    ActivityKind.ANSWERING: "Answering",
+    ActivityKind.MODEL_CALL: "Model call",
+    ActivityKind.GRADING_PREPARE: "Grading",
+    ActivityKind.GRADING_CHECK: "Grading",
+    ActivityKind.GRADING_REDUCE: "Grading",
+    ActivityKind.AGGREGATION: "Aggregating",
+}
+
+
 def message(kind: ActivityKind, state: str) -> str:
-    return f"{kind.value.replace('_', ' ').capitalize()} {state}"
+    return f"{_LABELS[kind]} {state}"
