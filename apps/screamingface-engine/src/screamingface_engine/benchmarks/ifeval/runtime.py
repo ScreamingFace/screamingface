@@ -26,6 +26,7 @@ from screamingface_engine.benchmarks.ifeval.definition import (
     CHECK_ROUTE,
     CHECK_SURFACE_ROUTE,
 )
+from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -34,18 +35,25 @@ def install(node: Url4Node, root: Path) -> None:
     """Register the canonical IFEval runtime and its check-surface port."""
 
     if CASES_ROUTE not in getattr(node, "_data", {}):
-        node.data(CASES_ROUTE, _cases(root), media_type="application/json")
+        node.data(
+            CASES_ROUTE,
+            observe_stage(BenchmarkStage.CASE_LOADING, _cases(root)),
+            media_type="application/json",
+        )
     routes = frozenset(node.processor_routes())
     endpoints = (
-        (CHECK_ROUTE, _check(root)),
-        (CHECK_SURFACE_ROUTE, _check_surface(root)),
-        (CASE_EVALUATION_ROUTE, _case_evaluation),
+        (CHECK_ROUTE, observe_stage(BenchmarkStage.GRADING_CHECK, _check(root))),
+        (CHECK_SURFACE_ROUTE, observe_stage(BenchmarkStage.GRADING_CHECK, _check_surface(root))),
+        (CASE_EVALUATION_ROUTE, observe_stage(BenchmarkStage.GRADING_REDUCE, _case_evaluation)),
         (
             AGGREGATE_ROUTE,
-            aggregate_endpoint(
-                label="IFEval aggregation",
-                available_case_count=CASE_COUNT,
-                aggregate=_aggregate(root),
+            observe_stage(
+                BenchmarkStage.AGGREGATION,
+                aggregate_endpoint(
+                    label="IFEval aggregation",
+                    available_case_count=CASE_COUNT,
+                    aggregate=_aggregate(root),
+                ),
             ),
         ),
     )

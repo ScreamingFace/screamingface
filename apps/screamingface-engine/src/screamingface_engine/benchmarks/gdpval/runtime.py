@@ -45,6 +45,7 @@ from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAM
 from screamingface_engine.benchmarks.gdpval.prompts import build_grader_prompt, render_rubric_item
 from screamingface_engine.benchmarks.gdpval.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -62,30 +63,54 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
     """
 
     if exam.routes.cases not in getattr(node, "_data", {}):
-        node.data(exam.routes.cases, _cases(root, exam.case_ids), media_type="application/json")
+        node.data(
+            exam.routes.cases,
+            observe_stage(BenchmarkStage.CASE_LOADING, _cases(root, exam.case_ids)),
+            media_type="application/json",
+        )
     installed = frozenset(node.processor_routes())
     endpoints = (
-        (exam.routes.tasks, _rubric_tasks(root, exam.case_ids, exam.id)),
+        (
+            exam.routes.tasks,
+            observe_stage(
+                BenchmarkStage.GRADING_PREPARE, _rubric_tasks(root, exam.case_ids, exam.id)
+            ),
+        ),
         # Closes over `node` so the judge route resolves per request — installation must still
         # work in a world holding no model routes.
-        (exam.routes.check_surface, check_surface(node, root, GDPVAL_CHECK)),
-        (exam.routes.verdict, _rubric_verdict(exam.id)),
-        (exam.routes.rubric_evaluation, _rubric_evaluation),
+        (
+            exam.routes.check_surface,
+            observe_stage(BenchmarkStage.GRADING_CHECK, check_surface(node, root, GDPVAL_CHECK)),
+        ),
+        (
+            exam.routes.verdict,
+            observe_stage(BenchmarkStage.GRADING_CHECK, _rubric_verdict(exam.id)),
+        ),
+        (
+            exam.routes.rubric_evaluation,
+            observe_stage(BenchmarkStage.GRADING_REDUCE, _rubric_evaluation),
+        ),
         (
             exam.routes.case_evaluation,
-            case_evaluation_endpoint(
-                label="GDPval Case evaluation",
-                item_name="Rubric evaluation",
-                bind=bind_case_evaluation,
-                error_context_head=300,
+            observe_stage(
+                BenchmarkStage.GRADING_REDUCE,
+                case_evaluation_endpoint(
+                    label="GDPval Case evaluation",
+                    item_name="Rubric evaluation",
+                    bind=bind_case_evaluation,
+                    error_context_head=300,
+                ),
             ),
         ),
         (
             exam.routes.aggregate,
-            aggregate_endpoint(
-                label="GDPval",
-                available_case_count=len(exam.case_ids),
-                aggregate=_aggregate(root, exam.id, exam.revision, exam.case_ids, exam.mean),
+            observe_stage(
+                BenchmarkStage.AGGREGATION,
+                aggregate_endpoint(
+                    label="GDPval",
+                    available_case_count=len(exam.case_ids),
+                    aggregate=_aggregate(root, exam.id, exam.revision, exam.case_ids, exam.mean),
+                ),
             ),
         ),
     )

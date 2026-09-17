@@ -46,6 +46,7 @@ from screamingface_engine.benchmarks.medxpert.definition import (
     CHECK_ROUTE,
     REVISION,
 )
+from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
 from url4.peer.server import Request, Url4Node
 
 
@@ -53,25 +54,35 @@ def install(node: Url4Node, root: Path) -> None:
     """Register every route this board's expression references."""
 
     if CASES_ROUTE not in getattr(node, "_data", {}):
-        node.data(CASES_ROUTE, _cases(root), media_type="application/json")
+        node.data(
+            CASES_ROUTE,
+            observe_stage(BenchmarkStage.CASE_LOADING, _cases(root)),
+            media_type="application/json",
+        )
     installed = frozenset(node.processor_routes())
     endpoints = (
-        (CHECK_ROUTE, _check(root)),
+        (CHECK_ROUTE, observe_stage(BenchmarkStage.GRADING_CHECK, _check(root))),
         (
             CASE_EVALUATION_ROUTE,
-            attempt_records_endpoint(
-                label="MedXpertQA Case evaluation",
-                item_name="Attempt",
-                bind=bind_case_evaluation,
-                error_context_head=300,
+            observe_stage(
+                BenchmarkStage.GRADING_REDUCE,
+                attempt_records_endpoint(
+                    label="MedXpertQA Case evaluation",
+                    item_name="Attempt",
+                    bind=bind_case_evaluation,
+                    error_context_head=300,
+                ),
             ),
         ),
         (
             AGGREGATE_ROUTE,
-            aggregate_endpoint(
-                label="MedXpertQA",
-                available_case_count=_case_count(root),
-                aggregate=_aggregate(root),
+            observe_stage(
+                BenchmarkStage.AGGREGATION,
+                aggregate_endpoint(
+                    label="MedXpertQA",
+                    available_case_count=_case_count(root),
+                    aggregate=_aggregate(root),
+                ),
             ),
         ),
     )

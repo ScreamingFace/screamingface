@@ -49,6 +49,7 @@ from screamingface_engine.benchmarks.healthbench.prompts import (
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -110,31 +111,51 @@ def _install_protocol_once(
     mean: ExamMean,
 ) -> None:
     if cases_route not in getattr(node, "_data", {}):
-        node.data(cases_route, _cases(root, case_ids), media_type="application/json")
+        node.data(
+            cases_route,
+            observe_stage(BenchmarkStage.CASE_LOADING, _cases(root, case_ids)),
+            media_type="application/json",
+        )
     routes = frozenset(node.processor_routes())
     endpoints = (
-        (tasks_route, _rubric_tasks(root, case_ids, benchmark_id)),
+        (
+            tasks_route,
+            observe_stage(
+                BenchmarkStage.GRADING_PREPARE, _rubric_tasks(root, case_ids, benchmark_id)
+            ),
+        ),
         # The mid-run check surface the corrective loop consumes. It closes over `node`
         # so the judge route resolves per request — installation must still work in a
         # world holding no model routes.
-        (check_surface_route, check_surface(node, root, HEALTHBENCH_CHECK)),
-        (verdict_route, _rubric_verdict(benchmark_id)),
-        (rubric_evaluation_route, _rubric_evaluation),
+        (
+            check_surface_route,
+            observe_stage(
+                BenchmarkStage.GRADING_CHECK, check_surface(node, root, HEALTHBENCH_CHECK)
+            ),
+        ),
+        (verdict_route, observe_stage(BenchmarkStage.GRADING_CHECK, _rubric_verdict(benchmark_id))),
+        (rubric_evaluation_route, observe_stage(BenchmarkStage.GRADING_REDUCE, _rubric_evaluation)),
         (
             case_evaluation_route,
-            case_evaluation_endpoint(
-                label="HealthBench Case evaluation",
-                item_name="Rubric evaluation",
-                bind=bind_case_evaluation,
-                error_context_head=300,
+            observe_stage(
+                BenchmarkStage.GRADING_REDUCE,
+                case_evaluation_endpoint(
+                    label="HealthBench Case evaluation",
+                    item_name="Rubric evaluation",
+                    bind=bind_case_evaluation,
+                    error_context_head=300,
+                ),
             ),
         ),
         (
             aggregate_route,
-            aggregate_endpoint(
-                label="HealthBench",
-                available_case_count=len(case_ids),
-                aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids, mean),
+            observe_stage(
+                BenchmarkStage.AGGREGATION,
+                aggregate_endpoint(
+                    label="HealthBench",
+                    available_case_count=len(case_ids),
+                    aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids, mean),
+                ),
             ),
         ),
     )
