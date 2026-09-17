@@ -134,7 +134,7 @@ stacked on #966):
   definition suite, 10 keys), appends to `test_inspect_snapshots.py` +
   `test_inspect_importer.py`, roster rows in `test_benchmark_declaration.py`,
   owner-approved amendment in `test_inspect_mmlu_board.py`.
-- **Commits:** see PR (single squash-bound commit on the stack).
+- **Commits:** see PR #970 (multiple commits on the branch; squash-merged as one).
 - **Gates:** `run_gates.py screamingface-engine --skip-append-only` ALL GREEN
   (ruff check/format, pyright, layering, pytest 3072 passed / 9 skipped,
   coverage 93%). Skip flag owner-approved 2026-09-17 for the two prior-test
@@ -184,3 +184,15 @@ stacked on #966):
   flag; multiple_choice params (multiple_correct/cot) emission; epochs /
   generation-config task settings; stage-2 network errors wrapped as
   ImporterError; the CI inspect-extra test lane (review Lane 7).
+
+## Review round 2 — 2026-09-17 (all medium/auto-fixable; verified real)
+
+- Applied: injection charsets anchored with `\Z` (+ trailing-newline refusal
+  test); WHY-seed comments on the MMLU_PRO/RACE_H pins; provenance notes —
+  winogrande "imported at fewshot=0", winogrande/race_h "filter_duplicate_ids
+  wrapper verified content-preserving (0 duplicates) at this revision".
+- Deferred to tickets (with round 1's list): conserve dataset WRAPPERS
+  (filter/dedup) not just kwargs — filter_duplicate_ids passes the stub-holding
+  fallback invisibly; record --task-arg list in generated pin provenance;
+  GenerateConfig (temperature/max_tokens) neither reproduced nor flagged
+  (bites cqa/race_h/winogrande as a comparability fact, accepted as policy).

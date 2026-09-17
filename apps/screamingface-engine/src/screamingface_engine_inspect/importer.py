@@ -600,9 +600,9 @@ def generate_rows(
 #: injection sink (Lane 4): a hostile card could land an executable line in
 #: pins.py. Everything outside these charsets is refused, and the composed files
 #: are additionally ast.parse-verified before writing.
-_REFERENCE_CHARSET = re.compile(r"^[A-Za-z0-9._:/\- ]*$")
-_LICENSE_CHARSET = re.compile(r"^[A-Za-z0-9.,+\- ]*$")
-_COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+_REFERENCE_CHARSET = re.compile(r"^[A-Za-z0-9._:/\- ]*\Z")
+_LICENSE_CHARSET = re.compile(r"^[A-Za-z0-9.,+\- ]*\Z")
+_COMMIT_SHA = re.compile(r"^[0-9a-f]{40}\Z")
 
 
 def _refuse_injectable_text(facts: TaskFacts, observations: Observations) -> None:

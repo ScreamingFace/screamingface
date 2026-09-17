@@ -821,3 +821,16 @@ def test_generate_refuses_a_revision_that_is_not_a_commit_sha(engine_src_copy: P
             Observations(revision="None", case_count=42, license="mit"),
             engine_src=engine_src_copy,
         )
+
+
+def test_injection_charsets_refuse_a_trailing_newline(engine_src_copy: Path) -> None:
+    """`$` tolerates one trailing newline; the guards anchor with \\Z so a
+    newline can never open a second line in generated code."""
+
+    with pytest.raises(ImporterError, match="license"):
+        generate_rows(
+            "sums",
+            _facts(),
+            Observations(revision="c" * 40, case_count=42, license="mit\n"),
+            engine_src=engine_src_copy,
+        )
