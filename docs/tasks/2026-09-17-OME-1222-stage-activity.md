@@ -17,6 +17,6 @@ Spec: ../spec/2026-09-17-OME-1222-stage-activity.md
 Plan: ../plan/2026-09-17-OME-1222-stage-activity.md
 Ledger: ../work/2026-09-17-OME-1222-stage-activity.md
 
-Validation: full Engine gates green; 38 new cases, seven healthy built-in board runs compared full/off with unchanged results/requests; independent Standards and Spec reviews clear. Endpoint implementations now own emission; shared factories declare once, installers only register routes. URL4 is unchanged. PR remains draft, not merged.
+Validation: full Engine gates green; 45 new cases, seven healthy built-in board runs compared full/off with unchanged results/requests; independent Standards and Spec reviews clear. Endpoint implementations now own emission; shared factories declare once, installers only register routes. URL4 is unchanged. PR remains draft, not merged.
 
 Owner workflow: remain In Progress while PR #980 is draft; move to In Review only when marked ready for review.

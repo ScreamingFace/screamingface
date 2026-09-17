@@ -57,3 +57,9 @@ Intent: remove stage_scope entirely, rename reports_stage to observe_stage, reta
 Plan/test: add RED coverage for decorator syntax, simplify API and migrate callers/tests, run all stage tests and full Engine gates. Keep PR draft and ticket In Progress. Existing two-argument helper is replaced, not retained as a compatibility API for this unmerged feature.
 
 Decorator revision outcome: stage_scope and reports_stage removed from all production/test code; observe_stage(stage) is the sole decorator API. Native sync/async execution uses the same internal _StageCall, with no new lifecycle behavior. RED decorator test failed with missing handler argument; all 38 focused cases now pass. Full local Engine gates ALL GREEN. Prior PR tests migrated mechanically for the owner-requested removal; their failure, cancellation, privacy and parentage assertions remain. Tests inherited from main remain unchanged. Wisdom review: fixed vocabulary, smaller API, no speculative block capability or URL4 change. Keep draft/In Progress.
+
+## Revision — four researcher-facing stage labels
+
+Owner selected exactly Loading cases / Answering / Grading / Aggregating. Map the fixed producer kinds to these message labels; preserve the structured v1 kinds so all grading substeps remain diagnostic details, and model_call remains a detail rather than a fifth stage. Add label mapping tests before implementation. Document the four-category projection for the future Client. No Client code or wire schema change.
+
+Label revision outcome: messages use the four approved labels; structured producer kinds and model-call detail remain unchanged. Five RED mapping cases now pass; all 45 focused tests and full local Engine gates pass. No frontend implementation claimed. Existing tests unchanged. Keep draft/In Progress.
