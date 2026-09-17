@@ -9,6 +9,7 @@ from screamingface_engine.activity.contract import MAX_INTEGER, ActivityKind, sa
 from screamingface_engine.activity.scope import Operation, operation, stop_heartbeats
 from screamingface_engine.activity.session import ActivitySession, activate
 from screamingface_engine.benchmarks.case_context import current_case_id
+from screamingface_engine.benchmarks.stages import BenchmarkStage, StageScope
 from screamingface_engine.observations import LogEmitter, ModelObservation, Scalar
 
 
@@ -36,6 +37,11 @@ class ActivityObserver:
             operation(emit=emit, kind=ActivityKind.MODEL_CALL, model_id=model_id, **_case_facts()),
         )
 
+    def stage(self, stage: BenchmarkStage, emit: LogEmitter | None) -> StageScope | None:
+        if self.session is None or not self.session.active or emit is None:
+            return None
+        return ActivityStage(self, operation(emit=emit, kind=ActivityKind(stage.value)))
+
     def bridge_loss(self, dropped: int) -> dict[str, Scalar]:
         if self.session is None or not self.session.active:
             return {}
@@ -46,13 +52,36 @@ class ActivityObserver:
         }
 
 
-class ActivityModelCall:
+class ActivityStage:
+    """Track stage resources alongside calls so run cleanup also joins abandoned stages."""
+
     def __init__(self, owner: ActivityObserver, scope: Operation) -> None:
         self._owner, self._scope = owner, scope
 
-    async def start(self) -> None:
+    def __enter__(self) -> None:
+        self._owner._calls.add(self._scope)
+        self._scope.__enter__()
+
+    def __exit__(self, typ, exc, tb) -> None:
+        try:
+            self._scope.__exit__(typ, exc, tb)
+        finally:
+            self._owner._calls.discard(self._scope)
+
+    async def __aenter__(self) -> None:
         self._owner._calls.add(self._scope)
         await self._scope.__aenter__()
+
+    async def __aexit__(self, typ, exc, tb) -> None:
+        try:
+            await self._scope.__aexit__(typ, exc, tb)
+        finally:
+            self._owner._calls.discard(self._scope)
+
+
+class ActivityModelCall(ActivityStage):
+    async def start(self) -> None:
+        await self.__aenter__()
 
     async def close(
         self,
@@ -60,10 +89,7 @@ class ActivityModelCall:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        try:
-            await self._scope.__aexit__(exc_type, exc, tb)
-        finally:
-            self._owner._calls.discard(self._scope)
+        await self.__aexit__(exc_type, exc, tb)
 
     def completed(self, finish_reason: str | None) -> None:
         self._scope.finish(finish_reason=finish_reason)

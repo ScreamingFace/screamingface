@@ -49,6 +49,7 @@ from screamingface_engine.benchmarks.spine.serving import (
     install_board,
     serve_cases,
 )
+from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
 from url4.peer.server import Request, Url4Node
 
 

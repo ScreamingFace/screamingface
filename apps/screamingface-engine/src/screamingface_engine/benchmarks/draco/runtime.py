@@ -45,6 +45,7 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -63,36 +64,49 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
     memoized, so a missing asset fails identically — and loudly — on every resolution.
     """
     assets = _lazy_protocol_assets(root)
-    install_cases(node, exam.routes.cases, _cases(assets))
-    node.endpoint(exam.routes.tasks)(_task_rows(root, exam))
+    install_cases(node, exam.routes.cases, observe_stage(BenchmarkStage.CASE_LOADING, _cases(assets)))
+    node.endpoint(exam.routes.tasks)(observe_stage(BenchmarkStage.GRADING_PREPARE, _task_rows(root, exam)))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
     # no model routes at all (every benchmark-only test builds one).
     node.endpoint(exam.routes.check_surface)(
-        check_surface(
-            node,
-            root,
-            DRACO_CHECK,
+        observe_stage(
+            BenchmarkStage.GRADING_CHECK,
+            check_surface(
+                node,
+                root,
+                DRACO_CHECK,
+            ),
         )
     )
-    node.endpoint(exam.routes.verdict)(_criterion_verdict(exam.id))
-    node.endpoint(exam.routes.criterion_evaluation)(_criterion_evaluation(exam.judge_passes))
+    node.endpoint(exam.routes.verdict)(
+        observe_stage(BenchmarkStage.GRADING_CHECK, _criterion_verdict(exam.id))
+    )
+    node.endpoint(exam.routes.criterion_evaluation)(
+        observe_stage(BenchmarkStage.GRADING_REDUCE, _criterion_evaluation(exam.judge_passes))
+    )
     node.endpoint(exam.routes.case_evaluation)(
-        case_evaluation_endpoint(
-            label="DRACO Case evaluation",
-            item_name="Criterion evaluation",
-            bind=bind_case_evaluation,
+        observe_stage(
+            BenchmarkStage.GRADING_REDUCE,
+            case_evaluation_endpoint(
+                label="DRACO Case evaluation",
+                item_name="Criterion evaluation",
+                bind=bind_case_evaluation,
+            ),
         )
     )
     node.endpoint(exam.routes.aggregate)(
-        aggregate_endpoint(
-            label="DRACO",
-            # WHY the constant: the lazy load validates len(cases) == CASE_COUNT on first
-            # resolution, so the eager `len(selected_cases)` this replaced was always equal.
-            available_case_count=CASE_COUNT,
-            aggregate=_aggregate(
-                assets,
-                exam,
+        observe_stage(
+            BenchmarkStage.AGGREGATION,
+            aggregate_endpoint(
+                label="DRACO",
+                # WHY the constant: the lazy load validates len(cases) == CASE_COUNT on first
+                # resolution, so the eager `len(selected_cases)` this replaced was always equal.
+                available_case_count=CASE_COUNT,
+                aggregate=_aggregate(
+                    assets,
+                    exam,
+                ),
             ),
         )
     )
