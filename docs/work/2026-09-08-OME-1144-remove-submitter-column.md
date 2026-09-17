@@ -1,9 +1,9 @@
 ---
 ticket: OME-1144
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-09-08
-finished:
+finished: 2026-09-09
 ---
 
 # OME-1144 — Remove the Submitter column from the leaderboard table
@@ -51,7 +51,8 @@ The last two are the reason this is a guard and not a restatement of the diff.
   cell append); `tests/unit/test_multiple_authors.py` lost the two stale assertions and gained
   `test_portal_leaderboard_table_has_no_submitter_column`. `portal/main.js`, `portal/spec.js` and
   `portal/spec.html` untouched, as D3 and D4 require.
-- **Commits:** see the PR — one commit, `Refs: OME-1144`.
+- **Commits:** `f887d88d` — `feat(scoreboard): drop the Submitter column from the leaderboard table`
+  (`Refs: OME-1144`). Landed on `main` as PR #859, squash-merged 2026-09-09 (`4744cf07`).
 - **Gates:**
   - `run_gates.py scoreboard --base origin/main` → append-only check FAILS on
     `tests/unit/test_multiple_authors.py` (removed old lines 197, 198). That is exactly the
