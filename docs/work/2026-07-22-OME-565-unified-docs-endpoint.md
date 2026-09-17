@@ -1,7 +1,7 @@
 ---
 ticket: OME-565
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-07-22
 finished: 2026-07-22
 ---
@@ -54,3 +54,17 @@ redirect to `/docs`; `run_gates.py url4-cloud` green.
   (`docs_url=None, redoc_url=None`) to free `/docs` for Scalar (Scalar replaces them). Browser-
   verified on `:9108`: `/docs` shows a **document switcher** — REST (OpenAPI 3.1) default + Stream
   (AsyncAPI 3.0) with all message types; `/scalar` + `/asyncapi` 307-redirect to `/docs`.
+
+## Closure justification (OME-1215, round 2)
+
+This ledger's `status:` was `in_progress` with the unit's work already merged, while the
+`docs/tasks/` mirror said `done` — the mirror was the correct side. `OME-1215` closed the
+ledger, which is an edit to an audit record, so the owner required the closure to be
+justified with evidence rather than asserted.
+
+EVIDENCE, verifiable from this repo: the unit's work is on `origin/main` as `47d3ddd6`
+(`feat(url4-cloud): unify docs into /docs (Scalar REST + AsyncAPI switcher)`), authored 2026-07-22. `finished: 2026-07-22` is that commit's author date — read
+from git, not reconstructed.
+
+WHAT IS *NOT* CLAIMED: nothing about why the ledger was left open, and nothing about the
+ticket's Linear state. Only that the work in this ledger reached `main` on the date given.

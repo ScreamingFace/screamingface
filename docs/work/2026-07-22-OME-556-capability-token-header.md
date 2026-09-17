@@ -1,7 +1,7 @@
 ---
 ticket: OME-556
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-07-22
 finished: 2026-07-22
 ---
@@ -73,3 +73,17 @@ scheme is present and attached to the execution ops; `docs/protocol.md §7` + sp
   this ADDS the first `securityScheme` (apiKey `URL4-Capability`), a net improvement (REST auth
   was previously undocumented in OpenAPI). Integration `test_e2e_compose_flow.py` edited but it is
   OWNER-RUN (needs Docker), not in the headless gate.
+
+## Closure justification (OME-1215, round 2)
+
+This ledger's `status:` was `in_progress` with the unit's work already merged, while the
+`docs/tasks/` mirror said `done` — the mirror was the correct side. `OME-1215` closed the
+ledger, which is an edit to an audit record, so the owner required the closure to be
+justified with evidence rather than asserted.
+
+EVIDENCE, verifiable from this repo: the unit's work is on `origin/main` as `79f6e9dc`
+(`feat(url4-cloud): dedicated URL4-Capability header, decoupled from Authorization`), authored 2026-07-22. `finished: 2026-07-22` is that commit's author date — read
+from git, not reconstructed.
+
+WHAT IS *NOT* CLAIMED: nothing about why the ledger was left open, and nothing about the
+ticket's Linear state. Only that the work in this ledger reached `main` on the date given.

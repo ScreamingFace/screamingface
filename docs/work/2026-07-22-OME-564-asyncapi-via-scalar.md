@@ -1,7 +1,7 @@
 ---
 ticket: OME-564
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-07-22
 finished: 2026-07-22
 ---
@@ -56,3 +56,17 @@ workaround (supersedes OME-553 / `0dbf119`).
 - **Deviations:** browser-verified on compose `:9108` — `/asyncapi` renders the AsyncAPI 3.0 channel
   in the Scalar UI (Models section, telemetry-stream channel, server). Removes the
   `@asyncapi/react-component` + unpkg dependency; **supersedes** OME-553 / `0dbf119` (cssImportPath).
+
+## Closure justification (OME-1215, round 2)
+
+This ledger's `status:` was `in_progress` with the unit's work already merged, while the
+`docs/tasks/` mirror said `done` — the mirror was the correct side. `OME-1215` closed the
+ledger, which is an edit to an audit record, so the owner required the closure to be
+justified with evidence rather than asserted.
+
+EVIDENCE, verifiable from this repo: the unit's work is on `origin/main` as `ad4cc2f8`
+(`feat(url4-cloud): render /asyncapi with Scalar, unify the doc viewers`), authored 2026-07-22. `finished: 2026-07-22` is that commit's author date — read
+from git, not reconstructed.
+
+WHAT IS *NOT* CLAIMED: nothing about why the ledger was left open, and nothing about the
+ticket's Linear state. Only that the work in this ledger reached `main` on the date given.

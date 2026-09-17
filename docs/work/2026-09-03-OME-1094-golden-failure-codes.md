@@ -1,9 +1,9 @@
 ---
 ticket: OME-1094
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-03
-finished:
+finished: 2026-09-03
 ---
 
 # OME-1094 — Pin each failed case's failure code in the e2e goldens
@@ -79,3 +79,17 @@ rung to the compare ladder between statuses and coverage.
     names the command) and the e2e replay workflow is red for that board.
   - Added a `--refresh-golden` bless mode + `just e2e-refresh-golden` (the ticket's "the
     harness just has to write them into the golden … refuse if the score differs").
+
+## Closure justification (OME-1215, round 2)
+
+This ledger's `status:` was `in_progress` with the unit's work already merged, while the
+`docs/tasks/` mirror said `done` — the mirror was the correct side. `OME-1215` closed the
+ledger, which is an edit to an audit record, so the owner required the closure to be
+justified with evidence rather than asserted.
+
+EVIDENCE, verifiable from this repo: the unit's work is on `origin/main` as `7bcaac44`
+(`Merge pull request #825 from ScreamingFace/OME-1094-golden-failure-codes`), authored 2026-09-03. `finished: 2026-09-03` is that commit's author date — read
+from git, not reconstructed.
+
+WHAT IS *NOT* CLAIMED: nothing about why the ledger was left open, and nothing about the
+ticket's Linear state. Only that the work in this ledger reached `main` on the date given.
