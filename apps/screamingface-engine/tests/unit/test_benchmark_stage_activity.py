@@ -25,7 +25,7 @@ def test_sync_stages_preserve_values_and_only_emit_safe_lifecycle(monkeypatch, s
     records, emit = capture()
     monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
     sentinel = object()
-    wrapped = observe_stage(stage, lambda: sentinel)
+    wrapped = observe_stage(stage)(lambda: sentinel)
     with RunObservations((ActivityObserver,)).bind():
         assert wrapped() is sentinel
     assert not inspect.iscoroutinefunction(wrapped)
@@ -55,7 +55,7 @@ async def test_async_stage_owns_nested_model_and_preserves_exception(monkeypatch
             await asyncio.sleep(0)
             raise failure
 
-    wrapped = observe_stage(BenchmarkStage.ANSWERING, answer)
+    wrapped = observe_stage(BenchmarkStage.ANSWERING)(answer)
     assert inspect.iscoroutinefunction(wrapped)
     run = RunObservations((lambda: observer,))
     with run.bind(), pytest.raises(ValueError) as caught:
@@ -82,7 +82,7 @@ async def test_stage_cancellation_joins_timer(monkeypatch):
 
     run = RunObservations((lambda: observer,))
     with run.bind():
-        task = asyncio.create_task(observe_stage(BenchmarkStage.ANSWERING, answer)())
+        task = asyncio.create_task(observe_stage(BenchmarkStage.ANSWERING)(answer)())
         await entered.wait()
         operations = tuple(observer._calls)
         task.cancel()
@@ -103,7 +103,7 @@ async def test_empty_or_off_inner_run_cannot_inherit_outer_activity(monkeypatch,
     inner = RunObservations(factories)
     with outer.bind():
         with inner.bind():
-            assert observe_stage(BenchmarkStage.GRADING_CHECK, lambda: "ok")() == "ok"
+            assert observe_stage(BenchmarkStage.GRADING_CHECK)(lambda: "ok")() == "ok"
             assert current_operation() is None
         assert records == []
     await inner.aclose()
@@ -123,7 +123,7 @@ async def test_concurrent_stage_instances_never_share_parent_or_occurrence(monke
     with run.bind():
         assert (
             await asyncio.gather(
-                *(observe_stage(BenchmarkStage.ANSWERING, answer)() for _ in range(3))
+                *(observe_stage(BenchmarkStage.ANSWERING)(answer)() for _ in range(3))
             )
             == ["same output"] * 3
         )
@@ -146,7 +146,7 @@ def test_stage_observer_fault_does_not_replace_execution_error(monkeypatch, capl
     with RunObservations((Broken,)).bind():
         for _ in range(2):
             with pytest.raises(ValueError, match="original"):
-                observe_stage(BenchmarkStage.GRADING_CHECK, fail)()
+                observe_stage(BenchmarkStage.GRADING_CHECK)(fail)()
     assert len(caplog.records) == 1
     assert "private" not in caplog.text
     assert records == []
@@ -202,9 +202,9 @@ async def test_observer_teardown_cannot_suppress_original_failure(monkeypatch, a
     run = RunObservations((Observer,))
     with run.bind(), pytest.raises(ValueError, match="original"):
         if asynchronous:
-            await observe_stage(BenchmarkStage.GRADING_CHECK, async_fail)()
+            await observe_stage(BenchmarkStage.GRADING_CHECK)(async_fail)()
         else:
-            observe_stage(BenchmarkStage.GRADING_CHECK, fail)()
+            observe_stage(BenchmarkStage.GRADING_CHECK)(fail)()
     await run.aclose()
 
 
@@ -247,9 +247,9 @@ async def test_cleanup_interruption_unwinds_all_observers(monkeypatch, asynchron
     with run.bind():
         with pytest.raises(asyncio.CancelledError):
             if asynchronous:
-                await observe_stage(BenchmarkStage.ANSWERING, answer)()
+                await observe_stage(BenchmarkStage.ANSWERING)(answer)()
             else:
-                observe_stage(BenchmarkStage.ANSWERING, lambda: "ok")()
+                observe_stage(BenchmarkStage.ANSWERING)(lambda: "ok")()
         assert current_operation() is None
         assert not activity._calls
     await run.aclose()

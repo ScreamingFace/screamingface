@@ -49,3 +49,11 @@ Revision outcome: shared evaluation factories, shared rubric checker and candida
 RED: three direct shared-factory tests emitted no records; explicit scope test failed because stage_scope was absent. GREEN: 37 focused cases pass, including existing installation and all-board full/off parity. Full local Engine gates ALL GREEN (append-only, lint, format, types, layering, full pytest/coverage). Existing tests unchanged. Independent Standards and Spec re-review found no substantiated issues; the spec reviewer independently reran all 37 cases.
 
 Wisdom: shared-factory ownership removes repeated installer decoration without route inference or a new SDK capability. Individual board changes are small declarations, not a copied progress pipeline. A broader generic lifecycle dispatcher refactor is unnecessary for this unit. No invented progress counters or grading changes. Revision complete; retain draft PR and In Progress ticket.
+
+## Revision — one decorator API (owner requested)
+
+Intent: remove stage_scope entirely, rename reports_stage to observe_stage, retain only the internal lifecycle dispatcher. Fixed BenchmarkStage vocabulary; no custom-stage registration. Owner explicitly requested API removal and consolidation, so migrate the affected tests to the new decorator spelling while preserving their behavioral assertions and async parentage/failure coverage. No production block-scope caller exists.
+
+Plan/test: add RED coverage for decorator syntax, simplify API and migrate callers/tests, run all stage tests and full Engine gates. Keep PR draft and ticket In Progress. Existing two-argument helper is replaced, not retained as a compatibility API for this unmerged feature.
+
+Decorator revision outcome: stage_scope and reports_stage removed from all production/test code; observe_stage(stage) is the sole decorator API. Native sync/async execution uses the same internal _StageCall, with no new lifecycle behavior. RED decorator test failed with missing handler argument; all 38 focused cases now pass. Full local Engine gates ALL GREEN. Prior PR tests migrated mechanically for the owner-requested removal; their failure, cancellation, privacy and parentage assertions remain. Tests inherited from main remain unchanged. Wisdom review: fixed vocabulary, smaller API, no speculative block capability or URL4 change. Keep draft/In Progress.
