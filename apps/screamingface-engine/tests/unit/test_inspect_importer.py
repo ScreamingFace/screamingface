@@ -4,9 +4,10 @@
 """The pin-generator importer — the tool that turns an inspect task into row diffs.
 
 INVARIANT the suite defends: the importer never invents exam facts. Everything it
-records is either read from the eval's own task (dataset args, conversion/template/
+writes is either read from the eval's own task (dataset args, conversion/template/
 scorer references) or captured as a named observation (revision sha, row count,
-license) — the emit stage that writes them into files rides the stack's next PR.
+license) — and it lands ONLY between the three files' anchor comments, as a diff a
+human reviews before anything merges (import time is the only trust window).
 
 Runs only with the `inspect` extra installed. No network: the fabricated eval
 module's ``hf_dataset`` is intercepted by the importer itself, and the capture
@@ -15,8 +16,11 @@ layer is injected.
 
 from __future__ import annotations
 
+import ast
+import shutil
 import sys
 import types
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -29,13 +33,20 @@ from inspect_ai.dataset import Sample  # noqa: E402
 from inspect_ai.scorer import choice, match  # noqa: E402
 from inspect_ai.solver import generate, multiple_choice, prompt_template  # noqa: E402
 
+from screamingface_engine_inspect import importer as importer_module  # noqa: E402
 from screamingface_engine_inspect.importer import (  # noqa: E402
+    CLEARED_DATASET_LICENSES,
     ImporterError,
     Observations,
     TaskFacts,
     capture_observations,
+    generate_rows,
     introspect_task,
+    render_fragments,
 )
+
+_SRC_DIR: Path = Path(importer_module.__file__).resolve().parent
+
 
 # ---------------------------------------------------------------------------
 # A fabricated eval package, registered in sys.modules — the importer must read
@@ -287,3 +298,237 @@ def test_capture_keeps_an_upstream_sha_pin() -> None:
     )
 
     assert obs.revision == "b" * 40
+
+
+# ---------------------------------------------------------------------------
+# render_fragments
+# ---------------------------------------------------------------------------
+
+
+def test_rendered_fragments_are_valid_python_and_carry_the_facts() -> None:
+    fragments = render_fragments(
+        "sums", _facts(), Observations(revision="c" * 40, case_count=42, license="mit")
+    )
+
+    ast.parse(fragments.pins)
+    ast.parse(f"SNAPSHOTS = {{\n{fragments.snapshot}}}")
+    ast.parse(f"BOARDS = (\n{fragments.board})")
+    assert 'SUMS_DATASET = "acme/sums"' in fragments.pins
+    assert f'SUMS_DATASET_REVISION = "{"c" * 40}"' in fragments.pins
+    assert "SUMS_CASE_COUNT = 42" in fragments.pins
+    assert "license: mit" in fragments.pins
+    assert f'record_to_sample="{_FAKE_MODULE}:record_to_sample"' in fragments.snapshot
+    assert f'prompt_template="{_FAKE_MODULE}:TEMPLATE"' in fragments.snapshot
+    # Free text ⇒ the check surface is legitimate and declared.
+    assert "with_check_surface=True" in fragments.board
+    assert 'scorer="inspect_ai.scorer:match"' in fragments.board
+    assert 'scorer_kwargs={"numeric": True}' in fragments.board
+    # Catalogue prose is the dev's, never invented by the tool.
+    assert "TODO" in fragments.board
+
+
+def test_mcq_fragments_refuse_the_check_surface() -> None:
+    """OME-796: pass/fail feedback over a handful of options is an elimination attack."""
+
+    fragments = render_fragments(
+        "quiz",
+        _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+    )
+
+    assert "with_check_surface" not in fragments.board
+    assert "prompt_template" not in fragments.snapshot
+
+
+def test_custom_solver_gets_a_review_flag() -> None:
+    """A solver the importer cannot classify must be pointed out, not papered over."""
+
+    fragments = render_fragments(
+        "quiz",
+        _facts(custom_solvers=("inspect_evals/mmlu_multiple_choice",)),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+    )
+
+    assert "TODO(review)" in fragments.snapshot
+    assert "mmlu_multiple_choice" in fragments.snapshot
+
+
+# ---------------------------------------------------------------------------
+# generate_rows — in-place insertion at the anchors
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def engine_src_copy(tmp_path: Path) -> Path:
+    """A working copy of the real three files — the insertion contract's ground truth."""
+
+    for name in ("pins.py", "prepare.py", "boards.py"):
+        shutil.copy(_SRC_DIR / name, tmp_path / name)
+    return tmp_path
+
+
+def _generate(engine_src: Path, key: str = "sums", **fact_overrides: Any) -> None:
+    generate_rows(
+        key,
+        _facts(**fact_overrides),
+        Observations(revision="c" * 40, case_count=42, license="mit"),
+        engine_src=engine_src,
+    )
+
+
+def test_generate_rows_lands_all_three_rows_in_parseable_files(engine_src_copy: Path) -> None:
+    _generate(engine_src_copy)
+
+    pins = (engine_src_copy / "pins.py").read_text()
+    prepare = (engine_src_copy / "prepare.py").read_text()
+    boards = (engine_src_copy / "boards.py").read_text()
+    for text, name in ((pins, "pins.py"), (prepare, "prepare.py"), (boards, "boards.py")):
+        ast.parse(text, filename=name)
+    assert 'SUMS_DATASET = "acme/sums"' in pins
+    assert '"sums": SnapshotSpec(' in prepare
+    assert 'key="sums"' in boards
+    # The SnapshotSpec entry reads the pins constants; the import block must carry them.
+    assert "SUMS_CASE_COUNT," in prepare
+
+
+def test_generate_rows_refuses_a_key_that_already_exists(engine_src_copy: Path) -> None:
+    with pytest.raises(ImporterError, match="gsm8k"):
+        _generate(engine_src_copy, key="gsm8k")
+
+
+def test_generated_snapshot_row_resolves_against_the_real_spec(
+    engine_src_copy: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The inserted entry must construct a real SnapshotSpec when the file executes."""
+
+    _generate(engine_src_copy)
+
+    namespace: dict[str, Any] = {}
+    exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
+    assert namespace["SUMS_DATASET"] == "acme/sums"
+    assert namespace["SUMS_CASE_COUNT"] == 42
+
+
+def test_unlisted_license_warns_but_emits(
+    engine_src_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Owner decision 2026-09-16: the human review of the diff is the gate."""
+
+    assert "proprietary" not in CLEARED_DATASET_LICENSES
+    generate_rows(
+        "sums",
+        _facts(),
+        Observations(revision="c" * 40, case_count=42, license="proprietary"),
+        engine_src=engine_src_copy,
+    )
+
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert "proprietary" in err
+    assert 'SUMS_DATASET = "acme/sums"' in (engine_src_copy / "pins.py").read_text()
+    assert "license: proprietary" in (engine_src_copy / "pins.py").read_text()
+
+
+# ---------------------------------------------------------------------------
+# main — the CLI wiring, capture injected
+# ---------------------------------------------------------------------------
+
+
+def test_main_wires_introspection_capture_and_insertion(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _install_fake_eval(monkeypatch, sums=_free_text_task)
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:sums",
+            "--key",
+            "sums",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    assert '"sums": SnapshotSpec(' in (engine_src_copy / "prepare.py").read_text()
+    assert "review the diff" in capsys.readouterr().out.lower()
+
+
+def test_main_passes_task_args_through(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    def sums(fewshot: int = 10) -> Task:
+        if fewshot:  # pragma: no cover — the guard IS the assertion
+            raise AssertionError("importer must forward --task-arg fewshot=0")
+        return _free_text_task()
+
+    _install_fake_eval(monkeypatch, sums=sums)
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:sums",
+            "--key",
+            "sums",
+            "--task-arg",
+            "fewshot=0",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# generate_rows hardening (review round 2 on PR 966)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_rows_refuses_a_colliding_pin_prefix(engine_src_copy: Path) -> None:
+    """ "foo-bar" and "foo_bar" both derive FOO_BAR_* constants — the second import
+    would silently shadow the first board's dataset/revision/count."""
+
+    _generate(engine_src_copy, key="foo-bar")
+    with pytest.raises(ImporterError, match="FOO_BAR"):
+        _generate(engine_src_copy, key="foo_bar")
+
+
+def test_generate_rows_writes_nothing_when_an_anchor_is_missing(engine_src_copy: Path) -> None:
+    """All insertion points are validated BEFORE any write: a broken boards.py anchor
+    must not leave pins/prepare half-imported (a retry would then hit 'already
+    exists' with no clean way back)."""
+
+    boards_path = engine_src_copy / "boards.py"
+    intact = boards_path.read_text()
+    anchor_line = next(
+        line for line in intact.splitlines() if importer_module._BOARDS_ANCHOR in line
+    )
+    boards_path.write_text(intact.replace(anchor_line + "\n", ""))
+    pins_before = (engine_src_copy / "pins.py").read_text()
+    prepare_before = (engine_src_copy / "prepare.py").read_text()
+
+    with pytest.raises(ImporterError, match="boards.py"):
+        _generate(engine_src_copy)
+
+    assert (engine_src_copy / "pins.py").read_text() == pins_before
+    assert (engine_src_copy / "prepare.py").read_text() == prepare_before
+    # Restoring the anchor makes the SAME import succeed — no stale half-state.
+    boards_path.write_text(intact)
+    _generate(engine_src_copy)
+    assert '"sums": SnapshotSpec(' in (engine_src_copy / "prepare.py").read_text()
+
+
+def test_generate_rows_refuses_a_key_that_is_not_an_identifier_stem(
+    engine_src_copy: Path,
+) -> None:
+    """ "2wikimultihop" would emit `2WIKIMULTIHOP_DATASET = ...` — invalid Python that
+    reports success and then cannot load. Refuse before writing."""
+
+    with pytest.raises(ImporterError, match="identifier"):
+        _generate(engine_src_copy, key="2wikimultihop")
+
+    assert "2WIKIMULTIHOP" not in (engine_src_copy / "pins.py").read_text()

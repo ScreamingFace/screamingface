@@ -28,6 +28,7 @@ from screamingface_engine_inspect.prepare import (
     SNAPSHOTS,
     SnapshotSpec,
     prepare_snapshot,
+    require_commit_sha,
 )
 from screamingface_engine_inspect.single_shot import (
     ImportedBoard,
@@ -99,6 +100,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # Provenance: inspect_evals.mmlu.mmlu's Task declares scorer=choice().
         scorer="inspect_ai.scorer:choice",
     ),
+    # --- importer: generated BoardSpec rows land above this line ---
 )
 
 
@@ -146,7 +148,8 @@ def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
         snapshot.dataset,
         snapshot.config,
         snapshot.split,
-        snapshot.dataset_revision,
+        # Assembly-time backstop: a mutable ref must never become exam identity.
+        require_commit_sha(snapshot.dataset_revision),
     ]
     if snapshot.shuffle_seed is not None:
         pins.append(f"shuffle_seed={snapshot.shuffle_seed}")
