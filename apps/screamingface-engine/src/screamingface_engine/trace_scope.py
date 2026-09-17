@@ -23,6 +23,7 @@ that never reaches it. Reading the log context would propagate for client-origin
 """
 
 import contextvars
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -40,6 +41,15 @@ _trace: contextvars.ContextVar[TraceContext | None] = contextvars.ContextVar(
 _node_span: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "screamingface_engine_node_span", default=None
 )
+
+_SPAN_ID = re.compile(r"^(?!0{16}$)[0-9a-f]{16}$")
+"""The one shape a W3C ``parent-id`` may take, including the all-zero rejection.
+
+Restated rather than imported from `url4.streaming.trace` for the same reason the test file
+restates it: this IS the contract aigateway's parser will apply, so a change upstream that
+widened what counts as valid must surface as a failure here rather than be adopted silently.
+Screened at RENDER time (`current_traceparent`), not at bind time — see `bind_node_span`.
+"""
 
 
 @contextmanager
@@ -70,8 +80,8 @@ def bind_node_span(span_id: str) -> None:
     FEATURE (OME-1185): `OME-1119` sent the run's ``root_span_id`` on every call, because
     nothing emitted a root span yet and a per-node parent would have dangled. `OME-1130` made
     per-node spans real, so that choice now only makes the trace FLAT — every aigateway server
-    span hangs off the run instead of off the node that issued the call, and a run's eleven
-    provider calls cannot be told apart.
+    span hangs off the run instead of off the node that issued the call, so the provider calls
+    of a run cannot be told apart by node.
 
     WHY nothing is ever unbound: the executor's observer calls this from the node's own
     :class:`asyncio.Task`, whose context dies with the node, so each sibling and each child
@@ -80,6 +90,20 @@ def bind_node_span(span_id: str) -> None:
     Token was created in a different Context``, the defect
     ``test_a_cancelled_run_does_not_raise_from_the_trace_scope`` pins. Run scoping is
     `run_trace_scope`'s job, and it clears this on entry.
+
+    WHY per-Task isolation is load-bearing, not incidental: a fan-out run resolves its nodes
+    concurrently, so a process-wide slot here would hand every node the id of whichever sibling
+    bound LAST — a well-formed parent pointing at the wrong node, which this module argues
+    throughout is worse than none. Pinned by
+    ``test_concurrent_siblings_each_render_their_own_node_span`` and
+    ``test_a_fan_out_run_parents_each_gateway_call_to_the_node_that_made_it``.
+
+    WHY this does NOT raise on a malformed id: the only caller is `_Bridge.on_event`, url4's
+    synchronous observer callback, and the id it passes is whatever the run's `Observer` minted
+    — not a value the engine controls. Raising here would abort the node, and through the
+    TaskGroup the whole run, because a TRACING id was wrong. `current_traceparent` screens the
+    value instead, at the one place it could do harm, and omits the header rather than
+    laundering it into an attribution to the run's root.
     """
 
     _node_span.set(span_id)
@@ -93,9 +117,14 @@ def current_traceparent() -> str | None:
     reached — which is worse than its absence, because absence is diagnosable.
 
     The span named is the CALLING NODE's when one is bound (OME-1185) and the run's
-    ``root_span_id`` otherwise — which is not a fallback but the correct answer: outside any
+    ``root_span_id`` when none is — which is not a fallback but the correct answer: outside any
     node, the run's root IS the current span, and it is a span `lifecycle` genuinely emits
     (`StartedEvent` rides it).
+
+    A node bound with an id that is not a span id is the THIRD case, and it renders ``None``:
+    a node IS resolving, so the root is not the current span, and saying it is would put this
+    call under the run — a well-formed, plausible, wrong parent, which is the flat trace
+    OME-1185 removes, restored silently. Absence is diagnosable; a wrong parent is not.
 
     WHY never a fresh span per call: W3C wants the caller's CURRENT span, and OTel's HTTP
     instrumentation mints a client span per request. Minting one here would name a span no
@@ -106,7 +135,16 @@ def current_traceparent() -> str | None:
     trace = _trace.get()
     if trace is None:
         return None
-    return format_traceparent(trace.trace_id, _node_span.get() or trace.root_span_id)
+    node_span = _node_span.get()
+    # `is None`, never truthiness: "no node is resolving" is the ONLY condition that may name
+    # the root. An empty binding used to reach the root through `or` — an unusable value
+    # rendering as a confident, wrong attribution.
+    if node_span is None:
+        return format_traceparent(trace.trace_id, trace.root_span_id)
+    # An unusable node id renders as NO header rather than as the root: the docstring's third
+    # case. The root path above is deliberately NOT screened — that is `OME-1119`'s contract,
+    # unchanged, and widening the screen to it would be a separate decision.
+    return format_traceparent(trace.trace_id, node_span) if _SPAN_ID.match(node_span) else None
 
 
 __all__ = ["bind_node_span", "current_traceparent", "run_trace_scope"]

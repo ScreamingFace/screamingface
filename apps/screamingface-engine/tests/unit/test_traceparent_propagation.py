@@ -18,7 +18,9 @@ The second is the reason this is a ContextVar rather than a constructor argument
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Iterator
 
 import httpx
 import pytest
@@ -30,6 +32,7 @@ from screamingface_engine.rest.connections import _caller
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import BridgeOverflowError, Url4Executor, _Bridge
 from screamingface_engine.trace_scope import (
+    _node_span,
     bind_node_span,
     current_traceparent,
     run_trace_scope,
@@ -417,8 +420,9 @@ async def test_a_cancelled_run_does_not_raise_from_the_trace_scope() -> None:
 # `OME-1119` (above) bound `root_span_id`, because nothing emitted a root span yet and a
 # per-node parent would have dangled. `OME-1130` made per-node spans real, so every aigateway
 # server span hanging off the run's root is now merely FLAT: production trace
-# e2f0bfb83234b51d0228ce0fa39c0334 (2026-09-17) carried 24 gateway server spans under one
-# shared parent, so the run's eleven provider calls could not be told apart by node.
+# e2f0bfb83234b51d0228ce0fa39c0334 (2026-09-17 04:25 UTC) held 200 spans — screamingface-engine
+# 176 + aigateway 24, 1 root, 0 orphans — and all 24 gateway server spans shared the single
+# parent c84b53aff1cdcb16, so no gateway call could be attributed to the node that made it.
 
 
 def test_a_bound_node_span_is_what_the_traceparent_names() -> None:
@@ -524,3 +528,171 @@ def test_a_node_start_the_bridge_cannot_buffer_still_binds_its_span() -> None:
 
     assert rendered is not None
     assert TRACEPARENT.match(rendered).group(2) == "b" * 16  # type: ignore[union-attr]
+
+
+# --- OME-1185 follow-up: the per-Task isolation the whole design rests on -----------------------
+#
+# Review finding: every test above this line passes if `_node_span` is a plain module-level
+# global instead of a ContextVar. The binding is set-and-never-reset precisely BECAUSE each
+# node resolves in its own `asyncio.Task` (`url4.dag.executor.Executor._run` ->
+# `tg.create_task(self._eval(...))`), so a sibling's binding cannot reach this node's outbound
+# calls. Nothing pinned that, and it is the property a regression would break: under a global,
+# a fan-out run attributes every concurrent node's gateway calls to whichever sibling bound
+# last — a plausible-looking WRONG parent, which this ticket argues is worse than the flat
+# trace it replaces.
+
+
+@pytest.fixture(autouse=True)
+def _reset_node_span_between_tests() -> Iterator[None]:
+    """Module-wide: no test may leave a node span bound in the runner's root context.
+
+    `test_a_node_span_bound_outside_any_run_sends_nothing` and
+    `test_a_node_start_the_bridge_cannot_buffer_still_binds_its_span` both bind outside any
+    scope, and `run_trace_scope` (which clears on entry) is the only thing that makes that
+    harmless for the tests that follow. That is ordering as a load-bearing accident; this
+    removes it.
+    """
+    yield
+    _node_span.set(None)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_siblings_each_render_their_own_node_span() -> None:
+    """Two Tasks bind, THEN both read — the ordering a module-level global cannot survive.
+
+    The barrier is what makes this deterministic rather than a race: every sibling has bound
+    before any sibling reads, so a single shared slot necessarily hands both of them the id
+    that was written last.
+    """
+    import asyncio
+
+    span_ids = ("a" * 16, "b" * 16, "c" * 16)
+    rendered: dict[str, str | None] = {}
+    all_bound = asyncio.Barrier(len(span_ids))
+
+    async def resolve_one_node(span_id: str) -> None:
+        bind_node_span(span_id)
+        await all_bound.wait()
+        rendered[span_id] = current_traceparent()
+
+    with run_trace_scope(TRACE_A):
+        async with asyncio.TaskGroup() as group:
+            for span_id in span_ids:
+                group.create_task(resolve_one_node(span_id))
+        # And the siblings' bindings never escaped into the parent context either.
+        parent = current_traceparent()
+
+    assert set(rendered) == set(span_ids)
+    for span_id, value in rendered.items():
+        assert value is not None, span_id
+        match = TRACEPARENT.match(value)
+        assert match, value
+        assert match.group(1) == TRACE_A.trace_id
+        assert match.group(2) == span_id, (
+            f"node {span_id} rendered sibling span {match.group(2)!r} — the node binding is "
+            "shared process state, not per-Task, so a fan-out run parents every gateway call "
+            "to whichever node bound last"
+        )
+    assert parent is not None
+    assert TRACEPARENT.match(parent).group(2) == TRACE_A.root_span_id  # type: ignore[union-attr]
+
+
+SECOND_MODEL = "anthropic/claude-sonnet-4-5"
+SINK_MODEL = "anthropic/claude-opus-4-1"
+"""A THIRD model for the reducing node, so every node in the fan-out run calls a distinct one.
+
+`(a=…, b=…)!'$a $b'` is three model calls, not two: the outer intent resolves against the
+run's default model. Giving the sink its own id keeps `request_model` a unique key per node.
+"""
+
+
+@pytest.mark.asyncio
+async def test_a_fan_out_run_parents_each_gateway_call_to_the_node_that_made_it() -> None:
+    """The same claim through the real executor: two model-calling nodes, resolved concurrently.
+
+    Correlation is by MODEL, which is the one thing both halves carry: the request body names
+    the model the node called, and that node's exported `SpanData.request_model` names the same
+    one. So `sent[model]` and `exported[model]` can be compared directly — no `repr()`, no
+    positional guessing about which request belongs to which node.
+    """
+    gw = _MockAigateway()
+    cfg = AigatewayConfig(
+        models=(ModelSpec(id=MODEL), ModelSpec(id=SECOND_MODEL), ModelSpec(id=SINK_MODEL)),
+        default_model=SINK_MODEL,
+    )
+    exported: dict[str, str] = {}
+    node_span_ids: set[str] = set()
+    expression = f"(a=/{MODEL}('ctx')!'go', b=/{SECOND_MODEL}('ctx')!'go')!'$a $b'"
+    async with gw.client() as client:
+        world = await build_aigateway_world(cfg, client=client)
+        executor = Url4Executor(world.node)
+        async for step in executor.execute(expression, trace=TRACE_A):
+            if not isinstance(step, Traced) or step.span is None:
+                continue
+            node_span_ids.add(step.span.span_id)
+            if isinstance(step.payload, SpanData) and step.payload.request_model is not None:
+                exported[step.payload.request_model] = step.span.span_id
+
+    assert len(gw.requests) == 3, [r.url.path for r in gw.requests]
+    sent: dict[str, str] = {}
+    for request in gw.requests:
+        match = TRACEPARENT.match(request.headers.get("traceparent", ""))
+        assert match, request.headers.get("traceparent")
+        assert match.group(1) == TRACE_A.trace_id
+        sent[json.loads(request.content)["model"]] = match.group(2)
+
+    assert set(sent) == {MODEL, SECOND_MODEL, SINK_MODEL}, sent
+    concurrent = {sent[MODEL], sent[SECOND_MODEL]}
+    assert len(concurrent) == 2, (
+        f"both concurrent nodes sent the SAME parent span {sent} — one node's binding reached "
+        "the other's call, which only happens if the binding is not per-Task"
+    )
+    assert TRACE_A.root_span_id not in set(sent.values())
+    assert set(sent.values()) <= node_span_ids, (
+        f"a gateway call named a span the run never exported: sent {sorted(set(sent.values()))}, "
+        f"exported {sorted(node_span_ids)}"
+    )
+    assert sent == exported, (
+        f"a gateway call was parented to the WRONG node: sent {sent}, exported {exported}"
+    )
+
+
+@pytest.mark.parametrize(
+    "span_id",
+    ["", "0" * 16, "7" * 15, "7" * 17, "G" * 16, "span-0", ("ab" * 8).upper()],
+    ids=["empty", "all-zero", "too-short", "too-long", "not-hex", "synthetic", "upper-case"],
+)
+def test_a_node_span_that_is_not_a_span_id_sends_no_header_rather_than_the_root(
+    span_id: str,
+) -> None:
+    """The silent-degradation hole: `_node_span.get() or trace.root_span_id`.
+
+    `""` is falsy, so an unusable binding used to render the RUN's root — a well-formed,
+    plausible, wrong parent, which is precisely the flat trace OME-1185 removes, restored
+    silently in the one case (a bad id) where an operator most needs to be told. A node IS
+    resolving here, so the root is not the current span and naming it is a lie; this module's
+    standing answer for an id it cannot trust is to omit the header.
+
+    The all-zero id is the same failure in W3C clothing — it parses everywhere and joins
+    nothing — and `"span-0"` is the shape `test_url4_executor.py` feeds `_Bridge` directly.
+    """
+    with run_trace_scope(TRACE_A):
+        bind_node_span(span_id)
+        rendered = current_traceparent()
+
+    assert rendered is None, (
+        f"a node bound as {span_id!r} rendered {rendered!r} — an unusable node id must not be "
+        "laundered into an attribution to the run's root, nor sent as a malformed header"
+    )
+
+
+def test_a_usable_node_span_bound_after_an_unusable_one_still_renders() -> None:
+    """The screen is per-read, not a latch: rejecting one id must not disable the feature."""
+    with run_trace_scope(TRACE_A):
+        bind_node_span("")
+        assert current_traceparent() is None
+        bind_node_span("7" * 16)
+        rendered = current_traceparent()
+
+    assert rendered is not None
+    assert TRACEPARENT.match(rendered).group(2) == "7" * 16  # type: ignore[union-attr]
