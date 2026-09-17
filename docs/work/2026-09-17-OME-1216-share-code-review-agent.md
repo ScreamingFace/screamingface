@@ -1,9 +1,9 @@
 ---
 ticket: OME-1216
 stack: repo
-status: in_progress
+status: done
 started: 2026-09-17
-finished:
+finished: 2026-09-17
 ---
 
 # OME-1216 — Share the code-review agent guide with the team
@@ -35,6 +35,6 @@ directory, so only one person's sessions could use it. Move it into tracked
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned
-- **Commits:** <filled at close>
-- **Gates:** docs-only; no test suite applies
+- **Commits:** 9c103204 — docs(repo): share the code-review agent guide in .claude/agents (+ the close-docs commit)
+- **Gates:** docs-only; pre-commit hooks passed; grep verified no personal names/paths in the shared doc
 - **Deviations:** none

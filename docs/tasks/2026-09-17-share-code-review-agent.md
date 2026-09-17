@@ -1,12 +1,12 @@
 ---
 id: OME-1216
 linear_url: https://linear.app/openmined/issue/OME-1216/share-the-code-review-agent-guide-with-the-team
-status: in_progress
+status: done
 type: task
 priority: P3
 labels: [repo, agentic, autonomous, task]
 created: 2026-09-17
-closed:
+closed: 2026-09-17
 ---
 
 # Share the code-review agent guide with the team
