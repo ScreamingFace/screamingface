@@ -50,13 +50,35 @@ spec §7 two-board amendment, OME-1115 ledger Outcome + mirror close.
 - `docs/spec/2026-09-09-OME-1113-inspect-evals-import.md` §7 two-board amendment +
   OME-1115 ledger Outcome + `docs/tasks` mirror close (from the donor branches).
 
-**PR B — the pin generator (importer tool):**
-- A build-side command: given an inspect_evals task reference → resolve the HF
-  dataset's current sha, download + count rows, run the license check, and emit the
-  `SnapshotSpec` + `BoardSpec` rows as a generated diff for human review (import time
-  is the only trust window — see OME-1116 comments).
+**PRs B1 + B2 — the pin generator (importer tool)** (owner decisions 2026-09-16:
+edit files in place so `git diff` is the review artifact; auto-introspect from the
+task name with dev review as the gate; license check warns but emits; split in two
+stacked PRs by the ≤500-line rule — B1 = stages 1–2 reading facts, B2 = stage 3 +
+CLI writing rows):
+- `src/screamingface_engine_inspect/importer.py` — build-side command
+  (`python -m screamingface_engine_inspect.importer <task_ref> --key <k>`):
+  1. *introspect* — import the eval's task module, patch its `hf_dataset` binding
+     with a recorder returning a stub dataset, call the task function, then read
+     the recorded kwargs (dataset path/config/split, `record_to_sample`, pinned
+     revision if the eval pins one) and the Task's solver/scorer registry metadata
+     (family: templated | mcq | raw; scorer ref + kwargs; template attr resolved
+     by identity scan of the module).
+  2. *capture* — observations the eval's code can't provide: HF revision sha (when
+     not pinned upstream), row count at that sha, dataset license (warn-only
+     gate; the license lands as a comment in the generated rows).
+  3. *emit* — insert the three row fragments in place at anchor comments: pin
+     constants (pins.py), the `SnapshotSpec` entry (prepare.py), the `BoardSpec`
+     entry (boards.py, title/description/focus as TODO placeholders for the dev).
+- Anchor comments added to pins.py / prepare.py / boards.py (the insertion contract).
+- `tests/unit/test_inspect_importer.py` — fabricated eval module (no network):
+  introspection facts, renderer goldens (emitted code parses), in-place insertion
+  round-trip on file copies, license-warn path, duplicate-key refusal; capture
+  layer injected/faked.
 
-**PR C+ — the ten boards, in reviewable batches:**
+**PR C+ — the ten boards, in reviewable batches** (onboarding is AI-first — owner
+direction 2026-09-16: the agent runs the importer, writes the TODO catalogue prose
+from the eval's own docs, and resolves every TODO(review) flag; the human's role is
+reviewing/verifying the generated diff, plus the paid acceptance runs):
 - Ten generated row pairs (single-shot, license-cleared, `match`/`includes`/`choice`
   scorer families first), each with its per-board definition test; free-text boards
   opt into the check surface, MCQ boards refuse it (OME-796).
