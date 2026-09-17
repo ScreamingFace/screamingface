@@ -1,7 +1,7 @@
-# OME-1222 implementation plan
+# OME-1222 revised implementation plan
 
-1. Write lifecycle and enabled/off integration regressions; demonstrate RED.
-2. Add benchmark-owned stage port/wrapper and minimal generic registry access/guard. Extend activity observer with managed sync/async stage scopes.
-3. Declare stage wrappers at existing installers, including imported single-shot benchmarks. Keep routes, signatures and handler result contracts intact.
-4. Verify explicit coverage and deterministic execution parity; full Engine gates, independent review, documentation outcome.
-5. Commit and publish draft PR against main, explaining boundaries and remaining attribution/UI/scoring work.
+1. Add RED tests calling shared endpoint factories directly under an observer and log sink, plus explicit async scope failure/parentage coverage.
+2. Expose a dual sync/async benchmark stage scope backed by the existing optional observer and fault guard. Document partial-entry cleanup and ignored suppression.
+3. Move shared aggregation, case reduction, rubric checking and candidate answering emission into the implementations that own the work. Move remaining board-owned stage scopes into their actual producers; remove installation-time wrappers.
+4. Keep URL4, grading hooks, route definitions, payloads, deployment policy and old tests unchanged. Run stage tests and full Engine gates; independent review.
+5. Update justified PR/ticket descriptions, push to the existing draft. Keep Linear In Progress.

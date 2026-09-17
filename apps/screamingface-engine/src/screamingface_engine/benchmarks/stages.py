@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from enum import StrEnum
 from functools import wraps
 from inspect import iscoroutinefunction
@@ -24,7 +25,11 @@ class BenchmarkStage(StrEnum):
 
 
 class StageScope(Protocol):
-    """Inline sync hooks; async exit joins local resources without waiting for delivery."""
+    """Inline sync hooks; async exit joins local resources without waiting for delivery.
+
+    Exit must tolerate partially failed entry. Exit return values cannot suppress
+    execution errors. Factories must defer resource acquisition until entry.
+    """
 
     def __enter__(self) -> object: ...
     def __exit__(
@@ -100,11 +105,36 @@ class _StageCall:
             raise interrupted
 
 
+def stage_scope(stage: BenchmarkStage) -> _StageCall | nullcontext[None]:
+    """Observe work at its owner, independent of endpoint registration.
+
+    Use ``with`` for synchronous work and ``async with`` around awaited work.
+    The activity adapter owns records and timers; no observer means no activity.
+    """
+    run = current_observations()
+    return nullcontext() if run is None else _StageCall(stage, run)
+
+
+def reports_stage(stage: BenchmarkStage):
+    """Declare activity on the implementation owning the work, not its installer.
+
+    Shared endpoint factories declare this once for all their callers. Use an
+    explicit stage_scope for a smaller region within a larger operation.
+    """
+
+    def decorate[**P, R](handler: Callable[P, R]) -> Callable[P, R]:
+        return observe_stage(stage, handler)
+
+    return decorate
+
+
 def observe_stage[**P, R](stage: BenchmarkStage, handler: Callable[P, R]) -> Callable[P, R]:
-    """Declare a handler's stage at installation; retain sync/async invocation semantics.
+    """Convenience for plain synchronous or native coroutine functions.
 
     Completion means the handler returned, not that a case passed. Sync work cannot
     heartbeat while blocking the event loop. Async handlers include callable objects.
+    For mixed sync/awaitable work, use an explicit ``stage_scope`` around the
+    actual execution instead.
     """
 
     if iscoroutinefunction(handler) or iscoroutinefunction(getattr(handler, "__call__", None)):
@@ -115,7 +145,7 @@ def observe_stage[**P, R](stage: BenchmarkStage, handler: Callable[P, R]) -> Cal
             run = current_observations()
             if run is None:
                 return await async_handler(*args, **kwargs)
-            async with _StageCall(stage, run):
+            async with stage_scope(stage):
                 return await async_handler(*args, **kwargs)
 
         return cast(Callable[P, R], async_call)
@@ -125,7 +155,7 @@ def observe_stage[**P, R](stage: BenchmarkStage, handler: Callable[P, R]) -> Cal
         run = current_observations()
         if run is None:
             return handler(*args, **kwargs)
-        with _StageCall(stage, run):
+        with stage_scope(stage):
             return handler(*args, **kwargs)
 
     return sync_call

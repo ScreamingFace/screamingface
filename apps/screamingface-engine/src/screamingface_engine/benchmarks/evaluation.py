@@ -17,6 +17,7 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error,
     benchmark_definition_error,
 )
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
@@ -65,6 +66,7 @@ def case_evaluation_endpoint(
 ) -> Callable[[Request], str]:
     """Adapt one non-empty collection of evaluator records into a Case envelope route."""
 
+    @reports_stage(BenchmarkStage.GRADING_REDUCE)
     def endpoint(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -107,6 +109,7 @@ def attempt_records_endpoint(
     — an object — so it needs this shape. Both funnel into the same ``bind`` contract.
     """
 
+    @reports_stage(BenchmarkStage.GRADING_REDUCE)
     def endpoint(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -143,6 +146,7 @@ def aggregate_endpoint(
 
     positive_count(available_case_count, "available_case_count")
 
+    @reports_stage(BenchmarkStage.AGGREGATION)
     def endpoint(request: Request) -> str:
         selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
         try:

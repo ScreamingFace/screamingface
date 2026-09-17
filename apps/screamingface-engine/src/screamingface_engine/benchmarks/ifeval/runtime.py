@@ -30,7 +30,7 @@ from screamingface_engine.benchmarks.ifeval.definition import (
     CHECK_ROUTE,
     CHECK_SURFACE_ROUTE,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -38,21 +38,18 @@ from url4.peer.server import Request, Url4Node
 def install(node: Url4Node, root: Path) -> None:
     """Register the canonical IFEval runtime and its check-surface port."""
 
-    install_cases(node, CASES_ROUTE, observe_stage(BenchmarkStage.CASE_LOADING, _cases(root)))
+    install_cases(node, CASES_ROUTE, _cases(root))
     routes = frozenset(node.processor_routes())
     endpoints = (
-        (CHECK_ROUTE, observe_stage(BenchmarkStage.GRADING_CHECK, _check(root))),
-        (CHECK_SURFACE_ROUTE, observe_stage(BenchmarkStage.GRADING_CHECK, _check_surface(root))),
-        (CASE_EVALUATION_ROUTE, observe_stage(BenchmarkStage.GRADING_REDUCE, _case_evaluation)),
+        (CHECK_ROUTE, _check(root)),
+        (CHECK_SURFACE_ROUTE, _check_surface(root)),
+        (CASE_EVALUATION_ROUTE, _case_evaluation),
         (
             AGGREGATE_ROUTE,
-            observe_stage(
-                BenchmarkStage.AGGREGATION,
-                aggregate_endpoint(
-                    label="IFEval aggregation",
-                    available_case_count=CASE_COUNT,
-                    aggregate=_aggregate(root),
-                ),
+            aggregate_endpoint(
+                label="IFEval aggregation",
+                available_case_count=CASE_COUNT,
+                aggregate=_aggregate(root),
             ),
         ),
     )
@@ -62,6 +59,7 @@ def install(node: Url4Node, root: Path) -> None:
 
 
 def _cases(root: Path):
+    @reports_stage(BenchmarkStage.CASE_LOADING)
     def cases() -> str:
         return _read(root / "cases.json", "IFEval cases")
 
@@ -71,6 +69,7 @@ def _cases(root: Path):
 def _check(root: Path):
     """Authoritative per-Case Grading record consumed only by Aggregation."""
 
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     def check(request: Request) -> str:
         try:
             case_id, attempt = _case_and_attempt(request.intent)
@@ -132,6 +131,7 @@ def _check_surface(root: Path):
     the port fields — never instruction ids, kwargs, or the raw grading record.
     """
 
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     def check_surface(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)
@@ -224,6 +224,7 @@ def _case_by_input(root: Path, prompt: str) -> int:
     return _positive_int(matches[0], "case id")
 
 
+@reports_stage(BenchmarkStage.GRADING_REDUCE)
 def _case_evaluation(request: Request) -> str:
     """Pack exact attempt records into one authoritative per-Case envelope."""
 

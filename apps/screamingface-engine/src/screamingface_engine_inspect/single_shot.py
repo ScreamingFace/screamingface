@@ -69,7 +69,7 @@ from screamingface_engine.benchmarks.spine.scored import (
     GradeRequest,
     ScoredPath,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -366,19 +366,16 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
         "case_evaluation": board.case_evaluation_route,
         "aggregate": board.aggregate_route,
     }
-    install_cases(node, routes["cases"], observe_stage(BenchmarkStage.CASE_LOADING, _cases(root)))
+    install_cases(node, routes["cases"], _cases(root))
     installed = frozenset(node.processor_routes())
     endpoints: list[tuple[str, Callable[[Request], str | Awaitable[str]]]] = [
         (routes["check"], _check(root)),
         (
             routes["case_evaluation"],
-            observe_stage(
-                BenchmarkStage.GRADING_REDUCE,
-                attempt_records_endpoint(
-                    label=f"{board.benchmark.title} Case evaluation",
-                    item_name="Attempt",
-                    bind=bind_case_evaluation,
-                ),
+            attempt_records_endpoint(
+                label=f"{board.benchmark.title} Case evaluation",
+                item_name="Attempt",
+                bind=bind_case_evaluation,
             ),
         ),
         (
@@ -405,12 +402,7 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
     if board.benchmark.check_surface is not None:
         # Spec §4 — the SAME scorer, second office hour: the advertised
         # check-surface port for the corrective loop.
-        endpoints.append(
-            (
-                routes["check_surface"],
-                observe_stage(BenchmarkStage.GRADING_CHECK, _check_surface(board, root)),
-            )
-        )
+        endpoints.append((routes["check_surface"], _check_surface(board, root)))
     for route, handler in endpoints:
         if route not in installed:
             node.endpoint(route)(handler)
@@ -464,6 +456,7 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
 
 
 def _cases(root: Path) -> Callable[[], str]:
+    @reports_stage(BenchmarkStage.CASE_LOADING)
     def cases() -> str:
         try:
             return (root / "cases.json").read_text(encoding="utf-8")
@@ -481,6 +474,7 @@ def _check(root: Path) -> Callable[[Request], str]:
     preserved for re-grading.
     """
 
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     def check(request: Request) -> str:
         try:
             case_id: int = positive_case_id(request.intent)
@@ -521,6 +515,7 @@ def _check(root: Path) -> Callable[[Request], str]:
 
 
 def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]:
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     def check_surface(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)

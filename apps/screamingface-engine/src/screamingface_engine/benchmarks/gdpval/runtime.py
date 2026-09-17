@@ -52,7 +52,7 @@ from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAM
 from screamingface_engine.benchmarks.gdpval.prompts import build_grader_prompt, render_rubric_item
 from screamingface_engine.benchmarks.gdpval.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -69,50 +69,30 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
     into ONE Runner world over ONE ``root`` without colliding.
     """
 
-    install_cases(node, exam.routes.cases, observe_stage(BenchmarkStage.CASE_LOADING, _cases(root, exam.case_ids)))
+    install_cases(node, exam.routes.cases, _cases(root, exam.case_ids))
     installed = frozenset(node.processor_routes())
     endpoints = (
-        (
-            exam.routes.tasks,
-            observe_stage(
-                BenchmarkStage.GRADING_PREPARE, _rubric_tasks(root, exam.case_ids, exam.id)
-            ),
-        ),
+        (exam.routes.tasks, _rubric_tasks(root, exam.case_ids, exam.id)),
         # Closes over `node` so the judge route resolves per request — installation must still
         # work in a world holding no model routes.
-        (
-            exam.routes.check_surface,
-            observe_stage(BenchmarkStage.GRADING_CHECK, check_surface(node, root, GDPVAL_CHECK)),
-        ),
-        (
-            exam.routes.verdict,
-            observe_stage(BenchmarkStage.GRADING_CHECK, _rubric_verdict(exam.id)),
-        ),
-        (
-            exam.routes.rubric_evaluation,
-            observe_stage(BenchmarkStage.GRADING_REDUCE, _rubric_evaluation),
-        ),
+        (exam.routes.check_surface, check_surface(node, root, GDPVAL_CHECK)),
+        (exam.routes.verdict, _rubric_verdict(exam.id)),
+        (exam.routes.rubric_evaluation, _rubric_evaluation),
         (
             exam.routes.case_evaluation,
-            observe_stage(
-                BenchmarkStage.GRADING_REDUCE,
-                case_evaluation_endpoint(
-                    label="GDPval Case evaluation",
-                    item_name="Rubric evaluation",
-                    bind=bind_case_evaluation,
-                    error_context_head=300,
-                ),
+            case_evaluation_endpoint(
+                label="GDPval Case evaluation",
+                item_name="Rubric evaluation",
+                bind=bind_case_evaluation,
+                error_context_head=300,
             ),
         ),
         (
             exam.routes.aggregate,
-            observe_stage(
-                BenchmarkStage.AGGREGATION,
-                aggregate_endpoint(
-                    label="GDPval",
-                    available_case_count=len(exam.case_ids),
-                    aggregate=_aggregate(root, exam.id, exam.revision, exam.case_ids, exam.mean),
-                ),
+            aggregate_endpoint(
+                label="GDPval",
+                available_case_count=len(exam.case_ids),
+                aggregate=_aggregate(root, exam.id, exam.revision, exam.case_ids, exam.mean),
             ),
         ),
     )
@@ -160,6 +140,7 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     # payload is cached, so a broken asset re-checks (and re-fails loudly) on every call.
     memo: dict[str, str] = {}
 
+    @reports_stage(BenchmarkStage.CASE_LOADING)
     def cases() -> str:
         if "payload" not in memo:
             raw = preflight(root, case_ids)
@@ -181,6 +162,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     text_memo: dict[int, str] = {}
     items_memo: dict[int, list[dict[str, Any]]] = {}
 
+    @reports_stage(BenchmarkStage.GRADING_PREPARE)
     def rubric_tasks(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -246,6 +228,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
 def _rubric_verdict(benchmark_id: str):
     """The parse gate between "the judge said something" and "we have a verdict"."""
 
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     def rubric_verdict(request: Request) -> str:
         try:
             case_id, rubric_id = binding_key(request.intent)
@@ -283,6 +266,7 @@ def _rubric_verdict(benchmark_id: str):
     return rubric_verdict
 
 
+@reports_stage(BenchmarkStage.GRADING_REDUCE)
 def _rubric_evaluation(request: Request) -> str:
     try:
         case_id = positive_case_id(request.intent)

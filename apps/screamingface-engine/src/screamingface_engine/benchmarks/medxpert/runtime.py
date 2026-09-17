@@ -49,7 +49,7 @@ from screamingface_engine.benchmarks.spine.serving import (
     install_board,
     serve_cases,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from url4.peer.server import Request, Url4Node
 
 
@@ -114,6 +114,7 @@ def _cot_prompt(question: str) -> str:
 def _check(root: Path):
     """The gate between "the Candidate said something" and "we have a committed letter"."""
 
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)

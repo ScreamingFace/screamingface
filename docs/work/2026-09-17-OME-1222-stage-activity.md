@@ -33,3 +33,19 @@ All six stage kinds have explicit owners, optional observers cannot change execu
 - **Delivery:** draft PR against main; implementation complete, ticket remains In Progress while draft, then In Review when marked ready.
 
 Owner correction, 17 September: draft PRs remain In Progress in Linear; corrected the issue and task mirror.
+
+## Revision — endpoint-owned activity (owner approved)
+
+Intent: keep URL4 unchanged; registration is routing, not progress ownership. Shared benchmark endpoint factories own semantic stage scopes; board-specific producers scope their own work. Preserve existing stage contract, grading results, privacy and cancellation.
+
+Plan: introduce a dual sync/async `stage_scope` using the existing optional benchmark observation port; move aggregation and case reduction into shared evaluation factories, rubric check into its shared factory, and answering into the candidate handler. Move remaining board-specific scopes into producers and remove installer wrappers. No grading-hook signature changes, no payload logging, no route parsing. Existing generic DAG lifecycle remains unchanged.
+
+Tests: direct invocation of shared factories must emit exactly one semantic lifecycle under the existing log sink; scope around awaited work must retain parentage and original failures. Existing installation and board parity tests stay unchanged. Full Engine gates and review before push.
+
+Status: IN_PROGRESS. No URL4 capability is being implemented.
+
+Revision outcome: shared evaluation factories, shared rubric checker and candidate handler own their emission via `reports_stage`; local board-specific producers declare only their own stage. All endpoint installers restored to the main-branch implementation. `stage_scope` supports explicit awaited regions; the convenience decorator is deliberately limited to native sync/async functions. StageScope now specifies partial-start cleanup and ignored suppression. No URL4 changes.
+
+RED: three direct shared-factory tests emitted no records; explicit scope test failed because stage_scope was absent. GREEN: 37 focused cases pass, including existing installation and all-board full/off parity. Full local Engine gates ALL GREEN (append-only, lint, format, types, layering, full pytest/coverage). Existing tests unchanged. Independent Standards and Spec re-review found no substantiated issues; the spec reviewer independently reran all 37 cases.
+
+Wisdom: shared-factory ownership removes repeated installer decoration without route inference or a new SDK capability. Individual board changes are small declarations, not a copied progress pipeline. A broader generic lifecycle dispatcher refactor is unnecessary for this unit. No invented progress counters or grading changes. Revision complete; retain draft PR and In Progress ticket.
