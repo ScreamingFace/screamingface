@@ -41,8 +41,8 @@ from url4.streaming.interfaces import (
     JobAlreadyExists,
     JobRunnerAtCapacity,
 )
-from url4.streaming.protocol import CachePolicy, ResultEvent, TerminatedEvent
-from url4.streaming.trace import valid_traceparent
+from url4.streaming.protocol import CachePolicy, ErrorInfo, ResultEvent, TerminatedEvent
+from url4.streaming.trace import parse_traceparent, valid_traceparent
 
 router = APIRouter()
 
@@ -53,6 +53,58 @@ _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
     "timed_out": (504, "Gateway Timeout", "the run exceeded its deadline"),
     "stopped": (409, "Conflict", "the run was stopped"),
 }
+
+_SCRUBBED_CODE = "internal_error"
+
+# The CLOSED set of error codes this surface will repeat back to a caller, and — the same
+# decision — the set whose `message` it will repeat back (OME-941).
+#
+# WHY one list and not two: `ErrorInfo` is built by `url4.streaming.lifecycle._error_info`, which
+# takes `code` from `getattr(exc, "code")` and `message` from `str(exc)` — of WHATEVER exception
+# ended the run. For any provider-facing adapter that string is the provider's own text: a
+# response body, a refusal, an auth error quoting the key that failed. So `message` is tainted
+# unless something vouches for its author, and the only thing that can vouch is the code. Two
+# lists (echo the code but never the message) would be a second policy free to drift out of step
+# with this one; one list cannot.
+#
+# MEMBERSHIP RULE: a code belongs here only if every message published under it is authored by
+# url4 core or the engine's own control plane, about the CALLER'S OWN expression or the engine's
+# own limits. Deliberately absent, and each for a reason:
+#   - `resolution_failed`  — the I/O layer; its message can embed a remote response.
+#   - `internal_error`     — `str()` of an arbitrary exception, by definition unvouched.
+#   - `aigateway_*`, `provider_refusal`, `model_*`, `judge_*`, `*_grading_failed`, … — every
+#     provider-adjacent code in the executor and the benchmark adapters.
+# Adding a code here is a security decision, not a convenience one: check what its raise sites
+# actually put in the message before you do.
+_ENGINE_ERROR_CODES: frozenset[str] = frozenset(
+    {
+        "malformed_source",
+        "unbound_reference",
+        "cycle_detected",
+        "unrenderable",
+        "expansion_not_iterable",
+        "unknown_identity",
+        "unknown_processor",
+        "timeout",
+        "result_too_large",
+    }
+)
+
+
+def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, bool | None]:
+    """Reduce a terminal frame's ``ErrorInfo`` to what may cross the HTTP boundary.
+
+    Returns ``(code, message, permanent)``. An allowlisted code passes with its message; anything
+    else collapses to ``internal_error`` with NO message, so the caller still learns that the
+    engine has a code for this and that the detail was withheld, and learns nothing the provider
+    wrote. ``permanent`` always survives: it is a bool, it cannot carry text, and it is the one
+    field that tells the caller whether a retry can ever succeed.
+    """
+    if error is None:
+        return None, None, None
+    if error.code in _ENGINE_ERROR_CODES:
+        return error.code, error.message, error.permanent
+    return _SCRUBBED_CODE, None, error.permanent
 
 
 def _default_clock() -> datetime:
@@ -348,7 +400,21 @@ def _terminal_response(
         status,
         (502, "Bad Gateway", f"the run ended with an unhandled terminal status: {status}"),
     )
-    raise ProblemException(status=http_status, title=title, detail=detail)
+    # OME-941: the frame's own diagnosis, sanitized, plus the run's trace id. Without these a
+    # synchronous caller reads "the run failed" and has nothing to search a trace store with,
+    # while the stream that held the answer is purged moments later.
+    code, message, permanent = _sanitized_error(terminated.data.error)
+    raise ProblemException(
+        status=http_status,
+        title=title,
+        detail=message or detail,
+        code=code,
+        permanent=permanent,
+        # `parse_traceparent` is the validator, not just a parser: a malformed or all-zero
+        # traceparent yields None, so the member is absent rather than junk a caller would paste
+        # into a trace search. The TOPIC is never rendered here — it is a bearer capability.
+        trace_id=parse_traceparent(terminated.traceparent),
+    )
 
 
 _OVERRIDE_WARNING = (

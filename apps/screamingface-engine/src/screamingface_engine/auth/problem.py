@@ -19,6 +19,16 @@ class Problem(BaseModel):
     status: int
     detail: str | None = None
     instance: str | None = None
+    # RFC 9457 §3.2 extension members (OME-941). Optional, so `exclude_none=True` drops them and
+    # every problem raised without them stays byte-identical to what it was before.
+    code: str | None = None
+    """The run's error code — ALWAYS an engine-authored one. Whoever fills this is responsible
+    for the allowlisting; the model cannot tell an engine code from an adapter's."""
+    permanent: bool | None = None
+    """Whether retrying this request could ever succeed."""
+    trace_id: str | None = None
+    """W3C trace id of the run, so the caller can find it in the trace store. NOT the topic —
+    the topic is a bearer capability and never belongs in a response body."""
 
 
 class ProblemException(Exception):
@@ -33,8 +43,19 @@ class ProblemException(Exception):
         detail: str | None = None,
         type_: str = "about:blank",
         headers: dict[str, str] | None = None,
+        code: str | None = None,
+        permanent: bool | None = None,
+        trace_id: str | None = None,
     ) -> None:
-        self.problem = Problem(type=type_, title=title, status=status, detail=detail)
+        self.problem = Problem(
+            type=type_,
+            title=title,
+            status=status,
+            detail=detail,
+            code=code,
+            permanent=permanent,
+            trace_id=trace_id,
+        )
         self.headers = headers
         super().__init__(title)
 
