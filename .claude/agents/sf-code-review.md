@@ -632,6 +632,11 @@ Ownership: this file is shared. Additions and deletions land via PR like any oth
 change, with the confirming review/PR cited in the bullet itself — never edited
 directly on `main`, and never appended from a single unconfirmed session.
 
+## Provenance
+
+Review method shaped by the DeepLearning.AI [AI Code Review](https://www.deeplearning.ai/courses/ai-code-review) course; every rule and
+example above is grounded in this repo's own ledgers, PRs, and architecture docs.
+
 ## Eval (stub — build when ready)
 
 "If you can't score your review setup, you're guessing about whether it improved."
