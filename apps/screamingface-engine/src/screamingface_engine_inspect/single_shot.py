@@ -62,7 +62,7 @@ from screamingface_engine.benchmarks.spine.scored import (
     GradeRequest,
     ScoredPath,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -380,7 +380,7 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
 
 
 def _cases(root: Path) -> Callable[[], str]:
-    @reports_stage(BenchmarkStage.CASE_LOADING)
+    @observe_stage(BenchmarkStage.CASE_LOADING)
     def cases() -> str:
         try:
             return (root / "cases.json").read_text(encoding="utf-8")
@@ -398,7 +398,7 @@ def _check(root: Path) -> Callable[[Request], str]:
     preserved for re-grading.
     """
 
-    @reports_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(BenchmarkStage.GRADING_CHECK)
     def check(request: Request) -> str:
         try:
             case_id: int = positive_case_id(request.intent)
@@ -437,7 +437,7 @@ def _check(root: Path) -> Callable[[Request], str]:
 
 
 def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]:
-    @reports_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(BenchmarkStage.GRADING_CHECK)
     def check_surface(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)

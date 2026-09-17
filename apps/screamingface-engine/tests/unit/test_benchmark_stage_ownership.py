@@ -40,7 +40,7 @@ def test_shared_endpoint_emits_without_an_installation_wrapper(monkeypatch, fact
 
 
 @pytest.mark.asyncio
-async def test_explicit_scope_covers_awaited_work_and_preserves_parentage(monkeypatch):
+async def test_decorator_covers_awaited_work_and_preserves_parentage(monkeypatch):
     records = []
 
     def emit(body, attributes=None, **kwargs):
@@ -49,14 +49,35 @@ async def test_explicit_scope_covers_awaited_work_and_preserves_parentage(monkey
     monkeypatch.setattr(stages, "current_log_sink", lambda: emit)
     error = ValueError("private")
     run = RunObservations((ActivityObserver,))
+
+    @stages.observe_stage(stages.BenchmarkStage.ANSWERING)
+    async def answer():
+        async with ModelCall("writer", emit):
+            await asyncio.sleep(0)
+            raise error
+
     with run.bind(), pytest.raises(ValueError) as caught:
-        async with stages.stage_scope(stages.BenchmarkStage.ANSWERING):
-            async with ModelCall("writer", emit):
-                await asyncio.sleep(0)
-                raise error
+        await answer()
     await run.aclose()
     assert caught.value is error
     start, model_start, model_end, end = records
     assert model_start["sf.activity.parent_id"] == start["sf.activity.id"]
     assert model_end["sf.activity.state"] == end["sf.activity.state"] == "failed"
     assert "private" not in str(records)
+
+
+def test_decorator_observes_shared_vocabulary_without_registration(monkeypatch):
+    records = []
+    monkeypatch.setattr(
+        stages,
+        "current_log_sink",
+        lambda: lambda body, attributes, **kw: records.append(attributes),
+    )
+
+    @stages.observe_stage(stages.BenchmarkStage.GRADING_CHECK)
+    def check():
+        return "checked"
+
+    with RunObservations((ActivityObserver,)).bind():
+        assert check() == "checked"
+    assert [record["sf.activity.state"] for record in records] == ["started", "completed"]

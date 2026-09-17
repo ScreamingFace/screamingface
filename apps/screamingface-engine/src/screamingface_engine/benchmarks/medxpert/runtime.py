@@ -46,7 +46,7 @@ from screamingface_engine.benchmarks.medxpert.definition import (
     CHECK_ROUTE,
     REVISION,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
 from url4.peer.server import Request, Url4Node
 
 
@@ -95,7 +95,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 
 
 def _cases(root: Path):
-    @reports_stage(BenchmarkStage.CASE_LOADING)
+    @observe_stage(BenchmarkStage.CASE_LOADING)
     def cases() -> str:
         """The public booklet, with each row's ready-made turn-1 prompt and turn-2 trigger.
 
@@ -135,7 +135,7 @@ def _cot_prompt(question: str) -> str:
 def _check(root: Path):
     """The gate between "the Candidate said something" and "we have a committed letter"."""
 
-    @reports_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(BenchmarkStage.GRADING_CHECK)
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)

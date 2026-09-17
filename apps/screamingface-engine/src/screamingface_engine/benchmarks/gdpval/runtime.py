@@ -45,7 +45,7 @@ from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAM
 from screamingface_engine.benchmarks.gdpval.prompts import build_grader_prompt, render_rubric_item
 from screamingface_engine.benchmarks.gdpval.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -134,7 +134,7 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     # payload is cached, so a broken asset re-checks (and re-fails loudly) on every call.
     memo: dict[str, str] = {}
 
-    @reports_stage(BenchmarkStage.CASE_LOADING)
+    @observe_stage(BenchmarkStage.CASE_LOADING)
     def cases() -> str:
         if "payload" not in memo:
             raw = preflight(root, case_ids)
@@ -156,7 +156,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     text_memo: dict[int, str] = {}
     items_memo: dict[int, list[dict[str, Any]]] = {}
 
-    @reports_stage(BenchmarkStage.GRADING_PREPARE)
+    @observe_stage(BenchmarkStage.GRADING_PREPARE)
     def rubric_tasks(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -220,7 +220,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
 def _rubric_verdict(benchmark_id: str):
     """The parse gate between "the judge said something" and "we have a verdict"."""
 
-    @reports_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(BenchmarkStage.GRADING_CHECK)
     def rubric_verdict(request: Request) -> str:
         try:
             case_id, rubric_id = binding_key(request.intent)
@@ -258,7 +258,7 @@ def _rubric_verdict(benchmark_id: str):
     return rubric_verdict
 
 
-@reports_stage(BenchmarkStage.GRADING_REDUCE)
+@observe_stage(BenchmarkStage.GRADING_REDUCE)
 def _rubric_evaluation(request: Request) -> str:
     try:
         case_id = positive_case_id(request.intent)

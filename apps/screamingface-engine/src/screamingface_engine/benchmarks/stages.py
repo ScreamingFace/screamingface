@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Awaitable, Callable
-from contextlib import nullcontext
 from enum import StrEnum
 from functools import wraps
 from inspect import iscoroutinefunction
@@ -105,38 +104,22 @@ class _StageCall:
             raise interrupted
 
 
-def stage_scope(stage: BenchmarkStage) -> _StageCall | nullcontext[None]:
-    """Observe work at its owner, independent of endpoint registration.
+def observe_stage(stage: BenchmarkStage):
+    """Observe a whole native sync/async function using the shared stage vocabulary.
 
-    Use ``with`` for synchronous work and ``async with`` around awaited work.
-    The activity adapter owns records and timers; no observer means no activity.
-    """
-    run = current_observations()
-    return nullcontext() if run is None else _StageCall(stage, run)
-
-
-def reports_stage(stage: BenchmarkStage):
-    """Declare activity on the implementation owning the work, not its installer.
-
-    Shared endpoint factories declare this once for all their callers. Use an
-    explicit stage_scope for a smaller region within a larger operation.
+    Shared endpoint factories declare this once for all benchmark callers.
+    Completion means the function returned, not that a case passed. Async work
+    must be declared with async def; sync functions returning awaitables are not
+    supported. The activity adapter owns records, admission and heartbeat timers.
     """
 
     def decorate[**P, R](handler: Callable[P, R]) -> Callable[P, R]:
-        return observe_stage(stage, handler)
+        return _wrap_stage(stage, handler)
 
     return decorate
 
 
-def observe_stage[**P, R](stage: BenchmarkStage, handler: Callable[P, R]) -> Callable[P, R]:
-    """Convenience for plain synchronous or native coroutine functions.
-
-    Completion means the handler returned, not that a case passed. Sync work cannot
-    heartbeat while blocking the event loop. Async handlers include callable objects.
-    For mixed sync/awaitable work, use an explicit ``stage_scope`` around the
-    actual execution instead.
-    """
-
+def _wrap_stage[**P, R](stage: BenchmarkStage, handler: Callable[P, R]) -> Callable[P, R]:
     if iscoroutinefunction(handler) or iscoroutinefunction(getattr(handler, "__call__", None)):
         async_handler = cast(Callable[P, Awaitable[object]], handler)
 
@@ -145,7 +128,7 @@ def observe_stage[**P, R](stage: BenchmarkStage, handler: Callable[P, R]) -> Cal
             run = current_observations()
             if run is None:
                 return await async_handler(*args, **kwargs)
-            async with stage_scope(stage):
+            async with _StageCall(stage, run):
                 return await async_handler(*args, **kwargs)
 
         return cast(Callable[P, R], async_call)
@@ -155,7 +138,7 @@ def observe_stage[**P, R](stage: BenchmarkStage, handler: Callable[P, R]) -> Cal
         run = current_observations()
         if run is None:
             return handler(*args, **kwargs)
-        with stage_scope(stage):
+        with _StageCall(stage, run):
             return handler(*args, **kwargs)
 
     return sync_call
