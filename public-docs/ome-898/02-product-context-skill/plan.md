@@ -81,7 +81,7 @@ one of the two, and the point of doing them in this order.
 
 ## Verification
 
-The nine checks in `spec.md` §9. The three that decide it:
+The seven checks in `spec.md` §8. The three that decide it:
 
 - **Ask it the name of the core object with nothing else installed.** It answers with
   canon's word. If it says the retired doc's word, the whole unit failed.

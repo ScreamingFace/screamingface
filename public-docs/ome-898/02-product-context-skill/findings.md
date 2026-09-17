@@ -70,5 +70,4 @@ user. Engineers only reliably see the repo. So: how does an engineer get the tru
 | **C. Synced mirror** | a script pulls the mirrored files into the repo, stamped with their sync date | visible to everyone with no install. Creates a third copy, and a third copy is what we are trying to stop |
 
 None of the three: this skill has no dependency on the marketplace plugin. Its content is
-copied into a standalone skill in this repo, independent in the same way child 01 is. See
-`spec.md` §1 and §7.
+copied into this repo, independent in the same way child 01 is. See `spec.md` §1.

@@ -10,7 +10,8 @@ date: 2026-08-20
 
 A skill that tells whoever works on documentation, person or agent, what shape a page should
 take, how the prose should read, when a concept needs a picture, and how to review a page
-someone else wrote.
+someone else wrote. Named `writing-docs`: reads as an action at the invocation site, and
+carries no product noun.
 
 It exists because documentation gets written to whatever shape the writer had in mind that
 day. Reference detail lands in a tutorial, a how-to stops to teach, structure that wants a
@@ -39,19 +40,27 @@ rules than the writer was given is a review nobody can act on.
 
 ## 2. Non-goals
 
-- **No CI gate and no lint script.** Advisory only (owner, 2026-09-02).
+- **No CI gate and no lint script.** Advisory only.
 - **No product facts, no house voice rules, no positioning language.** All of it belongs to
   a context skill (§5). A rule naming a product or an organisation cannot ship here,
   however small it is.
 - **Not a docs generator.** This governs documentation a person or agent writes, not docs
   derived from a diff.
 - **Not for internal engineering artifacts.** See §3.
+- **No design-system precedence rule.** Component-level copy (labels, buttons, chart
+  legends, badges) belongs to whatever design system a project runs; this skill governs the
+  prose around a component, not inside one, and needs no rule about which one wins because
+  it never touches that territory.
 - **No repository, path, or toolchain assumptions.** The skill must work in a project it has
-  never seen.
+  never seen. It is authored and published standalone, not inside a product repository.
+  Where it is published is a distribution question and does not appear anywhere in the
+  skill's content.
 
 ## 3. Scope
 
-Scope is a class of document, not a location.
+Scope is a class of document, not a location, read from the epic's two constraints: product
+reviews docs manually at release, and docs must match product voice. Both point at prose a
+reader outside the team sees.
 
 **In scope, anything written for a reader outside the authoring team:** documentation pages,
 READMEs, narrative or tutorial notebooks, release notes and changelog prose.
@@ -184,11 +193,13 @@ is.
 
 The skill calls no other skill. `reference/prose-tells.md` is authoritative on its own and
 does not defer to a house writing skill, even where a house skill carries the same rule.
+This means the epic's suggestion to reuse the existing openmined writing skill is not
+followed; independence is chosen over inheritance.
 
-That duplication is deliberate (owner, 2026-09-02). A skill that only works properly
-alongside another one is not independent, whatever its own files say. The cost is real and
-named: two copies of a rule can drift apart, and the drift check in `PROVENANCE.md` is the
-only thing watching for it.
+That duplication is deliberate. A skill that only works properly alongside another one is
+not independent, whatever its own files say. The cost is real and named: two copies of a
+rule can drift apart, and the drift check in `PROVENANCE.md` is the only thing watching for
+it.
 
 ## 5. The context contract
 
@@ -208,6 +219,10 @@ cannot be run without knowing who the reader is and what they came to do.
 | the time budget | how long they will spend before giving up | review pass 1 |
 | operational metrics | the numbers this project's readers judge it by | scorecard, trust check |
 | target voice | the voice a rewrite should land in | trust check |
+
+The reader, time budget, and operational metrics slots exist because the review procedure's
+source material named one product, one reader, and one metric triad; those specifics became
+contract slots so the procedure works for any project rather than only the first one.
 
 More than one skill may fill the contract: one supplying house voice, another product facts.
 The skill consumes whatever is loaded and does not care how many there are.
@@ -242,35 +257,7 @@ when writing a page, not only when reviewing one.
 **Before distilling:** check the licence on each source and record attribution in
 `PROVENANCE.md`. Distilled rules with credit, not wholesale copies of someone's text.
 
-## 7. Decisions
-
-Owner, 2026-09-02:
-
-- **Advisory only.** No lint, no CI gate in this unit.
-- **Completely agnostic.** No product and no organisation specifics in the skill. All of it
-  arrives through §5.
-- **Independent.** The skill calls no other skill. Where its prose rules restate a rule a
-  house skill also carries, the duplication stands rather than deferring to it. This means
-  the epic's suggestion to reuse the existing openmined writing skill is not followed;
-  independence was chosen over inheritance. See §4.6.
-- **Scope is a document class, not a path** (§3), read from the epic's two constraints:
-  product reviews docs manually at release, and docs must match product voice.
-- **The review angles are a procedure plus context slots, not a fixed prompt** (§5). The
-  source material named one product, one reader, and one metric triad; those became contract
-  slots so the procedure works for any project.
-- **Name: `writing-docs`.** Reads as an action at the invocation site, and carries no product
-  noun.
-- **No design-system precedence section.** Component-level copy is out of scope entirely
-  (§4 non-goals), so a rule about which system wins on it does not belong here.
-
-Not from the epic, the skill's own choice:
-
-- **Authored and published standalone, not inside a product repository.** Follows from
-  agnosticism: a repository path, a named design system, or a dependency on one context
-  skill would each break it. Where it is published is a distribution question and does not
-  appear anywhere in the skill's content.
-
-## 8. Acceptance
+## 7. Acceptance
 
 - The skill exists with a `description` and `user_invocable: true`, and installs through the
   host's plugin mechanism.
@@ -290,7 +277,7 @@ Not from the epic, the skill's own choice:
 - The degradation path is written down and says to flag unverified claims rather than invent
   them.
 
-## 9. Verification
+## 8. Verification
 
 - Take a page that mixes modes. The skill names the conflict and proposes the split.
 - Run the review against a real documentation set. It produces a friction log with quoted

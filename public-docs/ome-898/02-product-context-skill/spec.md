@@ -22,6 +22,10 @@ evidence.
 **Name.** `product-context`, not `screamingface-context`. The marketplace already has a skill
 by that name, and two skills with one name is the confusion this unit is meant to end.
 
+**Where it lives.** In this monorepo, unlike child 01's skill, which is standalone. The
+ticket's complaint is that engineers see only repository skills; this content is
+product-specific, not agnostic, so the repo is its natural home.
+
 ## 1. Non-goals
 
 - **Not a dependency on the marketplace skill.** No install, no import, no deferral. Its
@@ -91,7 +95,8 @@ The ticket says skills plural and gives one example. This is the enumeration, wi
 | `docs/ISSUES.md` | 2026-08-10 | **needs an owner's call** | same, cited for verified shipped state |
 | `.claude/README.md`, product-context section | 2026-07-08 | **replace with a pointer** | says "Team: TBD, to be settled in the next couple of days (2026-07-08)", and uses "Ensemble" where canon says fusion |
 
-`positioning.md` is the only outright deletion. The rest either get a dated header or a
+`positioning.md` is the only outright deletion, because editing it keeps a second canonical
+document alive, which is the thing being removed. The rest either get a dated header or a
 decision from whoever owns them, and this spec does not pretend to make those calls.
 
 **The pointer that replaces `positioning.md`** names the skill that supersedes it, the date,
@@ -125,27 +130,7 @@ than having to guess. An expired date is not a failure, it is a prompt.
 
 This is the accepted cost of independence.
 
-## 7. Decisions
-
-Owner, 2026-09-02:
-
-- **Everything is publishable**, and the skill lands in the public monorepo. §2 lists the
-  three items that still need a named yes before merge.
-- **Independent of the marketplace skill.** Content copied, not referenced. Duplication
-  accepted.
-
-Recorded so they are not re-opened:
-
-- **It lives in this monorepo**, because the ticket's complaint is that engineers see only
-  repository skills. Unlike child 01, this content is product-specific, so the repo is its
-  natural home.
-- **Named `product-context`** to avoid colliding with the marketplace skill's name.
-- **Status per item, not per document.** Canon is partly provisional, and a skill that hides
-  that inherits the problem it was built to fix.
-- **`positioning.md` is deleted rather than edited.** Editing it keeps a second canonical
-  document alive, which is the thing being removed.
-
-## 8. Acceptance
+## 7. Acceptance
 
 - The skill exists in the repo, with a description and a stale-by date, and it loads without
   the marketplace plugin installed.
@@ -163,7 +148,7 @@ Recorded so they are not re-opened:
   decision.
 - The three items in §2 are either published with a recorded yes, or absent.
 
-## 9. Verification
+## 8. Verification
 
 - Ask the skill, with the marketplace plugin not installed, what the core object is called.
   It answers with canon's word, not the old one.

@@ -71,7 +71,7 @@ invocable as `/writing-docs`.
 
 ## Verification
 
-Run the checks in `spec.md` §9. The three that decide whether it is finished:
+Run the checks in `spec.md` §8. The three that decide whether it is finished:
 
 - **With nothing loaded**, the skill produces structure, prose, and diagram guidance and
   refuses to assert product claims, reporting the reader and metric slots as unknown. If it
