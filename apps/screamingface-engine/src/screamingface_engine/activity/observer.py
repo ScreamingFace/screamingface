@@ -9,7 +9,7 @@ from screamingface_engine.activity.contract import MAX_INTEGER, ActivityKind, sa
 from screamingface_engine.activity.scope import Operation, operation, stop_heartbeats
 from screamingface_engine.activity.session import ActivitySession, activate
 from screamingface_engine.benchmarks.case_context import current_case_id
-from screamingface_engine.benchmarks.stages import BenchmarkStage, StageScope
+from screamingface_engine.benchmarks.stages import StageScope
 from screamingface_engine.observations import LogEmitter, ModelObservation, Scalar
 
 
@@ -37,10 +37,10 @@ class ActivityObserver:
             operation(emit=emit, kind=ActivityKind.MODEL_CALL, model_id=model_id, **_case_facts()),
         )
 
-    def stage(self, stage: BenchmarkStage, emit: LogEmitter | None) -> StageScope | None:
+    def stage(self, stage: ActivityKind, emit: LogEmitter | None) -> StageScope | None:
         if self.session is None or not self.session.active or emit is None:
             return None
-        return ActivityStage(self, operation(emit=emit, kind=ActivityKind(stage.value)))
+        return ActivityStage(self, operation(emit=emit, kind=stage))
 
     def bridge_loss(self, dropped: int) -> dict[str, Scalar]:
         if self.session is None or not self.session.active:

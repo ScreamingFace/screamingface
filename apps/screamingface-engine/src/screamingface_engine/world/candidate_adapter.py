@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_execution import install_case_execution
 from screamingface_engine.benchmarks.case_request import candidate_input, candidate_position
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.candidate_scope import candidate_invocation_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
@@ -31,7 +32,7 @@ class _CandidateInvocation:
     def __init__(self, node: Url4Node) -> None:
         self._node = node
 
-    @observe_stage(BenchmarkStage.ANSWERING)
+    @observe_stage(ActivityKind.ANSWERING)
     async def __call__(self, request: Request) -> str:
         if not request.intent.strip():
             raise ResolutionError(

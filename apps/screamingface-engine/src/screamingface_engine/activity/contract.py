@@ -14,6 +14,8 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Protocol
 
+from screamingface_engine.activity_kinds import ActivityKind as ActivityKind
+
 Scalar = str | int | float | bool | None
 PREFIX = "sf.activity."
 SCHEMA = "screamingface.activity.v1"
@@ -23,16 +25,6 @@ MAX_INTEGER = 9_007_199_254_740_991
 class ActivityLevel(StrEnum):
     OFF = "off"
     FULL = "full"
-
-
-class ActivityKind(StrEnum):
-    CASE_LOADING = "case_loading"
-    ANSWERING = "answering"
-    MODEL_CALL = "model_call"
-    GRADING_PREPARE = "grading_prepare"
-    GRADING_CHECK = "grading_check"
-    GRADING_REDUCE = "grading_reduce"
-    AGGREGATION = "aggregation"
 
 
 class Emitter(Protocol):
@@ -128,9 +120,7 @@ _LABELS = {
     ActivityKind.CASE_LOADING: "Loading cases",
     ActivityKind.ANSWERING: "Answering",
     ActivityKind.MODEL_CALL: "Model call",
-    ActivityKind.GRADING_PREPARE: "Grading",
-    ActivityKind.GRADING_CHECK: "Grading",
-    ActivityKind.GRADING_REDUCE: "Grading",
+    ActivityKind.GRADING: "Grading",
     ActivityKind.AGGREGATION: "Aggregating",
 }
 

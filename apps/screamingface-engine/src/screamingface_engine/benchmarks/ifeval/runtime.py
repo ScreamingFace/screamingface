@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
@@ -30,7 +31,7 @@ from screamingface_engine.benchmarks.ifeval.definition import (
     CHECK_ROUTE,
     CHECK_SURFACE_ROUTE,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -59,7 +60,7 @@ def install(node: Url4Node, root: Path) -> None:
 
 
 def _cases(root: Path):
-    @observe_stage(BenchmarkStage.CASE_LOADING)
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         return _read(root / "cases.json", "IFEval cases")
 
@@ -69,7 +70,7 @@ def _cases(root: Path):
 def _check(root: Path):
     """Authoritative per-Case Grading record consumed only by Aggregation."""
 
-    @observe_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id, attempt = _case_and_attempt(request.intent)
@@ -131,7 +132,7 @@ def _check_surface(root: Path):
     the port fields — never instruction ids, kwargs, or the raw grading record.
     """
 
-    @observe_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(ActivityKind.GRADING)
     def check_surface(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)
@@ -224,7 +225,7 @@ def _case_by_input(root: Path, prompt: str) -> int:
     return _positive_int(matches[0], "case id")
 
 
-@observe_stage(BenchmarkStage.GRADING_REDUCE)
+@observe_stage(ActivityKind.GRADING)
 def _case_evaluation(request: Request) -> str:
     """Pack exact attempt records into one authoritative per-Case envelope."""
 

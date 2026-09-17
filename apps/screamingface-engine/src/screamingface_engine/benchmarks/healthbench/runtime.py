@@ -24,6 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
@@ -56,7 +57,7 @@ from screamingface_engine.benchmarks.healthbench.prompts import (
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -183,7 +184,7 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     # Reference counterpart: the example selection at the top of the reference's
     # eval loop (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py)
     # — here the selection is this board's case list, served from the baked assets.
-    @observe_stage(BenchmarkStage.CASE_LOADING)
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         preflight(root, case_ids)
         raw = _read(root / "cases.json", "HealthBench cases")
@@ -198,7 +199,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     # PRIVATE rubric off disk — the first time the answer key touches the flow.
     # Reference counterpart: the prompt-construction half of `grade_sample`
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
-    @observe_stage(BenchmarkStage.GRADING_PREPARE)
+    @observe_stage(ActivityKind.GRADING)
     def rubric_tasks(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -268,7 +269,7 @@ def _rubric_verdict(benchmark_id: str):
     # never trusted from the judge).
     # Reference counterpart: the parse-and-retry half of `grade_sample`
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
-    @observe_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(ActivityKind.GRADING)
     def rubric_verdict(request: Request) -> str:
         try:
             case_id, rubric_id = binding_key(request.intent)
@@ -308,7 +309,7 @@ def _rubric_verdict(benchmark_id: str):
     return rubric_verdict
 
 
-@observe_stage(BenchmarkStage.GRADING_REDUCE)
+@observe_stage(ActivityKind.GRADING)
 def _rubric_evaluation(request: Request) -> str:
     try:
         case_id = positive_case_id(request.intent)

@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.draco import assets as protocol_assets
 from screamingface_engine.benchmarks.draco import grade as grading
@@ -45,7 +46,7 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
 from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -121,7 +122,7 @@ def _lazy_protocol_assets(root: Path) -> Callable[[], ProtocolAssets]:
 
 
 def _cases(assets: Callable[[], ProtocolAssets]):
-    @observe_stage(BenchmarkStage.CASE_LOADING)
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         return assets()[0]
 
@@ -154,7 +155,7 @@ def _task_rows(
     root: Path,
     exam: DracoExam,
 ):
-    @observe_stage(BenchmarkStage.GRADING_PREPARE)
+    @observe_stage(ActivityKind.GRADING)
     def task_rows(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
@@ -226,7 +227,7 @@ def _task_rows(
 
 
 def _criterion_verdict(benchmark_id: str):
-    @observe_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(ActivityKind.GRADING)
     def criterion_verdict(request: Request) -> str:
         try:
             case_id, sequence, criterion_id = binding_key(request.intent)
@@ -261,7 +262,7 @@ def _criterion_evaluation(judge_passes: int):
     against a three-pass board's route and vice versa (every route is revision-pinned).
     """
 
-    @observe_stage(BenchmarkStage.GRADING_REDUCE)
+    @observe_stage(ActivityKind.GRADING)
     def handle(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)

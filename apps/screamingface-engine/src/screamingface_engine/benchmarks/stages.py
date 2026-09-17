@@ -4,23 +4,14 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Awaitable, Callable
-from enum import StrEnum
 from functools import wraps
 from inspect import iscoroutinefunction
 from types import TracebackType
 from typing import Protocol, cast, runtime_checkable
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.observations import LogEmitter, RunObservations, current_observations
 from url4.observe import current_log_sink
-
-
-class BenchmarkStage(StrEnum):
-    CASE_LOADING = "case_loading"
-    ANSWERING = "answering"
-    GRADING_PREPARE = "grading_prepare"
-    GRADING_CHECK = "grading_check"
-    GRADING_REDUCE = "grading_reduce"
-    AGGREGATION = "aggregation"
 
 
 class StageScope(Protocol):
@@ -44,11 +35,11 @@ class StageScope(Protocol):
 class StageObserver(Protocol):
     """Optional extension to a registered run observer. No request/result payloads cross it."""
 
-    def stage(self, stage: BenchmarkStage, emit: LogEmitter | None) -> StageScope | None: ...
+    def stage(self, stage: ActivityKind, emit: LogEmitter | None) -> StageScope | None: ...
 
 
 class _StageCall:
-    def __init__(self, stage: BenchmarkStage, run: RunObservations) -> None:
+    def __init__(self, stage: ActivityKind, run: RunObservations) -> None:
         self.run = run
         self.scopes: list[StageScope] = []
         self.entered: list[StageScope] = []
@@ -104,7 +95,7 @@ class _StageCall:
             raise interrupted
 
 
-def observe_stage(stage: BenchmarkStage):
+def observe_stage(stage: ActivityKind):
     """Observe a whole native sync/async function using the shared stage vocabulary.
 
     Shared endpoint factories declare this once for all benchmark callers.
@@ -113,13 +104,16 @@ def observe_stage(stage: BenchmarkStage):
     supported. The activity adapter owns records, admission and heartbeat timers.
     """
 
+    if stage == ActivityKind.MODEL_CALL:
+        raise ValueError("model calls use the model observation interface")
+
     def decorate[**P, R](handler: Callable[P, R]) -> Callable[P, R]:
         return _wrap_stage(stage, handler)
 
     return decorate
 
 
-def _wrap_stage[**P, R](stage: BenchmarkStage, handler: Callable[P, R]) -> Callable[P, R]:
+def _wrap_stage[**P, R](stage: ActivityKind, handler: Callable[P, R]) -> Callable[P, R]:
     if iscoroutinefunction(handler) or iscoroutinefunction(getattr(handler, "__call__", None)):
         async_handler = cast(Callable[P, Awaitable[object]], handler)
 

@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import (
     candidate_answer,
@@ -49,7 +50,7 @@ from screamingface_engine.benchmarks.spine.serving import (
     install_board,
     serve_cases,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import observe_stage
 from url4.peer.server import Request, Url4Node
 
 
@@ -114,7 +115,7 @@ def _cot_prompt(question: str) -> str:
 def _check(root: Path):
     """The gate between "the Candidate said something" and "we have a committed letter"."""
 
-    @observe_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)

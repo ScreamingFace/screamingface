@@ -5,3 +5,5 @@
 3. Move shared aggregation, case reduction, rubric checking and candidate answering emission into the implementations that own the work. Move remaining board-owned stage scopes into their actual producers; remove installation-time wrappers.
 4. Keep URL4, grading hooks, route definitions, payloads, deployment policy and old tests unchanged. Run stage tests and full Engine gates; independent review.
 5. Update justified PR/ticket descriptions, push to the existing draft. Keep Linear In Progress.
+
+Owner-approved consolidation: one plugin-independent ActivityKind, four stages plus model-call detail, no grading subkinds or BenchmarkStage duplicate. Mechanically migrate the inherited refusal-validation test with the approved append-only exception; run all other gates.

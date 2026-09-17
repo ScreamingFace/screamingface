@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA, CaseResult
@@ -69,7 +70,7 @@ from screamingface_engine.benchmarks.spine.scored import (
     GradeRequest,
     ScoredPath,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -456,7 +457,7 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
 
 
 def _cases(root: Path) -> Callable[[], str]:
-    @observe_stage(BenchmarkStage.CASE_LOADING)
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         try:
             return (root / "cases.json").read_text(encoding="utf-8")
@@ -474,7 +475,7 @@ def _check(root: Path) -> Callable[[Request], str]:
     preserved for re-grading.
     """
 
-    @observe_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id: int = positive_case_id(request.intent)
@@ -515,7 +516,7 @@ def _check(root: Path) -> Callable[[Request], str]:
 
 
 def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]:
-    @observe_stage(BenchmarkStage.GRADING_CHECK)
+    @observe_stage(ActivityKind.GRADING)
     def check_surface(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)

@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from screamingface_engine.activity.observer import ActivityObserver
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks import evaluation, stages
 from screamingface_engine.observations import ModelCall, RunObservations
 from url4.peer.server import Request
@@ -27,7 +28,7 @@ def test_shared_endpoint_emits_without_an_installation_wrapper(monkeypatch, fact
         builder = getattr(evaluation, f"{factory}_endpoint")
         handler = builder(label="example", item_name="record", bind=lambda case, rows: {"score": 1})
         context = "[{}]" if factory == "case_evaluation" else '{"attempt_1": {}}'
-        intent, kind = "1", "grading_reduce"
+        intent, kind = "1", "grading"
     # INVARIANT: neither the handler nor its registration is decorated by the caller.
     with RunObservations((ActivityObserver,)).bind():
         assert handler(Request(path="/arbitrary", context=context, intent=intent, params={})) == (
@@ -50,7 +51,7 @@ async def test_decorator_covers_awaited_work_and_preserves_parentage(monkeypatch
     error = ValueError("private")
     run = RunObservations((ActivityObserver,))
 
-    @stages.observe_stage(stages.BenchmarkStage.ANSWERING)
+    @stages.observe_stage(ActivityKind.ANSWERING)
     async def answer():
         async with ModelCall("writer", emit):
             await asyncio.sleep(0)
@@ -74,7 +75,7 @@ def test_decorator_observes_shared_vocabulary_without_registration(monkeypatch):
         lambda: lambda body, attributes, **kw: records.append(attributes),
     )
 
-    @stages.observe_stage(stages.BenchmarkStage.GRADING_CHECK)
+    @stages.observe_stage(ActivityKind.GRADING)
     def check():
         return "checked"
 

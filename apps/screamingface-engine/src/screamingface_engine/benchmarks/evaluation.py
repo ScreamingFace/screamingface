@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.contract import (
     CandidateInvocationStatus,
     CorrectiveExecution,
@@ -17,7 +18,7 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error,
     benchmark_definition_error,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
@@ -66,7 +67,7 @@ def case_evaluation_endpoint(
 ) -> Callable[[Request], str]:
     """Adapt one non-empty collection of evaluator records into a Case envelope route."""
 
-    @observe_stage(BenchmarkStage.GRADING_REDUCE)
+    @observe_stage(ActivityKind.GRADING)
     def endpoint(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -109,7 +110,7 @@ def attempt_records_endpoint(
     — an object — so it needs this shape. Both funnel into the same ``bind`` contract.
     """
 
-    @observe_stage(BenchmarkStage.GRADING_REDUCE)
+    @observe_stage(ActivityKind.GRADING)
     def endpoint(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -146,7 +147,7 @@ def aggregate_endpoint(
 
     positive_count(available_case_count, "available_case_count")
 
-    @observe_stage(BenchmarkStage.AGGREGATION)
+    @observe_stage(ActivityKind.AGGREGATION)
     def endpoint(request: Request) -> str:
         selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
         try:

@@ -23,20 +23,20 @@ async def test_builtin_installers_declare_every_stage(monkeypatch, tmp_path, reg
     registration.benchmark.install(node, tmp_path)
     run = RunObservations((ActivityObserver,))
     expected = {
-        "tasks": "grading_prepare",
-        "check": "grading_check",
-        "check-surface": "grading_check",
-        "verdict": "grading_check",
-        "criterion-evaluation": "grading_reduce",
-        "rubric-evaluation": "grading_reduce",
-        "case-evaluation": "grading_reduce",
+        "tasks": "grading",
+        "check": "grading",
+        "check-surface": "grading",
+        "verdict": "grading",
+        "criterion-evaluation": "grading",
+        "rubric-evaluation": "grading",
+        "case-evaluation": "grading",
         "aggregate": "aggregation",
-        "draco-pass.v1": "grading_check",
-        "healthbench-pass.v1": "grading_check",
-        "gdpval-pass.v1": "grading_check",
-        "rubric-tasks": "grading_prepare",
-        "criterion-verdict": "grading_check",
-        "rubric-verdict": "grading_check",
+        "draco-pass.v1": "grading",
+        "healthbench-pass.v1": "grading",
+        "gdpval-pass.v1": "grading",
+        "rubric-tasks": "grading",
+        "criterion-verdict": "grading",
+        "rubric-verdict": "grading",
     }
     with run.bind():
         for provider in node._data.values():
@@ -143,9 +143,9 @@ async def test_imported_board_stages_use_the_same_optional_port(monkeypatch, tmp
     run = RunObservations((ActivityObserver,))
     with run.bind():
         for route, kind in (
-            (board.check_route, "grading_check"),
-            (board.check_surface_route, "grading_check"),
-            (board.case_evaluation_route, "grading_reduce"),
+            (board.check_route, "grading"),
+            (board.check_surface_route, "grading"),
+            (board.case_evaluation_route, "grading"),
             (board.aggregate_route, "aggregation"),
         ):
             records.clear()
