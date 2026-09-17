@@ -532,3 +532,305 @@ def test_generate_rows_refuses_a_key_that_is_not_an_identifier_stem(
         _generate(engine_src_copy, key="2wikimultihop")
 
     assert "2WIKIMULTIHOP" not in (engine_src_copy / "pins.py").read_text()
+
+
+# ---------------------------------------------------------------------------
+# custom choice template capture (the family renderer OME-1116 milestone C's
+# boards force: mmlu_pro / winogrande / race_h)
+# ---------------------------------------------------------------------------
+
+
+def test_introspect_captures_a_resolvable_custom_choice_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom multiple_choice template that IS a module attribute is a fact the
+    bake reproduces (choice_template reference), not a review flag."""
+
+    def custom_mcq() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/quiz", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=multiple_choice(template=module.CHOICE_TEMPLATE),
+            scorer=choice(),
+        )
+
+    module = _install_fake_eval(monkeypatch, custom_mcq=custom_mcq)
+    module.CHOICE_TEMPLATE = "Pick one of {letters}.\n{question}\n{choices}"  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:custom_mcq")
+
+    assert facts.choice_template == f"{_FAKE_MODULE}:CHOICE_TEMPLATE"
+    assert facts.custom_solvers == ()
+
+
+def test_captured_choice_template_lands_in_the_snapshot_row() -> None:
+    fragments = render_fragments(
+        "quiz",
+        _facts(
+            mcq=True,
+            prompt_template=None,
+            scorer="inspect_ai.scorer:choice",
+            scorer_kwargs={},
+            choice_template=f"{_FAKE_MODULE}:CHOICE_TEMPLATE",
+        ),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+    )
+
+    assert f'choice_template="{_FAKE_MODULE}:CHOICE_TEMPLATE"' in fragments.snapshot
+    ast.parse(f"SNAPSHOTS = {{\n{fragments.snapshot}}}")
+
+
+def test_introspect_refuses_a_task_local_record_to_sample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A row rule defined INSIDE the task function (truthfulqa's closure) can never
+    be resolved by the dotted reference the row carries — refuse at import time,
+    not with a dangling reference that fails at image build."""
+
+    def closure_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+
+        def record_to_sample(row: dict[str, Any]) -> Sample:
+            return Sample(input=str(row["q"]), target=str(row["a"]))
+
+        record_to_sample.__module__ = _FAKE_MODULE
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=record_to_sample
+            ),
+            solver=generate(),
+            scorer=match(),
+        )
+
+    _install_fake_eval(monkeypatch, closured=closure_task)
+
+    with pytest.raises(ImporterError, match="task-local"):
+        introspect_task(f"{_FAKE_MODULE}:closured")
+
+
+def test_rendered_fragment_lines_fit_the_lint_gate() -> None:
+    """A long task_ref must never emit a line the 100-column lint gate rejects."""
+
+    long_ref = "inspect_evals.some_very_long_package_name.some_very_long_package_name:the_task"
+    fragments = render_fragments(
+        "long", _facts(task_ref=long_ref), Observations("c" * 40, 42, "cc-by-sa-4.0")
+    )
+    for fragment in (fragments.pins, fragments.snapshot, fragments.board):
+        assert all(len(line) <= 100 for line in fragment.splitlines())
+
+
+# ---------------------------------------------------------------------------
+# dataset-kwarg conservation (review round 2026-09-17 on this branch: every
+# fact the importer reads but does not reproduce must refuse or flag — never
+# silently drop exam identity)
+# ---------------------------------------------------------------------------
+
+
+def _task_with_dataset_kwargs(**dataset_kwargs: Any) -> Any:
+    def task_fn() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums",
+                split="test",
+                sample_fields=module.record_to_sample,
+                **dataset_kwargs,
+            ),
+            solver=generate(),
+            scorer=match(),
+        )
+
+    return task_fn
+
+
+def test_introspect_refuses_a_limit_the_bake_would_ignore(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An eval with limit=N examines N cases; baking the full split would publish
+    a DIFFERENT exam with every guard green (review blocker, 2026-09-17)."""
+
+    _install_fake_eval(monkeypatch, limited=_task_with_dataset_kwargs(limit=500))
+
+    with pytest.raises(ImporterError, match="limit"):
+        introspect_task(f"{_FAKE_MODULE}:limited")
+
+
+def test_introspect_refuses_shuffled_choices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """shuffle_choices reorders the answer options — grading identity, not baked."""
+
+    _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
+
+    with pytest.raises(ImporterError, match="shuffle_choices"):
+        introspect_task(f"{_FAKE_MODULE}:shuffled")
+
+
+def test_introspect_refuses_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """data_dir is a different load_dataset parameter than config — aliasing them
+    loads the wrong data whenever they differ (gsm8k's 'main' was a coincidence)."""
+
+    _install_fake_eval(monkeypatch, dirred=_task_with_dataset_kwargs(data_dir="data"))
+
+    with pytest.raises(ImporterError, match="data_dir"):
+        introspect_task(f"{_FAKE_MODULE}:dirred")
+
+
+def test_introspect_records_an_upstream_shuffle_as_a_fact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_eval(monkeypatch, mixed=_task_with_dataset_kwargs(shuffle=True, seed=42))
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:mixed")
+
+    assert facts.upstream_shuffle is True
+    assert facts.upstream_shuffle_seed == 42
+
+
+def test_introspect_ignores_benign_dataset_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """auto_id / trust / cached change how loading happens, never what the exam is."""
+
+    _install_fake_eval(
+        monkeypatch, benign=_task_with_dataset_kwargs(auto_id=True, trust=True, cached=False)
+    )
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:benign")
+
+    assert facts.dataset == "acme/sums"
+    assert facts.upstream_shuffle is False
+
+
+def test_introspect_binds_positional_hf_dataset_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """17 of 80 real call sites pass path positionally — a kwargs-only recorder
+    would KeyError on path and silently pin split to '' (review should-fix 1)."""
+
+    def positional() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset("acme/sums", "test", sample_fields=module.record_to_sample),
+            solver=generate(),
+            scorer=match(),
+        )
+
+    _install_fake_eval(monkeypatch, positional=positional)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:positional")
+
+    assert facts.dataset == "acme/sums"
+    assert facts.split == "test"
+
+
+def test_single_call_fallback_requires_the_task_to_hold_the_recorded_exam(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An eval whose exam is a local dataset but whose fewshots load from HF must
+    refuse — the fewshot split is NOT the exam (review should-fix 3)."""
+
+    def json_exam() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        module.hf_dataset(path="acme/sums", split="train", sample_fields=module.record_to_sample)
+        return Task(
+            dataset=[Sample(input="local exam", target="1")],
+            solver=generate(),
+            scorer=match(),
+        )
+
+    _install_fake_eval(monkeypatch, json_exam=json_exam)
+
+    with pytest.raises(ImporterError, match="dataset"):
+        introspect_task(f"{_FAKE_MODULE}:json_exam")
+
+
+def test_shuffling_eval_requires_a_pinned_seed(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """shuffle=True with no upstream seed means upstream order is random per run;
+    an import must pin ONE order (a policy --shuffle-seed) or refuse.
+
+    AIDEV-NOTE: ALWAYS pass --engine-src in importer main() tests — the default
+    is the REAL package directory, and a red-phase run of this very test once
+    wrote fake rows into it.
+    """
+
+    _install_fake_eval(monkeypatch, shuffling=_task_with_dataset_kwargs(shuffle=True))
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:shuffling", "--key", "shuffling", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "shuffling" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_an_upstream_shuffle_seed_is_reproduced_in_the_rows(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """An eval that shuffles with its own seed has a reproducible order — the row
+    carries that seed (same permutation: seeded shuffle over an equal-length list)."""
+
+    _install_fake_eval(monkeypatch, seeded=_task_with_dataset_kwargs(shuffle=True, seed=42))
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:seeded", "--key", "seeded", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    assert "SEEDED_SHUFFLE_SEED = 42" in (engine_src_copy / "pins.py").read_text()
+
+
+# ---------------------------------------------------------------------------
+# generated code is an injection sink (review should-fix 4): Hub-controlled
+# strings must never be able to land an executable line in the emitted files
+# ---------------------------------------------------------------------------
+
+
+def test_generate_refuses_a_hostile_license_string(engine_src_copy: Path) -> None:
+    hostile = 'mit"\nimport os  # pwned\nX = "'
+    with pytest.raises(ImporterError, match="license"):
+        generate_rows(
+            "sums",
+            _facts(),
+            Observations(revision="c" * 40, case_count=42, license=hostile),
+            engine_src=engine_src_copy,
+        )
+
+
+def test_generate_refuses_a_hostile_dataset_name(engine_src_copy: Path) -> None:
+    with pytest.raises(ImporterError, match="dataset"):
+        generate_rows(
+            "sums",
+            _facts(dataset='acme/sums"\nimport os\nY = "'),
+            Observations(revision="c" * 40, case_count=42, license="mit"),
+            engine_src=engine_src_copy,
+        )
+
+
+def test_generate_refuses_a_revision_that_is_not_a_commit_sha(engine_src_copy: Path) -> None:
+    """The capture stage must never record 'None' or a short ref as exam identity."""
+
+    with pytest.raises(ImporterError, match="revision"):
+        generate_rows(
+            "sums",
+            _facts(),
+            Observations(revision="None", case_count=42, license="mit"),
+            engine_src=engine_src_copy,
+        )
+
+
+def test_injection_charsets_refuse_a_trailing_newline(engine_src_copy: Path) -> None:
+    """`$` tolerates one trailing newline; the guards anchor with \\Z so a
+    newline can never open a second line in generated code."""
+
+    with pytest.raises(ImporterError, match="license"):
+        generate_rows(
+            "sums",
+            _facts(),
+            Observations(revision="c" * 40, case_count=42, license="mit\n"),
+            engine_src=engine_src_copy,
+        )

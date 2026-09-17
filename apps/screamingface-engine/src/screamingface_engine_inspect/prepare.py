@@ -42,6 +42,28 @@ from typing import TYPE_CHECKING, Any
 
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine_inspect.pins import (
+    ARC_CHALLENGE_CASE_COUNT,
+    ARC_CHALLENGE_CONFIG,
+    ARC_CHALLENGE_DATASET,
+    ARC_CHALLENGE_DATASET_REVISION,
+    ARC_CHALLENGE_SPLIT,
+    ARC_EASY_CASE_COUNT,
+    ARC_EASY_CONFIG,
+    ARC_EASY_DATASET,
+    ARC_EASY_DATASET_REVISION,
+    ARC_EASY_SPLIT,
+    BOOLQ_CASE_COUNT,
+    BOOLQ_CONFIG,
+    BOOLQ_DATASET,
+    BOOLQ_DATASET_REVISION,
+    BOOLQ_SHUFFLE_SEED,
+    BOOLQ_SPLIT,
+    COMMONSENSE_QA_CASE_COUNT,
+    COMMONSENSE_QA_CONFIG,
+    COMMONSENSE_QA_DATASET,
+    COMMONSENSE_QA_DATASET_REVISION,
+    COMMONSENSE_QA_SHUFFLE_SEED,
+    COMMONSENSE_QA_SPLIT,
     GSM8K_CASE_COUNT,
     GSM8K_DATA_DIR,
     GSM8K_DATASET,
@@ -51,8 +73,31 @@ from screamingface_engine_inspect.pins import (
     MMLU_CONFIG,
     MMLU_DATASET,
     MMLU_DATASET_REVISION,
+    MMLU_PRO_CASE_COUNT,
+    MMLU_PRO_CONFIG,
+    MMLU_PRO_DATASET,
+    MMLU_PRO_DATASET_REVISION,
+    MMLU_PRO_SHUFFLE_SEED,
+    MMLU_PRO_SPLIT,
     MMLU_SHUFFLE_SEED,
     MMLU_SPLIT,
+    PAWS_CASE_COUNT,
+    PAWS_CONFIG,
+    PAWS_DATASET,
+    PAWS_DATASET_REVISION,
+    PAWS_SHUFFLE_SEED,
+    PAWS_SPLIT,
+    RACE_H_CASE_COUNT,
+    RACE_H_CONFIG,
+    RACE_H_DATASET,
+    RACE_H_DATASET_REVISION,
+    RACE_H_SHUFFLE_SEED,
+    RACE_H_SPLIT,
+    WINOGRANDE_CASE_COUNT,
+    WINOGRANDE_CONFIG,
+    WINOGRANDE_DATASET,
+    WINOGRANDE_DATASET_REVISION,
+    WINOGRANDE_SPLIT,
 )
 
 if TYPE_CHECKING:
@@ -79,6 +124,10 @@ class SnapshotSpec:
     case_count: int
     record_to_sample: str
     prompt_template: str | None = None
+    #: The eval's own multiple_choice template, when it overrides inspect's default
+    #: SINGLE_ANSWER render (mmlu_pro, winogrande, race_h) — same dotted-reference
+    #: convention as ``prompt_template``, resolved lazily at bake time.
+    choice_template: str | None = None
     shuffle_seed: int | None = None
 
 
@@ -108,6 +157,115 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # WHY the shuffle: the HF split is subject-grouped, so a limit=N run over
         # raw order would examine one subject; the seed rides the revision hash.
         shuffle_seed=MMLU_SHUFFLE_SEED,
+    ),
+    "arc_easy": SnapshotSpec(
+        dataset=ARC_EASY_DATASET,
+        config=ARC_EASY_CONFIG,
+        split=ARC_EASY_SPLIT,
+        dataset_revision=ARC_EASY_DATASET_REVISION,
+        case_count=ARC_EASY_CASE_COUNT,
+        # arc_easy's dataset: sample_fields=record_to_sample (letters or numbered
+        # answerKeys normalized to letters); prompt = the default MCQ render.
+        # Verified by a full offline bake, 2026-09-17.
+        record_to_sample="inspect_evals.arc.arc:record_to_sample",
+    ),
+    "arc_challenge": SnapshotSpec(
+        dataset=ARC_CHALLENGE_DATASET,
+        config=ARC_CHALLENGE_CONFIG,
+        split=ARC_CHALLENGE_SPLIT,
+        dataset_revision=ARC_CHALLENGE_DATASET_REVISION,
+        case_count=ARC_CHALLENGE_CASE_COUNT,
+        # Same eval module as arc_easy — only the HF config differs.
+        # Verified by a full offline bake, 2026-09-17.
+        record_to_sample="inspect_evals.arc.arc:record_to_sample",
+    ),
+    "commonsense_qa": SnapshotSpec(
+        dataset=COMMONSENSE_QA_DATASET,
+        config=COMMONSENSE_QA_CONFIG,
+        split=COMMONSENSE_QA_SPLIT,
+        dataset_revision=COMMONSENSE_QA_DATASET_REVISION,
+        case_count=COMMONSENSE_QA_CASE_COUNT,
+        # commonsense_qa's dataset: sample_fields=record_to_sample (5 choices,
+        # letter target); prompt = the default MCQ render. Verified by a full
+        # offline bake, 2026-09-17.
+        record_to_sample="inspect_evals.commonsense_qa.commonsense_qa:record_to_sample",
+        # WHY the seed: the upstream eval shuffles this exam's order per run
+        # (hf_dataset shuffle=True, no seed) — the import pins one order as
+        # exam identity (review round 2026-09-17).
+        shuffle_seed=COMMONSENSE_QA_SHUFFLE_SEED,
+    ),
+    "paws": SnapshotSpec(
+        dataset=PAWS_DATASET,
+        config=PAWS_CONFIG,
+        split=PAWS_SPLIT,
+        dataset_revision=PAWS_DATASET_REVISION,
+        case_count=PAWS_CASE_COUNT,
+        # paws' task: solver=[prompt_template(TEMPLATE), generate()]; target is
+        # Yes/No from the label. Verified by a full offline bake, 2026-09-17.
+        record_to_sample="inspect_evals.paws.paws:record_to_sample",
+        prompt_template="inspect_evals.paws.paws:TEMPLATE",
+        # WHY the seed: the upstream eval shuffles this exam's order per run
+        # (hf_dataset shuffle=True, no seed) — the import pins one order as
+        # exam identity (review round 2026-09-17).
+        shuffle_seed=PAWS_SHUFFLE_SEED,
+    ),
+    "boolq": SnapshotSpec(
+        dataset=BOOLQ_DATASET,
+        config=BOOLQ_CONFIG,
+        split=BOOLQ_SPLIT,
+        dataset_revision=BOOLQ_DATASET_REVISION,
+        case_count=BOOLQ_CASE_COUNT,
+        # boolq's dataset: sample_fields=record_to_sample (passage folded into
+        # the question, Yes/No target); raw-input render (no template).
+        # Verified by a full offline bake, 2026-09-17.
+        record_to_sample="inspect_evals.boolq.boolq:record_to_sample",
+        # WHY the seed: the upstream eval shuffles this exam's order per run
+        # (hf_dataset shuffle=True, no seed) — the import pins one order as
+        # exam identity (review round 2026-09-17).
+        shuffle_seed=BOOLQ_SHUFFLE_SEED,
+    ),
+    "mmlu_pro": SnapshotSpec(
+        dataset=MMLU_PRO_DATASET,
+        config=MMLU_PRO_CONFIG,
+        split=MMLU_PRO_SPLIT,
+        dataset_revision=MMLU_PRO_DATASET_REVISION,
+        case_count=MMLU_PRO_CASE_COUNT,
+        # mmlu_pro's dataset: sample_fields=record_to_sample (10 options); the
+        # prompt renders through the eval's own CoT template below. Verified by
+        # a full offline bake, 2026-09-17.
+        record_to_sample="inspect_evals.mmlu_pro.mmlu_pro:record_to_sample",
+        choice_template="inspect_evals.mmlu_pro.mmlu_pro:USER_PROMPT_TEMPLATE",
+        # WHY the shuffle: the HF split is category-grouped (first 100 rows are
+        # one discipline), so a limit=N run over raw order would examine one
+        # discipline; the seed rides the revision hash.
+        shuffle_seed=MMLU_PRO_SHUFFLE_SEED,
+    ),
+    "winogrande": SnapshotSpec(
+        dataset=WINOGRANDE_DATASET,
+        config=WINOGRANDE_CONFIG,
+        split=WINOGRANDE_SPLIT,
+        dataset_revision=WINOGRANDE_DATASET_REVISION,
+        case_count=WINOGRANDE_CASE_COUNT,
+        # winogrande's dataset (fewshot=0): sample_fields=record_to_sample
+        # ([BLANK] sentence, two options); renders through the eval's own
+        # template below. Verified by a full offline bake, 2026-09-17.
+        record_to_sample="inspect_evals.winogrande.winogrande:record_to_sample",
+        choice_template="inspect_evals.winogrande.winogrande:USER_PROMPT_TEMPLATE",
+    ),
+    "race_h": SnapshotSpec(
+        dataset=RACE_H_DATASET,
+        config=RACE_H_CONFIG,
+        split=RACE_H_SPLIT,
+        dataset_revision=RACE_H_DATASET_REVISION,
+        case_count=RACE_H_CASE_COUNT,
+        # race_h's dataset: sample_fields=record_to_sample (passage + question
+        # folded into input); renders through the eval's own template below.
+        # Verified by a full offline bake, 2026-09-17.
+        record_to_sample="inspect_evals.race_h.race_h:record_to_sample",
+        choice_template="inspect_evals.race_h.race_h:TEMPLATE",
+        # WHY the shuffle: questions arrive in per-passage runs, so a small
+        # limit=N run would see few passages; the seed rides the revision hash.
+        shuffle_seed=RACE_H_SHUFFLE_SEED,
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
@@ -144,13 +302,15 @@ def templated_prompt(question: str, template: str) -> str:
     return template.format(prompt=question)
 
 
-def mcq_prompt(question: str, choices: Sequence[str]) -> str:
+def mcq_prompt(question: str, choices: Sequence[str], template: str | None = None) -> str:
     """The ``multiple_choice()`` eval family's 0-shot render — inspect's formatter, baked.
 
     One function for every MCQ eval graded via the ``multiple_choice`` solver +
-    ``choice()`` scorer (36 of the 131 inspect_evals packages); the default
-    SINGLE_ANSWER template is the only one referenced by name across them, so a
-    per-board template reference waits until a board actually needs it (YAGNI).
+    ``choice()`` scorer (36 of the 131 inspect_evals packages). ``template`` is the
+    eval's own override when it passes one to ``multiple_choice`` (the board's
+    ``choice_template`` reference, resolved by the caller); None renders inspect's
+    default SINGLE_ANSWER template — a custom template must render VERBATIM, or the
+    baked exam would silently differ from the eval's (OME-1116 milestone C).
     """
 
     # AIDEV-NOTE: private-module import (inspect_ai.solver._multiple_choice) — safe
@@ -162,7 +322,7 @@ def mcq_prompt(question: str, choices: Sequence[str]) -> str:
     return choice_prompt(
         question=question,
         choices=Choices(list(choices)),
-        template=str(MultipleChoiceTemplate.SINGLE_ANSWER.value),
+        template=str(MultipleChoiceTemplate.SINGLE_ANSWER.value) if template is None else template,
     )
 
 
@@ -206,6 +366,9 @@ def emit_snapshot(
     _require_case_count(rows, expected_cases)
     record_to_sample = _resolve(spec.record_to_sample)
     template: str | None = None if spec.prompt_template is None else _resolve(spec.prompt_template)
+    choice_template: str | None = (
+        None if spec.choice_template is None else _resolve(spec.choice_template)
+    )
     ordered: list[dict[str, Any]] = list(rows)
     if spec.shuffle_seed is not None:
         random.Random(spec.shuffle_seed).shuffle(ordered)
@@ -224,7 +387,11 @@ def emit_snapshot(
         # $item.case_id per Case (the transport contract's string spelling);
         # "id" is the integer the engine's row/target files key on.
         cases.append(
-            {"id": case_id, "case_id": str(case_id), "input": _prompt(sample, choices, template)}
+            {
+                "id": case_id,
+                "case_id": str(case_id),
+                "input": _prompt(sample, choices, template, choice_template),
+            }
         )
         targets[case_id] = (
             {"target": target} if choices is None else {"target": target, "choices": choices}
@@ -239,12 +406,17 @@ def prepare_snapshot(spec: SnapshotSpec, out: Path) -> dict[str, Any]:
     return emit_snapshot(spec, rows, out, expected_cases=spec.case_count)
 
 
-def _prompt(sample: Sample, choices: list[str] | None, template: str | None) -> str:
+def _prompt(
+    sample: Sample,
+    choices: list[str] | None,
+    template: str | None,
+    choice_template: str | None,
+) -> str:
     """Stage 4 — the render is derived from the Sample's own shape, never per board."""
 
     question: str = str(sample.input)
     if choices is not None:
-        return mcq_prompt(question, choices)
+        return mcq_prompt(question, choices, choice_template)
     if template is not None:
         return templated_prompt(question, template)
     return question

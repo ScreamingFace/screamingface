@@ -100,6 +100,163 @@ BOARDS: tuple[BoardSpec, ...] = (
         # Provenance: inspect_evals.mmlu.mmlu's Task declares scorer=choice().
         scorer="inspect_ai.scorer:choice",
     ),
+    BoardSpec(
+        key="arc_easy",
+        title="ARC-Easy",
+        description=(
+            "2,376 grade-school science multiple-choice questions (the AI2 ARC "
+            "Easy test split), imported from inspect_evals. The model answers "
+            "with one lettered choice; grading is inspect's own choice scorer "
+            "against the published key, so no judge tokens are spent. Benchmark "
+            "score = plain accuracy over the cases run. No mid-run check surface: "
+            "pass/fail feedback over a handful of options would let a loop "
+            "eliminate choices rather than improve answers."
+        ),
+        focus="Grade-school science (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.arc.arc:arc_easy. License: cc-by-sa-4.0.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="arc_challenge",
+        title="ARC-Challenge",
+        description=(
+            "1,172 hard grade-school science questions (the AI2 ARC Challenge "
+            "test split — the subset both retrieval and word co-occurrence "
+            "baselines get wrong), imported from inspect_evals. The model "
+            "answers with one lettered choice; grading is inspect's own choice "
+            "scorer against the published key, so no judge tokens are spent. "
+            "Benchmark score = plain accuracy over the cases run. No mid-run "
+            "check surface (elimination attack over few options)."
+        ),
+        focus="Hard science reasoning (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.arc.arc:arc_challenge. License: cc-by-sa-4.0.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="commonsense_qa",
+        title="CommonsenseQA",
+        description=(
+            "1,221 five-option questions built from ConceptNet relations, each "
+            "needing everyday commonsense to separate the answer from four "
+            "distractors (the CommonsenseQA validation split — test answers are "
+            "withheld upstream), imported from inspect_evals. Grading is "
+            "inspect's own choice scorer against the published key; benchmark "
+            "score = plain accuracy over the cases run, served in a fixed seeded "
+            "shuffle (the upstream eval randomizes order per run). No mid-run "
+            "check surface (elimination attack over few options)."
+        ),
+        focus="Everyday commonsense reasoning (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/tau/commonsense_qa",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa. License: mit.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="paws",
+        title="PAWS",
+        description=(
+            "8,000 sentence pairs asking whether aggressive word reordering "
+            "preserved the meaning (the PAWS labeled_final test split), imported "
+            "from inspect_evals. The model answers Yes or No through the eval's "
+            "own prompt template; grading is inspect's own includes scorer "
+            "against the published label, so no judge tokens are spent. Cases are "
+            "served in a fixed seeded shuffle (the upstream eval randomizes "
+            "order per run); benchmark score = plain accuracy over the cases "
+            "run. Free-form replies make the mid-run check surface legitimate "
+            "(corrective loop)."
+        ),
+        focus="Paraphrase adjudication (yes/no)",
+        dataset_url="https://huggingface.co/datasets/google-research-datasets/paws",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.paws.paws:paws. License: other.
+        scorer="inspect_ai.scorer:includes",
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ boards must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
+    BoardSpec(
+        key="boolq",
+        title="BoolQ",
+        description=(
+            "3,270 naturally-occurring yes/no questions, each answered from a "
+            "given Wikipedia passage (the BoolQ validation split — test answers "
+            "are withheld upstream), imported from inspect_evals. Grading is "
+            "inspect's own pattern scorer over the reply's final Yes/No, so no "
+            "judge tokens are spent. Cases are served in a fixed seeded shuffle "
+            "(the upstream eval randomizes order per run); benchmark score = "
+            "plain accuracy over the cases run. Free-form replies make the "
+            "mid-run check surface legitimate (corrective loop)."
+        ),
+        focus="Yes/no reading comprehension",
+        dataset_url="https://huggingface.co/datasets/google/boolq",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.boolq.boolq:boolq. License: cc-by-sa-3.0.
+        scorer="inspect_ai.scorer:pattern",
+        scorer_kwargs={"pattern": "(Yes|No).?\\Z"},
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ boards must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
+    BoardSpec(
+        key="mmlu_pro",
+        title="MMLU-Pro",
+        description=(
+            "12,032 ten-option questions across 14 disciplines (the MMLU-Pro "
+            "test split), imported from inspect_evals. Prompts render through "
+            "the eval's own chain-of-thought template; grading is inspect's own "
+            "choice scorer against the published key, so no judge tokens are "
+            "spent. Cases are served in a fixed seeded shuffle so a limited run "
+            "spans disciplines. Benchmark score = plain accuracy over the cases "
+            "run. No mid-run check surface (elimination attack over options)."
+        ),
+        focus="Harder multi-discipline knowledge, ten options (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.mmlu_pro.mmlu_pro:mmlu_pro. License: mit.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="winogrande",
+        title="WinoGrande",
+        description=(
+            "1,267 sentences where a [BLANK] must be resolved to one of two "
+            "candidates using commonsense about the situation (the WinoGrande "
+            "XL validation split, 0-shot), imported from inspect_evals. Prompts "
+            "render through the eval's own template; grading is inspect's own "
+            "choice scorer against the published key, so no judge tokens are "
+            "spent. Benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface: pass/fail feedback over two options is a "
+            "coin-flip oracle (OME-796)."
+        ),
+        focus="Commonsense pronoun resolution (binary choice)",
+        dataset_url="https://huggingface.co/datasets/allenai/winogrande",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.winogrande.winogrande:winogrande. License: UNKNOWN.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="race_h",
+        title="RACE-H",
+        description=(
+            "3,498 reading-comprehension questions over English-exam passages "
+            "written for Chinese high-school students (the RACE high test "
+            "split), imported from inspect_evals. Each prompt renders the "
+            "passage and question through the eval's own template; grading is "
+            "inspect's own choice scorer against the published key, so no judge "
+            "tokens are spent. Cases are served in a fixed seeded shuffle so a "
+            "limited run spans passages. Benchmark score = plain accuracy over "
+            "the cases run. No mid-run check surface (elimination attack)."
+        ),
+        focus="Long-passage reading comprehension (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/ehovy/race",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.race_h.race_h:race_h. License: other.
+        scorer="inspect_ai.scorer:choice",
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 

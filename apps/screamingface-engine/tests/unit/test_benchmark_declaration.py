@@ -134,6 +134,16 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
     expected_plugin = {
         "inspect-gsm8k": ("coverage_declare", "single_shot"),
         "inspect-mmlu": ("coverage_declare", "single_shot"),
+        # OME-1116 milestone C: the eight generated boards, every one single-shot
+        # through the shared row machine.
+        "inspect-arc_easy": ("coverage_declare", "single_shot"),
+        "inspect-arc_challenge": ("coverage_declare", "single_shot"),
+        "inspect-commonsense_qa": ("coverage_declare", "single_shot"),
+        "inspect-mmlu_pro": ("coverage_declare", "single_shot"),
+        "inspect-winogrande": ("coverage_declare", "single_shot"),
+        "inspect-race_h": ("coverage_declare", "single_shot"),
+        "inspect-paws": ("coverage_declare", "single_shot"),
+        "inspect-boolq": ("coverage_declare", "single_shot"),
     }
     actual = {
         benchmark.id: (
