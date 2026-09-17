@@ -28,7 +28,11 @@ from httpx import ASGITransport
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
+from screamingface_engine.error_text import ENGINE_ERROR_CODES
+from screamingface_engine.runner.connector import _raise_for_status
 from screamingface_engine.testing import InMemoryEventStream
+from url4.core.errors import ResolutionError
+from url4.streaming.lifecycle import _error_info
 from url4.streaming.protocol import ErrorInfo, TerminatedData, TerminatedEvent
 
 SECRET = "terminal-error-secret"
@@ -258,3 +262,262 @@ async def test_a_trace_id_is_reported_even_when_the_run_carried_no_error() -> No
     resp = await _get_terminal(topic, _terminated(topic, "stopped", error=None))
 
     assert resp.json()["trace_id"] == TRACE_ID
+
+
+# --------------------------------------------------------------------------------------
+# Review round 2 (OME-941): the allowlist must be load-bearing, and the code must not be the
+# ONLY thing vouching for the message.
+#
+# Round 1 rested on "an allowlisted code vouches for the author of the message". It did not:
+# `runner/connector.py::_raise_for_status` lifted BOTH `code` and `message` out of the UPSTREAM
+# response body, so an upstream answering with an allowlisted code would have had its own text
+# echoed verbatim. These tests pin the repair from both ends — the connector no longer lets an
+# upstream mint an engine-reserved code, and the HTTP surface bounds and screens every message
+# it echoes, whichever code carried it.
+# --------------------------------------------------------------------------------------
+
+# Codes the ledger names as deliberately EXCLUDED. Each must scrub. `resolution_failed` leads
+# because it is `ResolutionError`'s class default — the code under which connector text and
+# `io/http.py`'s `f"GET {url!r} failed: {exc}"` actually arrive.
+EXCLUDED_CODES = (
+    "resolution_failed",
+    "internal_error",
+    "aigateway_bad_response",
+    "aigateway_http_401",
+    "aigateway_empty_response",
+    "provider_refusal",
+    "model_timeout",
+    "judge_unavailable",
+    "draco_grading_failed",
+    "invalid_candidate_input",
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", EXCLUDED_CODES)
+async def test_every_excluded_code_scrubs_its_message(code: str) -> None:
+    """Adding any of these to the allowlist must break a test, not slip through review."""
+    assert code not in ENGINE_ERROR_CODES
+    topic = f"topic-excluded-{code}"
+    resp = await _get_terminal(
+        topic,
+        _terminated(
+            topic,
+            "failed",
+            error=ErrorInfo(code=code, message=PROVIDER_MESSAGE, permanent=False),
+        ),
+    )
+
+    body = resp.json()
+    assert body["code"] == "internal_error"
+    assert body["detail"] == "the run failed"
+    raw = resp.content.decode()
+    assert PROVIDER_SECRET not in raw
+    if code != "internal_error":
+        assert code not in raw
+
+
+# Spelled out by hand ON PURPOSE. Parametrizing over `ENGINE_ERROR_CODES` itself would make
+# deleting an entry delete a test case rather than fail one — the mutation survived exactly that
+# way on the first attempt. This tuple is the second copy the set is compared against, so adding
+# or removing a code fails `test_the_allowlist_is_exactly_this_set` and nothing else has to know.
+ALLOWLISTED_CODES = (
+    "malformed_source",
+    "unbound_reference",
+    "cycle_detected",
+    "unrenderable",
+    "expansion_not_iterable",
+    "unknown_identity",
+    "unknown_processor",
+    "timeout",
+    "result_too_large",
+)
+
+
+def test_the_allowlist_is_exactly_this_set() -> None:
+    """Changing the allowlist is a security decision, so it must fail a test to make it."""
+    assert ENGINE_ERROR_CODES == frozenset(ALLOWLISTED_CODES)
+    assert len(ALLOWLISTED_CODES) == len(set(ALLOWLISTED_CODES))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ALLOWLISTED_CODES)
+async def test_every_allowlisted_code_is_echoed_with_its_message(code: str) -> None:
+    """Deleting an entry from the allowlist must break a test too — the set is not decorative."""
+    topic = f"topic-allowed-{code}"
+    resp = await _get_terminal(
+        topic,
+        _terminated(
+            topic,
+            "failed",
+            error=ErrorInfo(code=code, message="engine authored detail", permanent=True),
+        ),
+    )
+
+    body = resp.json()
+    assert body["code"] == code
+    assert body["detail"] == "engine authored detail"
+
+
+@pytest.mark.asyncio
+async def test_an_upstream_message_under_an_allowlisted_code_never_reaches_the_response() -> None:
+    """The chain test for the round-1 hole, with the tainted step really executed.
+
+    An upstream answers a model call with an allowlisted code and its own text. That response is
+    turned into a `ResolutionError` by the real `_raise_for_status`, then into an `ErrorInfo` by
+    url4's real `_error_info`, and only then handed to the GET path. Nothing in the chain is
+    hand-built, so the test fails the moment any link starts trusting the upstream again.
+    """
+    upstream = httpx.Response(
+        401,
+        json={
+            "detail": {
+                "code": "malformed_source",
+                "message": (
+                    f"our cluster db-7 rejected the request; key {PROVIDER_SECRET} is revoked"
+                ),
+            }
+        },
+        request=httpx.Request("POST", "http://aigateway.test/v1/chat/completions"),
+    )
+    with pytest.raises(ResolutionError) as caught:
+        _raise_for_status(upstream)
+    error = _error_info(caught.value)
+
+    topic = "topic-upstream-allowlisted-code"
+    resp = await _get_terminal(topic, _terminated(topic, "failed", error=error))
+
+    raw = resp.content.decode()
+    assert PROVIDER_SECRET not in raw
+    assert "db-7" not in raw
+    assert "malformed_source" not in raw
+    assert resp.json()["code"] == "internal_error"
+
+
+@pytest.mark.asyncio
+async def test_an_allowlisted_message_is_capped_rather_than_echoed_unbounded() -> None:
+    """`malformed_source` embeds `{token!r}` of the caller's expression with no bound of its own."""
+    topic = "topic-unbounded-detail"
+    resp = await _get_terminal(
+        topic,
+        _terminated(
+            topic,
+            "failed",
+            error=ErrorInfo(code="malformed_source", message="x" * 5_000, permanent=True),
+        ),
+    )
+
+    detail = resp.json()["detail"]
+    assert len(detail) <= 200
+
+
+@pytest.mark.asyncio
+async def test_an_allowlisted_message_carrying_an_internal_marker_is_withheld() -> None:
+    """The same screen the benchmark surface applies — one policy module, not two."""
+    topic = "topic-marker-detail"
+    resp = await _get_terminal(
+        topic,
+        _terminated(
+            topic,
+            "failed",
+            error=ErrorInfo(
+                code="malformed_source",
+                message='Traceback (most recent call last): File "/srv/engine/runner.py", line 9',
+                permanent=True,
+            ),
+        ),
+    )
+
+    body = resp.json()
+    assert body["detail"] == "the run failed"
+    assert "/srv/engine" not in resp.content.decode()
+
+
+@pytest.mark.asyncio
+async def test_an_allowlisted_message_is_whitespace_normalized() -> None:
+    """A newline-bearing detail is one line on the wire, so a log line cannot be forged in it."""
+    topic = "topic-newline-detail"
+    resp = await _get_terminal(
+        topic,
+        _terminated(
+            topic,
+            "failed",
+            error=ErrorInfo(code="timeout", message="deadline\n\texceeded", permanent=False),
+        ),
+    )
+
+    assert resp.json()["detail"] == "deadline exceeded"
+
+
+@pytest.mark.asyncio
+async def test_a_trace_id_rides_on_a_stopped_and_a_timed_out_problem_too() -> None:
+    """Stated plainly because it is a production body change (review round 2, medium finding).
+
+    Every terminal problem body gains `trace_id` — 409 and 504 included, error or no error —
+    because a real run always carries a `traceparent` from `lifecycle.run`. Only a frame with no
+    traceparent at all keeps the pre-OME-941 body, and that is not the production case.
+    """
+    stopped = await _get_terminal(
+        "topic-stopped-traced", _terminated("topic-stopped-traced", "stopped")
+    )
+    assert stopped.status_code == 409
+    assert stopped.json()["trace_id"] == TRACE_ID
+
+    timed_out = await _get_terminal(
+        "topic-timeout-traced", _terminated("topic-timeout-traced", "timed_out")
+    )
+    assert timed_out.status_code == 504
+    assert timed_out.json()["trace_id"] == TRACE_ID
+
+
+@pytest.mark.asyncio
+async def test_a_marker_only_allowlisted_message_is_withheld_with_no_path_to_help() -> None:
+    """Isolates the marker screen from the path screen.
+
+    The traceback test above also trips the PATH pattern, so deleting the internal-marker branch
+    of `public_message` survived it. This message carries a marker and NO path, so only the
+    marker branch can withhold it.
+    """
+    topic = "topic-marker-only"
+    resp = await _get_terminal(
+        topic,
+        _terminated(
+            topic,
+            "failed",
+            error=ErrorInfo(
+                code="malformed_source",
+                message="Traceback (most recent call last): line 9 in handler",
+                permanent=True,
+            ),
+        ),
+    )
+
+    body = resp.json()
+    assert body["detail"] == "the run failed"
+    assert "handler" not in resp.content.decode()
+
+
+@pytest.mark.asyncio
+async def test_an_allowlisted_message_carrying_a_credential_is_withheld() -> None:
+    """A vouched author is not a guarantee of vouched CONTENT.
+
+    `malformed_source` is raised about the caller's own expression, and an expression can embed
+    a key. The credential screen runs on an allowlisted message too — no code exempts it.
+    """
+    topic = "topic-credential-detail"
+    resp = await _get_terminal(
+        topic,
+        _terminated(
+            topic,
+            "failed",
+            error=ErrorInfo(
+                code="malformed_source",
+                message=f"unexpected token {PROVIDER_SECRET!r} at position 12",
+                permanent=True,
+            ),
+        ),
+    )
+
+    body = resp.json()
+    assert body["detail"] == "the run failed"
+    assert PROVIDER_SECRET not in resp.content.decode()

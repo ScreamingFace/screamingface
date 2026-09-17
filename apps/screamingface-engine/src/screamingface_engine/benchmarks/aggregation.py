@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -26,6 +25,7 @@ from screamingface_engine.benchmarks.contract import (
     validate_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import CandidateAnswer
+from screamingface_engine.error_text import public_identifier, public_message
 from screamingface_engine.grading_accounting import reconcile_candidate_grading_accounting
 
 
@@ -153,62 +153,14 @@ def public_error(
 ) -> PublicError:
     """Retain useful error fields without publishing runner internals or credentials."""
 
-    kind = _public_identifier(error.get("kind"))
-    code = _public_identifier(error.get("code")) or default_code
-    message = _public_message(error.get("message"), default=default_message)
+    kind = public_identifier(error.get("kind"))
+    code = public_identifier(error.get("code")) or default_code
+    message = public_message(error.get("message"), default=default_message)
     retryable = error.get("retryable")
     if not isinstance(retryable, bool):
         permanent = error.get("permanent")
         retryable = not permanent if isinstance(permanent, bool) else None
     return PublicError(kind=kind, code=code, message=message, retryable=retryable)
-
-
-def _public_identifier(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()[:80]
-    return normalized if re.fullmatch(r"[A-Za-z0-9_.:-]+", normalized) else None
-
-
-def _public_message(value: object, *, default: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        return default
-    normalized = " ".join(value.split())[:200]
-    lowered = normalized.casefold()
-    internal_markers = (
-        "traceback (most recent call last)",
-        'file "',
-        "/users/",
-        "/private/",
-        "/tmp/",
-        "/var/",
-        "/home/",
-    )
-    return (
-        default
-        if any(marker in lowered for marker in internal_markers)
-        or any(pattern.search(normalized) for pattern in _SENSITIVE_ERROR_PATTERNS)
-        else normalized
-    )
-
-
-_SENSITIVE_ERROR_PATTERNS = (
-    # Absolute/relative POSIX, drive-letter Windows, and UNC paths. Public
-    # diagnostics retain the bounded default instead of trying to redact an
-    # unbounded path grammar piecemeal.
-    re.compile(r"(?i)(?:^|[\s'\"(])(?:/|\.{1,2}/)[^\s'\")]+"),
-    re.compile(r"(?i)(?:^|[\s'\"(])[a-z]:\\[^\s'\")]+"),
-    re.compile(r"(?i)(?:^|[\s'\"(])\\\\[^\\\s]+\\[^\s'\")]+"),
-    re.compile(
-        r"(?i)(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*"
-        r"(?:authorization|password|passwd|pwd|secret|token|cookie|api[_-]?key|"
-        r"access[_-]?key)\s*[:=]"
-    ),
-    re.compile(r"(?i)\bbearer\s+\S+"),
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-)
 
 
 def scored_case_result(

@@ -31,6 +31,7 @@ from screamingface_engine.auth import (
 )
 from screamingface_engine.client_provenance import parse_user_agent
 from screamingface_engine.config import Settings
+from screamingface_engine.error_text import ENGINE_ERROR_CODES, public_message
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.rest.cache_header import parse_cache_control
 from screamingface_engine.rest.cache_policy import resolve
@@ -56,54 +57,37 @@ _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
 
 _SCRUBBED_CODE = "internal_error"
 
-# The CLOSED set of error codes this surface will repeat back to a caller, and — the same
-# decision — the set whose `message` it will repeat back (OME-941).
-#
-# WHY one list and not two: `ErrorInfo` is built by `url4.streaming.lifecycle._error_info`, which
-# takes `code` from `getattr(exc, "code")` and `message` from `str(exc)` — of WHATEVER exception
-# ended the run. For any provider-facing adapter that string is the provider's own text: a
-# response body, a refusal, an auth error quoting the key that failed. So `message` is tainted
-# unless something vouches for its author, and the only thing that can vouch is the code. Two
-# lists (echo the code but never the message) would be a second policy free to drift out of step
-# with this one; one list cannot.
-#
-# MEMBERSHIP RULE: a code belongs here only if every message published under it is authored by
-# url4 core or the engine's own control plane, about the CALLER'S OWN expression or the engine's
-# own limits. Deliberately absent, and each for a reason:
-#   - `resolution_failed`  — the I/O layer; its message can embed a remote response.
-#   - `internal_error`     — `str()` of an arbitrary exception, by definition unvouched.
-#   - `aigateway_*`, `provider_refusal`, `model_*`, `judge_*`, `*_grading_failed`, … — every
-#     provider-adjacent code in the executor and the benchmark adapters.
-# Adding a code here is a security decision, not a convenience one: check what its raise sites
-# actually put in the message before you do.
-_ENGINE_ERROR_CODES: frozenset[str] = frozenset(
-    {
-        "malformed_source",
-        "unbound_reference",
-        "cycle_detected",
-        "unrenderable",
-        "expansion_not_iterable",
-        "unknown_identity",
-        "unknown_processor",
-        "timeout",
-        "result_too_large",
-    }
-)
-
 
 def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, bool | None]:
     """Reduce a terminal frame's ``ErrorInfo`` to what may cross the HTTP boundary.
 
-    Returns ``(code, message, permanent)``. An allowlisted code passes with its message; anything
-    else collapses to ``internal_error`` with NO message, so the caller still learns that the
-    engine has a code for this and that the detail was withheld, and learns nothing the provider
-    wrote. ``permanent`` always survives: it is a bool, it cannot carry text, and it is the one
-    field that tells the caller whether a retry can ever succeed.
+    Returns ``(code, message, permanent)``. ``permanent`` always survives: it is a bool, it
+    cannot carry text, and it is the one field that tells the caller whether a retry can ever
+    succeed. The other two pass TWO independent screens (OME-941, review round 2):
+
+    1. **Authorship.** ``ErrorInfo`` is built by ``url4.streaming.lifecycle._error_info``, which
+       takes ``code`` from ``getattr(exc, "code")`` and ``message`` from ``str(exc)`` of whatever
+       exception ended the run — provider text verbatim for any provider-facing adapter. Only a
+       code in :data:`ENGINE_ERROR_CODES` vouches for its message's author, and that set is
+       reserved engine-wide: ``runner/connector.py::_raise_for_status`` refuses to mint one of
+       those codes from an upstream response body, so an upstream cannot borrow the vouching.
+       One shared set, not a second copy that would be free to drift.
+    2. **Content, regardless of authorship.** Even a vouched message goes through the same
+       :func:`public_message` the benchmark result contract uses: capped, flattened to one line,
+       and withheld outright if it looks like an internal path, a traceback or a credential.
+       An engine-authored message is not automatically a *bounded* one — ``malformed_source``
+       embeds ``{token!r}`` of the caller's expression with no limit of its own.
+
+    An unvouched or withheld message yields ``None``, and the caller falls back to the fixed
+    table detail for the status. NOTE that ``_SCRUBBED_CODE`` is the genuine ``internal_error``
+    code, not a distinct sentinel: a withheld body is therefore INDISTINGUISHABLE from a real
+    internal failure. That is deliberate — telling a caller "there is a code here we are not
+    showing you" is itself a signal — but it does mean the body is not self-describing.
     """
     if error is None:
         return None, None, None
-    if error.code in _ENGINE_ERROR_CODES:
-        return error.code, error.message, error.permanent
+    if error.code in ENGINE_ERROR_CODES:
+        return error.code, public_message(error.message, default=""), error.permanent
     return _SCRUBBED_CODE, None, error.permanent
 
 

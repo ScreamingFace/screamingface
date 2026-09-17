@@ -20,6 +20,7 @@ import httpx
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
+from screamingface_engine.error_text import ENGINE_ERROR_CODES
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.models.registry import decode_route_id
 from screamingface_engine.observations import ModelCall, current_model_call
@@ -973,6 +974,15 @@ def _raise_for_status(resp: httpx.Response) -> None:
     For a 4xx/5xx, the error `code`/`message` prefer the response's own `detail` payload when
     present; `permanent` is `False` only for 429 and 5xx, so those (and only those) are
     eligible for retry upstream.
+
+    INVARIANT (OME-941): `detail.code` is UPSTREAM input and may never name a code in
+    `ENGINE_ERROR_CODES`. Public boundaries — the HTTP problem body, the benchmark result
+    contract — read those codes as evidence that the engine itself authored the accompanying
+    message, and the message here is upstream text. So an upstream (or a proxy in front of
+    aigateway, which this module already treats as an assumed threat) that answers
+    `{"detail": {"code": "malformed_source", …}}` keeps the engine-authored
+    `aigateway_http_<status>` code instead, and its text stays unvouched. Every other upstream
+    code still passes through unchanged — that vocabulary is what the failure report reads.
     """
     if 300 <= resp.status_code < 400:
         raise ResolutionError(
@@ -992,7 +1002,9 @@ def _raise_for_status(resp: httpx.Response) -> None:
     if isinstance(payload, dict):
         detail = payload.get("detail")
         if isinstance(detail, dict):
-            code = detail.get("code", code)
+            upstream_code = detail.get("code")
+            if isinstance(upstream_code, str) and upstream_code not in ENGINE_ERROR_CODES:
+                code = upstream_code
             message = detail.get("message", message)
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
     raise ResolutionError(message, code=code, permanent=permanent)

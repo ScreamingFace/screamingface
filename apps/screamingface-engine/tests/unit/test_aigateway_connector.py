@@ -7,7 +7,13 @@ import httpx
 import pytest
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
-from screamingface_engine.runner.connector import AigatewayConfig, _messages, build_aigateway_world
+from screamingface_engine.error_text import ENGINE_ERROR_CODES
+from screamingface_engine.runner.connector import (
+    AigatewayConfig,
+    _messages,
+    _raise_for_status,
+    build_aigateway_world,
+)
 from screamingface_engine.world_config import ModelSpec, WorldConfigError
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
@@ -1060,3 +1066,43 @@ async def test_truncation_never_splits_a_multibyte_character() -> None:
 
     assert len(out.encode("utf-8")) <= 137
     out.encode("utf-8").decode("utf-8")  # must not raise
+
+
+@pytest.mark.parametrize("reserved", sorted(ENGINE_ERROR_CODES))
+async def test_an_upstream_cannot_mint_an_engine_reserved_error_code(reserved: str) -> None:
+    """OME-941 review round 2: `detail.code` is UPSTREAM input, so it may not name an engine code.
+
+    `rest/routes.py` treats a small closed set of codes as proof that the accompanying message was
+    authored by url4 core or the engine's control plane, and echoes that message to an HTTP
+    caller. `_raise_for_status` adopting `detail.code` verbatim let an upstream (or a proxy in
+    front of aigateway — an assumed threat elsewhere in this module) assert one of those codes and
+    have its own text vouched for. The engine-authored `aigateway_http_<status>` code is kept
+    instead; every other upstream code still passes through, which is what the benchmark failure
+    report reads.
+    """
+    resp = httpx.Response(
+        401,
+        json={"detail": {"code": reserved, "message": "upstream authored text"}},
+        request=httpx.Request("POST", "http://aigateway.test/v1/chat/completions"),
+    )
+
+    with pytest.raises(ResolutionError) as caught:
+        _raise_for_status(resp)
+
+    assert caught.value.code == "aigateway_http_401"
+    assert caught.value.code not in ENGINE_ERROR_CODES
+
+
+async def test_an_upstream_code_outside_the_reserved_set_is_still_adopted() -> None:
+    """The narrowing is exactly the reserved set — the failure report's vocabulary is untouched."""
+    resp = httpx.Response(
+        429,
+        json={"detail": {"code": "rate_limited", "message": "slow down"}},
+        request=httpx.Request("POST", "http://aigateway.test/v1/chat/completions"),
+    )
+
+    with pytest.raises(ResolutionError) as caught:
+        _raise_for_status(resp)
+
+    assert caught.value.code == "rate_limited"
+    assert caught.value.permanent is False
