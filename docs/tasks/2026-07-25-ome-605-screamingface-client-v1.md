@@ -1,12 +1,12 @@
 ---
 id: OME-605
 linear_url: https://linear.app/openmined/issue/OME-605/implement-the-screamingface-python-client-v1
-status: done
+status: in_progress
 type: feature
 priority: high
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-07-25
-closed: 2026-08-10
+closed:
 ---
 
 Implement the greenfield v1 interface for the `screamingface` Python package around one complete

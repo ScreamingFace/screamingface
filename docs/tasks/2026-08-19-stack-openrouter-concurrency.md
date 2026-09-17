@@ -1,12 +1,12 @@
 ---
 id: OME-889
 linear_url: https://linear.app/openmined/issue/OME-889/raise-the-local-stacks-openrouter-gateway-concurrency-to-match-the
-status: done
+status: in_progress
 type: task
 priority: high
 labels: [py-screamingface, agentic, autonomous, task]
 created: 2026-08-19
-closed: 2026-08-19
+closed:
 ---
 
 # Raise the local stack's OpenRouter gateway concurrency to match the Engine's 32-call fan-out

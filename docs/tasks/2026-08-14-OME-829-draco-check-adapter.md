@@ -1,12 +1,11 @@
 ---
 id: OME-829
 linear_url: https://linear.app/openmined/issue/OME-829/ship-the-draco-check-adapter-draco-passv1-so-correctiveloop-runs-on
-status: done
+status: In Progress
 priority: P1
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-14
 parent: OME-796
-closed: 2026-08-14
 ---
 
 # Ship the DRACO check adapter (draco-pass.v1) so CorrectiveLoop runs on DRACO

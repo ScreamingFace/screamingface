@@ -1,12 +1,12 @@
 ---
 id: OME-1151
 linear_url: https://linear.app/openmined/issue/OME-1151/engine-test-suite-goes-red-on-a-mac-so-the-pre-push-hook-rejects-every
-status: done
+status: in_progress
 type: fix
 priority: 2
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-09
-closed: 2026-09-09
+closed:
 ---
 
 # Engine test suite goes red on a Mac, so the pre-push hook rejects every push

@@ -1,12 +1,12 @@
 ---
 id: OME-958
 linear_url: https://linear.app/openmined/issue/OME-958/derive-hosted-provider-availability-from-caller-profiles
-status: done
+status: in_review
 type: feature
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-08-24
-closed: 2026-08-24
+closed:
 ---
 
 # Derive hosted provider availability from caller profiles

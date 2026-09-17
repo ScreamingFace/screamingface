@@ -6,7 +6,7 @@ type: task
 priority: Medium
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-17
-closed: 2026-08-19
+closed: 2026-08-24
 ---
 
 # Refresh the example notebooks: credits helper, protocol grid, corrective-loops walkthrough

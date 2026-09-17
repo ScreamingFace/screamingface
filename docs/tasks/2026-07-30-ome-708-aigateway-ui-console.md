@@ -6,7 +6,7 @@ type: task
 priority: P2
 labels: [autonomous, agentic]
 created: 2026-07-30
-closed: 2026-07-30
+closed: 2026-08-31
 ---
 
 # OME-708 — Scaffold `apps/aigateway-ui`: Next.js admin console over the BFF

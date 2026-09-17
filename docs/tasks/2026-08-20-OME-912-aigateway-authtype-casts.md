@@ -1,12 +1,12 @@
 ---
 id: OME-912
 linear_url: https://linear.app/openmined/issue/OME-912/aigateway-cast-tortoise-charfield-reads-at-the-authtype-literal
-status: done
+status: In Review
 type: Task
 priority: High
 labels: [aigateway, agentic, autonomous, task]
 created: 2026-08-20
-closed: 2026-08-20
+closed:
 ---
 
 # aigateway: cast Tortoise CharField reads at the Literal alias boundaries

@@ -1,12 +1,12 @@
 ---
 id: OME-749
 linear_url: https://linear.app/openmined/issue/OME-749/audit-dependabot-ignore-rules-so-they-expire-instead-of-silently
-status: done
+status: in_review
 type: task
 priority: P2
 labels: [repo, autonomous, agentic]
 created: 2026-08-04
-closed: 2026-08-04
+closed:
 ---
 
 # OME-749 — audit Dependabot ignore rules so they expire

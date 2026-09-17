@@ -1,12 +1,12 @@
 ---
 id: OME-883
 linear_url: https://linear.app/openmined/issue/OME-883/render-hosted-engine-provider-access-without-byok-controls-in
-status: done
+status: In Review
 type: improvement
 priority: high
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-18
-closed: 2026-08-18
+closed:
 ---
 
 # Render hosted Engine provider access without BYOK controls in `sf.connect()`

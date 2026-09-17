@@ -1,12 +1,12 @@
 ---
 id: OME-747
 linear_url: https://linear.app/openmined/issue/OME-747/move-aigateway-and-scoreboard-dockerfiles-to-python-313-across-both
-status: done
+status: in_review
 type: task
 priority: P2
 labels: [repo, autonomous, agentic]
 created: 2026-08-04
-closed: 2026-08-04
+closed:
 ---
 
 # OME-747 — aigateway + scoreboard Dockerfiles to Python 3.13, and ignore 3.14

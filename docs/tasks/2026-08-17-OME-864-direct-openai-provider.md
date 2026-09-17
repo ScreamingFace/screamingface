@@ -1,12 +1,12 @@
 ---
 id: OME-864
 linear_url: https://linear.app/openmined/issue/OME-864/add-direct-openai-platform-api-key-provider-to-aigateway
-status: done
+status: Pick Immediately
 type: Feature
 priority: Urgent
 labels: [aigateway, agentic, autonomous]
 created: 2026-08-17
-closed: 2026-08-18
+closed:
 ---
 
 # Add direct OpenAI Platform API-key provider to AIGateway

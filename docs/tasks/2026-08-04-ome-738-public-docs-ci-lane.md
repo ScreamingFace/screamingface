@@ -1,12 +1,12 @@
 ---
 id: OME-738
 linear_url: https://linear.app/openmined/issue/OME-738/add-a-ci-lane-for-public-docs
-status: done
+status: in_review
 type: task
 priority: P2
 labels: [repo, autonomous, agentic]
 created: 2026-08-04
-closed: 2026-08-04
+closed:
 ---
 
 # OME-738 — give public-docs a CI lane

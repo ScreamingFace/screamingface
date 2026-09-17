@@ -1,12 +1,12 @@
 ---
 id: OME-816
 linear_url: https://linear.app/openmined/issue/OME-816/expand-openrouter-model-seed-with-66-live-verified-slugs
-status: done
+status: in_progress
 type: task
 priority: 3
 labels: [aigateway, agentic, autonomous]
 created: 2026-08-13
-closed: 2026-08-13
+closed:
 ---
 
 # OME-816 — Expand OpenRouter model seed with live-verified slugs

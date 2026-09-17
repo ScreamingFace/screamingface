@@ -6,7 +6,7 @@ type: task
 priority: P1
 labels: [scoreboard]
 created: 2026-08-11
-closed: 2026-08-11
+closed: 2026-08-12
 ---
 
 Landing page (benchmark catalog: name, subtitle, submission count) + per-benchmark board shell

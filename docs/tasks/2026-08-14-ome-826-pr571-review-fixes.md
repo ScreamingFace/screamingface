@@ -1,12 +1,12 @@
 ---
 id: OME-826
 linear_url: https://linear.app/openmined/issue/OME-826/fix-pr-571-post-merge-review-findings-money-bug-equality-walker
-status: done
+status: In Progress
 type: task
 priority: High
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-14
-closed: 2026-08-14
+closed:
 ---
 
 # Fix PR #571 post-merge review findings

@@ -1,12 +1,12 @@
 ---
 id: OME-373
 linear_url: https://linear.app/openmined/issue/OME-373/analytics-leaderboard-trafficvisits
-status: done
+status: in_progress
 type: task
 priority: P2
 labels: [scoreboard, autonomous, agentic]
 created: 2026-07-13
-closed: 2026-07-13
+closed:
 ---
 
 Analytics + leaderboard traffic/visits. Bennett confirmed the `scoreboard.screamingface.ai`

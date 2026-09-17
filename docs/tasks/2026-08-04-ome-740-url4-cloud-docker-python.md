@@ -1,12 +1,12 @@
 ---
 id: OME-740
 linear_url: https://linear.app/openmined/issue/OME-740/rework-the-url4-cloud-docker-python-bump-across-both-build-stages
-status: done
+status: in_review
 type: task
 priority: P2
 labels: [url4-cloud, autonomous, agentic]
 created: 2026-08-04
-closed: 2026-08-04
+closed:
 ---
 
 # OME-740 — move the url4-cloud image's Python across both build stages

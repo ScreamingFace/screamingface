@@ -1,12 +1,12 @@
 ---
 id: OME-950
 linear_url: https://linear.app/openmined/issue/OME-950/report-relative-url4-routes-in-span-names
-status: done
+status: in_progress
 type: improvement
 priority: 2
 labels: [url4-python-sdk, agentic, autonomous]
 created: 2026-08-23
-closed: 2026-08-23
+closed:
 ---
 
 # Report relative URL4 routes in span names

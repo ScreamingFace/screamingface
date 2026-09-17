@@ -1,12 +1,12 @@
 ---
 id: OME-709
 linear_url: https://linear.app/openmined/issue/OME-709/add-a-theme-switch-defaulting-to-dark-and-fix-the-consoles-ragged
-status: done
+status: in_review
 type: task
 priority: P3
 labels: [autonomous, agentic]
 created: 2026-07-30
-closed: 2026-07-30
+closed:
 ---
 
 # OME-709 — Add a theme switch defaulting to dark, and fix the console's ragged column widths

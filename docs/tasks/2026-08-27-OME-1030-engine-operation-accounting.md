@@ -1,12 +1,12 @@
 ---
 id: OME-1030
 linear_url: https://linear.app/openmined/issue/OME-1030/retain-per-operation-evaluation-accounting-in-candidate-results
-status: done
+status: in_review
 type: task
 priority: P2
 labels: [screamingface-engine, autonomous, agentic]
 created: 2026-08-27
-closed: 2026-08-28
+closed:
 ---
 
 # Retain per-operation evaluation accounting in Candidate results

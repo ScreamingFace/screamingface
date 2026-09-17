@@ -6,7 +6,7 @@ type: task
 priority: P1
 labels: [aigateway, autonomous, agentic]
 created: 2026-07-30
-closed: 2026-07-30
+closed: 2026-08-31
 ---
 
 # OME-706 — Add `/v1/admin` API: email allowlist + account and API-key profile management

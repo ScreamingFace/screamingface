@@ -1,12 +1,12 @@
 ---
 id: OME-712
 linear_url: https://linear.app/openmined/issue/OME-712/run-draco-end-to-end-as-a-url4-expression-on-the-runner-path
-status: done
+status: pick_immediately
 type:
 priority: P2
 labels: [url4-cloud, autonomous, agentic]
 created: 2026-07-31
-closed: 2026-08-07
+closed:
 ---
 
 # Run DRACO end to end as a url4 expression on the Runner path
@@ -25,3 +25,4 @@ Layer-specific artifacts:
 - `docs/spec/2026-08-04-OME-712-url4-runtime-foundations.md`
 - `docs/plan/2026-08-04-OME-712-url4-runtime-foundations.md`
 - `docs/work/2026-08-04-OME-712-url4-runtime-foundations.md`
+

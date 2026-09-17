@@ -423,11 +423,28 @@ class NarrowedDoneRuleTests(unittest.TestCase):
             "canceled",
             "done",
         ]
+        # Each status gets its OWN tree and its OWN assertion inside the subTest. The first
+        # version accumulated all seven and asserted once AFTER the loop, so the subTest wrapped
+        # nothing but setup: a failure named the test, never the status that broke it.
         for index, status in enumerate(legal):
             with self.subTest(mirror_status=status):
+                tree = _Tree()
+                self.addCleanup(tree.close)
                 ticket = f"OME-{4000 + index}"
-                self.tree.mirror(f"m{index}.md", ticket, status)
-                self.tree.ledger(f"2026-01-01-{ticket}-x.md", ticket, "done")
+                tree.mirror(f"m{index}.md", ticket, status)
+                tree.ledger(f"2026-01-01-{ticket}-x.md", ticket, "done")
+                violations, _ = tree.run()
+                self.assertEqual(
+                    [v.reason for v in violations],
+                    [],
+                    f"a done ledger must not force a mirror at {status!r} to done",
+                )
+
+        # AND all seven coexisting, which the per-status loop above cannot show.
+        for index, status in enumerate(legal):
+            ticket = f"OME-{4000 + index}"
+            self.tree.mirror(f"m{index}.md", ticket, status)
+            self.tree.ledger(f"2026-01-01-{ticket}-x.md", ticket, "done")
         violations, _ = self.tree.run()
         self.assertEqual([v.ticket for v in violations], [])
 

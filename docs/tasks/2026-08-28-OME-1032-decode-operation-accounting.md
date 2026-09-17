@@ -1,12 +1,12 @@
 ---
 id: OME-1032
 linear_url: https://linear.app/openmined/issue/OME-1032/keep-each-operations-cost-and-token-facts-when-a-report-is-read-back
-status: done
+status: in_review
 type: feature
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-28
-closed: 2026-08-28
+closed:
 ---
 
 # Keep each operation's cost and token facts when a report is read back

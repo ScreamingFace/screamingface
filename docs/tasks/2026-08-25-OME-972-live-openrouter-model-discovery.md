@@ -1,12 +1,12 @@
 ---
 id: OME-972
 linear_url: https://linear.app/openmined/issue/OME-972/aigateway-automatically-discover-models-offered-by-openrouter
-status: done
+status: In Progress
 type: feature
 priority: 2
 labels: [aigateway]
 created: 2026-08-24
-closed: 2026-08-25
+closed:
 ---
 
 # AIGateway: automatically discover models offered by OpenRouter

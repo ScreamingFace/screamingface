@@ -1,12 +1,12 @@
 ---
 id: OME-711
 linear_url: https://linear.app/openmined/issue/OME-711/add-release-aigateway-uiyml-publish-the-console-image-and-chart-on
-status: done
+status: in_review
 type: task
 priority: P3
 labels: [repo, autonomous, agentic]
 created: 2026-07-30
-closed: 2026-07-30
+closed:
 ---
 
 # OME-711 — `release-aigateway-ui.yml`: publish the console image and chart on `aigateway-ui-v*`

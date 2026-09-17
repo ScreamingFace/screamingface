@@ -1,12 +1,12 @@
 ---
 id: OME-865
 linear_url: https://linear.app/openmined/issue/OME-865/rename-the-scoreboard-verification-field-to-verified-by-screamingface
-status: done
+status: In Review
 type: task
 priority: P1
 labels: [scoreboard, agentic, autonomous, task]
 created: 2026-08-17
-closed: 2026-08-17
+closed:
 ---
 
 # Rename the Scoreboard verification field to verified_by_screamingface

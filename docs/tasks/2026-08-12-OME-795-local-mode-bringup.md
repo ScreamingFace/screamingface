@@ -1,12 +1,12 @@
 ---
 id: OME-795
 linear_url: https://linear.app/openmined/issue/OME-795/make-url4-cloud-local-mode-reach-a-successful-run-out-of-the-box
-status: done
+status: In Progress
 type: Bug
 priority: P1
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-12
-closed: 2026-08-12
+closed:
 ---
 
 # Make url4-cloud local mode reach a successful run out of the box

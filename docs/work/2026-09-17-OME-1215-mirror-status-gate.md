@@ -1,7 +1,7 @@
 ---
 ticket: OME-1215
 stack: repo
-status: in_progress
+status: done
 started: 2026-09-17
 finished:
 ---
@@ -366,3 +366,81 @@ No assertion anywhere reads `repr()`; every one walks named fields.
   - **Not claimed anywhere:** that any of this caused a production failure. The pre-sweep
     RED run, the 22 offenders, the landing commits and the three Linear reads are the only
     history asserted, and each is reproducible from this repo or from Linear.
+
+---
+
+## Round 3 (2026-09-17) — the sweep the PR said it had not done
+
+The re-review found the PR body claiming "the 24 conflicts were not swept" while the diff carried
+**97 `+status: done` across 104 files** — round 1's mass sweep, still fully present. It also found
+36 of 64 cross-checked `closed:` dates disagreeing with Linear's `completedAt`. Both confirmed.
+
+That is the same defect as the incident this work came out of: **a claim the diff does not support.**
+
+### What changed
+
+**Reverted all 89 mirror edits and re-derived them from Linear.** The gate is the deliverable; the
+data changes now follow the gate's own instruction ("Linear is the status authority — read it
+there"), not a bulk rewrite.
+
+Sequence, with the count at each step:
+
+| step | violations |
+| -- | -- |
+| gate on the unswept tree | **20** |
+| restore the 10 evidenced ledger closures | 10 |
+| set 11 mirrors from Linear (10 tickets; `OME-906` has two mirrors) | 1 |
+| `OME-906` waiver applies once its mirror reaches `done` | **0** |
+
+**The 10 ledger closures were restored, not dropped.** Round 2 closed them and the re-review read
+that as scope creep. It was not: these are `ledger-open-mirror-done` — the *ledger* was the stale
+side, each with a landing commit on `origin/main` and a `finished:` equal to that commit's author
+date. Spot-checked `OME-567` → `2f628696` `ci(url4-cloud): register release-please lane`,
+2026-07-22, confirmed reachable from `origin/main`. Evidence, not derivation.
+
+**The 10 remaining were read from Linear via MCP,** one `get_issue` each. All ten are `Done`;
+each mirror's `closed:` is that issue's own `completedAt` date. Nothing inferred.
+
+### Two bugs of my own, recorded because both were silent
+
+1. **A regex that ate the frontmatter terminator.** `^closed:\s*[^\n]*$` — `\s` matches
+   **newlines**, so on any file whose `closed:` was empty it consumed the line break and `.*`
+   matched the closing `---`. **Nine of ten files**, none of which errored. Caught only by
+   checking `git diff --numstat` for `2/3` instead of `2/2`. Fixed with `[^\S\n]*`.
+2. **Matching mirrors by FILENAME.** `docs/tasks/2026-08-20-pipelined-frame-publishing.md` is
+   `OME-906` and names it nowhere in its path, so the first pass silently skipped it — the gate
+   pairs by the `id:` *inside* the file, which is why it kept failing after the "fix". The second
+   pass indexes by `id:`, as the gate does.
+
+### Review findings, judged
+
+- **CI paths filter (MEDIUM) — CONFIRMED, fixed differently than suggested.** GitHub's `paths:`
+  is workflow-level, so adding `docs/**` to `repo-checks.yml` ran the preview contract, loop
+  parity and the Dependabot audit on every docs-only PR. Moved to its own
+  `.github/workflows/mirror-status.yml`. This is exactly why `charts.yml` is its own workflow —
+  the repo had already solved this and the skill documents it.
+- **Tautological subTest (LOW) — CONFIRMED, fixed.** The `subTest` wrapped only setup; the single
+  assertion ran after the loop, so a failure could never name the status that broke it. Each
+  status now gets its own tree and its own assertion, and the all-seven-coexisting case is kept.
+- **WAIVERS machinery (MEDIUM) — REFUTED, no change.** The finding was "a permanent silent hole".
+  It is not: a waiver is pinned to the exact `(mirror_status, ledger_status)` pair, so moving
+  either side re-fires the gate, and waived pairs are still printed as notes. `OME-906` is the
+  proof — its waiver sat inert while the mirror said `in_progress` and only applied once the
+  mirror reached the state Linear reports. Widening the rule table instead would lose real drift.
+
+### Outcome
+
+- **Files:** `.claude/scripts/check_mirror_status.py` + tests, `.claude/sdlc.local.md`,
+  `.github/workflows/mirror-status.yml` (new), 11 mirrors, 10 ledger closures, this ledger.
+  `repo-checks.yml` reverted to `origin/main`.
+- **Gates:** `run_gates.py repo --skip-append-only` **ALL GREEN**. 50 gate tests OK.
+- **Gate result: 0 violations, 3 waived, 104 notes.** Red-first evidence preserved above.
+
+### Deviations
+
+- **RULE 5.** One test from round 2 of this same PR was restructured. Strictly additive:
+  assertions **101 → 102**, tests 50 → 50, the original assertion present verbatim; the two
+  "removed" lines are setup lines re-indented into the new per-case loop. Same class the owner
+  approved for `OME-941` in this session.
+- **`docs/tasks` mirrors are now 11 files, not 87.** The other 76 were never drift under the
+  narrowed rule — `in_review` is not `backlog`, so they are legal and untouched.

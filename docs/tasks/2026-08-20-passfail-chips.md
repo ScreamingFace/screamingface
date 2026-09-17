@@ -1,12 +1,12 @@
 ---
 id: OME-900
 linear_url: https://linear.app/openmined/issue/OME-900/show-passfail-on-rubric-criterion-chips-so-word-and-color-agree
-status: done
+status: in_progress
 type: bug
 priority: 3
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-20
-closed: 2026-08-20
+closed:
 ---
 
 # Show PASS/FAIL on rubric criterion chips so word and color agree

@@ -1,12 +1,12 @@
 ---
 id: OME-890
 linear_url: https://linear.app/openmined/issue/OME-890/stop-engine-runs-that-keep-spending-after-their-client-dies
-status: done
+status: In Progress
 type: Feature
 priority: High
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-08-19
-closed: 2026-08-19
+closed:
 ---
 
 # Stop Engine runs that keep spending after their client dies

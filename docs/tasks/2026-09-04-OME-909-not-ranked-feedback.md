@@ -1,12 +1,12 @@
 ---
 id: OME-909
 linear_url: https://linear.app/openmined/issue/OME-909/tell-a-submitter-when-their-score-will-not-rank-instead-of-accepting
-status: done
+status: in_review
 type: task
 priority: 2
 labels: [scoreboard, agentic, autonomous]
 created: 2026-08-20
-closed: 2026-09-04
+closed:
 ---
 
 # Tell a submitter when their score will not rank

@@ -1,12 +1,12 @@
 ---
 id: OME-858
 linear_url: https://linear.app/openmined/issue/OME-858/remove-openmined-and-om-branding-from-the-screamingface-python-package
-status: done
+status: in_review
 type: task
 priority: high
 labels: [py-screamingface, agentic, autonomous, task]
 created: 2026-08-17
-closed: 2026-08-17
+closed:
 ---
 
 # Remove OpenMined and OM branding from the ScreamingFace Python package

@@ -1,12 +1,11 @@
 ---
 id: OME-836
 linear_url: https://linear.app/openmined/issue/OME-836/retire-public-benchmark-variants-and-flatten-benchmark-identities
-status: done
+status: In Review
 priority: P1
 labels: [repo, agentic, autonomous, decision]
 created: 2026-08-14
 children: [OME-837, OME-838]
-closed: 2026-08-14
 ---
 
 # Retire public benchmark variants and flatten benchmark identities

@@ -1,12 +1,12 @@
 ---
 id: OME-850
 linear_url: https://linear.app/openmined/issue/OME-850/allow-a-cost-total-without-a-per-class-breakdown
-status: done
+status: In Progress
 type: Feature
 priority: P1
 labels: [url4-python-sdk, agentic, autonomous]
 created: 2026-08-17
-closed: 2026-08-17
+closed:
 ---
 
 # Allow a cost total without a per-class breakdown

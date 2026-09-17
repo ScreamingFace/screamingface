@@ -1,12 +1,12 @@
 ---
 id: OME-736
 linear_url: https://linear.app/openmined/issue/OME-736/unblock-the-aigateway-ui-dependency-group-pr-typescript-6-peer
-status: done
+status: in_review
 type: task
 priority: P1
 labels: [aigateway, autonomous, agentic]
 created: 2026-08-04
-closed: 2026-08-04
+closed:
 ---
 
 # OME-736 — land the aigateway-ui dependency group, hold TypeScript at 5

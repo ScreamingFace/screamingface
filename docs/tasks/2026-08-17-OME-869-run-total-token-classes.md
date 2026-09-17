@@ -1,12 +1,12 @@
 ---
 id: OME-869
 linear_url: https://linear.app/openmined/issue/OME-869/carry-cache-and-reasoning-token-classes-into-the-run-totals
-status: done
+status: In Progress
 type: Feature
 priority: P1
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-17
-closed: 2026-08-17
+closed:
 ---
 
 # Carry cache and reasoning token classes into the run totals

@@ -1,12 +1,12 @@
 ---
 id: OME-1109
 linear_url: https://linear.app/openmined/issue/OME-1109/collapse-duplicate-authors-and-disambiguate-colliding-credit-names
-status: done
+status: in_progress
 type: task
 priority: 3
 labels: [scoreboard, agentic, autonomous]
 created: 2026-09-03
-closed: 2026-09-08
+closed:
 ---
 
 # Collapse duplicate authors and disambiguate colliding credit names

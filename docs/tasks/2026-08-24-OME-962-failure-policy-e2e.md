@@ -6,7 +6,7 @@ type: feature
 priority: 3
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-24
-closed: 2026-08-25
+closed: 2026-08-26
 ---
 
 # Test that provider failures land where each benchmark's failure policy says

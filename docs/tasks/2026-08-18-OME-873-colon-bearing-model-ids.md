@@ -1,12 +1,12 @@
 ---
 id: OME-873
 linear_url: https://linear.app/openmined/issue/OME-873/route-aigateways-colon-bearing-model-ids-via-a-encoding
-status: done
+status: In Review
 type: task
 priority: Medium
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-18
-closed: 2026-08-18
+closed:
 ---
 
 # Route aigateway's colon-bearing model ids via a `~` encoding

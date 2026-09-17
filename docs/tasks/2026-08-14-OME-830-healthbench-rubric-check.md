@@ -1,12 +1,11 @@
 ---
 id: OME-830
 linear_url: https://linear.app/openmined/issue/OME-830/ship-the-healthbench-check-adapter-and-extract-the-shared-rubric-check
-status: done
+status: In Review
 priority: P1
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-14
 parent: OME-796
-closed: 2026-08-14
 ---
 
 # Ship the HealthBench check adapter and extract the shared rubric_check component

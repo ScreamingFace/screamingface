@@ -1,12 +1,12 @@
 ---
 id: OME-737
 linear_url: https://linear.app/openmined/issue/OME-737/regroup-dependabotyml-so-security-updates-group-and-majors-split-out
-status: done
+status: in_review
 type: task
 priority: P2
 labels: [repo, autonomous, agentic]
 created: 2026-08-04
-closed: 2026-08-04
+closed:
 ---
 
 # OME-737 — regroup dependabot.yml so security updates group and majors split out

@@ -1,12 +1,12 @@
 ---
 id: OME-849
 linear_url: https://linear.app/openmined/issue/OME-849/report-real-run-cost-from-provider-authored-openrouter-evidence
-status: done
+status: In Progress
 type: Feature
 priority: P1
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-17
-closed: 2026-08-17
+closed:
 ---
 
 # Report real run cost from provider-authored OpenRouter evidence

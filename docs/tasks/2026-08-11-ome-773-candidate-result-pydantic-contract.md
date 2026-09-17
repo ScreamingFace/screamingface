@@ -1,12 +1,12 @@
 ---
 id: OME-773
 linear_url: https://linear.app/openmined/issue/OME-773/promote-the-candidate-result-contract-to-a-pydantic-model-in-the
-status: done
+status: in-progress
 type: task
 priority: P2
 labels: [url4-cloud, agentic, autonomous, task]
 created: 2026-08-11
-closed: 2026-08-11
+closed:
 ---
 
 # Promote the candidate-result contract to a pydantic model in the engine

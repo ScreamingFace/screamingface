@@ -6,7 +6,7 @@ type: feature
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-24
-closed: 2026-08-24
+closed: 2026-08-25
 ---
 
 # Run a benchmark end-to-end in CI from recorded responses, with no paid calls
