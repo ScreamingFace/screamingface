@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="importer-pipeline">
+    <mxGraphModel dx="1400" dy="800" background="#0a0f1c" grid="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="IMPORTING A BENCHMARK — one command, one reviewable diff" style="text;html=1;align=left;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="900" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg" value="inspect_evals (pinned pkg)&#xa;&#xa;the eval&#39;s task module:&#xa;dataset decl + scorer&#xa;&#xa;INPUT — read, never re-typed" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="280" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd" value="operator / agent runs&#xa;&#xa;python -m …importer&#xa;&amp;lt;task_ref&amp;gt; --key &amp;lt;key&amp;gt;&#xa;[--task-arg --shuffle-seed]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#33240a;strokeColor=#e8b339;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="260" width="280" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="hub" value="HF Hub — dataset repo&#xa;network, build-side only" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=center;" vertex="1" parent="1">
+          <mxGeometry x="760" y="80" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="s1" value="Stage 1 — introspect (no network)&#xa;&#xa;stub hf_dataset recorder, bound&#xa;against its REAL signature; call&#xa;the task fn → TaskFacts&#xa;&#xa;every setting is CONSERVED:&#xa;reproduced · benign · refused,&#xa;or a TODO(review) flag —&#xa;never silently dropped" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="400" y="180" width="300" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="Stage 2 — capture&#xa;&#xa;facts no eval file carries:&#xa;resolve revision ref → commit&#xa;sha (upstream pin wins) ·&#xa;count rows at that sha ·&#xa;read license (warn-only gate)&#xa;→ Observations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="760" y="180" width="300" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="Stage 3 — emit&#xa;&#xa;render 3 row fragments, insert&#xa;above each file&#39;s anchor comment&#xa;— ALL OR NOTHING&#xa;&#xa;refuse existing key / colliding&#xa;stem / bad identifier · charset-&#xa;refuse Hub strings + ast.parse&#xa;every file before writing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="180" width="300" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="pins" value="pins.py — pin row&#xa;dataset · split · sha ·&#xa;case count · license note&#xa;(the imported exams&#39; lockfile)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1500" y="80" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="prep" value="prepare.py — SnapshotSpec row&#xa;how to bake the frozen dataset&#xa;snapshot (+ sorted pins import)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1500" y="220" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="brd" value="boards.py — BoardSpec row&#xa;scorer(+kwargs) · dataset_url ·&#xa;check surface iff free text&#xa;title/description = TODO(review)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1500" y="360" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="review" value="AGENT WRITES, HUMAN VERIFIES&#xa;&#xa;git diff IS the review artifact:&#xa;agent fills TODO(review) prose,&#xa;human verifies pins · license ·&#xa;flags — import time is the&#xa;ONLY trust window" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1880" y="180" width="300" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="done" value="merged → on the catalogue&#xa;&#xa;build bakes the SnapshotSpec →&#xa;frozen assets; factory stamps&#xa;routes + revision from pins&#xa;→ /v1/benchmarks:&#xa;inspect-&amp;lt;key&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="2260" y="180" width="300" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pkg" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.3;" edge="1" parent="1" source="pkg" target="s1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_cmd" value="runs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;exitX=1;exitY=0.5;entryX=0;entryY=0.7;" edge="1" parent="1" source="cmd" target="s1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_hub" value="sha · rows · license" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="hub" target="s2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_12" value="TaskFacts" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s1" target="s2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_23" value="Observations" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s2" target="s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_3p" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.3;entryX=0;entryY=0.5;" edge="1" parent="1" source="s3" target="pins">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_3q" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s3" target="prep">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_3b" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.7;entryX=0;entryY=0.5;" edge="1" parent="1" source="s3" target="brd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_diff" value="git diff" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="prep" target="review">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_merge" value="merge" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="review" target="done">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

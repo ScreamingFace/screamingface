@@ -75,6 +75,13 @@ CLI writing rows):
   round-trip on file copies, license-warn path, duplicate-key refusal; capture
   layer injected/faked.
 
+**PR D — the onboarding runbook (docs only):**
+- `apps/screamingface-engine/docs/adding-an-imported-benchmark.md` — the AI-first
+  import walkthrough (agent runs/writes, human verifies the diff) + refusal table +
+  new `importer-pipeline` diagram (.drawio + PNG, sf-dark).
+- Rename `adding-a-benchmark.md` → `adding-a-benchmark-manually.md`; cross-link the
+  pair; update the two path references (README, `benchmarks/__init__.py`).
+
 **PR C+ — the ten boards, in reviewable batches** (onboarding is AI-first — owner
 direction 2026-09-16: the agent runs the importer, writes the TODO catalogue prose
 from the eval's own docs, and resolves every TODO(review) flag; the human's role is

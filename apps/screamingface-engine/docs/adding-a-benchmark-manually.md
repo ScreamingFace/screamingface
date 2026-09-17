@@ -1,4 +1,9 @@
-# Adding a benchmark
+# Adding a benchmark manually
+
+> **Importing an existing inspect_evals benchmark instead?** That is a data
+> operation, not an authoring project — see
+> [`adding-an-imported-benchmark.md`](adding-an-imported-benchmark.md). This guide
+> is for boards we author ourselves (novel datasets, novel grading).
 
 **TLDR: a benchmark is an exam, and you only author the exam-specific parts. You bring
 the question paper (dataset mapping), the rule for grading one answer (`grade_case`),

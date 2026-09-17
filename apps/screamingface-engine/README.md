@@ -13,7 +13,7 @@ gateway), the benchmark answer keys, and the grading. Prompts cross to the
 models; answer keys and rubrics do not.
 
 Adding a new benchmark? The author walk-through is
-[`docs/adding-a-benchmark.md`](docs/adding-a-benchmark.md).
+[`docs/adding-a-benchmark-manually.md`](docs/adding-a-benchmark-manually.md) (hand-authored boards) or [`docs/adding-an-imported-benchmark.md`](docs/adding-an-imported-benchmark.md) (imported inspect_evals boards).
 
 REST + WebSocket url4 execution runner (k8s Jobs + NATS). Design: `docs/spec/2026-07-21-url4-cloud.md`
 · epic OME-513.
