@@ -6,3 +6,5 @@
 4. Use stage-aware status and independent, stable per-Candidate disclosure/scroll controls. No tabs.
 5. Test actual #980 producer records through the decoder, validate Jupyter rendering, and run Client gates.
 6. Open draft PR with concrete justifications; keep Linear In Progress until PR ready for review.
+
+Presentation refinement: replace inner tables with escaped monospace log lines; preserve grouped parentage and scroll/pagination controls.

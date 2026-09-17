@@ -8,19 +8,15 @@ from screamingface._ui.activity_record import TERMINAL
 from screamingface._ui.activity_state import ActivityLog, ActivityRow
 
 STYLE = """<style>
-.sf-activity{color:var(--sf-ink);font-family:"IBM Plex Sans",system-ui,sans-serif;padding:8px 16px}
-.sf-activity table{width:100%;border-collapse:collapse;font-size:13px}
-.sf-activity th,.sf-activity td{text-align:left;padding:8px;border-bottom:1px solid var(--sf-line);
- vertical-align:top;overflow-wrap:anywhere}
-.sf-activity th{font-size:11px;font-weight:500;color:var(--sf-ink-2)}
-.sf-activity p,.sf-activity small{font-size:12px;color:var(--sf-ink-2)}
-.sf-activity h4{font-size:13px;font-weight:600;margin:16px 0 4px;display:flex;
- justify-content:space-between;gap:16px}
-.sf-activity h4 small{font-weight:400}
-.sf-activity__time{white-space:nowrap;font-family:"IBM Plex Mono",monospace;
- font-variant-numeric:tabular-nums}
+.sf-activity{color:var(--sf-ink);font-family:"IBM Plex Mono",monospace;
+ font-size:12px;line-height:1.7;padding:8px 16px;font-variant-numeric:tabular-nums;
+ overflow-wrap:anywhere}
+.sf-activity p{font-size:12px;color:var(--sf-ink-2)}
+.sf-activity h4{font:inherit;font-weight:600;margin:12px 0 4px}
+.sf-activity h4 small{font:inherit;font-weight:400;color:var(--sf-ink-2)}
+.sf-activity__call{padding-left:16px;white-space:pre-wrap}
+.sf-activity__details{color:var(--sf-ink-2)}
 .sf-activity__failed,.sf-activity__refused{color:var(--sf-danger-solid)}
-.sf-activity__details{display:block;margin-top:4px}
 .sf-candidate-row .sf-eval__table-wrap{margin-top:0;border-top:0}
 .sf-candidate-row .sf-eval__table thead{position:absolute;width:1px;height:1px;overflow:hidden;
  clip:rect(0,0,0,0)}
@@ -49,9 +45,11 @@ def _call(row: ActivityRow) -> str:
         f"{k.replace('_', ' ')}: {v}" for k, v in record.facts if k not in {"model_id", "parent_id"}
     )
     return (
-        f'<tr><td>{escape(name)}<small class="sf-activity__details">{escape(details)}</small></td>'
-        f'<td class="sf-activity__{record.state}">{escape(_outcome(row))}</td>'
-        f'<td class="sf-activity__time">{record.elapsed_ms / 1000:g}s</td></tr>'
+        f'<div class="sf-activity__call">{escape(name)} — '
+        f'<span class="sf-activity__{record.state}">{escape(_outcome(row))}</span>'
+        f' · <span title="Measured elapsed">{record.elapsed_ms / 1000:g}s</span>'
+        + (f' <span class="sf-activity__details">· {escape(details)}</span>' if details else "")
+        + "</div>"
     )
 
 
@@ -65,15 +63,8 @@ def _group(group: ActivityGroup, selected: set[tuple[str, str]]) -> str:
         if stage
         else "No parent activity was provided or retained"
     )
-    table = (
-        (
-            "<table><thead><tr><th>Model call</th><th>Outcome</th><th>Measured elapsed</th>"
-            "</tr></thead><tbody>" + "".join(_call(r) for r in calls) + "</tbody></table>"
-        )
-        if calls
-        else ""
-    )
-    return f"<section><h4>{group.label}<small>{escape(summary)}</small></h4>{table}</section>"
+    lines = "".join(_call(r) for r in calls)
+    return f"<section><h4>{group.label} <small>— {escape(summary)}</small></h4>{lines}</section>"
 
 
 def activity_html(

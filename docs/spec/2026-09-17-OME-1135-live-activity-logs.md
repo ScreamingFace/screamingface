@@ -18,3 +18,5 @@ Durations stay measured, never extrapolated provider progress. Stage freshness u
 
 ## Validation
 Group interleaved calls, nested calls, late/missing parents, cycles and distinct Candidate/runs. Preserve expanded controls and bounded rendering on updates. Test malformed records, rolling decoder/history bounds, losses and days-long UI updates. Validate the widget in Jupyter using labelled simulated records, and keep real-provider runs under user control.
+
+Expanded activity is flat terminal-style output: compact monospace model-call lines beneath plain stage headings, with no inner table, columns or grid.

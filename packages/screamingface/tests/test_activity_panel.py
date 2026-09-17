@@ -28,9 +28,9 @@ def test_pages_bound_rendering_and_expansion_controls_stay_stable():
     panel = CandidateActivityRow(log, ("candidate",), 0)
     root = panel.html
     panel.toggle.value = True
-    assert panel.html.value.count("<tr>") == 101
+    assert panel.html.value.count('class="sf-activity__call"') == 100
     panel.page.value = 2
-    assert panel.html.value.count("<tr>") == 2
+    assert panel.html.value.count('class="sf-activity__call"') == 1
     panel._refresh_activity()
     assert panel.html is root
     assert panel.toggle.value
@@ -69,3 +69,18 @@ def test_widget_keeps_processing_updates_beyond_six_hours(monkeypatch):
     view._dirty.set()
     view._tick_loop()
     assert refreshed == [True]
+
+
+def test_expanded_activity_is_flat_log_output_not_a_table():
+    log = ActivityLog()
+    log.observe(0, record(kind="answering", id="stage", state="completed"))
+    log.observe(0, record(parent_id="stage", model_id="provider/model", state="completed"))
+    panel = CandidateActivityRow(log, ("candidate",), 0)
+    panel.toggle.value = True
+    html = panel.html.value
+    assert "<table" not in html
+    assert "<th" not in html
+    assert 'class="sf-activity__call"' in html
+    assert "Answering" in html
+    assert "provider/model" in html
+    assert "completed" in html
