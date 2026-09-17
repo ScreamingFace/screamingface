@@ -27,3 +27,14 @@ Scope:
 - The topic is a bearer capability and is never rendered. No provider body passes through raw.
 
 Ledger: `docs/work/2026-09-17-OME-941-terminal-error-detail.md`.
+
+Review round 2 widened the scope by one module. The allowlist could not vouch for a message's
+author while `runner/connector.py::_raise_for_status` lifted the error `code` out of the upstream
+response body, so the sanitisation policy moved into a shared leaf
+(`src/screamingface_engine/error_text.py`, also now the home of the benchmark surface's
+`public_message` / `public_identifier`), the connector refuses to mint a reserved engine code from
+upstream input, and the HTTP surface bounds and screens every message it echoes regardless of
+code. Hypothetical path found by review, not an observed incident.
+
+Note for the API contract: `trace_id` is added to EVERY terminal problem body (409, 504 and 502
+alike), not only to a failed run's, because a real run always carries a `traceparent`.
