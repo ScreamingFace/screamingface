@@ -250,13 +250,16 @@ def _member_usage(selected: CandidateResult) -> list[dict[str, Any]]:
 
 def _usage_payload(usage: Any) -> dict[str, Any]:
     """One Usage as inspect's ModelUsage; absent numbers stay absent."""
-    input_tokens: int = usage.input_tokens or 0
-    output_tokens: int = usage.output_tokens or 0
-    payload: dict[str, Any] = {
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "total_tokens": input_tokens + output_tokens,
-    }
+    # INVARIANT: unknown is not zero — same rule as cost. An unmetered field is
+    # OMITTED (inspect's ModelUsage renders its own 0 default) rather than
+    # exported as a zero we never observed.
+    payload: dict[str, Any] = {}
+    if usage.input_tokens is not None:
+        payload["input_tokens"] = usage.input_tokens
+    if usage.output_tokens is not None:
+        payload["output_tokens"] = usage.output_tokens
+    if usage.input_tokens is not None and usage.output_tokens is not None:
+        payload["total_tokens"] = usage.input_tokens + usage.output_tokens
     if usage.cache_read_tokens is not None:
         payload["input_tokens_cache_read"] = usage.cache_read_tokens
     if usage.cache_creation_tokens is not None:

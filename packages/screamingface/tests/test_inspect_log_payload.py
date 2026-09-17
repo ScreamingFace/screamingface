@@ -277,6 +277,28 @@ def test_unpriced_usage_never_fabricates_a_cost() -> None:
     assert payload["eval"]["metadata"]["cost_usd"] is None
 
 
+def test_unmetered_tokens_are_omitted_never_exported_as_zero() -> None:
+    # INVARIANT: unknown is not zero — an unmetered run must not export
+    # "0 tokens" as if we observed a free run; absent fields stay absent.
+    unmetered = sf.Usage(input_tokens=None, output_tokens=None, cost_usd="0.12")
+    cases = (_case(1), _case(2))
+    payload = eval_log_payload(_report(_candidate("opus", cases=cases, usage=unmetered)))
+    row = payload["stats"]["model_usage"]["opus"]
+    assert "input_tokens" not in row
+    assert "output_tokens" not in row
+    assert "total_tokens" not in row
+    assert row["total_cost"] == 0.12
+
+
+def test_duplicate_candidate_names_cannot_reach_the_selector() -> None:
+    # WHY this pin: _select_candidate returns the FIRST name match, which is
+    # safe ONLY because Report construction refuses duplicate Candidate names —
+    # this test keeps that upstream guarantee loud.
+    cases = (_case(1), _case(2))
+    with pytest.raises(ValueError, match="duplicate Candidate name"):
+        _report(_candidate("fusion", cases=cases), _candidate("fusion", cases=cases))
+
+
 def test_single_candidate_report_needs_no_selector() -> None:
     cases = (_case(1), _case(2))
     value = _report(_candidate("opus", cases=cases))
