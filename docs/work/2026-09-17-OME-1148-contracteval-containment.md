@@ -1,9 +1,9 @@
 ---
 ticket: OME-1148
 stack: screamingface-engine, screamingface
-status: in_progress
+status: done
 started: 2026-09-17
-finished:
+finished: 2026-09-17
 ---
 
 # OME-1148 — ContractEval as a judge-free clause-containment board (rebuild on the new spine)
@@ -75,9 +75,76 @@ for whatever the new `ScoredPath` wiring introduces.
 - The dataset is pinned reproducibly without the dead script loader.
 - Both stacks' gates green; a live run grades real cases.
 
-## Outcome (fill at the end — required before COMMIT)
+## How much the overhaul actually cost
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+Measured before porting, by diffing MedXpertQA across the 191 commits:
+
+```
+medxpert/aggregate.py    373 → 245   (119 insertions, 254 deletions)
+every other module       UNCHANGED
+its unit tests           UNCHANGED
+```
+
+One file, and its tests did not move — so the rewrite was internal and the public contract
+held. That measurement is what turned this from "rebuild a board" into "port seven files and
+migrate one", and it predicted the outcome exactly: all 68 tests passed **unmodified**.
+
+## Outcome
+
+- **Actual files:** `contracteval/` — `pins prompts grading prepare case_evaluation definition
+  runtime` ported byte-identical; `aggregate.py` rewritten onto `ScoredPath` (414 → ~250 lines).
+  `builtins.py`, `cli.py`, `build_notebooks.py`, `examples/12_contracteval.ipynb`, and one
+  additive row in `test_benchmark_declaration.py`.
+- **Commits:** `a0a56a26` (docs restart) + the implementation commit below.
+- **Gates:** screamingface-engine ALL GREEN; screamingface ALL GREEN.
+- **Deviations:** the five named in the spec are unchanged. One process deviation: the
+  declaration guard row was re-applied under the owner's prior ruling on the identical edit
+  (2026-09-09) rather than re-asking, and committed with `--skip-append-only`.
+
+## Verification — three independent checks, because "green" is not "behaviour-preserving"
+
+1. **Protocol fidelity.** The differential test against the reference's transcribed functions,
+   re-run after porting: **2,742 (output, gold) pairs over 400 real CUAD rows, zero mismatches**
+   in verdict, abstention and Jaccard.
+2. **Asset identity.** Rebake returned `4,182 / 1,244 / 2,938` at dataset revision
+   `d9c4ee02…`. The 1,244 is the constant the reference hardcodes as its laziness denominator,
+   so the pin still addresses the exam the paper scored.
+3. **Scoring behaviour.** The live `limit=8` pilot reproduced the pre-overhaul run
+   **cell-for-cell** — TP 4 · FN 0 · TN 2 · FP 2, F1 0.80, precision 0.6667, recall 1.0,
+   F2 0.9091, accuracy 0.75. Only `jaccard_mean` moved (0.5834 → 0.578), and only because one
+   model reply came back worded differently; no confusion-matrix cell changed.
+
+## What the new spine changed for this board
+
+`ScoredPath` absorbed the failure ladder, result assembly, roll call and row filing. Two of the
+bugs found the hard way in the first implementation moved rather than vanished, and both landed
+somewhere better:
+
+- the **polarity cross-check** is now a `CaseGradeOutcome.failure_code` returned by
+  `grade_case`, instead of a hand-rolled ladder rung competing with the spine's own rungs;
+- the **verdict-field validation** stays in the envelope decoder, which is still the only place
+  that can catch a record missing `correct` before `bool(None)` silently files it as a false
+  negative.
+
+The F1/F2 zero guard and the selected-positives laziness denominator are unchanged.
+
+AIDEV-NOTE for the next board author: `ScoredPath.aggregate()` takes
+`scorer: Callable[[Sequence[CaseResult]], CandidateScore]` — fully general. `exam_scorer(mean)`
+is the rubric convenience, not the contract. A board whose headline is not a mean of case
+scores (this one's is a confusion matrix) passes its own builder and carries whatever each Case
+needs in that Case's grade metrics.
+
+## Still open at hand-off
+
+- **Push and open the PR.** Not pushed.
+- **The Linear title still says "span-extraction".** The protocol reading disproved that name —
+  the verdict is all-or-nothing containment and the code says `method="containment"`. The doc
+  files are already renamed; the issue rename is an owner action.
+- **The system prompt is sent as user text.** `candidate()` takes a single `input` string and
+  offers boards no system-role channel, so `render_case_input` concatenates. MedXpertQA has the
+  same constraint and handles it worse — `ANSWER_SYSTEM` is defined and never used, silently
+  dropping the official system prompt on a merged board. Worth one shared ticket.
+- **No full-scale run.** 8 of 4,182 Cases graded.
+- **Not importable.** Re-verified on this branch: ContractEval is absent from inspect_evals;
+  `ContractBench` there is software/API contracts. If it is ever contributed upstream, this
+  board becomes two data rows in `screamingface_engine_inspect/boards.py`.
