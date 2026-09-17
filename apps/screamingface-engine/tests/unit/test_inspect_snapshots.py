@@ -190,3 +190,40 @@ def test_board_assembly_refuses_a_mutable_revision_ref(
     monkeypatch.setattr(boards, "_ASSEMBLED", {})
     with pytest.raises(PrepareError, match="commit sha"):
         boards.imported_board("gsm8k")
+
+
+# ── custom choice template (the family renderer mmlu_pro / winogrande / race_h
+#    force — OME-1116 milestone C) ────────────────────────────────────────────
+
+
+def test_mcq_prompt_accepts_the_evals_own_template() -> None:
+    """INVARIANT: a board whose eval passes a custom template to multiple_choice
+    must render THAT template — the default SINGLE_ANSWER render would silently
+    change the imported exam."""
+
+    template = "Choose one of {letters}.\n{question}\n{choices}\nReply with the letter."
+    prompt = mcq_prompt("Pick B.", ["no", "yes"], template=template)
+    assert prompt.startswith("Choose one of A,B.")
+    assert "Pick B." in prompt
+    assert "A) no" in prompt and "B) yes" in prompt
+    # The default render stays untouched when no template is given.
+    assert "ANSWER: $LETTER" in mcq_prompt("Pick B.", ["no", "yes"])
+
+
+def test_snapshot_with_choice_template_bakes_it(tmp_path: Path) -> None:
+    """A SnapshotSpec pointing at the eval's own choice template renders through it."""
+
+    from dataclasses import replace
+
+    spec = replace(
+        SNAPSHOTS["mmlu"],
+        choice_template="inspect_evals.mmlu_pro.mmlu_pro:USER_PROMPT_TEMPLATE",
+        shuffle_seed=None,
+    )
+    emit_snapshot(spec, _MMLU_ROWS[:1], tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # mmlu_pro's own template carries its CoT instruction — absent from the
+    # default SINGLE_ANSWER render the no-template path produces.
+    assert "Think step by step before answering." in cases[0]["input"]
+    assert "Pick B." in cases[0]["input"]
+    assert "A) no" in cases[0]["input"]

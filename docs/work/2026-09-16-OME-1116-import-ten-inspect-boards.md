@@ -83,6 +83,31 @@ reviewing/verifying the generated diff, plus the paid acceptance runs):
   scorer families first), each with its per-board definition test; free-text boards
   opt into the check surface, MCQ boards refuse it (OME-796).
 
+**PR C amendment (owner decisions 2026-09-17): ONE PR, nine boards, + the MCQ
+template renderer** (supersedes "2–3 batches"; branch `OME-1116-6-ten-boards`
+stacked on #966):
+- Nine generated row triples via the importer: `arc_easy`, `arc_challenge`,
+  `commonsense_qa`, `truthfulqa`, `mmlu_pro`, `winogrande`, `race_h` (MCQ, surface
+  refused), `paws`, `boolq` (free-text, check surface ON). With gsm8k + mmlu the
+  catalogue holds 11 imported boards (≥10 acceptance).
+- Selection method: ran the importer's stage-1 introspection over every
+  inspect_evals 0.20.0 task; excluded agentic / multimodal / judge-graded /
+  code-exec / gated / importer-incompatible ones (drop: non-literal scorer kwarg +
+  custom solver; math, squad: multi-scorer; gpqa, piqa, medqa, mgsm: no
+  `hf_dataset`; hellaswag: unbaked system message; secqa: CC-NC license; wmdp:
+  excluded on product grounds — it ranks models by hazardous knowledge). Owner
+  approved this list + the license-warned rows (paws "other", boolq cc-by-sa-3.0,
+  winogrande no card license, race "other") emitting with their note — the diff
+  review is the gate.
+- The family renderer batch 3 anticipated: `SnapshotSpec.choice_template` (dotted
+  reference), `mcq_prompt(..., template=)`, importer captures a resolvable custom
+  `multiple_choice` template instead of flagging (all three targets resolve to one
+  module attribute; placeholders exactly question/choices/letters). Plugin-only,
+  zero spine edits.
+- Tests: renderer RED suite (spec field, mcq_prompt template arg, importer capture
+  + emission) + one parametrized definition suite over the nine keys + fixture-row
+  bake checks per new render path.
+
 ## Test plan
 
 - RED first per PR: row-machine identity/registration tests (ported + new), the
@@ -99,9 +124,31 @@ reviewing/verifying the generated diff, plus the paid acceptance runs):
   free-text boards via the check surface; paid `limit=50` acceptance runs remain the
   owner's.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome — PR C (milestone C, branch `OME-1116-6-ten-boards`)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** `src/screamingface_engine_inspect/{pins,prepare,boards}.py`
+  (8 generated row triples + filled catalogue prose + verified provenance
+  comments), `importer.py` (choice_template capture; task-local
+  record_to_sample refusal; emitted comment lines wrapped under the
+  100-column gate), `tests/unit/test_inspect_imported_boards.py` (new
+  definition suite, 10 keys), appends to `test_inspect_snapshots.py` +
+  `test_inspect_importer.py`, roster rows in `test_benchmark_declaration.py`,
+  owner-approved amendment in `test_inspect_mmlu_board.py`.
+- **Commits:** see PR (single squash-bound commit on the stack).
+- **Gates:** `run_gates.py screamingface-engine --skip-append-only` ALL GREEN
+  (ruff check/format, pyright, layering, pytest 3072 passed / 9 skipped,
+  coverage 93%). Skip flag owner-approved 2026-09-17 for the two prior-test
+  files below. Every new board full-bake verified offline from the pinned
+  revisions (8/8 baked; counts match pins).
 - **Deviations:**
+  - truthfulqa DROPPED (was in the approved nine): its `record_to_sample` is a
+    task-local closure, so the row's dotted reference can never resolve. The
+    importer now refuses that shape at import time. Catalogue holds 10
+    imported boards — acceptance (≥10) still met.
+  - Prior-test changes (owner-approved via --skip-append-only ask):
+    `test_inspect_mmlu_board.py` exact two-board list → proof-boards-in-order
+    (full set owned by the new suite); `test_benchmark_declaration.py` +8
+    roster rows (the table's designed extension path).
+  - Shuffle seeds (exam identity, policy rows): mmlu_pro + race_h + none for
+    the rest — grouping verified empirically (mmlu_pro first-100 rows are one
+    discipline; race_h arrives in per-passage runs; all others mixed).

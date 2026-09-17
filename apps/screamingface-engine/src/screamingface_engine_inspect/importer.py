@@ -89,6 +89,10 @@ class TaskFacts:
     scorer: str
     scorer_kwargs: Mapping[str, Any]
     custom_solvers: tuple[str, ...]
+    #: The eval's own multiple_choice template when it overrides the default AND
+    #: resolves to one module attribute — captured as a fact instead of flagged
+    #: (the family renderer, OME-1116 milestone C).
+    choice_template: str | None = None
 
 
 @dataclass(frozen=True)
@@ -152,14 +156,9 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         module.hf_dataset = original  # type: ignore[attr-defined]
 
     kwargs: dict[str, Any] = _exam_dataset_kwargs(task, recorded, task_ref)
-    sample_fields: Any = kwargs.get("sample_fields")
-    if not callable(sample_fields):
-        raise ImporterError(
-            f"{task_ref}: sample_fields is not a function — the importer only handles "
-            "record_to_sample-style conversions"
-        )
+    sample_fields: Any = _module_level_row_rule(kwargs.get("sample_fields"), task_ref)
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
-    template_ref, custom_solvers = _solver_facts(task, module, task_ref)
+    template_ref, choice_template_ref, custom_solvers = _solver_facts(task, module, task_ref)
     return TaskFacts(
         task_ref=task_ref,
         dataset=str(kwargs["path"]),
@@ -172,7 +171,28 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         scorer=scorer_ref,
         scorer_kwargs=scorer_kwargs,
         custom_solvers=custom_solvers,
+        choice_template=choice_template_ref,
     )
+
+
+def _module_level_row_rule(sample_fields: Any, task_ref: str) -> Any:
+    """Refuse a row rule the emitted dotted reference could never resolve."""
+
+    if not callable(sample_fields):
+        raise ImporterError(
+            f"{task_ref}: sample_fields is not a function — the importer only handles "
+            "record_to_sample-style conversions"
+        )
+    resolved: Any = getattr(import_module(sample_fields.__module__), sample_fields.__name__, None)
+    if resolved is not sample_fields:
+        # WHY: some evals (truthfulqa) define record_to_sample INSIDE the task
+        # function; the row's dotted reference could never resolve it, so the
+        # dangling row would fail at image build instead of at import review.
+        raise ImporterError(
+            f"{task_ref}: record_to_sample is a task-local function — the row can only "
+            "POINT at a module-level attribute; import this eval by hand or upstream a fix"
+        )
+    return sample_fields
 
 
 def _exam_dataset_kwargs(
@@ -222,13 +242,16 @@ def _scorer_reference(task: Any, module: Any) -> tuple[str, dict[str, Any], str]
     )
 
 
-def _solver_facts(task: Any, module: Any, task_ref: str) -> tuple[str | None, tuple[str, ...]]:
-    """The template reference (when a prompt_template solver carries one) + unknowns."""
+def _solver_facts(
+    task: Any, module: Any, task_ref: str
+) -> tuple[str | None, str | None, tuple[str, ...]]:
+    """The template references (prompt_template / custom multiple_choice) + unknowns."""
 
     from inspect_ai._util.registry import registry_info, registry_params
 
     solvers: list[Any] = task.solver if isinstance(task.solver, list) else [task.solver]
     template_ref: str | None = None
+    choice_template_ref: str | None = None
     custom: list[str] = []
     for solver in solvers:
         registry_name: str = registry_info(solver).name
@@ -245,12 +268,18 @@ def _solver_facts(task: Any, module: Any, task_ref: str) -> tuple[str | None, tu
             # instruction would silently vanish from the imported exam.
             custom.append(f"{registry_name} (system instructions are not baked)")
         elif name == "multiple_choice" and registry_params(solver).get("template") is not None:
-            # WHY: the bake renders MCQ with inspect's default SINGLE_ANSWER
-            # template; a custom template here would silently change the exam.
-            custom.append(f"{registry_name} (custom choice template is not baked)")
+            # A custom choice template the bake CAN reproduce — when it resolves to
+            # one module attribute the row points at (the family renderer, OME-1116
+            # milestone C); an unresolvable one still earns the review flag.
+            try:
+                choice_template_ref = _template_attribute(
+                    module, registry_params(solver).get("template"), task_ref
+                )
+            except ImporterError:
+                custom.append(f"{registry_name} (custom choice template is not baked)")
         elif name not in _FULLY_BAKED_SOLVERS:
             custom.append(registry_name)
-    return template_ref, tuple(custom)
+    return template_ref, choice_template_ref, tuple(custom)
 
 
 def _template_attribute(module: Any, template: Any, task_ref: str) -> str:
@@ -363,7 +392,10 @@ def render_fragments(
     license_note: str = observations.license or "UNKNOWN"
 
     pin_lines: list[str] = [
-        f"# {key} — generated by the importer from {facts.task_ref} on {today};",
+        # WHY two lines: a long task_ref must never push a generated line past
+        # the 100-column lint gate.
+        f"# {key} — generated by the importer on {today} from",
+        f"#   {facts.task_ref};",
         f"# license: {license_note}. Review before merge — import time is the trust window.",
         f"# https://huggingface.co/datasets/{facts.dataset}/tree/{observations.revision}",
         f'{prefix}_DATASET = "{facts.dataset}"',
@@ -390,11 +422,14 @@ def render_fragments(
         f"        split={prefix}_SPLIT,",
         f"        dataset_revision={prefix}_DATASET_REVISION,",
         f"        case_count={prefix}_CASE_COUNT,",
-        f"        # Generated from {facts.task_ref}; verify against the eval's task.",
+        "        # Generated from",
+        f"        #   {facts.task_ref};\n        # verify against the eval's task.",
         f'        record_to_sample="{facts.record_to_sample}",',
     ]
     if facts.prompt_template is not None:
         snapshot_lines.append(f'        prompt_template="{facts.prompt_template}",')
+    if facts.choice_template is not None:
+        snapshot_lines.append(f'        choice_template="{facts.choice_template}",')
     if shuffle_seed is not None:
         snapshot_lines.append(f"        shuffle_seed={prefix}_SHUFFLE_SEED,")
     for solver_name in facts.custom_solvers:
@@ -403,6 +438,17 @@ def render_fragments(
             "the bake — verify the baked prompt matches the eval's render."
         )
     snapshot_lines.append("    ),")
+
+    return Fragments(
+        pins="\n".join(pin_lines) + "\n",
+        snapshot="\n".join(snapshot_lines) + "\n",
+        board="\n".join(_board_lines(key, facts, license_note)) + "\n",
+        import_names=tuple(import_names),
+    )
+
+
+def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
+    """The BoardSpec fragment — prose as TODOs, provenance as wrapped comments."""
 
     board_lines: list[str] = [
         "    BoardSpec(",
@@ -414,8 +460,11 @@ def render_fragments(
         '        description="TODO",',
         '        focus="TODO",',
         f'        dataset_url="https://huggingface.co/datasets/{facts.dataset}",',
-        f"        # Provenance: {facts.task_ref}'s Task declares this scorer. "
-        f"License: {license_note}.",
+        # WHY two lines: a long task_ref must never push a generated line past
+        # the 100-column lint gate.
+        "        # Provenance: this scorer is declared by the Task of",
+        f"        #   {facts.task_ref}.",
+        f"        # License: {license_note}.",
         f'        scorer="{facts.scorer}",',
     ]
     if facts.scorer_kwargs:
@@ -430,13 +479,7 @@ def render_fragments(
         board_lines.append("        # MCQ boards must NOT set this (OME-796).")
         board_lines.append("        with_check_surface=True,")
     board_lines.append("    ),")
-
-    return Fragments(
-        pins="\n".join(pin_lines) + "\n",
-        snapshot="\n".join(snapshot_lines) + "\n",
-        board="\n".join(board_lines) + "\n",
-        import_names=tuple(import_names),
-    )
+    return board_lines
 
 
 def generate_rows(

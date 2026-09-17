@@ -64,8 +64,11 @@ _ROWS: list[dict[str, Any]] = [
 
 
 def test_board_registrations_contribute_both_proof_boards() -> None:
+    # AIDEV-NOTE: amended for OME-1116 milestone C — the catalogue now holds more
+    # imported boards, so the proof boards are asserted PRESENT and in catalogue
+    # order, not the whole list (test_inspect_imported_boards.py owns the full set).
     ids = [registration.benchmark.id for registration in board_registrations()]
-    assert ids == ["inspect-gsm8k", "inspect-mmlu"]
+    assert ids.index("inspect-gsm8k") < ids.index("inspect-mmlu")
 
 
 def test_revisions_are_sixteen_hex_and_distinct() -> None:

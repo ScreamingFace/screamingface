@@ -532,3 +532,90 @@ def test_generate_rows_refuses_a_key_that_is_not_an_identifier_stem(
         _generate(engine_src_copy, key="2wikimultihop")
 
     assert "2WIKIMULTIHOP" not in (engine_src_copy / "pins.py").read_text()
+
+
+# ---------------------------------------------------------------------------
+# custom choice template capture (the family renderer OME-1116 milestone C's
+# boards force: mmlu_pro / winogrande / race_h)
+# ---------------------------------------------------------------------------
+
+
+def test_introspect_captures_a_resolvable_custom_choice_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom multiple_choice template that IS a module attribute is a fact the
+    bake reproduces (choice_template reference), not a review flag."""
+
+    def custom_mcq() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/quiz", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=multiple_choice(template=module.CHOICE_TEMPLATE),
+            scorer=choice(),
+        )
+
+    module = _install_fake_eval(monkeypatch, custom_mcq=custom_mcq)
+    module.CHOICE_TEMPLATE = "Pick one of {letters}.\n{question}\n{choices}"  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:custom_mcq")
+
+    assert facts.choice_template == f"{_FAKE_MODULE}:CHOICE_TEMPLATE"
+    assert facts.custom_solvers == ()
+
+
+def test_captured_choice_template_lands_in_the_snapshot_row() -> None:
+    fragments = render_fragments(
+        "quiz",
+        _facts(
+            mcq=True,
+            prompt_template=None,
+            scorer="inspect_ai.scorer:choice",
+            scorer_kwargs={},
+            choice_template=f"{_FAKE_MODULE}:CHOICE_TEMPLATE",
+        ),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+    )
+
+    assert f'choice_template="{_FAKE_MODULE}:CHOICE_TEMPLATE"' in fragments.snapshot
+    ast.parse(f"SNAPSHOTS = {{\n{fragments.snapshot}}}")
+
+
+def test_introspect_refuses_a_task_local_record_to_sample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A row rule defined INSIDE the task function (truthfulqa's closure) can never
+    be resolved by the dotted reference the row carries — refuse at import time,
+    not with a dangling reference that fails at image build."""
+
+    def closure_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+
+        def record_to_sample(row: dict[str, Any]) -> Sample:
+            return Sample(input=str(row["q"]), target=str(row["a"]))
+
+        record_to_sample.__module__ = _FAKE_MODULE
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=record_to_sample
+            ),
+            solver=generate(),
+            scorer=match(),
+        )
+
+    _install_fake_eval(monkeypatch, closured=closure_task)
+
+    with pytest.raises(ImporterError, match="task-local"):
+        introspect_task(f"{_FAKE_MODULE}:closured")
+
+
+def test_rendered_fragment_lines_fit_the_lint_gate() -> None:
+    """A long task_ref must never emit a line the 100-column lint gate rejects."""
+
+    long_ref = "inspect_evals.some_very_long_package_name.some_very_long_package_name:the_task"
+    fragments = render_fragments(
+        "long", _facts(task_ref=long_ref), Observations("c" * 40, 42, "cc-by-sa-4.0")
+    )
+    for fragment in (fragments.pins, fragments.snapshot, fragments.board):
+        assert all(len(line) <= 100 for line in fragment.splitlines())
