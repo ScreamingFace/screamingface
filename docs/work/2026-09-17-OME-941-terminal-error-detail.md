@@ -202,3 +202,73 @@ topic for the trace id, skipping traceparent validation, and removing each of th
 
 `uv run .claude/scripts/run_gates.py screamingface-engine` — ALL GATES GREEN (append-only check,
 ruff check, ruff format, pyright, layering, pytest with coverage ≥80).
+
+---
+
+## Round 3 (2026-09-17) — the allowlist could not vouch for the message
+
+Re-review found the round-2 fix insufficient on a second path. Auditing **all nine** allowlisted
+codes at their raise sites — rather than only the two reported — found **four** leaks, for two
+distinct reasons.
+
+### Reason 1 — a CODE IS NOT AN AUTHOR
+
+`core/errors.py` gives two classes the same class default:
+
+```python
+class ParseError(Url4Error):       code = "malformed_source"   # :51  caller's own expression
+class CollectionError(Url4Error):  code = "malformed_source"   # :86  embeds the FETCHED BODY
+```
+
+`CollectionError`'s real raise sites: `io/layer.py:206` `{body[:80]!r}`, `:243` `{line[:80]!r}`,
+`:178` the upstream `Content-Type`. One code, two authors — **no allowlist entry can be correct
+for it.** Needs no hostile upstream: it is the ordinary failure of `*` over a non-collection.
+
+### Reason 2 — MESSAGES INTERPOLATE RESOLVED VALUES
+
+- `unknown_processor` — `dag/processor.py:96` embeds `{resolved!r}` = `(await spawn(value))`,
+  a **model output**.
+- `unrenderable` — `core/render.py:112` embeds `{text!r}`, the rendered AST, which may carry a
+  fetched value.
+- `expansion_not_iterable` — `dag/nodes.py:570` embeds `{exc}` of the `CollectionError` above.
+
+### The five that survived the audit, each with its evidence
+
+`unbound_reference` (ScopeError, names a `$name` from the caller's expression) · `cycle_detected`
+(graph shape only) · `unknown_identity` (`{identity!r}`, `{node.name!r}`, both caller-supplied) ·
+`timeout` (a duration) · `result_too_large` (two byte counts). Recorded beside the frozenset.
+
+### A test of mine that proved nothing
+
+The first version of the leak tests used `PROVIDER_SECRET` (`sk-proj-…`) and **passed before the
+fix** — `public_message`'s credential screen caught the token, so the test demonstrated the screen
+and said nothing about the allowlist. Real leaked remote text is not credential-shaped. Replaced
+with `REMOTE_TEXT`, ordinary prose, so the only thing that can withhold it is the code not being
+allowlisted. The four tests then failed for the right reason before the narrowing. Recorded
+because it is the same shape as the `repr()` bug `OME-1132` shipped: an assertion that cannot fail.
+
+### Outcome
+
+- **Files:** `error_text.py` (allowlist 9 → 5, plus the per-code audit),
+  `tests/unit/test_terminal_error_detail.py` (+4 leak tests over the REAL exception classes;
+  4 codes moved to `EXCLUDED_CODES`).
+- **Gates:** `run_gates.py screamingface-engine --skip-append-only` **ALL GREEN**.
+- **Mutations: 5 tried, 5 killed** — re-adding each of the four removed codes, and dropping
+  `unbound_reference`. Each died by **three** independent tests.
+- **Assertions 56 → 59** (up). No test deleted; none weakened.
+
+### Deviations
+
+- **RULE 5 — a prior test was changed. Owner-approved before commit, not after.** The gate fired.
+  `test_a_failed_run_names_its_engine_error_code_message_and_trace_id` used `malformed_source` as
+  its fixture — a code the audit proved unsafe — so the fixture had to move to
+  `unbound_reference`. The two changed assertion lines compare the **same fields**; only the
+  expected literals follow the fixture. Also removed 4 entries from the `ALLOWLISTED_CODES` tuple,
+  which exists precisely so that changing the set fails a test.
+- **A real capability was lost.** `unexpected ')' at position 4` is a genuine `ParseError` message
+  about the caller's own input — exactly what this ticket set out to surface — and it is withheld
+  now as collateral of `CollectionError` sharing its code. **`OME-1219`** files the root fix
+  (give `CollectionError` its own code); it is a url4 core contract change and deliberately not
+  smuggled in here.
+- **Not verified against a live run.** The leak is demonstrated by constructing each real
+  exception class the way its real raise site constructs it, not by driving a failing benchmark.
