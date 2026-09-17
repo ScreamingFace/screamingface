@@ -33,7 +33,7 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 | Stage 0 characterisation | G1 | **done** as U0 (gateway) and U0e (Engine); commits `48fa1d78`, `c7d767f7` |
 | A1 port + Profile-backed read implementation | G2a | **done** as U1; review findings closed; module names follow D19 (`OME-1204`, 2026-09-15); stop before A2 |
 | Naming decision | G2b precondition | **done** as `OME-1210` (D20): final domain/API/UI noun is Connection; provider-access is the boundary; Profile is legacy compatibility; Provider Account is not introduced as a resource name |
-| A2 in-process consumers | G2b | not started; use D20 terminology |
+| A2 in-process consumers | G2b | **implemented locally** as U2 (`OME-1207`, 2026-09-17, branch `OME-1207-move-consumers-off-profiles`; committed, not pushed, no PR): four consumers on the port; import boundary 7/7; full suite 4463 passed / 58 skipped at 92.69 % coverage; OpenAPI byte-identical to `0c0abfcf`. Five of the six stack gates green; **the append-only check is red and stays red** — five prior suites re-expressed at the port seam, an owner-accepted Confidence-Gate deviation scoped to `OME-1207` ONLY, not a clean append-only pass. Stop before A3 |
 | A3 admin interface + management shells | G2c | not started |
 | A4 Hosted Engine on the availability successor | G3 | not started; D15 and D17 decided 2026-09-14 (explicit mutability flag; `GET /v1/provider-access` with provider + status only); not authorised yet |
 | B backing transition | G4 | not started; needs D11, D14, Q01–Q04; retained S1/S2-marker/S4 content applies to option (a) |
@@ -54,7 +54,7 @@ Linear needs explicit permission; this table is not evidence that issues exist.
 | U1 | `OME-1200` — Add the provider-access port and the Profile-backed read implementation behind the existing routes | `aigateway` | A1 | U0 |
 | U1n | `OME-1204` — Rename the provider-access modules and test helpers without leading underscores (D19; rename-only) | `aigateway` | A1 follow-up | U1 |
 | U1t | `OME-1210` — Decide final provider identity naming (D20; docs/Linear only) | `aigateway` | A1 follow-up / A2 precondition | U1, U1n |
-| U2 | Move chat, model parameters, admission and dispatch marking onto the provider-access port | `aigateway` | A2 | U1, U1n, U1t |
+| U2 | `OME-1207` — Move chat, model parameters, admission and dispatch marking onto the provider-access port | `aigateway` | A2 | U1, U1n, U1t |
 | U3 | Add the provider-credential admin interface and reduce the Profile management routes to shells | `aigateway` | A3 | U1, U1n, U1t |
 | U4 | Publish the backing-neutral availability listing | `aigateway` | A4 | U3, D15, D17 |
 | U4e | Move the Hosted Engine listing onto the availability successor | `screamingface-engine` | A4 | U4 |
@@ -124,6 +124,24 @@ storage-invariant, 2 facade and 1 bootstrap suites (spec §2 tests row) are neve
 `aigateway.routes.chat._credential_target_for_chat` (usage accounting) against the port seam — the
 only test edits this unit makes. Acceptance: HTTP pins green; scope, Vary, codes and `reauth_url`
 shapes unchanged; shims deleted only when no test imports them.
+
+**As built (`OME-1207`, 2026-09-16).** Two corrections to the paragraph above, both consequences of
+deletions it mandates rather than changes of intent:
+
+- **Five suites were re-expressed, not two.** `test_provider_access_helpers.py`,
+  `test_provider_access_shims.py` and `test_model_execution_access.py` imported or patched
+  `model_parameters._context_identity` / `_contract_auth_mode`, which this unit deletes, so they
+  failed at collection or on `AttributeError`. Each moved to the port seam with coverage preserved
+  or strengthened. The append-only gate flags all five; the decision is the owner's.
+- **The shims survive.** No route imports `routes/chat_credentials.py` any more, but the A1 shim
+  suite does, so it and its `legacy_target_parts` / `target_from_legacy` support in
+  `profile_backed.py` keep their surface; both files now name Stage E (`OME-1209`) as the removal
+  point instead of A2. `core/admin_schemas.py` also stays a documented owner: `AdminProfileOut.state`
+  is typed `ProfileState`, so migrating it would change OpenAPI — it moves at A3 with `routes/admin.py`.
+
+The `seed_credential` fixture helper was NOT adopted: it is optional, and touching 18 further feature
+suites would widen the append-only surface for no boundary gain. The three normalisations,
+`_context_identity` and the contract auth-mode target inspection are deleted as specified.
 
 ### A3 — admin interface and management shells
 

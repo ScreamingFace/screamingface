@@ -24,13 +24,13 @@ from ..core.discovery_runtime import (
 )
 from ..core.model_capabilities import canonical_model_id
 from ..core.model_parameter_contract import build_model_parameter_document
+from ..core.provider_access import ResolvePolicy, Selector, provider_access_for
 from ..core.registry import ProviderRegistry
-from .chat_credentials import _credential_target_for_chat, resolved_auth_mode
+from .provider_access_http import refusals_as_http
 
 if TYPE_CHECKING:
-    from ..core.oauth.models import OAuthConnection
     from ..core.plugin_base import ProviderPluginBase
-    from ..core.profile_models import AuthMode, Profile
+    from ..core.profile_models import AuthMode
 
 router = APIRouter()
 
@@ -75,25 +75,6 @@ _PRIVATE_CACHE_HEADERS: dict[str, str] = {
 }
 
 
-def _context_identity(
-    account_id: str,
-    profile: Profile | None,
-    connection: OAuthConnection | None,
-) -> str:
-    """Opaque, NON-secret digest input: account + selected target + its state.
-
-    Folded into the one-way contract/context digests so the ids change when the
-    selected profile/connection or its generation/state changes. Never echoed.
-    """
-    if connection is not None:
-        target = f"conn:{connection.id}:{connection.status}:{connection.last_refreshed_at or '-'}"
-    elif profile is not None:
-        target = f"prof:{profile.id}:{profile.state.value}:{profile.last_refreshed_at or '-'}"
-    else:
-        target = "anon"
-    return f"acct:{account_id}|{target}"
-
-
 async def _contract_document(request: Request, *, account_id: str, model: str) -> dict[str, Any]:
     """Resolve provider + profile and compose the contract, or raise ``HTTPException``.
 
@@ -131,21 +112,20 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
                 detail={"code": "model_not_found", "provider": provider, "model": model},
             )
 
-    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
-    # Reuse the chat resolution (raises the same 409/401 on a pending/errored
-    # profile, and the same 404 on an explicitly NAMED missing profile) so
-    # summary, detail, and dispatch agree on context. The one divergence
-    # (OME-1167): the DEFAULT binding with no stored target answers instead of
-    # 404ing — the contract is a datasheet lookup, not a credentialed action.
-    profile, connection, _defaults = await _credential_target_for_chat(
-        request,
-        account_id=account_id,
-        provider=provider,
-        profile_name=profile_name,
-        plugin=plugin,
-        missing_target_ok=profile_name == "default",
-    )
-    auth_mode = _contract_auth_mode(plugin, profile, connection)
+    selector = Selector.from_header(request.headers.get("X-Profile"))
+    # The SAME port call chat makes (same 409/401 on a pending/errored target, same 404 on an
+    # explicitly NAMED missing one) so summary, detail and dispatch agree on context. The one
+    # divergence (OME-1167) is the policy: DATASHEET admits a target-less DEFAULT selector —
+    # the contract is a datasheet lookup, not a credentialed action.
+    # INVARIANT (OME-1207): `ResolvePolicy.DATASHEET` carries the old `profile_name == "default"`
+    # condition itself — the port admits the absence ONLY for the default selector, so a named
+    # selector still 404s and the two spellings agree by construction.
+    access = provider_access_for(request.app)
+    with refusals_as_http():
+        target = await access.resolve(
+            account_id, provider, selector, plugin=plugin, policy=ResolvePolicy.DATASHEET
+        )
+        auth_mode = access.contract_auth_mode(target, plugin)
 
     # Observed LAST: a request that fails profile resolution must not have spent a
     # fetch on a contract it will never serve. (The lazy catalog consult above is
@@ -176,7 +156,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         gateway_provider=provider,
         auth_mode=auth_mode,
         scope="account_profile",
-        context_identity=_context_identity(account_id, profile, connection),
+        context_identity=target.context_stamp,
         rules=plugin.chat_parameter_rules(model=model, auth_type=auth_mode),
         observations=observations,
         tools=tools,
@@ -192,40 +172,13 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     # INVARIANT: configuration is separate from the datasheet's auth-mode binding.
     # A keyless datasheet still exists; only chat's resolved target or an allowed
     # profileless mode establishes configuration. Never inject/validate secrets here.
-    configured: bool = profile is not None or connection is not None
+    configured: bool = target.kind == "stored"
     if not configured and plugin.allows_chatless_profile():
         configured = (
             plugin.profileless_auth_mode() is not None or plugin.available_auth_modes() == ("none",)
         )
     document["context"]["execution_access"] = "configured" if configured else "missing"
     return document
-
-
-def _contract_auth_mode(
-    plugin: ProviderPluginBase,
-    profile: Profile | None,
-    connection: OAuthConnection | None,
-) -> AuthMode:
-    """The auth mode the published contract is bound to, keyless case included.
-
-    With any stored target — or a provider that permits a chatless profile —
-    this is exactly ``resolved_auth_mode``, unchanged. The added branch (OME-1167)
-    covers only the target-less answer that used to 404: the datasheet is
-    published under the provider's own declared preference — its profileless
-    mode when it names one, else its FIRST declared auth mode.
-
-    # WHY not ``resolved_auth_mode`` for that case: its target-less fallback is
-    # ``"oauth"``, which raises 400 for an api-key-only provider — correct for a
-    # dispatch target, wrong for a datasheet that merely needs A mode to be
-    # published under. The response's ``context.auth_mode`` names the binding,
-    # so the choice is visible, never a lie.
-    """
-    if profile is None and connection is None and not plugin.allows_chatless_profile():
-        keyless_mode: AuthMode | None = plugin.profileless_auth_mode()
-        if keyless_mode is not None:
-            return keyless_mode
-        return plugin.available_auth_modes()[0]
-    return resolved_auth_mode(profile, connection, plugin=plugin)
 
 
 async def _live_catalog_ids(request: Request, plugin: ProviderPluginBase[Any]) -> frozenset[str]:

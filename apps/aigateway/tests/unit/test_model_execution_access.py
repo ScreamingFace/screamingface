@@ -16,12 +16,15 @@ def no_execution(authenticated_client, monkeypatch):
     # INVARIANT: discovery must never inject/refresh credentials or run inference.
     import litellm
 
-    from aigateway.routes import chat_credentials
+    from aigateway.core.provider_access import ProfileBackedProviderAccess
 
     # WHY: public schema discovery is independent of access configuration.
     monkeypatch.setattr(authenticated_client.app.state, "discovery_runtime", None)
+    # OME-1207: the tripwire moved to the PORT's authorize (op 4) — the one operation that
+    # can hand a credential to a request. The datasheet route resolves a target and reads its
+    # auth mode; it must never take the next step.
     inject = AsyncMock(side_effect=AssertionError("discovery injected credentials"))
-    monkeypatch.setattr(chat_credentials, "_inject_credentials", inject)
+    monkeypatch.setattr(ProfileBackedProviderAccess, "authorize", inject)
     monkeypatch.setattr(
         litellm, "acompletion", AsyncMock(side_effect=AssertionError("discovery ran inference"))
     )
@@ -186,11 +189,12 @@ def test_active_connection_and_ambiguous_selection(authenticated_client):
 def test_access_only_changes_preserve_parameter_contract_identity(
     authenticated_client, monkeypatch, env_name
 ):
-    from aigateway.routes import model_parameters
+    from aigateway.core.provider_access import profile_backed
 
     # WHY: real Gemini key changes can also select a different auth mode. Hold
     # that independent digest input fixed to isolate the access-only contract.
-    monkeypatch.setattr(model_parameters, "_contract_auth_mode", Mock(return_value="api_key"))
+    # OME-1207: pinned at the port's op 3 (`contract_auth_mode`), where the route now reads it.
+    monkeypatch.setattr(profile_backed, "contract_auth_mode", Mock(return_value="api_key"))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     missing = _details(authenticated_client, _GEMINI)

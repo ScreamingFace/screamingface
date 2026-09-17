@@ -22,7 +22,6 @@ from aigateway.core.provider_access import (
     contract_auth_mode,
     reauth_url_for,
 )
-from aigateway.routes.model_parameters import _contract_auth_mode as legacy_contract_auth_mode
 
 
 class _Plugin:
@@ -112,12 +111,10 @@ def test_a_target_less_result_falls_back_to_oauth_and_is_checked() -> None:
 def test_the_datasheet_binds_a_keyless_api_key_only_provider_to_its_first_mode() -> None:
     plugin = _Plugin(("api_key",))
 
+    # OME-1207: A1 pinned this against `model_parameters._contract_auth_mode`. A2 deleted that
+    # helper — the route now calls the port — so the pin is the LITERAL the legacy helper
+    # returned for a target-less api-key-only provider: its first declared mode.
     assert contract_auth_mode(_target("none"), plugin=plugin) == "api_key"
-    assert contract_auth_mode(_target("none"), plugin=plugin) == legacy_contract_auth_mode(
-        cast(Any, plugin),
-        None,
-        None,
-    )
 
 
 def test_the_datasheet_prefers_the_profileless_mode_when_declared() -> None:

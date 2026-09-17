@@ -1,11 +1,15 @@
-"""POST /v1/chat/completions — resolves profile auth + merges defaults, dispatches via LiteLLM.
+"""POST /v1/chat/completions — resolves provider access + merges defaults, dispatches via LiteLLM.
 
-Helper seams live in sibling modules (OME-428 Phase 1 split):
-``chat_credentials`` (profile/connection resolution, defaults, credential
-injection), ``chat_dispatch`` (backpressure, error mapping, streaming),
-``chat_cache_stage`` (the global cache's route-facing stage) and
-``chat_profile_defaults`` (the pre-credential defaults read, and rejection
-attribution). This module keeps only the router and the request orchestration.
+Credentials come from ONE place: the ``core.provider_access`` port (OME-1207, A2 of
+OME-1138). This route reads stored defaults, resolves a ``CredentialTarget``, derives the
+auth mode and authorizes through that port; it never touches a legacy Profile row, a
+Connection row or the profile index. Its typed refusals become HTTP through the single
+edge table in ``provider_access_http``.
+
+The remaining helper seams are sibling modules (OME-428 Phase 1 split): ``chat_dispatch``
+(backpressure, error mapping, streaming), ``chat_cache_stage`` (the global cache's
+route-facing stage) and ``chat_profile_defaults`` (rejection attribution). This module
+keeps only the router and the request orchestration.
 """
 
 from __future__ import annotations
@@ -36,6 +40,15 @@ from ..core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
+from ..core.profile_models import AuthMode
+from ..core.provider_access import (
+    CredentialTarget,
+    ProviderAccess,
+    Selector,
+    apply_authorization,
+    apply_defaults,
+    provider_access_for,
+)
 from ..core.registry import ProviderRegistry
 from ..core.request_cache.global_controls import parse_global_cache_controls
 from ..core.request_hardening import chat_body_shape_error, strip_dispatch_controls
@@ -58,12 +71,6 @@ from .chat_cache_stage import (
     set_global_cache_headers,
     store_global_response,
 )
-from .chat_credentials import (
-    _apply_defaults,
-    _credential_target_for_chat,
-    _inject_credentials,
-    resolved_auth_mode,
-)
 from .chat_dispatch import (
     _dispatch_with_backpressure,
     _litellm_http_exception,
@@ -72,10 +79,48 @@ from .chat_dispatch import (
     _unknown_provider_exception,
     convert_provider_response,
 )
-from .chat_profile_defaults import _parameter_rejection_exception, profile_defaults_for_key
+from .chat_profile_defaults import _parameter_rejection_exception
+from .provider_access_http import refusals_as_http
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def _resolve_credential_target(
+    access: ProviderAccess,
+    *,
+    account_id: str,
+    provider: str,
+    selector: Selector,
+    plugin: Any,
+) -> tuple[CredentialTarget, AuthMode]:
+    """Ops 2–3: the one target this selector names, and the mode it is matched against.
+
+    # INVARIANT: both refusals render through the ONE edge table, so the 404/409/401 bodies
+    # and the 400 for an undeclared mode stay byte-identical to the pre-port route.
+    """
+    with refusals_as_http():
+        target = await access.resolve(account_id, provider, selector, plugin=plugin)
+        return target, access.auth_mode(target, plugin)
+
+
+async def _authorize_and_seal(
+    access: ProviderAccess,
+    target: CredentialTarget,
+    *,
+    plugin: Any,
+    provider: str,
+    body: dict[str, Any],
+) -> None:
+    """Op 4 plus the pure sealing step.
+
+    # INVARIANT: every storage side effect of authorization (strategy build and refresh,
+    # error marking, session invalidation, the Connection last-used touch) is the port's;
+    # writing the returned headers into the body is the only part the route owns.
+    """
+    with refusals_as_http():
+        authorization = await access.authorize(target, plugin=plugin, provider=provider)
+    apply_authorization(body, authorization.headers)
 
 
 async def _dispatch_and_finalize_accounting(
@@ -87,10 +132,7 @@ async def _dispatch_and_finalize_accounting(
     accounting: Any,
     account_id: str,
     profile_name: str,
-    profile: Any,
-    connection: Any,
-    credential_name: str | None,
-    auth_type: Any,
+    target: CredentialTarget,
 ) -> Any:
     """Dispatch once through the provider and finalize any observed accounting evidence."""
     accounting_request_view = safe_request_view(body)
@@ -120,10 +162,7 @@ async def _dispatch_and_finalize_accounting(
             provider=provider,
             account_id=account_id,
             profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
+            target=target,
         ) from None
     except (
         RateLimitError,
@@ -150,10 +189,7 @@ async def _dispatch_and_finalize_accounting(
             provider=provider,
             account_id=account_id,
             profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
+            target=target,
         ) from None
     except Exception as exc:
         # WHY (OME-428 third-review blocker B): the two branches above enumerate
@@ -183,10 +219,7 @@ async def _dispatch_and_finalize_accounting(
             provider=provider,
             account_id=account_id,
             profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
+            target=target,
         ) from None
 
     try:
@@ -239,7 +272,10 @@ async def chat_completions(request: Request, response: Response, current: Curren
             begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise
 
-    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
+    # INVARIANT (OME-1207): the header is interpreted ONCE, here, by the port's own parser.
+    # The route no longer spells the normalisation, so absent/blank/whitespace all mean the
+    # implicit default in exactly one place and the Stage D sunset policy has a single seat.
+    selector = Selector.from_header(request.headers.get("X-Profile"))
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
@@ -303,9 +339,8 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # A hit therefore costs one profile-index read, which is itself a credential_blobs
     # row: one master-key decryption, and no provider credential.
     account_id = str(current.id)
-    key_defaults = await profile_defaults_for_key(
-        request, account_id=account_id, provider=provider, profile_name=profile_name
-    )
+    access = provider_access_for(request.app)
+    key_defaults = await access.defaults_for(account_id, provider, selector)
     default_paths: frozenset[str] = frozenset()
     if key_defaults is None:
         cache_outcome = defaults_unreadable_bypass()
@@ -320,7 +355,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # the caller omitted — which is what makes ``default_paths`` a sound attribution.
         # INVARIANT (§57): this merged body is the ONE body used for both the key and
         # the dispatch, so the two cannot describe different requests.
-        body, default_paths = _apply_defaults(body, key_defaults, plugin)
+        body, default_paths = apply_defaults(body, key_defaults, plugin)
         # AIDEV-NOTE: do not wrap this in ``in_transaction()``. On Postgres, a failed
         # cache SELECT or hit-metadata UPDATE aborts the outer transaction even though
         # this stage converts the failure to a bypass, poisoning later route statements.
@@ -358,15 +393,9 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # It raises 404/409/401, so hoisting it would let those preempt a cache hit; and a
     # second merge would re-read the profile, so a concurrent profile update between
     # the two reads would dispatch a request the key does not describe.
-    profile, connection, defaults = await _credential_target_for_chat(
-        request,
-        account_id=account_id,
-        provider=provider,
-        profile_name=profile_name,
-        plugin=plugin,
+    target, auth_mode = await _resolve_credential_target(
+        access, account_id=account_id, provider=provider, selector=selector, plugin=plugin
     )
-
-    auth_mode = resolved_auth_mode(profile, connection, plugin=plugin)
 
     if key_defaults is None:
         # The pre-cache read failed, so the merge that feeds the key never ran and the
@@ -374,7 +403,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # operator's defaults: a transient index fault must cost a cache hit, never
         # silently drop a stored system prompt. No key exists on this path, so there is
         # nothing for the dispatch body to diverge from.
-        body, default_paths = _apply_defaults(body, defaults, plugin)
+        body, default_paths = apply_defaults(body, target.defaults, plugin)
 
     # OME-479 §4.5: classify every optional parameter against the provider's enabled
     # rule set for the REAL (never caller-declared) auth mode, and project accepted
@@ -399,13 +428,13 @@ async def chat_completions(request: Request, response: Response, current: Curren
                 "profile defaults rejected provider=%s account=%s profile=%s paths=%s",
                 provider,
                 account_id,
-                profile_name,
+                selector.name,
                 ",".join(rejected_defaults),
             )
         raise _parameter_rejection_exception(
             exc,
             provider=provider,
-            profile_name=profile_name,
+            profile_name=selector.name,
             default_paths=default_paths,
         ) from None
 
@@ -426,7 +455,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
                 "provider=%s account=%s profile=%s paths=%s",
                 provider,
                 account_id,
-                profile_name,
+                selector.name,
                 ",".join(sorted(default_paths & set(exc.paths))),
             )
         raise HTTPException(
@@ -458,16 +487,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
             },
         )
 
-    credential_name, auth_type = await _inject_credentials(
-        request,
-        plugin=plugin,
-        provider=provider,
-        account_id=account_id,
-        profile_name=profile_name,
-        profile=profile,
-        connection=connection,
-        body=body,
-    )
+    await _authorize_and_seal(access, target, plugin=plugin, provider=provider, body=body)
 
     # NOTE: overload retry covers the non-streaming path only; streaming responses
     # commit a 200 status before dispatch, so a mid-stream 429/503 cannot be retried.
@@ -494,11 +514,8 @@ async def chat_completions(request: Request, response: Response, current: Curren
         body=body,
         accounting=accounting,
         account_id=account_id,
-        profile_name=profile_name,
-        profile=profile,
-        connection=connection,
-        credential_name=credential_name,
-        auth_type=auth_type,
+        profile_name=selector.name,
+        target=target,
     )
     result = request.app.state.taxonomy_plugin.sanitize_provider_response(result)
 
