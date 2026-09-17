@@ -294,6 +294,29 @@ helm template apps/screamingface-engine/deploy/helm --set config.natsUrl=nats://
 For a real end-to-end exercise of this chart — the same templates, values-only overrides — see
 [`../kind/README.md`](../kind/README.md).
 
+### Turning a deployment up to DEBUG, and what the probes ask (OME-942)
+
+`config.logLevel` sets the level the `screamingface_engine` logger tree runs at, rendered to
+BOTH halves — the App's ConfigMap and the runner pool's — as `URL4_CLOUD_LOG_LEVEL`. It was
+previously readable by the code and settable by nobody, so no deployed pod could be turned up
+during an incident:
+
+```bash
+helm upgrade ... --set config.logLevel=DEBUG   # then restart the pods
+```
+
+The probes ask two different questions and target two different endpoints:
+
+| Probe | Path | Asks | On failure |
+|---|---|---|---|
+| `livenessProbe` | `/livez` | is this process up? | the pod is RESTARTED |
+| `readinessProbe` | `/readyz` | can this pod reach NATS? | the pod leaves the Service's endpoints |
+
+Both used to target `/healthz`, which answers unconditionally — so the readiness probe could
+never fail and a pod with a dead NATS connection stayed in rotation, accepting runs that went
+nowhere. Keep liveness broker-blind: a broker outage must take pods out of rotation, not
+restart every replica. `/healthz` is still served, unchanged, for anything outside this chart.
+
 ### Optional live activity
 
 Set `config.activityLevel: "full"` on public deployments to emit the safe v1 model-call

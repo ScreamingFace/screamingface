@@ -76,6 +76,18 @@ securityContext:
 
 # App config → ConfigMap (env-prefixed URL4_CLOUD_*, consumed by screamingface_engine.config.Settings).
 config:
+  # The level the `screamingface_engine` logger tree runs at, rendered to BOTH the App's
+  # ConfigMap and the runner pool's (OME-942). Read by `logs.configure()`, which `cli.main`
+  # calls for every mode — serve, run and worker alike.
+  #
+  # WHY this is charted at all: the variable existed in code and in no deployment, so no
+  # deployed pod could be turned to DEBUG. That is the first thing an operator reaches for
+  # during an incident, and it was a knob that did not exist.
+  #
+  # INVARIANT: this is the DEFAULT_LEVEL the code already uses. Charting a knob must not
+  # change the level deployments run at; `test_chart_render_log_level.py` reads both from one
+  # source so a change to either alone fails.
+  logLevel: "INFO"
   # Optional ephemeral activity: public deployments explicitly choose full; private runs off.
   # Does not change existing lifecycle, results, accounting or operator diagnostics.
   activityLevel: "off"
@@ -429,18 +441,28 @@ resources:
 preStopSleepSeconds: 5
 terminationGracePeriodSeconds: 45
 
-# The App implements /healthz (screamingface_engine/app.py); probes target it (k8s probe convention, §9).
+# The two probes ask DIFFERENT questions, and until OME-942 both asked `/healthz` — so the
+# readiness probe could never fail, and Kubernetes kept a pod with a dead NATS connection in
+# the Service's endpoints. Runs routed there were accepted and went nowhere.
+#
+# INVARIANT: these two paths must stay DIFFERENT endpoints. Liveness is "this process is up"
+# and its failure RESTARTS the pod; readiness is "this pod can serve" and its failure only
+# takes it out of rotation. Pointing liveness at a broker-aware endpoint would turn a NATS
+# outage into a restart loop across every replica.
+#
+# `/healthz` is still served and unchanged — it is what anything outside this chart probes.
 livenessProbe:
   httpGet:
-    path: /healthz
+    path: /livez
     port: http
   initialDelaySeconds: 10
   periodSeconds: 20
   timeoutSeconds: 5
 
+# `/readyz` asks the event stream whether the broker is reachable (OME-942).
 readinessProbe:
   httpGet:
-    path: /healthz
+    path: /readyz
     port: http
   initialDelaySeconds: 5
   periodSeconds: 10

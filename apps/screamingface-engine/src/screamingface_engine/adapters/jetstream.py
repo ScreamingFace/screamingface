@@ -17,6 +17,7 @@ from nats.js.errors import APIError, BadRequestError, NotFoundError
 from pydantic import ValidationError
 
 from screamingface_engine import subjects
+from screamingface_engine.readiness import StreamNotReadyError
 from screamingface_engine.subjects import owns_stream, stream_for, subject_for, topic_of
 from url4.streaming.codec import decode, encode
 from url4.streaming.interfaces import (
@@ -182,6 +183,39 @@ class _JetStreamConnection:
         """
         nc = self._nc
         return nc is not None and nc.is_closed
+
+    async def check_ready(self) -> None:
+        """Report whether this binding can reach its broker (OME-942); raise if it cannot.
+
+        Serves `/readyz`, which the chart's readinessProbe targets. A pod whose NATS connection
+        is dead can neither publish a run onto the queue nor bridge its frames, so it must
+        leave the Service's endpoints rather than keep accepting runs that go nowhere.
+
+        WHY `is_connected` and NOT `_is_closed`: nats-py keeps the client object alive and
+        retrying for its whole reconnect budget, and only then marks it closed. `is_closed`
+        alone therefore reports READY throughout an outage — the entire window the probe
+        exists to cover.
+
+        WHY no `account_info()` round trip: a kubelet probes every `periodSeconds` forever, so
+        an RPC here would put a broker round trip on that timer for every pod of every
+        deployment. `Client` already maintains this state; reading it is the cheap, honest
+        check. Establishing the connection when there is none is not a probe cost — it is the
+        cold start the probe is meant to hold the pod out of rotation for.
+
+        INVARIANT: every transport failure is translated into `StreamNotReadyError`. A raw
+        `nats`/`OSError` escaping here becomes a 500, which an operator reads as a bug in the
+        App rather than an outage in the broker.
+        """
+        try:
+            await self._jetstream()
+        except (OSError, TimeoutError, NatsError) as exc:
+            raise StreamNotReadyError(f"{self._url} is unreachable: {exc}") from exc
+        nc = self._nc
+        # A missing client is NOT unready, for the same reason `_is_closed` says so: a
+        # `JetStreamContext` can be supplied without going through `nats.connect`, and calling
+        # that down would report a live injected context as an outage.
+        if nc is not None and not nc.is_connected:
+            raise StreamNotReadyError(f"{self._url} is not connected")
 
     async def ensure_stream(self, topic: str) -> None:
         # WHY: `add_stream` on an existing stream is a round trip that ends in BadRequestError,
