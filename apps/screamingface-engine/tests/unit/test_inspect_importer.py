@@ -901,6 +901,71 @@ def test_emitted_board_row_constructs_the_real_board_spec(engine_src_copy: Path)
     assert board.title == "TODO"
 
 
+def test_emitted_minimal_snapshot_row_constructs_the_real_snapshot_spec(
+    engine_src_copy: Path,
+) -> None:
+    """The template's OTHER branch: a row with no prompt_template, no
+    choice_template and no shuffle_seed must also construct the real spec.
+
+    WHY a separate minimal variant: making an optional SnapshotSpec field
+    required (dropping its default) keeps the maximal-row test green — only a
+    row that OMITS the kwarg catches it (review finding on this PR).
+    """
+
+    from screamingface_engine_inspect.prepare import SnapshotSpec
+
+    fragments = generate_rows(
+        "quiz",
+        _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+        engine_src=engine_src_copy,
+    )
+
+    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
+    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+
+    snapshot: Any = namespace["SNAPSHOTS"]["quiz"]
+    assert isinstance(snapshot, SnapshotSpec)
+    assert snapshot.dataset == "acme/sums"
+    assert snapshot.case_count == 7
+    # The omitted kwargs resolve through the spec's own defaults.
+    assert snapshot.prompt_template is None
+    assert snapshot.choice_template is None
+    assert snapshot.shuffle_seed is None
+
+
+def test_emitted_mcq_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:
+    """The board template's OTHER branch: an MCQ row omits scorer_kwargs AND
+    with_check_surface — it must still construct the real BoardSpec.
+
+    WHY a separate MCQ variant: dropping the default of either omitted field
+    keeps the free-text-row test green — only this row catches it (review
+    finding on this PR).
+    """
+
+    from screamingface_engine_inspect.boards import BoardSpec
+
+    fragments = generate_rows(
+        "quiz",
+        _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+        engine_src=engine_src_copy,
+    )
+
+    namespace: dict[str, Any] = {"BoardSpec": BoardSpec}
+    exec(f"BOARDS = (\n{fragments.board})", namespace)
+
+    (board,) = namespace["BOARDS"]
+    assert isinstance(board, BoardSpec)
+    assert board.key == "quiz"
+    assert board.scorer == "inspect_ai.scorer:choice"
+    # The omitted kwargs resolve through the spec's own defaults (OME-796: MCQ
+    # boards never declare the check surface).
+    assert dict(board.scorer_kwargs) == {}
+    assert board.with_check_surface is False
+
+
 def test_injection_charsets_refuse_a_trailing_newline(engine_src_copy: Path) -> None:
     """`$` tolerates one trailing newline; the guards anchor with \\Z so a
     newline can never open a second line in generated code."""

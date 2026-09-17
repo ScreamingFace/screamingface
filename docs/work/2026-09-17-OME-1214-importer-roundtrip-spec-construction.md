@@ -54,6 +54,12 @@ changes.
   ruff format, pyright, layering, pytest cov≥80). Importer suite: 40 passed (38 prior + 2 new).
   Probes: renaming `SnapshotSpec.case_count` fails the snapshot test; renaming
   `BoardSpec.scorer` fails the board test; both restored.
+- **Review round 1 (confirmed finding):** only the maximal shapes were constructed — a
+  minimal snapshot row (no prompt/choice template, no shuffle_seed) and an MCQ board row
+  (no scorer_kwargs, no with_check_surface) stayed ast.parse-only, so dropping an optional
+  field's default survived the suite. Added one minimal-facts construction variant per
+  fragment (42 tests now). Probe: making `shuffle_seed` required fails the construction
+  tests (and the real catalogue import — louder still).
 - **Deviations:** the ticket's optional in-importer `dataclasses.fields` guard skipped —
   importer would need to import prepare/boards (boards pulls `url4.peer.server`), a heavy
   import edge for a check the exec tests already pin. Flagged in the PR for review.
