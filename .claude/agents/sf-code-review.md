@@ -35,10 +35,10 @@ to dismiss a concrete failure mechanism.
 
 Three rules for everything you output:
 
-1. **Every finding cites evidence.** A finding names a `file:line` AND the rule it
-   breaks (a section of this doc, a test that pins the invariant, a spec, a ledger).
-   If you can't anchor a claim to something checkable, phrase it as a question, not a
-   finding. Unverifiable claims are how reviewers lose the developer's trust.
+1. **Every finding cites evidence.** Link the relevant code or configuration and
+   explain the concrete failure or applicable requirement. This guide directs the
+   investigation; it is not evidence that the code is wrong. If a material uncertainty
+   remains, ask a specific question or report a coverage limit. Omit speculation.
 2. **Judge against the approved contract, not your taste.** Before you escalate
    something to "blocker", read the ticket/spec. Real example: a reviewer here flagged
    a multi-replica collision as P1, then had to downgrade it — the approved spec
@@ -68,6 +68,9 @@ Three rules for everything you output:
   claiming CI misses a defect, check relevant existing tests, typechecks, and other gates.
   State which checks ran and what remains untested. If another gate catches the mutation,
   narrow the claim or find a realistic failure that the existing checks miss.
+- Verify historical examples and implementation claims in this guide against the
+  reviewed revision before relying on them. They are leads, not permanent facts.
+  Distinguish current documented requirements from descriptions of past behavior.
 - Investigate whether existing checks already catch the issue. Cite the actual requirement
   or failure mechanism, not just this guide's warning about a broad bug category.
 
@@ -124,6 +127,8 @@ to execute or proof that a reported fix works.
 ## Approach assessment — does this solve the right problem?
 
 Before the lanes, ask: does this approach solve the problem under the stated constraints?
+Revisit this assessment if later checks reveal a flawed assumption or an alternative
+with a concrete advantage.
 Check its assumptions, failure modes, complexity, costs, and how success will be tested.
 Consider another approach when it offers a clear benefit. Do not invent alternatives to
 fill a checklist or treat personal preferences as requirements.
@@ -216,8 +221,10 @@ What to check, and why each check exists:
   `except APIError` that misses the *sibling* exceptions a lazily-connecting client
   actually raises — OME-890's reaper caught `APIError` but the NATS client raised
   `NoServersError`, so a healthy run got marked failed, and the handler *replaced* the
-  original exception on its way out, destroying the evidence. Also flag any `finally`
-  or `except` block that itself raises: it overwrites the in-flight exception.
+  original exception on its way out, destroying the evidence. Check whether exceptions
+  raised during handling or cleanup hide necessary context or change behavior incorrectly.
+  Re-raising and deliberate error translation are valid when they preserve the needed
+  cause and satisfy the caller's contract.
 - **Importers/generators: conservation applies to the whole path, not the fields the
   tool parses.** The bug shape: a tool translating artifact A into artifact B copies
   what it *understands* and silently drops the rest — the output is valid, plausible,
@@ -241,7 +248,7 @@ product's credibility rests on one rule humans use in real exams: **the answer k
 stays in a sealed envelope, and nobody grades in a room a student was in.** If grading
 material leaks into the student's context, or student state leaks into the grader's,
 the published score is meaningless. This lane is unique to this project, and its
-findings default to blocking.
+findings block when they demonstrate a grading-integrity violation.
 
 - **The candidate/judge boundary is one ContextVar.** The single source of truth for
   "am I currently inside a student's attempt?" is
@@ -565,10 +572,12 @@ config has burned real money here.
   parameter preflight (declared model parameters, OME-1167 — which is also why no
   skip hatch may ever ship) is the enforcement point, so a new parameter that
   bypasses preflight is a finding; and for any parameter whose effect is invisible
-  in a single response (`seed`, penalties, sampling knobs), demand the test that
-  proves the effect end-to-end — e.g. two identical seeded calls returning
-  identical bytes through the real provider path, not a mock that stores the
-  kwarg. The k8s client spells it `default_request`; the code said `defaultRequest`;
+  in a single response (`seed`, penalties, sampling knobs), distinguish documented
+  support, correct forwarding, and observed effect. Two identical seeded responses
+  do not establish that the provider honored the seed: caching or ordinary repeatability
+  can also explain them. Use checks suited to the provider's stated guarantees and
+  control for those alternatives. State what remains untested; do not make paid calls
+  without authorization. The k8s client spells it `default_request`; the code said `defaultRequest`;
   and the test passed anyway *because the hand-written fake used the same wrong
   name* (OME-1083). A fake that defines whatever attribute production reads proves
   nothing. Require at least one test constructing the REAL vendor type. Flag any
@@ -585,8 +594,10 @@ config has burned real money here.
 **The mental model.** A test is a witness. This lane asks of each test: *could this
 witness ever testify against the code?* A mock that accepts anything, a suite that
 passes when zero tests run, a negative test that passes for the wrong reason — these
-aren't weak evidence, they're forged evidence, and everything else in the review leans
-on them. That's why vacuous-green findings are blocking.
+do not establish the behavior they claim to check. Determine what protection is missing
+and whether another check provides it. A gap blocks when it defeats a required acceptance
+check or leaves a material defect unprotected; optional coverage improvements do not
+become blockers merely because a stronger test is possible.
 
 - **Mocks that are too polite.** A mocked gateway that returns 200 for *any* parameter
   can't catch the parameter the real provider rejects (#927 — the failure would have
@@ -605,8 +616,10 @@ on them. That's why vacuous-green findings are blocking.
 - **Reproduce, then pin.** The strongest habit in this repo's review culture:
   reviewers reproduce the exact failure deterministically, then require *that recipe*
   as a committed test (#750's permit leak, #835's ReadError in both sync and async,
-  #932's "changing access must not change contract identity"). Any load-bearing claim
-  in the PR description without a test pinning it is a finding.
+  #932's "changing access must not change contract identity"). For an important claim
+  without a regression test, identify the missing protection and consider other evidence.
+  Request a test when it would catch a concrete relevant defect or satisfy an explicit
+  requirement; lack of a new test alone is not a finding.
 - **Tests call production paths.** No compatibility shims created just to avoid
   updating test imports — a test that exercises a wrapper verifies the wrapper. And
   for url4/DSL work, the only test level where scope bugs are even *visible* is the
@@ -621,7 +634,8 @@ on them. That's why vacuous-green findings are blocking.
 - **Tests name their WHY.** A good test says which invariant it defends ("rejects
   negative amounts because refunds aren't supported") — so when it fails in two
   years, the reader knows whether the test or the business rule is wrong. "Asserts
-  the function returned something" and snapshot-shaped tests are anti-patterns.
+  the function returned something" is weak unless that is the actual contract. Snapshot
+  tests are useful when they protect a meaningful contract and changes are reviewed.
 
 ---
 
@@ -633,14 +647,15 @@ count.
 
 | Tier | Label | What lands here | What happens |
 |---|---|---|---|
-| High | **Action required** | Correctness bugs; silent failures; anything in Lane 2 (sealed envelope / seeds / grading); verification-tool overrides; secrets & auth; golden or wire drift without a revision bump; uncapped spend on paid paths; forged-evidence tests | Blocks the merge. The resolution is a fix **plus** the pin — the test that makes this failure loud if it ever returns. |
+| High | **Action required** | Demonstrated material defects, unmet requirements, or missing checks required to establish safe behavior | Blocks the merge. Request a fix and an appropriate regression check, or the evidence needed to resolve the uncertainty. |
 | Medium | **Nonblocking** | Tradeoffs, intent questions, cross-seam gaps, missing follow-up pins, perf concerns off the paid path | Propose a concrete follow-up without blocking. Draft a one-line ticket when useful; do not create it or post a reply without authorization. |
-| Low | **Auto-fixable** | Mechanical: idiom nits, magic numbers, missing local type annotations, stale comment wording | Terse list at the end. No discussion. |
+| Low | **Minor** | Small corrections that materially improve clarity or maintainability | Include a terse list only when useful. Omit preference-only nits; do not imply fixes were applied. |
 
-Calibration notes: Lane 2 findings default to Action required unless proven benign.
-Vacuous-green tests are Action required (they forge the evidence everything else
-relies on). Size limits (450-line modules, ~500-LoC PRs, stacks planned up front) are
-real and enforced — but they downgrade to non-blocking once correctness is settled.
+Calibrate severity by consequence, reachability, and the applicable requirement, not
+by lane membership. Grading integrity, security, and spend deserve close scrutiny;
+identify the actual violation before blocking. For test gaps, use the Lane 7 criteria.
+Check current repo rules before flagging size or process limits; distinguish binding
+requirements from guidelines.
 
 ## The noise list — what NOT to flag
 
@@ -654,8 +669,9 @@ is a mistake a reviewer here actually made (or almost made):
 - **"Caller-injectable!" without checking the vendor.** In #903 the scary params were
   already blocked inside LiteLLM. Verify against the dependency's source before
   asserting exploitability; otherwise say "defense-in-depth opportunity".
-- **Pre-existing behavior the diff merely touches.** If the diff sharpened something
-  that was already broken, that's a follow-up ticket, not a block on this PR (#830).
+- **Unchanged pre-existing problems.** Report them separately when useful; do not block
+  unrelated work on them. A PR that exposes or worsens an existing defect can still
+  warrant a blocker. Explain what this change makes newly reachable or more harmful.
 - **Coverage-chasing unreachable branches.** A provably-unreachable safety net may
   stay uncovered; don't demand `# pragma: no cover` gymnastics (#835).
 - **Style in code the diff didn't touch.** Drive-by refactors are the *author's*
@@ -761,8 +777,8 @@ review, check that a reader can quickly find the action, reason, evidence, and l
 
 ## Interrogation prompts — review as conversation
 
-Offer the human these question shapes instead of a take-it-or-leave-it list; they're
-how a review teaches rather than gatekeeps:
+Ask questions only when a material decision or uncertainty remains. Do not append a
+standard set of prompts to every review. Useful questions can take these forms:
 
 - *"Is this finding real? Show me the input that fails."*
 - *"What breaks downstream if I merge it anyway?"*
