@@ -339,12 +339,26 @@ def _hub_count_rows(facts: TaskFacts, revision: str) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _pin_prefix(key: str) -> str:
+    """The board key's constant stem (``foo-bar`` → ``FOO_BAR``) — refused unless it
+    is a valid Python identifier, so the generated pins always load."""
+
+    prefix: str = "".join(ch if ch.isalnum() else "_" for ch in key).upper()
+    if not prefix.isidentifier():
+        raise ImporterError(
+            f"board key {key!r} derives the constant stem {prefix!r}, which is not a "
+            "valid Python identifier — start the key with a letter (e.g. "
+            f"'wiki_{key}' instead of a leading digit)"
+        )
+    return prefix
+
+
 def render_fragments(
     key: str, facts: TaskFacts, observations: Observations, shuffle_seed: int | None = None
 ) -> Fragments:
     """Render the three row fragments in the target files' own style."""
 
-    prefix: str = "".join(ch if ch.isalnum() else "_" for ch in key).upper()
+    prefix: str = _pin_prefix(key)
     today: str = _datetime.date.today().isoformat()
     license_note: str = observations.license or "UNKNOWN"
 
@@ -442,7 +456,10 @@ def generate_rows(
     pins_path: Path = engine_src / "pins.py"
     prepare_path: Path = engine_src / "prepare.py"
     boards_path: Path = engine_src / "boards.py"
-    _refuse_existing_key(key, pins_path, prepare_path, boards_path)
+    texts: dict[Path, str] = {
+        path: path.read_text() for path in (pins_path, prepare_path, boards_path)
+    }
+    _refuse_existing_rows(key, _pin_prefix(key), texts)
     license_name: str = (observations.license or "UNKNOWN").lower()
     if license_name not in CLEARED_DATASET_LICENSES:
         print(
@@ -452,41 +469,66 @@ def generate_rows(
             file=sys.stderr,
         )
     fragments: Fragments = render_fragments(key, facts, observations, shuffle_seed)
-    _insert_above_anchor(pins_path, _PINS_ANCHOR, fragments.pins + "\n")
-    _insert_import_names(prepare_path, fragments.import_names)
-    _insert_above_anchor(prepare_path, _SNAPSHOTS_ANCHOR, fragments.snapshot)
-    _insert_above_anchor(boards_path, _BOARDS_ANCHOR, fragments.board)
+    # WHY compute-then-write: every insertion point is validated while building the
+    # new texts, so a broken anchor refuses the WHOLE import — never a half-imported
+    # tree that a retry then rejects as "already exists" (review finding on PR 966).
+    new_texts: dict[Path, str] = {
+        pins_path: _with_fragment(texts[pins_path], _PINS_ANCHOR, fragments.pins + "\n", "pins.py"),
+        prepare_path: _with_fragment(
+            _with_import_names(texts[prepare_path], fragments.import_names),
+            _SNAPSHOTS_ANCHOR,
+            fragments.snapshot,
+            "prepare.py",
+        ),
+        boards_path: _with_fragment(
+            texts[boards_path], _BOARDS_ANCHOR, fragments.board, "boards.py"
+        ),
+    }
+    for path, text in new_texts.items():
+        path.write_text(text)
     return fragments
 
 
-def _refuse_existing_key(key: str, *paths: Path) -> None:
-    """A key already in any of the three files means the board exists — never double it."""
+def _refuse_existing_rows(key: str, prefix: str, texts: Mapping[Path, str]) -> None:
+    """Never double a board — by key, OR by the constant stem two keys can share.
+
+    WHY the prefix check: ``foo-bar`` and ``foo_bar`` are different keys but derive
+    the same ``FOO_BAR_*`` constants; the second import would silently shadow the
+    first board's dataset/revision/count (review finding on PR 966).
+    """
 
     needles: tuple[str, ...] = (f'"{key}": SnapshotSpec(', f'key="{key}"')
-    for path in paths:
-        text: str = path.read_text()
+    for path, text in texts.items():
         if any(needle in text for needle in needles):
             raise ImporterError(f"board key {key!r} already exists in {path.name}")
+        if path.name == "pins.py" and f"{prefix}_DATASET" in text:
+            raise ImporterError(
+                f"pin constants {prefix}_* already exist in pins.py — another board key "
+                f"derives the same constant stem as {key!r}; pick a distinct key"
+            )
 
 
-def _insert_above_anchor(path: Path, anchor: str, fragment: str) -> None:
-    """The whole insertion contract: the fragment lands immediately above the anchor."""
+def _with_fragment(text: str, anchor: str, fragment: str, filename: str) -> str:
+    """The whole insertion contract: the fragment lands immediately above the anchor.
 
-    lines: list[str] = path.read_text().splitlines(keepends=True)
+    Pure text→text so callers can validate EVERY insertion before writing ANY file.
+    """
+
+    lines: list[str] = text.splitlines(keepends=True)
     positions: list[int] = [i for i, line in enumerate(lines) if line.strip() == anchor.strip()]
     if len(positions) != 1:
         raise ImporterError(
-            f"{path.name}: expected exactly one anchor line {anchor!r}, found {len(positions)} — "
+            f"{filename}: expected exactly one anchor line {anchor!r}, found {len(positions)} — "
             "the insertion contract is broken; restore the anchor comment"
         )
     lines.insert(positions[0], fragment)
-    path.write_text("".join(lines))
+    return "".join(lines)
 
 
-def _insert_import_names(prepare_path: Path, names: tuple[str, ...]) -> None:
+def _with_import_names(text: str, names: tuple[str, ...]) -> str:
     """Add the new pin constants to prepare.py's pins import block, keeping it sorted."""
 
-    lines: list[str] = prepare_path.read_text().splitlines(keepends=True)
+    lines: list[str] = text.splitlines(keepends=True)
     try:
         start: int = next(i for i, line in enumerate(lines) if line.strip() == _PINS_IMPORT_HEADER)
         end: int = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == ")")
@@ -498,7 +540,7 @@ def _insert_import_names(prepare_path: Path, names: tuple[str, ...]) -> None:
     merged: list[str] = sorted(set(existing) | set(names))
     block: list[str] = [f"    {name},\n" for name in merged]
     lines[start + 1 : end] = block
-    prepare_path.write_text("".join(lines))
+    return "".join(lines)
 
 
 # ---------------------------------------------------------------------------

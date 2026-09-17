@@ -481,3 +481,54 @@ def test_main_passes_task_args_through(
     )
 
     assert exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# generate_rows hardening (review round 2 on PR 966)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_rows_refuses_a_colliding_pin_prefix(engine_src_copy: Path) -> None:
+    """ "foo-bar" and "foo_bar" both derive FOO_BAR_* constants — the second import
+    would silently shadow the first board's dataset/revision/count."""
+
+    _generate(engine_src_copy, key="foo-bar")
+    with pytest.raises(ImporterError, match="FOO_BAR"):
+        _generate(engine_src_copy, key="foo_bar")
+
+
+def test_generate_rows_writes_nothing_when_an_anchor_is_missing(engine_src_copy: Path) -> None:
+    """All insertion points are validated BEFORE any write: a broken boards.py anchor
+    must not leave pins/prepare half-imported (a retry would then hit 'already
+    exists' with no clean way back)."""
+
+    boards_path = engine_src_copy / "boards.py"
+    intact = boards_path.read_text()
+    anchor_line = next(
+        line for line in intact.splitlines() if importer_module._BOARDS_ANCHOR in line
+    )
+    boards_path.write_text(intact.replace(anchor_line + "\n", ""))
+    pins_before = (engine_src_copy / "pins.py").read_text()
+    prepare_before = (engine_src_copy / "prepare.py").read_text()
+
+    with pytest.raises(ImporterError, match="boards.py"):
+        _generate(engine_src_copy)
+
+    assert (engine_src_copy / "pins.py").read_text() == pins_before
+    assert (engine_src_copy / "prepare.py").read_text() == prepare_before
+    # Restoring the anchor makes the SAME import succeed — no stale half-state.
+    boards_path.write_text(intact)
+    _generate(engine_src_copy)
+    assert '"sums": SnapshotSpec(' in (engine_src_copy / "prepare.py").read_text()
+
+
+def test_generate_rows_refuses_a_key_that_is_not_an_identifier_stem(
+    engine_src_copy: Path,
+) -> None:
+    """ "2wikimultihop" would emit `2WIKIMULTIHOP_DATASET = ...` — invalid Python that
+    reports success and then cannot load. Refuse before writing."""
+
+    with pytest.raises(ImporterError, match="identifier"):
+        _generate(engine_src_copy, key="2wikimultihop")
+
+    assert "2WIKIMULTIHOP" not in (engine_src_copy / "pins.py").read_text()
