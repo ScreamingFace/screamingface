@@ -20,3 +20,5 @@ Durations stay measured, never extrapolated provider progress. Stage freshness u
 Group interleaved calls, nested calls, late/missing parents, cycles and distinct Candidate/runs. Preserve expanded controls and bounded rendering on updates. Test malformed records, rolling decoder/history bounds, losses and days-long UI updates. Validate the widget in Jupyter using labelled simulated records, and keep real-provider runs under user control.
 
 Expanded activity is flat terminal-style output: compact monospace model-call lines beneath plain stage headings, with no inner table, columns or grid.
+
+The output sits in one bordered 280px-high scrolling well. Stage and model lines use the same compact rhythm, with status/timing inline and no report headings or separated columns. Console-specific classes prevent older notebook-output styles changing the layout.

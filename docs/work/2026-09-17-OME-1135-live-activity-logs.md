@@ -39,3 +39,10 @@ Expanded-row validation: 92 focused tests passed, including explicit parent grou
 Owner explicitly requested flat scrollable terminal-style output instead of inner activity tables. Keep grouping, row expansion and bounded rendering; replace only markup/CSS and migrate the table-count pagination assertions to log-line counts. Validate no table markup and escaped model details, then run Client gates.
 
 Terminal-output outcome: 33 focused checks passed and all Client gates passed (including 95% coverage). Diff review confirmed this is presentation-only: safe escaping, parent grouping, measured durations and stable scroll roots remain. Browser security policy blocked the standalone file preview, so this iteration is not claimed as visually verified in-browser. Fresh IFEval-terminal-activity.ipynb is available for user testing without resetting existing kernels.
+
+## Contained log-box correction
+Owner screenshot shows report-like spacing and right-aligned statuses, inconsistent with requested log box. Replace generic heading markup with isolated log-line classes and enforce a 280px scroll container; keep inline details. Add regression for containment/markup and verify in Jupyter.
+
+Verified the correction in a real Jupyter kernel using simulated records: compact inline lines in a bordered 280px box, with grouped indentation. Screenshot checked. 34 focused tests pass. Existing live evaluation kernels remain untouched.
+
+Contained-box correction: all Client gates passed, including the 95% coverage threshold. Follow-up UX discussion identified that case attribution needs authoritative Engine context; current stage observer carries kind and emitter only.

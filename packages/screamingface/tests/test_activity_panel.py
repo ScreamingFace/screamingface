@@ -84,3 +84,15 @@ def test_expanded_activity_is_flat_log_output_not_a_table():
     assert "Answering" in html
     assert "provider/model" in html
     assert "completed" in html
+
+
+def test_activity_has_contained_scroll_box_and_no_report_headings():
+    log = ActivityLog()
+    log.observe(0, record(kind="grading", state="completed"))
+    panel = CandidateActivityRow(log, ("candidate",), 0)
+    panel.toggle.value = True
+    assert 'class="sf-activity-console"' in panel.html.value
+    assert "height:280px" in panel.html.value
+    assert "overflow:auto" in panel.html.value
+    assert "<h4" not in panel.html.value
+    assert "<small" not in panel.html.value

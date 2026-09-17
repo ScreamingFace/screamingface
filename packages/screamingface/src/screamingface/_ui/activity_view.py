@@ -8,15 +8,17 @@ from screamingface._ui.activity_record import TERMINAL
 from screamingface._ui.activity_state import ActivityLog, ActivityRow
 
 STYLE = """<style>
-.sf-activity{color:var(--sf-ink);font-family:"IBM Plex Mono",monospace;
- font-size:12px;line-height:1.7;padding:8px 16px;font-variant-numeric:tabular-nums;
- overflow-wrap:anywhere}
-.sf-activity p{font-size:12px;color:var(--sf-ink-2)}
-.sf-activity h4{font:inherit;font-weight:600;margin:12px 0 4px}
-.sf-activity h4 small{font:inherit;font-weight:400;color:var(--sf-ink-2)}
-.sf-activity__call{padding-left:16px;white-space:pre-wrap}
-.sf-activity__details{color:var(--sf-ink-2)}
-.sf-activity__failed,.sf-activity__refused{color:var(--sf-danger-solid)}
+.sf-activity-console{box-sizing:border-box;height:280px;overflow:auto;
+ margin:8px 0;padding:12px 16px;border:1px solid var(--sf-line);
+ background:var(--sf-surface);color:var(--sf-ink);font:12px/1.6 "IBM Plex Mono",monospace;
+ font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:left}
+.sf-activity-console .sf-activity__stage{display:block;margin:0;padding:0;font:inherit}
+.sf-activity-console .sf-activity__call{display:block;margin:0;padding:0 0 0 16px;
+ font:inherit;white-space:normal}
+.sf-activity-console .sf-activity__details{display:inline;margin:0;color:var(--sf-ink-2)}
+.sf-activity-console .sf-activity__failed,.sf-activity-console .sf-activity__refused{
+ color:var(--sf-danger-solid)}
+.sf-activity-console p{margin:0;font:inherit;color:var(--sf-ink-2)}
 .sf-candidate-row .sf-eval__table-wrap{margin-top:0;border-top:0}
 .sf-candidate-row .sf-eval__table thead{position:absolute;width:1px;height:1px;overflow:hidden;
  clip:rect(0,0,0,0)}
@@ -64,7 +66,7 @@ def _group(group: ActivityGroup, selected: set[tuple[str, str]]) -> str:
         else "No parent activity was provided or retained"
     )
     lines = "".join(_call(r) for r in calls)
-    return f"<section><h4>{group.label} <small>— {escape(summary)}</small></h4>{lines}</section>"
+    return f'<div class="sf-activity__stage">{group.label} — {escape(summary)}</div>{lines}'
 
 
 def activity_html(
@@ -104,7 +106,7 @@ def activity_html(
     label = escape(candidates[candidate], quote=True)
     return (
         STYLE
-        + f'<section class="sf-activity" aria-label="Activity for {label}">'
+        + f'<section class="sf-activity-console" tabindex="0" aria-label="Activity for {label}">'
         + (f"<p>Partial history: {notice}.</p>" if notice else "")
         + content
         + "</section>"
