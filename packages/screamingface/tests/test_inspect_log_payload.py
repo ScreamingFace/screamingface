@@ -299,9 +299,11 @@ def test_unknown_candidate_name_fails_loudly() -> None:
         eval_log_payload(value, candidate="nope")
 
 
-def test_member_usage_rows_ride_stats_with_ids_disambiguating_name_collisions() -> None:
-    # WHY: display names are cosmetic and may collide (same model via two
-    # providers); identity is the operation_id, so the second row carries it.
+def test_member_usage_rides_metadata_so_the_meter_is_never_double_counted() -> None:
+    # INVARIANT: stats.model_usage carries the gateway meter EXACTLY ONCE —
+    # inspect's viewer SUMS that map, so member rows there would display an
+    # inflated total (aggregate + members). The per-member breakdown is
+    # provenance, so it rides eval.metadata, which nothing sums.
     full_usage = sf.Usage(
         input_tokens=10,
         output_tokens=5,
@@ -347,9 +349,15 @@ def test_member_usage_rows_ride_stats_with_ids_disambiguating_name_collisions() 
         failures=(),
         usage=sf.Usage(input_tokens=100, output_tokens=20, cost_usd="0.12"),
     )
-    model_usage = eval_log_payload(_report(fusion))["stats"]["model_usage"]
-    assert set(model_usage) == {"fusion", "haiku", "haiku (op_m2)"}
-    row = model_usage["haiku"]
+    payload = eval_log_payload(_report(fusion))
+    model_usage = payload["stats"]["model_usage"]
+    # The meter appears once: summing this map yields the run's real cost.
+    assert set(model_usage) == {"fusion"}
+    assert model_usage["fusion"]["total_cost"] == 0.12
+    member_usage = payload["eval"]["metadata"]["member_usage"]
+    assert [entry["operation_id"] for entry in member_usage] == ["op_m1", "op_m2"]
+    assert all(entry["name"] == "haiku" for entry in member_usage)
+    row = member_usage[0]["usage"]
     assert row["input_tokens_cache_read"] == 3
     assert row["input_tokens_cache_write"] == 2
     assert row["reasoning_tokens"] == 1

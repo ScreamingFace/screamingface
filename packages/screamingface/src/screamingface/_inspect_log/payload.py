@@ -115,6 +115,7 @@ def _spec_payload(report: Report, selected: CandidateResult) -> dict[str, Any]:
             "recipe_url4": str(selected.url4),
             "answer_seed": selected.answer_seed,
             "cost_usd": (None if selected.usage.cost_usd is None else str(selected.usage.cost_usd)),
+            "member_usage": _member_usage(selected),
         },
     }
 
@@ -221,22 +222,30 @@ def _stats_payload(selected: CandidateResult) -> dict[str, Any]:
     """Run window plus token/cost usage — the metered cost passed through."""
     from screamingface.report import _timestamp_text
 
-    model_usage: dict[str, Any] = {selected.name: _usage_payload(selected.usage)}
-    for member in selected.members:
-        if member.usage is not None:
-            # WHY the operation_id suffix on collision: display names are cosmetic
-            # and may repeat (same model via two providers); identity is the id.
-            key = (
-                member.name
-                if member.name not in model_usage
-                else (f"{member.name} ({member.operation_id})")
-            )
-            model_usage[key] = _usage_payload(member.usage)
+    # INVARIANT: the meter appears EXACTLY ONCE. inspect's viewer sums the
+    # model_usage map, so adding per-member rows beside the aggregate would
+    # display an inflated total (aggregate + members). The member breakdown is
+    # provenance and rides eval.metadata instead (see _member_usage).
     return {
         "started_at": _timestamp_text(selected.started_at),
         "completed_at": _timestamp_text(selected.completed_at),
-        "model_usage": model_usage,
+        "model_usage": {selected.name: _usage_payload(selected.usage)},
     }
+
+
+def _member_usage(selected: CandidateResult) -> list[dict[str, Any]]:
+    """Per-member usage breakdown for the provenance block — data, never summed."""
+    return [
+        {
+            "name": member.name,
+            # WHY the id rides along: display names are cosmetic and may repeat
+            # (the same model via two providers); identity is the operation_id.
+            "operation_id": member.operation_id,
+            "usage": _usage_payload(member.usage),
+        }
+        for member in selected.members
+        if member.usage is not None
+    ]
 
 
 def _usage_payload(usage: Any) -> dict[str, Any]:
