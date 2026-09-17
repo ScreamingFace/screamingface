@@ -10,7 +10,7 @@ from screamingface_engine.benchmarks.case_request import candidate_input, candid
 from screamingface_engine.benchmarks.case_selection import install_case_selection
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from screamingface_engine.candidate_scope import candidate_invocation_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
@@ -32,6 +32,7 @@ class _CandidateInvocation:
     def __init__(self, node: Url4Node) -> None:
         self._node = node
 
+    @reports_stage(BenchmarkStage.ANSWERING)
     async def __call__(self, request: Request) -> str:
         if not request.intent.strip():
             raise ResolutionError(
@@ -70,9 +71,7 @@ class _CandidateInvocation:
 def install_candidate_invocation(node: Url4Node) -> None:
     """Install the one Engine-owned Candidate adapter on ``node``."""
 
-    node.endpoint(CANDIDATE_ROUTE)(
-        observe_stage(BenchmarkStage.ANSWERING, _CandidateInvocation(node))
-    )
+    node.endpoint(CANDIDATE_ROUTE)(_CandidateInvocation(node))
     install_case_execution(node)
     install_case_selection(node)
 

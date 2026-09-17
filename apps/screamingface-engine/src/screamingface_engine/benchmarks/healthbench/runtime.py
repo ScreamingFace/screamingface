@@ -49,7 +49,7 @@ from screamingface_engine.benchmarks.healthbench.prompts import (
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -111,51 +111,31 @@ def _install_protocol_once(
     mean: ExamMean,
 ) -> None:
     if cases_route not in getattr(node, "_data", {}):
-        node.data(
-            cases_route,
-            observe_stage(BenchmarkStage.CASE_LOADING, _cases(root, case_ids)),
-            media_type="application/json",
-        )
+        node.data(cases_route, _cases(root, case_ids), media_type="application/json")
     routes = frozenset(node.processor_routes())
     endpoints = (
-        (
-            tasks_route,
-            observe_stage(
-                BenchmarkStage.GRADING_PREPARE, _rubric_tasks(root, case_ids, benchmark_id)
-            ),
-        ),
+        (tasks_route, _rubric_tasks(root, case_ids, benchmark_id)),
         # The mid-run check surface the corrective loop consumes. It closes over `node`
         # so the judge route resolves per request — installation must still work in a
         # world holding no model routes.
-        (
-            check_surface_route,
-            observe_stage(
-                BenchmarkStage.GRADING_CHECK, check_surface(node, root, HEALTHBENCH_CHECK)
-            ),
-        ),
-        (verdict_route, observe_stage(BenchmarkStage.GRADING_CHECK, _rubric_verdict(benchmark_id))),
-        (rubric_evaluation_route, observe_stage(BenchmarkStage.GRADING_REDUCE, _rubric_evaluation)),
+        (check_surface_route, check_surface(node, root, HEALTHBENCH_CHECK)),
+        (verdict_route, _rubric_verdict(benchmark_id)),
+        (rubric_evaluation_route, _rubric_evaluation),
         (
             case_evaluation_route,
-            observe_stage(
-                BenchmarkStage.GRADING_REDUCE,
-                case_evaluation_endpoint(
-                    label="HealthBench Case evaluation",
-                    item_name="Rubric evaluation",
-                    bind=bind_case_evaluation,
-                    error_context_head=300,
-                ),
+            case_evaluation_endpoint(
+                label="HealthBench Case evaluation",
+                item_name="Rubric evaluation",
+                bind=bind_case_evaluation,
+                error_context_head=300,
             ),
         ),
         (
             aggregate_route,
-            observe_stage(
-                BenchmarkStage.AGGREGATION,
-                aggregate_endpoint(
-                    label="HealthBench",
-                    available_case_count=len(case_ids),
-                    aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids, mean),
-                ),
+            aggregate_endpoint(
+                label="HealthBench",
+                available_case_count=len(case_ids),
+                aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids, mean),
             ),
         ),
     )
@@ -197,6 +177,7 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     # Reference counterpart: the example selection at the top of the reference's
     # eval loop (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py)
     # — here the selection is this board's case list, served from the baked assets.
+    @reports_stage(BenchmarkStage.CASE_LOADING)
     def cases() -> str:
         preflight(root, case_ids)
         raw = _read(root / "cases.json", "HealthBench cases")
@@ -211,6 +192,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     # PRIVATE rubric off disk — the first time the answer key touches the flow.
     # Reference counterpart: the prompt-construction half of `grade_sample`
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
+    @reports_stage(BenchmarkStage.GRADING_PREPARE)
     def rubric_tasks(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -278,6 +260,7 @@ def _rubric_verdict(benchmark_id: str):
     # never trusted from the judge).
     # Reference counterpart: the parse-and-retry half of `grade_sample`
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     def rubric_verdict(request: Request) -> str:
         try:
             case_id, rubric_id = binding_key(request.intent)
@@ -317,6 +300,7 @@ def _rubric_verdict(benchmark_id: str):
     return rubric_verdict
 
 
+@reports_stage(BenchmarkStage.GRADING_REDUCE)
 def _rubric_evaluation(request: Request) -> str:
     try:
         case_id = positive_case_id(request.intent)

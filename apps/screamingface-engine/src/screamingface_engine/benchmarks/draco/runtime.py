@@ -38,7 +38,7 @@ from screamingface_engine.benchmarks.evaluation import (
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -57,55 +57,36 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
     memoized, so a missing asset fails identically — and loudly — on every resolution.
     """
     assets = _lazy_protocol_assets(root)
-    node.data(
-        exam.routes.cases,
-        observe_stage(BenchmarkStage.CASE_LOADING, _cases(assets)),
-        media_type="application/json",
-    )
-    node.endpoint(exam.routes.tasks)(
-        observe_stage(BenchmarkStage.GRADING_PREPARE, _task_rows(root, exam))
-    )
+    node.data(exam.routes.cases, _cases(assets), media_type="application/json")
+    node.endpoint(exam.routes.tasks)(_task_rows(root, exam))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
     # no model routes at all (every benchmark-only test builds one).
     node.endpoint(exam.routes.check_surface)(
-        observe_stage(
-            BenchmarkStage.GRADING_CHECK,
-            check_surface(
-                node,
-                root,
-                DRACO_CHECK,
-            ),
+        check_surface(
+            node,
+            root,
+            DRACO_CHECK,
         )
     )
-    node.endpoint(exam.routes.verdict)(
-        observe_stage(BenchmarkStage.GRADING_CHECK, _criterion_verdict(exam.id))
-    )
-    node.endpoint(exam.routes.criterion_evaluation)(
-        observe_stage(BenchmarkStage.GRADING_REDUCE, _criterion_evaluation(exam.judge_passes))
-    )
+    node.endpoint(exam.routes.verdict)(_criterion_verdict(exam.id))
+    node.endpoint(exam.routes.criterion_evaluation)(_criterion_evaluation(exam.judge_passes))
     node.endpoint(exam.routes.case_evaluation)(
-        observe_stage(
-            BenchmarkStage.GRADING_REDUCE,
-            case_evaluation_endpoint(
-                label="DRACO Case evaluation",
-                item_name="Criterion evaluation",
-                bind=bind_case_evaluation,
-            ),
+        case_evaluation_endpoint(
+            label="DRACO Case evaluation",
+            item_name="Criterion evaluation",
+            bind=bind_case_evaluation,
         )
     )
     node.endpoint(exam.routes.aggregate)(
-        observe_stage(
-            BenchmarkStage.AGGREGATION,
-            aggregate_endpoint(
-                label="DRACO",
-                # WHY the constant: the lazy load validates len(cases) == CASE_COUNT on first
-                # resolution, so the eager `len(selected_cases)` this replaced was always equal.
-                available_case_count=CASE_COUNT,
-                aggregate=_aggregate(
-                    assets,
-                    exam,
-                ),
+        aggregate_endpoint(
+            label="DRACO",
+            # WHY the constant: the lazy load validates len(cases) == CASE_COUNT on first
+            # resolution, so the eager `len(selected_cases)` this replaced was always equal.
+            available_case_count=CASE_COUNT,
+            aggregate=_aggregate(
+                assets,
+                exam,
             ),
         )
     )
@@ -133,6 +114,7 @@ def _lazy_protocol_assets(root: Path) -> Callable[[], ProtocolAssets]:
 
 
 def _cases(assets: Callable[[], ProtocolAssets]):
+    @reports_stage(BenchmarkStage.CASE_LOADING)
     def cases() -> str:
         return assets()[0]
 
@@ -163,6 +145,7 @@ def _task_rows(
     root: Path,
     exam: DracoExam,
 ):
+    @reports_stage(BenchmarkStage.GRADING_PREPARE)
     def task_rows(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
@@ -232,6 +215,7 @@ def _task_rows(
 
 
 def _criterion_verdict(benchmark_id: str):
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     def criterion_verdict(request: Request) -> str:
         try:
             case_id, sequence, criterion_id = binding_key(request.intent)
@@ -266,6 +250,7 @@ def _criterion_evaluation(judge_passes: int):
     against a three-pass board's route and vice versa (every route is revision-pinned).
     """
 
+    @reports_stage(BenchmarkStage.GRADING_REDUCE)
     def handle(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)

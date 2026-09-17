@@ -46,7 +46,7 @@ from screamingface_engine.benchmarks.medxpert.definition import (
     CHECK_ROUTE,
     REVISION,
 )
-from screamingface_engine.benchmarks.stages import BenchmarkStage, observe_stage
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from url4.peer.server import Request, Url4Node
 
 
@@ -54,35 +54,25 @@ def install(node: Url4Node, root: Path) -> None:
     """Register every route this board's expression references."""
 
     if CASES_ROUTE not in getattr(node, "_data", {}):
-        node.data(
-            CASES_ROUTE,
-            observe_stage(BenchmarkStage.CASE_LOADING, _cases(root)),
-            media_type="application/json",
-        )
+        node.data(CASES_ROUTE, _cases(root), media_type="application/json")
     installed = frozenset(node.processor_routes())
     endpoints = (
-        (CHECK_ROUTE, observe_stage(BenchmarkStage.GRADING_CHECK, _check(root))),
+        (CHECK_ROUTE, _check(root)),
         (
             CASE_EVALUATION_ROUTE,
-            observe_stage(
-                BenchmarkStage.GRADING_REDUCE,
-                attempt_records_endpoint(
-                    label="MedXpertQA Case evaluation",
-                    item_name="Attempt",
-                    bind=bind_case_evaluation,
-                    error_context_head=300,
-                ),
+            attempt_records_endpoint(
+                label="MedXpertQA Case evaluation",
+                item_name="Attempt",
+                bind=bind_case_evaluation,
+                error_context_head=300,
             ),
         ),
         (
             AGGREGATE_ROUTE,
-            observe_stage(
-                BenchmarkStage.AGGREGATION,
-                aggregate_endpoint(
-                    label="MedXpertQA",
-                    available_case_count=_case_count(root),
-                    aggregate=_aggregate(root),
-                ),
+            aggregate_endpoint(
+                label="MedXpertQA",
+                available_case_count=_case_count(root),
+                aggregate=_aggregate(root),
             ),
         ),
     )
@@ -105,6 +95,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 
 
 def _cases(root: Path):
+    @reports_stage(BenchmarkStage.CASE_LOADING)
     def cases() -> str:
         """The public booklet, with each row's ready-made turn-1 prompt and turn-2 trigger.
 
@@ -144,6 +135,7 @@ def _cot_prompt(question: str) -> str:
 def _check(root: Path):
     """The gate between "the Candidate said something" and "we have a committed letter"."""
 
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)

@@ -53,6 +53,7 @@ from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import candidate_answer, compact_json, json_object
 from screamingface_engine.benchmarks.spine.verdict import recovered_array
+from screamingface_engine.benchmarks.stages import BenchmarkStage, reports_stage
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -140,6 +141,7 @@ def check_surface(node: Url4Node, root: Path, config: RubricCheck):
     installation must keep working in worlds that hold no model routes at all.
     """
 
+    @reports_stage(BenchmarkStage.GRADING_CHECK)
     async def check(request: Request) -> str:
         if request.intent == FEEDBACK_INTENT:
             return _surface_feedback(config, request.context)
