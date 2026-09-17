@@ -300,3 +300,26 @@ class TestEvidence:
         assert evidence["outcome"] == "PASS"
         assert evidence["metadata"]["abstained"] is False
         assert evidence["metadata"]["gold_span_count"] == 1
+
+
+class TestLazinessDenominator:
+    def test_the_denominator_is_GRADED_positives_not_selected_positives(
+        self, tmp_path: Path
+    ) -> None:
+        """REVIEW (PR #865): the spec said "selected positives" and the code counted GRADED
+        positives. They now agree on GRADED, and this test is why.
+
+        Two positive Cases: one falsely abstained, one whose request failed. Counting the
+        failed Case in the denominator reports 50% and credits the model for a row it never
+        saw — an outage reading as diligence. Every other denominator in this block
+        (accuracy, precision, recall, jaccard_mean) is over graded Cases; laziness matches.
+        """
+
+        root = _root(tmp_path, {1: True, 2: True})
+        rows = _rows(_record(1, correct=False, is_positive=True, abstained=True))
+
+        result = _aggregate(root, rows, (1, 2))
+
+        assert result["cases"][1]["grade"]["score"] is None  # Case 2 never measured
+        assert result["metrics"]["false_no_related_clause_rate"] == pytest.approx(1.0)
+        assert result["metrics"]["scored_cases"] == 1

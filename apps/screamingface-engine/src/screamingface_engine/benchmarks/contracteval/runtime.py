@@ -88,23 +88,32 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 
 
 def _cases(root: Path):
+    # WHY a memo: baked assets are immutable for the process lifetime, and preflighting 4,182
+    # answer records costs a file read each. Only a SUCCESSFUL payload is cached, so a broken
+    # bundle re-checks — and re-fails loudly — on every call.
+    memo: dict[str, str] = {}
+
     def cases() -> str:
-        """The public booklet.
+        """The public booklet — served only after the whole bundle passes preflight.
+
+        WHY preflight HERE and not later (review, PR #865): handing out the booklet is the last
+        moment before money moves. Serving inputs first and discovering a missing answer key at
+        grading time means the run has already paid for inference it cannot score.
 
         WHY the whole instruction text is baked rather than assembled here: prompt bytes are
         exam identity on a judge-free board, and an expression that composed them would put that
         identity outside the revision hash.
         """
 
-        rows = json.loads(_read(root / "cases.json", "ContractEval cases"))
-        return json.dumps(
-            [
+        if "payload" not in memo:
+            rows = json.loads(_read(root / "cases.json", "ContractEval cases"))
+            served = [
                 {"id": int(row["id"]), "case_id": str(int(row["id"])), "input": row["input"]}
                 for row in rows
-            ],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+            ]
+            preflight(root, tuple(int(row["id"]) for row in served))
+            memo["payload"] = json.dumps(served, ensure_ascii=False, separators=(",", ":"))
+        return memo["payload"]
 
     return cases
 

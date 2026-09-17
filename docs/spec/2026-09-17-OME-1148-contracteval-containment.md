@@ -112,11 +112,25 @@ matrix over graded cases and publishes `score = f1`, with `accuracy`, `precision
 `f2`, `no_related_clause_rate`, `false_no_related_clause_rate`, `jaccard_mean` as metrics. This
 matches the paper's headline and keeps every secondary number visible.
 
-**D-3 · Laziness uses the actual positive-row count of the selection, not 1244.** A hardcoded
-denominator is wrong for any `limit=N` run and silently wrong for our 4,182-row selection. We
-divide by the positive rows actually selected and record the deviation in the board docstring.
-This is strictly safer at **no** cost to comparability: at the full split our denominator is
-1,244 — identical to the literal (F-4) — and on a subset it is the only correct choice.
+**D-3 · Laziness divides by the GRADED positive rows, not 1244 and not the selected count.**
+A hardcoded denominator is wrong for any `limit=N` run and silently wrong for our 4,182-row
+selection. At the full split with every Case graded our denominator is 1,244 — identical to the
+literal (F-4) — and on a subset it is the only correct choice.
+
+AMENDED 2026-09-17 after review of PR #865. This decision previously said "the positive rows
+actually **selected**", which the code never implemented: it counts positives among rows that
+received a grade. The reviewer was right that the two must agree, and **graded** is the side to
+keep, for two reasons:
+
+1. **Consistency.** Every other denominator in this metric block — `accuracy`, `precision`,
+   `recall`, `jaccard_mean`, `scored_cases` — is over graded Cases. Making laziness alone count
+   ungraded rows would mean two metrics in one report answering different questions.
+2. **It would credit a model for rows it never saw.** The reviewer's own example: two positive
+   Cases, one falsely abstained and one whose request failed. Counting the failed Case gives
+   50%, implying the model answered one correctly when it was never asked. That is the
+   `failure_policy` INVARIANT in the other direction — an outage reading as diligence.
+
+Pinned by `test_the_denominator_is_GRADED_positives_not_selected_positives`.
 
 **D-4 · Reproduce all four reference quirks exactly** — substring `in` for abstain (F-3),
 `split(" ")` empty tokens in Jaccard (F-5), Jaccard over positive rows only (F-5), and the
@@ -195,6 +209,11 @@ fan-outs and fails on this payload).
 
 ## 5. Error handling
 
+- **The cases route preflights the whole bundle before serving any input** (review, PR #865).
+  Handing out the booklet is the last moment before money moves; serving inputs and discovering
+  a missing answer key at grading time means paying for inference that cannot be scored. The
+  result is memoized, so the cost is one pass per process — and only a successful pass is
+  cached, so a broken bundle re-fails on every call.
 - Missing/invalid answer asset → `missing_answer_asset`, that Case fails, others score.
 - No row for a selected Case → `missing_case_row`, with collected errors attached.
 - Malformed check payload → `benchmark_unavailable` from the shared endpoint.
@@ -217,7 +236,7 @@ fan-outs and fails on this payload).
 - Abstain detection: `in` not `startswith` (F-3), case-insensitivity, backtick/newline stripping.
 - Jaccard: a worked example reproducing the reference's empty-token union inflation (F-5).
 - `aggregate.py`: confusion matrix over a mixed set; F1/F2 arithmetic against hand-computed
-  values; laziness denominator = selected positives (D-3); Jaccard mean skips negatives.
+  values; laziness denominator = GRADED positives (D-3); Jaccard mean skips negatives.
 - Unanswered case scores 0.0 and stays in the denominator (D-5); errored case scores `None`.
 - `prepare.py`: parquet pin, public/private split, gold-span list validation, and the context
   guard both ways — passes on the pinned revision, raises on a synthetic over-budget row.

@@ -154,3 +154,31 @@ class TestModuleEntryPoint:
             assert module.main(["--out", str(tmp_path)]) == 1
         finally:
             module.load_rows = original  # type: ignore[assignment]
+
+
+class TestPreflight:
+    def test_the_cases_route_refuses_to_serve_when_an_answer_key_is_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """REVIEW (PR #865): the cases route served candidate inputs without preflighting, so a
+        missing answer file was discovered only AFTER inference had been paid for. Preflight
+        runs before the booklet is handed out, so a broken bundle costs nothing.
+        """
+
+        from screamingface_engine.benchmarks.contracteval.runtime import _cases
+        from url4.core.errors import ResolutionError
+
+        emit([_row("a", spans=["x"]), _row("b", spans=[])], tmp_path)
+        (tmp_path / "answers" / "2.json").unlink()
+
+        with pytest.raises(ResolutionError, match="failed preflight"):
+            _cases(tmp_path)()
+
+    def test_a_healthy_bundle_serves_the_booklet(self, tmp_path: Path) -> None:
+        from screamingface_engine.benchmarks.contracteval.runtime import _cases
+
+        emit([_row("a", spans=["x"]), _row("b", spans=[])], tmp_path)
+
+        served = json.loads(_cases(tmp_path)())
+
+        assert [row["id"] for row in served] == [1, 2]
