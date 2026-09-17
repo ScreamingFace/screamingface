@@ -53,6 +53,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "09_corrective_loops.ipynb": _corrective_loops(),
         "10_gdpval.ipynb": _gdpval_e2e(),
         "11_medxpert.ipynb": _medxpert_e2e(),
+        "12_imported_benchmarks.ipynb": _imported_catalogue(),
     }
 
 
@@ -1275,6 +1276,130 @@ A `limit=N` run is a smoke test, not a ranking. On the full set, temperature-0 s
 make the leaderboard stable — small subsamples reshuffle it — so a difference of a point or two
 between two systems on a handful of cases is noise, not a result. Run the whole set before
 quoting a comparison."""),
+    )
+
+
+def _imported_catalogue() -> NotebookNode:
+    # FEATURE: OME-1202 — the front door to the imported catalogue: list the two origin
+    # groups, pick an imported board, run a fusion against it. STORY: as a researcher who
+    # heard "we imported ~94 benchmarks", I see what's on the shelf and run one, without
+    # reverse-engineering SDK calls from tickets or source.
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# The benchmark catalogue — ours and imported
+
+The catalogue no longer holds only ScreamingFace-authored boards. Benchmarks imported from
+[inspect_evals](https://ukgovernmentbeis.github.io/inspect_evals/) — GSM8K, MMLU, ARC, BoolQ and
+friends — sit beside them as first-class boards: same listing, same `sf.evaluate(...)` call, same
+report.
+
+Every benchmark carries an **origin**, and the listing renders one group per origin, so you can
+always tell what we built from what we brought in. An imported board keeps its source eval's own
+scorer — the upstream grading logic is called, never reimplemented — and its dataset is snapshotted
+and pinned at import time, so a published board never drifts under you.
+
+This notebook walks the whole path: list the catalogue → read an imported board's card → run a
+fusion against it."""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+From a terminal:
+
+```bash
+screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
+```
+
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
+Stack management stays outside the notebook so **Run All** never starts or stops local services.
+
+**Where the imported boards live.** An Engine serves imported boards only when it runs with its
+`inspect` extra (the upstream scorers come from `inspect-ai`, which cannot co-install with the
+local runtime's dependencies — a declared conflict, not an accident). The local
+`screamingface up` stack therefore lists the ScreamingFace group only; every cell below still
+works, you just see one group. To browse and run the imported catalogue, point the SDK at an
+inspect-capable Engine before starting the kernel:
+
+```bash
+export SCREAMINGFACE_ENGINE_URL="https://<an-engine-with-the-inspect-extra>"
+```
+
+Leaving it unset falls back to a running local stack, then to the hosted default."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. List the catalogue — one group per origin
+
+The listing groups by each benchmark's `origin`: a **ScreamingFace** tab for our boards, first,
+and an **inspect_evals** tab linking to the source collection. Without `ipywidgets` the same
+grouping renders as titled sections. The search box filters rows inside every group."""),
+        nbformat.v4.new_code_cell("""\
+benchmarks = sf.benchmarks.list()
+benchmarks"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Read an imported board's card
+
+Imported boards are named `inspect-<key>` after their upstream eval. We'll use **GSM8K** —
+grade-school math word problems, graded by the eval's own numeric match against the published
+answer. That grading is free: no judge, no grading tokens, so cost is answer generation only.
+
+The card carries the provenance: `origin` names the source collection, and `revision` pins the
+imported dataset snapshot — two catalogues showing the same revision asked the exact same
+questions."""),
+        nbformat.v4.new_code_cell("""\
+gsm8k = sf.benchmarks.get("inspect-gsm8k")
+{
+    "id": gsm8k.id,
+    "title": gsm8k.title,
+    "origin": gsm8k.origin,
+    "revision": gsm8k.revision,
+    "case_count": gsm8k.case_count,
+}"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Run a fusion against it
+
+An imported board takes a fusion exactly like a home-grown one — the Engine invokes the candidate
+as an opaque recipe, so nothing about the import changes how ensembles run. `limit` keeps the
+rehearsal cheap; the calls below are paid model calls, so run this cell deliberately and rehearse
+small before any full sweep."""),
+        nbformat.v4.new_code_cell("""\
+PANEL_PARAMS = {"max_tokens": 8192, "temperature": 0.0}
+SYNTHESIS_PROMPT = (
+    "You are given several models' step-by-step solutions to a grade-school math word "
+    "problem. Check each chain of arithmetic, resolve any disagreement by re-deriving the "
+    "disputed step, and answer with the single final number."
+)
+
+member1 = sf.Model(model="openrouter/qwen/qwen3.7-flash", params=PANEL_PARAMS)
+member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARAMS)
+synth = sf.Model(
+    model="openrouter/anthropic/claude-haiku-4.5", params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT
+)
+math_panel = sf.Fusion(name="math_panel", members=[member1, member2], synthesizer=synth)
+
+math_panel"""),
+        nbformat.v4.new_code_cell("""\
+report = sf.evaluate(math_panel, benchmark="inspect-gsm8k", limit=2)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Read the per-case outcomes
+
+Each case is one bit — the committed number matched the key or it did not — and the check row
+carries what the candidate answered against what was expected, so a miss can be inspected rather
+than just counted."""),
+        nbformat.v4.new_code_cell("""\
+for case in report.candidates.only.cases:
+    grade = case.grade
+    print(case.case_id, case.status, grade.score if grade else None)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. The rest of the shelf
+
+Every imported board runs through the identical calls — swap the id: `inspect-mmlu`,
+`inspect-arc_challenge`, `inspect-boolq`, `inspect-winogrande` and the rest of the
+inspect_evals group in the listing above. A `limit=N` run is a smoke test, not a ranking;
+run the whole set before quoting a comparison."""),
     )
 
 
