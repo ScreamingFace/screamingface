@@ -169,7 +169,14 @@ def test_one_bad_leaf_refuses_the_whole_request(
     assert dispatch.calls == []
 
 
-def _credential_tripwire(_request, **_kwargs):
+# OME-1207: the seam is the PORT's `authorize` (op 4) — the one operation that turns a
+# resolved target into provider credential headers. Chat reaches it through
+# `provider_access_for(app)`, so patching the implementation's method covers every call site
+# a refused request could take, and cannot be bypassed by a future route-level rename.
+_CREDENTIAL_SEAM = "aigateway.core.provider_access.ProfileBackedProviderAccess.authorize"
+
+
+def _credential_tripwire(_self, _target, **_kwargs):
     raise AssertionError("credential injection ran on a refused request")
 
 
@@ -190,7 +197,7 @@ def test_a_refused_request_never_reaches_credential_material(
     _create_connection(authenticated_client)
     dispatch = _Dispatch()
     with (
-        patch("aigateway.routes.chat._inject_credentials", _credential_tripwire),
+        patch(_CREDENTIAL_SEAM, _credential_tripwire),
         patch("litellm.acompletion", dispatch),
     ):
         resp = _post_wrapper(authenticated_client, wrapper)
@@ -282,7 +289,7 @@ def test_a_reconstruction_mismatch_refuses_without_credentials_dispatch_or_a_cac
             "aigateway.routes.chat.classify_and_project_chat_parameters",
             _mismatched_projection,
         ),
-        patch("aigateway.routes.chat._inject_credentials", _credential_tripwire),
+        patch(_CREDENTIAL_SEAM, _credential_tripwire),
         patch("litellm.acompletion", dispatch),
         caplog.at_level("DEBUG"),
     ):

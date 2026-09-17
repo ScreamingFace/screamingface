@@ -1,15 +1,19 @@
 """Compatibility shim: the credential-side names the routes import, now delegating to the
 provider-access port (OME-1200, A1 of OME-1138).
 
-`routes/chat.py`, `chat_dispatch.py`, `model_parameters.py` and `model_admission.py` keep
-importing these names with their old signatures. Every refusal the port raises is rendered
-through the ONE edge table in `provider_access_http.py`, which reproduces the status codes and
-detail bodies this module raised itself at 17048f5d; the pure helpers are re-exported by
-identity. Behaviour is unchanged — pinned by `test_chat_split_characterization.py`,
-`test_profile_resolution_characterisation.py` and the shim suite.
+Every refusal the port raises is rendered through the ONE edge table in
+`provider_access_http.py`, which reproduces the status codes and detail bodies this module
+raised itself at 17048f5d; the pure helpers are re-exported by identity. Behaviour is unchanged
+— pinned by `test_chat_split_characterization.py`, `test_profile_resolution_characterisation.py`
+and the shim suite.
 
-# AIDEV-NOTE: this module dies at A2, when the routes call the port directly (spec §3.4). Add
-# no logic here — a behaviour that needs a home belongs in `core/provider_access`.
+# AIDEV-NOTE (A2, OME-1207): NO ROUTE IMPORTS THIS MODULE ANY MORE. `chat.py`,
+# `chat_dispatch.py`, `model_parameters.py` and `model_admission.py` call the port directly, so
+# this file is dead to production and lives on for exactly one reason: the A1 shim suite
+# (`tests/unit/core/provider_access/test_provider_access_shims.py`) still imports these names,
+# and a prior suite is not deleted to make a removal tidy.
+# REMOVAL POINT: Stage E (OME-1209), together with the legacy vocabulary it speaks. Add no logic
+# here — a behaviour that needs a home belongs in `core/provider_access`.
 """
 
 from __future__ import annotations

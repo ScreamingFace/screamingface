@@ -22,6 +22,7 @@ from litellm.exceptions import RateLimitError
 from litellm.types.utils import ModelResponse, Usage
 
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
+from aigateway.core.provider_access import TargetReauthRequired
 from aigateway.core.request_cache import RequestCacheWrite
 from aigateway.core.usage_accounting import active_collector
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -1056,10 +1057,14 @@ class TestDispatchFailureClassification:
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
 
+        # OME-1207: raised as the TYPED refusal the port defines, so this test now exercises
+        # the real edge table (`render_refusal` maps it to the 401 below) instead of
+        # hand-building the HTTP shape it is asserting on.
         async def reject_credentials(*_args: Any, **_kwargs: Any) -> Any:
-            raise HTTPException(401, detail={"code": "auth_required"})
+            raise TargetReauthRequired("anthropic", "https://example.invalid/reauth")
 
-        with patch("aigateway.routes.chat._credential_target_for_chat", reject_credentials):
+        seam = "aigateway.core.provider_access.ProfileBackedProviderAccess.resolve"
+        with patch(seam, reject_credentials):
             response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
         assert response.status_code == 401
         cache = response.json()["_aigw"]["usage_accounting"]["cache"]
