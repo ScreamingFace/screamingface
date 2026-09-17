@@ -31,7 +31,7 @@ from screamingface_engine.config import Settings
 from screamingface_engine.error_text import ENGINE_ERROR_CODES
 from screamingface_engine.runner.connector import _raise_for_status
 from screamingface_engine.testing import InMemoryEventStream
-from url4.core.errors import ResolutionError
+from url4.core.errors import CollectionError, RenderError, ResolutionError
 from url4.streaming.lifecycle import _error_info
 from url4.streaming.protocol import ErrorInfo, TerminatedData, TerminatedEvent
 
@@ -96,14 +96,20 @@ async def _get_terminal(topic: str, event: TerminatedEvent) -> httpx.Response:
 
 @pytest.mark.asyncio
 async def test_a_failed_run_names_its_engine_error_code_message_and_trace_id() -> None:
+    # AIDEV-NOTE: the FIXTURE's code changed in the OME-941 round-3 audit (`malformed_source` ->
+    # `unbound_reference`); every assertion below is the one this test has always made. The old
+    # fixture's message ("unexpected ')' at position 4") was a genuine ParseError about the
+    # caller's own expression — but `malformed_source` is ALSO `CollectionError`'s class default,
+    # and those raise sites embed the fetched body, so the code can no longer be allowlisted.
+    # The real fix is to give CollectionError its own code; tracked separately.
     resp = await _get_terminal(
         "topic-engine-error",
         _terminated(
             "topic-engine-error",
             "failed",
             error=ErrorInfo(
-                code="malformed_source",
-                message="unexpected ')' at position 4",
+                code="unbound_reference",
+                message="$missing is not bound in this scope",
                 permanent=True,
             ),
         ),
@@ -112,8 +118,8 @@ async def test_a_failed_run_names_its_engine_error_code_message_and_trace_id() -
     assert resp.status_code == 502
     assert resp.headers["content-type"].startswith("application/problem+json")
     body = resp.json()
-    assert body["code"] == "malformed_source"
-    assert body["detail"] == "unexpected ')' at position 4"
+    assert body["code"] == "unbound_reference"
+    assert body["detail"] == "$missing is not bound in this scope"
     assert body["permanent"] is True
     assert body["trace_id"] == TRACE_ID
 
@@ -290,6 +296,12 @@ EXCLUDED_CODES = (
     "judge_unavailable",
     "draco_grading_failed",
     "invalid_candidate_input",
+    # Removed from the allowlist by the OME-941 round-3 audit; see error_text.py for the raise
+    # site that disproved each. Listed here so re-adding one fails a test.
+    "malformed_source",
+    "unknown_processor",
+    "unrenderable",
+    "expansion_not_iterable",
 )
 
 
@@ -322,13 +334,9 @@ async def test_every_excluded_code_scrubs_its_message(code: str) -> None:
 # way on the first attempt. This tuple is the second copy the set is compared against, so adding
 # or removing a code fails `test_the_allowlist_is_exactly_this_set` and nothing else has to know.
 ALLOWLISTED_CODES = (
-    "malformed_source",
     "unbound_reference",
     "cycle_detected",
-    "unrenderable",
-    "expansion_not_iterable",
     "unknown_identity",
-    "unknown_processor",
     "timeout",
     "result_too_large",
 )
@@ -521,3 +529,85 @@ async def test_an_allowlisted_message_carrying_a_credential_is_withheld() -> Non
     body = resp.json()
     assert body["detail"] == "the run failed"
     assert PROVIDER_SECRET not in resp.content.decode()
+
+
+# --- the allowlist cannot vouch for a message it does not author (OME-941 round 3) -------------
+#
+# WHY these exist: the allowlist's premise is "an allowlisted code means url4 core authored this
+# message about the CALLER'S OWN expression". Auditing all nine raise sites showed the premise is
+# false for four of them, for two distinct reasons:
+#
+#   1. A CODE IS NOT AN AUTHOR. `malformed_source` is the class default of BOTH `ParseError`
+#      (genuinely about the caller's expression) and `CollectionError` (whose io/layer.py raise
+#      sites interpolate the FETCHED BODY). One code, two authors — no allowlist entry can be
+#      right for it.
+#   2. MESSAGES INTERPOLATE RESOLVED VALUES. `unknown_processor` embeds `{resolved!r}` from
+#      `await spawn(value)` — a model output. `unrenderable` embeds `{text!r}`, the rendered form
+#      of an AST that may carry a fetched value. `expansion_not_iterable` embeds `{exc}` of the
+#      CollectionError from reason 1.
+#
+# Each case below builds the REAL exception class the way its real raise site builds it, so these
+# fail if anyone re-adds the code — and keep failing if a raise site starts interpolating.
+
+# WHY a prose canary and NOT `PROVIDER_SECRET`: the first version of these tests used the
+# `sk-proj-…` secret and PASSED before the allowlist was narrowed — `public_message`'s credential
+# screen caught the token, so the test proved the screen works and said nothing about the
+# allowlist. Real leaked remote text is not credential-shaped: it is a model refusal, a fetched
+# document, an upstream error sentence. This canary is deliberately ordinary prose so the ONLY
+# thing that can withhold it is the code not being allowlisted.
+REMOTE_TEXT = "the patient record for Jane Doe was not found in the archive"
+
+LEAKY_RAISE_SITES = (
+    pytest.param(
+        "malformed_source",
+        lambda text: CollectionError(
+            f"collection source resolved to a scalar value, "
+            f"not an iterable collection: {text[:80]!r}"
+        ),
+        id="malformed_source-CollectionError-embeds-fetched-body",
+    ),
+    pytest.param(
+        "expansion_not_iterable",
+        lambda text: ResolutionError(
+            f"expansion source is not iterable: {CollectionError(text)}",
+            code="expansion_not_iterable",
+        ),
+        id="expansion_not_iterable-wraps-the-collection-error",
+    ),
+    pytest.param(
+        "unknown_processor",
+        lambda text: ResolutionError(
+            f"processor expression resolved to another expression ({text!r}); "
+            "resolution is single-pass",
+            code="unknown_processor",
+            permanent=True,
+        ),
+        id="unknown_processor-embeds-spawn-output",
+    ),
+    pytest.param(
+        "unrenderable",
+        lambda text: RenderError(f"rendered text {text!r} does not reparse: unbalanced"),
+        id="unrenderable-embeds-rendered-ast-text",
+    ),
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("code", "build"), LEAKY_RAISE_SITES)
+async def test_a_real_raise_site_carrying_remote_text_never_reaches_the_response(
+    code: str, build: object
+) -> None:
+    """The exception is built as its REAL raise site builds it, then travels the real path:
+    `_error_info` reads `getattr(exc, "code")` and `str(exc)`, exactly as `lifecycle.run` does."""
+    exc = build(REMOTE_TEXT)  # type: ignore[operator]
+    info = _error_info(exc)
+
+    assert info.code == code, "the fixture must reproduce the real raise site's code"
+    assert REMOTE_TEXT in info.message, "the fixture must actually carry the remote text"
+
+    topic = f"topic-leaky-{code}"
+    resp = await _get_terminal(topic, _terminated(topic, "failed", error=info))
+
+    assert REMOTE_TEXT not in resp.content.decode(), (
+        f"{code} echoed a message its raise site interpolated from remote data"
+    )

@@ -26,27 +26,45 @@ import re
 
 __all__ = ["ENGINE_ERROR_CODES", "public_identifier", "public_message"]
 
-# Codes whose message is authored by url4 core or the engine's own control plane, about the
-# CALLER'S OWN expression or the engine's own limits. Membership is a security decision: check
-# what a code's raise sites actually put in the message before adding one, and remember that
-# adding one also forbids an upstream from ever reporting it.
+# Codes whose message is authored by url4 core or the engine's own control plane ABOUT THE
+# CALLER'S OWN EXPRESSION or the engine's own limits, and whose raise sites interpolate no value
+# that can have come from a remote source.
 #
-# Deliberately absent, each for a reason:
-#   - `resolution_failed`  — the I/O layer, and `ResolutionError`'s class default; its message
-#                            can embed a remote response or a fetched URL.
-#   - `internal_error`     — `str()` of an arbitrary exception, by definition unvouched.
+# INVARIANT: membership requires auditing every raise site of the code AND every class carrying
+# it as a default. A CODE IS NOT AN AUTHOR — see the two ways that premise broke below. Adding a
+# code also forbids an upstream from ever reporting it
+# (`runner/connector.py::_raise_for_status` enforces that end).
+#
+# Audited 2026-09-17 (OME-941 round 3). REMOVED, each with the raise site that disproved it:
+#
+#   - `malformed_source`       class default of BOTH `ParseError` (genuinely the caller's
+#                              expression) AND `CollectionError`, whose io/layer.py sites embed
+#                              the FETCHED BODY: `f"...not an iterable collection: {body[:80]!r}"`
+#                              (layer.py:206) and `f"invalid NDJSON line: {line[:80]!r}"` (:243).
+#                              One code, two authors — no allowlist entry can be right for it.
+#   - `unknown_processor`      dag/processor.py:96 embeds `{resolved!r}`, which is
+#                              `(await spawn(value)).strip()` — a MODEL OUTPUT.
+#   - `unrenderable`           core/render.py:112 embeds `{text!r}`, the rendered form of an AST
+#                              that may carry a fetched value.
+#   - `expansion_not_iterable` dag/nodes.py:570 embeds `{exc}` of the CollectionError above.
+#
+# Deliberately absent from the start:
+#   - `resolution_failed`  the I/O layer, and `ResolutionError`'s class default; its message can
+#                          embed a remote response or a fetched URL.
+#   - `internal_error`     `str()` of an arbitrary exception, by definition unvouched.
 #   - `aigateway_*`, `provider_refusal`, `model_*`, `judge_*`, `*_grading_failed`, … — every
-#                            provider-adjacent code in the executor and the benchmark adapters.
+#                          provider-adjacent code in the executor and the benchmark adapters.
 ENGINE_ERROR_CODES: frozenset[str] = frozenset(
     {
-        "malformed_source",
+        # ScopeError — names a `$name`/`$N` from the caller's own expression.
         "unbound_reference",
+        # CycleError — graph shape only.
         "cycle_detected",
-        "unrenderable",
-        "expansion_not_iterable",
+        # io/static.py, peer/server.py — `{identity!r}`, `{node.name!r}`, both caller-supplied.
         "unknown_identity",
-        "unknown_processor",
+        # dag/nodes.py:548 — a duration and a literal, no values.
         "timeout",
+        # runner/executor.py:574 — two byte counts, no values.
         "result_too_large",
     }
 )
