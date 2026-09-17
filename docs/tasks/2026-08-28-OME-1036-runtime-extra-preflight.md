@@ -1,12 +1,12 @@
 ---
 id: OME-1036
 linear_url: https://linear.app/openmined/issue/OME-1036/detect-a-missing-runtime-extra-before-the-local-stack-boots-colab-no
-status: in_progress
+status: done
 type: bug
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-28
-closed:
+closed: 2026-08-28
 ---
 
 # Detect a missing [runtime] extra before the local stack boots

@@ -1,12 +1,12 @@
 ---
 id: OME-843
 linear_url: https://linear.app/openmined/issue/OME-843/capture-member-and-synthesis-output-text-in-benchmark-case-artifacts
-status: In Progress
+status: done
 type: Feature
 priority: P1
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-17
-closed:
+closed: 2026-08-17
 ---
 
 # Capture member and synthesis output text in benchmark case artifacts

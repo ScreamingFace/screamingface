@@ -1,12 +1,12 @@
 ---
 id: OME-625
 linear_url: https://linear.app/openmined/issue/OME-625
-status: In Progress
+status: done
 type: Feature
 priority: P2
 labels: [url4-cloud, autonomous, agentic]
 created: 2026-07-26
-closed:
+closed: 2026-08-07
 ---
 
 # Expose only executable models from the Engine catalog

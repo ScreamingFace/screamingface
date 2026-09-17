@@ -1,12 +1,12 @@
 ---
 id: OME-750
 linear_url: https://linear.app/openmined/issue/OME-750/scoreboard-ships-python-313-but-tests-only-312
-status: in_progress
+status: done
 type: task
 priority: P2
 labels: [scoreboard, agentic, autonomous, task]
 created: 2026-08-04
-closed:
+closed: 2026-08-06
 ---
 
 `OME-747` moved `apps/scoreboard/Dockerfile` to Python 3.13 on both build stages, but

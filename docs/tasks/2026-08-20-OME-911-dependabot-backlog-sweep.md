@@ -1,12 +1,12 @@
 ---
 id: OME-911
 linear_url: https://linear.app/openmined/issue/OME-911/dependabot-backlog-sweep-close-the-obsolete-url4-cloud-pr-and-land-the
-status: In Progress
+status: done
 type: Task
 priority: High
 labels: [repo, agentic, autonomous, task]
 created: 2026-08-20
-closed:
+closed: 2026-08-20
 ---
 
 # Dependabot backlog sweep after the ScreamingFace org transfer

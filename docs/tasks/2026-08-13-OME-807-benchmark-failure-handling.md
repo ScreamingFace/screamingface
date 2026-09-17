@@ -1,11 +1,12 @@
 ---
 id: OME-807
 linear_url: https://linear.app/openmined/issue/OME-807/implement-originals-faithful-benchmark-failure-handling
-status: In Progress
+status: done
 type: Feature
 priority: P1
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-13
+closed: 2026-08-16
 ---
 
 # Implement originals-faithful benchmark failure handling

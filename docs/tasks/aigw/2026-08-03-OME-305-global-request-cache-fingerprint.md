@@ -1,12 +1,12 @@
 ---
 id: OME-305
 linear_url: https://linear.app/openmined/issue/OME-305/implement-caching-model-and-decide-on-fingerprinting
-status: in_progress
+status: done
 type: Feature
 priority: High
 labels: [aigateway, agentic, autonomous]
 created: 2026-08-03
-closed:
+closed: 2026-08-05
 ---
 
 # OME-305 — Global caching model and full-call fingerprinting

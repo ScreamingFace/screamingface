@@ -1,12 +1,12 @@
 ---
 id: OME-768
 linear_url: https://linear.app/openmined/issue/OME-768/leaderboard-v1-landing-page-benchmark-catalog-benchmark-page-shell
-status: todo
+status: done
 type: task
 priority: P1
 labels: [scoreboard]
 created: 2026-08-11
-closed:
+closed: 2026-08-11
 ---
 
 Landing page (benchmark catalog: name, subtitle, submission count) + per-benchmark board shell

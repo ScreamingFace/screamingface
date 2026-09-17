@@ -1,12 +1,12 @@
 ---
 id: OME-480
 linear_url: https://linear.app/openmined/issue/OME-480/the-sf-engine-should-expose-all-the-params-offered-by-the-model
-status: in_progress
+status: done
 type: feature
 priority:
 labels: [screamingface-engine, url4-cloud, autonomous, agentic]
 created: 2026-08-05
-closed:
+closed: 2026-08-06
 ---
 
 # OME-480 — expose AI Gateway model details through the Engine

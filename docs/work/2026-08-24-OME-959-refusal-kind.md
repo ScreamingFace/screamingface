@@ -1,9 +1,9 @@
 ---
 ticket: OME-959
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-08-24
-finished:
+finished: 2026-08-25
 ---
 
 # OME-959 — Say whether a refused case was declined by the provider or refused by the model

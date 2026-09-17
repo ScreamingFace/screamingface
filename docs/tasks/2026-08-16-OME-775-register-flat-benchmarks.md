@@ -1,11 +1,11 @@
 ---
 id: OME-775
 linear_url: https://linear.app/openmined/issue/OME-775/register-draco-ifeval-and-healthbench-in-the-scoreboard-benchmark
-status: In Review
+status: done
 priority: P1
 labels: [scoreboard, agentic, autonomous]
 created: 2026-08-11
-closed:
+closed: 2026-08-16
 ---
 
 # Register DRACO, IFEval and HealthBench in the Scoreboard benchmark catalogue

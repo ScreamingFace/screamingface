@@ -1,9 +1,9 @@
 ---
 ticket: OME-1097
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-07
-finished:
+finished: 2026-09-09
 ---
 
 # OME-1097 — Share the scored path and scorer for rubric benchmarks behind a `grade_case` hook

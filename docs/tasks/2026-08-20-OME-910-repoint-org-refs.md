@@ -1,12 +1,12 @@
 ---
 id: OME-910
 linear_url: https://linear.app/openmined/issue/OME-910/repoint-the-git-remote-and-release-critical-org-references-after-the
-status: In Review
+status: done
 type: Task
 priority: High
 labels: [repo, agentic, autonomous, task]
 created: 2026-08-20
-closed:
+closed: 2026-08-20
 ---
 
 # Repoint the git remote and release-critical org references

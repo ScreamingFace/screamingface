@@ -1,7 +1,7 @@
 ---
 ticket: OME-566
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-07-22
 finished: 2026-07-22
 ---

@@ -1,12 +1,12 @@
 ---
 id: OME-706
 linear_url: https://linear.app/openmined/issue/OME-706/add-v1admin-api-email-allowlist-plus-account-and-api-key-profile
-status: backlog
+status: done
 type: task
 priority: P1
 labels: [aigateway, autonomous, agentic]
 created: 2026-07-30
-closed:
+closed: 2026-07-30
 ---
 
 # OME-706 — Add `/v1/admin` API: email allowlist + account and API-key profile management

@@ -1,7 +1,7 @@
 ---
 id: OME-985
 linear_url: https://linear.app/openmined/issue/OME-985/release-the-screamingface-client-as-011post5
-status: in_progress
+status: done
 type: task
 priority: high
 labels:
@@ -10,7 +10,7 @@ labels:
   - autonomous
   - task
 created: 2026-08-25
-closed:
+closed: 2026-08-25
 ---
 
 # Release the ScreamingFace client as 0.1.1.post5

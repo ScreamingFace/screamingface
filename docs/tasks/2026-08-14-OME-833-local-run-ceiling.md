@@ -1,12 +1,12 @@
 ---
 id: OME-833
 linear_url: https://linear.app/openmined/issue/OME-833/raise-the-local-mode-concurrent-run-ceiling-above-the-client-fan-out
-status: In Progress
+status: done
 type: task
 priority: Medium
 labels: [url4-cloud, agentic, autonomous]
 created: 2026-08-14
-closed:
+closed: 2026-08-14
 ---
 
 # Raise the local-mode concurrent run ceiling above the Client fan-out

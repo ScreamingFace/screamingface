@@ -1,12 +1,12 @@
 ---
 id: OME-1141
 linear_url: https://linear.app/openmined/issue/OME-1141
-status: in_review
+status: done
 type: bug
 priority: 3
 labels: [py-screamingface, agentic, autonomous, BUG]
 created: 2026-09-08
-closed:
+closed: 2026-09-09
 ---
 
 # Restore reconnect attempts after long healthy Evaluations

@@ -1,12 +1,12 @@
 ---
 id: OME-391
 linear_url: https://linear.app/openmined/issue/OME-391/sf-324-protect-scoreboard-writes-and-deduplicate-submissions
-status: in_progress
+status: done
 type: task
 priority: P1
 labels: [scoreboard, autonomous, agentic]
 created: 2026-07-13
-closed:
+closed: 2026-07-16
 ---
 
 SF-324: Protect scoreboard writes and deduplicate submissions. Two grouped findings:

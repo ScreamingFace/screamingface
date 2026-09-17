@@ -1,12 +1,12 @@
 ---
 id: OME-714
 linear_url: https://linear.app/openmined/issue/OME-714/add-dev-build-aigateway-uiyml-so-the-console-reaches-the-dev-clusters
-status: in_review
+status: done
 type: task
 priority: P2
 labels: [repo, autonomous, agentic]
 created: 2026-07-31
-closed:
+closed: 2026-07-31
 ---
 
 # OME-714 — `dev-build-aigateway-ui.yml`: get the console into the dev cluster's registry

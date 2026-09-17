@@ -1,12 +1,12 @@
 ---
 id: OME-961
 linear_url: https://linear.app/openmined/issue/OME-961/run-a-benchmark-end-to-end-in-ci-from-recorded-responses-with-no-paid
-status: backlog
+status: done
 type: feature
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-24
-closed:
+closed: 2026-08-24
 ---
 
 # Run a benchmark end-to-end in CI from recorded responses, with no paid calls

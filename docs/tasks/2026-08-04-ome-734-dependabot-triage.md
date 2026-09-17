@@ -1,12 +1,12 @@
 ---
 id: OME-734
 linear_url: https://linear.app/openmined/issue/OME-734/merge-the-green-dependabot-prs-and-clear-the-subsumed-pair
-status: in_review
+status: done
 type: task
 priority: P1
 labels: [repo, autonomous, agentic]
 created: 2026-08-04
-closed:
+closed: 2026-08-04
 ---
 
 # OME-734 — merge the green Dependabot PRs and clear the subsumed pair

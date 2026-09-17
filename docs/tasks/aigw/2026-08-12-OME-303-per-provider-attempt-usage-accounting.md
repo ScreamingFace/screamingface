@@ -1,12 +1,12 @@
 ---
 id: OME-303
 linear_url: https://linear.app/openmined/issue/OME-303/ome-303-per-model-call-usage-accounting-latency-tokens-cost
-status: in_progress
+status: done
 type: Feature
 priority: High
 labels: [aigateway]
 created: 2026-08-12
-closed:
+closed: 2026-08-11
 ---
 
 # OME-303 - Per-provider-attempt usage accounting

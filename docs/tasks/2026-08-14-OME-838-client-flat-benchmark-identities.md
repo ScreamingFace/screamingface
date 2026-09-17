@@ -1,11 +1,12 @@
 ---
 id: OME-838
 linear_url: https://linear.app/openmined/issue/OME-838/align-client-examples-and-local-catalogue-with-flat-benchmark-identities
-status: In Review
+status: done
 priority: P1
 labels: [py-screamingface, agentic, autonomous, task]
 created: 2026-08-14
 parent: OME-836
+closed: 2026-08-14
 ---
 
 # Align Client examples and local catalogue with flat benchmark identities

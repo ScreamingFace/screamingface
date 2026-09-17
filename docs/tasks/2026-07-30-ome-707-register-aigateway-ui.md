@@ -1,12 +1,12 @@
 ---
 id: OME-707
 linear_url: https://linear.app/openmined/issue/OME-707/register-aigateway-ui-ci-lane-release-lane-codeowners-dependabot-sdlc
-status: in_progress
+status: done
 type: task
 priority: P2
 labels: [repo, autonomous, agentic]
 created: 2026-07-30
-closed:
+closed: 2026-07-30
 ledger: docs/work/2026-07-30-OME-707-register-aigateway-ui.md
 ---
 

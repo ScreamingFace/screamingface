@@ -1,12 +1,12 @@
 ---
 id: OME-923
 linear_url: https://linear.app/openmined/issue/OME-923/add-a-pareto-frontier-to-the-leaderboard-mark-the-best-score-for-cost
-status: in_progress
+status: done
 type: feature
 priority: 2
 labels: [scoreboard, agentic, autonomous]
 created: 2026-08-20
-closed:
+closed: 2026-09-01
 ---
 
 # Add a Pareto frontier to the leaderboard: mark the best score-for-cost submissions

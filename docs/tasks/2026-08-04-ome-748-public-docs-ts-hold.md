@@ -1,12 +1,12 @@
 ---
 id: OME-748
 linear_url: https://linear.app/openmined/issue/OME-748/unblock-the-public-docs-major-group-hold-typescript-at-6
-status: in_review
+status: done
 type: task
 priority: P2
 labels: [repo, autonomous, agentic]
 created: 2026-08-04
-closed:
+closed: 2026-08-04
 ---
 
 # OME-748 — unblock the public-docs major group, hold TypeScript at 6

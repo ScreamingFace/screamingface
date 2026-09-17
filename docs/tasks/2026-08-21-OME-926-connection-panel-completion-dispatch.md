@@ -1,7 +1,7 @@
 ---
 id: OME-926
 linear_url: https://linear.app/openmined/issue/OME-926/keep-sfconnect-from-getting-stuck-on-checking-when-a-notebook-event
-status: In Review
+status: done
 priority: High
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-21

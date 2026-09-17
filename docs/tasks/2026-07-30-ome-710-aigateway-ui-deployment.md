@@ -1,12 +1,12 @@
 ---
 id: OME-710
 linear_url: https://linear.app/openmined/issue/OME-710/ship-aigateway-ui-container-image-helm-chart-wired-to-aigateway-in
-status: in_progress
+status: done
 type: task
 priority: P2
 labels: [aigateway/deployment, autonomous, agentic]
 created: 2026-07-30
-closed:
+closed: 2026-07-30
 ---
 
 # OME-710 — Ship `aigateway-ui`: container image + Helm chart wired to aigateway in-cluster

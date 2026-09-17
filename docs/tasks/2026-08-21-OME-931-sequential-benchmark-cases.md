@@ -1,12 +1,12 @@
 ---
 id: OME-931
 linear_url: https://linear.app/openmined/issue/OME-931/evaluate-benchmark-cases-sequentially
-status: in_progress
+status: done
 type: improvement
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-08-21
-closed:
+closed: 2026-08-21
 ---
 
 # Evaluate benchmark cases sequentially

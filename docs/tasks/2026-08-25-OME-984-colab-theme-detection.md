@@ -1,7 +1,7 @@
 ---
 id: OME-984
 linear_url: https://linear.app/openmined/issue/OME-984/apply-colab-theme-detection-to-every-notebook-surface
-status: in_progress
+status: done
 type: task
 priority: medium
 labels:
@@ -10,7 +10,7 @@ labels:
   - autonomous
   - task
 created: 2026-08-25
-closed:
+closed: 2026-08-25
 ---
 
 # Apply Colab theme detection to every notebook surface

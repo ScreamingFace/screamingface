@@ -1,12 +1,12 @@
 ---
 id: OME-1001
 linear_url: https://linear.app/openmined/issue/OME-1001/start-the-local-stack-with-one-command-for-devs-and-users
-status: in_progress
+status: done
 type: null
 priority: 3
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-26
-closed: null
+closed: 2026-08-26
 ---
 
 # Start the local stack with one command for devs and users

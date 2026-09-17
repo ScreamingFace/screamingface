@@ -1,12 +1,12 @@
 ---
 id: OME-861
 linear_url: https://linear.app/openmined/issue/OME-861/stop-warning-when-the-engine-reports-a-total-with-no-cost-breakdown
-status: In Progress
+status: done
 type: Feature
 priority: P1
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-17
-closed:
+closed: 2026-08-17
 ---
 
 # Stop warning when the Engine reports a total with no cost breakdown

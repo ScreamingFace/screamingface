@@ -1,12 +1,12 @@
 ---
 id: OME-903
 linear_url: https://linear.app/openmined/issue/OME-903/add-the-full-healthbench-benchmark-all-525-cases-with-the-official
-status: in_progress
+status: done
 type: feature
 priority: 2
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-08-20
-closed:
+closed: 2026-08-20
 ---
 
 # Add the full HealthBench benchmark (all 525 cases) with the official score

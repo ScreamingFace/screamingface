@@ -1,11 +1,11 @@
 ---
 id: OME-1165
 linear_url: https://linear.app/openmined/issue/OME-1165
-status: In Progress
+status: done
 priority: High
 labels: [url4-python-sdk, agentic, autonomous]
 created: 2026-09-09
-closed:
+closed: 2026-09-09
 ---
 
 # Add a generic node-scoped structured Log sink to URL4

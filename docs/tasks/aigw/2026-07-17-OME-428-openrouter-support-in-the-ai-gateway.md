@@ -1,12 +1,12 @@
 ---
 id: OME-428
 linear_url: https://linear.app/openmined/issue/OME-428/ome-428-openrouter-support-in-the-ai-gateway
-status: in_progress
+status: done
 type: Feature
 priority: High
 labels: [aigateway]
 created: 2026-07-13
-closed:
+closed: 2026-07-20
 ---
 
 # OME-428 - OpenRouter support in the AI Gateway

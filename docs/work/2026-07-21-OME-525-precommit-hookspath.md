@@ -1,9 +1,9 @@
 ---
 ticket: OME-525
 stack: repo
-status: in_progress
+status: done
 started: 2026-07-21
-finished:
+finished: 2026-07-21
 ---
 
 # OME-525 — pre-commit framework + fix stale core.hooksPath

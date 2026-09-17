@@ -1,11 +1,12 @@
 ---
 id: OME-837
 linear_url: https://linear.app/openmined/issue/OME-837/retire-draco-variants-and-flatten-engine-benchmark-identities
-status: In Review
+status: done
 priority: P1
 labels: [url4-cloud, agentic, autonomous, task]
 created: 2026-08-14
 parent: OME-836
+closed: 2026-08-14
 ---
 
 # Retire DRACO variants and flatten Engine benchmark identities

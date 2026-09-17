@@ -1,12 +1,12 @@
 ---
 id: OME-708
 linear_url: https://linear.app/openmined/issue/OME-708/scaffold-appsaigateway-ui-nextjs-admin-console-over-the-bff
-status: backlog
+status: done
 type: task
 priority: P2
 labels: [autonomous, agentic]
 created: 2026-07-30
-closed:
+closed: 2026-07-30
 ---
 
 # OME-708 — Scaffold `apps/aigateway-ui`: Next.js admin console over the BFF

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1094
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-03
-finished:
+finished: 2026-09-03
 ---
 
 # OME-1094 — Pin each failed case's failure code in the e2e goldens

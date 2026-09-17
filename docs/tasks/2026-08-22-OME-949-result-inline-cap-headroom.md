@@ -6,7 +6,7 @@ type: bug
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-08-22
-closed:
+closed: 2026-08-22
 ---
 
 # Cut runner default result inline cap to 512 KiB for NATS envelope headroom

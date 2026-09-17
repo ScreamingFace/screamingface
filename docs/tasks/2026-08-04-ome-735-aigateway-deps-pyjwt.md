@@ -1,12 +1,12 @@
 ---
 id: OME-735
 linear_url: https://linear.app/openmined/issue/OME-735/repair-the-aigateway-dependency-group-pr-and-bump-the-pyjwt-pin
-status: in_review
+status: done
 type: task
 priority: P1
 labels: [aigateway, autonomous, agentic]
 created: 2026-08-04
-closed:
+closed: 2026-08-04
 ---
 
 # OME-735 — aigateway dependency upgrade + PyJWT pin bump
