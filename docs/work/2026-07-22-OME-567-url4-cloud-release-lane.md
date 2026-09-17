@@ -58,3 +58,17 @@ aigateway (image + chart-lint + draft release, chart-publish deferred); committe
   (Chart.yaml NOTE), so `helm template`/`package` fail; the workflow lints the chart only until NATS
   is pinned + vendored. The aigateway lane's **sf-installer** public-release step was **omitted**
   (url4-cloud isn't production-ready — merge gates open); GHCR image + draft GitHub Release only.
+
+## Closure justification (OME-1215, round 2)
+
+This ledger's `status:` was `in_progress` with the unit's work already merged, while the
+`docs/tasks/` mirror said `done` — the mirror was the correct side. `OME-1215` closed the
+ledger, which is an edit to an audit record, so the owner required the closure to be
+justified with evidence rather than asserted.
+
+EVIDENCE, verifiable from this repo: the unit's work is on `origin/main` as `2f628696`
+(`ci(url4-cloud): register release-please lane + release workflow`), authored 2026-07-22. `finished: 2026-07-22` is that commit's author date — read
+from git, not reconstructed.
+
+WHAT IS *NOT* CLAIMED: nothing about why the ledger was left open, and nothing about the
+ticket's Linear state. Only that the work in this ledger reached `main` on the date given.

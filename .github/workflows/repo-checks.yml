@@ -15,6 +15,11 @@ on:
       - ".github/scripts/test_preview_contract.py"
       - ".github/dependabot.yml"
       - ".github/dependabot-ignores.yml"
+      # Mirror/ledger drift arrives in docs-only PRs, which match none of the patterns
+      # above — without these two the mirror-status job would never see the change it
+      # exists to catch (OME-1215).
+      - "docs/tasks/**"
+      - "docs/work/**"
   pull_request:
     paths:
       - ".claude/skills/sdlc-**"
@@ -27,6 +32,8 @@ on:
       - ".github/scripts/test_preview_contract.py"
       - ".github/dependabot.yml"
       - ".github/dependabot-ignores.yml"
+      - "docs/tasks/**"
+      - "docs/work/**"
   # WHY a schedule: the ignore audit checks state that changes when UPSTREAM ships, not when we
   # commit. Path triggers alone would only re-check it on the rare PR that edits the config, so a
   # blocker could clear and sit unnoticed for months — exactly the rot the audit exists to catch.
@@ -56,6 +63,21 @@ jobs:
       - uses: actions/checkout@v7
       - name: SHARED-LOOP parity
         run: python3 .claude/scripts/check_loop_parity.py
+
+  mirror-status:
+    name: Mirror <-> ledger status
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # No setup-uv and no setup-python: the gate and its tests are stdlib-only `python3`,
+      # which is what makes them cheap enough to run on every docs PR. No network call and
+      # no Linear token — Linear remains the status authority, but a quality gate that
+      # needs a credential is red on every fork PR, so this one asserts only what the
+      # docs/work ledgers in the checkout can prove.
+      - name: Gate tests
+        run: python3 .claude/scripts/tests/test_check_mirror_status.py
+      - name: Mirror status gate
+        run: python3 .claude/scripts/check_mirror_status.py
 
   dependabot-ignores:
     name: Dependabot ignore audit

@@ -1,5 +1,25 @@
 ---
 stacks:
+  # The repo ITSELF as a stack: the scripts under `.claude/scripts/` are the only code
+  # in this monorepo that belongs to no app or package, and until OME-1215 they had no
+  # gate command at all — `run_gates.py repo` was in the SDLC instructions and simply
+  # config-errored. root is the repo root; every gate here is plain `python3` with no
+  # third-party import, so this stack needs no venv and no lockfile.
+  - name: repo
+    root: .
+    skill: sdlc-python
+    test_globs: [".claude/scripts/tests/**"]
+    gates:
+      - python3 .claude/scripts/tests/test_run_gates.py
+      - python3 .claude/scripts/tests/test_check_mirror_status.py
+      - python3 .claude/scripts/check_loop_parity.py
+      # The docs/tasks <-> docs/work status gate (OME-1215). Reads two directories of
+      # markdown; NO network and no Linear call, deliberately — a quality gate that needs
+      # a token is a gate that is red on every fork PR and in every offline checkout.
+      # Linear stays the status authority; this only asserts what a ledger can prove.
+      - python3 .claude/scripts/check_mirror_status.py
+      # NOT here: audit_dependabot_ignores.py. It probes the npm and PyPI registries, so
+      # it is network-bound and belongs in the scheduled CI job it already has.
   - name: analytics
     root: apps/analytics
     skill: sdlc-python

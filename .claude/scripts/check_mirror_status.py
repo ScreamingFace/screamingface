@@ -5,18 +5,38 @@
 """MIRROR STATUS gate (OME-1215).
 
 CLAUDE.md rule 1: a unit's status is closed in BOTH Linear and its `docs/tasks/` mirror.
-Nothing enforced the mirror half, so mirrors drift: 20+ of them sat at `in_review` for
-units whose `docs/work/` ledger said `done` and whose PRs had merged weeks earlier.
-`OME-1133` hand-swept a batch and it drifted straight back, because the disagreement is
-silent by construction — it is only ever found by someone grepping.
+Nothing enforced the mirror half, so a mirror can disagree with the `docs/work/` ledger of
+its own work and nobody finds out — the disagreement is silent by construction, only ever
+surfaced by someone grepping. `OME-1133` hand-swept a batch and it drifted straight back.
+This is the thing that notices.
 
-This is the thing that notices. For every mirror that has a ledger:
+WHAT IT ASSERTS, AND WHY IT IS NARROW. **Linear is the status authority** (CLAUDE.md), not
+this gate and not the ledger. A ledger records one UNIT of work; a mirror tracks the
+TICKET, and a ticket can outlive several units. So a finished unit whose ticket is still
+In Progress or In Review is a legal state, not drift — 24 such pairs exist in this repo
+right now, five of them with a PR open. The gate therefore asserts only what a ledger can
+PROVE, and it never forces a mirror to `done`:
 
-    ledger done              -> mirror done AND `closed:` set (not empty, not null)
-    ledger blocked           -> mirror blocked, or another STOP state
+    ledger done                -> mirror status NOT in {backlog, todo}
+    ledger blocked             -> mirror blocked, or another STOP state
     ledger in_progress|planned -> mirror anything EXCEPT done
 
+The `done` row is the narrow one: a finished unit of work disproves exactly one thing —
+that the ticket was never started. It says nothing about whether the ticket may close, so
+the gate does not ask for a `done` mirror or a `closed:` date. Closing the ticket stays a
+Linear decision made by a human with the Linear view in front of them.
+
+WAIVERS. Each of the three rows has a verified counterexample in this repo (see
+`WAIVERS`), all of one shape: a ledger is per UNIT and permanent, while the mirror tracks a
+Linear state that moves on its own — an epic pushed back to Backlog, a design unit finished
+for a ticket Linear never started, a ticket closed by a *different* unit while this one's
+ledger stays truthfully `blocked`. Rather than bend the statuses to fit the rule, each is
+waived by ticket WITH the evidence read from Linear, and pinned to the exact
+`(mirror_status, ledger_status)` pair verified — move either side and the gate fires again.
+
 Reported but never failed (they are legitimate, not drift):
+  * a waived pair — listed above, with its evidence, and re-checked whenever either
+    status moves;
   * a mirror with no ledger — issues are routinely filed before work starts;
   * a ledger whose status is outside the rule table above (`in_review`, `reverted`, …) —
     the table is implemented literally and is never widened by guesswork;
@@ -50,6 +70,8 @@ STATUS_ALIASES = {
     "complete": "done",
     "completed": "done",
     "closed": "done",
+    # Linear renders this state "To Do"; normalisation folds the space to `_` first.
+    "to_do": "todo",
 }
 
 DONE = "done"
@@ -62,8 +84,60 @@ STOP_STATES = {
 }
 OPEN_LEDGER_STATES = {"in_progress", "planned"}
 
-# `closed:` values that mean "not actually closed".
-UNSET_CLOSED = {"", "null", "none", "~", "tbd", "-"}
+# The only mirror states a `done` ledger disproves: work that finished cannot also have
+# never been started. Everything else — in_review, in_progress, blocked, canceled, done —
+# is a legal ticket state for a finished unit, because Linear, not the ledger, decides
+# when the TICKET closes.
+NOT_STARTED_STATES = {"backlog", "todo"}
+
+
+@dataclasses.dataclass(frozen=True)
+class Waiver:
+    """One ticket where the rule table is verifiably wrong, with the evidence.
+
+    A waiver is PINNED to the exact `(mirror_status, ledger_status)` pair it was granted
+    for. Move either side and the waiver stops applying and the gate fires again — so a
+    waiver can excuse the state someone looked at, and can never silently cover the next
+    drift on the same ticket. Waived pairs are still printed, as notes.
+    """
+
+    mirror_status: str
+    ledger_status: str
+    evidence: str
+
+
+# Every rule row below has a verified counterexample in this repo, all of one shape: a
+# ledger is per UNIT and permanent, while a mirror tracks a Linear state that moves on its
+# own — backwards, or to Done through a different unit's work. Each entry was checked
+# against Linear via MCP on 2026-09-17 and carries what was read.
+WAIVERS: dict[str, Waiver] = {
+    "OME-887": Waiver(
+        "backlog",
+        "done",
+        "Linear OME-887 is Backlog (statusType backlog), label `deferred`. Its state "
+        "history shows In Progress -> Backlog on 2026-09-03: the owner moved a started "
+        "epic back. The ledger (docs/work/2026-09-10-OME-887-rolling-activity-limits.md) "
+        "is a finished DESIGN unit on that epic. The mirror matches Linear; the gate's "
+        "premise — that a done unit proves the ticket left backlog — is false here.",
+    ),
+    "OME-908": Waiver(
+        "backlog",
+        "done",
+        "Linear OME-908 is Backlog with a single state-history entry: it has never left "
+        "Backlog since it was filed on 2026-08-20. Labels `design-session`, `human`. The "
+        "ledger is the finished design-session write-up. A design unit can complete for a "
+        "ticket Linear never started, so the mirror is right and the rule is wrong.",
+    ),
+    "OME-906": Waiver(
+        "done",
+        "blocked",
+        "Linear OME-906 is Done (completedAt 2026-08-24T16:06:27Z). The ledger is "
+        "correctly and permanently `blocked`: it records the unit stopping at step 5 "
+        "because the measurement disproved its own plan. The ISSUE was then resolved by a "
+        "different unit — c157ed7a `Bound the event bridge by a memory budget, not an "
+        "event count (#672)`. An abandoned unit and a closed ticket are both true.",
+    ),
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -176,31 +250,20 @@ def _judge(
     ticket: str,
     mirror: pathlib.Path,
     mirror_status: str,
-    mirror_fields: dict[str, str],
     ledger: pathlib.Path,
     ledger_status: str,
 ) -> Violation | Note | None:
     if ledger_status == DONE:
-        if mirror_status != DONE:
+        if mirror_status in NOT_STARTED_STATES:
             return Violation(
                 ticket,
-                "ledger-done-mirror-not-done",
+                "ledger-done-mirror-not-started",
                 mirror,
                 ledger,
                 mirror_status,
                 ledger_status,
-                f"ledger is done; mirror is {mirror_status!r} — close the mirror",
-            )
-        closed = mirror_fields.get("closed", "").split("#", 1)[0].strip().strip("\"'")
-        if closed.lower() in UNSET_CLOSED:
-            return Violation(
-                ticket,
-                "ledger-done-mirror-not-closed",
-                mirror,
-                ledger,
-                mirror_status,
-                ledger_status,
-                f"mirror is done but `closed:` is {closed or 'empty'} — half-closed",
+                f"ledger is done; mirror is {mirror_status!r} — a unit of this ticket's "
+                "work finished, so the ticket cannot still be un-started",
             )
         return None
     if ledger_status == "blocked":
@@ -237,10 +300,34 @@ def _judge(
     )
 
 
+def _waived(verdict: Violation, waivers: dict[str, Waiver]) -> Note | None:
+    """The note a waiver turns this violation into, or None if none applies."""
+    waiver = waivers.get(verdict.ticket)
+    if waiver is None:
+        return None
+    # PINNED, deliberately: a waiver excuses the one pair someone verified, not the ticket.
+    if (waiver.mirror_status, waiver.ledger_status) != (
+        verdict.mirror_status,
+        verdict.ledger_status,
+    ):
+        return None
+    return Note(
+        verdict.ticket,
+        "waived",
+        verdict.mirror_path,
+        verdict.mirror_status,
+        verdict.ledger_status,
+        f"waived [{verdict.reason}] — {waiver.evidence}",
+    )
+
+
 def check(
-    tasks_dir: pathlib.Path, work_dir: pathlib.Path
+    tasks_dir: pathlib.Path,
+    work_dir: pathlib.Path,
+    waivers: dict[str, Waiver] | None = None,
 ) -> tuple[list[Violation], list[Note]]:
     """Every mirror judged against its ledger. Violations fail; notes only report."""
+    waivers = WAIVERS if waivers is None else waivers
     mirrors, mirror_orphans = collect(tasks_dir)
     ledgers, _ = collect(work_dir)
 
@@ -261,7 +348,7 @@ def check(
 
     for ticket in sorted(mirrors, key=_ticket_number):
         mirror = mirrors[ticket][-1]  # newest mirror wins, same rule as ledgers
-        mirror_status, mirror_fields = _status_of(mirror)
+        mirror_status, _ = _status_of(mirror)
         ledger_paths = ledgers.get(ticket)
         if not ledger_paths:
             notes.append(
@@ -289,11 +376,10 @@ def check(
             continue
         ledger = ledger_paths[-1]  # a follow-up ledger is the current truth
         ledger_status, _ = _status_of(ledger)
-        verdict = _judge(
-            ticket, mirror, mirror_status, mirror_fields, ledger, ledger_status
-        )
+        verdict = _judge(ticket, mirror, mirror_status, ledger, ledger_status)
         if isinstance(verdict, Violation):
-            violations.append(verdict)
+            note = _waived(verdict, waivers)
+            notes.append(note) if note else violations.append(verdict)
         elif isinstance(verdict, Note):
             notes.append(verdict)
     return violations, notes
@@ -323,15 +409,20 @@ def render(violations: list[Violation], notes: list[Note]) -> str:
             lines.append(f"    {label}  [{n.reason}]  {n.mirror_path}")
     if violations:
         lines.append(
-            "Close the mirror (status + `closed:`) to match its ledger. Never stamp a mirror "
-            "`done` to clear this gate — if the true status is unclear, that is a "
-            "Confidence-Gate decision: STOP and ask."
+            "Move the mirror out of backlog/todo to the state Linear shows. This gate never "
+            "asks for `done` — Linear is the status authority, so if the true state is "
+            "unclear, read it there; if it is still unclear, that is a Confidence-Gate "
+            "decision: STOP and ask."
         )
     return "\n".join(lines)
 
 
-def run(tasks_dir: pathlib.Path, work_dir: pathlib.Path) -> int:
-    violations, notes = check(tasks_dir, work_dir)
+def run(
+    tasks_dir: pathlib.Path,
+    work_dir: pathlib.Path,
+    waivers: dict[str, Waiver] | None = None,
+) -> int:
+    violations, notes = check(tasks_dir, work_dir, waivers)
     print(render(violations, notes))
     return 1 if violations else 0
 
