@@ -442,8 +442,18 @@ preStopSleepSeconds: 5
 terminationGracePeriodSeconds: 45
 
 # The two probes ask DIFFERENT questions, and until OME-942 both asked `/healthz` — so the
-# readiness probe could never fail, and Kubernetes kept a pod with a dead NATS connection in
-# the Service's endpoints. Runs routed there were accepted and went nowhere.
+# readiness probe could never fail, whatever the state of a pod's NATS connection. That is a
+# defect read off the chart and the endpoint; no incident is claimed and none was investigated.
+#
+# AVAILABILITY TRADE, stated openly (review round 2) and NOT yet signed off by the owner:
+# readiness is now broker-aware for a Service whose HTTPRoute is a single `/` PathPrefix. A
+# TOTAL NATS outage therefore empties the endpoints for EVERY replica at once, including the
+# paths that need no broker (token mint, /docs, catalog REST, artifact GETs) — a broker blip
+# converts from "run streaming degraded" to "whole API 503 at the gateway". The probe's value
+# is in PARTIAL failure (this pod's client is wedged while its peers are fine, or a cold start
+# that has not connected yet); its cost is in total failure, where taking every replica out
+# buys nothing because there is nowhere healthy to route. `failureThreshold` is deliberately
+# left at the Kubernetes default rather than tuned by guess. See the OME-942 ledger, D8.
 #
 # INVARIANT: these two paths must stay DIFFERENT endpoints. Liveness is "this process is up"
 # and its failure RESTARTS the pod; readiness is "this pod can serve" and its failure only
