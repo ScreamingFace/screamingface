@@ -402,6 +402,8 @@ class ExecutionContext:
         refusal: str | None,
         cache_status: Literal["hit", "miss", "bypass"] | None = None,
         cache_reason: str | None = None,
+        cache_saved_cost_usd: Decimal | None = None,
+        cache_saved_cost_provenance: Literal["reported", "archive_matched"] | None = None,
     ) -> None:
         """Report how one model round trip ended, under this node's current
         span. A no-op when no ``observer`` was passed to
@@ -415,11 +417,22 @@ class ExecutionContext:
         gateway served this trip from its response cache. They DEFAULT to
         nothing on purpose: not every world talks to a cache, and this is a
         live seam whose existing callers must keep compiling unchanged.
+
+        ``cache_saved_cost_usd`` / ``cache_saved_cost_provenance`` are the
+        counterfactual that hit avoided, and DEFAULT to nothing for the same
+        reason — an older gateway reports neither, and the two must be set
+        together or not at all.
         """
         if self._obs is not None:
             self._obs.emit(
                 ModelResponse(
-                    self._current_span_id, finish_reason, refusal, cache_status, cache_reason
+                    span_id=self._current_span_id,
+                    finish_reason=finish_reason,
+                    refusal=refusal,
+                    cache_status=cache_status,
+                    cache_reason=cache_reason,
+                    cache_saved_cost_usd=cache_saved_cost_usd,
+                    cache_saved_cost_provenance=cache_saved_cost_provenance,
                 )
             )
 

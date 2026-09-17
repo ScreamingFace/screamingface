@@ -55,7 +55,9 @@ UsageSource = Literal[
     "cached_converted_response",
 ]
 UsageEvidenceStatus = Literal["complete", "partial", "unavailable"]
-DirectCostStatus = Literal["reported", "absent", "unavailable", "invalid", "unit_unknown"]
+DirectCostStatus = Literal[
+    "reported", "absent", "unavailable", "invalid", "unit_unknown", "archive_matched"
+]
 ExtensionFactKind = Literal["integer", "decimal", "boolean", "enum"]
 ServiceTier = Literal["standard", "priority", "batch"]
 
@@ -263,14 +265,22 @@ class DirectCost:
             "unavailable",
             "invalid",
             "unit_unknown",
+            "archive_matched",
         }:
             raise ValueError("direct cost status must use the canonical vocabulary")
         if self.amount is not None and not _is_canonical_decimal(self.amount):
             raise ValueError("amount must be a bounded nonnegative canonical decimal")
         _validate_ascii(self.unit, field_name="unit", max_bytes=64)
         _validate_ascii(self.source, field_name="source", max_bytes=MAX_EXTENSION_TEXT_BYTES)
-        if self.status == "reported" and None in (self.amount, self.unit, self.source):
-            raise ValueError("reported direct cost requires amount, unit and source")
+        # INVARIANT (ERD §3.2, M2): ``archive_matched`` carries the SAME requirement as
+        # ``reported`` — amount, unit and source are all mandatory. The status exists so a
+        # real-but-not-this-row's value is never mistaken for provider-authored money.
+        if self.status in {"reported", "archive_matched"} and None in (
+            self.amount,
+            self.unit,
+            self.source,
+        ):
+            raise ValueError(f"{self.status} direct cost requires amount, unit and source")
         if self.status == "unit_unknown" and None in (self.amount, self.source):
             raise ValueError("unit_unknown direct cost requires amount and source")
         if self.status == "unit_unknown" and self.unit is not None:
@@ -299,6 +309,15 @@ class DirectCost:
     @classmethod
     def unit_unknown(cls, *, amount: str, source: str) -> Self:
         return cls(status="unit_unknown", amount=amount, source=source)
+
+    @classmethod
+    def archive_matched(cls, *, amount: str, unit: str, source: str) -> Self:
+        """A real measured value paired to a logged archive call, not provider-authored.
+
+        INVARIANT (ERD §3.2, PRD S7/M8): never summed with ``reported`` money. The distinct
+        status is the only thing preventing that, so it is never rendered as ``reported``.
+        """
+        return cls(status="archive_matched", amount=amount, unit=unit, source=source)
 
     def as_json(self) -> dict[str, str | None]:
         return {
@@ -507,6 +526,10 @@ class CacheReference:
         default_factory=lambda: TokenUsage(status="unavailable", source="cached_converted_response")
     )
     direct_cost: DirectCost = field(default_factory=DirectCost.unavailable)
+    # ERD §3.5: the stored provider latency. A gateway-side fact no response body holds,
+    # so it can only arrive from ``metadata_json``. ``None`` means unknown, and the
+    # ``latency`` block is OMITTED from ``as_json`` rather than rendered as a null.
+    provider_latency_ms: int | None = None
     kind: Literal["cached_final_response"] = "cached_final_response"
     coverage: Literal["final_successful_response_only"] = "final_successful_response_only"
     incurred_in_current_request: Literal[False] = False
@@ -516,6 +539,10 @@ class CacheReference:
             raise ValueError("cache usage must use the canonical TokenUsage value object")
         if type(self.direct_cost) is not DirectCost:
             raise ValueError("cache direct_cost must use the canonical DirectCost value object")
+        if self.provider_latency_ms is not None and (
+            type(self.provider_latency_ms) is not int or self.provider_latency_ms < 0
+        ):
+            raise ValueError("cache provider_latency_ms must be a non-negative int or None")
         if type(self.kind) is not str or self.kind != "cached_final_response":
             raise ValueError("cache reference kind must use the canonical value")
         if type(self.coverage) is not str or self.coverage != "final_successful_response_only":
@@ -524,10 +551,13 @@ class CacheReference:
             raise ValueError("cache reference cannot be current-request spend")
 
     def as_json(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "kind": self.kind,
             "coverage": self.coverage,
             "incurred_in_current_request": self.incurred_in_current_request,
             "usage": self.usage.as_json(),
             "direct_cost": self.direct_cost.as_json(),
         }
+        if self.provider_latency_ms is not None:
+            payload["latency"] = {"provider_latency_ms": self.provider_latency_ms}
+        return payload

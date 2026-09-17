@@ -35,12 +35,37 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from decimal import Decimal, localcontext
+from typing import Literal
 
+from screamingface_engine.runner.accounting import AMOUNT_PRECISION
 from screamingface_engine.runner.cache_readback import CacheStatus
+
+SavedCostProvenance = Literal["reported", "archive_matched"]
+"""How a saved-cost amount was established.
+
+Deliberately spelled again rather than imported from `url4.observe`: only the runner's adapter
+modules may import the url4 engine (pinned by `test_only_engine_extensions_import_url4`), and
+this counter is not one of them. It mirrors `CacheStatus` beside it — the same literal the wire
+type uses, defined at the engine boundary so no url4 import is needed. Change both together.
+"""
 
 CACHE_HITS = "cache.hits"
 CACHE_MISSES = "cache.misses"
 CACHE_BYPASSES = "cache.bypasses"
+SAVED_COST_USD = "cache.saved_cost_usd"
+SAVED_COST_ARCHIVE_USD = "cache.saved_cost_archive_usd"
+SAVED_COST_REPORTED_HITS = "cache.saved_cost.reported_hits"
+SAVED_COST_ARCHIVE_HITS = "cache.saved_cost.archive_hits"
+SAVED_COST_UNPRICED_HITS = "cache.saved_cost.unpriced_hits"
+"""The five saved-cost attributes (PRD §3.5 / ans:Q2).
+
+`cache.saved_cost_usd` holds provider-authored (`reported`) money ONLY;
+`cache.saved_cost_archive_usd` holds `archive_matched` money ONLY. There is NO combined key and
+no third accumulator: the two provenances make different claims and a single figure would erase
+the difference (PRD S7/M8). Both totals are absent rather than `0` when the run had no hits of
+that provenance, because "no evidence" and "saved nothing" are different answers.
+"""
 BYPASS_REASON_PREFIX = "cache.bypass."
 """Namespace for the per-reason breakdown, so `cache.bypasses` and its parts read as one family
 and a consumer can find the breakdown by prefix without knowing the gateway's vocabulary."""
@@ -70,8 +95,96 @@ than drops, so the breakdown still sums to the total it belongs to.
 _COUNTED_BYPASS: CacheStatus = "bypass"
 
 
+def _accumulated(total: Decimal | None, amount: Decimal) -> Decimal:
+    """``amount`` added to ``total``, an absent total meaning this is the first contribution.
+
+    WHY not `(total or 0) + amount`: a total of `Decimal("0")` is falsy, and collapsing it into
+    the absent case would be harmless here only by luck. `None` and zero are different claims
+    everywhere else in this module, so they stay different here too.
+
+    WHY the local context: `Decimal.__add__` rounds to the AMBIENT precision, 28 digits by
+    default, while `avoided_usd_from_aigw` converts each amount at `AMOUNT_PRECISION`. Adding
+    under the smaller context would round a value that was deliberately preserved one step
+    earlier — and silently, since `Decimal` signals inexactness only if the caller asks.
+
+    WHY the precision is DERIVED rather than fixed at `AMOUNT_PRECISION`: that constant sizes ONE
+    amount at the producer's published bound (18 integer + 33 fractional digits = 51 significant
+    digits, plus 2 of headroom). A SUM of N such amounts needs `51 + ceil(log10(N))`, so a fixed
+    53 rounds the total once N reaches 1000 — a running total can require more digits than any
+    single contribution to it, and no constant can bound a sum with no bound on its length.
+    """
+    if total is None:
+        return amount
+    with localcontext() as ctx:
+        ctx.prec = max(AMOUNT_PRECISION, _exact_sum_precision(total, amount))
+        return total + amount
+
+
+def _exact_sum_precision(total: Decimal, amount: Decimal) -> int:
+    """Significant digits enough that `total + amount` rounds nothing away.
+
+    The figure a sum needs is set by the EXPONENT SPAN of its operands, not by their digit counts:
+    it must reach from the most significant place either operand occupies — plus one, for a carry
+    out of the top — down to the least significant place either one occupies.
+
+    INVARIANT: total. A non-finite operand has no exponent to reason about and falls back to
+    `AMOUNT_PRECISION`; it cannot reach here through any live path (`ModelResponse` and
+    `_CANONICAL_AMOUNT` both reject non-finite amounts at the seam) and must not be able to turn
+    accounting into an exception if one ever does. The provider call is long paid for by then.
+    """
+    low, high = total.as_tuple().exponent, amount.as_tuple().exponent
+    if not isinstance(low, int) or not isinstance(high, int):
+        return AMOUNT_PRECISION
+    most_significant = max(total.adjusted(), amount.adjusted()) + 1
+    return most_significant - min(low, high) + 1
+
+
 @dataclass(slots=True)
-class RunCacheCounters:
+class SavedCostTotals:
+    """Avoided money, in one accumulator per provenance — the whole never-mix rule, in one place.
+
+    WHY a type of its own rather than two fields wherever saved cost is tallied: the rule that
+    routes an amount to its provenance and refuses to combine the two (PRD S5/S7) is load-bearing
+    at BOTH scopes — `RunCacheCounters` extends this for the run, and `_SpanState` holds one for
+    the span. Two hand-written copies of that routing is two places for it to drift.
+
+    AIDEV-NOTE: extended rather than composed by `RunCacheCounters` deliberately — the field
+    names below are the run counter's own published names, and `test_the_counter_carries_exactly
+    _two_saved_cost_accumulators` reads them off `dataclasses.fields(RunCacheCounters)`.
+    """
+
+    # FEATURE: saved cost (ans:Q2). `None` until the first priceable hit of that provenance;
+    # NEVER defaulted to zero, because a zero total would read as "the cache saved nothing" when
+    # the honest answer is "no hit of this kind was observed". The two totals are separate
+    # accumulators by construction — no code path adds them.
+    saved_cost_usd: Decimal | None = None
+    saved_cost_archive_usd: Decimal | None = None
+
+    def add_saved_cost(
+        self, amount_usd: Decimal | None, provenance: SavedCostProvenance | None
+    ) -> SavedCostProvenance | None:
+        """Accumulate one cache HIT's avoided cost under its own provenance.
+
+        INVARIANT: ACCUMULATES, never assigns. Money is additive, so a scope that sees several
+        hits — a tool-calling turn is several round trips against one span (PRD §4.1) — must
+        report their sum. Assigning would publish one hit's amount as if it were the scope's.
+
+        Returns the total the amount landed in, or `None` when it landed in neither: no amount,
+        or a provenance this engine cannot price. The caller uses that to keep its own coverage
+        counts without re-deciding the routing.
+        """
+        if amount_usd is not None:
+            if provenance == "reported":
+                self.saved_cost_usd = _accumulated(self.saved_cost_usd, amount_usd)
+                return provenance
+            if provenance == "archive_matched":
+                self.saved_cost_archive_usd = _accumulated(self.saved_cost_archive_usd, amount_usd)
+                return provenance
+        return None
+
+
+@dataclass(slots=True)
+class RunCacheCounters(SavedCostTotals):
     """One run's cache tallies. Plain integers, lifted onto the wire by the executor.
 
     Not a `prometheus_client` object for the layering reason in the module docstring, and not one
@@ -82,6 +195,12 @@ class RunCacheCounters:
     hits: int = 0
     misses: int = 0
     bypasses: int = 0
+    # Coverage counts, one per outcome. They make each partial total auditable (PRD §3.9):
+    # `reported`/`archive_matched` count the priced hits behind their total, and `unpriced_hits`
+    # counts hits whose stored cost this engine could not price (no reference, unknown unit).
+    reported_hits: int = 0
+    archive_hits: int = 0
+    unpriced_hits: int = 0
     _bypass_reasons: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -100,6 +219,38 @@ class RunCacheCounters:
     def bypass_reasons(self) -> Mapping[str, int]:
         """The per-reason breakdown, read-only. Always sums to :attr:`bypasses`."""
         return self._bypass_reasons
+
+    @property
+    def saved_cost_observed(self) -> bool:
+        """Whether this run saw any cache hit at all — the gate for publishing saved cost.
+
+        Most runs never touch the cache, and emitting a saved-cost block of zeroes on every run
+        would put the same three-zero line on the runs where it says nothing. A hit whose cost
+        could not be priced still counts: it is coverage the reader needs, not silence.
+        """
+        return bool(self.reported_hits or self.archive_hits or self.unpriced_hits)
+
+    def record_saved_cost(
+        self, amount_usd: Decimal | None, provenance: SavedCostProvenance | None
+    ) -> None:
+        """Tally one cache HIT's avoided cost, under its own provenance.
+
+        Call this only for a hit; a miss or a bypass avoided nothing. `provenance` decides the
+        accumulator, so the two can never be mixed: `reported` money is provider-authored and
+        `archive_matched` money is paired from the DRACO archive (PRD ans:Q5). Anything else —
+        no reference, an unknown unit, a status this engine cannot price — is an unpriced hit and
+        enters no total (PRD S14).
+
+        The routing itself lives on :meth:`SavedCostTotals.add_saved_cost`, shared with the
+        per-span totals; this adds only the coverage count the run publishes beside each total.
+        """
+        landed = self.add_saved_cost(amount_usd, provenance)
+        if landed == "reported":
+            self.reported_hits += 1
+        elif landed == "archive_matched":
+            self.archive_hits += 1
+        else:
+            self.unpriced_hits += 1
 
     def record(self, status: CacheStatus | None, reason: str | None) -> None:
         """Tally one gateway round trip's reported outcome.
@@ -137,6 +288,19 @@ class RunCacheCounters:
         }
         for reason, count in self._bypass_reasons.items():
             attributes[f"{BYPASS_REASON_PREFIX}{reason}"] = count
+        if self.saved_cost_observed:
+            # Counts first, so a reader always has the coverage beside any total. Each total is
+            # published only when its own provenance was observed — an absent key says "no such
+            # hit", which a `0` would misstate as "such a hit, worth nothing". The amount rides
+            # as a canonical decimal STRING: the attribute is a flat log scalar, and a float
+            # carrier would round the provider's exact value.
+            attributes[SAVED_COST_REPORTED_HITS] = self.reported_hits
+            attributes[SAVED_COST_ARCHIVE_HITS] = self.archive_hits
+            attributes[SAVED_COST_UNPRICED_HITS] = self.unpriced_hits
+            if self.saved_cost_usd is not None:
+                attributes[SAVED_COST_USD] = format(self.saved_cost_usd, "f")
+            if self.saved_cost_archive_usd is not None:
+                attributes[SAVED_COST_ARCHIVE_USD] = format(self.saved_cost_archive_usd, "f")
         return attributes
 
     def summary_body(self) -> str:
@@ -146,9 +310,23 @@ class RunCacheCounters:
         run's log sees the answer without expanding a structured payload, and the reasons — which
         are the part worth expanding for — stay in the attributes where they can be aggregated.
         """
-        return (
+        body = (
             f"gateway response cache: {self.hits} hit, {self.misses} miss, {self.bypasses} bypass"
         )
+        if self.saved_cost_observed:
+            # Labelled COUNTERFACTUAL wherever it is rendered (PRD S5): this is what the hits
+            # would have cost, not what the run paid, and the two separate totals keep the
+            # provider-authored money distinguishable from the archive-paired money.
+            parts = []
+            if self.saved_cost_usd is not None:
+                parts.append(f"{format(self.saved_cost_usd, 'f')} reported")
+            if self.saved_cost_archive_usd is not None:
+                parts.append(f"{format(self.saved_cost_archive_usd, 'f')} archive-matched")
+            body += (
+                f"; counterfactual saved {', '.join(parts) or 'nothing priceable'}"
+                f" ({self.unpriced_hits} unpriced hit)"
+            )
+        return body
 
     def _count_reason(self, reason: str) -> None:
         """Increment ``reason``'s bucket, collapsing into :data:`OVERFLOW_REASON` once the cap is
@@ -166,6 +344,13 @@ __all__ = [
     "CACHE_MISSES",
     "OVERFLOW_REASON",
     "REASON_BUCKET_CAP",
+    "SAVED_COST_ARCHIVE_HITS",
+    "SAVED_COST_ARCHIVE_USD",
+    "SAVED_COST_REPORTED_HITS",
+    "SAVED_COST_UNPRICED_HITS",
+    "SAVED_COST_USD",
+    "SavedCostProvenance",
+    "SavedCostTotals",
     "UNSTATED_REASON",
     "RunCacheCounters",
 ]
