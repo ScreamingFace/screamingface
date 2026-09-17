@@ -33,6 +33,14 @@ _trace: contextvars.ContextVar[TraceContext | None] = contextvars.ContextVar(
     "screamingface_engine_run_trace", default=None
 )
 
+# FEATURE (OME-1185): the span of the node currently resolving, bound per node by the
+# executor's observer. Separate from `_trace` because the two have different lifetimes: the
+# run's trace is bound once around the whole driving task, while this changes per node, in
+# each node's own `asyncio.Task`.
+_node_span: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "screamingface_engine_node_span", default=None
+)
+
 
 @contextmanager
 def run_trace_scope(trace: TraceContext | None) -> Iterator[None]:
@@ -44,10 +52,37 @@ def run_trace_scope(trace: TraceContext | None) -> Iterator[None]:
     """
 
     token = _trace.set(trace)
+    # INVARIANT: a new run starts at its own root, never inside a node of the run around it.
+    # Without this clear, a nested or sequential run in the same context would attribute its
+    # gateway calls to the OUTER run's last node — a plausible-looking id belonging to another
+    # span, which is exactly the class of error a trace cannot be used to detect.
+    span_token = _node_span.set(None)
     try:
         yield
     finally:
+        _node_span.reset(span_token)
         _trace.reset(token)
+
+
+def bind_node_span(span_id: str) -> None:
+    """Bind the currently-resolving node's span, so outbound calls name IT as their parent.
+
+    FEATURE (OME-1185): `OME-1119` sent the run's ``root_span_id`` on every call, because
+    nothing emitted a root span yet and a per-node parent would have dangled. `OME-1130` made
+    per-node spans real, so that choice now only makes the trace FLAT — every aigateway server
+    span hangs off the run instead of off the node that issued the call, and a run's eleven
+    provider calls cannot be told apart.
+
+    WHY nothing is ever unbound: the executor's observer calls this from the node's own
+    :class:`asyncio.Task`, whose context dies with the node, so each sibling and each child
+    sees its own binding and there is nothing to clean up. Resetting a token here would be
+    actively wrong — a token created in one Task and reset in another raises ``ValueError:
+    Token was created in a different Context``, the defect
+    ``test_a_cancelled_run_does_not_raise_from_the_trace_scope`` pins. Run scoping is
+    `run_trace_scope`'s job, and it clears this on entry.
+    """
+
+    _node_span.set(span_id)
 
 
 def current_traceparent() -> str | None:
@@ -57,18 +92,21 @@ def current_traceparent() -> str | None:
     carrying a zero id would parse everywhere, join nothing, and look correct in every log it
     reached — which is worse than its absence, because absence is diagnosable.
 
-    WHY `root_span_id` rather than a fresh span per call: W3C wants the caller's CURRENT span,
-    and OTel's HTTP instrumentation mints a client span per request. Doing that here would name
-    a span no exporter publishes, so once `OME-1130` makes spans real the gateway's parent
-    pointer would dangle. The root span is one `lifecycle` genuinely emits (`StartedEvent` rides
-    it). Attaching the per-node span — which `lifecycle._trace_fields` already resolves for
-    frames — is Phase 2 work.
+    The span named is the CALLING NODE's when one is bound (OME-1185) and the run's
+    ``root_span_id`` otherwise — which is not a fallback but the correct answer: outside any
+    node, the run's root IS the current span, and it is a span `lifecycle` genuinely emits
+    (`StartedEvent` rides it).
+
+    WHY never a fresh span per call: W3C wants the caller's CURRENT span, and OTel's HTTP
+    instrumentation mints a client span per request. Minting one here would name a span no
+    exporter publishes, so the gateway's parent pointer would dangle — which renders as a gap.
+    Both ids this function can return are exported by the run itself.
     """
 
     trace = _trace.get()
     if trace is None:
         return None
-    return format_traceparent(trace.trace_id, trace.root_span_id)
+    return format_traceparent(trace.trace_id, _node_span.get() or trace.root_span_id)
 
 
-__all__ = ["current_traceparent", "run_trace_scope"]
+__all__ = ["bind_node_span", "current_traceparent", "run_trace_scope"]

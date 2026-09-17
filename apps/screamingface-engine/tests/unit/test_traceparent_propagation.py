@@ -28,11 +28,17 @@ from screamingface_engine.connections.aigateway import AigatewayConnections
 from screamingface_engine.connections.port import Caller
 from screamingface_engine.rest.connections import _caller
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.runner.executor import Url4Executor
-from screamingface_engine.trace_scope import current_traceparent, run_trace_scope
+from screamingface_engine.runner.executor import BridgeOverflowError, Url4Executor, _Bridge
+from screamingface_engine.trace_scope import (
+    bind_node_span,
+    current_traceparent,
+    run_trace_scope,
+)
 from screamingface_engine.world_config import ModelSpec
 from url4.dag import run as url4_run
-from url4.streaming.interfaces import TraceContext
+from url4.observe import NodeStarted
+from url4.streaming.interfaces import TraceContext, Traced
+from url4.streaming.protocol import SpanData
 
 
 def _fake_request(headers: dict[str, str]) -> Request:
@@ -404,3 +410,117 @@ async def test_a_cancelled_run_does_not_raise_from_the_trace_scope() -> None:
     # And the scope really is unbound afterwards — a leaked binding would attribute the NEXT
     # run's model calls to this cancelled one.
     assert current_traceparent() is None
+
+
+# --- OME-1185: the CALLING NODE's span, not the run's root ------------------------------------
+#
+# `OME-1119` (above) bound `root_span_id`, because nothing emitted a root span yet and a
+# per-node parent would have dangled. `OME-1130` made per-node spans real, so every aigateway
+# server span hanging off the run's root is now merely FLAT: production trace
+# e2f0bfb83234b51d0228ce0fa39c0334 (2026-09-17) carried 24 gateway server spans under one
+# shared parent, so the run's eleven provider calls could not be told apart by node.
+
+
+def test_a_bound_node_span_is_what_the_traceparent_names() -> None:
+    """The span segment is the CALLING NODE's, while the trace id stays the run's."""
+    with run_trace_scope(TRACE_A):
+        bind_node_span("7" * 16)
+        rendered = current_traceparent()
+
+    assert rendered is not None
+    match = TRACEPARENT.match(rendered)
+    assert match, rendered
+    assert match.group(1) == TRACE_A.trace_id
+    assert match.group(2) == "7" * 16, "the gateway was told the run's root, not the node"
+
+
+def test_with_no_node_bound_the_scope_still_names_the_runs_root() -> None:
+    """Outside a node the run's root IS the current span — `OME-1119`'s contract, unchanged."""
+    with run_trace_scope(TRACE_A):
+        rendered = current_traceparent()
+
+    assert rendered is not None
+    assert TRACEPARENT.match(rendered).group(2) == TRACE_A.root_span_id  # type: ignore[union-attr]
+
+
+def test_a_nested_run_does_not_inherit_the_outer_runs_node_span() -> None:
+    """A stale node id would attribute an inner run's calls to a node of the outer one."""
+    with run_trace_scope(TRACE_A):
+        bind_node_span("7" * 16)
+        with run_trace_scope(TRACE_B):
+            inner = current_traceparent()
+        outer = current_traceparent()
+
+    assert inner is not None and outer is not None
+    assert TRACEPARENT.match(inner).group(2) == TRACE_B.root_span_id  # type: ignore[union-attr]
+    assert TRACEPARENT.match(outer).group(2) == "7" * 16  # type: ignore[union-attr]
+
+
+def test_a_node_span_bound_outside_any_run_sends_nothing() -> None:
+    """Absent stays absent: a node id without a run is not a trace."""
+    bind_node_span("7" * 16)
+
+    assert current_traceparent() is None
+
+
+@pytest.mark.asyncio
+async def test_the_gateway_is_told_the_node_that_called_it_not_the_run_root() -> None:
+    """The whole ticket, end to end: the parent id aigateway receives is a node the run
+    actually exported a span for — never the synthetic root every call used to share.
+
+    The exported span ids are walked off `Traced.span.span_id`. Asserting over a rendering of
+    the frames instead (`repr`, `str`) is how a security test in this repo once passed against
+    anything at all.
+    """
+    gw = _MockAigateway()
+    cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
+    node_span_ids: set[str] = set()
+    calling_span_ids: set[str] = set()
+    async with gw.client() as client:
+        world = await build_aigateway_world(cfg, client=client)
+        executor = Url4Executor(world.node)
+        async for step in executor.execute(f"/{MODEL}('ctx')!'go'", trace=TRACE_A):
+            if not isinstance(step, Traced) or step.span is None:
+                continue
+            node_span_ids.add(step.span.span_id)
+            # The node that CALLED the gateway is the one whose span reports a request model:
+            # `_RunState` fills that field from the usage the connector reported on this span.
+            if isinstance(step.payload, SpanData) and step.payload.request_model is not None:
+                calling_span_ids.add(step.span.span_id)
+
+    assert gw.requests, "the run made no model call"
+    assert len(calling_span_ids) == 1, f"expected one model-calling node, got {calling_span_ids}"
+    sent = gw.requests[0].headers.get("traceparent", "")
+    match = TRACEPARENT.match(sent)
+    assert match, sent
+    assert match.group(1) == TRACE_A.trace_id
+    assert match.group(2) != TRACE_A.root_span_id, (
+        "every gateway span still hangs off the run's root — this is the flatness OME-1185 fixes"
+    )
+    assert match.group(2) in node_span_ids, (
+        "the gateway was given a span id the run never exported — a dangling parent renders as "
+        f"a gap: sent {match.group(2)!r}, exported {sorted(node_span_ids)}"
+    )
+    assert match.group(2) == calling_span_ids.pop(), (
+        "the gateway was parented to some OTHER node of the run — a plausible id that puts the "
+        "call under the wrong node is worse than the flat trace it replaced"
+    )
+
+
+def test_a_node_start_the_bridge_cannot_buffer_still_binds_its_span() -> None:
+    """The binding must not ride on the queueing policy.
+
+    A `NodeStarted` the buffer refuses still describes a node that is about to call the
+    gateway; if the bind sat after the overflow guard, that node's calls would silently fall
+    back to the run's root — the exact flatness this ticket removes, restored only under load.
+    """
+    bridge = _Bridge(1, memory_budget=1)
+    bridge.on_event(NodeStarted("a" * 16, None, "Node", ""))
+
+    with run_trace_scope(TRACE_A):
+        with pytest.raises(BridgeOverflowError):
+            bridge.on_event(NodeStarted("b" * 16, "a" * 16, "Node", ""))
+        rendered = current_traceparent()
+
+    assert rendered is not None
+    assert TRACEPARENT.match(rendered).group(2) == "b" * 16  # type: ignore[union-attr]

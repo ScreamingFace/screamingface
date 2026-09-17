@@ -27,7 +27,7 @@ from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
-from screamingface_engine.trace_scope import run_trace_scope
+from screamingface_engine.trace_scope import bind_node_span, run_trace_scope
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
@@ -164,6 +164,20 @@ class _Bridge:
         accounting. Only once the backlog still exceeds the hard cap after that eviction does
         this raise `BridgeOverflowError`.
         """
+        # FEATURE (OME-1185): the calling node's span, bound for the outbound aigateway calls
+        # that node is about to make (`trace_scope.current_traceparent`). This is the ONE place
+        # the engine learns a node's span id in the context that node actually runs in: url4
+        # calls `on_event` synchronously and inline from `Executor._eval`, in the node's own
+        # `asyncio.Task`, immediately before `node.resolve` is awaited — the same per-Task
+        # isolation `url4.observe._bind_node_sinks` relies on for the usage/response sinks, so
+        # concurrent siblings never cross-talk. `_RunState.map` sees the same event later but
+        # from the CONSUMER's context, where a binding would reach no model call.
+        #
+        # INVARIANT: bound BEFORE any queueing policy below. A `NodeStarted` that the buffer
+        # refuses still describes a node that is about to call out, and a span the trace would
+        # otherwise attribute to the run's root.
+        if isinstance(event, NodeStarted):
+            bind_node_span(event.span_id)
         # INVARIANT: optional activity cannot consume the last slot needed by an
         # authoritative event, even when the hard cap is below the soft cap.
         # The buffer never exceeds the hard cap, so one eviction admits one event.
