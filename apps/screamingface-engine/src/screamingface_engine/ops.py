@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from screamingface_engine.metrics import Metrics
+from screamingface_engine.readiness import stream_readiness
 from screamingface_engine.schemas import build_asyncapi
 
 router = APIRouter()
@@ -69,9 +70,21 @@ def livez() -> dict[str, str]:
 
 
 @router.get("/readyz", tags=["Ops"], summary="Readiness probe", include_in_schema=False)
-def readyz() -> dict[str, str]:
-    """Readiness probe: reports whether the app is wired and ready to serve."""
-    return {"status": "ready"}
+async def readyz(request: Request) -> Response:
+    """Readiness probe: 200 when this pod can serve, 503 when its event stream cannot.
+
+    WHY this asks the stream (OME-942): until now it was the literal `{"status": "ready"}`, so
+    a pod whose NATS connection was dead reported ready, stayed in the Service's endpoints, and
+    accepted runs it could neither queue nor stream. A probe that cannot fail is a constant the
+    operator mistakes for evidence.
+
+    INVARIANT: readiness only, never liveness — `/livez` above stays broker-blind on purpose.
+    A broker outage must take pods OUT OF ROTATION, not restart every one of them.
+    """
+    reason = await stream_readiness(getattr(request.app.state, "stream", None))
+    if reason is not None:
+        return JSONResponse({"status": "not_ready", "reason": reason}, status_code=503)
+    return JSONResponse({"status": "ready"})
 
 
 @router.get("/metrics", tags=["Ops"], summary="OpenMetrics scrape", include_in_schema=False)
