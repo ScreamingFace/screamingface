@@ -44,20 +44,31 @@ followed by `create_app`'s installs one handler, not two.
 ### C3 — `/livez` and `/readyz` are static literals the chart never probes
 
 Both probes hit `/healthz`; `/readyz` returns `{"status": "ready"}` unconditionally. A readiness
-probe that can never fail tells Kubernetes a pod with a dead NATS connection is ready to serve —
-the pod then accepts runs it cannot stream and cannot queue. OWNER DECISION: implement.
+probe that can never fail tells Kubernetes that a pod with a dead NATS connection is ready to
+serve, whatever the pod's actual state. OWNER DECISION: implement.
 
-- `/readyz` asks the event stream whether it is reachable, and answers 503 when it is not or
-  when no stream is wired at all.
+**Evidence boundary (review round 2, 2026-09-17).** This concern is established ENTIRELY by
+reading `ops.py` and `deploy/helm/values.yaml`. Earlier drafts of this ledger, the PR body,
+`values.yaml`, `ops.py` and two test module docstrings asserted as history that "every run
+routed there was accepted and went nowhere" / the pod "accepted runs it could neither queue nor
+stream". **No such incident was observed, reported or investigated, and nothing in this branch
+demonstrates it.** It is also mechanically doubtful: with `runner=queue`, submission publishes
+over NATS, so a dead connection makes the publish FAIL and surface as an error to the caller
+rather than a silent accept. Every instance has been deleted or rewritten as a hypothetical. The
+real, verifiable defect is narrower and sufficient: **the probe cannot fail.**
+
+- `/readyz` asks the event stream whether it is reachable, and answers 503 when it is not. (An
+  UNWIRED stream stayed 200 — see Deviation 3, which supersedes the first draft of this line.)
 - The readiness contract lives in a new `screamingface_engine/readiness.py`: a
   `StreamNotReadyError` the adapter raises and a `stream_readiness()` helper the endpoint uses.
   ops.py stays free of any concrete adapter import and of `nats` exception types — the same
   port-boundary discipline `create_app_from_env` already applies with `getattr(job_runner,
   "aclose")`.
-- `_JetStreamConnection.check_ready()` opens (or reuses) the connection and reports a broker
-  that is partitioned or closed. Deliberately NO `account_info()` RPC: a probe every 10s should
-  not cost a broker round trip, and `Client.is_connected` already flips during a partition,
-  which is the failure the probe exists to catch.
+- `_JetStreamConnection.check_ready()` opens (or reuses) the connection — under a BOUND, see
+  round 2's F2 — and reports a broker that is partitioned or closed. Deliberately NO
+  `account_info()` RPC: a probe every 10s should not cost a broker round trip, and
+  `Client.is_connected` already flips during a partition, which is the failure the probe exists
+  to catch.
 - The chart's `readinessProbe` moves to `/readyz`, and `livenessProbe` moves to `/livez` — the
   only thing "implement `/livez`" can mean, and the reason it exists as a separate endpoint from
   `/healthz` at all. `/healthz` is untouched and still served.
@@ -189,3 +200,165 @@ Assertion hygiene: every assertion walks real fields — parsed Prometheus sampl
 - **Not done, deliberately:** no scrape endpoint was added to the run mode — the gauge is
   served by the App's existing `/metrics`, and `check_layering.py` is green.
 - **Status:** DONE.
+
+## Review round 2 (2026-09-17) — findings, judgements, and what changed
+
+Eight findings were raised against the first round. Each was checked against the source before
+acting; two were refuted with evidence rather than "fixed".
+
+### F1 (HIGH, CONFIRMED) — `/readyz` leaked the NATS URL and the broker's own error text
+
+`check_ready` raised `StreamNotReadyError(f"{self._url} is unreachable: {exc}")` and
+`f"{self._url} is not connected"`, and `ops.readyz` rendered that string verbatim as the 503
+body's `reason`. Verified reachable from outside the cluster: the ops router carries no auth
+dependency, and `templates/httproute.yaml` routes a single `/` PathPrefix rule to the App, so
+`/readyz` is served at the gateway and not only to the kubelet. `config.natsUrl` is free-form
+operator input (`values.schema.json` types it only as a string) and `nats://user:pass@host:4222`
+is the standard nats-py auth form — so the URL is a credential, and even without one it
+discloses internal broker topology. Same leak class as OME-941.
+
+**Fixed in two places, deliberately:**
+- At the raiser: `StreamNotReadyError` now carries a documented CONTRACT — a short, FIXED,
+  operator-facing literal naming the CLASS of failure and nothing else. The three production
+  messages are `event stream broker is unreachable`, `event stream broker is not connected` and
+  `event stream broker dial timed out`. The transport detail is chained as `__cause__`.
+- At the boundary: `stream_readiness` logs the full reason and the chained exception at WARNING
+  (server-side, where only the cluster reads it) and then caps the rendered reason at
+  `MAX_REASON_CHARS` (120) and strips control characters. One adapter forgetting the contract
+  must not become a leak, and a probe must not be an unbounded reflector.
+
+### F2 (HIGH, CONFIRMED) — the probe could block indefinitely
+
+`check_ready` awaited `self._jetstream()`, which dials (`nats.connect`) on the App's event loop
+under `_connect_lock` with no timeout whenever `_js` is None or the cached client is closed —
+i.e. exactly during the outage the probe exists for. nats-py retries `max_reconnect_attempts`
+servers `reconnect_time_wait` apart before raising `NoServersError`, so one probe can park far
+past `readinessProbe.timeoutSeconds: 5`. Starlette cannot cancel the handler when the kubelet
+gives up, so the next probe at `periodSeconds: 10` queues behind it on the lock and pending
+handlers accumulate for the whole outage — on the loop that pumps every WebSocket. The reviewer
+is right that this is worse than the static literal it replaced.
+
+**Fixed with two bounds, both load-bearing and both tested:**
+- `READINESS_DIAL_TIMEOUT_S = 3.0` in the adapter bounds the dial. Cancelling it unwinds
+  `async with self._connect_lock`, so the next probe gets its own budget rather than queueing.
+- `READINESS_TIMEOUT_S = 4.0` in `stream_readiness` bounds the whole check at the boundary, for
+  an adapter with no bound of its own.
+- Both are pinned BELOW the chart's rendered `readinessProbe.timeoutSeconds` by a test that
+  reads `values.yaml`, so raising either without raising the probe's timeout fails the suite.
+
+### F3 (MEDIUM, CONFIRMED) — `test_readiness_never_blocks_on_a_broker_round_trip` was a tautology
+
+Correct: it pre-set `_js` and `_nc`, so `_jetstream()` returned on the cached fast path and the
+`asyncio.wait_for(..., timeout=0.5)` could never fire. It asserted in its name what it did not
+test. **The prior test was NOT deleted or rewritten** (append-only); it still pins the cached
+fast path, which is worth pinning. Three new tests cover the path it missed, all driving the
+UNCACHED branch with `nats.connect` monkeypatched to a coroutine that never returns:
+`test_a_hanging_dial_is_bounded_rather_than_parking_the_probe`,
+`test_a_hanging_dial_does_not_hold_the_connect_lock_for_the_next_probe`, and
+`test_an_adapter_that_never_returns_does_not_park_the_probe` at the boundary.
+
+### F4 (MEDIUM, CONFIRMED as fact; fixed as DOCUMENTATION, not as code) — D7
+
+**D7. `/readyz` reports on the App's event-stream consumer only, and now says so.** Verified in
+`app.py::create_app_from_env`: `app.state.stream` is `build_stream_consumer(settings)` → a
+`JetStreamConsumer`. The queue runner is a separate object with THREE separate NATS connections
+of its own — `RunQueue`, `JetStreamPublisher` and `ControlClient`, all built in
+`adapters/factory.py::build_job_runner` — and `/readyz` does not ask it. So a pod whose runner
+connections are dead while the consumer's is live does still report ready. The reviewer is
+right on the facts.
+
+The overclaim was in the PROSE, not the code: `ops.py`, `jetstream.py` and the PR body all said
+the probe covered "can neither publish a run onto the queue nor bridge its frames". The fix is
+to narrow the claim, not to widen the probe, because widening it makes F5/D8 strictly worse —
+it puts three more connections' failures in front of every endpoint this Service fronts. Every
+docstring now states the scope exactly and names what is NOT probed.
+
+### F5 (MEDIUM, CONFIRMED as a real trade) — D8, and it is OPEN for the owner
+
+**D8. Broker-aware readiness on a single-Service, single-`/`-PathPrefix deployment is an
+availability trade this branch makes VISIBLE but does not claim to have settled.**
+
+The cost the first round never acknowledged: a TOTAL NATS outage empties the Service's endpoints
+for every replica at once, so paths that need no broker at all — token mint, `/docs`, catalog
+REST, artifact GETs — go 503 at the gateway. The PR body reasoned carefully about why liveness
+must stay broker-blind and then said nothing about the symmetric readiness cost.
+
+My reading of the trade, stated so the owner can overrule it cheaply:
+- Readiness gating pays off in PARTIAL failure — this pod's client is wedged while its peers are
+  fine, or a cold start that has not connected yet. Both are real and both are what the ticket
+  targets.
+- It pays NOTHING in TOTAL failure — with one shared NATS service, failure is usually total, and
+  taking every replica out of rotation cannot route around an outage that has no healthy side.
+  It only converts "run streaming degraded" into "whole API down".
+- Which case dominates depends on the deployment's NATS topology, which is an operator fact I do
+  not have.
+
+**Not guessed at:** `failureThreshold` and the grace settings are left at the Kubernetes
+defaults rather than tuned to a number nobody chose. The trade is written into `values.yaml`
+next to the probe, where the operator making the call will read it. **If the owner wants
+readiness to stay broker-blind, the change is small and local — delete the `stream_readiness`
+call from `ops.readyz` and keep `/readyz` as an endpoint that exists; the leak and hang fixes
+above stand either way.**
+
+### F6 (MEDIUM, CONFIRMED and the most important item) — the invented incident narrative
+
+Committed as permanent fact in five places: `ops.py`'s `readyz` docstring, `jetstream.py`'s
+`check_ready` docstring, `values.yaml`, and the module docstrings of
+`test_readiness_probe.py` and `test_chart_render_probe_paths.py` — plus the PR body. All of them
+asserted that runs "were accepted and went nowhere" / the pod "accepted runs it could neither
+queue nor stream".
+
+**No evidence exists for this.** No incident was observed, reported or investigated; nothing in
+the diff demonstrates the silent-acceptance path and no test reproduces it. It is also
+mechanically doubtful, as C3's evidence boundary now records. Every instance is deleted or
+rewritten to say only what was actually established by reading the code: **the probe could not
+fail.** Each site now carries an explicit "no incident is claimed here" so the next reader
+cannot re-inherit the story. (Editing a test MODULE DOCSTRING is not a test change: no test
+function, assertion or fixture was touched.)
+
+### F7 (LOW, PARTLY REFUTED) — `_CaplogBridge` semantics
+
+The reviewer is right that `caplog.handler.handle(record)` applies filters but not levels, and
+that forwarded records do not reach `caplog.get_records(phase)`. **Refuted as a live problem in
+this branch:** `rg` over `apps/screamingface-engine/tests` finds ZERO uses of
+`caplog.get_records(`, so the second divergence has no caller. And the bridge only fires while
+`propagate` is False — i.e. only after a test has built an App — so a test that never builds one
+is byte-for-byte unaffected. The whole suite passes in the gate run below, in the randomised
+order the suite runs in. **Accepted as a naming point:** it is test infrastructure introduced by
+a config-sweep ticket, and Deviation 4 already says so in full. No code change; recorded here
+rather than silently agreed with.
+
+### F8 (LOW, REFUTED) — `_QueueShapedRunner` in `test_active_runs_gauge.py`
+
+The test asserts that a runner exposing no `active_count` produces no series, using a local
+empty class. The reviewer's concern is that it pins a SHAPE rather than the production object,
+so adding `active_count` to `QueueJobRunner` would start reporting an in-process count for a
+fleet that executes elsewhere while the test stayed green.
+
+**Refuted as written, for this test.** The gauge's contract IS the shape: `register_active_runs_metrics`
+takes a `JobRunner` port and duck-types `active_count`, by design, because the App must not
+import a concrete adapter (`check_layering.py` enforces this and would fail on an import of
+`QueueJobRunner` from a metrics test). A test that named the concrete class would be testing the
+wiring, not the gauge. The hazard the reviewer describes is real but belongs to whoever adds
+`active_count` to `QueueJobRunner` — at which point the correct guard is a test that the QUEUE
+runner's count is not exposed, which cannot be written today because the attribute does not
+exist. Verified again on this branch: `QueueJobRunner` has no `active_count`. No change.
+
+### Round-2 verification
+
+- **New tests:** 12 added to `tests/unit/test_readiness_probe.py`, append-only. No prior test
+  function, assertion or fixture was deleted, weakened or rewritten — including the first
+  round's own. The tautological `test_readiness_never_blocks_on_a_broker_round_trip` was LEFT
+  IN PLACE and supplemented rather than repaired.
+- **Every new test was confirmed RED before its fix**, then green after.
+- **Mutation testing, round 2: 11 planted, 11 killed**, run by a harness that plants each
+  mutation, runs the file, and restores the source. The list, each with the count of tests that
+  died: leak the URL back into the unreachable message (2); into the not-connected message (1);
+  into the dial-timeout message (1); **drop the adapter's dial bound — the exact pre-fix
+  unbounded await the reviewer named, which the old suite survived (3)**; raise the dial bound
+  past the kubelet timeout (1); drop the boundary bound in `stream_readiness` (2); raise the
+  boundary bound past the kubelet timeout (1); drop the length cap (1); drop the control-char
+  scrub (1); drop the server-side log of the withheld detail (1); swallow the not-ready
+  condition entirely (6).
+- **No assertion reads `repr()`** of any object: the new tests walk `str(exc)`, decoded response
+  bytes, parsed JSON members, `record.getMessage()`, parsed `values.yaml` and module constants.

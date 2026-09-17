@@ -1,8 +1,8 @@
 """The chart probes the endpoints that answer the question each probe asks (OME-942).
 
 Both probes used to target `/healthz`, so `/livez` and `/readyz` were dead surfaces and the
-readiness probe could never fail — Kubernetes kept a pod with a dead NATS connection in the
-Service's endpoints, and runs routed there were accepted and went nowhere.
+readiness probe could not fail whatever the state of a pod's NATS connection. That is read off
+the chart and the endpoint; no incident is claimed here, and none was investigated.
 
 WHY these assertions run against a RENDERED manifest and not `helm lint`: lint reads the
 templates without executing them and reports success for a chart that cannot render at all.
