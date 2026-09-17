@@ -83,8 +83,20 @@ class _FakeVBox(_FakeBox):
     pass
 
 
+class _FakeControl:
+    def __init__(self, **values: Any) -> None:
+        self.__dict__.update(values)
+        self.layout = values.get("layout", _FakeLayout())
+
+    def observe(self, callback: Any, *, names: str) -> None:
+        pass
+
+
 def _fake_widgets() -> SimpleNamespace:
     return SimpleNamespace(
+        HBox=_FakeBox,
+        ToggleButton=_FakeControl,
+        BoundedIntText=_FakeControl,
         Box=_FakeBox,
         HTML=_FakeHTML,
         Layout=_FakeLayout,
@@ -1048,6 +1060,8 @@ def test_live_widget_uses_one_runtime_fragment_projection(monkeypatch: Any) -> N
         benchmark: str | None,
         elapsed: float | None,
         check_disclosure: str | None,
+        *,
+        expandable: bool = False,
     ) -> tuple[str, str, str]:
         del progress, check_disclosure
         calls.append((benchmark or "", elapsed))

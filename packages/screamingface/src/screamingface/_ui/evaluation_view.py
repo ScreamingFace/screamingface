@@ -49,7 +49,7 @@ _STYLE = (
 .sf-eval__candidate{font-family:"IBM Plex Sans",system-ui,sans-serif;font-weight:500;
   color:var(--sf-ink)}
 .sf-eval__status{display:inline-flex;align-items:center;gap:8px;color:var(--sf-ink-2);
-  font-family:"IBM Plex Sans",system-ui,sans-serif;white-space:nowrap}
+  font-family:"IBM Plex Sans",system-ui,sans-serif;white-space:normal}
 .sf-eval__status-sq{width:9px;height:9px;flex:0 0 auto;background:var(--sf-ink-3)}
 .sf-eval__status--running .sf-eval__status-sq{background:var(--sf-accent)}
 .sf-eval__status--finished .sf-eval__status-sq{background:var(--sf-success-solid)}
@@ -78,11 +78,13 @@ def _evaluation_fragments(
     benchmark: str | None = None,
     elapsed: float | None = None,
     check_disclosure: str | None = None,
+    *,
+    expandable: bool = False,
 ) -> tuple[str, str, str]:
     title = escape(benchmark) if benchmark else "Evaluation"
     return (
         _STYLE + _evaluation_header_html(progress, title, check_disclosure),
-        _candidate_table_html(progress, elapsed),
+        _table_html("") if expandable else _candidate_table_html(progress, elapsed),
         _terminal_html(progress),
     )
 
@@ -205,6 +207,11 @@ def _receipt_html(progress: _EvaluationProgress) -> str:
 
 
 def _candidate_table_html(progress: _EvaluationProgress, elapsed: float | None) -> str:
+    body = "".join(_candidate_row_html(row, elapsed) for row in progress.rows)
+    return _table_html(body)
+
+
+def _table_html(body: str) -> str:
     headers = (
         ("Candidate", False),
         ("Status", False),
@@ -217,7 +224,6 @@ def _candidate_table_html(progress: _EvaluationProgress, elapsed: float | None) 
         f"<th scope='col'{" class='sf-eval__num'" if numeric else ''}>{header}</th>"
         for header, numeric in headers
     )
-    body = "".join(_candidate_row_html(row, elapsed) for row in progress.rows)
     columns = "".join(
         f"<col class='sf-eval__col--{name}'>"
         for name in ("candidate", "status", "cases", "score", "cost", "cache")
@@ -241,6 +247,8 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
         "timed_out": "Timed out",
         "not_run": "Not run",
     }[row.status]
+    if row.status == "running" and row.stage is not None:
+        status = escape(row.stage)
     details: list[str] = []
     if row.status == "running" and elapsed is not None:
         started = row.started_elapsed_seconds or 0.0

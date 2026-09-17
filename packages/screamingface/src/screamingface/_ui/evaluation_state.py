@@ -34,6 +34,7 @@ class _CandidateProgress:
     cache_counts: dict[str, tuple[int, int, int]] = field(default_factory=dict)
     cache_bypass_reasons: dict[str, dict[str, int]] = field(default_factory=dict)
     activity: str | None = None
+    stage: str | None = None
     result: CandidateResult | None = None
     workflow_status: str | None = None
     started_elapsed_seconds: float | None = None
