@@ -1,10 +1,10 @@
-"""Candidate-scoped activity, grouped by explicit execution parentage."""
+"""Chronological activity with stage labels from explicit execution parentage."""
 
 import time
 from html import escape
 
-from screamingface._ui.activity_groups import ActivityGroup, groups
-from screamingface._ui.activity_record import TERMINAL
+from screamingface._ui.activity_groups import groups
+from screamingface._ui.activity_record import LABELS, TERMINAL
 from screamingface._ui.activity_state import ActivityLog, ActivityRow
 
 STYLE = """<style>
@@ -30,7 +30,7 @@ STYLE = """<style>
 
 def _outcome(row: ActivityRow) -> str:
     record = row.record
-    if record.state in TERMINAL:
+    if row.historical or record.state in TERMINAL:
         return record.state
     if row.ended:
         return "Run ended; operation outcome not observed"
@@ -77,14 +77,21 @@ def _call(row: ActivityRow, label: str) -> str:
     )
 
 
-def _group(group: ActivityGroup, selected: set[tuple[str, str]]) -> str:
-    calls = [r for r in group.calls if (r.run, r.record.id) in selected]
-    stage = group.stage
-    if not calls and (stage is None or (stage.run, stage.record.id) not in selected):
-        return ""
-    summary = _description(stage, group.label) if stage else group.label
-    lines = "".join(_call(r, group.label if stage else "Model call") for r in calls)
-    return f'<div class="sf-activity__stage">{escape(summary)}</div>{lines}'
+def _timeline(log: ActivityLog, candidate: int, rows: list[ActivityRow]) -> str:
+    # WHY: parentage labels each call; it must not reorder interleaved Case events.
+    labels = {
+        (row.run, row.record.id): group.label if group.stage else "Model call"
+        for group in groups(log, candidate)
+        for row in group.calls
+    }
+    lines = []
+    for row in rows:
+        if row.record.kind == "model_call":
+            lines.append(_call(row, labels.get((row.run, row.record.id), "Model call")))
+        else:
+            text = _description(row, LABELS[row.record.kind])
+            lines.append(f'<div class="sf-activity__stage">{escape(text)}</div>')
+    return "".join(lines)
 
 
 def activity_html(
@@ -95,12 +102,9 @@ def activity_html(
     page: int = 0,
     finished: bool = False,
 ) -> str:
-    rows = [r for r in log.rows(detailed=True) if r.candidate == candidate]
+    rows = [r for r in log.history() if r.candidate == candidate]
     page = max(0, min(page, max(0, (len(rows) - 1) // 100)))
-    selected = {
-        (r.run, r.record.id)
-        for r in rows[max(0, len(rows) - (page + 1) * 100) : len(rows) - page * 100]
-    }
+    selected = rows[max(0, len(rows) - (page + 1) * 100) : len(rows) - page * 100]
     notices = [
         ("evaluation history entries evicted", log.truncated),
         ("operation revision gaps", log.gaps),
@@ -110,7 +114,7 @@ def activity_html(
         ("Engine bridge Logs dropped", log.bridge_loss.get(candidate, 0)),
     ]
     notice = "; ".join(f"{n} {label}" for label, n in notices if n)
-    content = "".join(_group(g, selected) for g in groups(log, candidate))
+    content = _timeline(log, candidate, selected)
     if not content:
         content = (
             "<p>"

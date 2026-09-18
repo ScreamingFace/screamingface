@@ -73,7 +73,7 @@ class CandidateActivityRow:
     def _refresh_activity(self) -> None:
         self._updating = True
         try:
-            count = sum(r.candidate == self._index for r in self._log.rows(detailed=True))
+            count = sum(r.candidate == self._index for r in self._log.history())
             self.page.max = max(0, (count - 1) // 100)
             self.page.layout.display = "" if count > 100 else "none"
             self.html.value = activity_html(

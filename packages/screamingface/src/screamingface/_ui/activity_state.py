@@ -20,6 +20,7 @@ class ActivityRow:
     run: str
     record: ActivityRecord
     ended: bool
+    historical: bool = False
 
 
 class ActivityLog:
@@ -107,6 +108,19 @@ class ActivityLog:
 
     def end(self, candidate: int) -> None:
         self._ended.add(candidate)
+
+    def history(self) -> list[ActivityRow]:
+        """Accepted transitions in receive order, within the existing rolling bounds."""
+        return [
+            ActivityRow(
+                candidate,
+                run,
+                record,
+                candidate in self._ended,
+                self._latest.get((candidate, run, operation)) is not record,
+            )
+            for (candidate, run, operation, _), record in self._history.items()
+        ]
 
     def rows(self, *, detailed: bool = False) -> list[ActivityRow]:
         return [
