@@ -18,7 +18,12 @@ from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.adapters.memory import InMemoryEventStream
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
-from screamingface_engine.local import LOCAL_HOST, _with_runner_config, create_local_app
+from screamingface_engine.local import (
+    CHECKOUT_CONFIG_NAME,
+    LOCAL_HOST,
+    _with_runner_config,
+    create_local_app,
+)
 
 
 def _app(**kwargs: object) -> FastAPI:
@@ -94,20 +99,27 @@ def test_settings_tune_the_local_bounds() -> None:
 def test_an_unconfigured_local_run_falls_back_to_the_checkout_config() -> None:
     """Without this, every run in a dev checkout fails before reaching a model.
 
-    The declared world is baked into the IMAGE at `/etc/url4/url4.toml` and is not installed by
+    The declared world is baked into the IMAGE at `/etc/url4/url4.json` and is not installed by
     the wheel, so the default path does not exist outside a container.
     """
     resolved = _with_runner_config({})
 
     config_path = Path(resolved[job_env.RUNNER_CONFIG])
     assert config_path.is_file()
-    assert config_path.name == "url4.toml"
+    assert config_path.name == CHECKOUT_CONFIG_NAME
+
+
+def test_the_checkout_config_name_is_the_one_constant() -> None:
+    """Three places must agree on this name and two fail SILENTLY when they do not: the wheel
+    resource lookup ships no runner config, and checkout detection quietly reports installed
+    mode. Pinning it here makes a drift a test failure instead of a support ticket."""
+    assert CHECKOUT_CONFIG_NAME == "url4.json"
 
 
 def test_an_explicit_runner_config_is_never_overridden() -> None:
-    resolved = _with_runner_config({job_env.RUNNER_CONFIG: "/somewhere/else.toml"})
+    resolved = _with_runner_config({job_env.RUNNER_CONFIG: "/somewhere/else.json"})
 
-    assert resolved[job_env.RUNNER_CONFIG] == "/somewhere/else.toml"
+    assert resolved[job_env.RUNNER_CONFIG] == "/somewhere/else.json"
 
 
 def test_the_fallback_leaves_the_rest_of_the_environment_alone() -> None:

@@ -135,30 +135,29 @@ jobs:
       - name: Serve over real HTTP
         run: |
           set -euo pipefail
-          cat > ci-url4.toml <<'TOML'
-          host = "127.0.0.1"
-          port = 4404
-          # A reduce backend is handed the merged sources as its INTENT with
-          # empty stdin, so the reduce route must consume {intent}. A
-          # stdin-only command (like /upper) silently returns an empty 200.
-          default_route = "/reduce"
+          # A reduce backend is handed the merged sources as its INTENT with empty
+          # stdin, so the reduce route must consume {intent}. A stdin-only command
+          # (like /upper) silently returns an empty 200. JSON carries no comments,
+          # so this note lives here rather than in the file.
+          cat > ci-url4.json <<'JSON'
+          {
+            "server": { "host": "127.0.0.1", "port": 4404 },
+            "routes": {
+              "default_route": "/reduce",
+              "commands": {
+                "/upper":  ["tr", "a-z", "A-Z"],
+                "/reduce": ["python3", "-c", "import sys; sys.stdout.write(sys.argv[1])", "{intent}"]
+              }
+            },
+            "reads": {
+              "data":       { "/rubrics/42": "score 1-5 on clarity" },
+              "holdings":   { "default": "DEFAULT-SHELF", "science": "SCIENCE-SHELF" },
+              "identities": { "emily": { "notes": "EMILY-NOTES" } }
+            }
+          }
+          JSON
 
-          [commands]
-          "/upper"  = ["tr", "a-z", "A-Z"]
-          "/reduce" = ["python3", "-c", "import sys; sys.stdout.write(sys.argv[1])", "{intent}"]
-
-          [data]
-          "/rubrics/42" = "score 1-5 on clarity"
-
-          [holdings]
-          default = "DEFAULT-SHELF"
-          science = "SCIENCE-SHELF"
-
-          [identities.emily]
-          notes = "EMILY-NOTES"
-          TOML
-
-          uv run url4 serve --config ci-url4.toml > serve.log 2>&1 &
+          uv run url4 serve --config ci-url4.json > serve.log 2>&1 &
           echo $! > serve.pid
 
           # Bounded readiness wait — never an unbounded loop.

@@ -36,7 +36,7 @@ _SEEDS = [
     # OME-816: frontier + budget lineup from the Aug-2026 catalogs (OpenRouter 50 / OpenAI 15 /
     # Anthropic-on-OpenRouter). Each was present in the live openrouter.ai/api/v1/models catalog
     # on 2026-08-13; re-check at release. `:variant` slugs (:batch/:free) are aigateway-only —
-    # url4.toml cannot route a colon (OME-819).
+    # url4.json cannot route a colon (OME-819).
     "openrouter/anthropic/claude-opus-5",
     "openrouter/x-ai/grok-4.6",
     "openrouter/openai/gpt-5.6-sol",

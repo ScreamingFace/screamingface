@@ -15,7 +15,7 @@ Stages of ``replay_stack``, in execution order:
    (``URL4_CLOUD_AIGATEWAY_BASE_URL`` wires the App's catalog/connections routes;
    ``AIGATEWAY_BASE_URL`` wires the run-mode model calls) — setting only one is the
    classic mis-boot where discovery works and every model call goes to :9105.
-   ``URL4_RUNNER_CONFIG`` names the checkout's ``url4.toml`` explicitly, and
+   ``URL4_RUNNER_CONFIG`` names the checkout's ``url4.json`` explicitly, and
    ``URL4_BENCHMARK_ASSETS`` is set only when a board test supplies prepared assets —
    without it the engine (by design) installs no benchmarks.
 3. **Teardown** — reverse order, even on a failed boot.
@@ -62,7 +62,7 @@ class EngineProcess:
                 "AIGATEWAY_BASE_URL": aigateway_base_url,
                 # Explicit, so the boot does not depend on the checkout-relative
                 # fallback inside screamingface_engine.local.
-                "URL4_RUNNER_CONFIG": str(engine_dir / "url4.toml"),
+                "URL4_RUNNER_CONFIG": str(engine_dir / "url4.json"),
                 # No web tools: TAVILY_API_KEY deliberately absent (deny by default).
             }
         )

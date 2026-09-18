@@ -8,7 +8,7 @@ module answers "which source?" once, in three stages:
 
 1. **Detect** — `checkout_root` walks a fixed number of directories up from this very
    file and demands the full repo marker set (SDK pyproject, all three app source
-   trees, the engine's `url4.toml`, the url4 package). All markers or nothing: a pip
+   trees, the engine's `url4.json`, the url4 package). All markers or nothing: a pip
    install never sits inside that layout, so it resolves to "bundled".
 2. **Resolve** — `resolve_source` lets `SCREAMINGFACE_RUNTIME_SOURCE=checkout|bundled`
    force either mode (forcing `checkout` outside a checkout is an error), otherwise
@@ -56,7 +56,7 @@ _CHECKOUT_MARKERS = (
     Path("apps") / "aigateway" / "src" / "aigateway" / "__init__.py",
     Path("apps") / "scoreboard" / "src" / "scoreboard" / "__init__.py",
     Path("apps") / "screamingface-engine" / "src" / "screamingface_engine" / "__init__.py",
-    Path("apps") / "screamingface-engine" / "url4.toml",
+    Path("apps") / "screamingface-engine" / "url4.json",
     Path("packages") / "url4" / "src" / "url4" / "__init__.py",
 )
 

@@ -73,8 +73,8 @@ Notes the boxes can't carry:
 ```mermaid
 flowchart TD
     main["runner/main.py — entrypoint<br>(screamingface-engine run, via cli.py, lazily)<br>params_from_env() → topic/url4 · build_executor()"]
-    config["world_config.py<br>load_config(url4.toml)"]
-    connector["runner/connector.py<br>build_aigateway_world() → Url4Node world<br>(routes DECLARED by url4.toml → POST /v1/chat/completions, + Tavily tools)"]
+    config["world_config.py<br>load_config(url4.json)"]
+    connector["runner/connector.py<br>build_aigateway_world() → Url4Node world<br>(routes DECLARED by url4.json → POST /v1/chat/completions, + Tavily tools)"]
     deny["runner/executor.deny_by_default_world()"]
     executor["runner/executor.py<br>Url4Executor.execute()<br>_Bridge (sync Observer → async generator)<br>_RunState (engine events → Traced Span/Cost/Log)<br>drives url4.dag.run(io)"]
     lifecycle["url4.streaming.lifecycle.run() — orchestrator<br>(shared, in packages/url4)<br>establish root trace (trace.parse_traceparent)<br>Started → telemetry… → CostUsage{subtree} → Result → Terminated"]
@@ -82,7 +82,7 @@ flowchart TD
     downstream["JetStream → control plane → client"]
 
     main --> config
-    config -->|"[aigateway] table present"| connector
+    config -->|"`world` object present"| connector
     config -->|no table| deny
     connector -->|io = world.node| executor
     deny --> executor
@@ -94,8 +94,8 @@ flowchart TD
 
 `world_config.py` is the single parser for the DECLARED model world. The control plane uses it to
 project discovery and the run mode uses it to build routes, so the two cannot disagree.
-`url4.toml` ships in the image at `/etc/url4/url4.toml`, baked from
-`apps/screamingface-engine/url4.toml`.
+`url4.json` ships in the image at `/etc/url4/url4.json`, baked from
+`apps/screamingface-engine/url4.json`.
 
 ### Run-mode call sequence (one run)
 
@@ -109,7 +109,7 @@ sequenceDiagram
     participant B as JetStream bus
 
     M->>M: ① params_from_env(env) → topic / url4
-    M->>M: ② build_executor(env): load_config → [aigateway] table?<br>yes → connector.build_aigateway_world (world resolved on first execute)<br>no → deny_by_default_world
+    M->>M: ② build_executor(env): load_config → `world` object?<br>yes → connector.build_aigateway_world (world resolved on first execute)<br>no → deny_by_default_world
     M->>L: ③ run(bus, executor, topic, url4, traceparent)
     L->>L: parse_traceparent(traceparent) → trace_id (or mint fresh)<br>TraceContext + _Sequencer
     L->>B: ensure_stream(topic) · publish StartedEvent
@@ -141,7 +141,7 @@ sequenceDiagram
 | orchestrator (shared: `url4.streaming`) | `lifecycle.py` | Drives the executor, wraps frames as CloudEvents, publishes the Started…Terminated lifecycle |
 | adapter (the **only** url4-engine importer) | `runner/executor.py` | `Url4Executor`: `_Bridge` (sync→async), `_RunState` (events→Traced), drives the DAG |
 | world builder | `runner/connector.py` | Builds the `Url4Node` "world" of declared routes → aigateway chat (+ optional Tavily tools) |
-| declared world | `world_config.py` | Parses `url4.toml` (`/etc/url4/url4.toml`) once for both control-plane discovery and Runner execution |
+| declared world | `world_config.py` | Parses `url4.json` (`/etc/url4/url4.json`) once for both control-plane discovery and Runner execution |
 | boundary doc | `runner/__init__.py` | No re-exports — it carries the layering rule (what this half may and may not import) |
 
 ### Control plane (`src/screamingface_engine/`)

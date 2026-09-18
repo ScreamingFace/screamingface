@@ -33,7 +33,7 @@ data:
   AIGATEWAY_BASE_URL: {{ . | quote }}
   {{- end }}
   {{- with .Values.config.aigatewayModel }}
-  # Overrides the default route declared in the Runner image's url4.toml. Before this ConfigMap
+  # Overrides the default route declared in the Runner image's url4.json. Before this ConfigMap
   # the Runner read AIGATEWAY_MODEL but no adapter ever wrote it, so a deployment had no way to
   # set it; now it does.
   AIGATEWAY_MODEL: {{ . | quote }}

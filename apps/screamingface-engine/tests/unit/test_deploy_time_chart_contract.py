@@ -39,14 +39,14 @@ _CONDITIONALLY_RENDERED = {
     # Absent => web tools stay off, which is a working deployment (dec:W5). The Secret is
     # attached by name via envFrom, so the KEY appears in the chart's secret template.
     job_env.TAVILY_API_KEY,
-    # Absent => the Runner uses the default route declared in the image's own url4.toml.
+    # Absent => the Runner uses the default route declared in the image's own url4.json.
     job_env.AIGATEWAY_MODEL,
     # Absent => the caps fall back to shipped defaults that are correct at any scale; unlike
     # a storage location, a byte count has a safe default.
     job_env.RESULT_INLINE_CAP_BYTES,
     job_env.RESULT_HARD_CAP_BYTES,
     job_env.BRIDGE_MEMORY_BUDGET_BYTES,
-    # Absent => the run mode reads the `url4.toml` baked into the image at its default path.
+    # Absent => the run mode reads the `url4.json` baked into the image at its default path.
     # The image guarantees that file exists, so the fallback resolves to real declared config
     # rather than to an empty location — the property `ARTIFACTS_DIR` lacked.
     job_env.RUNNER_CONFIG,

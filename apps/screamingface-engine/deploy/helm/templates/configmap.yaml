@@ -44,7 +44,7 @@ data:
   # using the CALLER's forwarded credential — it needs no credential of its own. Unset =>
   # `/v1/models` answers 503.
   # NOT sufficient on its own: the endpoint returns aigateway's catalog INTERSECTED with the
-  # models declared in this image's `url4.toml` (/etc/url4/url4.toml), so the App reads that file
+  # models declared in this image's `url4.json` (/etc/url4/url4.json), so the App reads that file
   # at boot too. An unusable declared world disables both catalog routes (503) and logs an ERROR;
   # it does NOT stop the App — runs, streaming and health are unaffected.
   URL4_CLOUD_AIGATEWAY_BASE_URL: {{ . | quote }}

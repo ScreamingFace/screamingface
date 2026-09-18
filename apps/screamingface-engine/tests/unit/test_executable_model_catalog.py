@@ -1,5 +1,11 @@
 """The Engine advertises only Gateway models its declared world can execute.
 
+PORTED FROM url4.json (OME-1183). The production path under test --
+`build_executable_catalog_service` -> `declared_model_ids` -> `load_config` -- is what
+reads the file, so `conftest.py` swaps that loader for the ported one. Without it these
+tests would hand `tomllib` a JSON document and fail at column 1 while appearing to be
+about catalogs.
+
 FEATURE: OME-625 — model discovery is an Engine capability contract, not a raw copy of every
 route AI Gateway could serve directly.
 STORY: an SDK user can select any id returned by Engine ``GET /v1/models`` without discovering
@@ -8,6 +14,7 @@ at render time that the route is absent or cannot be expressed as URL4.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -34,6 +41,13 @@ from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world_config import WorldConfigError, declared_model_ids
 
 pytestmark = pytest.mark.asyncio
+
+
+def _write(tmp_path: Path, doc: dict) -> Path:
+    path = tmp_path / "url4.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
 
 _DECLARED = "openrouter/openai/gpt-5.5"
 _GATEWAY_ONLY = "huggingface/google/gemma-2-2b-it:featherless-ai"
@@ -142,10 +156,14 @@ async def test_production_builder_wraps_the_gateway_source_with_the_declared_rou
             },
         )
 
-    config = tmp_path / "url4.toml"
-    config.write_text(
-        '[aigateway]\ndefault_route = "openrouter/openai/gpt-5.5"\n'
-        'models = ["openrouter/openai/gpt-5.5"]\n'
+    config = _write(
+        tmp_path,
+        {
+            "world": {
+                "default_route": "openrouter/openai/gpt-5.5",
+                "models": ["openrouter/openai/gpt-5.5"],
+            }
+        },
     )
     service = build_executable_catalog_service(
         Settings(aigateway_base_url="http://aigateway.test"),
@@ -176,8 +194,7 @@ async def test_production_builder_snapshots_declared_routes_at_startup(tmp_path:
             json={"object": "list", "data": [{"id": _DECLARED, "object": "model"}]},
         )
 
-    config = tmp_path / "url4.toml"
-    config.write_text(f'[aigateway]\ndefault_route = "{_DECLARED}"\nmodels = ["{_DECLARED}"]\n')
+    config = _write(tmp_path, {"world": {"default_route": _DECLARED, "models": [_DECLARED]}})
     service = build_executable_catalog_service(
         Settings(aigateway_base_url="http://aigateway.test"),
         {job_env.RUNNER_CONFIG: str(config)},
@@ -188,7 +205,7 @@ async def test_production_builder_snapshots_declared_routes_at_startup(tmp_path:
     )
     assert service is not None
 
-    config.write_text('[aigateway]\nmodels = ["openrouter/other/model"]\n')
+    config.write_text(json.dumps({"world": {"models": ["openrouter/other/model"]}}))
     catalog = await service.fetch(Credential.derive())
 
     assert catalog.body["data"] == [{"id": _DECLARED, "object": "model"}]
@@ -198,7 +215,7 @@ async def test_production_builder_snapshots_declared_routes_at_startup(tmp_path:
 async def test_unconfigured_builder_stays_unconfigured() -> None:
     service = build_executable_catalog_service(
         Settings(aigateway_base_url=None),
-        {job_env.RUNNER_CONFIG: "/missing/url4.toml"},
+        {job_env.RUNNER_CONFIG: "/missing/url4.json"},
     )
 
     assert service is None
@@ -210,7 +227,7 @@ async def test_unreadable_declared_world_disables_discovery_without_killing_the_
     with caplog.at_level(logging.ERROR, logger="screamingface_engine.catalog"):
         service = build_executable_catalog_service(
             Settings(aigateway_base_url="http://aigateway.test"),
-            {job_env.RUNNER_CONFIG: "/missing/url4.toml"},
+            {job_env.RUNNER_CONFIG: "/missing/url4.json"},
         )
 
     # Scoped, not fatal: the App composes, and only the catalog routes report unavailable. The
@@ -225,7 +242,7 @@ async def test_unusable_declared_world_serves_503_and_leaves_the_app_running() -
         stream=InMemoryEventStream(),
         catalog=build_executable_catalog_service(
             Settings(aigateway_base_url="http://aigateway.test"),
-            {job_env.RUNNER_CONFIG: "/missing/url4.toml"},
+            {job_env.RUNNER_CONFIG: "/missing/url4.json"},
         ),
     )
 
@@ -240,8 +257,10 @@ async def test_unusable_declared_world_serves_503_and_leaves_the_app_running() -
 
 
 async def test_configured_builder_accepts_the_valid_empty_engine_world(tmp_path: Path) -> None:
-    config = tmp_path / "url4.toml"
-    config.write_text("")
+    # PORTED: an EMPTY FILE was a valid empty TOML document. It is not valid JSON, so the
+    # equivalent -- a document that declares no world -- is spelled `{}`. The behaviour being
+    # asserted (an engine world with nothing declared is legal) is unchanged.
+    config = _write(tmp_path, {})
     service = build_executable_catalog_service(
         Settings(aigateway_base_url="http://aigateway.test"),
         {job_env.RUNNER_CONFIG: str(config)},
@@ -266,10 +285,9 @@ async def test_configured_builder_accepts_the_valid_empty_engine_world(tmp_path:
 async def test_runner_invalid_model_capability_disables_discovery_and_still_fails_the_runner(
     tmp_path: Path,
 ) -> None:
-    config = tmp_path / "url4.toml"
-    config.write_text(
-        '[aigateway]\ndefault_route = "model"\n'
-        '[[aigateway.models]]\nid = "model"\nweb_search = "yes"\n'
+    config = _write(
+        tmp_path,
+        {"world": {"default_route": "model", "models": [{"id": "model", "web_search": "yes"}]}},
     )
     env = {job_env.RUNNER_CONFIG: str(config)}
 

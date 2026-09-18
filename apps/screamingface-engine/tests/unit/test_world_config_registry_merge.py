@@ -1,4 +1,11 @@
-"""The declared world is the registry, with url4.toml layered additively on top."""
+"""The declared world is the registry, with url4.json layered additively on top.
+
+PORTED FROM url4.json (OME-1183). Every fixture here was already a dict handed to
+`parse_config` — TOML only entered through the shared `{"aigateway": ...}` key, never through
+text parsing — so the only changes are the key rename to `world` and the four test names that
+said "toml entry", renamed to "declared entry" to match `world_config`'s own vocabulary
+(`_declared_models`).
+"""
 
 from __future__ import annotations
 
@@ -21,12 +28,12 @@ _REGISTRY = ModelRegistry(
 
 
 def _world(table: dict[str, object], registry: ModelRegistry = _REGISTRY) -> AigatewaySection:
-    section = parse_config({"aigateway": table}, {}, registry=registry).aigateway
+    section = parse_config({"world": table}, {}, registry=registry).aigateway
     assert section is not None
     return section
 
 
-def test_registry_ids_reach_the_declared_world_without_any_toml_entry() -> None:
+def test_registry_ids_reach_the_declared_world_without_any_declared_entry() -> None:
     section = _world({"default_route": "/anthropic/claude-haiku-4-5"})
 
     # OME-873: the aigateway_only seed ("org/model:novita") reaches the world too, under its
@@ -38,7 +45,7 @@ def test_registry_ids_reach_the_declared_world_without_any_toml_entry() -> None:
     }
 
 
-def test_a_toml_entry_may_add_an_id_the_registry_lacks() -> None:
+def test_a_declared_entry_may_add_an_id_the_registry_lacks() -> None:
     # WHY additive: ollama discovers its models at run time and two provider seed lists are
     # env-overridable, so a deployment must still be able to declare its own routes.
     section = _world(
@@ -51,7 +58,7 @@ def test_a_toml_entry_may_add_an_id_the_registry_lacks() -> None:
     assert "ollama/llama-4" in {m.id for m in section.models}
 
 
-def test_a_toml_entry_overrides_the_registry_capability_for_that_id() -> None:
+def test_a_declared_entry_overrides_the_registry_capability_for_that_id() -> None:
     section = _world(
         {
             "default_route": "/anthropic/claude-haiku-4-5",
@@ -64,7 +71,7 @@ def test_a_toml_entry_overrides_the_registry_capability_for_that_id() -> None:
     assert specs["anthropic/claude-haiku-4-5"].web_search is True
 
 
-def test_a_toml_entry_duplicating_a_registry_id_yields_exactly_one_spec() -> None:
+def test_a_declared_entry_duplicating_a_registry_id_yields_exactly_one_spec() -> None:
     # INVARIANT: routes_for maps "/" + id, so two specs for one id would collapse silently and
     # whichever lost would take its capability with it.
     section = _world(
@@ -104,7 +111,7 @@ def test_a_default_route_naming_an_aigateway_only_id_is_refused() -> None:
         _world({"default_route": "/huggingface/org/model:novita"})
 
 
-def test_a_toml_only_world_still_builds_against_the_empty_registry() -> None:
+def test_a_declared_only_world_still_builds_against_the_empty_registry() -> None:
     # Backward compatibility for a deployment pointing URL4_RUNNER_CONFIG at its own file.
     section = _world(
         {"default_route": "/ollama/llama-4", "models": [{"id": "ollama/llama-4"}]},

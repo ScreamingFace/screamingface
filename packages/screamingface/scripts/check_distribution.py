@@ -57,7 +57,7 @@ def _validate(paths: tuple[PurePosixPath, ...], *, source: bool) -> None:
             PurePosixPath("scoreboard/__init__.py"),
             PurePosixPath("url4/__init__.py"),
             PurePosixPath("screamingface_engine/__init__.py"),
-            PurePosixPath("screamingface/_runtime/resources/url4.toml"),
+            PurePosixPath("screamingface/_runtime/resources/url4.json"),
             PurePosixPath("screamingface/_runtime/scoreboard_portal/index.html"),
         }
         missing_runtime = sorted(map(str, required_runtime_files - set(paths)))

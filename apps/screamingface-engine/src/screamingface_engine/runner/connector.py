@@ -385,7 +385,7 @@ async def build_aigateway_world(
     """
     if not cfg.models:
         raise WorldConfigError(
-            "aigateway declares no models — the runner's endpoints are declared in url4.toml, "
+            "aigateway declares no models — the runner's endpoints are declared in url4.json, "
             "not discovered from the gateway catalog"
         )
     declared_ids = [model.id for model in cfg.models]

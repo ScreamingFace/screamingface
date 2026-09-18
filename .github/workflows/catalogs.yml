@@ -1,0 +1,64 @@
+# Gate: every config catalog in the repo is well-formed (OME-1183).
+#
+# WHY ITS OWN WORKFLOW, like charts.yml: `paths:` is workflow-level. A catalog job inside
+# the url4 lane would run that package's whole matrix on every schema edit, and — worse —
+# would NOT run at all for a catalog committed somewhere else in the monorepo, because
+# that lane is filtered on `packages/url4/**`. Catalogs are repo-wide; the gate must be too.
+#
+# WHY A GATE AND NOT JUST THE UNIT TESTS: `x-scope` is not a JSON Schema keyword, and
+# 2020-12 §6.5 requires a validator to IGNORE unknown keywords. Every validator therefore
+# calls a catalog with a scopeless leaf valid. Only this walk says otherwise.
+name: Config catalogs
+
+on:
+  push:
+    paths:
+      - "**/*.schema.json"
+      - "packages/url4/src/url4/discovery/**"
+      - ".github/scripts/lint_catalogs.py"
+      - ".github/scripts/test_lint_catalogs.py"
+      - ".github/workflows/catalogs.yml"
+  pull_request:
+    paths:
+      - "**/*.schema.json"
+      - "packages/url4/src/url4/discovery/**"
+      - ".github/scripts/lint_catalogs.py"
+      - ".github/scripts/test_lint_catalogs.py"
+      - ".github/workflows/catalogs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: catalogs are well-formed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install the linter
+        working-directory: packages/url4
+        run: uv sync
+
+      # The gate's own tests run FIRST. A gate that reports green while broken is worse
+      # than no gate, and the self-check inside it is only trustworthy if this passes.
+      - name: Test the gate itself
+        working-directory: packages/url4
+        run: uv run pytest -q ../../.github/scripts/test_lint_catalogs.py
+
+      # `--require-at-least 0` is correct while no catalog is committed: the run prints
+      # the count it found, so a drop from N to 0 is visible in the log. RAISE IT to the
+      # real number in the same commit that lands the catalogs — after that, finding none
+      # means discovery broke or someone deleted them, and both should be red.
+      - name: Lint every catalog in the repo
+        working-directory: packages/url4
+        run: uv run python ../../.github/scripts/lint_catalogs.py --root ../.. --require-at-least 0

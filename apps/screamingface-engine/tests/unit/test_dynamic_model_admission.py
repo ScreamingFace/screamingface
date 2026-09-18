@@ -1,5 +1,11 @@
 """OME-880: dynamic OpenRouter model admission — the engine half of OME-878.
 
+PORTED FROM url4.json (OME-1183). Only the `_MINIMAL` world fixture and its two loaders
+(`_world`, `_app_world`) near the bottom touch the config file at all — every other test here
+(the shape gate, the admit-call adapter, the model-parameters miss trigger, the catalog
+projection, cache invalidation) has nothing to do with `url4.json`/`url4.json` and is carried
+over unchanged apart from the one import swap.
+
 FEATURE: run any OpenRouter model. On a model-parameters miss for an
 OpenRouter-shaped id, the engine asks the gateway `POST /v1/models/admit`
 before refusing. A grant joins an in-memory overlay beside the frozen declared
@@ -9,7 +15,7 @@ diagnostic code; a gateway without the endpoint (or unreachable) degrades to
 today's plain `ModelNotInstalled` — never a crash.
 
 INVARIANT: the compiled declared world, the set-equality drift guard, and
-url4.toml semantics are untouched — admission only ever ADDS, in memory.
+url4.json semantics are untouched — admission only ever ADDS, in memory.
 """
 
 from __future__ import annotations
@@ -492,32 +498,24 @@ async def test_invalidate_keeps_the_stale_body_for_outage_fallback() -> None:
 
 # --- the runner world reads URL4_CLOUD_EXTRA_MODELS -------------------------
 
-_MINIMAL_TOML = """
-[aigateway]
-base_url = "http://aigateway.test"
-default_route = "/claude-haiku-4-5"
-models = ["claude-haiku-4-5"]
-"""
+_MINIMAL: dict = {
+    "world": {
+        "base_url": "http://aigateway.test",
+        "default_route": "/claude-haiku-4-5",
+        "models": ["claude-haiku-4-5"],
+    }
+}
 
 
 def _world(env: dict[str, str]):
     # `include_extra_models=True` is the RUNNER-boot parse (review F3) — the only
     # path that reads the Job-scoped overlay key.
-    import tomllib
-
-    return parse_config(
-        tomllib.loads(_MINIMAL_TOML),
-        env,
-        registry=EMPTY_MODEL_WORLD,
-        include_extra_models=True,
-    )
+    return parse_config(_MINIMAL, env, registry=EMPTY_MODEL_WORLD, include_extra_models=True)
 
 
 def _app_world(env: dict[str, str]):
     """The App's own parse — extras deliberately NOT opted in."""
-    import tomllib
-
-    return parse_config(tomllib.loads(_MINIMAL_TOML), env, registry=EMPTY_MODEL_WORLD)
+    return parse_config(_MINIMAL, env, registry=EMPTY_MODEL_WORLD)
 
 
 def test_extra_models_join_the_world_additively() -> None:

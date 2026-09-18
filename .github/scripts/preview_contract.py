@@ -127,7 +127,7 @@ def _select_path(path: str) -> Selection:
                 "apps/screamingface-engine/Dockerfile.benchmark",
                 "apps/screamingface-engine/pyproject.toml",
                 "apps/screamingface-engine/uv.lock",
-                "apps/screamingface-engine/url4.toml",
+                "apps/screamingface-engine/url4.json",
             ),
         },
     }

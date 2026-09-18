@@ -95,12 +95,12 @@ sequenceDiagram
     Worker->>Bus: in_progress heartbeats (extend ack_wait)
     Child->>Child: cli.main(["run"]) → lazily imports screamingface_engine.runner.main
     Child->>Child: params_from_env → RunnerParams(topic,url4,nats_url)
-    Child->>Child: build_executor(env); load_config → /etc/url4/url4.toml
+    Child->>Child: build_executor(env); load_config → /etc/url4/url4.json
     alt [aigateway] declared (token required)
         Child->>+Conn: build_aigateway_world(cfg, token, profile, tavily_api_key)
         Conn->>Conn: routes_for(declared models) → one Url4Node route per model
         Conn-->>Child: AigatewayWorld(node, world_aclose)
-    else no [aigateway] table
+    else no `world` object
         Child->>Child: deny_by_default_world() (StaticIOLayer)
     end
     Child->>+Bus: JetStreamPublisher.connect; ensure_stream(topic)
@@ -195,7 +195,7 @@ the Runner and on to aigateway (`job_env.IDENTITY_HEADER_ENV`):
    identity authorizes nothing on its own), and the child re-renders it. `AIGATEWAY_PROFILE`
    comes from `X-Profile` the same way.
 3. The run mode's `build_executor` (`runner/main.py`) branches on the declared world in
-   `url4.toml`:
+   `url4.json`:
    - an `[aigateway]` table → `build_aigateway_world` builds a `Url4Node` whose declared routes
      call `POST /v1/chat/completions` with `X-User-Email` and `X-Profile`;
    - no table → the run's IO is `deny_by_default_world()` (empty `StaticIOLayer` — no routes,

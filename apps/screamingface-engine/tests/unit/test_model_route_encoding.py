@@ -1,5 +1,10 @@
 """The `:` <-> `~` route-encoding boundary (OME-873).
 
+PORTED FROM url4.json (OME-1183). Most fixtures here were already dicts handed straight to
+`parse_config` (TOML only entered through the shared `[aigateway]` key, never through text
+parsing), so the only real changes are: the key rename to `world`, one test that wrote a real
+`url4.json` file now writes `url4.json`, and one test name that named the old format directly.
+
 FEATURE: OME-873 — the 29 `aigateway_only` ids (colon-bearing) become routable by encoding
 their `:` as `~` (already `ROUTE_ID_RE`-legal) wherever a url4 route path is derived, and
 decoding back to the real gateway id wherever a real request or comparison against aigateway's
@@ -11,6 +16,8 @@ Runner sends aigateway the real, colon-bearing id.
 """
 
 from __future__ import annotations
+
+import json
 
 import pytest
 
@@ -40,7 +47,7 @@ _ROUTE_ID = "huggingface/openai/gpt-oss-120b~cerebras"
 
 
 def _world(table: dict[str, object], registry: ModelRegistry = _REGISTRY) -> AigatewaySection:
-    section = parse_config({"aigateway": table}, {}, registry=registry).aigateway
+    section = parse_config({"world": table}, {}, registry=registry).aigateway
     assert section is not None
     return section
 
@@ -104,7 +111,9 @@ def test_routes_for_derives_a_route_id_path_with_no_further_encoding() -> None:
     assert "/" + _ROUTE_ID in routes
 
 
-def test_a_toml_entry_overrides_an_aigateway_only_id_by_its_encoded_form() -> None:
+def test_a_world_entry_overrides_an_aigateway_only_id_by_its_encoded_form() -> None:
+    # PORTED, renamed from `test_a_toml_entry_overrides_...` — the fixture below is a
+    # `world.models` entry, not a TOML array-of-tables entry, but its meaning is unchanged.
     section = _world(
         {
             "default_route": "/anthropic/claude-haiku-4-5",
@@ -120,8 +129,8 @@ def test_a_toml_entry_overrides_an_aigateway_only_id_by_its_encoded_form() -> No
 def test_declared_model_ids_reports_the_real_gateway_id(tmp_path) -> None:
     # WHY: this is what gets compared against aigateway's own `GET /v1/models` response, whose
     # `id` field is always the real (colon-bearing) id — never the url4-route form.
-    config = tmp_path / "url4.toml"
-    config.write_text('[aigateway]\ndefault_route = "/anthropic/claude-haiku-4-5"\n')
+    config = tmp_path / "url4.json"
+    config.write_text(json.dumps({"world": {"default_route": "/anthropic/claude-haiku-4-5"}}))
 
     ids = declared_model_ids({job_env.RUNNER_CONFIG: str(config)}, registry=_REGISTRY)
 

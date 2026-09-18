@@ -1,14 +1,21 @@
-"""Read-side registries for `url4 serve` (url4._serve): [data], [holdings], [identities].
+"""Read-side registries for `url4 serve` (url4._serve): reads.data/holdings/identities.
 
-STORY: as an operator I declare my node's read surface in url4.toml alongside my
-[commands]: `[data]` routes serve plain reads (so bare relative URIs resolve),
-`[holdings]` backs `@`, and `[identities.<name>]` backs `@name` — each from an
-inline value, a live-read file, or an operator-owned command (doctrine N4 for
-reads). Bad declarations fail before bind; missing shelves fail per-source with
-the node's own error semantics.
+STORY: as an operator I declare my node's read surface in url4.json alongside my
+`routes.commands`: `reads.data` routes serve plain reads (so bare relative URIs
+resolve), `reads.holdings` backs `@`, and `reads.identities.<name>` backs `@name` — each
+from an inline value, a live-read file, or an operator-owned command (doctrine N4 for
+reads). Bad declarations fail before bind; missing shelves fail per-source with the
+node's own error semantics.
+
+PORTED FROM url4.json (OME-1183). Only the declaration half of this module changed: the
+helper now takes a dict, the three registries moved under `reads`, and argv is an array.
+Everything below "resolution behavior through the node" builds a ServeConfig directly and
+is copied verbatim — it never saw a config file.
 """
 
 from __future__ import annotations
+
+import json
 
 import pytest
 
@@ -18,13 +25,18 @@ from url4.core.errors import ResolutionError
 CMDS = {"/echo": ("cat",)}
 
 
-def _resolve(tmp_path, toml_text: str):
-    toml = tmp_path / "url4.toml"
-    toml.write_text(toml_text, encoding="utf-8")
-    return resolve({}, {}, toml)
+def _resolve(tmp_path, payload: dict):
+    """Merge the payload over a minimal valid node and resolve it.
+
+    Takes a dict rather than file text: JSON fixtures are data, so a test declares the
+    shape it means instead of a string that has to parse first.
+    """
+    path = tmp_path / "url4.json"
+    path.write_text(json.dumps({**BASE, **payload}), encoding="utf-8")
+    return resolve({}, {}, path)
 
 
-BASE = '[commands]\n"/echo" = "cat"\n'
+BASE = {"routes": {"commands": {"/echo": ["cat"]}}}
 
 
 # --- parsing -----------------------------------------------------------------------
@@ -33,22 +45,26 @@ BASE = '[commands]\n"/echo" = "cat"\n'
 def test_provider_forms_parse(tmp_path) -> None:
     config = _resolve(
         tmp_path,
-        BASE
-        + "[data]\n"
-        + '"/inline" = "plain text"\n'
-        + '"/table" = { value = "tabled" }\n'
-        + '"/filed" = { file = "corpus.md", media_type = "text/markdown" }\n'
-        + '"/gen" = { command = ["printf", "x"] }\n',
+        {
+            "reads": {
+                "data": {
+                    "/inline": "plain text",
+                    "/object": {"value": "objected"},
+                    "/filed": {"file": "corpus.md", "media_type": "text/markdown"},
+                    "/gen": {"command": ["printf", "x"]},
+                }
+            }
+        },
     )
     assert config.data["/inline"] == ProviderSpec(value="plain text")
-    assert config.data["/table"] == ProviderSpec(value="tabled")
+    assert config.data["/object"] == ProviderSpec(value="objected")
     assert config.data["/filed"] == ProviderSpec(file="corpus.md", media_type="text/markdown")
     assert config.data["/gen"] == ProviderSpec(command=("printf", "x"))
 
 
 def test_holdings_default_key_normalizes_to_none(tmp_path) -> None:
     config = _resolve(
-        tmp_path, BASE + '[holdings]\ndefault = "MINE"\nscience = { value = "SCI" }\n'
+        tmp_path, {"reads": {"holdings": {"default": "MINE", "science": {"value": "SCI"}}}}
     )
     assert config.holdings[None] == ProviderSpec(value="MINE")
     assert config.holdings["science"] == ProviderSpec(value="SCI")
@@ -57,7 +73,11 @@ def test_holdings_default_key_normalizes_to_none(tmp_path) -> None:
 def test_identities_parse_nested_shelves(tmp_path) -> None:
     config = _resolve(
         tmp_path,
-        BASE + '[identities.emily]\ndefault = "E-DEFAULT"\nnotes = { value = "E-NOTES" }\n',
+        {
+            "reads": {
+                "identities": {"emily": {"default": "E-DEFAULT", "notes": {"value": "E-NOTES"}}}
+            }
+        },
     )
     assert config.identities["emily"][None] == ProviderSpec(value="E-DEFAULT")
     assert config.identities["emily"]["notes"] == ProviderSpec(value="E-NOTES")
@@ -67,42 +87,54 @@ def test_identities_parse_nested_shelves(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("snippet", "match"),
+    ("reads", "match"),
     [
-        ('[data]\n"/x" = { }\n', "exactly one of value/file/command"),
-        ('[data]\n"/x" = { value = "a", file = "b" }\n', "exactly one of value/file/command"),
-        ('[data]\n"/x" = 5\n', "must be a string or a table"),
-        ('[data]\n"/x" = { value = "a", nope = 1 }\n', "unknown keys"),
-        ('[data]\n"/x" = { command = [] }\n', "has an empty command argv"),
-        ('[holdings]\nscience = { value = "a", media_type = "text/csv" }\n', "unknown keys"),
-        ('[identities.emily]\n"" = "x"\n', "collection name cannot be empty"),
+        ({"data": {"/x": {}}}, "exactly one of value/file/command"),
+        ({"data": {"/x": {"value": "a", "file": "b"}}}, "exactly one of value/file/command"),
+        ({"data": {"/x": 5}}, "must be a string or an object"),
+        ({"data": {"/x": {"value": "a", "nope": 1}}}, "unknown keys"),
+        ({"data": {"/x": {"command": []}}}, "has an empty command argv"),
+        ({"holdings": {"science": {"value": "a", "media_type": "text/csv"}}}, "unknown keys"),
+        ({"identities": {"emily": {"": "x"}}}, "collection name cannot be empty"),
     ],
 )
-def test_bad_provider_declarations(tmp_path, snippet: str, match: str) -> None:
+def test_bad_provider_declarations(tmp_path, reads: dict, match: str) -> None:
     with pytest.raises(ConfigError, match=match):
-        _resolve(tmp_path, BASE + snippet)
+        _resolve(tmp_path, {"reads": reads})
 
 
 @pytest.mark.parametrize(
-    ("prefix", "match"),
+    ("reads", "match"),
     [
-        ('data = "not-a-table"\n', r"\[data\] must be a table"),
-        ('holdings = "not-a-table"\n', r"\[holdings\] must be a table"),
-        ('identities = "not-a-table"\n', r"\[identities\] must be a table"),
+        ({"data": "not-an-object"}, "reads.data must be an object"),
+        ({"holdings": "not-an-object"}, "reads.holdings must be an object"),
+        ({"identities": "not-an-object"}, "reads.identities must be an object"),
     ],
 )
-def test_registry_declared_as_scalar_is_rejected(tmp_path, prefix: str, match: str) -> None:
-    # A registry key written as a scalar (`data = "x"`) instead of a table is a
-    # plausible typo; it must fail as a clean pre-bind ConfigError. The scalar
-    # goes BEFORE [commands] — a bare key after a table header would belong to
-    # that table, not the document root.
+def test_registry_declared_as_scalar_is_rejected(tmp_path, reads: dict, match: str) -> None:
+    # A registry key written as a scalar instead of an object is a plausible typo; it
+    # must fail as a clean pre-bind ConfigError.
+    #
+    # The TOML version of this test had to place the scalar BEFORE [commands], because a
+    # bare key after a table header would have belonged to that table rather than the
+    # document root. JSON has no such ordering hazard, so the constraint is gone and the
+    # fixture simply says what it means.
     with pytest.raises(ConfigError, match=match):
-        _resolve(tmp_path, prefix + BASE)
+        _resolve(tmp_path, {"reads": reads})
 
 
 def test_identity_declared_as_scalar_is_rejected(tmp_path) -> None:
-    with pytest.raises(ConfigError, match=r"\[identities.emily\] must be a table"):
-        _resolve(tmp_path, BASE + '[identities]\nemily = "not-a-table"\n')
+    with pytest.raises(ConfigError, match="reads.identities.emily must be an object"):
+        _resolve(tmp_path, {"reads": {"identities": {"emily": "not-an-object"}}})
+
+
+def test_read_command_argv_string_form_is_rejected(tmp_path) -> None:
+    """The argv rule is the same on the read side as on the command side — a provider's
+    `command` is doctrine N4 applied to reads, so it gets the same array-only treatment
+    and the same paste-ready error."""
+    with pytest.raises(ConfigError) as exc:
+        _resolve(tmp_path, {"reads": {"data": {"/x": {"command": "printf x"}}}})
+    assert '["printf", "x"]' in str(exc.value)
 
 
 def test_validate_rejects_clashing_and_invalid_paths() -> None:

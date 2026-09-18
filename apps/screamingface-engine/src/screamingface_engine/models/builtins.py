@@ -9,7 +9,7 @@ appears here, and ``test_declared_models_match_aigateway.py`` asserts set equali
 directions. Exhaustive does NOT mean "everything a deployment serves":
 ``AIGW_OPENROUTER_DEFAULT_MODELS`` and ``AIGW_HUGGINGFACE_DEFAULT_MODELS`` replace their lists at
 deploy time, and ollama discovers its models at run time with no compiled list. Those deployments
-add entries through ``url4.toml``, which stays additive for exactly that reason.
+add entries through ``url4.json``, which stays additive for exactly that reason.
 
 AIDEV-NOTE: a declared route is NOT an enabled deployment. OpenRouter sits behind
 ``AIGW_OPENROUTER_ENABLED``; a route whose provider is disabled or uncredentialed resolves here and

@@ -138,7 +138,7 @@ async def test_a_runner_owned_field_is_rejected(field: str) -> None:
     """INVARIANT: these are the runner's, not the caller's, and rejection is LOUD.
 
     `model` would let an expression address one route and run another model, breaking the
-    "route path is exactly '/' + gateway id" invariant that `url4.toml` and
+    "route path is exactly '/' + gateway id" invariant that `url4.json` and
     `test_declared_models_match_aigateway.py` exist to hold. `tools`/`tool_choice` would
     bypass the route's own resolved mechanism (`ModelSpec.uses_web_tools`) that keeps a
     configured Tavily key from silently changing every model's payload. `stream` would break

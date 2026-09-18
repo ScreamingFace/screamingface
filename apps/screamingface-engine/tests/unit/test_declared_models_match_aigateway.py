@@ -1,5 +1,22 @@
 """The Runner's declared models must exist in aigateway's plugin registries.
 
+PORTED FROM url4.json (OME-1183). Only `_RUNNER_CONFIG` and `_declared_default_route` touch the
+config file — `_RUNNER_CONFIG` used to point at the real repo's
+`apps/screamingface-engine/url4.json`, read with `tomllib.load`; it now points at this
+directory's `url4.json`, read with `json.load`, and the value moved from `["aigateway"]` to
+`["world"]`. In the real migration this constant would point at the renamed repo file
+(`apps/screamingface-engine/url4.json`) instead of this draft copy. Nothing else in this file —
+the `ast`-based plugin-registry extraction, the canonical-id mirror, the set-equality guards —
+reads or depends on the config file format at all.
+
+`_REPO_ROOT` is also adjusted for the draft's location: the original derived it as
+`Path(__file__).resolve().parents[4]`, which found the repo root because the file lived inside
+it (`apps/screamingface-engine/tests/unit/`). This draft copy lives in a scratchpad directory
+outside the repo tree, so that arithmetic no longer lands on the repo root — it is hardcoded
+below instead, purely so `_PLUGINS` can still find the real aigateway plugin sources this guard
+reads. This has nothing to do with the TOML/JSON migration; it is a consequence of copying the
+test out of its normal location to draft it.
+
 Declaring endpoints buys deterministic routing; the cost is a second place to edit when a model
 is added or removed. This guard makes that cost visible at CI time instead of at run time,
 where a stale id becomes a `/v1/chat/completions` failure inside a user's expression.
@@ -20,7 +37,7 @@ deployment which overrides the env var has moved the target and is on its own.
 
 OME-859 changed two things here.
 
-1. The declared side is now `models/builtins.py::BUILTIN_MODEL_WORLD`, not `url4.toml` — the
+1. The declared side is now `models/builtins.py::BUILTIN_MODEL_WORLD`, not `url4.json` — the
    list moved into code so it could be type-checked and validated at construction.
 2. The assertion is SET EQUALITY, not containment. Containment is why this guard reported
    nothing while the gateway grew from 25 declared ids to 117 served ones: three seed PRs landed
@@ -32,16 +49,19 @@ OME-859 changed two things here.
 from __future__ import annotations
 
 import ast
-import tomllib
+import json
 from pathlib import Path
 
 import pytest
 
 from screamingface_engine.models.builtins import BUILTIN_MODEL_WORLD
 
+# Hardcoded, not `Path(__file__).resolve().parents[4]`: this draft lives in a scratchpad
+# directory, not in `apps/screamingface-engine/tests/unit/`, so that arithmetic would no
+# longer land on the repo root. See the module docstring.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _PLUGINS = _REPO_ROOT / "apps/aigateway/src/aigateway/plugins"
-_RUNNER_CONFIG = _REPO_ROOT / "apps/screamingface-engine/url4.toml"
+_RUNNER_CONFIG = _REPO_ROOT / "apps/screamingface-engine/url4.json"
 
 # (source file, the assigned name holding the slug list, the plugin's `custom_llm_provider`).
 #
@@ -52,7 +72,7 @@ _RUNNER_CONFIG = _REPO_ROOT / "apps/screamingface-engine/url4.toml"
 # AIDEV-NOTE: this used to carry a hand-written prefix per provider, with anthropic's set to ""
 # on the belief that `/v1/models` advertised bare `claude-haiku-4-5`. `canonical_model_id` has
 # no such exemption — it prefixes unless the slug already starts with `<provider>/` — so the
-# gateway served `anthropic/claude-haiku-4-5` while url4.toml declared the bare form, all five
+# gateway served `anthropic/claude-haiku-4-5` while url4.json declared the bare form, all five
 # Anthropic routes silently dropped out of the projected catalog, and the declared default_route
 # failed with `model must be provider-prefixed`. Twenty-six tests passed throughout (OME-795).
 # Do not reintroduce a per-provider prefix column: four independent guesses drift, one rule
@@ -141,15 +161,15 @@ def _aigateway_model_ids() -> set[str]:
 
 
 def _declared_default_route() -> str:
-    """The `default_route` url4.toml names, without its leading slash."""
+    """The `default_route` url4.json names, without its leading slash."""
     with _RUNNER_CONFIG.open("rb") as handle:
-        return str(tomllib.load(handle)["aigateway"]["default_route"]).lstrip("/")
+        return str(json.load(handle)["world"]["default_route"]).lstrip("/")
 
 
 def _declared_models() -> tuple[str, ...]:
     """Every id the Engine declares — routable and aigateway-only alike (OME-859).
 
-    Reads `BUILTIN_MODEL_WORLD` rather than `url4.toml`: the list lives in code now. The TOML
+    Reads `BUILTIN_MODEL_WORLD` rather than `url4.json`: the list lives in code now. The JSON
     array is still parsed for `default_route` below, and is still accepted as an ADDITIVE
     overlay, but a deployment's own additions are its business and not this guard's.
     """
@@ -194,7 +214,7 @@ def test_the_canonical_rule_prefixes_once_and_only_once() -> None:
 def test_the_declared_default_route_is_a_declared_model() -> None:
     """INVARIANT: the fan-out reduce dispatches here, so it must name a route that resolves.
 
-    A default_route that no `[[aigateway.models]]` entry declares is unreachable: it fails at
+    A default_route that no `world.models` entry declares is unreachable: it fails at
     the gateway inside a user's expression rather than at boot (OME-795).
     """
     assert _declared_default_route() in set(_declared_models())
@@ -266,12 +286,12 @@ def test_declared_model_ids_are_route_shaped(model: str) -> None:
     assert model == model.strip(), f"{model!r} has surrounding whitespace"
 
 
-# The 32 route ids `url4.toml` declared by hand before OME-859 moved the list into code. Every one
+# The 32 route ids `url4.json` declared by hand before OME-859 moved the list into code. Every one
 # must still be routable: a route id that changed or vanished breaks live expressions, and two of
 # them are score-affecting benchmark judge pins.
 #
 # AIDEV-NOTE: this is a MIGRATION guard, not a permanent contract. Once OME-859 has shipped and no
-# branch still carries the old url4.toml, it is safe to delete — the equality assertions above are
+# branch still carries the old url4.json, it is safe to delete — the equality assertions above are
 # what hold the world correct from then on.
 _PRE_OME859_DECLARED = frozenset(
     {

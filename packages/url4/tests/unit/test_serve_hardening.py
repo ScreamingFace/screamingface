@@ -14,6 +14,8 @@ the exposure warnings are the only v1 control standing in front of them.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import url4.cli.app as cli
@@ -46,11 +48,18 @@ def test_empty_env_var_is_unset_not_empty_string() -> None:
     assert config.default_route is None
 
 
-def test_empty_env_var_falls_through_to_toml_not_straight_to_default(tmp_path) -> None:
-    # An empty env var must not short-circuit the ladder: toml still wins over the default.
-    toml = tmp_path / "url4.toml"
-    toml.write_text('host = "10.0.0.9"\nport = 9\n[commands]\n"/x" = "cat"\n', encoding="utf-8")
-    config = resolve(_NO_FLAGS, {"URL4_HOST": "", "URL4_PORT": ""}, toml)
+def test_empty_env_var_falls_through_to_the_file_not_straight_to_default(tmp_path) -> None:
+    # An empty env var must not short-circuit the ladder: the file still wins over the
+    # default. PORTED: the two scalars now live in `server`, which is where
+    # url4-node.schema.json puts them.
+    path = tmp_path / "url4.json"
+    path.write_text(
+        json.dumps(
+            {"server": {"host": "10.0.0.9", "port": 9}, "routes": {"commands": {"/x": ["cat"]}}}
+        ),
+        encoding="utf-8",
+    )
+    config = resolve(_NO_FLAGS, {"URL4_HOST": "", "URL4_PORT": ""}, path)
     assert config.host == "10.0.0.9"
     assert config.port == 9
 
@@ -71,8 +80,8 @@ def test_validate_rejects_eval_path_without_leading_slash(eval_path: str) -> Non
 def test_serve_with_empty_host_flag_is_usage_error(tmp_path, capsys) -> None:
     # The flag path is the vector _pick cannot normalize: `--host ""` is explicit, so
     # validate() is what must reject it. Fail fast (exit 2), never bind.
-    config_file = tmp_path / "url4.toml"
-    config_file.write_text('[commands]\n"/py" = "cat"\n', encoding="utf-8")
+    config_file = tmp_path / "url4.json"
+    config_file.write_text(json.dumps({"routes": {"commands": {"/py": ["cat"]}}}), encoding="utf-8")
     assert cli.main(["serve", "--host", "", "--config", str(config_file)]) == 2
     assert "host cannot be empty" in capsys.readouterr().err
 

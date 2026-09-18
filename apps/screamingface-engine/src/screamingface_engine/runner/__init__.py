@@ -14,7 +14,7 @@ each other. They share exactly four leaves —
 proves it.
 
 WHY `world_config` is shared (OME-625): discovery must answer for the SAME declared world the
-run mode executes. A second, partial reader of `url4.toml` on the control-plane side would let
+run mode executes. A second, partial reader of `url4.json` on the control-plane side would let
 the two disagree — which is the bug that made the Engine advertise a model it could not run.
 
 WHY the rule outlived the package split it was born in: the two modes ship in one image and one
