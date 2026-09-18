@@ -46,6 +46,7 @@ from ..core.auth.cloudflare_identity import (
 )
 from ..core.auth.models import Account
 from ..core.profile_index import ProfileIndexStore
+from ..core.provider_access import provider_credential_admin_for
 from .auth import delete_profile_for_account, upsert_api_key_profile
 
 logger = logging.getLogger(__name__)
@@ -250,11 +251,16 @@ async def list_account_profiles(
     argument — the tenant-facing route simply always passes the caller's own id. Cross-account
     access is a different argument, not a different store.
     """
+    # WHY: the docstring above is published verbatim as the OpenAPI operation description, so it
+    # stays byte-identical to the pre-OME-1230 text; the A3 shape is documented here instead.
+    # FEATURE: OME-1230 Stage A3 — this is a shell over `ProviderCredentialAdmin.list`; the DTO is
+    # built from the summary's window-only projection so the JSON stays byte-identical. PATCH below
+    # stays a direct index owner (A3 does not move metadata edits).
     _note_actor(request, admin)
     await _require_account(account_id)
-    profiles = await _index_store(request).list(str(account_id))
+    summaries = await provider_credential_admin_for(request.app).list(str(account_id))
     return AdminProfileList(
-        profiles=[AdminProfileOut.model_validate(p, from_attributes=True) for p in profiles]
+        profiles=[AdminProfileOut.model_validate(s.legacy_projection) for s in summaries]
     )
 
 
