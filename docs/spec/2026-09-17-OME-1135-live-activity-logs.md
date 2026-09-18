@@ -50,3 +50,6 @@ Owner requested completed wording: Answered, Graded and Scores aggregated on suc
 
 
 Owner approved discrete case Grading lines: consume scope=case grading records, join numbering only by explicit candidate/run/case ID from retained answering facts, preserve ID-only fallback. Hide routine endpoint grading rows once case-phase records exist in that run; keep model calls, failures, unknown outcomes and raw history. Terminal revision wins over delayed starts; no execution or timing inference.
+
+## Copy displayed activity — 2026-09-18
+Owner requested a Copy control at the top right of each log box. Add a native keyboard-accessible button within the log viewport, pinned above its displayed page. Copy only rendered, safe text (timestamps, messages and partial-history notices), never raw event payloads or other candidates. Show Copied only on successful browser clipboard write; show an actionable failure label if unavailable. Reuse existing notebook HTML/clipboard pattern, no dependencies or Engine changes. Test button semantics and candidate isolation, then verify actual clipboard output in Jupyter and run Client gates.

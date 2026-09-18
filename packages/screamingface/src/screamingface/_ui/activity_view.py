@@ -13,6 +13,12 @@ STYLE = """<style>
  margin:0;padding:12px 16px;border:1px solid var(--sf-line);
  background:var(--sf-surface);color:var(--sf-ink);font:12px/1.6 "IBM Plex Mono",monospace;
  font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:left}
+.sf-activity-tools{display:flex;justify-content:flex-end;position:sticky;top:0;
+ z-index:1;background:var(--sf-surface);padding-bottom:4px}
+.sf-activity-copy{font:inherit;color:var(--sf-ink-2);background:var(--sf-surface);
+ border:1px solid var(--sf-line);border-radius:0;padding:2px 8px;cursor:pointer}
+.sf-activity-copy:hover{color:var(--sf-ink);border-color:var(--sf-accent)}
+.sf-activity-copy:focus-visible{outline:2px solid var(--sf-accent);outline-offset:2px}
 .sf-activity-console .sf-activity__stage{display:flex;margin:0;padding:0;font:inherit}
 .sf-activity-console .sf-activity__call{display:flex;margin:0;padding:0;
  font:inherit;white-space:normal}
@@ -196,6 +202,28 @@ def _line(row: ActivityRow, label: str) -> str:
     )
 
 
+def _copy_control() -> str:
+    # INVARIANT: copy only this rendered page; raw event bodies never enter the DOM.
+    action = r"""event.stopPropagation();(async()=>{
+      const button=this;
+      const content=button.closest('.sf-activity-console').querySelector('.sf-activity-content');
+      const text=Array.from(content.children)
+        .map(line=>line.innerText.replace(/\n+/g,' ')).join('\n');
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent='Copied';
+      } catch {
+        button.textContent='Copy failed';
+        button.title='Select the log text and copy it manually';
+      }
+    })()"""
+    return (
+        '<div class="sf-activity-tools"><button class="sf-activity-copy" type="button" '
+        'aria-label="Copy displayed logs" title="Copy displayed logs" '
+        f'onclick="{escape(action, quote=True)}">Copy</button></div>'
+    )
+
+
 def activity_html(
     log: ActivityLog,
     candidates: tuple[str, ...],
@@ -231,7 +259,9 @@ def activity_html(
     return (
         STYLE
         + f'<section class="sf-activity-console" tabindex="0" aria-label="Activity for {label}">'
+        + _copy_control()
+        + '<div class="sf-activity-content">'
         + (f"<p>Partial history: {notice}.</p>" if notice else "")
         + content
-        + "</section>"
+        + "</div></section>"
     )
