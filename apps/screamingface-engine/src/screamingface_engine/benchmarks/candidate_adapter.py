@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_execution import install_case_execution
 from screamingface_engine.benchmarks.case_request import candidate_input, candidate_position
 from screamingface_engine.benchmarks.case_selection import install_case_selection
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.candidate_scope import candidate_invocation_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
@@ -52,18 +54,21 @@ class _CandidateInvocation:
                 candidate_invocation_scope(),
                 case_scope(case_id, position=candidate_position(request)),
             ):
-                return await evaluate_candidate_recipe(
-                    self._node,
-                    request.intent,
-                    input_text,
-                    isolate_operation_calls=True,
-                )
+                return await self._evaluate(request.intent, input_text)
         except RetrievalPolicyError as exc:
             raise ResolutionError(
                 str(exc),
                 code="candidate_policy_escalation",
                 permanent=True,
             ) from exc
+
+    @observe_stage(ActivityKind.ANSWERING)
+    async def _evaluate(self, expression: str, input_text: str) -> str:
+        # WHY: stage entry must occur inside the decoded Case scope, so its start,
+        # terminal record and nested calls all share the explicit identity.
+        return await evaluate_candidate_recipe(
+            self._node, expression, input_text, isolate_operation_calls=True
+        )
 
 
 def install_candidate_invocation(node: Url4Node) -> None:

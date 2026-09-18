@@ -45,7 +45,7 @@ def test_policy_and_state_vocabulary():
     validate_state(ActivityKind.ANSWERING, "refused")
     for kind, state in [
         (ActivityKind.AGGREGATION, "retrying"),
-        (ActivityKind.GRADING_CHECK, "refused"),
+        (ActivityKind.GRADING, "refused"),
         (ActivityKind.MODEL_CALL, "unknown"),
     ]:
         with pytest.raises(ValueError):

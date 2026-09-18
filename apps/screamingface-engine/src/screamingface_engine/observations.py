@@ -131,6 +131,11 @@ class RunObservations:
             with _guard(self):
                 self.observers.append(factory())
 
+    def guard(self) -> AbstractContextManager[None]:
+        """Contain optional observer faults against this captured run, including teardown."""
+
+        return _guard(self)
+
     @contextmanager
     def bind(self) -> Iterator[None]:
         # INVARIANT: even an empty registration masks inherited execution observers.

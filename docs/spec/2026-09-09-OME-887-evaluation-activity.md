@@ -42,7 +42,7 @@ Inspected at `b47853ea` (PRs 877 and 884 merged):
 | Benchmark data loader | `benchmarks/healthbench/runtime.py::_cases` performs preflight, reads baked case data and selects its board cases; other board runtimes own their own loaders | `case_loading` scope around the actual loader/preflight; report loaded/available counts separately from selected evaluation count |
 | Candidate adapter | `benchmarks/candidate_adapter.py::_CandidateInvocation.__call__` invokes the Candidate recipe; `benchmarks/invocation.py` preserves typed outcomes | `answering` scope around the real invocation; classify and emit inside `benchmarks/invocation.py` before `_encode`, where the typed outcome exists. The outer adapter receives serialized text; do not reparse it or change the return interface solely for logging |
 | Model adapter | `runner/connector.py::_logged_round_trip` already observes response, duration and safe error code; `_in_flight_heartbeat` writes server logs; `_post_completion` owns local retries | `model_call` scope and observed retry updates; reuse facts at source, not logger strings |
-| Benchmark grading | Board task-preparation/verdict/case-evaluation handlers, `benchmarks/rubric_check.py::check_surface`, shared `benchmarks/evaluation.py` endpoint adapters | `grading_prepare`, `grading_check` and `grading_reduce` scopes/checkpoints only where the handler owns that work |
+| Benchmark grading | Board task-preparation/verdict/case-evaluation handlers, `benchmarks/rubric_check.py::check_surface`, shared `benchmarks/evaluation.py` endpoint adapters | `grading` scopes/checkpoints only where the handler owns that work |
 | Case outcome | `benchmarks/case_execution.py` preserves Candidate and grading outcomes; existing Client terminal Case-span counting exists | Reuse baseline completion; leave cumulative typed progress to OME-932, rather than introduce a second completion counter |
 | Aggregation | `benchmarks/evaluation.py::aggregate_endpoint`, board aggregate functions and `benchmarks/aggregation.py::finalize_candidate_result` | `aggregation` scope at the actual aggregate call; never run the scorer again to log a result |
 | Run lifecycle | Existing `Started`, `Result`, `Terminated` events and Client evaluation state | Reuse directly; no optional Log is evidence of final success or final score |
@@ -105,7 +105,7 @@ Use the existing Log event with `body` generated from fixed safe templates and t
 | Attribute | Meaning |
 | --- | --- |
 | `sf.activity.schema` | Exact string `screamingface.activity.v1` |
-| `sf.activity.kind` | `case_loading`, `answering`, `model_call`, `grading_prepare`, `grading_check`, `grading_reduce`, or `aggregation` |
+| `sf.activity.kind` | `case_loading`, `answering`, `model_call`, `grading`, or `aggregation` |
 | `sf.activity.state` | `started`, `running`, `retrying`, `completed`, `failed`, `cancelled`, or `refused`; legal transitions validated per kind |
 | `sf.activity.id` | Random opaque occurrence ID generated on entry; local to this run, unrelated to request contents |
 | `sf.activity.revision` | Increasing integer per occurrence, for updates/replay; gaps mean incomplete history, not failed work |
