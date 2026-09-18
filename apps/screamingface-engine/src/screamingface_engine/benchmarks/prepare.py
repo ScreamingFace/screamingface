@@ -54,7 +54,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         for bundle_id in sorted(BUILTIN_DEPLOYMENT.asset_bundle_ids):
             print(bundle_id)
         return 0
-    return _bake(args.root, tuple(args.bundles) if args.bundles else None)
+
+    only: tuple[str, ...] | None = tuple(args.bundles) if args.bundles else None
+    if only is not None:
+        # WHY validated HERE and not by catching the orchestrator's ValueError: a preparer
+        # decoding a dataset row raises ValueError too (json.JSONDecodeError subclasses it),
+        # so an except around the bake would relabel a malformed HF row as an operator typo
+        # and discard its traceback — the exact laundering BenchmarkAssetPreparerContractError
+        # exists to prevent. A typo is knowable before any download starts; check it there.
+        unknown = sorted(set(only) - set(BUILTIN_DEPLOYMENT.asset_bundle_ids))
+        if unknown:
+            print(f"no such asset bundle(s): {', '.join(unknown)}", file=sys.stderr)
+            return 1
+    return _bake(args.root, only)
 
 
 def _bake(root: Path, only: tuple[str, ...] | None) -> int:
@@ -90,10 +102,6 @@ def _bake(root: Path, only: tuple[str, ...] | None) -> int:
         prepare_builtin_assets(root, emit, only=only)
     except BenchmarkAssetPreparationError as exc:
         print(f"benchmark asset preparation failed: {exc}", file=sys.stderr)
-        return 1
-    except ValueError as exc:
-        # An unknown --bundle id: an operator typo, not a dataset fault.
-        print(f"benchmark asset selection failed: {exc}", file=sys.stderr)
         return 1
     return 0
 

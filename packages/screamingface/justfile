@@ -11,9 +11,18 @@ set default-list := true
 # One blesser, four flag shapes — the path moves in a single place.
 blesser := "uv run python tests/e2e/fixtures/slice_snapshot.py"
 
-# Where each benchmark's downloaded dataset is written. `screamingface prepare` writes here too
-# (RuntimeConfig.assets_dir), so the bless recipes and the notebook stack share one root.
-assets := env("URL4_BENCHMARK_ASSETS", home_directory() / ".screamingface" / "benchmark-assets")
+# Where each benchmark's downloaded dataset is written — resolved the SAME way the blesser
+# resolves it (`tests/e2e/fixtures/slice_snapshot.py`: SCREAMINGFACE_E2E_ASSETS, else
+# `default_data_dir()/benchmark-assets`, which SCREAMINGFACE_DATA_DIR moves).
+#
+# NOT URL4_BENCHMARK_ASSETS: that is what the Engine PROCESS is handed so it can find the
+# assets, an output of this file rather than an input. Keying the precondition on it was
+# wrong in both directions — a dev who had moved SCREAMINGFACE_DATA_DIR and run
+# `screamingface prepare --all` got told to run the command they had just run, and a stale
+# value in the shell let the precondition pass while the blesser died deep inside, which is
+# the half-written-fixtures failure the precondition exists to prevent.
+data_dir := env("SCREAMINGFACE_DATA_DIR", home_directory() / ".screamingface")
+assets := env("SCREAMINGFACE_E2E_ASSETS", data_dir / "benchmark-assets")
 
 # source_directory(), NOT justfile_directory(): reached through the root justfile's `mod`,
 # the latter resolves to the REPO ROOT and every relative path below lands two levels too high.
@@ -51,6 +60,11 @@ local-stack-notebooks:
     #!/usr/bin/env bash
     set -euo pipefail
     UV="{{ require('uv') }}"
+    # require() so a missing binary aborts loudly. Bare `lsof` was worse than useless:
+    # its "not found" went to the same /dev/null as a clean result, so on a box without
+    # it the port guard below silently never fired.
+    LSOF="{{ require('lsof') }}"
+    CURL="{{ require('curl') }}"
 
     # Each benchmark's dataset is downloaded once and written to disk as fixed files (the
     # repo calls this baking); a run afterwards only reads them. That is slow and it is
@@ -88,7 +102,7 @@ local-stack-notebooks:
     # A listener on the same address makes uvicorn exit with EADDRINUSE, which downstream
     # looks like a missing dependency. A listener on the OTHER address family (IPv6 `*` vs
     # our IPv4 127.0.0.1) does not collide at all: both bind, and which one answers is luck.
-    if lsof -nP -iTCP:{{ engine_port }} -sTCP:LISTEN >/dev/null 2>&1; then
+    if "$LSOF" -nP -iTCP:{{ engine_port }} -sTCP:LISTEN >/dev/null 2>&1; then
         echo "error: port {{ engine_port }} is already in use, so the Engine cannot start there." >&2
         echo "  Another worktree running this recipe is the usual cause. Either stop it, or" >&2
         echo "  pick a free port: SCREAMINGFACE_NOTEBOOK_ENGINE_PORT=9121 just …" >&2
@@ -122,7 +136,8 @@ local-stack-notebooks:
 
     ready=false
     for _ in $(seq 60); do
-        if curl -fsS --max-time 2 "http://127.0.0.1:{{ engine_port }}/v1/benchmarks" >/dev/null 2>&1; then
+        if "$CURL" -fsS --max-time 2 "http://127.0.0.1:{{ engine_port }}/v1/benchmarks" \
+            >/dev/null 2>&1; then
             ready=true
             break
         fi

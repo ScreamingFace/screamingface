@@ -168,6 +168,42 @@ def test_builtin_prepare_cli_does_not_hide_unexpected_failures(
         prepare_module.main(["--root", str(tmp_path)])
 
 
+def test_a_decode_failure_is_not_relabelled_as_a_bundle_selection_mistake(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed dataset row must surface as itself, traceback intact.
+
+    INVARIANT: five preparers call `json.loads` on dataset rows, and `json.JSONDecodeError`
+    subclasses `ValueError` — so an `except ValueError` around the bake would print an
+    operator-facing "selection failed" line for a dataset fault and swallow the stack,
+    sending someone hunting for a typo that does not exist. Unknown bundle ids are caught
+    before any preparer runs instead.
+    """
+
+    def explode(_root: Path, _on_prepared: object = None, **_only: object) -> dict[str, object]:
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", explode)
+
+    with pytest.raises(json.JSONDecodeError):
+        prepare_module.main(["--root", str(tmp_path)])
+
+
+def test_an_unknown_bundle_id_is_refused_before_any_preparer_runs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("a typo must not reach the preparers")
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", refuse)
+
+    assert prepare_module.main(["--root", str(tmp_path), "--bundle", "ghost"]) == 1
+    assert "ghost" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "error_type",
     (DracoPrepareError, HealthBenchPrepareError, IFEvalPrepareError),
@@ -571,16 +607,18 @@ def test_prepare_cli_bakes_only_the_bundles_named_on_the_command_line(
     def prepare(root: Path, on_prepared: Any = None, *, only: Any = None) -> dict[str, Any]:
         seen["only"] = only
         if on_prepared is not None:
-            on_prepared("beta", {"cases": 1})
-        return {"beta": {"cases": 1}}
+            on_prepared("draco", {"cases": 1})
+        return {"draco": {"cases": 1}}
 
     monkeypatch.setattr(prepare_module, "prepare_builtin_assets", prepare)
 
-    assert prepare_module.main(["--root", str(tmp_path), "--bundle", "beta"]) == 0
+    # A REAL bundle id: main() refuses an undeclared one before any preparer runs, so a
+    # made-up name would exercise the refusal rather than the forwarding this test pins.
+    assert prepare_module.main(["--root", str(tmp_path), "--bundle", "draco"]) == 0
 
-    assert seen["only"] == ("beta",)
+    assert seen["only"] == ("draco",)
     records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert [record["bundle"] for record in records] == ["beta"]
+    assert [record["bundle"] for record in records] == ["draco"]
 
 
 def test_prepare_cli_lists_bundle_ids_without_baking_anything(
