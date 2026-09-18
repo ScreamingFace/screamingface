@@ -181,3 +181,31 @@ async def test_real_candidate_execution_emits_case_metadata_without_prompt_metad
     assert prompts == ["original question"]
     assert [r["sf.activity.state"] for r in events] == ["started", "completed"]
     assert all(r["sf.activity.case_id"] == "case-42" for r in events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case_id", [42, "007"])
+async def test_transport_case_identity_joins_results_by_string_without_numeric_coercion(
+    monkeypatch, case_id
+):
+    from screamingface_engine.benchmarks import candidate_adapter
+
+    observed = []
+
+    async def evaluate(node, expression, input_text, **kwargs):
+        observed.append(current_case_id())
+        return "answer"
+
+    monkeypatch.setattr(candidate_adapter, "evaluate_candidate_recipe", evaluate)
+    node = Url4Node()
+    install_candidate_invocation(node)
+    expression = iterate(
+        [struct({"id": case_id, "input": "question"})],
+        body=(
+            src(candidate_call("$item.input", case_id="$item.id", web_search=False), name="result"),
+        ),
+        intent=Text("$result"),
+    )
+    await node.evaluate(render(expression), env={"candidate": "recipe"})
+    await node.aclose()
+    assert observed == [str(case_id)]

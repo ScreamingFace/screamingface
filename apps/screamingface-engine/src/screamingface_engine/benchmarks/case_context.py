@@ -23,6 +23,7 @@ def case_scope(case_id: CaseId | None) -> Iterator[None]:
 
 
 def current_case_id() -> CaseId | None:
+    """Read request identity; join activity to result IDs with str(), never int()."""
     value = _CURRENT.get()
     # INVARIANT: a child run cannot borrow the surrounding run's Case identity.
     if value is None or value[0] is not current_observations():

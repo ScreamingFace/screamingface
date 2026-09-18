@@ -248,3 +248,32 @@ async def test_check_surface_refuses_an_unusable_target_in_the_plugins_voice(
     (tmp_path / GSM8K_BOARD.benchmark.id / "targets" / "1.json").unlink()
     with pytest.raises(Exception, match="baked target record"):
         await _surface_check(node, tmp_path, "ANSWER: 42")
+
+
+@pytest.mark.asyncio
+async def test_imported_board_emits_model_activity_with_case_identity(tmp_path: Path) -> None:
+    from screamingface_engine.activity.observer import ActivityObserver
+    from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
+    from screamingface_engine.observations import ModelCall, RunObservations
+
+    node = _node(tmp_path)
+    install_candidate_invocation(node)
+    events = []
+
+    @node.endpoint("/test-model")
+    async def model(request):
+        async with ModelCall(
+            "test-model", lambda body, attributes=None, **kwargs: events.append(attributes)
+        ):
+            return "ANSWER: 42"
+
+    recipe = render(RelExpr(path="/test-model", context="$input", intent=Text("Answer")))
+    run = RunObservations((ActivityObserver,))
+    with run.bind():
+        await node.evaluate(
+            str(GSM8K_BOARD.benchmark.resource(limit=1)["url4"]), env={"candidate": recipe}
+        )
+    await run.aclose()
+    await node.aclose()
+    assert [event["sf.activity.state"] for event in events] == ["started", "completed"]
+    assert all(event["sf.activity.case_id"] == "1" for event in events)
