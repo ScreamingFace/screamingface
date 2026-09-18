@@ -81,11 +81,19 @@ local-stack-notebooks:
     # syncs, so a notebook reads data built exactly the way production builds it.
     ( cd "{{ engine_dir }}" && "$UV" sync --extra benchmarks )
 
+    # A bundle counts as finished only when its cases.json PARSES. Existence alone is not
+    # enough: the preparers write that file non-atomically, so a run killed mid-write (or a
+    # full disk) leaves a truncated, unparseable file that `-f` would happily call complete
+    # — and the bundle would then be skipped forever while the Engine could never serve it.
+    # Reading it is cheap next to re-downloading a dataset by mistake.
     missing=()
     while read -r bundle; do
-        [ -f "{{ assets }}/$bundle/cases.json" ] && continue
-        # Unfinished: remove the debris so the preparer sees a clean directory. Nothing
-        # usable is lost — a bundle without cases.json cannot be served.
+        if "$UV" run python -c "import json,sys;json.load(open(sys.argv[1]))" \
+            "{{ assets }}/$bundle/cases.json" >/dev/null 2>&1; then
+            continue
+        fi
+        # Unfinished or corrupt: clear the debris so the preparer sees a clean directory.
+        # Nothing usable is lost — a bundle whose cases.json will not parse cannot be served.
         rm -rf "{{ assets }}/${bundle:?}"
         missing+=("--bundle" "$bundle")
     done < <( cd "{{ engine_dir }}" && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles )
@@ -109,19 +117,23 @@ local-stack-notebooks:
         exit 1
     fi
 
-    # Only tear down a stack this recipe started. One that was already running belongs to
-    # whoever started it — quitting a notebook must not kill their gateway underneath them.
+    # Note whether a stack was ALREADY up, so the trap tears down only what this recipe
+    # started — quitting a notebook must not kill a gateway someone started for other work.
     stack_was_running=false
     if "$UV" run --extra runtime screamingface status --json 2>/dev/null \
         | grep -q '"status":"running"'; then
         stack_was_running=true
-        echo "==> using the Gateway and Scoreboard already running (left up on exit)"
-    else
-        # --extra runtime: the stack's servers live in that optional extra, and the default
-        # project env (notebook + dev only) cannot boot them.
-        echo "==> starting the Gateway and Scoreboard (screamingface up)"
-        "$UV" run --extra runtime screamingface up
     fi
+
+    # `up` runs EITHER WAY, including over a stack that is already running. Skipping it then
+    # looked harmless — it prints "already running" and returns — but `up` is where
+    # `_ensure_adoptable` lives, the check that refuses to adopt a stack belonging to a
+    # DIFFERENT checkout (OME-1001). `status` reports ownership and health; it does not
+    # enforce them, so the shortcut silently ran notebooks against another branch's services.
+    # --extra runtime: the stack's servers live in that optional extra, and the default
+    # project env (notebook + dev only) cannot boot them.
+    echo "==> checking the Gateway and Scoreboard (screamingface up)"
+    "$UV" run --extra runtime screamingface up
 
     echo "==> starting an inspect-capable Engine on :{{ engine_port }}"
     ( cd "{{ engine_dir }}" \
@@ -156,8 +168,21 @@ local-stack-notebooks:
     fi
 
     # Explicit URL beats local-stack adoption (OME-998), so the kernel reaches THIS Engine.
+    #
+    # The Scoreboard has to be named too, and for a reason easy to miss: the SDK adopts the
+    # local stack ONLY when no engine URL is set, so naming the Engine turns that adoption
+    # off for BOTH services and the Scoreboard silently falls back to the hosted leaderboard.
+    # `sf.leaderboards.submit(...)` from a notebook would then publish to the deployment
+    # instead of the Scoreboard this recipe just started — the "local engine + hosted
+    # leaderboard" hybrid `_default_client` warns about in its own comment. Read from
+    # `status` rather than assuming 9106, so a port override still lands.
     export SCREAMINGFACE_ENGINE_URL="http://127.0.0.1:{{ engine_port }}"
-    echo "==> Engine ready at $SCREAMINGFACE_ENGINE_URL — opening the examples"
+    export SCREAMINGFACE_SCOREBOARD_URL="$(
+        "$UV" run --extra runtime screamingface status --json \
+            | "$UV" run python -c "import json,sys;print(json.load(sys.stdin)['services']['scoreboard']['url'])"
+    )"
+    echo "==> Engine ready at $SCREAMINGFACE_ENGINE_URL"
+    echo "==> Scoreboard at $SCREAMINGFACE_SCOREBOARD_URL — opening the examples"
     # --extra inspect: `report.export(format="inspect")` writes a .eval log through inspect-ai,
     # so the kernel needs it importable. This is the SDK's exporter extra, NOT the Engine's
     # `benchmarks` extra (a different project) — the kernel writes a log, it never bakes assets.
