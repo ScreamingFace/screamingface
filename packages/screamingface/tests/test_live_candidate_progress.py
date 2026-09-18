@@ -994,7 +994,10 @@ def test_notebook_view_lifecycle_shows_once_and_reconciles_authoritative_report(
     assert scroll.tabbable is True
     assert scroll.tooltip == "Candidate evaluation table"
     assert scroll._dom_classes == ["sf-eval__table-scroll"]
-    assert view._html._dom_classes == ["sf-ui", "sf-eval"]
+    # OME-1226: the two trailing names are the maths-typesetter opt-out. Kept an EXACT list
+    # rather than a membership check — the exactness is what makes an accidental class
+    # change on this root loud instead of silent.
+    assert view._html._dom_classes == ["sf-ui", "sf-eval", "mathjax_ignore", "tex2jax_ignore"]
 
     view.begin(opus)
     assert view._dirty.is_set()

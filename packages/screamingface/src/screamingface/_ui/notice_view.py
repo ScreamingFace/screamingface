@@ -5,7 +5,7 @@ from __future__ import annotations
 from html import escape
 
 from screamingface._notices import ClientNotice
-from screamingface._ui.style import _theme_rules
+from screamingface._ui.style import NO_MATH, _theme_rules
 
 _WARNING_LIGHT = (
     "--sf-notice-ink:#9c4828;--sf-notice-solid:#f1622d;"
@@ -47,7 +47,8 @@ def client_notice_html(notice: ClientNotice) -> str:
 
     role = "alert" if notice.severity == "warning" else "status"
     return (
-        f"{_STYLE}<div class='sf-notice sf-notice--{notice.severity}' role='{role}' "
+        f"{_STYLE}<div class='sf-notice sf-notice--{notice.severity} {NO_MATH}' "
+        f"role='{role}' "
         f"data-notice-code='{escape(notice.code, quote=True)}' "
         f"data-notice-severity='{notice.severity}'>"
         "<span class='sf-notice__mark' aria-hidden='true'></span>"
