@@ -232,3 +232,9 @@ def _valid_attribute(key: str, value: Scalar) -> bool:
     if isinstance(value, float):
         return isinstance(key, str) and math.isfinite(value)
     return isinstance(key, str) and (value is None or isinstance(value, (str, int)))
+
+
+def current_observations() -> RunObservations | None:
+    """Return the active execution owner for optional run-scoped adapters."""
+    run = _CURRENT.get()
+    return run if run is not None and run.active else None

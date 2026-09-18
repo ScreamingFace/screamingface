@@ -68,7 +68,9 @@ def _build(case_count: int) -> Node:
     (arXiv:2311.07911), so scores compare directly to published IFEval results.
     """
 
-    candidate_invocation = candidate("$item.input", web_search=CANDIDATE_WEB_SEARCH)
+    candidate_invocation = candidate(
+        "$item.input", case_id="$item.id", web_search=CANDIDATE_WEB_SEARCH
+    )
     checked_call = RelExpr(
         path=CHECK_ROUTE,
         context="$candidate_invocation",
