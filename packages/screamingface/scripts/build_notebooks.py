@@ -1490,21 +1490,23 @@ run's real metered cost.
 It is a **one-way copy**, deliberately. The report you see above stays the record: the
 leaderboard is never published from an inspect log, and nothing is ever read back in.
 
-One practical wrinkle. Writing that file needs `inspect-ai`, which **cannot be installed
-next to the local runtime** — their dependency pins genuinely conflict, so the environment
-running this stack cannot also hold the exporter. The cell below therefore checks first and
-tells you what to run instead of failing; do the export from a throwaway environment:
+Writing that file needs `inspect-ai`, which `just local-stack-notebooks` installs into this
+kernel for you. It is not present in *every* environment, though: `inspect-ai` and the SDK's
+`runtime` extra — the local stack's own servers — have genuinely conflicting dependency pins,
+so one environment cannot boot the stack **and** hold the exporter. The recipe sidesteps that
+by keeping them apart rather than choosing: the Gateway and Scoreboard start from their own
+environment, and this kernel gets the exporter.
 
-```bash
-uvx --with "screamingface[inspect]" python -c "…"   # or a separate venv
-```"""),
+If you are in a kernel without it, install `screamingface[inspect]` there and run the
+evaluation again in that session. Note there is no way to export from a saved file —
+`report.to_json()` is a one-way copy and nothing reads it back — so the export has to happen
+in the session that produced the run."""),
         nbformat.v4.new_code_cell("""\
 from importlib.util import find_spec
 
 if find_spec("inspect_ai") is None:
-    print("no inspect-ai here — export from a separate environment:")
-    print('  pip install "screamingface[inspect]"')
-    print("then load report.json and call report.export('run.eval', format='inspect')")
+    print('no inspect-ai in this kernel — install "screamingface[inspect]" here and')
+    print("re-run the evaluation: a Report cannot be rebuilt from a saved report.json")
 else:
     eval_path = report.export("gsm8k-fusion.eval", format="inspect")
     print("wrote", eval_path)"""),

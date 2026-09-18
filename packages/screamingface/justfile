@@ -143,7 +143,12 @@ local-stack-notebooks:
     # Explicit URL beats local-stack adoption (OME-998), so the kernel reaches THIS Engine.
     export SCREAMINGFACE_ENGINE_URL="http://127.0.0.1:{{ engine_port }}"
     echo "==> Engine ready at $SCREAMINGFACE_ENGINE_URL — opening the examples"
-    "$UV" run jupyter lab examples/
+    # --extra inspect: `report.export(format="inspect")` writes a .eval log through inspect-ai,
+    # so the kernel needs it importable. This is the SDK's exporter extra, NOT the Engine's
+    # `benchmarks` extra (a different project) — the kernel writes a log, it never bakes assets.
+    # Safe here precisely because this line does NOT ask for `runtime`: the stack's servers are
+    # what conflict with inspect-ai, and they were started above in their own uv invocation.
+    "$UV" run --extra inspect jupyter lab examples/
 
 # Bless one board's e2e replay fixtures from the owner-held recordings (OME-964):
 # capture → re-key → verified replay → slice → snapshot + manifest + golden under
