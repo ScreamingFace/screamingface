@@ -37,3 +37,6 @@ Display authoritative case_position/case_count as [Case n/N]. Both must be posit
 ## Dynamic operation lines — approved implementation
 
 Approved dynamic presentation replaces the chronological transition projection: one latest-state line per run/operation, ordered by first observation. Hide routine Answering stages only when explicitly parented model calls represent them; retain failed/cancelled/refused/unknown stages. No role inference. Fixed marker slot shows a spinner while fresh/running, neutral check on completion, and explicit retry/failure/unknown text. Preserve bounded raw event history, loss notices, case prefixes and stage-aware summary. Pagination counts visible operations. The persistent widget owns scrolling so HTML refreshes do not recreate the scroll viewport. Respect reduced motion.
+
+
+The Status cell keeps stage-only wording. While a fresh stage supplies explicit case_position/case_count, Cases displays that active position (3 / 5), not the completed count (2 / 5). Internal completion accounting and final results remain unchanged. Concurrent active positions stay distinct; missing numbering retains the existing count fallback. Tests cover fresh, missing, concurrent, terminal and stale activity.

@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from screamingface._evaluation.model import Candidate
-from screamingface._ui.activity_groups import stage_status
+from screamingface._ui.activity_groups import active_cases, stage_status
 from screamingface._ui.activity_state import ActivityLog
 from screamingface._ui.activity_view import STYLE as ACTIVITY_STYLE
 from screamingface._ui.activity_widget import CandidateActivityRow
@@ -167,7 +167,9 @@ class _NotebookEvaluationView:
         for index, (view, row) in enumerate(
             zip(self._activity_rows, self._progress.rows, strict=True)
         ):
-            row.stage = stage_status(self._activity, index, now_ms=time.time() * 1000)
+            now_ms = time.time() * 1000
+            row.stage = stage_status(self._activity, index, now_ms=now_ms)
+            row.active_cases = active_cases(self._activity, index, now_ms=now_ms)
             view.refresh(row, elapsed)
 
     def _tick_loop(self) -> None:

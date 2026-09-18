@@ -46,6 +46,28 @@ def groups(log: ActivityLog, candidate: int) -> list[ActivityGroup]:
     return [*stages.values(), *([unknown] if unknown.calls else [])]
 
 
+def active_cases(log: ActivityLog, candidate: int, *, now_ms: float) -> str | None:
+    """Display explicit current positions without changing completed-case accounting."""
+    rows = [r for r in log.rows(detailed=True) if r.candidate == candidate]
+    facts = [dict(r.record.facts) for r in _active_stages(rows, now_ms)]
+    numbered = [f for f in facts if "case_position" in f and "case_count" in f]
+    if not numbered or len(numbered) != len(facts):
+        return None
+    # INVARIANT: concurrency never turns the highest observed position into progress.
+    return ", ".join(dict.fromkeys(f"{f['case_position']} / {f['case_count']}" for f in numbered))
+
+
+def _active_stages(rows: list[ActivityRow], now_ms: float) -> list[ActivityRow]:
+    return [
+        r
+        for r in rows
+        if r.record.kind != "model_call"
+        and not r.ended
+        and r.record.state not in TERMINAL
+        and -30000 <= now_ms - r.record.observed_at_ms < 150000
+    ]
+
+
 def stage_status(log: ActivityLog, candidate: int, *, now_ms: float) -> str | None:
     stages = [
         r
@@ -56,13 +78,7 @@ def stage_status(log: ActivityLog, candidate: int, *, now_ms: float) -> str | No
         return None
     # WHY: concurrent cases can occupy different phases. Neither arrival order nor
     # a later sibling's completion establishes that another operation has ended.
-    active = [
-        r
-        for r in stages
-        if not r.ended
-        and r.record.state not in TERMINAL
-        and -30000 <= now_ms - r.record.observed_at_ms < 150000
-    ]
+    active = _active_stages(stages, now_ms)
     if active:
         return ", ".join(dict.fromkeys(LABELS[r.record.kind] for r in active))
     latest = max(stages, key=lambda r: r.record.observed_at_ms)

@@ -22,3 +22,6 @@ Add focused decoder/rendering tests, accept and validate the new optional pair, 
 ## Dynamic operation lines — approved implementation
 
 Write latest-state, stable-order, parent-aware suppression, failure/staleness and pagination tests. Change the rendering projection and persistent scroll layout; migrate presentation assertions to the approved behavior while retaining decoder/loss/bounds tests. Run Client gates, exercise actual widgets in a fresh notebook, and push draft #983. Engine numbering migration and role attribution remain deferred.
+
+
+The Status cell keeps stage-only wording. While a fresh stage supplies explicit case_position/case_count, Cases displays that active position (3 / 5), not the completed count (2 / 5). Internal completion accounting and final results remain unchanged. Concurrent active positions stay distinct; missing numbering retains the existing count fallback. Tests cover fresh, missing, concurrent, terminal and stale activity.

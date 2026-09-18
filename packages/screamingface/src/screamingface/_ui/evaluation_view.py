@@ -284,6 +284,8 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
 
 
 def _case_progress_html(row: _CandidateProgress) -> str:
+    if row.status == "running" and row.active_cases is not None:
+        return f"<span class='sf-eval__cases'>{escape(row.active_cases)}</span>"
     if row.total_cases is None:
         unit = "case" if row.completed_cases == 1 else "cases"
         return f"<span class='sf-eval__unavailable'>{row.completed_cases} {unit} finished</span>"
