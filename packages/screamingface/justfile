@@ -18,8 +18,10 @@ assets := env("URL4_BENCHMARK_ASSETS", home_directory() / ".screamingface" / "be
 # source_directory(), NOT justfile_directory(): reached through the root justfile's `mod`,
 # the latter resolves to the REPO ROOT and every relative path below lands two levels too high.
 engine_dir := source_directory() / ".." / ".." / "apps" / "screamingface-engine"
-# Not 9108: `screamingface up` owns that one, and this Engine runs beside it.
-engine_port := "9111"
+# Not 9108: `screamingface up` owns that one, and this Engine runs beside it. Overridable
+# because two worktrees running this recipe at once would otherwise contend for one port —
+# which this repo expects, since sessions run concurrently against one clone.
+engine_port := env("SCREAMINGFACE_NOTEBOOK_ENGINE_PORT", "9111")
 
 # Every bless recipe's preconditions, checked BEFORE its body — a run that discovers a
 # missing docker or unprepared assets deep inside Python may already have written partial
@@ -37,7 +39,13 @@ _bless-preconditions:
 #
 # Layout: `screamingface up` brings the Gateway (:9105) and Scoreboard (:9106); the
 # Engine started here serves ALL 17 boards on :9111 and reaches that same Gateway, so
-# the stack's own Engine simply goes unused. Ctrl-C tears both down.
+# the stack's own Engine simply goes unused.
+#
+# Shutting down: quit JupyterLab (Ctrl-C in this terminal, or File > Shut Down) and the
+# recipe tears down what it started. The Engine it launched always goes; the stack goes
+# only if this recipe was what started it — a stack you already had running is left alone,
+# because tearing down someone else's is not this recipe's business. Stop that one yourself
+# with `screamingface down` when you are finished with it.
 [doc("Open every example notebook against a stack serving ours AND imported boards")]
 local-stack-notebooks:
     #!/usr/bin/env bash
@@ -75,10 +83,31 @@ local-stack-notebooks:
                 --root "{{ assets }}" "${missing[@]}" )
     fi
 
-    # --extra runtime: the stack's servers live in that optional extra, and the default
-    # project env (notebook + dev only) cannot boot them.
-    echo "==> starting the Gateway and Scoreboard (screamingface up)"
-    "$UV" run --extra runtime screamingface up
+    # Refuse the port BEFORE starting anything. `screamingface up` guards its own three and
+    # says so plainly; this one had nothing, and the two ways it goes wrong are both silent.
+    # A listener on the same address makes uvicorn exit with EADDRINUSE, which downstream
+    # looks like a missing dependency. A listener on the OTHER address family (IPv6 `*` vs
+    # our IPv4 127.0.0.1) does not collide at all: both bind, and which one answers is luck.
+    if lsof -nP -iTCP:{{ engine_port }} -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "error: port {{ engine_port }} is already in use, so the Engine cannot start there." >&2
+        echo "  Another worktree running this recipe is the usual cause. Either stop it, or" >&2
+        echo "  pick a free port: SCREAMINGFACE_NOTEBOOK_ENGINE_PORT=9121 just …" >&2
+        exit 1
+    fi
+
+    # Only tear down a stack this recipe started. One that was already running belongs to
+    # whoever started it — quitting a notebook must not kill their gateway underneath them.
+    stack_was_running=false
+    if "$UV" run --extra runtime screamingface status --json 2>/dev/null \
+        | grep -q '"status":"running"'; then
+        stack_was_running=true
+        echo "==> using the Gateway and Scoreboard already running (left up on exit)"
+    else
+        # --extra runtime: the stack's servers live in that optional extra, and the default
+        # project env (notebook + dev only) cannot boot them.
+        echo "==> starting the Gateway and Scoreboard (screamingface up)"
+        "$UV" run --extra runtime screamingface up
+    fi
 
     echo "==> starting an inspect-capable Engine on :{{ engine_port }}"
     ( cd "{{ engine_dir }}" \
@@ -86,19 +115,30 @@ local-stack-notebooks:
             --factory screamingface_engine.local:create_local_app \
             --host 127.0.0.1 --port {{ engine_port }} ) &
     engine_pid=$!
-    # Tear down BOTH halves on any exit, including the Ctrl-C that ends Jupyter.
-    trap 'kill "$engine_pid" 2>/dev/null || true; "$UV" run --extra runtime screamingface down || true' EXIT
+    # Runs on any exit, including the Ctrl-C that ends Jupyter. Killing the `uv run` wrapper
+    # takes uvicorn with it (verified), so the port is released.
+    trap 'kill "$engine_pid" 2>/dev/null || true; \
+          [ "$stack_was_running" = true ] || "$UV" run --extra runtime screamingface down || true' EXIT
 
+    ready=false
     for _ in $(seq 60); do
         if curl -fsS --max-time 2 "http://127.0.0.1:{{ engine_port }}/v1/benchmarks" >/dev/null 2>&1; then
+            ready=true
             break
         fi
         if ! kill -0 "$engine_pid" 2>/dev/null; then
-            echo "the Engine exited before serving — is the inspect extra installed?" >&2
+            echo "error: the Engine exited before it served anything." >&2
+            echo "  Run the uvicorn command above by hand to see why." >&2
             exit 1
         fi
         sleep 1
     done
+    # WHY an explicit failure: without it the loop simply ran out and fell through, opening
+    # Jupyter against an Engine that never answered.
+    if [ "$ready" != true ]; then
+        echo "error: the Engine is still not answering on :{{ engine_port }} after 60s." >&2
+        exit 1
+    fi
 
     # Explicit URL beats local-stack adoption (OME-998), so the kernel reaches THIS Engine.
     export SCREAMINGFACE_ENGINE_URL="http://127.0.0.1:{{ engine_port }}"
