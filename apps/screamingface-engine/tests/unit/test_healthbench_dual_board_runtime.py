@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.case_execution import install_case_execution
+from screamingface_engine.benchmarks.case_selection import install_case_selection
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_PROFESSIONAL,
@@ -103,6 +104,7 @@ async def test_the_official_clip_reaches_the_score_through_the_real_expression(
     _write_full_assets(tmp_path, points=(2, -8))
     node = Url4Node("test")
     install(node, tmp_path, PROFESSIONAL_EXAM)
+    install_case_selection(node)
     install_case_execution(node)
 
     @node.endpoint(CANDIDATE_ROUTE)

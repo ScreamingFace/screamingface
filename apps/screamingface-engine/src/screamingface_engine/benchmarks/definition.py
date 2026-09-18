@@ -312,6 +312,8 @@ def candidate_call(
     *,
     binding: str = CANDIDATE_REF,
     case_id: str | None = None,
+    case_position: str | None = None,
+    case_count: str | None = None,
     web_search: bool,
     web_search_exclude: Sequence[str] = (),
 ) -> RelExpr:
@@ -341,11 +343,11 @@ def candidate_call(
     params: list[tuple[str, str]] = [("web_search", "true" if web_search else "false")]
     if excluded:
         params.append(("web_search_exclude", ":".join(excluded)))
+    if case_id is None and (case_position is not None or case_count is not None):
+        raise ValueError("Case numbering requires Case identity")
     context = render(struct(input)) if isinstance(input, Mapping) else input
     if case_id is not None:
-        if not isinstance(case_id, str) or not case_id:
-            raise ValueError("Case identity must be non-empty URL4 text")
-        context = render(struct({"input": input, "case_id": case_id}))
+        context = _candidate_context(input, case_id, case_position, case_count)
         params.append(("context_format", CONTEXT_FORMAT))
     return RelExpr(
         path=CANDIDATE_ROUTE,
@@ -355,11 +357,29 @@ def candidate_call(
     )
 
 
+def _candidate_context(
+    input: str | Mapping[str, object],
+    case_id: str,
+    case_position: str | None,
+    case_count: str | None,
+) -> str:
+    if not isinstance(case_id, str) or not case_id:
+        raise ValueError("Case identity must be non-empty URL4 text")
+    envelope: dict[str, object] = {"input": input, "case_id": case_id}
+    if case_position is not None or case_count is not None:
+        if not case_position or not case_count:
+            raise ValueError("Case position and count must be supplied together")
+        envelope.update(case_position=case_position, case_count=case_count)
+    return render(struct(envelope))
+
+
 def candidate(
     input: str | Mapping[str, object],
     *,
     binding: str = CANDIDATE_REF,
     case_id: str | None = None,
+    case_position: str | None = None,
+    case_count: str | None = None,
     web_search: bool,
     web_search_exclude: Sequence[str] = (),
 ) -> Node:
@@ -369,6 +389,8 @@ def candidate(
         input,
         binding=binding,
         case_id=case_id,
+        case_position=case_position,
+        case_count=case_count,
         web_search=web_search,
         web_search_exclude=web_search_exclude,
     )

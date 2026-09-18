@@ -193,6 +193,8 @@ def build_draco_protocol(routes: Routes, case_count: int, judge_passes: int) -> 
     candidate_invocation = candidate(
         "$item.input",
         case_id="$item.id",
+        case_position="$item._sf_case_position",
+        case_count="$item._sf_case_count",
         web_search=True,
         web_search_exclude=EXCLUDED_DOMAINS,
     )
