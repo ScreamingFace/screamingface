@@ -32,7 +32,6 @@ class _CandidateInvocation:
     def __init__(self, node: Url4Node) -> None:
         self._node = node
 
-    @observe_stage(ActivityKind.ANSWERING)
     async def __call__(self, request: Request) -> str:
         if not request.intent.strip():
             raise ResolutionError(
@@ -54,18 +53,21 @@ class _CandidateInvocation:
                 candidate_invocation_scope(),
                 case_scope(case_id, position=candidate_position(request)),
             ):
-                return await evaluate_candidate_recipe(
-                    self._node,
-                    request.intent,
-                    input_text,
-                    isolate_operation_calls=True,
-                )
+                return await self._evaluate(request.intent, input_text)
         except RetrievalPolicyError as exc:
             raise ResolutionError(
                 str(exc),
                 code="candidate_policy_escalation",
                 permanent=True,
             ) from exc
+
+    @observe_stage(ActivityKind.ANSWERING)
+    async def _evaluate(self, expression: str, input_text: str) -> str:
+        # WHY: stage entry must occur inside the decoded Case scope, so its start,
+        # terminal record and nested calls all share the explicit identity.
+        return await evaluate_candidate_recipe(
+            self._node, expression, input_text, isolate_operation_calls=True
+        )
 
 
 def install_candidate_invocation(node: Url4Node) -> None:
