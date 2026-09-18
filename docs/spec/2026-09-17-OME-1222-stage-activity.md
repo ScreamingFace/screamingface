@@ -32,3 +32,20 @@ Compact/detailed Client views change presentation, not server filtering by verbo
 
 ## Case attribution wiring — 2026-09-18
 Stage records inherit the explicit benchmark case scope, using the same public-ID validation as model calls. Candidate Answering observation starts only after decoding the case envelope and entering its scope. Unknown or unsafe identity remains absent; invalid identity cannot suppress the entire stage. This does not establish whole-case grading boundaries or attribute graph siblings.
+
+## Remaining attribution — owner assigned to this PR
+
+Owner selected #980 for the remaining Engine producer work; #988 stays focused on the existing Case identity envelope. Preserve four stage kinds and keep optional observation out of execution decisions.
+
+Required facts: stable Case ID plus one-based position in the actual selected sequence and exact selected total; explicit model role/operation identity where the author supplies it; a grading lifecycle enclosing all work for a Case, not each individual endpoint. IDs remain distinct from positions. Corrective-loop checks inside candidate execution must remain distinguishable from the benchmark's final grading.
+
+Selection owns position/total. Candidate/ensemble authors own operation roles. Benchmark orchestration owns grading boundaries. The activity adapter projects those facts with existing privacy/admission/fault isolation. The Client renders them without parsing prompts, routes, source names or arrival order.
+
+Inspection constraints: model Request contains path/context/intent/params but no semantic owner. Current retained operation attribution joins URL4 source fingerprints after completion; that cannot establish exact live roles when requests are identical. URL4 query parameters are serialized without interpolating $item, so dynamic Case metadata cannot be placed in a query parameter template. Some rubric model calls resolve before their verdict handler runs; extending the verdict decorator does not scope those calls.
+
+Role production needs a companion authoring change: explicit metadata from the Client compiler (#983), consumed by #980. An owner question is pending on including that compiler scope; Engine-only work must leave unsupported roles absent. No new URL4 grammar is proposed. Existing results, model request bytes, retrieval/seed policy, retries, accounting and cache behavior must be parity-tested before claiming equivalence.
+
+
+## Scope correction — selected-case numbering only
+
+Owner deferred model-role attribution and whole-case grading boundaries. The earlier compiler question is superseded; do not implement that expansion. #988 now owns selected-case position/count in the candidate envelope and scope. #980 forwards the validated pair on model and scoped stage activity; #983 renders it. Preserve existing privacy/off behavior, parentage and all four stages. Add pair-validation and native event tests, then run full Engine gates.
