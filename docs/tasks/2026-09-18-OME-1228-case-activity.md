@@ -9,3 +9,5 @@ created: 2026-09-18
 # Carry benchmark case identity into live model activity
 
 Independent of stage PR #980; existing model-call activity receives authoritative Case identity outside prompts. See ../spec/2026-09-18-OME-1228-case-activity.md and ../plan/2026-09-18-OME-1228-case-activity.md. Stage/grading integration remains in OME-1222; broader semantic attribution remains in OME-699.
+
+Selected-case numbering now uses the shared protocol's requested dataset order, carried outside model input. Positions are candidate-independent and optional on plain requests. Engine gates and 70 focused checks pass; four cached benchmark replays preserve outcomes. OME-1229 owns the four expression-only golden migrations. PR #988 remains draft; #980 consumes the scope for activity.

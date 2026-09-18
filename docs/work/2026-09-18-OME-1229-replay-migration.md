@@ -13,3 +13,9 @@ Replay each committed snapshot with the current Engine and original Client candi
 
 ## Outcome
 Keyless replay passed for DRACO-3pass (100 cases, 0.3593), IFEval (50, 0.9184), HealthBench-worst30 (157, -0.091), GDPval-text (25, 0.8044). All original statuses, failure maps, coverage and scores matched. Only four expression hashes changed; snapshots and outcome expectations are untouched. Atomic fixture migration shares the OME-1228 worktree/PR to keep contract and fixtures aligned. Unmodified replay tests: 4 passed; 2 unrelated boards lack fixtures and skip as before. Full Client gates green (lint, format, types, tests/95% coverage threshold, notebooks, build and distribution).
+
+## Selected-case numbering migration
+
+Owner resumed completion of numbering. Replayed all four cached benchmarks against the shared selected-case annotation and numbered envelope. DRACO-3pass: 100 cases / 0.3593; IFEval: 50 / 0.9184; HealthBench-worst30: 157 / -0.091; GDPval-text: 25 / 0.8044. Original statuses, coverage, failure codes and scores all match. Only expression_sha changed in each golden; no snapshots, request keys, expected outcomes or harness changes. Full Client gate verification runs before committing this migration.
+
+Numbering migration outcome: all Client gates green (lint, format, types, full pytest/95% coverage, notebook validation, build and distribution). Only four golden hashes changed. Existing expectations and cached request snapshots remain byte-identical. Approved append-only exception applies only to this expression migration. Draft/In Progress retained until review/merge.
