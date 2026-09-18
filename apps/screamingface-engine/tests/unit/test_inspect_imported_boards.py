@@ -58,6 +58,28 @@ def test_catalogue_holds_all_ten_imported_boards() -> None:
     assert all(board_id.startswith("inspect-") for board_id in ids)
 
 
+def test_every_board_from_this_plugin_names_inspect_evals_as_its_source() -> None:
+    """The catalogue must name the collection each board came FROM, not this repo.
+
+    INVARIANT: `origin` defaults to "screamingface" (a true fact for boards authored
+    here), so an import lane has to pass its own collection explicitly — the default is
+    silently wrong for any board we merely brought in. The listing groups by this field,
+    so a defaulted row makes the imported shelf disappear into our own group.
+
+    Scope: `inspect_evals` is *this plugin's* source, not what "imported" means in
+    general — a future collection arrives as its own plugin stamping its own origin,
+    and would carry its own copy of this assertion. Asserted over the REAL
+    registrations: a synthetic benchmark constructed with the origin passed by hand
+    proves the wire format, never the board factory.
+    """
+
+    origins = {
+        registration.benchmark.id: registration.benchmark.origin
+        for registration in board_registrations()
+    }
+    assert set(origins.values()) == {"inspect_evals"}, origins
+
+
 def test_board_revisions_are_distinct() -> None:
     """Two boards must never share a revision — the revision addresses the exam."""
 

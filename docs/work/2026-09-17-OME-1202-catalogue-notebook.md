@@ -16,6 +16,9 @@ The imported inspect_evals boards (OME-1116) and the two-group listing (OME-1114
 
 - `packages/screamingface/scripts/build_notebooks.py` — new `_imported_catalogue()` builder + registry entry (notebooks are generated artifacts, never hand-authored)
 - `packages/screamingface/examples/12_imported_benchmarks.ipynb` — generated output
+- `apps/screamingface-engine/src/screamingface_engine_inspect/single_shot.py` — stamp `origin="inspect_evals"` on imported boards (defect found while verifying the notebook; owner directed the fix into this PR rather than a new ticket)
+- `apps/screamingface-engine/tests/unit/test_inspect_imported_boards.py` — pin the origin over the real registrations
+- `apps/screamingface-engine/tests/unit/test_benchmark_origin.py` — split the over-reaching assertion (owner-approved prior-test change)
 - Ledger + `docs/tasks/` mirror
 
 ## Test plan
