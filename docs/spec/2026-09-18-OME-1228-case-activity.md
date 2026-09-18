@@ -1,0 +1,9 @@
+# Case identity for live model activity
+
+Carry the benchmark's explicit Case ID alongside candidate input before model execution. Engine protocol builders opt in with `case_id`; an explicit `context_format=case-v1` parameter identifies a JSON envelope containing `input` and `case_id`. The candidate handler unwraps it before evaluation. Plain requests keep their existing meaning. Structured inputs are serialized exactly as URL4 currently serializes them; metadata never reaches the model prompt.
+
+A benchmark-owned, run-bound context carries the ID through awaited nested calls. The optional activity adapter reads it when constructing model-call activity. Core execution imports no activity implementation. Missing context remains absent; concurrent tasks and nested runs must not inherit another case. Context tokens reset after exceptions and cancellation. Activity disabled remains silent.
+
+All shipped benchmark candidate builders supply their case ID explicitly. MedXpertQA supplies its existing structured input as a mapping so wrapping does not turn URL4 struct syntax into model text. Request payloads and raw errors never become log fields. IDs use the existing benchmark validation and activity allowlist; unsupported telemetry identifiers must not suppress otherwise-valid model records.
+
+This PR is independent of #980: it attributes existing model-call events only. Stage/grading attribution in #980 will consume the same context or explicit IDs already owned by grading endpoints. It does not add member/role attribution, case ordinals, score updates or URL4 features.

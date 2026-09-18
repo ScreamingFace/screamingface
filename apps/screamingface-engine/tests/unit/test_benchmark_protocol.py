@@ -277,13 +277,14 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
+        # OME-1228: repin the explicit Case envelope; model input equivalence is tested separately.
         # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low
         # (max_tokens stays the paper's 4096) and a bounded ;retry=2 per verdict source.
-        (DRACO, "0f619c21ae16061ed7356b8f32a4f94df1d077c59073887a2aad38a26c173f70"),
-        (IFEVAL, "c272779623671772ad8c2629e320e283837f34e3b270c693643285174794e4f8"),
+        (DRACO, "6b00e4e4dcba8d49533b78de3be008ae81cedcb525cf098f37781a262aa01705"),
+        (IFEVAL, "71d1ba85312b2bc86e2e6ff1ea40d977a849a9e465ff6819acf48bc3abaf1dbc"),
         (
             HEALTHBENCH_WORST30,
-            "bc4c584c826b5fa40ff0b563b4470cb89790712f08e92f0c0aeff151f3210102",
+            "9267d142c8b690cf0f3f81979f779193e5d122fc74872d4a8f3cb7388def3bdb",
         ),
     ),
 )

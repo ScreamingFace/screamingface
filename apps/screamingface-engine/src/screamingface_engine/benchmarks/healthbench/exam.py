@@ -170,7 +170,7 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
         The unresolved DAG — the Engine executes it at submission time.
     """
 
-    candidate_invocation = candidate("$item.input", web_search=False)
+    candidate_invocation = candidate("$item.input", case_id="$item.id", web_search=False)
     # Stage 3a — the judge call: send one pre-rendered grader prompt to the judge model.
     # One judge pass per rubric item — the reference grades each item exactly once.
     # INVARIANT: the judge call's intent is EMPTY (`!''`). The Runner maps a non-empty
