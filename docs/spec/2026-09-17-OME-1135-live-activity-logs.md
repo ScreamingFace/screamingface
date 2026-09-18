@@ -47,3 +47,6 @@ Candidate disclosure: the chevron sits inside the row before its name. The full 
 Owner requested timestamps: show a quiet HH:MM:SS UTC first-observed time per operation, fixed across updates. Full date and timezone in tooltip; bounded index evicts with latest operation. Invalid calendar dates must not break rendering. Duplicate Grading lines remain distinct operations pending Engine case-level grouping.
 
 Owner requested completed wording: Answered, Graded and Scores aggregated on success; active and failure wording remain distinct. Same dynamic operation line and timestamp.
+
+
+Owner approved discrete case Grading lines: consume scope=case grading records, join numbering only by explicit candidate/run/case ID from retained answering facts, preserve ID-only fallback. Hide routine endpoint grading rows once case-phase records exist in that run; keep model calls, failures, unknown outcomes and raw history. Terminal revision wins over delayed starts; no execution or timing inference.

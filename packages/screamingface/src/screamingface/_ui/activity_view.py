@@ -118,9 +118,22 @@ def _description(row: ActivityRow, label: str, *, model: bool = False) -> str:
 
 
 def visible_operations(log: ActivityLog, candidate: int) -> list[tuple[ActivityRow, str]]:
-    """Hide only routine Answering scopes represented by explicitly parented calls."""
+    """Keep case phases and calls; hide routine endpoint detail represented by summaries."""
     labels = {}
-    hidden = set()
+    rows = [row for row in log.rows(detailed=True) if row.candidate == candidate]
+    case_runs = {
+        row.run
+        for row in rows
+        if dict(row.record.facts).get("scope") == "case" and row.record.kind == "grading"
+    }
+    hidden = {
+        (row.run, row.record.id)
+        for row in rows
+        if row.run in case_runs
+        and row.record.kind == "grading"
+        and dict(row.record.facts).get("scope") != "case"
+        and _outcome(row) in {"started", "running", "completed"}
+    }
     for group in groups(log, candidate):
         for call in group.calls:
             labels[(call.run, call.record.id)] = group.label if group.stage else "Model call"

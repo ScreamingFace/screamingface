@@ -9,3 +9,5 @@ Local notebook Client consumes current Engine #980 activity; no older-Engine com
 
 Spec: ../spec/2026-09-17-OME-1135-live-activity-logs.md
 Plan: ../plan/2026-09-17-OME-1135-live-activity-logs.md
+
+Case-grading summary validation: 32 focused activity tests pass, including exact candidate/run/case matching, leading-zero IDs, terminal-before-start handling and preserved failures/model calls. Real local HTTP/URL4 IFEval with two fixed answers renders exactly one numbered Graded line per case and zero invalid records. Verified the resulting production HTML in Jupyter Case-grading-preview.ipynb. Engine #980 restarted locally on port 9108. No paid model calls. Full Client gates passed; final regression-inclusive gates/pre-push recorded separately. Keep draft/In Progress.

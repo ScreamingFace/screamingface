@@ -107,3 +107,8 @@ Owner requested completed wording: Answered, Graded and Scores aggregated on suc
 Past-tense change: seven new outcome-wording cases passed after RED; all 78 activity tests green. Migrated only prior presentation assertions for the owner-requested wording using the explicit append-only exception; behavioral, ordering, history and failure assertions preserved. Full Client gates running on final code.
 
 Final outcome: all Client gates green on disclosure, timestamps and past-tense wording. Visual checks passed in production Jupyter widgets. Wisdom review: no new frontend dependency or execution behavior; timestamps are per-operation first observation, not fabricated start times, and share eviction with the bounded latest index. Draft status retained.
+
+
+Owner approved discrete case Grading lines: consume scope=case grading records, join numbering only by explicit candidate/run/case ID from retained answering facts, preserve ID-only fallback. Hide routine endpoint grading rows once case-phase records exist in that run; keep model calls, failures, unknown outcomes and raw history. Terminal revision wins over delayed starts; no execution or timing inference.
+
+Case-grading summary validation: 32 focused activity tests pass, including exact candidate/run/case matching, leading-zero IDs, terminal-before-start handling and preserved failures/model calls. Real local HTTP/URL4 IFEval with two fixed answers renders exactly one numbered Graded line per case and zero invalid records. Verified the resulting production HTML in Jupyter Case-grading-preview.ipynb. Engine #980 restarted locally on port 9108. No paid model calls. Full Client gates passed; final regression-inclusive gates/pre-push recorded separately. Keep draft/In Progress.

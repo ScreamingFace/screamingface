@@ -127,7 +127,7 @@ def _fact(name: str, value: object) -> str | int | float | None:
         if name == "attempt" and result == 0:
             raise ValueError("attempt starts at one")
         return result
-    allowed = {"finish_reason": _FINISH, "failure_code": _FAILURE}.get(name)
+    allowed = {"finish_reason": _FINISH, "failure_code": _FAILURE, "scope": {"case"}}.get(name)
     if allowed is not None and (not isinstance(value, str) or value not in allowed):
         raise ValueError("unknown activity category")
     return value if allowed is not None and isinstance(value, str) else None

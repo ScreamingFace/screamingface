@@ -1,7 +1,7 @@
 """Rolling optional telemetry; never a source of scores or execution decisions."""
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from screamingface._ui.activity_record import (
     MAX_INTEGER,
@@ -87,7 +87,23 @@ class ActivityLog:
             return
         if previous and record.revision > previous.revision + 1:
             self.gaps = min(MAX_INTEGER, self.gaps + 1)
-        self._retain(key, record)
+        self._retain(key, self._number_case(candidate, event.run_id, record))
+
+    def _number_case(self, candidate: int, run: str, record: ActivityRecord) -> ActivityRecord:
+        values = dict(record.facts)
+        if values.get("scope") != "case" or "case_position" in values or "case_id" not in values:
+            return record
+        for (owner, run_id, _), prior in reversed(self._latest.items()):
+            facts = dict(prior.facts)
+            if (
+                owner == candidate
+                and run_id == run
+                and str(facts.get("case_id")) == str(values["case_id"])
+                and "case_position" in facts
+            ):
+                values.update(case_position=facts["case_position"], case_count=facts["case_count"])
+                return replace(record, facts=tuple(values.items()))
+        return record
 
     def _retain(self, key: tuple[int, str, str], record: ActivityRecord) -> None:
         self._history[(*key, record.revision)] = record
