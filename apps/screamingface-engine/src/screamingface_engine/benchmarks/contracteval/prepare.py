@@ -27,6 +27,7 @@ from screamingface_engine.benchmarks.contracteval.pins import (
     DATASET,
     DATASET_REVISION,
     DATASET_SPLIT,
+    EXPECTED_CASES,
     MAX_CONTEXT_TOKENS,
 )
 from screamingface_engine.benchmarks.contracteval.prompts import render_case_input
@@ -131,7 +132,16 @@ def load_rows() -> list[dict[str, Any]]:
             "`uv pip install datasets` in the build environment"
         ) from exc
     loaded = datasets_mod.load_dataset(DATASET, revision=DATASET_REVISION, split=DATASET_SPLIT)
-    return [dict(row) for row in loaded]
+    rows = [dict(row) for row in loaded]
+    # INVARIANT: the pinned split holds exactly the exam this board declares. Without this the
+    # bake succeeds on a resized split while the expression still declares EXPECTED_CASES, and
+    # every coverage percentage divides by a denominator nobody verified.
+    if len(rows) != EXPECTED_CASES:
+        raise PrepareError(
+            f"pinned split holds {len(rows)} rows, but this board is built for "
+            f"{EXPECTED_CASES} — bump pins.EXPECTED_CASES deliberately, with the revision"
+        )
+    return rows
 
 
 def prepare(out: Path) -> dict[str, Any]:

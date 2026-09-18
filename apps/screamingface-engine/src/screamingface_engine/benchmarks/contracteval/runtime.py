@@ -88,10 +88,16 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 
 
 def _cases(root: Path):
-    # WHY a memo: baked assets are immutable for the process lifetime, and preflighting 4,182
-    # answer records costs a file read each. Only a SUCCESSFUL payload is cached, so a broken
-    # bundle re-checks — and re-fails loudly — on every call.
-    memo: dict[str, str] = {}
+    # WHY the memo holds a VERDICT and not the payload (review of PR #984): measured on the real
+    # bundle, `cases.json` is 201.5 MB and the serialized booklet is ~403 MB resident — Python
+    # strings cost two bytes per character here. Caching that for the process lifetime is a
+    # permanent cost in local mode, where one process serves many runs, and `read_selected_cases`
+    # lifts every row's `input` again into its `SelectedCase`. So the expensive CHECK is paid
+    # once and the bytes are rebuilt per call, which is what `medxpert/runtime.py` already does.
+    #
+    # INVARIANT: only a SUCCESSFUL preflight is remembered, so a broken bundle re-fails on every
+    # call rather than being served from a cache primed before the failure.
+    preflighted = False
 
     def cases() -> str:
         """The public booklet — served only after the whole bundle passes preflight.
@@ -105,15 +111,16 @@ def _cases(root: Path):
         identity outside the revision hash.
         """
 
-        if "payload" not in memo:
-            rows = json.loads(_read(root / "cases.json", "ContractEval cases"))
-            served = [
-                {"id": int(row["id"]), "case_id": str(int(row["id"])), "input": row["input"]}
-                for row in rows
-            ]
+        nonlocal preflighted
+        rows = json.loads(_read(root / "cases.json", "ContractEval cases"))
+        served = [
+            {"id": int(row["id"]), "case_id": str(int(row["id"])), "input": row["input"]}
+            for row in rows
+        ]
+        if not preflighted:
             preflight(root, tuple(int(row["id"]) for row in served))
-            memo["payload"] = json.dumps(served, ensure_ascii=False, separators=(",", ":"))
-        return memo["payload"]
+            preflighted = True
+        return json.dumps(served, ensure_ascii=False, separators=(",", ":"))
 
     return cases
 

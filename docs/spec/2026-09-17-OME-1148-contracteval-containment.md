@@ -177,6 +177,24 @@ corrective-loop run passes the pre-spend gate, burns paid candidate turns, then 
 is the parser it would use. The reasoning already lives correctly in `definition.py`'s
 AIDEV-NOTE; only the spec was wrong.
 
+**D-9 · The reference's system-ROLE instruction is delivered as user text. Named, not hidden.**
+The reference sends its instructions as a `role: "system"` message and the contract as
+`role: "user"` (`proprietary_model.py` lines 34-56). `candidate()` accepts a single `input`
+string and offers boards no system-role channel, so `render_case_input` concatenates the two and
+`prepare` bakes the result into `cases.json`.
+
+The instructions ARE sent — this board has no orphan prompt constant, unlike MedXpertQA, whose
+`ANSWER_SYSTEM` is defined and never used, silently dropping its official system prompt. But
+ours is a different request shape from the paper's, with a different provider cache key, and
+some models weight a system message differently from the same words in a user turn. That is a
+real comparability caveat, so it belongs in the board `description` where a leaderboard reader
+will see it — not only in a hand-off note.
+
+AMENDED 2026-09-18 (review of PR #984): previously this deviation appeared nowhere in §3 and
+carried no caveat in the description. Fixing it properly means a system-role channel at the
+candidate boundary, which is a shared concern — MedXpertQA needs the same thing — and therefore
+its own ticket rather than a per-board workaround.
+
 ## 4. Design
 
 Board package mirrors `medxpert/` — the proven non-rubric shape (deterministic verdict, private

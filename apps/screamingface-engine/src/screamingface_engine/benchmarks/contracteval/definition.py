@@ -25,6 +25,7 @@ from screamingface_engine.benchmarks.contracteval.pins import (
     DATASET,
     DATASET_REVISION,
     DATASET_SPLIT,
+    EXPECTED_CASES,
     PREPARER_REVISION,
     PROTOCOL_REVISION,
 )
@@ -44,7 +45,10 @@ from url4.peer.server import Url4Node
 
 BENCHMARK_ID = "contracteval"
 ASSET_BUNDLE_ID = BENCHMARK_ID
-CASE_COUNT = 4182
+# WHY sourced from pins and not a second literal (review of PR #984): this value feeds the
+# expression's `available_case_count`, and a copy here could drift from the count `prepare`
+# actually bakes.
+CASE_COUNT = EXPECTED_CASES
 DATASET_URL = "https://huggingface.co/datasets/theatticusproject/cuad-qa"
 # INVARIANT: grading is retrieval-free — the answer must be quoted FROM the supplied contract,
 # and a model that searched the web would be answering a different question.
@@ -157,7 +161,12 @@ CONTRACTEVAL = Benchmark(
         "reported beside precision, recall, F2, accuracy, the abstention rate and the "
         'false-abstention ("laziness") rate. F1 rather than accuracy is the headline because '
         "70% of rows have no clause, so a model that always abstains would otherwise look "
-        "strong while answering nothing."
+        "strong while answering nothing. "
+        "One named deviation from the paper: it sends its extraction instructions as a system "
+        "message, while this board delivers them as the leading text of the single candidate "
+        "input, because a benchmark cannot address a candidate's system role. The instructions "
+        "are identical; the request shape is not, so scores are comparable to the paper's in "
+        "protocol but not in message layout."
     ),
     revision=REVISION,
     case_count=CASE_COUNT,

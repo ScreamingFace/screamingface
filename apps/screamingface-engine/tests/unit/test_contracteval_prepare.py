@@ -204,3 +204,96 @@ class TestContextGuardHeadroom:
         cases, _ = case_records([_row(context="x" * real_max_chars)])
 
         assert len(cases) == 1
+
+
+class TestCasesRouteMemo:
+    def test_a_broken_bundle_re_fails_on_every_call_not_just_the_first(
+        self, tmp_path: Path
+    ) -> None:
+        """Spec §5 promises "only a successful pass is cached, so a broken bundle re-fails on
+        every call". Both earlier preflight tests built a fresh closure and called it ONCE, so
+        hoisting the memo assignment above `preflight` would have kept them green while a
+        broken bundle got served on call 2. This binds one closure and calls it twice.
+        """
+
+        from screamingface_engine.benchmarks.contracteval.runtime import _cases
+        from url4.core.errors import ResolutionError
+
+        emit([_row("a", spans=["x"]), _row("b", spans=[])], tmp_path)
+        (tmp_path / "answers" / "2.json").unlink()
+        served = _cases(tmp_path)
+
+        with pytest.raises(ResolutionError, match="failed preflight"):
+            served()
+        with pytest.raises(ResolutionError, match="failed preflight"):
+            served()
+
+    def test_preflight_runs_once_across_repeated_serves(self, tmp_path: Path) -> None:
+        """The expensive check is still paid once — that is what the memo is for.
+
+        WHY the memo no longer holds the PAYLOAD (review of PR #984): measured on the real
+        bundle, `cases.json` is 201.5 MB and the serialized booklet is ~403 MB resident. Caching
+        that for the process lifetime is a permanent cost in a mode where one process serves
+        many runs, so only the preflight verdict is remembered and the bytes are rebuilt per
+        call — which is what `medxpert/runtime.py` already does.
+        """
+
+        from screamingface_engine.benchmarks.contracteval import runtime
+
+        emit([_row("a", spans=["x"]), _row("b", spans=[])], tmp_path)
+        calls: list[int] = []
+        original = runtime.preflight
+
+        def counting(root: Path, case_ids: tuple[int, ...]) -> None:
+            calls.append(len(case_ids))
+            original(root, case_ids)
+
+        runtime.preflight = counting  # type: ignore[assignment]
+        try:
+            served = runtime._cases(tmp_path)
+            first = served()
+            second = served()
+        finally:
+            runtime.preflight = original  # type: ignore[assignment]
+
+        assert calls == [2]  # preflighted once, for both cases
+        assert json.loads(first) == json.loads(second)
+        # The bytes are REBUILT, not handed back from a cache — the distinction the 403 MB
+        # measurement makes matter. Identical content, different object.
+        assert first is not second
+
+
+class TestRowCountGuard:
+    def test_a_resized_split_fails_the_bake(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """REVIEW (PR #984): the captured count used to be a bare literal in `definition.py`,
+        outside the revision hash and compared to nothing. Bump the dataset revision against a
+        split of a different size and the bake succeeded while the expression still declared
+        4,182 — so coverage percentages divided by a denominator nobody had verified.
+        """
+
+        from screamingface_engine.benchmarks.contracteval import prepare as module
+
+        class _Fake:
+            @staticmethod
+            def load_dataset(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+                return [
+                    {
+                        "id": "a",
+                        "title": "t",
+                        "context": "c",
+                        "question": "q",
+                        "answers": {"text": [], "answer_start": []},
+                    }
+                ]
+
+        monkeypatch.setattr(module.importlib, "import_module", lambda _n: _Fake)
+
+        with pytest.raises(PrepareError, match="pinned split holds 1 rows"):
+            module.load_rows()
+
+    def test_the_declared_count_and_the_pin_are_one_value(self) -> None:
+        """Two literals would be two things to forget."""
+
+        from screamingface_engine.benchmarks.contracteval import definition, pins
+
+        assert definition.CASE_COUNT is pins.EXPECTED_CASES

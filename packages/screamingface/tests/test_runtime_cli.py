@@ -287,7 +287,9 @@ def test_benchmark_manifest_distinguishes_prepared_stale_and_incomplete(
     assert cli._benchmark_status(config, "draco") == "prepared"
 
 
-@pytest.mark.parametrize("name", ("draco", "ifeval", "healthbench", "gdpval", "medxpert"))
+@pytest.mark.parametrize(
+    "name", ("draco", "ifeval", "healthbench", "gdpval", "medxpert", "contracteval")
+)
 def test_benchmark_fingerprint_uses_engine_preparation_revision(
     name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

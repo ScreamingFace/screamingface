@@ -184,6 +184,47 @@ naming the real seam; the context guard is pinned both ways; the notebook now st
 input tokens per member a full pass costs; and the declaration guard row records its approval
 where the next reader of that file will see it.
 
+**Round 3** — the seven "review recommended" items. Five were this board's gaps and are
+closed; two are cross-board and are not this ticket's to fix:
+
+- **#9 was worse than the review estimated.** It guessed "100+ MB" for the memoized booklet.
+  Measured: `cases.json` is 201.5 MB and the serialized payload is **403 MB resident** (Python
+  strings cost two bytes per character here), retained for the process lifetime in a mode where
+  one process serves many runs. So it is fixed rather than documented: the memo holds the
+  PREFLIGHT VERDICT, not the bytes — matching `medxpert/runtime.py` — and the expensive check is
+  still paid once. That also closed the spec §5 promise the review found untested ("only a
+  successful pass is cached"), which both earlier preflight tests missed by building a fresh
+  closure and calling it once.
+- **#5 is now the strongest test in the unit suite.** `test_contracteval_resolution.py` drives
+  cases → candidate → check → case-evaluation → aggregate in-process against a mocked gateway,
+  so it costs nothing. Mutation-verified against BOTH OME-1126 failure modes: rebinding
+  `$item.input` to a name that does not exist (the empty-prompt-to-a-paid-model bug) and the
+  array-shaped case-evaluation payload. Parsing alone could not catch either, because url4's
+  resolver answers an unknown `$name` with empty text rather than an error.
+- **#4** `test_contracteval_check_route.py` — the one production site where `grading` meets a
+  real candidate payload. Pins the D-5 empty-reply case (`correct=False` AND
+  `abstained=False`, so an empty reply cannot earn a true negative) and that `_check`'s output
+  satisfies `bind_case_evaluation`'s validator, which previously failed only at runtime.
+- **#6** the system-prompt role is now spec **D-9** plus a caveat in the board `description`,
+  where a leaderboard reader sees it. Fixing it properly needs a system-role channel at the
+  candidate boundary — shared with MedXpertQA, so its own ticket.
+- **#7** `pins.EXPECTED_CASES` is enforced in `load_rows`, and `definition.CASE_COUNT` now
+  references it rather than carrying a second literal.
+- **#8** `test_contracteval_definition.py` (11 tests, and the first caller of
+  `compute_revision`'s injectable kwargs), plus the e2e `BOARDS` tuple and bundle map, plus the
+  `test_runtime_cli` fingerprint parametrize.
+
+**NOT done — needs its own ticket.** #3: `_benchmark_fingerprint` returns `<name>:<DATASET_REVISION>`
+for every board, so a prompt edit re-addresses every route while `screamingface prepare` reports
+"already prepared" and serves the old booklet under the new revision. `PREPARER_REVISION` is
+invisible to it. The one-line fix invalidates every existing manifest and forces a re-prepare
+across all seven boards, which is a behaviour change for boards this ticket does not own.
+Also not done: `runtime.py`'s `json.loads` sits outside the `_unavailable`-converting path, so a
+malformed `cases.json` surfaces as a bare `JSONDecodeError` — byte-identical in medxpert, and
+the reviewer scoped it out of this PR themselves.
+
+Test count: 71 → 84 → 87 → **113**.
+
 ## Still open at hand-off
 
 - **PR #984 is open and under review.** Two rounds of findings addressed — see the review log

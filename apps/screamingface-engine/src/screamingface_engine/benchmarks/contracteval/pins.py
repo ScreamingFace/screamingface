@@ -31,6 +31,13 @@ DATASET_SPLIT = "test"
 DATASET_REVISION = "d9c4ee0250ae2eb97bdb5b50773ab14ea62d0631"
 
 # WHY: prepare's emission rules are part of the answer key; bump when they change.
+#: The captured row count — 102 contracts × 41 clause categories. Asserted at bake time by
+#: `prepare.load_rows`, so bumping DATASET_REVISION against a split of a different size fails
+#: the build instead of silently serving an exam whose declared `case_count` it does not hold.
+#: WHY it matters beyond tidiness (review of PR #984): `available_case_count` feeds the
+#: expression, and coverage percentages divide by a denominator nobody would have verified.
+EXPECTED_CASES = 4182
+
 PREPARER_REVISION = "cuad-test-v1"
 # WHY: the exchange itself — single-shot verbatim extraction with an explicit abstain string.
 PROTOCOL_REVISION = "single-shot-extract-v1"
@@ -67,6 +74,7 @@ MAX_CONTEXT_TOKENS = 120_000
 
 __all__ = [
     "DATASET",
+    "EXPECTED_CASES",
     "DATASET_REVISION",
     "DATASET_SPLIT",
     "MAX_CONTEXT_TOKENS",
