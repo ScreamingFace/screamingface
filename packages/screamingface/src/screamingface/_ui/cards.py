@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.engine_origin import _is_hosted_engine
+from screamingface._ui.style import NO_MATH
 from screamingface.recipe import _recipe_kind
 
 if TYPE_CHECKING:
@@ -43,7 +44,7 @@ def model_card_html(model: Model) -> str:
     if model.params:
         fields += _field("params", _params(model.params), wide=True)
     return (
-        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace model'>"
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace model'>"
         "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(model.name)}</span>"
         "<span class='sf-card__kicker'>model</span></div>"
@@ -60,7 +61,7 @@ def fusion_card_html(fusion: Fusion) -> str:
         fields = _synthesizer_fields(fusion.synthesizer)
         synthesis = _section("synthesis", f"<div class='sf-card__grid'>{fields}</div>")
     return (
-        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace fusion'>"
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace fusion'>"
         "<div class='sf-card__accent'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(fusion.name)}</span>"
         "<span class='sf-card__kicker'>fusion</span></div>"
@@ -75,7 +76,7 @@ def pipeline_card_html(pipeline: Pipeline) -> str:
         _recipe_detail(stage, index=index) for index, stage in enumerate(pipeline.stages, start=1)
     )
     return (
-        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace pipeline'>"
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace pipeline'>"
         "<div class='sf-card__accent sf-card__accent--pipeline'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(pipeline.name)}</span>"
         "<span class='sf-card__kicker sf-card__kicker--pipeline'>pipeline</span></div>"
@@ -163,7 +164,7 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
         + _field("description", escape(benchmark.description), wide=True)
     )
     return (
-        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace benchmark'>"
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace benchmark'>"
         "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(benchmark.title)}</span>"
         "<span class='sf-card__kicker'>benchmark</span></div>"
@@ -187,7 +188,8 @@ def model_details_card_html(details: ModelDetails) -> str:
         + _field("freshness", escape(freshness))
     )
     return (
-        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace model details'>"
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' "
+        "aria-label='ScreamingFace model details'>"
         "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(details.id)}</span>"
         "<span class='sf-card__kicker'>model</span></div>"
@@ -207,7 +209,7 @@ def client_card_html(client: _ClientLike) -> str:
     )
     status = _section("status", f"<div class='sf-chips'>{_status_chips(client)}</div>")
     return (
-        f"{CARD_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace client'>"
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace client'>"
         "<div class='sf-card__accent sf-card__accent--solid'></div>"
         "<div class='sf-card__head'><span class='sf-card__title'>ScreamingFace</span>"
         "<span class='sf-card__kicker'>client</span></div>"
@@ -219,7 +221,7 @@ def catalog_html(title: str, aria: str, count: int, rows: str) -> str:
     """Wrap escaped rows in the static fallback used outside interactive notebooks."""
 
     return (
-        f"{CARD_STYLE}<div class='sf-ui sf-catalog' aria-label='{escape(aria)}'>"
+        f"{CARD_STYLE}<div class='sf-ui sf-catalog {NO_MATH}' aria-label='{escape(aria)}'>"
         "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-catalog__head'><div class='sf-catalog__title'>{escape(title)}</div>"
         f"<div class='sf-catalog__count'>{count}</div></div>{rows}</div>"

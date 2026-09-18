@@ -23,6 +23,21 @@ _DARK = (
     "--sf-warning:#ffddd0;--sf-warning-solid:#e36f48;--sf-warning-bg:#130e0c"
 )
 
+# INVARIANT (OME-1226): panels are transcripts, never formulas — the notebook must never
+# typeset their contents as maths. A prompt that mentions money reaches the page with literal
+# `$` characters (escaping leaves them alone; `$` is not HTML-special), and MathJax then runs
+# as a SEPARATE pass over the already-rendered DOM, pairs them up, and re-typesets the text
+# between them: italic, spaces deleted. Both names are needed because two MathJax majors are
+# in the wild — `mathjax_ignore` (MathJax 3 · JupyterLab 4) and `tex2jax_ignore` (MathJax 2 ·
+# classic notebook and nbconvert). Either one makes the typesetter skip the element's whole
+# subtree, so it goes on the panel ROOT and every descendant is covered.
+# AIDEV-NOTE: a new panel root must carry these too — append them, never prepend, because
+# `sf-ui` leading the class list is load-bearing markup for the suites that slice on it.
+NO_MATH_CLASSES: tuple[str, str] = ("mathjax_ignore", "tex2jax_ignore")
+# The same two names for an HTML `class='…'` attribute; ipywidgets roots use the tuple, one
+# `add_class` call per name.
+NO_MATH: str = " ".join(NO_MATH_CLASSES)
+
 # The one sanctioned SFDS gradient (fusion-grad), as the brand repo renders it on a
 # progress/score fill (product-demos/widgets-view/widgets.css .w-progfill). Held as a
 # plain constant, NOT a custom property on .sf-ui: it stays opt-in per surface so it can

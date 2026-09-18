@@ -15,6 +15,7 @@ from screamingface._ui.cards import (
     models_rows_html,
     origin_label,
 )
+from screamingface._ui.style import NO_MATH_CLASSES
 from screamingface.discovery import Benchmark, ModelInfo
 
 
@@ -93,6 +94,8 @@ class _Catalog[T](Sequence[T], ABC):
         root.add_class("sf-ui")
         root.add_class("sf-catalog-widget")
         root.add_class("sf-catalog")
+        for css_class in NO_MATH_CLASSES:
+            root.add_class(css_class)
         return root
 
     def _body(self, widgets: Any) -> tuple[Any, Callable[[str], None]]:
