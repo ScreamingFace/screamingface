@@ -11,7 +11,7 @@ set default-list := true
 # One blesser, four flag shapes — the path moves in a single place.
 blesser := "uv run python tests/e2e/fixtures/slice_snapshot.py"
 
-# Where baked benchmark snapshots live. `screamingface prepare` writes here too
+# Where each benchmark's downloaded dataset is written. `screamingface prepare` writes here too
 # (RuntimeConfig.assets_dir), so the bless recipes and the notebook stack share one root.
 assets := env("URL4_BENCHMARK_ASSETS", home_directory() / ".screamingface" / "benchmark-assets")
 
@@ -24,16 +24,16 @@ engine_port := "9111"
 # Every bless recipe's preconditions, checked BEFORE its body — a run that discovers a
 # missing docker or unprepared assets deep inside Python may already have written partial
 # fixtures. A dependency rather than a top-level variable because `require()` and `error()`
-# both evaluate eagerly there, which would abort `notebooks` too (it needs neither, and
-# bakes its own assets).
+# both evaluate eagerly there, which would abort `local-stack-notebooks` too (it needs
+# neither, and prepares its own datasets).
 [private]
 _bless-preconditions:
     @echo "docker: {{ require('docker') }}"
     @echo "assets: {{ if path_exists(assets) == 'true' { assets } else { error('no benchmark assets at ' + assets + ' — run `uv run screamingface prepare --all`') } }}"
 
 # Open EVERY example notebook against a stack serving both board families: ours
-# (7 boards, origin=screamingface) and imported (10 inspect_evals boards). Bakes the
-# frozen snapshots on first run — network, minutes — then reuses them.
+# (7 boards, origin=screamingface) and imported (10 inspect_evals boards). Downloads each
+# benchmark's dataset on first run — network, minutes — then reuses it forever.
 #
 # Layout: `screamingface up` brings the Gateway (:9105) and Scoreboard (:9106); the
 # Engine started here serves ALL 17 boards on :9111 and reaches that same Gateway, so
@@ -44,15 +44,18 @@ local-stack-notebooks:
     set -euo pipefail
     UV="{{ require('uv') }}"
 
-    # The bake is RESUMABLE, one bundle at a time. `cases.json` is written last by each
-    # preparer, so its presence means that bundle finished; anything else in a bundle
-    # directory is the debris of an interrupted run, which the preparer would refuse to bake
-    # over. So: ask the Engine which bundles exist, clear only the unfinished ones, and bake
-    # exactly those. A completed bundle is never re-downloaded.
+    # Each benchmark's dataset is downloaded once and written to disk as fixed files (the
+    # repo calls this baking); a run afterwards only reads them. That is slow and it is
+    # exactly what a half-finished attempt must not repeat, so this resumes one benchmark
+    # at a time. Every preparer writes `cases.json` LAST, so a directory containing it is
+    # finished; a directory with anything else is wreckage from a run that died mid-write,
+    # which the preparer would refuse to write over. Ask the Engine which exist, clear
+    # only the unfinished directories, and redo exactly those. Nothing complete is fetched
+    # twice, and nothing usable is deleted (without cases.json a benchmark cannot be served).
     #
-    # The preparer pins match Dockerfile.benchmark's, so a notebook reads assets built the
-    # way production builds them; `--extra inspect` carries the imported preparers and
-    # pdfplumber/python-docx flatten GDPval's reference PDFs.
+    # The pinned preparer packages match Dockerfile.benchmark's, so a notebook reads data
+    # built the way production builds it; `--extra inspect` carries the imported preparers
+    # and pdfplumber/python-docx flatten GDPval's reference PDFs into text.
     ( cd "{{ engine_dir }}" && "$UV" sync --extra inspect \
         && "$UV" pip install --quiet "datasets==5.0.0" "pdfplumber==0.11.10" "python-docx==1.2.0" )
 
@@ -66,7 +69,7 @@ local-stack-notebooks:
     done < <( cd "{{ engine_dir }}" && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles )
 
     if [ ${#missing[@]} -gt 0 ]; then
-        echo "==> baking $((${#missing[@]} / 2)) benchmark bundle(s) into {{ assets }} (downloads datasets)"
+        echo "==> downloading $((${#missing[@]} / 2)) benchmark dataset(s) into {{ assets }} — slow, once"
         ( cd "{{ engine_dir }}" \
             && "$UV" run python -m screamingface_engine.benchmarks.prepare \
                 --root "{{ assets }}" "${missing[@]}" )

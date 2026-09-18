@@ -35,12 +35,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="append",
         dest="bundles",
         metavar="ID",
-        help="bake only this bundle (repeatable); omit to bake every one, as the image does",
+        help=(
+            "prepare only this bundle, repeat for several; omit to prepare all of them, "
+            "as the image build does. Use it to redo just the bundles a failed run left "
+            "missing, instead of downloading every dataset again"
+        ),
     )
     parser.add_argument(
         "--list-bundles",
         action="store_true",
-        help="print every bundle id, one per line, and bake nothing",
+        help="print every bundle id, one per line, and download nothing",
     )
     args = parser.parse_args(argv)
 
@@ -54,7 +58,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _bake(root: Path, only: tuple[str, ...] | None) -> int:
-    """Prepare the selected bundles, streaming one audit record per completed bundle."""
+    """Download and write out the selected benchmarks' datasets.
+
+    Prints one JSON audit record per bundle as it lands, so a failure partway still leaves
+    a record of everything that completed before it. `only` is None for all of them.
+    """
 
     def emit(bundle: str, summary: BenchmarkAssetSummary) -> None:
         # WHY stream rather than print at the end: a refusal partway through must still leave

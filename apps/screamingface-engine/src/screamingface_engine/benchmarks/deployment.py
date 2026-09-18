@@ -101,7 +101,11 @@ class BenchmarkDeployment:
 
     @property
     def asset_bundle_ids(self) -> tuple[str, ...]:
-        """Every unique bundle id this deployment can bake, in stable order."""
+        """Every unique bundle id this deployment can prepare, in stable order.
+
+        One id per directory of prepared files, so a caller can ask what exists before
+        deciding what is missing.
+        """
 
         return tuple(bundle.id for bundle in self._asset_bundles)
 
@@ -112,20 +116,28 @@ class BenchmarkDeployment:
         *,
         only: Iterable[str] | None = None,
     ) -> dict[str, BenchmarkAssetSummary]:
-        """Prepare every unique bundle and retain its audit summary in stable ID order.
+        """Download each benchmark's dataset once and write it to disk as fixed files.
+
+        Think of it as stocking a library before it opens: every exam is fetched, rendered
+        into questions plus an answer key, and written under ``root/<bundle id>/``. A run
+        afterwards only reads those files and never reaches the network, which is what makes
+        an exam reproducible — questions that could shift between runs would not be a
+        benchmark. Each bundle is one directory; several Benchmarks may share one, so a
+        shared bundle is prepared once. Summaries come back in stable id order.
 
         WHY `on_prepared`: bundles write real files as they go, so a later bundle's refusal
         must not erase the evidence for the ones that already landed. The callback fires as
         each bundle completes, letting a caller stream its audit record before any failure —
         while the I/O decision stays with the caller and out of this orchestrator.
 
-        WHY `only`: a bake is not resumable in place — preparers that refuse a non-empty
-        directory (the imported boards') would re-raise on every sibling that already
-        finished, so an interrupted run could otherwise only be recovered by deleting and
-        re-downloading the lot. Naming the bundles still missing is what makes the retry
-        cheap. Omitted means every bundle, which is what the image build always does.
-        An id no bundle declares is refused rather than ignored: a silent no-op reads
-        exactly like a successful bake in a build log.
+        WHY `only`: preparing cannot be picked up where it stopped. Some preparers (the
+        imported boards') refuse to write into a directory that already holds files, so a
+        second attempt raises on the first bundle that already finished — and an interrupted
+        run could only be recovered by deleting every completed directory and downloading
+        everything again. Naming just the bundles still missing is what makes a retry cheap.
+        Omitted means all of them, which is what the image build always wants. An id no
+        bundle declares is refused rather than skipped: preparing nothing and reporting
+        success reads exactly like a real build in the log.
         """
 
         selected: tuple[BenchmarkAssetBundle, ...] = self._asset_bundles
