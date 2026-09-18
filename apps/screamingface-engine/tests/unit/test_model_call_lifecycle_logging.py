@@ -177,3 +177,59 @@ async def test_heartbeats_back_off_instead_of_spamming(
     # Fixed 0.04s cadence over 0.4s would be ~10 beats; doubling (0.04+0.08+0.16+0.32)
     # yields 3-4. The band is wide because CI clocks jitter.
     assert 2 <= beats <= 5, beats
+
+
+class _FlakyTransport:
+    """An `httpx.MockTransport` handler that fails transiently a fixed number of times.
+
+    WHY a real `httpx.MockTransport` rather than a stub coroutine: the fact under test —
+    which tuple slot `_post_completion` puts the retry bit in — lives INSIDE that function's
+    own retry loop, so the probe has to go through `http_client.post` and a genuine
+    `httpx.TransportError`, not around them.
+    """
+
+    def __init__(self, fail_times: int) -> None:
+        self.calls = 0
+        self._fail_times = fail_times
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        if self.calls <= self._fail_times:
+            raise httpx.ReadError("synthetic transport failure", request=request)
+        return httpx.Response(200, json={"ok": True})
+
+
+async def test_post_completion_reports_no_retry_when_the_first_attempt_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard for OME-1203 finding 3: a mutant `attempt >= 0` would mark this call
+    retried too, and every cache hit downstream would be withdrawn forever with the suite
+    still green. Asserted positionally so swapping the tuple's two elements also fails."""
+    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0)
+    flaky = _FlakyTransport(fail_times=0)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(flaky.handler), base_url="http://aigateway.test"
+    ) as client:
+        result = await connector_module._post_completion(client, headers={}, body={})
+
+    assert isinstance(result[0], httpx.Response)
+    assert result[1] is False
+    assert flaky.calls == 1
+
+
+async def test_post_completion_reports_a_retry_when_the_first_attempt_fails_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The companion case: a transport failure followed by a success must report `True` —
+    the fact `avoided_usd_for_outcome` relies on to withdraw a hit's saved cost. Asserted
+    positionally so swapping the tuple's two elements also fails."""
+    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0)
+    flaky = _FlakyTransport(fail_times=1)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(flaky.handler), base_url="http://aigateway.test"
+    ) as client:
+        result = await connector_module._post_completion(client, headers={}, body={})
+
+    assert isinstance(result[0], httpx.Response)
+    assert result[1] is True
+    assert flaky.calls == 2

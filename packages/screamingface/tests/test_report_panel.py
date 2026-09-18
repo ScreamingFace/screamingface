@@ -785,3 +785,29 @@ def test_failure_banner_escapes_candidate_names_and_keeps_single_candidate_compa
     assert "<Model & A>" not in summary
     assert "Model B" not in summary
     assert "&lt;Model &amp; A&gt;" not in _failures_html(report(named)).split("<details>", 1)[0]
+
+
+# WHY (OME-1226): the panel is a transcript, so the notebook must never re-typeset it as
+# maths. A GSM8K prompt carries three dollar signs; HTML escaping leaves them alone because
+# `$` is not HTML-special, and MathJax pairs them up in a later pass over the rendered DOM —
+# italicising the sentence between them and deleting its spaces. The opt-out classes on the
+# root are the only defence at that layer, so they are pinned here.
+def test_a_report_whose_prompt_mentions_money_is_marked_off_limits_to_maths_typesetting() -> None:
+    prompt = "ANSWER: $ANSWER (without quotes). Janet sells eggs for $2 per fresh duck egg."
+    priced = CaseResult(
+        case_id=1,
+        input=prompt,
+        output="18",
+        finish_reason="stop",
+        grade=CaseGrade(method="rubric", score=1.0, metrics={}, checks=[]),
+        failures=[],
+        metadata={},
+        stop_reason=None,
+        rounds_executed=None,
+    )
+    html = body(report_html(report(candidate("gemini-3-flash-preview", 1.0, cases=(priced,)))))
+    root_classes = html.split("'", 2)[1].split()
+
+    assert "mathjax_ignore" in root_classes  # MathJax 3 · JupyterLab 4
+    assert "tex2jax_ignore" in root_classes  # MathJax 2 · classic notebook and nbconvert
+    assert "sf-ui" in root_classes

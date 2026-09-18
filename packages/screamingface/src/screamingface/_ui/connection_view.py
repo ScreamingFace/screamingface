@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, assert_never
 from screamingface._ui.connection_state import _ConnectionPanelState
 from screamingface._ui.engine_origin import _is_screamingface_engine
 from screamingface._ui.provider_icons import provider_icon_html
-from screamingface._ui.style import STYLE, _theme_rules
+from screamingface._ui.style import NO_MATH, NO_MATH_CLASSES, STYLE, _theme_rules
 
 if TYPE_CHECKING:
     from screamingface.connections import Connection
@@ -173,7 +173,7 @@ def static_panel_html(
         else ""
     )
     return (
-        f"{_STYLE}<div class='sf-ui sf-connections' "
+        f"{_STYLE}<div class='sf-ui sf-connections {NO_MATH}' "
         "aria-label='ScreamingFace connections'>"
         f"{_header_html(engine)}{table}</div>"
     )
@@ -205,7 +205,7 @@ class _NotebookConnectionView:
 
         header = widgets.HTML(value=f"{_STYLE}{_header_html(controller.engine)}")
         self.root = PanelWidget(children=(header, self._notice, self._rows))
-        for css_class in ("sf-ui", "sf-connection-widget", "sf-connections"):
+        for css_class in ("sf-ui", "sf-connection-widget", "sf-connections", *NO_MATH_CLASSES):
             self.root.add_class(css_class)
         self.render()
 

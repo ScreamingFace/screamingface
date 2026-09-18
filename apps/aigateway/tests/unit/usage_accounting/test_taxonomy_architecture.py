@@ -37,6 +37,7 @@ def test_taxonomy_plugin_owns_policy_and_schema() -> None:
         "__init__.py",
         "classify.py",
         "collector.py",
+        "entry_metadata.py",
         "mapper.py",
         "money.py",
         "plugin.py",

@@ -34,6 +34,7 @@ from screamingface_engine.retrieval_policy import (
 )
 from screamingface_engine.runner.accounting import (
     CallAccounting,
+    avoided_usd_for_outcome,
     read_aigw,
     retained_operation_accounting,
 )
@@ -170,7 +171,7 @@ async def _observed_round_trip(
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
         # capture.
-        _report_response(choice, outcome)
+        _report_response(choice, outcome, data.get("_aigw"))
         _raise_if_unusable_with_accounting(
             choice,
             max_tokens=max_tokens,
@@ -442,9 +443,9 @@ async def build_aigateway_world(
     )
 
 
-def _report_response(choice: Choice, cache: CacheOutcome) -> None:
-    """Report how one model round trip ended — and whether the gateway served it from its
-    response cache — onto the currently-resolving node's span.
+def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -> None:
+    """Report how one model round trip ended — whether the gateway served it from its response
+    cache, and what that hit avoided — onto the currently-resolving node's span.
 
     Null-safe exactly like `_report_usage`: outside a run, or with no observer attached, the
     sink is absent and this is a no-op.
@@ -453,15 +454,28 @@ def _report_response(choice: Choice, cache: CacheOutcome) -> None:
     costs nothing upstream while `_report_usage` bills it as a fresh call, so a span that
     carries the tokens without the outcome states a cost that was never paid — an error in the
     direction that hides savings, and therefore one nobody reports.
+
+    INVARIANT: the saved cost is derived from `aigw` — the accounting of the round trip whose
+    outcome `cache` describes — and never from a discarded one. `_fetch_completion` may refuse a
+    hit and re-issue the call, returning the SECOND trip's outcome; deriving from that same
+    returned pair is what keeps the discarded hit's cost out of the run total (PRD test 17).
+
+    INVARIANT: a hit whose round trip was RETRIED is never priced. A transport retry can follow
+    an attempt the provider already processed and billed, so pricing the hit would report money
+    saved that was in fact spent — the one direction of error this whole feature exists to
+    remove.
     """
     sink = current_response_sink()
     if sink is None:
         return
+    saved = avoided_usd_for_outcome(aigw, cache)
     sink(
         finish_reason=choice.finish_reason,
         refusal=choice.refusal,
         cache_status=cache.status,
         cache_reason=cache.reason,
+        cache_saved_cost_usd=saved.usd,
+        cache_saved_cost_provenance=saved.provenance,
     )
 
 
@@ -477,8 +491,8 @@ def _token_count(*candidates: object) -> int:
     return 0
 
 
-def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
-    """Report a cache hit: priced at zero, and zero tokens consumed.
+def _report_served_from_cache(model: str, call: CallAccounting | None, *, retried: bool) -> None:
+    """Report a cache hit: zero tokens consumed, and priced at zero unless a retry preceded it.
 
     WHY zero rather than the numbers the response carries: a hit replays a STORED response, whose
     body still contains the original call's `usage`. aigateway says so explicitly — it labels the
@@ -491,8 +505,22 @@ def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
     gateway reported something definite — nothing was consumed — and a run total must be able to
     add that in rather than treat it as a gap.
 
-    INVARIANT: the price stays `Decimal("0")` and never `None`. Zero is a real claim about a real
-    saving; a dash would hide it. `usd_from_aigw` derives it from the SAME hit, so the two agree.
+    INVARIANT: an UNRETRIED hit stays `Decimal("0")` and never `None`. Zero is a real claim about
+    a real saving; a dash would hide it. `usd_from_aigw` derives it from the SAME hit, so the two
+    agree.
+
+    INVARIANT: a RETRIED hit is `None` — "not priced" — because nobody can know what it cost.
+    `_post_completion` retries a lost reply, and the attempt whose reply was lost may already have
+    been processed and billed upstream, in which case the row this attempt hit is the very one it
+    paid for and wrote. `avoided_usd_for_outcome` already withdraws the SAVING on exactly this
+    evidence; withdrawing the saving while still asserting a spend of zero would state two
+    opposite confidences about one ambiguous fact, and the zero is the more misleading half —
+    a run total sums it in as certainty. `_fold_usage` latches the run UNPRICED on it instead.
+
+    AIDEV-NOTE: scoped to the HIT path deliberately. A retried MISS carries the gateway's own
+    attempt accounting and keeps its provider-authored price; that figure is a lower bound rather
+    than a false zero, and widening the withdrawal to every retried round trip would cost every
+    run its cost total on a single transport blip. Revisit only with that trade stated.
 
     AIDEV-NOTE: hit-ness is decided by the caller from the published `CacheOutcome` (the response
     headers), NOT from `_aigw`. That is deliberate — an older gateway emits the header and no
@@ -511,8 +539,14 @@ def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
         cache_read_tokens=0,
         cache_creation_tokens=0,
         reasoning_tokens=0,
-        cost_usd=call.cost_usd if call is not None else Decimal(0),
+        cost_usd=None if retried else _hit_cost(call),
     )
+
+
+def _hit_cost(call: CallAccounting | None) -> Decimal:
+    """A non-retried hit's price: the gateway's own figure, or an explicit zero when it reported
+    no accounting at all. Never `None` — see the invariant above."""
+    return call.cost_usd if call is not None and call.cost_usd is not None else Decimal(0)
 
 
 def _report_usage(
@@ -541,7 +575,7 @@ def _report_usage(
     if call is None and usage is None:
         return
     if cache is not None and cache.status == "hit":
-        _report_served_from_cache(model, call)
+        _report_served_from_cache(model, call, retried=cache.retried)
         return
     reported = usage or {}
     sink(
@@ -570,7 +604,7 @@ async def _post_completion(
     *,
     headers: dict[str, str],
     body: dict,
-) -> httpx.Response:
+) -> tuple[httpx.Response, bool]:
     """One chat-completions POST: retry transport failures, then translate to a retryable error.
 
     WHY (OME-1016): a transport failure (connection reset, read error, timeout) is
@@ -583,11 +617,17 @@ async def _post_completion(
     retry in lockstep), then raises a retryable ``ResolutionError`` that names the real
     cause. ``HTTPStatusError`` is deliberately NOT caught — ``_raise_for_status``
     handles non-2xx after the post returns.
+
+    Returns the response and WHETHER A RETRY PRECEDED IT. A retried attempt may already have
+    been processed and billed with only its reply lost, so accounting must not treat the
+    attempt that finally answered as the whole operation.
     """
     last: httpx.TransportError | None = None
     for attempt in range(_TRANSPORT_RETRIES + 1):
         try:
-            return await http_client.post(_COMPLETIONS_PATH, headers=headers, json=body)
+            return await http_client.post(
+                _COMPLETIONS_PATH, headers=headers, json=body
+            ), attempt > 0
         except httpx.TransportError as exc:
             last = exc
             if attempt < _TRANSPORT_RETRIES:
@@ -650,7 +690,7 @@ async def _fetch_completion(
         The response to consume, and the cache outcome of the round trip that produced IT — not
         of the one that was discarded, whose only remaining trace is that it happened.
     """
-    resp = await _post_completion(
+    resp, retried = await _post_completion(
         http_client,
         headers=headers,
         # `policy_to_body_field` yields an EMPTY dict for a run that participates, so an ordinary
@@ -660,19 +700,19 @@ async def _fetch_completion(
         body={**body, **policy_to_body_field(cache)},
     )
     _raise_for_status(resp)
-    outcome = read_cache_outcome(resp.headers)
+    outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
         return resp, outcome
     # An explicit opt-out, built here rather than derived from `cache`: the run's own policy
     # PARTICIPATES (a bound is not a refusal), and the re-issue must state the one thing the
     # closed grammar understands — `use-cache: false` — and nothing else.
-    resp = await _post_completion(
+    resp, reissue_retried = await _post_completion(
         http_client,
         headers=headers,
         body={**body, **policy_to_body_field(CachePolicy(participate=False))},
     )
     _raise_for_status(resp)
-    return resp, read_cache_outcome(resp.headers)
+    return resp, read_cache_outcome(resp.headers, retried=reissue_retried)
 
 
 async def _chat_completion_loop(

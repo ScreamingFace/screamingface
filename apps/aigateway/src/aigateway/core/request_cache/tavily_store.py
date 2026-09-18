@@ -149,6 +149,11 @@ class TavilyRetrievalCacheStore:
                     response_json=payload,
                     response_size_bytes=len(payload.encode("utf-8")),
                     expires_at=None,
+                    # A9 / ERD E9: this lane holds no cost signal, so the standard metadata
+                    # column stays NULL. Explicit rather than merely defaulted — NULL is the
+                    # documented "unknown", and a fabricated empty block would be a claim
+                    # this writer cannot make. Pricing retrieval is a separate feature.
+                    metadata_json=None,
                 )
         except IntegrityError:
             return await self._classify_fill_conflict(entry)

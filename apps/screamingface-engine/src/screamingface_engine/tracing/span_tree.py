@@ -31,6 +31,8 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
+from typing import Any
 
 from url4.streaming.protocol import SpanData, SpanEvent
 
@@ -78,6 +80,21 @@ class Span:
         return self.parent_span_id is None
 
 
+def _attribute_value(value: Any) -> AttributeValue:
+    """One payload field as something OTel can actually carry.
+
+    OTel attributes admit `bool | str | int | float | bytes` and sequences of those. A `Decimal`
+    is none of them: the OTLP encoder rejects it and only LOGS the failure, so the attribute
+    vanishes from the exported span instead of failing loudly. Money is therefore rendered as an
+    exact decimal string — `format(…, "f")` rather than `str(…)`, which would emit scientific
+    notation for a small amount — matching how `RunCacheCounters.attributes()` already puts money
+    on an attribute bag. Converting to `float` is not an option: a binary float is never money.
+    """
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    return value
+
+
 def _attributes(data: SpanData) -> Mapping[str, AttributeValue]:
     """Every non-structural payload field, under the name the PROTOCOL gives it.
 
@@ -93,7 +110,7 @@ def _attributes(data: SpanData) -> Mapping[str, AttributeValue]:
     """
     dumped = data.model_dump(by_alias=True, exclude_none=True)
     return {
-        (key if "." in key else f"url4.{key}"): value
+        (key if "." in key else f"url4.{key}"): _attribute_value(value)
         for key, value in dumped.items()
         if key not in _STRUCTURE
     }

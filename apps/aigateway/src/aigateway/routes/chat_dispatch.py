@@ -21,19 +21,11 @@ from typing import Any, cast
 from fastapi import HTTPException, Request
 
 from ..core.concurrency import effective_provider_limit, provider_slot
-from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.http_status import valid_http_error_status
-from ..core.oauth.models import OAuthConnection
-from ..core.profile_models import AuthType, Profile
+from ..core.provider_access import CredentialTarget, provider_access_for
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
 from ..tracing import provider_span
 from .chat_accounting import note_conversion_failure
-from .chat_credentials import (
-    _invalidate_profile_session,
-    _mark_profile_error_fresh,
-    _oauth_connection_store,
-    _reauth_url_for,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -48,51 +40,31 @@ async def _dispatch_failure_response(
     exc: HTTPException,
     *,
     plugin: Any,
-    provider: str,
-    account_id: str,
-    profile_name: str,
-    profile: Profile | None,
-    connection: OAuthConnection | None,
-    credential_name: str | None,
-    auth_type: AuthType,
+    target: CredentialTarget,
 ) -> HTTPException:
     """Mark the credential target on auth-meaning dispatch failures.
 
     Shared by the HTTPException path (custom handlers raise these) and the
     LiteLLM-exception path (e.g. anthropic AuthenticationError), so a bad
-    stored credential flips the profile/connection to ERROR regardless of
-    which exception family the provider dispatch uses.
+    stored credential flips the target to ERROR regardless of which exception
+    family the provider dispatch uses.
+
+    # INVARIANT (OME-1207): the STATUS GATE stays here — deciding that a status means
+    # "this credential is bad" is the plugin's contract, read at the route. Everything
+    # after it (strategy eviction, marking the row, session invalidation, the
+    # `reauth_url` rewrite) belongs to the backing and happens inside op 5, so Stage B
+    # can change what a mark means without touching this module.
     """
     if not _should_mark_profile_error_on_dispatch_status(plugin, exc.status_code):
         return exc
-    # Drop the cached strategy so its (now bad) token isn't reused by the next
-    # request — important under fan-out where many requests share the instance.
-    if credential_name is not None:
-        credential_strategy_cache(request.app).evict(credential_name)
-    detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
-    if connection is not None:
-        await _oauth_connection_store(request).mark_error(
-            connection,
-            str(detail.get("message", str(exc.detail))),
-        )
-        if credential_name is not None:
-            _invalidate_profile_session(plugin, credential_name)
-        return exc
-    if profile is None:
-        return exc
-    await _mark_profile_error_fresh(request, profile=profile)
-    if credential_name is not None:
-        _invalidate_profile_session(plugin, credential_name)
-    return HTTPException(
-        status_code=exc.status_code,
-        detail={
-            "code": detail.get("code", "auth_required"),
-            "message": detail.get("message", str(exc.detail)),
-            "reauth_url": detail.get(
-                "reauth_url", _reauth_url_for(provider, profile_name, auth_type)
-            ),
-        },
+    rewritten = await provider_access_for(request.app).record_dispatch_failure(
+        target, exc.status_code, exc.detail, plugin=plugin
     )
+    # `None` means the caller's own detail stands: a Connection target (whose failure body
+    # gains no `reauth_url`) or no stored target at all.
+    if rewritten is None:
+        return exc
+    return HTTPException(status_code=exc.status_code, detail=rewritten)
 
 
 async def _safe_dispatch_failure_response(
@@ -103,25 +75,11 @@ async def _safe_dispatch_failure_response(
     provider: str,
     account_id: str,
     profile_name: str,
-    profile: Profile | None,
-    connection: OAuthConnection | None,
-    credential_name: str | None,
-    auth_type: AuthType,
+    target: CredentialTarget,
 ) -> HTTPException:
     """Contain secondary failures while rendering/persisting dispatch errors."""
     try:
-        return await _dispatch_failure_response(
-            request,
-            exc,
-            plugin=plugin,
-            provider=provider,
-            account_id=account_id,
-            profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
-        )
+        return await _dispatch_failure_response(request, exc, plugin=plugin, target=target)
     except Exception as failure:
         logger.error(
             "dispatch failure handling error type=%s provider=%s account=%s profile=%s",

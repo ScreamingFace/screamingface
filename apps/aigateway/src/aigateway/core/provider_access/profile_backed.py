@@ -249,13 +249,19 @@ def provider_access_for(app: Any) -> ProviderAccess:
     return access
 
 
-# --- shim support: dies at A2 with `routes/chat_credentials.py` ---------------------------------
+# --- shim support: dies with `routes/chat_credentials.py` at Stage E (OME-1209) -----------------
+#
+# COMPATIBILITY (OME-1207): A1 scheduled these for A2, on the assumption that migrating the four
+# route call sites would leave `routes/chat_credentials.py` with no importer. It did — no ROUTE
+# imports it any more — but the A1 shim suite still does, and a prior suite is not deleted to
+# make a removal tidy. The shim therefore survives with its translation layer, and both go at
+# Stage E with the legacy vocabulary they exist to speak.
 
 
 def legacy_target_parts(
     target: CredentialTarget,
 ) -> tuple[Profile | None, OAuthConnection | None, ProfileDefaults]:
-    """Today's `(profile, connection, defaults)` triple, for the route call sites A1 leaves."""
+    """Today's `(profile, connection, defaults)` triple, for the A1 shim's own callers."""
     profile, connection = backing_rows(target)
     return profile, connection, target.defaults
 

@@ -631,3 +631,19 @@ def test_a_round_trip_reporting_no_outcome_does_not_erase_an_earlier_one() -> No
 def test_an_outcome_for_an_unknown_span_is_dropped_not_fabricated() -> None:
     # Mirrors `_fold_usage`'s guard: an event for a span this run never opened must not invent one.
     assert _RunState().map(ModelResponse("ghost", "stop", None, "hit", None)) == []
+
+
+# ── the retry flag: carried, never inferred ───────────────────────────────────────────────
+
+
+def test_an_outcome_defaults_to_not_retried() -> None:
+    """Every existing construction site omits the flag, so the default must be the safe one."""
+    assert CacheOutcome(status="hit", reason=None, key=None, age_s=None).retried is False
+
+
+def test_read_cache_outcome_passes_the_retried_flag_through() -> None:
+    # `read_cache_outcome` never derives this fact from the headers — only `_post_completion`
+    # knows a retry happened, and the flag is a plain passthrough onto the parsed outcome.
+    outcome = read_cache_outcome({"X-AIGW-Cache": "hit"}, retried=True)
+
+    assert outcome.retried is True

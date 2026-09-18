@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -107,9 +108,43 @@ class SpanData(BaseModel):
 
     Recorded rather than mapped so "I asked for no caching and something still cached" stays an
     answerable question; normalising it here would erase exactly the distinction that answers it."""
+    cache_saved_cost_usd: Decimal | None = Field(default=None)
+    """What the provider would have charged had the gateway not served this span's hits from its
+    cache, as the PROVIDER itself priced them.
+
+    A COUNTERFACTUAL, not consumption: the current-request cost stays 0 on a hit (PRD I1), and
+    `CostBreakdown` is a closed object (`extra="forbid"`) so this deliberately does NOT ride in
+    the cost block. Absent when nothing priceable was saved — `None` is not `Decimal("0")`.
+
+    INVARIANT: a SPAN TOTAL, summed across every provider-authored hit this span made. A
+    tool-calling turn is several independently-keyed calls against one span (PRD §4.1), so the
+    money here is additive where the `cache_status` above it is categorical and last-wins. That
+    is what lets a trace backend sum this attribute across a run's spans and land on the run's
+    own `cache.saved_cost_usd` — the thing anyone will do with an attribute named for money."""
+    cache_saved_cost_archive_usd: Decimal | None = Field(default=None)
+    """The same total for this span's ARCHIVE-MATCHED hits, and the reason there are two fields.
+
+    A price paired from the DRACO archive, real but whose per-row attribution is unproven (PRD
+    ans:Q5), so it may only ever be reported and totalled on its own. Kept as a second FIELD
+    rather than as a provenance tag beside one amount precisely so the two can never be summed
+    (PRD S5): a single amount plus a label invites a consumer to add the labels away, while two
+    differently-named money fields state the separation in the shape itself."""
     start: datetime
     end: datetime | None = None
     status: Literal["ok", "error"] = "ok"
+
+    @model_validator(mode="after")
+    def _saved_cost_is_non_negative_money(self) -> "SpanData":
+        """Both saved-cost totals are counterfactual MONEY, so both share money's domain.
+
+        `SpanData` carries no provenance field — the two provenances are two differently-named
+        fields precisely so they cannot be summed — so only the amount domain is checked here.
+        """
+        for name in ("cache_saved_cost_usd", "cache_saved_cost_archive_usd"):
+            amount = getattr(self, name)
+            if amount is not None and (not amount.is_finite() or amount < 0):
+                raise ValueError(f"{name} must be a finite non-negative amount, got {amount!r}")
+        return self
 
 
 class CostUsageData(BaseModel):

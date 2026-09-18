@@ -10,7 +10,7 @@ from decimal import Decimal
 from html import escape
 from typing import TYPE_CHECKING, Any
 
-from screamingface._ui.style import FUSION_GRADIENT_Y, STYLE
+from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
 if TYPE_CHECKING:
@@ -189,7 +189,8 @@ def report_html(report: Report) -> str:
 
     cards = "".join(_card_html(item, report) for item in report.candidates)
     return (
-        f"{_STYLE}<div class='sf-ui sf-report' aria-label='ScreamingFace evaluation report'>"
+        f"{_STYLE}<div class='sf-ui sf-report {NO_MATH}' "
+        "aria-label='ScreamingFace evaluation report'>"
         f"{_head_html(report)}"
         f"{_strip_html(report)}"
         f"{cards}"
