@@ -60,6 +60,15 @@ changes.
   field's default survived the suite. Added one minimal-facts construction variant per
   fragment (42 tests now). Probe: making `shuffle_seed` required fails the construction
   tests (and the real catalogue import — louder still).
+- **Review round 2 (PR comment, confirmed):** the round-trip stopped at the fragment
+  string — the test's namespace held ALL of pins.py, so `Fragments.import_names` drifting
+  from the constants the snapshot references would NameError in the written prepare.py
+  while tests stayed green. Pinned in the maximal test: referenced constants ==
+  import_names, and every import_name present in the written pins import block (sliced by
+  the importer's own header — the file's first ")" is in the docstring). Probe: deleting
+  the SHUFFLE_SEED import_names append fails the test. The reviewer's suggested rename of
+  the pre-existing pins exec test is left as a follow-up: it trips the mechanical
+  append-only gate (vs main) and needs the owner's --skip-append-only call.
 - **Deviations:** the ticket's optional in-importer `dataclasses.fields` guard skipped —
   importer would need to import prepare/boards (boards pulls `url4.peer.server`), a heavy
   import edge for a check the exec tests already pin. Flagged in the PR for review.

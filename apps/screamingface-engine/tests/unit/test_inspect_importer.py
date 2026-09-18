@@ -17,6 +17,7 @@ layer is injected.
 from __future__ import annotations
 
 import ast
+import re
 import shutil
 import sys
 import types
@@ -867,6 +868,21 @@ def test_emitted_snapshot_row_constructs_the_real_snapshot_spec(engine_src_copy:
     assert snapshot.prompt_template == f"{_FAKE_MODULE}:TEMPLATE"
     assert snapshot.choice_template == f"{_FAKE_MODULE}:CHOICE_TEMPLATE"
     assert snapshot.shuffle_seed == 7
+
+    # The exec above resolves pin constants from ALL of pins.py, but the written
+    # prepare.py resolves them through its import block — a constant the fragment
+    # references that import_names forgot would NameError only at the next import
+    # session (importer.py keeps the two lists independently; review finding on
+    # this PR). Pin both directions, through the maximal row — the only one that
+    # exercises the conditional shuffle_seed arm of both lists.
+    referenced: set[str] = set(re.findall(r"\bSUMS_[A-Z_]+\b", fragments.snapshot))
+    assert referenced == set(fragments.import_names)
+    # Slice the pins import block by its own header — the first ")" in the file
+    # sits inside the module docstring, far above the import.
+    prepare_text: str = (engine_src_copy / "prepare.py").read_text()
+    start: int = prepare_text.index(importer_module._PINS_IMPORT_HEADER)
+    import_block: str = prepare_text[start : prepare_text.index(")", start)]
+    assert all(name in import_block for name in fragments.import_names)
 
 
 def test_emitted_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:
