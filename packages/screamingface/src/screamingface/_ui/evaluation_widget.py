@@ -76,10 +76,7 @@ class _NotebookEvaluationView:
         )
         self._refresh_rows()
         head: Any = widgets.HBox(
-            children=(
-                widgets.HTML(value="", layout=widgets.Layout(width="24px", min_width="24px")),
-                self._table,
-            ),
+            children=(self._table,),
             layout=widgets.Layout(min_width="820px"),
         )
         head.add_class("sf-candidate-head")

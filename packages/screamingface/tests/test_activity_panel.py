@@ -45,7 +45,7 @@ def test_evaluation_host_delivers_activity_under_its_row_before_report(monkeypat
     view.observe(selected, record(kind="grading", state="completed"))
     assert not hasattr(view, "_tabs")
     view._activity_rows[0].toggle.value = True
-    assert "Grading" in view._activity_rows[0].html.value
+    assert "Graded" in view._activity_rows[0].html.value
     assert not view._progress.complete
     view.close()
 
@@ -81,7 +81,7 @@ def test_expanded_activity_is_flat_log_output_not_a_table():
     assert "<table" not in html
     assert "<th" not in html
     assert 'class="sf-activity__call"' in html
-    assert "Answering" in html
+    assert "Answered" in html
     assert "provider/model" in html
     assert "completed" in html
 
@@ -117,8 +117,8 @@ def test_flat_model_lines_identify_case_stage_and_model_without_routine_noise():
             ),
         )
     html = activity_html(log, ("candidate",))
-    assert "Case 42: Answering with provider/one" in html
-    assert "Case 007: Answering with provider/two" in html
+    assert "Case 42: Answered with provider/one" in html
+    assert "Case 007: Answered with provider/two" in html
     assert "finish reason" not in html
     assert "Measured" not in html
     assert "60s" not in html

@@ -26,7 +26,7 @@ def test_hide_only_redundant_routine_answering_stages():
     log.observe(0, record(id="other", kind="answering", state="failed"))
     html = activity_html(log, ("candidate",))
     assert html.count('class="sf-activity__stage"') == 1
-    assert "Answering with model" in html
+    assert "Answered with model" in html
     assert "failed" in html
 
 
@@ -58,7 +58,7 @@ def test_completed_loading_and_aggregation_have_concise_labels():
     log.observe(0, record(id="aggregate", kind="aggregation", state="completed"))
     html = activity_html(log, ("candidate",))
     assert "Loaded 100 benchmark cases" in html
-    assert "Aggregated scores" in html
+    assert "Scores aggregated" in html
     assert "Loading benchmark cases completed" not in html
 
 
@@ -70,7 +70,7 @@ def test_late_parent_uses_explicit_lineage_and_preserves_failed_stage():
     )
     html = activity_html(log, ("candidate",))
     assert 'aria-label="Failed"' in html
-    assert "Answering with model" in html
+    assert "Answered with model" in html
     assert html.count('class="sf-activity__stage"') == 1
 
 

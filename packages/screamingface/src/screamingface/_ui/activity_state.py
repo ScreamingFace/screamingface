@@ -21,6 +21,7 @@ class ActivityRow:
     record: ActivityRecord
     ended: bool
     historical: bool = False
+    first_observed_ms: int | None = None
 
 
 class ActivityLog:
@@ -30,6 +31,7 @@ class ActivityLog:
         self._limit, self._byte_limit = limit, byte_limit
         self._history: OrderedDict[tuple[int, str, str, int], ActivityRecord] = OrderedDict()
         self._latest: dict[tuple[int, str, str], ActivityRecord] = {}
+        self._first_observed: dict[tuple[int, str, str], int] = {}
         self._bytes = 0
         self._ended: set[int] = set()
         self.invalid = self.unsupported = self.truncated = self.gaps = 0
@@ -90,6 +92,7 @@ class ActivityLog:
     def _retain(self, key: tuple[int, str, str], record: ActivityRecord) -> None:
         self._history[(*key, record.revision)] = record
         self._latest[key] = record
+        self._first_observed.setdefault(key, record.observed_at_ms)
         self._bytes += record.size + len(key[1].encode())
         while len(self._history) > self._limit or self._bytes > self._byte_limit:
             old_key = next(
@@ -104,6 +107,7 @@ class ActivityLog:
             self._bytes -= old.size + len(old_key[1].encode())
             if self._latest.get(old_key[:3]) is old:
                 del self._latest[old_key[:3]]
+                self._first_observed.pop(old_key[:3], None)
             self.truncated = min(MAX_INTEGER, self.truncated + 1)
 
     def end(self, candidate: int) -> None:
@@ -124,7 +128,13 @@ class ActivityLog:
 
     def rows(self, *, detailed: bool = False) -> list[ActivityRow]:
         return [
-            ActivityRow(candidate, run, record, candidate in self._ended)
+            ActivityRow(
+                candidate,
+                run,
+                record,
+                candidate in self._ended,
+                first_observed_ms=self._first_observed[(candidate, run, record.id)],
+            )
             for (candidate, run, _), record in self._latest.items()
             if detailed
             or record.kind != "model_call"

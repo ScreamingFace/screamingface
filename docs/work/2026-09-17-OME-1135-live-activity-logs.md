@@ -92,3 +92,18 @@ Owner approved adding the explicit active case position to the table status (Ans
 Owner correction: status stays stage-only (Answering); the Cases cell displays the explicit active position (3 / 5). Completed-case accounting remains unchanged internally and remains the fallback when no fresh numbered stage is available. Concurrent positions remain distinct; no inference from arrival order. This supersedes the status-label proposal above.
 
 Active Cases cell outcome: five new tests cover explicit active positions, concurrent candidate isolation, missing numbering, stale/terminal records and unchanged completed accounting. All Client gates green, including append-only, full coverage, notebooks/build/distribution. Initial test fixture used an incompatible SimpleNamespace; replaced with the real typed candidate-progress model. Prior tests unchanged. Wisdom review: reuses validated stage facts and freshness policy, no new durable state or Engine dependency. Status stays stage-only; only fresh explicit positions override the Cases presentation. Missing numbering preserves the existing fallback. Draft #983 retained.
+
+## Inline row disclosure
+
+Owner approved an inline chevron, whole-row click/keyboard expansion, and logs nested inside the same candidate boundary. Use the existing native toggle as a full-row hit target over the noninteractive summary, preserving widget expansion state and scroll roots without JavaScript or new dependencies. Shared border encloses summary and details. Verify real Jupyter pointer/keyboard behavior and independent expansion, then Client gates.
+
+
+Owner requested timestamps: show a quiet HH:MM:SS UTC first-observed time per operation, fixed across updates. Full date and timezone in tooltip; bounded index evicts with latest operation. Invalid calendar dates must not break rendering. Duplicate Grading lines remain distinct operations pending Engine case-level grouping.
+
+Inline disclosure verified in live Jupyter: far-right summary click, Space keyboard toggle, independent candidate expansion and scroll without collapse. Native toggle remains accessible; logs share the row border. Initial full Client gates passed. Timestamp regression tests passed after RED: fixed across revisions, eviction with operation, and out-of-range calendar fallback. Visual preview verified using production widgets and simulated events; no provider calls. Full gates rerunning for timestamp addition.
+
+Owner requested completed wording: Answered, Graded and Scores aggregated on success; active and failure wording remain distinct. Same dynamic operation line and timestamp.
+
+Past-tense change: seven new outcome-wording cases passed after RED; all 78 activity tests green. Migrated only prior presentation assertions for the owner-requested wording using the explicit append-only exception; behavioral, ordering, history and failure assertions preserved. Full Client gates running on final code.
+
+Final outcome: all Client gates green on disclosure, timestamps and past-tense wording. Visual checks passed in production Jupyter widgets. Wisdom review: no new frontend dependency or execution behavior; timestamps are per-operation first observation, not fabricated start times, and share eviction with the bounded latest index. Draft status retained.

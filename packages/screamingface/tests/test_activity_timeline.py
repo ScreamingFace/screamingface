@@ -14,8 +14,8 @@ def test_log_preserves_transitions_but_displays_latest_in_first_seen_order(monke
     log.observe(0, record(2, id="a", kind="answering", case_id="007", state="completed"))
     html = activity_html(log, ("candidate",))
     lines = [
-        "Case 007: Answering",
-        "Case 42: Answering",
+        "Case 007: Answered",
+        "Case 42: Answered",
     ]
     assert all(line in html for line in lines)
     assert [html.index(line) for line in lines] == sorted(html.index(line) for line in lines)

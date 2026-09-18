@@ -25,3 +25,10 @@ Write latest-state, stable-order, parent-aware suppression, failure/staleness an
 
 
 The Status cell keeps stage-only wording. While a fresh stage supplies explicit case_position/case_count, Cases displays that active position (3 / 5), not the completed count (2 / 5). Internal completion accounting and final results remain unchanged. Concurrent active positions stay distinct; missing numbering retains the existing count fallback. Tests cover fresh, missing, concurrent, terminal and stale activity.
+
+Use a full-summary native toggle hit area, with the existing HTML summary underneath and a shared bordered container around summary/details. Remove the separate header spacer. Preserve stable widget/scroll roots and verify pointer, keyboard and log-selection behavior in Jupyter.
+
+
+Owner requested timestamps: show a quiet HH:MM:SS UTC first-observed time per operation, fixed across updates. Full date and timezone in tooltip; bounded index evicts with latest operation. Invalid calendar dates must not break rendering. Duplicate Grading lines remain distinct operations pending Engine case-level grouping.
+
+Owner requested completed wording: Answered, Graded and Scores aggregated on success; active and failure wording remain distinct. Same dynamic operation line and timestamp.

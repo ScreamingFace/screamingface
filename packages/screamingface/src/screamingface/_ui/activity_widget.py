@@ -27,10 +27,10 @@ class CandidateActivityRow:
         self._updating = False
         self.toggle: Any = widgets.ToggleButton(
             value=False,
-            description="",
+            description=f"Activity for {candidates[index]}",
             icon="chevron-right",
             tooltip=f"Show activity for {candidates[index]}",
-            layout=widgets.Layout(width="24px", min_width="24px"),
+            layout=widgets.Layout(width="100%", height="100%"),
         )
         self.summary: Any = widgets.HTML(value="", layout=widgets.Layout(width="100%"))
         self.page: Any = widgets.BoundedIntText(value=0, min=0, max=0, description="Older page")
@@ -47,7 +47,12 @@ class CandidateActivityRow:
         summary: Any = widgets.HBox(
             children=(self.toggle, self.summary), layout=widgets.Layout(min_width="820px")
         )
-        self.widget: Any = widgets.VBox(children=(summary, self.details))
+        # WHY: a native toggle owns the whole summary hit area; logs remain outside it.
+        summary.add_class("sf-candidate-summary")
+        self.details.add_class("sf-candidate-details")
+        self.widget: Any = widgets.VBox(
+            children=(summary, self.details), layout=widgets.Layout(min_width="820px")
+        )
         self.widget.add_class("sf-candidate-row")
         self.toggle.observe(self._toggle, names="value")
         self.page.observe(self._page, names="value")

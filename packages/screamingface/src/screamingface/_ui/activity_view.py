@@ -1,6 +1,7 @@
 """Latest operation states in stable order, labelled by explicit execution parentage."""
 
 import time
+from datetime import UTC, datetime
 from html import escape
 
 from screamingface._ui.activity_groups import groups
@@ -19,6 +20,7 @@ STYLE = """<style>
  color:var(--sf-danger-solid)}
 .sf-activity-mark{display:inline-flex;align-items:center;justify-content:center;
  flex:0 0 14px;width:14px;height:19px;margin-right:8px;color:var(--sf-ink-2)}
+.sf-activity-time{flex:0 0 auto;margin-right:10px;color:var(--sf-ink-2);font-style:normal}
 .sf-activity-mark svg{width:12px;height:12px}
 .sf-activity-spinner{width:10px;height:10px;border:1px solid var(--sf-line);
  border-top-color:var(--sf-accent);border-right-color:var(--sf-accent);border-radius:50%;
@@ -27,13 +29,26 @@ STYLE = """<style>
 @media(prefers-reduced-motion:reduce){.sf-activity-spinner{animation:none}}
 .sf-activity-console .sf-activity__failed .sf-activity-mark{color:var(--sf-danger-solid)}
 .sf-activity-console p{margin:0;font:inherit;color:var(--sf-ink-2)}
-.sf-candidate-row .sf-eval__table-wrap{margin-top:0;border-top:0}
+.sf-candidate-row{border:1px solid var(--sf-line);border-top:0;box-sizing:border-box}
+.sf-candidate-summary{position:relative}
+.sf-candidate-row .sf-eval__table-wrap{margin:0;border:0}
+.sf-candidate-summary .widget-html{pointer-events:none;margin:0}
 .sf-candidate-row .sf-eval__table thead{position:absolute;width:1px;height:1px;overflow:hidden;
  clip:rect(0,0,0,0)}
-.sf-candidate-row .widget-toggle-button{border:0;border-radius:0;box-shadow:none;
- background:var(--sf-surface);color:var(--sf-ink-2);margin:0}
-.sf-candidate-row .widget-toggle-button:focus-visible{outline:2px solid var(--sf-accent)}
-.sf-candidate-row .sf-eval__table,.sf-candidate-head .sf-eval__table{min-width:796px}
+.sf-candidate-row .widget-toggle-button{position:absolute;inset:0;z-index:1;
+ border:0;border-radius:0;box-shadow:none;background:transparent!important;
+ color:var(--sf-ink-2);margin:0;padding:0;font-size:0;cursor:pointer}
+.sf-candidate-row .widget-toggle-button .fa{position:absolute;left:12px;top:50%;
+ transform:translateY(-50%);font-size:12px;margin:0}
+.sf-candidate-summary:hover{background:var(--sf-surface)}
+.sf-candidate-row .widget-toggle-button:focus-visible{outline:2px solid var(--sf-accent);
+ outline-offset:-2px}
+.sf-candidate-row .sf-eval__table td:first-child,
+.sf-candidate-head .sf-eval__table th:first-child{padding-left:36px}
+.sf-candidate-details{border-top:1px solid var(--sf-line)}
+.sf-candidate-details .widget-html{margin:0}
+.sf-candidate-details .sf-activity-console{border:0}
+.sf-candidate-row .sf-eval__table,.sf-candidate-head .sf-eval__table{min-width:820px}
 </style>"""
 
 
@@ -67,7 +82,9 @@ def _stage_label(row: ActivityRow, label: str, outcome: str) -> str:
                 f"Loaded {count} benchmark cases" if count is not None else "Benchmark cases loaded"
             )
     if row.record.kind == "aggregation":
-        label = "Aggregated scores" if outcome == "completed" else "Aggregating scores"
+        label = "Scores aggregated" if outcome == "completed" else "Aggregating scores"
+    if outcome == "completed":
+        label = {"Answering": "Answered", "Grading": "Graded"}.get(label, label)
     return label
 
 
@@ -142,11 +159,25 @@ def _marker(row: ActivityRow) -> str:
     return f'<span class="sf-activity-mark" role="img" aria-label="{label}">{icon}</span>'
 
 
+def _timestamp(row: ActivityRow) -> str:
+    observed = row.first_observed_ms
+    if observed is None:
+        observed = row.record.observed_at_ms
+    try:
+        stamp = datetime.fromtimestamp(observed / 1000, UTC)
+    except (ValueError, OverflowError, OSError):
+        return '<span class="sf-activity-time" title="Time unavailable">--:--:--</span>'
+    return (
+        f'<time class="sf-activity-time" datetime="{stamp.isoformat()}" '
+        f'title="First observed: {stamp:%Y-%m-%d %H:%M:%S} UTC">{stamp:%H:%M:%S}</time>'
+    )
+
+
 def _line(row: ActivityRow, label: str) -> str:
     model = row.record.kind == "model_call"
     kind = "call" if model else "stage"
     return (
-        f'<div class="sf-activity__{kind}">{_marker(row)}'
+        f'<div class="sf-activity__{kind}">{_timestamp(row)}{_marker(row)}'
         f'<span class="sf-activity__{row.record.state}">'
         f"{escape(_description(row, label, model=model))}</span></div>"
     )
