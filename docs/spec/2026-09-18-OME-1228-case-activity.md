@@ -7,3 +7,5 @@ A benchmark-owned, run-bound context carries the ID through awaited nested calls
 All shipped benchmark candidate builders supply their case ID explicitly. MedXpertQA supplies its existing structured input as a mapping so wrapping does not turn URL4 struct syntax into model text. Request payloads and raw errors never become log fields. IDs use the existing benchmark validation and activity allowlist; unsupported telemetry identifiers must not suppress otherwise-valid model records.
 
 This PR is independent of #980: it attributes existing model-call events only. Stage/grading attribution in #980 will consume the same context or explicit IDs already owned by grading endpoints. It does not add member/role attribution, case ordinals, score updates or URL4 features.
+
+Activity-to-result identity joins compare `str(case_id)` on both sides. URL4 template interpolation carries integer IDs as decimal strings; do not parse numeric-looking strings, so `"007"` remains distinct from `7`. Benchmark result IDs retain their existing types. This is an identity, not a case ordinal. The shared Inspect builder supplies the same envelope for every imported board.
