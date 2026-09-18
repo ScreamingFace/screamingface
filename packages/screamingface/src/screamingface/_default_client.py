@@ -100,6 +100,7 @@ def evaluate(
     limit: None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
+    answer_seed: int | None = None,
 ) -> Report: ...
 
 
@@ -111,6 +112,7 @@ def evaluate(
     limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
+    answer_seed: int | None = None,
 ) -> Report: ...
 
 
@@ -121,8 +123,16 @@ def evaluate(
     limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
+    answer_seed: int | None = None,
 ) -> Report:
-    """Evaluate Recipes or a complete URL4 through the lazy default Client."""
+    """Evaluate Recipes or a complete URL4 through the lazy default Client.
+
+    INVARIANT: this wrapper is a pass-through, never a narrower door — every option
+    `Client.evaluate` accepts is reachable here too. It is the call every `examples/*.ipynb`
+    uses, so an option missing here is an option the notebook audience cannot reach at all
+    (OME-1227: `answer_seed` shipped on the Client and stayed unreachable from `sf.evaluate`).
+    Validation stays with the Client, which refuses a bad seed before any token is minted.
+    """
 
     client = default_client()
     if isinstance(candidates, str):
@@ -130,7 +140,12 @@ def evaluate(
             raise TypeError("benchmark must not be passed when evaluating a complete URL4")
         if limit is not None:
             raise TypeError("limit must not be passed when evaluating a complete URL4")
-        return client.evaluate(candidates, on_event=on_event, progress=progress)
+        return client.evaluate(
+            candidates,
+            on_event=on_event,
+            progress=progress,
+            answer_seed=answer_seed,
+        )
     if benchmark is None:
         raise TypeError("benchmark is required when evaluating Recipes")
     return client.evaluate(
@@ -139,6 +154,7 @@ def evaluate(
         limit=limit,
         on_event=on_event,
         progress=progress,
+        answer_seed=answer_seed,
     )
 
 
