@@ -15,7 +15,9 @@ blesser := "uv run python tests/e2e/fixtures/slice_snapshot.py"
 # (RuntimeConfig.assets_dir), so the bless recipes and the notebook stack share one root.
 assets := env("URL4_BENCHMARK_ASSETS", home_directory() / ".screamingface" / "benchmark-assets")
 
-engine_dir := justfile_directory() / ".." / ".." / "apps" / "screamingface-engine"
+# source_directory(), NOT justfile_directory(): reached through the root justfile's `mod`,
+# the latter resolves to the REPO ROOT and every relative path below lands two levels too high.
+engine_dir := source_directory() / ".." / ".." / "apps" / "screamingface-engine"
 # Not 9108: `screamingface up` owns that one, and this Engine runs beside it.
 engine_port := "9111"
 
@@ -46,12 +48,29 @@ local-stack-notebooks:
     # preparer-only pins the benchmark image uses (Dockerfile.benchmark), so what a notebook
     # reads locally is built the way production builds it. `--extra inspect` carries the
     # imported preparers; pdfplumber/python-docx flatten GDPval's reference PDFs.
-    if [ ! -d "{{ assets }}/inspect-gsm8k" ]; then
+    #
+    # The marker is written only after a bake exits 0. A bundle DIRECTORY is not a usable
+    # signal: prepare_assets creates each one before filling it, so an interrupted bake leaves
+    # empty directories that a `-d` test would read as "done" forever.
+    if [ ! -f "{{ assets }}/.imported-bake-complete" ]; then
+        # An interrupted bake leaves empty bundle dirs. Removing those is lossless, and it is
+        # what lets a retry proceed: the imported preparer refuses a non-empty directory by
+        # design, because the image build it was written for always starts from nothing.
+        find "{{ assets }}" -maxdepth 1 -type d -name 'inspect-*' -empty -delete 2>/dev/null || true
+        # A bundle with FILES in it but no marker is a bake that died mid-write. Deleting it
+        # would silently re-download a large dataset, so say what to remove and stop.
+        if compgen -G "{{ assets }}/inspect-*" > /dev/null; then
+            echo "error: {{ assets }} holds a partial imported bake." >&2
+            echo "  The preparer cannot bake into a non-empty directory. Remove the" >&2
+            echo "  inspect-* directories there, then re-run (they will re-download)." >&2
+            exit 1
+        fi
         echo "==> baking benchmark snapshots into {{ assets }} (first run only; downloads datasets)"
         ( cd "{{ engine_dir }}" \
             && "$UV" sync --extra inspect \
             && "$UV" pip install --quiet "datasets==5.0.0" "pdfplumber==0.11.10" "python-docx==1.2.0" \
             && "$UV" run python -m screamingface_engine.benchmarks.prepare --root "{{ assets }}" )
+        touch "{{ assets }}/.imported-bake-complete"
     fi
 
     # --extra runtime: the stack's servers live in that optional extra, and the default
