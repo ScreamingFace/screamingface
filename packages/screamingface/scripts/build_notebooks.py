@@ -1282,8 +1282,8 @@ quoting a comparison."""),
 def _imported_catalogue() -> NotebookNode:
     # FEATURE: OME-1202 — the front door to the imported catalogue: list the two origin
     # groups, pick an imported board, run a fusion against it. STORY: as a researcher who
-    # heard "we imported ~94 benchmarks", I see what's on the shelf and run one, without
-    # reverse-engineering SDK calls from tickets or source.
+    # heard "we import inspect_evals benchmarks now", I see what's on the shelf and run
+    # one, without reverse-engineering SDK calls from tickets or source.
     return _notebook(
         nbformat.v4.new_markdown_cell("""\
 # The benchmark catalogue — ours and imported
@@ -1316,15 +1316,32 @@ Stack management stays outside the notebook so **Run All** never starts or stops
 **Where the imported boards live.** An Engine serves imported boards only when it runs with its
 `inspect` extra (the upstream scorers come from `inspect-ai`, which cannot co-install with the
 local runtime's dependencies — a declared conflict, not an accident). The local
-`screamingface up` stack therefore lists the ScreamingFace group only; every cell below still
-works, you just see one group. To browse and run the imported catalogue, point the SDK at an
+`screamingface up` stack therefore lists the ScreamingFace group only. **An inspect-capable
+Engine is a prerequisite for everything past section 1**: the listing works against any Engine,
+and the first cell of section 2 checks for the imported shelf and stops with guidance rather
+than failing partway through. To browse and run the imported catalogue, point the SDK at an
 inspect-capable Engine before starting the kernel:
 
 ```bash
 export SCREAMINGFACE_ENGINE_URL="https://<an-engine-with-the-inspect-extra>"
 ```
 
-Leaving it unset falls back to a running local stack, then to the hosted default."""),
+Leaving it unset falls back to a running local stack, then to the hosted default.
+
+**Running one yourself, from a checkout.** Bake the imported snapshots once, then serve the
+Engine beside the `screamingface up` stack on a free port — it reaches the same Gateway on
+`:9105`, so only the Engine URL changes:
+
+```bash
+cd apps/screamingface-engine
+uv sync --extra inspect
+export URL4_BENCHMARK_ASSETS=~/.screamingface/benchmark-assets
+uv run python -m screamingface_engine.benchmarks.prepare --root "$URL4_BENCHMARK_ASSETS"
+uv run uvicorn --factory screamingface_engine.local:create_local_app \\
+    --host 127.0.0.1 --port 9111
+```
+
+Then `export SCREAMINGFACE_ENGINE_URL="http://127.0.0.1:9111"` before starting the kernel."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -1347,8 +1364,18 @@ answer. That grading is free: no judge, no grading tokens, so cost is answer gen
 
 The card carries the provenance: `origin` names the source collection, and `revision` pins the
 imported dataset snapshot — two catalogues showing the same revision asked the exact same
-questions."""),
+questions.
+
+The first lines below are the gate from section 0: if this Engine serves no imported boards,
+the notebook stops here with directions instead of failing on the lookup."""),
         nbformat.v4.new_code_cell("""\
+if not any(benchmark.origin == "inspect_evals" for benchmark in benchmarks):
+    raise RuntimeError(
+        "this Engine serves no imported boards — the rest of this notebook needs an "
+        "Engine running with its inspect extra; see section 0 for how to point "
+        "SCREAMINGFACE_ENGINE_URL at one"
+    )
+
 gsm8k = sf.benchmarks.get("inspect-gsm8k")
 {
     "id": gsm8k.id,
@@ -1398,8 +1425,10 @@ for case in report.candidates.only.cases:
 
 Every imported board runs through the identical calls — swap the id: `inspect-mmlu`,
 `inspect-arc_challenge`, `inspect-boolq`, `inspect-winogrande` and the rest of the
-inspect_evals group in the listing above. A `limit=N` run is a smoke test, not a ranking;
-run the whole set before quoting a comparison."""),
+inspect_evals group in the listing above. Adapt `SYNTHESIS_PROMPT` to the board's answer
+format when you swap: the prompt above demands a single final number, but the MCQ boards
+(`inspect-mmlu`, `inspect-arc_*`, …) expect a lettered choice. A `limit=N` run is a smoke
+test, not a ranking; run the whole set before quoting a comparison."""),
     )
 
 
