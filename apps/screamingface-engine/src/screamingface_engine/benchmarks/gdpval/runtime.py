@@ -52,6 +52,7 @@ from screamingface_engine.benchmarks.gdpval.exam import Exam, ExamMean
 from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.prompts import build_grader_prompt, render_rubric_item
 from screamingface_engine.benchmarks.gdpval.verdict import bind, binding_key
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.rubric_check import check_surface
 from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
@@ -167,6 +168,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     def rubric_tasks(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             answer = candidate_answer(request.context)
             if "cases" not in raw_memo:
                 raw_memo["cases"] = _read(root / "cases.json", "GDPval cases")
@@ -176,10 +178,9 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
             work_request = text_memo[case_id]
             if case_id not in items_memo:
                 items_memo[case_id] = _rubric_items(root, case_id)
-            items = items_memo[case_id]
             case_record = records.bind_case(raw_cases, case_id=case_id, candidate=answer)
             tasks: list[dict[str, str]] = []
-            for item in items:
+            for item in items_memo[case_id]:
                 rendered = render_rubric_item(item["points"], item["criterion"])
                 grader_prompt = build_grader_prompt(work_request, answer.text, rendered)
                 register_grading_request(

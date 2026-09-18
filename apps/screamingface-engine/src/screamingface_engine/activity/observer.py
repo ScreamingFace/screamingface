@@ -5,10 +5,13 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from types import TracebackType
 
+from screamingface_engine.activity.case_grading import emit_case_grading
 from screamingface_engine.activity.contract import MAX_INTEGER, ActivityKind, safe_fact
 from screamingface_engine.activity.scope import Operation, operation, stop_heartbeats
 from screamingface_engine.activity.session import ActivitySession, activate
 from screamingface_engine.benchmarks.case_context import current_case_id, current_case_position
+from screamingface_engine.benchmarks.contract import CaseId
+from screamingface_engine.benchmarks.grading_activity import GradingState
 from screamingface_engine.benchmarks.stages import StageScope
 from screamingface_engine.observations import LogEmitter, ModelObservation, Scalar
 
@@ -17,6 +20,7 @@ class ActivityObserver:
     def __init__(self, *, enabled: bool = True) -> None:
         self.session = ActivitySession() if enabled else None
         self._calls: set[Operation] = set()
+        self._grading: set[str] = set()
 
     def bind(self) -> AbstractContextManager[None]:
         return activate(self.session)
@@ -25,6 +29,7 @@ class ActivityObserver:
         if self.session is not None:
             self.session.revoke()
         # INVARIANT: abandoned call tasks cannot retain heartbeat resources after the run.
+        self._grading.clear()
         calls = tuple(self._calls)
         self._calls.clear()
         await stop_heartbeats(calls)
@@ -41,6 +46,9 @@ class ActivityObserver:
         if self.session is None or not self.session.active or emit is None:
             return None
         return ActivityStage(self, operation(emit=emit, kind=stage, **_case_facts()))
+
+    def case_grading(self, case_id: CaseId, state: GradingState, emit: LogEmitter | None) -> None:
+        emit_case_grading(self.session, emit, case_id, state, self._grading)
 
     def bridge_loss(self, dropped: int) -> dict[str, Scalar]:
         if self.session is None or not self.session.active:

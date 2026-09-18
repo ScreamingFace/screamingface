@@ -29,6 +29,7 @@ from screamingface_engine.benchmarks.evaluation import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.medxpert import aggregate as reducing
 from screamingface_engine.benchmarks.medxpert.answering import (
     extract_choice_letter,
@@ -119,6 +120,7 @@ def _check(root: Path):
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             payload = json_object(request.context, "MedXpertQA check")
             if tuple(payload) != ("reasoning", "commit"):
                 raise ValueError("MedXpertQA check fields must be reasoning, commit")

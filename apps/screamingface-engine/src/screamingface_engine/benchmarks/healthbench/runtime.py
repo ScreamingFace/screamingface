@@ -42,6 +42,7 @@ from screamingface_engine.benchmarks.failure_classes import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.healthbench import grade as reducing
 from screamingface_engine.benchmarks.healthbench import records
 from screamingface_engine.benchmarks.healthbench.case_evaluation import (
@@ -203,6 +204,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     def rubric_tasks(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             answer = candidate_answer(request.context)
             evaluator_text = answer.text
             raw_cases = _read(root / "cases.json", "HealthBench cases")
