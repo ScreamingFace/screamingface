@@ -44,33 +44,32 @@ local-stack-notebooks:
     set -euo pipefail
     UV="{{ require('uv') }}"
 
-    # One pass bakes every bundle, ours and imported — the same command and the same three
-    # preparer-only pins the benchmark image uses (Dockerfile.benchmark), so what a notebook
-    # reads locally is built the way production builds it. `--extra inspect` carries the
-    # imported preparers; pdfplumber/python-docx flatten GDPval's reference PDFs.
+    # The bake is RESUMABLE, one bundle at a time. `cases.json` is written last by each
+    # preparer, so its presence means that bundle finished; anything else in a bundle
+    # directory is the debris of an interrupted run, which the preparer would refuse to bake
+    # over. So: ask the Engine which bundles exist, clear only the unfinished ones, and bake
+    # exactly those. A completed bundle is never re-downloaded.
     #
-    # The marker is written only after a bake exits 0. A bundle DIRECTORY is not a usable
-    # signal: prepare_assets creates each one before filling it, so an interrupted bake leaves
-    # empty directories that a `-d` test would read as "done" forever.
-    if [ ! -f "{{ assets }}/.imported-bake-complete" ]; then
-        # An interrupted bake leaves empty bundle dirs. Removing those is lossless, and it is
-        # what lets a retry proceed: the imported preparer refuses a non-empty directory by
-        # design, because the image build it was written for always starts from nothing.
-        find "{{ assets }}" -maxdepth 1 -type d -name 'inspect-*' -empty -delete 2>/dev/null || true
-        # A bundle with FILES in it but no marker is a bake that died mid-write. Deleting it
-        # would silently re-download a large dataset, so say what to remove and stop.
-        if compgen -G "{{ assets }}/inspect-*" > /dev/null; then
-            echo "error: {{ assets }} holds a partial imported bake." >&2
-            echo "  The preparer cannot bake into a non-empty directory. Remove the" >&2
-            echo "  inspect-* directories there, then re-run (they will re-download)." >&2
-            exit 1
-        fi
-        echo "==> baking benchmark snapshots into {{ assets }} (first run only; downloads datasets)"
+    # The preparer pins match Dockerfile.benchmark's, so a notebook reads assets built the
+    # way production builds them; `--extra inspect` carries the imported preparers and
+    # pdfplumber/python-docx flatten GDPval's reference PDFs.
+    ( cd "{{ engine_dir }}" && "$UV" sync --extra inspect \
+        && "$UV" pip install --quiet "datasets==5.0.0" "pdfplumber==0.11.10" "python-docx==1.2.0" )
+
+    missing=()
+    while read -r bundle; do
+        [ -f "{{ assets }}/$bundle/cases.json" ] && continue
+        # Unfinished: remove the debris so the preparer sees a clean directory. Nothing
+        # usable is lost — a bundle without cases.json cannot be served.
+        rm -rf "{{ assets }}/${bundle:?}"
+        missing+=("--bundle" "$bundle")
+    done < <( cd "{{ engine_dir }}" && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles )
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "==> baking $((${#missing[@]} / 2)) benchmark bundle(s) into {{ assets }} (downloads datasets)"
         ( cd "{{ engine_dir }}" \
-            && "$UV" sync --extra inspect \
-            && "$UV" pip install --quiet "datasets==5.0.0" "pdfplumber==0.11.10" "python-docx==1.2.0" \
-            && "$UV" run python -m screamingface_engine.benchmarks.prepare --root "{{ assets }}" )
-        touch "{{ assets }}/.imported-bake-complete"
+            && "$UV" run python -m screamingface_engine.benchmarks.prepare \
+                --root "{{ assets }}" "${missing[@]}" )
     fi
 
     # --extra runtime: the stack's servers live in that optional extra, and the default

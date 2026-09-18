@@ -99,10 +99,18 @@ class BenchmarkDeployment:
 
         return self._registrations
 
+    @property
+    def asset_bundle_ids(self) -> tuple[str, ...]:
+        """Every unique bundle id this deployment can bake, in stable order."""
+
+        return tuple(bundle.id for bundle in self._asset_bundles)
+
     def prepare_assets(
         self,
         root: Path,
         on_prepared: Callable[[str, BenchmarkAssetSummary], None] | None = None,
+        *,
+        only: Iterable[str] | None = None,
     ) -> dict[str, BenchmarkAssetSummary]:
         """Prepare every unique bundle and retain its audit summary in stable ID order.
 
@@ -110,11 +118,26 @@ class BenchmarkDeployment:
         must not erase the evidence for the ones that already landed. The callback fires as
         each bundle completes, letting a caller stream its audit record before any failure —
         while the I/O decision stays with the caller and out of this orchestrator.
+
+        WHY `only`: a bake is not resumable in place — preparers that refuse a non-empty
+        directory (the imported boards') would re-raise on every sibling that already
+        finished, so an interrupted run could otherwise only be recovered by deleting and
+        re-downloading the lot. Naming the bundles still missing is what makes the retry
+        cheap. Omitted means every bundle, which is what the image build always does.
+        An id no bundle declares is refused rather than ignored: a silent no-op reads
+        exactly like a successful bake in a build log.
         """
 
+        selected: tuple[BenchmarkAssetBundle, ...] = self._asset_bundles
+        if only is not None:
+            wanted = frozenset(only)
+            unknown = sorted(wanted - {bundle.id for bundle in selected})
+            if unknown:
+                raise ValueError(f"no such asset bundle(s): {', '.join(unknown)}")
+            selected = tuple(bundle for bundle in selected if bundle.id in wanted)
         root.mkdir(parents=True, exist_ok=True)
         prepared: dict[str, BenchmarkAssetSummary] = {}
-        for bundle in self._asset_bundles:
+        for bundle in selected:
             out = root / bundle.id
             out.mkdir(parents=True, exist_ok=True)
             observed = bundle.prepare(out)

@@ -23,6 +23,7 @@ The imported inspect_evals boards (OME-1116) and the two-group listing (OME-1114
 - `apps/screamingface-engine/Dockerfile` — `--extra inspect` on both sync layers, so a deployed Engine registers the imported boards at all (and the benchmark image, built FROM it, can bake their snapshots)
 - `apps/screamingface-engine/Dockerfile.benchmark` — comment recording that its preparer depends on the base image's inspect extra
 - `packages/screamingface/scripts/build_notebooks.py` (all 9 setup cells) + `README.md` — point at the recipe
+- `apps/screamingface-engine/src/screamingface_engine/benchmarks/{prepare,deployment}.py` — `--bundle`/`--list-bundles` and a `only=` selector, so an interrupted bake resumes instead of forcing every sibling bundle to be deleted and re-downloaded
 - `justfile` (repo root) — a `mod` entry so component recipes are reachable from the root; `just` searches upward only, so running it anywhere above `packages/screamingface` found nothing. A module runs its recipes in the module's directory, so nothing in the component justfile changed.
 - Ledger + `docs/tasks/` mirror
 

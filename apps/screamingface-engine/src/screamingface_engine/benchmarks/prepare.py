@@ -19,21 +19,47 @@ from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_RO
 def prepare_builtin_assets(
     root: Path,
     on_prepared: Callable[[str, BenchmarkAssetSummary], None] | None = None,
+    *,
+    only: Sequence[str] | None = None,
 ) -> dict[str, BenchmarkAssetSummary]:
-    """Build all unique assets declared by the built-in deployment."""
+    """Build the built-in deployment's unique assets — all of them, or just those named."""
 
-    return BUILTIN_DEPLOYMENT.prepare_assets(root, on_prepared)
+    return BUILTIN_DEPLOYMENT.prepare_assets(root, on_prepared, only=only)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=DEFAULT_BENCHMARK_ASSETS_ROOT)
+    parser.add_argument(
+        "--bundle",
+        action="append",
+        dest="bundles",
+        metavar="ID",
+        help="bake only this bundle (repeatable); omit to bake every one, as the image does",
+    )
+    parser.add_argument(
+        "--list-bundles",
+        action="store_true",
+        help="print every bundle id, one per line, and bake nothing",
+    )
     args = parser.parse_args(argv)
+
+    if args.list_bundles:
+        # WHY before anything else: a caller deciding WHICH bundles are still missing must be
+        # able to ask without touching the asset tree.
+        for bundle_id in sorted(BUILTIN_DEPLOYMENT.asset_bundle_ids):
+            print(bundle_id)
+        return 0
+    return _bake(args.root, tuple(args.bundles) if args.bundles else None)
+
+
+def _bake(root: Path, only: tuple[str, ...] | None) -> int:
+    """Prepare the selected bundles, streaming one audit record per completed bundle."""
 
     def emit(bundle: str, summary: BenchmarkAssetSummary) -> None:
         # WHY stream rather than print at the end: a refusal partway through must still leave
         # the completed bundles' evidence in the build log, which is the point of the record.
-        record = {"root": str(args.root), "bundle": bundle, "summary": summary}
+        record = {"root": str(root), "bundle": bundle, "summary": summary}
         # WHY `default=str` AND the guard: this runs inside the preparation loop, so a record
         # json cannot encode would abort every bundle after this one. `default=` covers values
         # but is NEVER consulted for keys, and cannot rescue a circular or over-deep summary
@@ -45,7 +71,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             # The bundle still completed; say so, and name the reporting fault instead.
             line = json.dumps(
                 {
-                    "root": str(args.root),
+                    "root": str(root),
                     "bundle": bundle,
                     "summary_unreportable": type(exc).__name__,
                 }
@@ -53,9 +79,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(line, flush=True)
 
     try:
-        prepare_builtin_assets(args.root, emit)
+        prepare_builtin_assets(root, emit, only=only)
     except BenchmarkAssetPreparationError as exc:
         print(f"benchmark asset preparation failed: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        # An unknown --bundle id: an operator typo, not a dataset fault.
+        print(f"benchmark asset selection failed: {exc}", file=sys.stderr)
         return 1
     return 0
 
