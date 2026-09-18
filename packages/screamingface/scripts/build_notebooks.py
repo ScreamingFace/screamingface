@@ -1419,14 +1419,85 @@ for case in report.candidates.only.cases:
     grade = case.grade
     print(case.case_id, case.status, grade.score if grade else None)"""),
         nbformat.v4.new_markdown_cell("""\
-## 5. The rest of the shelf
+## 5. A multiple-choice board — same calls, one thing to change
 
-Every imported board runs through the identical calls — swap the id: `inspect-mmlu`,
-`inspect-arc_challenge`, `inspect-boolq`, `inspect-winogrande` and the rest of the
-inspect_evals group in the listing above. Adapt `SYNTHESIS_PROMPT` to the board's answer
-format when you swap: the prompt above demands a single final number, but the MCQ boards
-(`inspect-mmlu`, `inspect-arc_*`, …) expect a lettered choice. A `limit=N` run is a smoke
-test, not a ranking; run the whole set before quoting a comparison."""),
+`inspect-mmlu` is 57 subjects of four-option questions, graded by the eval's `choice`
+scorer against the published letter. The SDK calls are identical to section 3; what has to
+change is the **synthesiser's prompt**, because the answer format did. Asking for "the
+single final number" on a board that wants `A`/`B`/`C`/`D` is how a panel scores zero
+while answering correctly.
+
+Worth knowing about MCQ boards: a fusion has less to do here than on free text. A choice is
+one discrete token, so the synthesiser cannot *merge* partial credit the way it can on a
+rubric board — it can only weigh votes and pick. The two families are not comparable in
+what they ask of an ensemble."""),
+        nbformat.v4.new_code_cell("""\
+MCQ_SYNTHESIS_PROMPT = (
+    "You are given several experts' analyses of one multiple-choice question. Weigh their "
+    "reasoning and the evidence they cite — not merely how many chose each option — and "
+    "answer with the single best choice."
+)
+
+mcq_synth = sf.Model(
+    model="openrouter/anthropic/claude-haiku-4.5",
+    params=PANEL_PARAMS,
+    prompt=MCQ_SYNTHESIS_PROMPT,
+)
+mcq_panel = sf.Fusion(name="mcq_panel", members=[member1, member2], synthesizer=mcq_synth)
+
+mmlu_report = sf.evaluate(mcq_panel, benchmark="inspect-mmlu", limit=2)
+mmlu_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 6. A yes/no board
+
+`inspect-boolq` asks a reading-comprehension question whose answer is `Yes` or `No`, graded
+by the eval's `pattern` scorer against a regex anchored at the end of the reply. That anchor
+is the whole trick: a model that reasons for a paragraph and finishes with "Yes" scores,
+while one that opens with "Yes, because…" does not. Say so in the prompt.
+
+This board is free text rather than a fixed set of options, so unlike the MCQ boards it
+carries a **check surface** — the mid-run pass/fail signal a `corrective_loop` reads (see
+`09_corrective_loops.ipynb`). MCQ boards are refused one deliberately: pass/fail feedback
+over four options is an elimination attack, not a hint."""),
+        nbformat.v4.new_code_cell("""\
+BOOLQ_SYNTHESIS_PROMPT = (
+    "You are given several experts' readings of one passage and a yes/no question about it. "
+    "Weigh their reasoning, then end your reply with exactly one word — Yes or No — as the "
+    "final word, with nothing after it."
+)
+
+boolq_synth = sf.Model(
+    model="openrouter/anthropic/claude-haiku-4.5",
+    params=PANEL_PARAMS,
+    prompt=BOOLQ_SYNTHESIS_PROMPT,
+)
+boolq_panel = sf.Fusion(name="boolq_panel", members=[member1, member2], synthesizer=boolq_synth)
+
+boolq_report = sf.evaluate(boolq_panel, benchmark="inspect-boolq", limit=2)
+boolq_report"""),
+        nbformat.v4.new_code_cell("""\
+for case in boolq_report.candidates.only.cases:
+    grade = case.grade
+    print(case.case_id, case.status, grade.score if grade else None)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 7. The rest of the shelf
+
+Three boards, three scorer families, one set of calls — that is the whole point of the
+import. The remaining seven work the same way; pick an id from the inspect_evals group in
+section 1 and match the synthesiser's prompt to how that board is graded:
+
+- **A final number**, graded by numeric match — `inspect-gsm8k`.
+- **A letter**, graded by the `choice` scorer — `inspect-mmlu`, `inspect-mmlu_pro`,
+  `inspect-arc_easy`, `inspect-arc_challenge`, `inspect-commonsense_qa`,
+  `inspect-winogrande`, `inspect-race_h`.
+- **Yes / No as the last word**, graded by an anchored pattern — `inspect-boolq`.
+- **yes / no anywhere in the reply**, graded by `includes` — `inspect-paws`.
+
+A `limit=N` run is a smoke test, not a ranking: on small subsamples a point or two between
+two systems is noise. Run the whole set before quoting a comparison, and read `coverage`
+beside the score — these boards score the gradeable subset and publish how much of the run
+that was, so a good score over thin coverage is a formatting failure wearing a knowledge
+result's clothes."""),
     )
 
 
