@@ -7,3 +7,6 @@
 5. Update justified PR/ticket descriptions, push to the existing draft. Keep Linear In Progress.
 
 Owner-approved consolidation: one plugin-independent ActivityKind, four stages plus model-call detail, no grading subkinds or BenchmarkStage duplicate. Mechanically migrate the inherited refusal-validation test with the approved append-only exception; run all other gates.
+
+## Case attribution wiring — 2026-09-18
+Add stage/candidate attribution regressions first; include safe current case facts in ActivityObserver.stage and move candidate stage observation around the scoped evaluation method. Verify interleaving and exact input preservation. Audit graph-owned grading and role metadata separately before changing generated expressions.

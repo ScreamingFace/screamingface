@@ -29,3 +29,6 @@ Exactly four categories: **Loading cases**, **Answering**, **Grading**, **Aggreg
 `activity_kinds.py::ActivityKind` is the one plugin-independent definition: case_loading, answering, grading, aggregation, plus model_call diagnostic detail. The duplicate BenchmarkStage enum and string conversion are removed. Producer work uses the same enum as the activity plugin. Model calls are not accepted by the benchmark decorator.
 
 Compact/detailed Client views change presentation, not server filtering by verbosity. The Client receives emitted stage/model records subject to deployment privacy, producer rate limits and best-effort transport. This does not promise every possible fact or lossless delivery. Distinct grading operations keep their own occurrence IDs, timing and parentage but share one kind. Client rendering remains a separate task; private payloads are never justified by a detailed view.
+
+## Case attribution wiring — 2026-09-18
+Stage records inherit the explicit benchmark case scope, using the same public-ID validation as model calls. Candidate Answering observation starts only after decoding the case envelope and entering its scope. Unknown or unsafe identity remains absent; invalid identity cannot suppress the entire stage. This does not establish whole-case grading boundaries or attribute graph siblings.

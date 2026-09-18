@@ -40,7 +40,7 @@ class ActivityObserver:
     def stage(self, stage: ActivityKind, emit: LogEmitter | None) -> StageScope | None:
         if self.session is None or not self.session.active or emit is None:
             return None
-        return ActivityStage(self, operation(emit=emit, kind=stage))
+        return ActivityStage(self, operation(emit=emit, kind=stage, **_case_facts()))
 
     def bridge_loss(self, dropped: int) -> dict[str, Scalar]:
         if self.session is None or not self.session.active:
