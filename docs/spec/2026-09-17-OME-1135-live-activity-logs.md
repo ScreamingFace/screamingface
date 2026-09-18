@@ -32,3 +32,8 @@ The target log is a chronological sequence of lifecycle events, not only latest-
 ## Selected-case numbering — 2026-09-18
 
 Display authoritative case_position/case_count as [Case n/N]. Both must be positive integer facts with position <= count. Unknown positions retain existing Case ID fallback; never derive from event arrival order. Existing chronology, bounded history and safe payload rendering remain unchanged.
+
+
+## Dynamic operation lines — approved implementation
+
+Approved dynamic presentation replaces the chronological transition projection: one latest-state line per run/operation, ordered by first observation. Hide routine Answering stages only when explicitly parented model calls represent them; retain failed/cancelled/refused/unknown stages. No role inference. Fixed marker slot shows a spinner while fresh/running, neutral check on completion, and explicit retry/failure/unknown text. Preserve bounded raw event history, loss notices, case prefixes and stage-aware summary. Pagination counts visible operations. The persistent widget owns scrolling so HTML refreshes do not recreate the scroll viewport. Respect reduced motion.

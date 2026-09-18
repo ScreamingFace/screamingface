@@ -17,3 +17,8 @@ Chronological-log follow-up: source case position/total from Engine selection, p
 ## Selected-case numbering — 2026-09-18
 
 Add focused decoder/rendering tests, accept and validate the new optional pair, render the prefix, verify a native Engine producer preview and run full Client gates.
+
+
+## Dynamic operation lines — approved implementation
+
+Write latest-state, stable-order, parent-aware suppression, failure/staleness and pagination tests. Change the rendering projection and persistent scroll layout; migrate presentation assertions to the approved behavior while retaining decoder/loss/bounds tests. Run Client gates, exercise actual widgets in a fresh notebook, and push draft #983. Engine numbering migration and role attribution remain deferred.

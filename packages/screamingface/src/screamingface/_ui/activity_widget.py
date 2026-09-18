@@ -5,7 +5,7 @@ from threading import RLock
 from typing import Any
 
 from screamingface._ui.activity_state import ActivityLog
-from screamingface._ui.activity_view import activity_html
+from screamingface._ui.activity_view import activity_html, visible_operations
 from screamingface._ui.evaluation_state import _CandidateProgress
 from screamingface._ui.evaluation_view import _candidate_row_html, _table_html
 
@@ -34,9 +34,10 @@ class CandidateActivityRow:
         )
         self.summary: Any = widgets.HTML(value="", layout=widgets.Layout(width="100%"))
         self.page: Any = widgets.BoundedIntText(value=0, min=0, max=0, description="Older page")
+        # WHY: keep the scroll viewport outside replaceable HTML content.
         self.html: Any = widgets.HTML(
             value="",
-            layout=widgets.Layout(overflow="auto", max_height="400px"),
+            layout=widgets.Layout(overflow="auto", height="280px"),
             tabbable=True,
             tooltip=f"Activity for {candidates[index]}",
         )
@@ -73,7 +74,7 @@ class CandidateActivityRow:
     def _refresh_activity(self) -> None:
         self._updating = True
         try:
-            count = sum(r.candidate == self._index for r in self._log.history())
+            count = len(visible_operations(self._log, self._index))
             self.page.max = max(0, (count - 1) // 100)
             self.page.layout.display = "" if count > 100 else "none"
             self.html.value = activity_html(

@@ -93,7 +93,8 @@ def test_activity_has_contained_scroll_box_and_no_report_headings():
     panel.toggle.value = True
     assert 'class="sf-activity-console"' in panel.html.value
     assert "height:280px" in panel.html.value
-    assert "overflow:auto" in panel.html.value
+    assert panel.html.layout.overflow == "auto"
+    assert panel.html.layout.height == "280px"
     assert "<h4" not in panel.html.value
     assert "<small" not in panel.html.value
 
@@ -116,8 +117,8 @@ def test_flat_model_lines_identify_case_stage_and_model_without_routine_noise():
             ),
         )
     html = activity_html(log, ("candidate",))
-    assert "Case 42: Answering with provider/one completed" in html
-    assert "Case 007: Answering with provider/two completed" in html
+    assert "Case 42: Answering with provider/one" in html
+    assert "Case 007: Answering with provider/two" in html
     assert "finish reason" not in html
     assert "Measured" not in html
     assert "60s" not in html
@@ -171,4 +172,5 @@ def test_retry_attempt_and_nonroutine_finish_reason_are_explained(monkeypatch):
     )
     html = activity_html(log, ("candidate",))
     assert "retrying: attempt 2" in html
-    assert "completed: token limit reached" in html
+    assert "token limit reached" in html
+    assert 'aria-label="Completed"' in html

@@ -70,3 +70,16 @@ Timeline outcome: 45 focused checks passed and all Client gates passed, includin
 Owner approved explicit selected-case positions alongside IDs. Update safe decoding and flat log prefix to [Case n/N], with ID fallback. No inference, model role additions or layout changes. Test independent candidates, dropped/replayed records and malformed pairs; run full Client gates.
 
 Numbering consumer outcome: seven new tests passed after RED, including ten independent candidates and out-of-order arrivals, plus malformed/missing position pairs. Existing timeline tests pass unchanged. Full Client gates green (lint, format, types, full test suite/95% coverage, notebooks, build and distribution). Preserves ID fallback and bounded history; no provider requests. Producer integration remains pending the #988 test migration approval.
+
+## Dynamic-line presentation prototype
+
+Owner asked to try one stable row per operation with a spinner/checkmark, suppressing redundant Answering stage lifecycle lines. Created the explicitly simulated, throwaway `.docs/OME-1135/dynamic-activity-prototype.html` and `Dynamic-activity-preview.ipynb`. Existing issue/spec covers live activity; this is visual exploration before changing the production projection. Same DOM row updates through running, retrying, completed, failed and unknown; fixed-width markers, neutral checks, reduced-motion support. No model calls, server writes or production code changes. Numbering test-migration permission remains pending and is unrelated to this UI preview.
+
+
+## Dynamic operation lines — approved implementation
+
+Owner approved finishing the dynamic log view only. Implement the validated prototype as a latest-state projection of existing activity data, without changing Engine or protocol. Preserve all safe metadata, unknown-state semantics, raw bounded history and independent candidates. Presentation test migrations reflect this explicitly approved layout change; Engine snapshot migration remains pending.
+
+Dynamic view outcome: 62 activity tests passed; full Client gates green (ruff, formatting, pyright, full pytest with 95% threshold, notebook checks, build and distribution). Initial lint failure in description complexity was fixed by extracting stage wording; no thresholds weakened. Existing presentation assertions migrated under the approved dynamic-view scope; history/order/loss/privacy assertions preserved. Actual Client widget verified in Jupyter with simulated structured events, live replay, running spinner and completed checks; no provider requests. Preview: `.docs/OME-1135/Dynamic-log-widget.ipynb`.
+
+Wisdom review: reuse the existing bounded latest-operation index rather than adding another state machine or dependency. No Engine/public schema/report change. Explicit parentage is the only basis for stage labels and suppression; failures and unknown outcomes remain visible. All rendered text is escaped. Scroll ownership stays in the persistent widget; inner HTML is refreshed as a unit, so this does not promise stable individual DOM nodes. Role attribution and pending Engine numbering migration remain out of scope. Draft/In Progress retained. Commit: `feat(client): update activity lines in place` (Refs: OME-1135).
