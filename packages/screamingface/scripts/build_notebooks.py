@@ -1480,7 +1480,67 @@ for case in boolq_report.candidates.only.cases:
     grade = case.grade
     print(case.case_id, case.status, grade.score if grade else None)"""),
         nbformat.v4.new_markdown_cell("""\
-## 7. The rest of the shelf
+## 7. Export a run in inspect's own log format
+
+An imported board's exam came from inspect_evals, so it is reasonable to want the *result*
+in inspect's shape too. `report.export(format="inspect")` writes one Candidate's run as a
+`.eval` log — the same format `inspect view` reads — carrying our per-case records and the
+run's real metered cost.
+
+It is a **one-way copy**, deliberately. The report you see above stays the record: the
+leaderboard is never published from an inspect log, and nothing is ever read back in.
+
+One practical wrinkle. Writing that file needs `inspect-ai`, which **cannot be installed
+next to the local runtime** — their dependency pins genuinely conflict, so the environment
+running this stack cannot also hold the exporter. The cell below therefore checks first and
+tells you what to run instead of failing; do the export from a throwaway environment:
+
+```bash
+uvx --with "screamingface[inspect]" python -c "…"   # or a separate venv
+```"""),
+        nbformat.v4.new_code_cell("""\
+from importlib.util import find_spec
+
+if find_spec("inspect_ai") is None:
+    print("no inspect-ai here — export from a separate environment:")
+    print('  pip install "screamingface[inspect]"')
+    print("then load report.json and call report.export('run.eval', format='inspect')")
+else:
+    eval_path = report.export("gsm8k-fusion.eval", format="inspect")
+    print("wrote", eval_path)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 8. What you can do with the `.eval` file
+
+**There is nowhere to submit it.** Neither inspect_ai nor inspect_evals runs a service that
+accepts uploaded logs, and inspect_evals publishes no results leaderboard — its site is a
+catalogue of eval *implementations*, not of scores. Anyone telling you to upload a log
+somewhere is describing a mechanism that does not exist.
+
+What the file is genuinely for is **viewing and sharing**, all self-hosted:
+
+```bash
+inspect view --log-dir .                      # open the local viewer on this file
+inspect view bundle --log-dir . --output-dir logs-www   # a self-contained static site
+inspect log convert --to json --output-dir . run.eval   # the same log as JSON
+```
+
+`inspect view bundle` bakes the logs and a copy of the viewer into a directory you can put
+on any static host, which is the closest thing to sharing a run with someone. Inspect can
+also read and write logs straight from object storage — point `INSPECT_LOG_DIR` at an
+`s3://`, `gcs://`, `az://` or `hf://` URL — so a team can keep a shared log directory
+without any service in between.
+
+Numbers reach an inspect_evals README the slow way: a GitHub pull request updating that
+eval's own README table. Their contributing guide allows self-reported results provided
+they are public, specific, and labelled as self-reported rather than presented as
+apples-to-apples official scores — which matters here, because a fusion of several models
+is not the single-model setup those tables usually quote.
+
+To publish a result *in our product*, use the leaderboard instead — see
+`sf.leaderboards.submit(...)` in `07_ifeval.ipynb`. That path is ours end to end, and it is
+never fed from an inspect log."""),
+        nbformat.v4.new_markdown_cell("""\
+## 9. The rest of the shelf
 
 Three boards, three scorer families, one set of calls — that is the whole point of the
 import. The remaining seven work the same way; pick an id from the inspect_evals group in
