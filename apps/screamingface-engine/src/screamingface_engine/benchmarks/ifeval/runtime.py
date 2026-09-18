@@ -15,6 +15,7 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.ifeval import grade as scoring
 from screamingface_engine.benchmarks.ifeval import grading
 from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
@@ -71,6 +72,7 @@ def _check(root: Path):
     def check(request: Request) -> str:
         try:
             case_id, attempt = _case_and_attempt(request.intent)
+            grading_activity(case_id, "started")
             candidate = candidate_answer(request.context)
             spec, result, violations = _verification(root, case_id, candidate.text)
         except (KeyError, TypeError, ValueError) as exc:

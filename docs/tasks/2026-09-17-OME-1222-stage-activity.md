@@ -22,3 +22,5 @@ Validation: full Engine behavioral gates green (owner-approved append-only excep
 Owner workflow: remain In Progress while PR #980 is draft; move to In Review only when marked ready for review.
 
 One shared ActivityKind defines four stages plus model_call detail. Compact/detailed client presentation does not reduce emitted records; privacy, admission and best-effort delivery still apply.
+
+Case-phase validation: full Engine gates passed (lint, format, types, dependency layering and all tests/coverage). Seven focused signal tests passed with the Inspect extra, including actual match scorer, pending bound/cleanup, observer failure, disabled mode and candidate-check exclusion. Real HTTP/URL4 two-case IFEval with literal answers emitted both numbered case-phase outcomes through the Client, with zero invalid records. Existing expressions and golden fixtures are unchanged. Draft/In Progress retained.

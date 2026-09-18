@@ -38,6 +38,7 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.rubric_check import check_surface
 from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
@@ -150,6 +151,7 @@ def _task_rows(
     def task_rows(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             answer = candidate_answer(request.context)
             evaluator_text = answer.text
             raw_cases = _read(root / "cases.json", "DRACO cases")
