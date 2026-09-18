@@ -525,7 +525,7 @@ inspect_evals boards alongside ours, and opens JupyterLab against it.
 - [`examples/08_healthbench.ipynb`](examples/08_healthbench.ipynb): both HealthBench
   boards — the worst-30% open-Fusion challenge and the full 525-case exam with the
   official score — rehearsed cheaply with `limit=1` first.
-- [`examples/12_imported_benchmarks.ipynb`](examples/12_imported_benchmarks.ipynb): the
+- [`examples/12_inspect_evals_benchmarks.ipynb`](examples/12_inspect_evals_benchmarks.ipynb): the
   catalogue as two origin groups — ours and the imported inspect_evals boards — then a
   Fusion against one of the imported boards.
 

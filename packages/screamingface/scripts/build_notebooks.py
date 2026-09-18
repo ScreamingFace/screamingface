@@ -53,7 +53,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "09_corrective_loops.ipynb": _corrective_loops(),
         "10_gdpval.ipynb": _gdpval_e2e(),
         "11_medxpert.ipynb": _medxpert_e2e(),
-        "12_imported_benchmarks.ipynb": _imported_catalogue(),
+        "12_inspect_evals_benchmarks.ipynb": _inspect_evals_boards(),
     }
 
 
@@ -1286,7 +1286,7 @@ quoting a comparison."""),
     )
 
 
-def _imported_catalogue() -> NotebookNode:
+def _inspect_evals_boards() -> NotebookNode:
     # FEATURE: OME-1202 — the front door to the imported catalogue: list the two origin
     # groups, pick an imported board, run a fusion against it. STORY: as a researcher who
     # heard "we import inspect_evals benchmarks now", I see what's on the shelf and run
@@ -1480,69 +1480,7 @@ for case in boolq_report.candidates.only.cases:
     grade = case.grade
     print(case.case_id, case.status, grade.score if grade else None)"""),
         nbformat.v4.new_markdown_cell("""\
-## 7. Export a run in inspect's own log format
-
-An imported board's exam came from inspect_evals, so it is reasonable to want the *result*
-in inspect's shape too. `report.export(format="inspect")` writes one Candidate's run as a
-`.eval` log — the same format `inspect view` reads — carrying our per-case records and the
-run's real metered cost.
-
-It is a **one-way copy**, deliberately. The report you see above stays the record: the
-leaderboard is never published from an inspect log, and nothing is ever read back in.
-
-Writing that file needs `inspect-ai`, which `just local-stack-notebooks` installs into this
-kernel for you. It is not present in *every* environment, though: `inspect-ai` and the SDK's
-`runtime` extra — the local stack's own servers — have genuinely conflicting dependency pins,
-so one environment cannot boot the stack **and** hold the exporter. The recipe sidesteps that
-by keeping them apart rather than choosing: the Gateway and Scoreboard start from their own
-environment, and this kernel gets the exporter.
-
-If you are in a kernel without it, install `screamingface[inspect]` there and run the
-evaluation again in that session. Note there is no way to export from a saved file —
-`report.to_json()` is a one-way copy and nothing reads it back — so the export has to happen
-in the session that produced the run."""),
-        nbformat.v4.new_code_cell("""\
-from importlib.util import find_spec
-
-if find_spec("inspect_ai") is None:
-    print('no inspect-ai in this kernel — install "screamingface[inspect]" here and')
-    print("re-run the evaluation: a Report cannot be rebuilt from a saved report.json")
-else:
-    eval_path = report.export("gsm8k-fusion.eval", format="inspect")
-    print("wrote", eval_path)"""),
-        nbformat.v4.new_markdown_cell("""\
-## 8. What you can do with the `.eval` file
-
-**There is nowhere to submit it.** Neither inspect_ai nor inspect_evals runs a service that
-accepts uploaded logs, and inspect_evals publishes no results leaderboard — its site is a
-catalogue of eval *implementations*, not of scores. Anyone telling you to upload a log
-somewhere is describing a mechanism that does not exist.
-
-What the file is genuinely for is **viewing and sharing**, all self-hosted:
-
-```bash
-inspect view --log-dir .                      # open the local viewer on this file
-inspect view bundle --log-dir . --output-dir logs-www   # a self-contained static site
-inspect log convert --to json --output-dir . run.eval   # the same log as JSON
-```
-
-`inspect view bundle` bakes the logs and a copy of the viewer into a directory you can put
-on any static host, which is the closest thing to sharing a run with someone. Inspect can
-also read and write logs straight from object storage — point `INSPECT_LOG_DIR` at an
-`s3://`, `gcs://`, `az://` or `hf://` URL — so a team can keep a shared log directory
-without any service in between.
-
-Numbers reach an inspect_evals README the slow way: a GitHub pull request updating that
-eval's own README table. Their contributing guide allows self-reported results provided
-they are public, specific, and labelled as self-reported rather than presented as
-apples-to-apples official scores — which matters here, because a fusion of several models
-is not the single-model setup those tables usually quote.
-
-To publish a result *in our product*, use the leaderboard instead — see
-`sf.leaderboards.submit(...)` in `07_ifeval.ipynb`. That path is ours end to end, and it is
-never fed from an inspect log."""),
-        nbformat.v4.new_markdown_cell("""\
-## 9. The rest of the shelf
+## 7. The rest of the shelf
 
 Three boards, three scorer families, one set of calls — that is the whole point of the
 import. The remaining seven work the same way; pick an id from the inspect_evals group in
