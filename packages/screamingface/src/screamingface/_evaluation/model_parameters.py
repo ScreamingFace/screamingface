@@ -14,6 +14,31 @@ type _Assignments = dict[str, tuple[GenerationParams, ...]]
 type _SyncDetailsLoading = Callable[[str], ModelDetails]
 type _AsyncDetailsLoading = Callable[[str], Awaitable[ModelDetails]]
 
+_PROVIDER_DENIED = "unsupported"
+"""The one ``provider_support`` value that refuses a call (OME-1231).
+
+The gateway states the distinction this constant turns into a rule
+(`aigateway/core/chat_parameters/_types.py`): ``gateway_status`` carries POLICY — what the
+gateway will forward — and ``provider_support`` carries EVIDENCE — what the provider's own
+catalogue says about THIS model. They are not the same claim, and evidence is the only per-model
+signal: OpenRouter rules `seed` as a blanket passthrough for every model it serves, so policy is
+``enabled`` even where the provider accepts no seed at all.
+
+POLICY for the other three values, decided rather than fallen into: ``supported`` obviously
+passes. ``unknown`` passes SILENTLY — it is what the field holds when no discovery source spoke,
+so refusing on it would refuse on our own ignorance and block models that work today.
+``conditional`` passes silently too — the provider does accept the parameter, under a condition a
+catalogue row cannot express, so refusing would be a false negative.
+"""
+
+_SEED_PARAM = "seed"
+"""The sampling seed's wire name — the one parameter whose denial costs reproducibility.
+
+Mirrors ``ANSWER_SEED_PARAM`` in the Engine's ``runner/request_parameters.py``. A run's ambient
+seed and a Candidate-declared ``seed`` are the same wire field, so a denial means the same thing
+to the reader whichever door it arrived through, and both deserve the same sentence.
+"""
+
 
 def preflight_sync(
     candidates: Sequence[Candidate],
@@ -124,6 +149,38 @@ def _validate_access(details: ModelDetails) -> None:
 
 
 def _validate_parameter(details: ModelDetails, name: str, value: object) -> None:
+    """Admit one parameter value for one Model, or refuse pre-spend saying which gate closed.
+
+    Think of it as four doors a value walks through in order, each answering a different
+    question, and the first closed door is the refusal the caller sees.
+
+    Stage 1 — does the contract name this parameter at all? An absent row means the gateway
+    publishes no projection for it on this Model, so nothing downstream could honour it.
+
+    Stage 2 — does the GATEWAY forward it? `ModelParameter.enabled` is ``gateway_status ==
+    "enabled"``; a disabled row carries the reason and the auth modes that WOULD enable it, so the
+    refusal can say which credential would open the door rather than dead-ending.
+
+    Stage 3 — does the PROVIDER accept it? (OME-1231.) This is the axis stages 1 and 2 cannot
+    see. Only `_PROVIDER_DENIED` refuses; see that constant for why `conditional` and `unknown`
+    pass. Without this stage a seeded fusion containing a model whose provider takes no seed
+    reached the wire, and the run died mid-flight AFTER billing the members that worked — the
+    catalogue held the verdict the whole time.
+
+    Stage 4 — is the VALUE itself legal? Only now, because a value's validity is moot once a
+    door above has closed.
+
+    Args:
+        details: the Model's profile-bound parameter contract, already fetched by the caller.
+        name: the parameter's wire name, e.g. ``"seed"``.
+        value: the value the run intends to send, checked against the published schema in
+            stage 4 only.
+
+    Raises:
+        PlanningError: ``unsupported_model_parameter`` when a door in stages 1-3 is closed,
+            ``invalid_model_parameter`` when stage 4 rejects the value. Always ``permanent``:
+            retrying the same request cannot change any of these answers.
+    """
     parameter = details.parameters.get(name)
     if parameter is None:
         raise PlanningError(
@@ -144,6 +201,23 @@ def _validate_parameter(details: ModelDetails, name: str, value: object) -> None
                 "applicable_auth_modes": list(parameter.applicable_auth_modes),
             },
         )
+    # Stage 3 — the provider's own evidence, the axis the two checks above cannot see.
+    if parameter.provider_support == _PROVIDER_DENIED:
+        raise PlanningError(
+            _denied_message(details.id, name),
+            code="unsupported_model_parameter",
+            permanent=True,
+            details={
+                "model": details.id,
+                "parameter": name,
+                "provider_support": parameter.provider_support,
+                # WHY the source travels with the verdict: this refusal contradicts the
+                # gateway's own `enabled` status, so a reader needs to know which document
+                # said no before they trust it over the projection.
+                "provider_source": parameter.provider_source,
+            },
+            hint=_denied_hint(name),
+        )
     assert parameter.schema is not None
     try:
         parameter.schema.validate(value)
@@ -154,6 +228,24 @@ def _validate_parameter(details: ModelDetails, name: str, value: object) -> None
             permanent=True,
             details={"model": details.id, "parameter": name},
         ) from exc
+
+
+def _denied_message(model: str, name: str) -> str:
+    """Name the provider's refusal, adding what it costs when the parameter is the seed."""
+    denial: str = f"Parameter {name!r} is not supported by the provider for Model {model!r}"
+    if name == _SEED_PARAM:
+        return f"{denial} — this run cannot be reproducible"
+    return denial
+
+
+def _denied_hint(name: str) -> str:
+    """Offer the two ways out: stop asking for the parameter, or pick a Model that takes it."""
+    if name == _SEED_PARAM:
+        return (
+            "Drop the seed to run this line-up unseeded, or swap that Model for one whose "
+            "provider accepts a seed."
+        )
+    return f"Remove {name!r} for that Model, or choose a Model whose provider accepts it."
 
 
 __all__: list[str] = []

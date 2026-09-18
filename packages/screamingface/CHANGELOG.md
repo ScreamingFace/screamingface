@@ -12,6 +12,7 @@
 
 ### Bug Fixes
 
+* **screamingface:** refuse a seeded evaluation before any spend when a Candidate Model's provider does not accept `seed`. The parameter preflight read the gateway's policy (`gateway_status`) and never the provider's evidence (`provider_support`) on the same contract row, so a fusion containing such a model passed the check, went to the wire, and died mid-run with `provider_error` — score `null`, coverage `0.0`, after the members that worked were already billed. It now raises `PlanningError` naming the Model and the parameter and saying the run cannot be reproducible. Only an explicit `unsupported` refuses: `conditional` and `unknown` pass through unchanged, and an unseeded run is unaffected.
 * **screamingface:** accept `answer_seed` on the module-level `evaluate(...)`, not only on `Client.evaluate`. The one-line call every example notebook uses raised `TypeError: evaluate() got an unexpected keyword argument 'answer_seed'`, so seeded runs were unreachable for notebook users even though the feature above had shipped. Both branches forward it now — Recipes and a complete URL4 — and omitting it still declares no seed.
 * **screamingface:** check every required Candidate Model before evaluation dispatch and raise `ProviderConnectionError` for Gateway-reported missing access. Sync and async Clients reuse model admission details; older Gateways preserve existing behavior.
 
