@@ -37,19 +37,20 @@ _bless-preconditions:
 # Engine started here serves ALL 17 boards on :9111 and reaches that same Gateway, so
 # the stack's own Engine simply goes unused. Ctrl-C tears both down.
 [doc("Open every example notebook against a stack serving ours AND imported boards")]
-notebooks:
+local-stack-notebooks:
     #!/usr/bin/env bash
     set -euo pipefail
     UV="{{ require('uv') }}"
 
-    # Sentinel is an IMPORTED bundle, not the assets root: `screamingface prepare` bakes
-    # only the five native boards, so a dir that exists still routinely lacks every
-    # imported snapshot. Checking the root would skip the bake on any machine that has
-    # ever prepared a native board.
+    # One pass bakes every bundle, ours and imported — the same command and the same three
+    # preparer-only pins the benchmark image uses (Dockerfile.benchmark), so what a notebook
+    # reads locally is built the way production builds it. `--extra inspect` carries the
+    # imported preparers; pdfplumber/python-docx flatten GDPval's reference PDFs.
     if [ ! -d "{{ assets }}/inspect-gsm8k" ]; then
         echo "==> baking benchmark snapshots into {{ assets }} (first run only; downloads datasets)"
         ( cd "{{ engine_dir }}" \
             && "$UV" sync --extra inspect \
+            && "$UV" pip install --quiet "datasets==5.0.0" "pdfplumber==0.11.10" "python-docx==1.2.0" \
             && "$UV" run python -m screamingface_engine.benchmarks.prepare --root "{{ assets }}" )
     fi
 

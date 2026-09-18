@@ -64,6 +64,11 @@ COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de5
 # the datasets version is: a release whose extraction differs would silently change what every
 # candidate is asked. Keep these in step with `packages/screamingface`'s runtime extra and with
 # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
+#
+# The imported boards' preparers need no line here: `inspect-ai`/`inspect-evals` arrive with the
+# base image's `--extra inspect`, and the prepare below bakes every registered bundle in one pass.
+# If that extra is ever dropped from the base, this build keeps succeeding and silently ships an
+# image missing ten boards' assets — so the two belong in step.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python /app/apps/screamingface-engine/.venv/bin/python --quiet \
       "datasets==5.0.0" "pdfplumber==0.11.10" "python-docx==1.2.0"

@@ -102,7 +102,8 @@ Report, publish its Candidate Result, and replay its URL4. The wider interface i
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare draco  # first run only: download pinned Benchmark assets
@@ -230,7 +231,8 @@ Every state-changing or paid example is either descriptive or guarded off by def
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare draco  # first run only: download pinned Benchmark assets
@@ -635,7 +637,8 @@ where `sf.CorrectiveLoop` is the protocol from
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare ifeval  # first run only: download pinned Benchmark assets
@@ -759,7 +762,8 @@ This notebook evaluates DRACO using new models (August 2026) and fusions of thes
         nbformat.v4.new_markdown_cell("""\
 ## Running things locally
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare draco  # first run only: download pinned Benchmark assets
@@ -910,7 +914,8 @@ what published HealthBench figures do."""),
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare healthbench  # first run only: download pinned Benchmark assets
@@ -1059,7 +1064,8 @@ leaderboard?"."""),
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare gdpval  # first run only: download pinned Benchmark assets
@@ -1187,7 +1193,8 @@ entirely answer generation.
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare medxpert  # first run only: download pinned Benchmark assets
@@ -1303,7 +1310,8 @@ fusion against it."""),
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
@@ -1328,20 +1336,10 @@ export SCREAMINGFACE_ENGINE_URL="https://<an-engine-with-the-inspect-extra>"
 
 Leaving it unset falls back to a running local stack, then to the hosted default.
 
-**Running one yourself, from a checkout.** Bake the imported snapshots once, then serve the
-Engine beside the `screamingface up` stack on a free port — it reaches the same Gateway on
-`:9105`, so only the Engine URL changes:
-
-```bash
-cd apps/screamingface-engine
-uv sync --extra inspect
-export URL4_BENCHMARK_ASSETS=~/.screamingface/benchmark-assets
-uv run python -m screamingface_engine.benchmarks.prepare --root "$URL4_BENCHMARK_ASSETS"
-uv run uvicorn --factory screamingface_engine.local:create_local_app \\
-    --host 127.0.0.1 --port 9111
-```
-
-Then `export SCREAMINGFACE_ENGINE_URL="http://127.0.0.1:9111"` before starting the kernel."""),
+**Running one yourself, from a checkout.** The `just local-stack-notebooks` recipe above does
+exactly this: it bakes the imported snapshots, serves an inspect-capable Engine beside the
+`screamingface up` stack on a free port — reaching the same Gateway on `:9105`, so only the
+Engine URL changes — and exports `SCREAMINGFACE_ENGINE_URL` for the kernel it opens."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -1454,7 +1452,8 @@ Every installed Benchmark advertises whether its check surface is free or paid:
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare --all  # first run only: download all three Benchmark assets

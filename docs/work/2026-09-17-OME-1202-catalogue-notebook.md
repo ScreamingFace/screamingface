@@ -19,7 +19,10 @@ The imported inspect_evals boards (OME-1116) and the two-group listing (OME-1114
 - `apps/screamingface-engine/src/screamingface_engine_inspect/single_shot.py` — stamp `origin="inspect_evals"` on imported boards (defect found while verifying the notebook; owner directed the fix into this PR rather than a new ticket)
 - `apps/screamingface-engine/tests/unit/test_inspect_imported_boards.py` — pin the origin over the real registrations
 - `apps/screamingface-engine/tests/unit/test_benchmark_origin.py` — split the over-reaching assertion (owner-approved prior-test change)
-- `packages/screamingface/justfile` — `just notebooks` (one command: bake → stack → inspect-capable Engine → Jupyter) + owner-requested hardening of the bless recipes (`[confirm]` on the golden rewrite, `require()`/`path_exists()` preconditions, hoisted `blesser`, `set default-list`)
+- `packages/screamingface/justfile` — `just local-stack-notebooks` (one command: bake → stack → inspect-capable Engine → Jupyter) + owner-requested hardening of the bless recipes (`[confirm]` on the golden rewrite, `require()`/`path_exists()` preconditions, hoisted `blesser`, `set default-list`)
+- `apps/screamingface-engine/Dockerfile` — `--extra inspect` on both sync layers, so a deployed Engine registers the imported boards at all (and the benchmark image, built FROM it, can bake their snapshots)
+- `apps/screamingface-engine/Dockerfile.benchmark` — comment recording that its preparer depends on the base image's inspect extra
+- `packages/screamingface/scripts/build_notebooks.py` (all 9 setup cells) + `README.md` — point at the recipe
 - Ledger + `docs/tasks/` mirror
 
 ## Test plan
