@@ -13,9 +13,8 @@ STYLE = """<style>
  background:var(--sf-surface);color:var(--sf-ink);font:12px/1.6 "IBM Plex Mono",monospace;
  font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:left}
 .sf-activity-console .sf-activity__stage{display:block;margin:0;padding:0;font:inherit}
-.sf-activity-console .sf-activity__call{display:block;margin:0;padding:0 0 0 16px;
+.sf-activity-console .sf-activity__call{display:block;margin:0;padding:0;
  font:inherit;white-space:normal}
-.sf-activity-console .sf-activity__details{display:inline;margin:0;color:var(--sf-ink-2)}
 .sf-activity-console .sf-activity__failed,.sf-activity-console .sf-activity__refused{
  color:var(--sf-danger-solid)}
 .sf-activity-console p{margin:0;font:inherit;color:var(--sf-ink-2)}
@@ -39,19 +38,42 @@ def _outcome(row: ActivityRow) -> str:
     return "No recent update; outcome not observed" if not -30000 <= age < 150000 else record.state
 
 
-def _call(row: ActivityRow) -> str:
-    record = row.record
-    facts = dict(record.facts)
-    name = str(facts.get("model_id", "Model call"))
-    details = " · ".join(
-        f"{k.replace('_', ' ')}: {v}" for k, v in record.facts if k not in {"model_id", "parent_id"}
+def _description(row: ActivityRow, label: str, *, model: bool = False) -> str:
+    facts = dict(row.record.facts)
+    case_id = facts.get("case_id")
+    # WHY: the Engine supplies identity, not an ordinal. Never parse "007" as 7
+    # or borrow a sibling's Case when the producer did not supply one.
+    prefix = (
+        f"Case {case_id}: " if case_id is not None else "Case not identified: " if model else ""
     )
+    name = facts.get("model_id")
+    subject = f"{label} with {name}" if model and name else label
+    details = []
+    if failure := facts.get("failure_code"):
+        details.append(str(failure).replace("_", " "))
+    if row.record.state == "retrying" and (attempt := facts.get("attempt")):
+        details.append(f"attempt {attempt}")
+    finish = {"length": "token limit reached", "content_filter": "content filtered"}.get(
+        str(facts.get("finish_reason"))
+    )
+    if finish:
+        details.append(finish)
+    for key, description in (
+        ("loaded_count", "cases loaded"),
+        ("selected_count", "cases selected"),
+        ("result_count", "results"),
+        ("prepared_task_count", "grading tasks prepared"),
+    ):
+        if key in facts:
+            details.append(f"{facts[key]} {description}")
+    suffix = ": " + "; ".join(details) if details else ""
+    return f"{prefix}{subject} {_outcome(row)}{suffix}"
+
+
+def _call(row: ActivityRow, label: str) -> str:
     return (
-        f'<div class="sf-activity__call">{escape(name)} — '
-        f'<span class="sf-activity__{record.state}">{escape(_outcome(row))}</span>'
-        f' · <span title="Measured elapsed">{record.elapsed_ms / 1000:g}s</span>'
-        + (f' <span class="sf-activity__details">· {escape(details)}</span>' if details else "")
-        + "</div>"
+        f'<div class="sf-activity__call"><span class="sf-activity__{row.record.state}">'
+        f"{escape(_description(row, label, model=True))}</span></div>"
     )
 
 
@@ -60,13 +82,9 @@ def _group(group: ActivityGroup, selected: set[tuple[str, str]]) -> str:
     stage = group.stage
     if not calls and (stage is None or (stage.run, stage.record.id) not in selected):
         return ""
-    summary = (
-        f"{_outcome(stage)} · {stage.record.elapsed_ms / 1000:g}s"
-        if stage
-        else "No parent activity was provided or retained"
-    )
-    lines = "".join(_call(r) for r in calls)
-    return f'<div class="sf-activity__stage">{group.label} — {escape(summary)}</div>{lines}'
+    summary = _description(stage, group.label) if stage else group.label
+    lines = "".join(_call(r, group.label if stage else "Model call") for r in calls)
+    return f'<div class="sf-activity__stage">{escape(summary)}</div>{lines}'
 
 
 def activity_html(
@@ -91,7 +109,7 @@ def activity_html(
         ("producer records suppressed", sum(log.suppressed.get(candidate, {}).values())),
         ("Engine bridge Logs dropped", log.bridge_loss.get(candidate, 0)),
     ]
-    notice = " · ".join(f"{n} {label}" for label, n in notices if n)
+    notice = "; ".join(f"{n} {label}" for label, n in notices if n)
     content = "".join(_group(g, selected) for g in groups(log, candidate))
     if not content:
         content = (

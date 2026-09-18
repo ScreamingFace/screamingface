@@ -114,7 +114,7 @@ def test_loss_snapshots_are_maxima_and_payloads_never_render():
     assert "5" in html and "suppressed" in html
     assert "SECRET" not in html
     assert "candidate &lt;one&gt;" in html
-    assert "Measured" in html
+    assert "Measured" not in html
     assert "outcome not observed" in html
 
 
@@ -125,7 +125,7 @@ def test_empty_and_terminal_display():
     assert "No structured activity received yet" in activity_html(view, ("one",))
     view.observe(0, record(state="failed", failure_code="provider_timeout"))
     html = activity_html(view, ("one",))
-    assert "provider_timeout" in html
+    assert "provider timeout" in html
     assert "failed" in html
     assert "SECRET" not in html
 

@@ -96,3 +96,79 @@ def test_activity_has_contained_scroll_box_and_no_report_headings():
     assert "overflow:auto" in panel.html.value
     assert "<h4" not in panel.html.value
     assert "<small" not in panel.html.value
+
+
+def test_flat_model_lines_identify_case_stage_and_model_without_routine_noise():
+    from screamingface._ui.activity_view import activity_html
+
+    log = ActivityLog()
+    log.observe(0, record(kind="answering", id="stage", state="completed"))
+    for case_id, model in [(42, "provider/one"), ("007", "provider/two")]:
+        log.observe(
+            0,
+            record(
+                id=model,
+                parent_id="stage",
+                model_id=model,
+                case_id=case_id,
+                state="completed",
+                finish_reason="stop",
+            ),
+        )
+    html = activity_html(log, ("candidate",))
+    assert "Case 42: Answering with provider/one completed" in html
+    assert "Case 007: Answering with provider/two completed" in html
+    assert "finish reason" not in html
+    assert "Measured" not in html
+    assert "60s" not in html
+    assert "padding:0 0 0 16px" not in html
+    assert " — " not in html and " · " not in html
+
+
+def test_missing_case_is_not_inferred_from_sibling_and_failures_remain_visible():
+    from screamingface._ui.activity_view import activity_html
+
+    log = ActivityLog()
+    log.observe(0, record(kind="grading", id="stage", state="completed"))
+    log.observe(
+        0,
+        record(
+            id="known", parent_id="stage", model_id="provider/one", case_id="007", state="completed"
+        ),
+    )
+    log.observe(
+        0,
+        record(
+            id="unknown",
+            parent_id="stage",
+            model_id="provider/two",
+            state="failed",
+            failure_code="provider_timeout",
+        ),
+    )
+    html = activity_html(log, ("candidate",))
+    assert "Case not identified: Grading with provider/two failed: provider timeout" in html
+    assert "Case 007: Grading with provider/two" not in html
+
+
+def test_retry_attempt_and_nonroutine_finish_reason_are_explained(monkeypatch):
+    from screamingface._ui.activity_view import activity_html
+
+    monkeypatch.setattr("screamingface._ui.activity_view.time.time", lambda: 100)
+    log = ActivityLog()
+    log.observe(
+        0, record(id="retry", model_id="provider/one", case_id=42, state="retrying", attempt=2)
+    )
+    log.observe(
+        0,
+        record(
+            id="limited",
+            model_id="provider/two",
+            case_id=43,
+            state="completed",
+            finish_reason="length",
+        ),
+    )
+    html = activity_html(log, ("candidate",))
+    assert "retrying: attempt 2" in html
+    assert "completed: token limit reached" in html

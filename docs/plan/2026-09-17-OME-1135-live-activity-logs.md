@@ -8,3 +8,5 @@
 6. Open draft PR with concrete justifications; keep Linear In Progress until PR ready for review.
 
 Presentation refinement: replace inner tables with escaped monospace log lines; preserve grouped parentage and scroll/pagination controls.
+
+Case-aware refinement: show explicit IDs/model/stage in flush-left prose; omit routine times/stops, retain retry/failure/truncation signals. Use local #980+#988 preview if hosted preview is disabled. Verify real Engine records and Jupyter before final gates.
