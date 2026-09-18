@@ -108,13 +108,21 @@ def _facts(values: Mapping[str, object]) -> dict[str, str | int | float]:
             result = _fact(name, value)
             if result is not None:
                 safe[name] = result
+    if "case_position" in safe or "case_count" in safe:
+        position, count = safe.get("case_position"), safe.get("case_count")
+        if (
+            not isinstance(position, int)
+            or not isinstance(count, int)
+            or not 1 <= position <= count
+        ):
+            raise ValueError("invalid case position/count pair")
     return safe
 
 
 def _fact(name: str, value: object) -> str | int | float | None:
     if name in {"parent_id", "provider", "model_id", "benchmark_id", "case_id"}:
         return int(number(value)) if name == "case_id" and type(value) is int else identifier(value)
-    if name in _COUNTS | {"retry_delay_ms"}:
+    if name in _COUNTS | {"retry_delay_ms", "case_position", "case_count"}:
         result = number(value, integer=name != "retry_delay_ms")
         if name == "attempt" and result == 0:
             raise ValueError("attempt starts at one")

@@ -38,14 +38,19 @@ def _outcome(row: ActivityRow) -> str:
     return "No recent update; outcome not observed" if not -30000 <= age < 150000 else record.state
 
 
+def _case_prefix(facts: dict[str, str | int | float], *, model: bool) -> str:
+    # INVARIANT: selected position comes from the Engine, never event arrival order.
+    if "case_position" in facts and "case_count" in facts:
+        return f"[Case {facts['case_position']}/{facts['case_count']}] "
+    case_id = facts.get("case_id")
+    if case_id is not None:
+        return f"Case {case_id}: "
+    return "Case not identified: " if model else ""
+
+
 def _description(row: ActivityRow, label: str, *, model: bool = False) -> str:
     facts = dict(row.record.facts)
-    case_id = facts.get("case_id")
-    # WHY: the Engine supplies identity, not an ordinal. Never parse "007" as 7
-    # or borrow a sibling's Case when the producer did not supply one.
-    prefix = (
-        f"Case {case_id}: " if case_id is not None else "Case not identified: " if model else ""
-    )
+    prefix = _case_prefix(facts, model=model)
     name = facts.get("model_id")
     subject = f"{label} with {name}" if model and name else label
     details = []

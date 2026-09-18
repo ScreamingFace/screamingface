@@ -27,3 +27,8 @@ Presentation update: all log lines are flush left, with consistent compact text 
 
 ## Approved chronological wording
 The target log is a chronological sequence of lifecycle events, not only latest-operation summaries. Use “Synthesising with [model]” for an explicitly identified synthesis role. Case identity, execution stage and model role are separate facts: synthesis can occur within answering or grading and is not a fifth stage. Retain the four stages. Never infer roles from prompts, routes or model names; an unknown role falls back to “Calling [model]”. Programmatic grading must not claim a model call. Member identity and corrective-round number may enrich lines when explicitly supplied. Selected-case positions/totals require authoritative selection metadata, not arrival order or numeric parsing of case IDs. Whole-case completion must not be inferred from one grading endpoint returning. These are target presentation requirements; current producer attribution is incomplete.
+
+
+## Selected-case numbering — 2026-09-18
+
+Display authoritative case_position/case_count as [Case n/N]. Both must be positive integer facts with position <= count. Unknown positions retain existing Case ID fallback; never derive from event arrival order. Existing chronology, bounded history and safe payload rendering remain unchanged.
