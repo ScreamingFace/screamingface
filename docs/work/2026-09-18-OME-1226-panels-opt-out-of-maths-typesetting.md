@@ -1,9 +1,9 @@
 ---
 ticket: OME-1226
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-18
-finished:
+finished: 2026-09-18
 ---
 
 # OME-1226 — Panels opt out of the notebook's maths typesetter
@@ -87,7 +87,7 @@ regression.
   `class='…'` attribute). Every root listed in Planned changes now appends it. The pinning
   tests landed in a new `tests/test_panels_opt_out_of_maths.py` (13 rendered roots plus the
   three widget roots) and one report-specific test in `tests/test_report_panel.py`.
-- **Commits:** see the branch `OME-1226-mathjax-ignore` / PR.
+- **Commits:** f10e4c10 — fix(py-screamingface): stop the notebook typesetting panel text as maths (PR #986).
 - **Gates:** `run_gates.py screamingface --skip-append-only` — ALL GATES GREEN (ruff check ·
   ruff format · pyright · pytest with coverage ≥95 · notebook determinism · uv build ·
   distribution check). Full suite: 1617 passed, 25 skipped.

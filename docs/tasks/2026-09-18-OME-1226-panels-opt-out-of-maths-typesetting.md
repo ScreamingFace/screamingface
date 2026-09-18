@@ -1,12 +1,12 @@
 ---
 id: OME-1226
 linear_url: https://linear.app/openmined/issue/OME-1226/text-with-dollar-signs-shows-up-garbled-and-run-together-in-notebook
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-09-18
-closed:
+closed: 2026-09-18
 ---
 
 # Text with dollar signs shows up garbled and run together in notebook panels
