@@ -28,3 +28,17 @@ Deviation: the authorized request-contract change necessarily changes three exis
 Owner approved the review fixes. Add case identity once in the shared Inspect candidate builder and verify actual model activity through an imported board. Define activity-to-result joins as string comparison (integer 42 matches "42"; "007" remains distinct), with transport coverage. Migrate only the four Client expression fingerprints after keyless replay verifies unchanged cached requests, statuses, failure codes, coverage and scores. Keep the PR draft. Existing assertions and score expectations remain intact.
 
 Review fixes: shared Inspect builder now supplies Case identity; its real imported-board activity test failed before the fix and passes afterward. Integer/leading-zero transport coverage documents string-based joins. All 32 focused tests pass. The Client fixture migration is tracked in OME-1229. A concurrent replay environment sync removed optional Inspect modules during the first full gate; sequential rerun with the Inspect extra installed passed all Engine gates. Full Client gates and unchanged keyless replays also pass. Review: no benchmark-specific logging implementation, no outcome/snapshot changes, no new dependencies; final PR stays below 500 changed lines.
+
+
+## Selected-case numbering — 2026-09-18
+
+Intent: owner approved selected-case ordinals in #988, forwarding in #980 and UI in #983. Model roles remain deferred.
+Planned: shared selection annotation, optional envelope position/count, scoped transport, regression tests and replay migration.
+Acceptance: selected order determines numbering; inputs and scores unchanged; no arrival-order inference.
+Status: in progress.
+
+Numbering progress: 16 new selection/envelope/scope tests pass; actual URL4 preserves input for two concurrent candidates with identical selected positions. Full Engine gates found existing protocol setup/snapshot migrations; registry installation failure fixed (18 focused tests pass). Waiting for explicit prior-test migration confirmation per sdlc-python before changing those tests and replay fingerprints. No Engine numbering commit/push yet.
+
+Owner explicitly resumed and requested finishing numbering. Migrating protocol setup/snapshots and Client replay expression fingerprints as required by that approved change; preserve all outcome, order, concurrency and score assertions.
+
+Numbering Engine validation: 70 focused checks and all Engine gates passed (lint, format, types, layering, full tests/coverage). Existing protocol tests now install the shared selection route and assert the requested prefix count instead of the retired slice syntax; byte snapshots repinned. New tests prove unchanged input and independent concurrent-candidate positions. Wisdom review: metadata stays outside model inputs, shared protocol owns selection order, no execution-core/activity dependency and no unbounded identity map. Cached benchmark replay migration continues under OME-1229 before final delivery. Owner's request to finish includes the necessary existing-test migration; the gate runner's append-only exception is limited to that migration.

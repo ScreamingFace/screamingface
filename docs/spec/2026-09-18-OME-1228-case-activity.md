@@ -9,3 +9,8 @@ All shipped benchmark candidate builders supply their case ID explicitly. MedXpe
 This PR is independent of #980: it attributes existing model-call events only. Stage/grading attribution in #980 will consume the same context or explicit IDs already owned by grading endpoints. It does not add member/role attribution, case ordinals, score updates or URL4 features.
 
 Activity-to-result identity joins compare `str(case_id)` on both sides. URL4 template interpolation carries integer IDs as decimal strings; do not parse numeric-looking strings, so `"007"` remains distinct from `7`. Benchmark result IDs retain their existing types. This is an identity, not a case ordinal. The shared Inspect builder supplies the same envelope for every imported board.
+
+
+## Selected-case numbering — 2026-09-18
+
+The shared protocol selection resolves the requested prefix once and annotates each selected row with one-based position and selected total. Candidate builders carry these as optional envelope fields, removed before model input. Scope isolates them per run and case. Position/count are both present or both absent, positive integers with position <= count. Model activity publishes safe scalar fields case_position and case_count; Client displays [Case n/N], falling back to Case ID. No role attribution or guessed ordinals.

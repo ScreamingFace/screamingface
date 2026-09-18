@@ -150,7 +150,9 @@ def test_the_three_pass_limit_slices_cases_not_judging_strength() -> None:
     # the pass count (3), not passes × cases — the case count only slices the selection.
     assert full.count("/" + JUDGE_MODEL) == 3
     assert one_case.count("/" + JUDGE_MODEL) == 3
-    assert one_case.count("iteration.slice=0:1") == 1
+    assert one_case.count("/benchmarks/selected-cases") == 1
+    assert ")!'1'" in one_case
+    assert "iteration.slice" not in one_case
 
 
 # ── installation --------------------------------------------------------------------
