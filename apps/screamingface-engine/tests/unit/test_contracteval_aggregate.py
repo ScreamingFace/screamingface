@@ -259,6 +259,11 @@ class TestCaseLevel:
         result = _aggregate(root, rows, (1, 2))
 
         assert result["cases"][1]["failures"][0]["code"] == "missing_answer_asset"
+        # An unusable answer key means the Case was never MEASURED — score None, and it takes
+        # no cell in the confusion matrix. Asserting only the code would pass an implementation
+        # that also scored it 0.0, which is the failure-to-RUN vs failure-to-COMMIT collapse.
+        assert result["cases"][1]["grade"]["score"] is None
+        assert result["metrics"]["scored_cases"] == 1
         assert result["cases"][0]["grade"]["score"] == 1.0
 
 
