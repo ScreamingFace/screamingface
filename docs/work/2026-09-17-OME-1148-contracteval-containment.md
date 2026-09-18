@@ -134,9 +134,60 @@ is the rubric convenience, not the contract. A board whose headline is not a mea
 scores (this one's is a confusion matrix) passes its own builder and carries whatever each Case
 needs in that Case's grade metrics.
 
+## Review log — PR #984
+
+**Round 1** (two findings, both real, both fixed):
+
+- `preflight()` was defined, exported, and called from nowhere: a missing answer key surfaced
+  only at grading time, after inference was paid for. The cases route now preflights before
+  serving, memoized (1.63s once per process for 4,182 records, 0.003ms after).
+- Spec and code disagreed on the laziness denominator — "selected" vs "graded" positives. The
+  reviewer left the choice open; graded wins, because dividing by selected credits a model for
+  rows it never saw (D-3 carries the reasoning).
+
+**Round 2** (the harder round — the findings were about the *evidence*, not the code):
+
+- **Fidelity was asserted and never pinned, and every provenance pointer was dead.** The spec
+  promised a `.refs/` mirror that was never committed; `grading.py` pointed at a spec filename
+  that exists on no branch; `prompts.py` and spec F-8 gave different line ranges and neither
+  matched the source (verified: system prompt 75-79, template 19-27); and no test mentioned
+  `SYSTEM_PROMPT`. A transcription typo was undetectable with every gate green.
+
+  Fixed by making the claim testable rather than restating it: `tests/unit/_contracteval_reference.py`
+  (the four reference functions, verbatim, DO-NOT-EDIT), `tests/unit/data/contracteval_gold_spans.json`
+  (120 real CUAD rows, gold spans only — the parity test compares GRADERS, which never need the
+  contracts — with provenance and CC BY 4.0 attribution), `test_contracteval_parity.py`, and
+  `test_contracteval_prompts.py`.
+
+- **All three published metrics were pinned at fixtures where the right formula and the wrong
+  ones agree.** The confusion-matrix fixture was 2 TP / 1 FN / 1 TN / 1 FP, where precision ==
+  recall == 2/3 — so F1, F2, F2-with-beta-inverted, the arithmetic mean of P and R, and P and R
+  themselves all equal 0.6667. Five formulas, one number. Both laziness fixtures and the
+  evidence test were degenerate the same way.
+
+  AIDEV-NOTE — the lesson worth keeping: those tests cited *hand-computed* values, which is
+  what made them look rigorous. Hand-computing does not prove a fixture discriminates. The
+  fixtures are now asymmetric, and **seven mutants were introduced to prove it**: F2 with beta
+  inverted, laziness over total abstentions (caught by two tests), precision/recall swapped,
+  `raw_output` as the negated abstention flag, abstention via `startswith`, Jaccard via
+  `.split()`, and the em dash normalised to a hyphen. Every one fails; the suite is green
+  restored. My first replacement assertion was itself wrong — I wrote accuracy 0.75 where
+  (3+2)/8 = 0.625 — which is the same lesson arriving twice.
+
+**Paper trail and mechanical items:** spec D-8 no longer claims `expected_check_cost="free"` for
+a board that ships no check surface; the `.refs/` promise is retracted with its reason; both line
+citations corrected; `pins.py`'s header no longer claims every value is hashed (`MAX_TOKENS`,
+`TEMPERATURE`, `MAX_CONTEXT_TOKENS` are not); `TEMPERATURE` is a float, since its only purpose is
+to be copied into `params=`; `prepare.py` validates `source_id`/`title` instead of trusting them
+(verified against all 4,182 rows); the dead `attempt.get("metadata")` read is gone with a note
+naming the real seam; the context guard is pinned both ways; the notebook now states the ~23M
+input tokens per member a full pass costs; and the declaration guard row records its approval
+where the next reader of that file will see it.
+
 ## Still open at hand-off
 
-- **Push and open the PR.** Not pushed.
+- **PR #984 is open and under review.** Two rounds of findings addressed — see the review log
+  below.
 - **The Linear title still says "span-extraction".** The protocol reading disproved that name —
   the verdict is all-or-nothing containment and the code says `method="containment"`. The doc
   files are already renamed; the issue rename is an owner action.

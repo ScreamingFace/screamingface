@@ -42,7 +42,9 @@ def _root(tmp_path: Path, polarity: dict[int, bool]) -> Path:
     return tmp_path
 
 
-def _record(case_id: int, *, correct: bool, is_positive: bool, abstained: bool, jac: float = 0.5):
+def _record(
+    case_id: int, *, correct: bool, is_positive: bool, abstained: bool, jac: float = 0.5
+) -> dict[str, object]:
     return {
         "schema": CHECK_SCHEMA,
         "case_id": case_id,
@@ -79,27 +81,41 @@ def _aggregate(root: Path, raw: str, case_ids: tuple[int, ...]) -> dict:
 
 class TestConfusionMatrix:
     def test_f1_and_f2_match_hand_computed_values(self, tmp_path: Path) -> None:
-        """2 TP, 1 FN, 1 FP, 1 TN -> P=2/3, R=2/3, F1=2/3, F2=2/3."""
+        """3 TP, 1 FN, 2 TN, 2 FP -> P=0.6, R=0.75, F1=0.6667, F2=0.7143, acc=0.625.
 
-        root = _root(tmp_path, {1: True, 2: True, 3: True, 4: False, 5: False})
+        STRENGTHENED (review of PR #984): this fixture was 2/1/1/1, where precision == recall
+        == 2/3, so F1, F2, F2-with-beta-inverted, the arithmetic mean of P and R, and P and R
+        themselves ALL equal 0.6667 — five formulas, one number, and a test that proved which
+        of them was implemented: none. The asymmetric matrix separates every one of them, and
+        because F1 is symmetric in P and R, the separate precision/recall asserts are what
+        catch a swap — which only works now that P != R.
+        """
+
+        root = _root(
+            tmp_path, {1: True, 2: True, 3: True, 4: True, 5: False, 6: False, 7: False, 8: False}
+        )
         rows = _rows(
             _record(1, correct=True, is_positive=True, abstained=False),
             _record(2, correct=True, is_positive=True, abstained=False),
-            _record(3, correct=False, is_positive=True, abstained=False),
-            _record(4, correct=False, is_positive=False, abstained=False),
+            _record(3, correct=True, is_positive=True, abstained=False),
+            _record(4, correct=False, is_positive=True, abstained=False),
             _record(5, correct=True, is_positive=False, abstained=True),
+            _record(6, correct=True, is_positive=False, abstained=True),
+            _record(7, correct=False, is_positive=False, abstained=False),
+            _record(8, correct=False, is_positive=False, abstained=False),
         )
 
-        result = _aggregate(root, rows, (1, 2, 3, 4, 5))
+        result = _aggregate(root, rows, (1, 2, 3, 4, 5, 6, 7, 8))
 
-        assert result["metrics"]["true_positives"] == 2
+        assert result["metrics"]["true_positives"] == 3
         assert result["metrics"]["false_negatives"] == 1
-        assert result["metrics"]["false_positives"] == 1
-        assert result["metrics"]["true_negatives"] == 1
-        assert result["metrics"]["precision"] == pytest.approx(2 / 3, abs=1e-4)
-        assert result["metrics"]["recall"] == pytest.approx(2 / 3, abs=1e-4)
-        assert result["score"] == pytest.approx(2 / 3, abs=1e-4)
-        assert result["metrics"]["f2"] == pytest.approx(2 / 3, abs=1e-4)
+        assert result["metrics"]["false_positives"] == 2
+        assert result["metrics"]["true_negatives"] == 2
+        assert result["metrics"]["precision"] == pytest.approx(0.6, abs=1e-4)
+        assert result["metrics"]["recall"] == pytest.approx(0.75, abs=1e-4)
+        assert result["score"] == pytest.approx(0.6667, abs=1e-4)
+        assert result["metrics"]["f2"] == pytest.approx(0.7143, abs=1e-4)
+        assert result["metrics"]["accuracy"] == pytest.approx(0.625, abs=1e-4)
 
     def test_f1_is_the_headline_score_not_accuracy(self, tmp_path: Path) -> None:
         """PROTOCOL (spec D-2): with a 70/30 negative skew, accuracy rewards always-abstaining.
@@ -138,25 +154,39 @@ class TestConfusionMatrix:
 
 
 class TestLaziness:
-    def test_divides_by_the_selected_positives_not_the_reference_constant(
+    def test_divides_by_the_graded_positives_not_the_reference_constant(
         self, tmp_path: Path
     ) -> None:
-        """PROTOCOL (spec D-3): the reference divides by a hardcoded 1244 — the FULL split's
-        positive count — which is wrong for any subset run. Two positives selected, one falsely
-        abstained -> 0.5, not 1/1244."""
+        """PROTOCOL (spec D-3): the denominator is this run's GRADED positive rows — not the
+        reference's hardcoded 1244, and not the abstention count.
 
-        root = _root(tmp_path, {1: True, 2: True, 3: False})
+        STRENGTHENED (review of PR #984): the old fixture had 1 false abstention over 2 graded
+        positives and 2 total abstentions, so dividing by positives and dividing by abstentions
+        both gave 0.5. Here 2 false abstentions over 3 graded positives is 0.6667, while the
+        abstention-count variant would report 2/4 = 0.5 — so the number now identifies the
+        denominator instead of merely agreeing with it.
+        """
+
+        root = _root(tmp_path, {1: True, 2: True, 3: True, 4: False, 5: False})
         rows = _rows(
             _record(1, correct=False, is_positive=True, abstained=True),
-            _record(2, correct=True, is_positive=True, abstained=False),
-            _record(3, correct=True, is_positive=False, abstained=True),
+            _record(2, correct=False, is_positive=True, abstained=True),
+            _record(3, correct=True, is_positive=True, abstained=False),
+            _record(4, correct=True, is_positive=False, abstained=True),
+            _record(5, correct=True, is_positive=False, abstained=True),
         )
 
-        result = _aggregate(root, rows, (1, 2, 3))
+        result = _aggregate(root, rows, (1, 2, 3, 4, 5))
 
-        assert result["metrics"]["false_no_related_clause_rate"] == pytest.approx(0.5)
+        assert result["metrics"]["false_no_related_clause_rate"] == pytest.approx(2 / 3, abs=1e-4)
+        assert result["metrics"]["no_related_clause_rate"] == pytest.approx(0.8, abs=1e-4)
 
     def test_counts_every_abstention_including_the_correct_ones(self, tmp_path: Path) -> None:
+        """WHY both rates exist: `no_related_clause_rate` is every abstention over every graded
+        Case — how often the model declined at all — while `false_no_related_clause_rate`
+        counts only the ones that were wrong. A model can be silent often and rarely wrong
+        (a cautious specialist) or the reverse; one number cannot say which."""
+
         root = _root(tmp_path, {1: True, 2: False})
         rows = _rows(
             _record(1, correct=False, is_positive=True, abstained=True),
@@ -289,16 +319,23 @@ class TestEvidence:
     def test_raw_output_is_the_verdict_not_the_abstention_flag(self, tmp_path: Path) -> None:
         """`raw_output` is the deterministic producer's OUTPUT — here the containment verdict,
         matching IFEval's verifier evidence. Whether the model abstained is context, and lives
-        in metadata beside the gold-span count."""
+        in metadata beside the gold-span count.
+
+        STRENGTHENED (review of PR #984): the old fixture used correct=True, abstained=False,
+        where the verdict and `not abstained` are both True — indistinguishable, which is the
+        exact confusion this test's name claims to rule out. A reply that quotes the gold span
+        AND says "No related clause." is correct (containment) and an abstention (substring),
+        so raw_output True proves it carries the VERDICT and not the negated flag.
+        """
 
         root = _root(tmp_path, {1: True})
-        rows = _rows(_record(1, correct=True, is_positive=True, abstained=False))
+        rows = _rows(_record(1, correct=True, is_positive=True, abstained=True))
 
         evidence = _aggregate(root, rows, (1,))["cases"][0]["grade"]["checks"][0]["evidence"][0]
 
         assert evidence["raw_output"] is True
         assert evidence["outcome"] == "PASS"
-        assert evidence["metadata"]["abstained"] is False
+        assert evidence["metadata"]["abstained"] is True
         assert evidence["metadata"]["gold_span_count"] == 1
 
 
@@ -313,13 +350,23 @@ class TestLazinessDenominator:
         failed Case in the denominator reports 50% and credits the model for a row it never
         saw — an outage reading as diligence. Every other denominator in this block
         (accuracy, precision, recall, jaccard_mean) is over graded Cases; laziness matches.
+
+        STRENGTHENED
+
+        STRENGTHENED (review of PR #984): a third Case — a negative row that correctly abstains
+        — makes total abstentions (2) differ from graded positives (1), so the asserted 1.0
+        also rules out an implementation dividing by the abstention count (which gives 0.5).
+        Selected positives would give 0.5 too, which is the variant this test was named for.
         """
 
-        root = _root(tmp_path, {1: True, 2: True})
-        rows = _rows(_record(1, correct=False, is_positive=True, abstained=True))
+        root = _root(tmp_path, {1: True, 2: True, 3: False})
+        rows = _rows(
+            _record(1, correct=False, is_positive=True, abstained=True),
+            _record(3, correct=True, is_positive=False, abstained=True),
+        )
 
-        result = _aggregate(root, rows, (1, 2))
+        result = _aggregate(root, rows, (1, 3, 2))
 
-        assert result["cases"][1]["grade"]["score"] is None  # Case 2 never measured
+        assert result["cases"][2]["grade"]["score"] is None  # Case 2 never measured
         assert result["metrics"]["false_no_related_clause_rate"] == pytest.approx(1.0)
-        assert result["metrics"]["scored_cases"] == 1
+        assert result["metrics"]["scored_cases"] == 2

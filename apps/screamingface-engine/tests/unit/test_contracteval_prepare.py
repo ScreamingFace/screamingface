@@ -182,3 +182,25 @@ class TestPreflight:
         served = json.loads(_cases(tmp_path)())
 
         assert [row["id"] for row in served] == [1, 2]
+
+
+class TestContextGuardHeadroom:
+    def test_a_contract_at_the_real_dataset_maximum_still_bakes(self) -> None:
+        """The other half of "the guard both ways" (review, PR #984) — the guard must not fire
+        on real data, and this test is what says so in CI rather than in a spec sentence.
+
+        The largest CUAD contract measured 300,768 characters and 63,389 tokens by
+        `tiktoken cl100k_base`. Against `MAX_CONTEXT_TOKENS = 120_000` and the deliberately
+        pessimistic `_CHARS_PER_TOKEN = 4` estimate, that row is charged ~75,192 tokens — so
+        the real headroom is a factor of ~1.6, and this test fails the day a revision halves it.
+        """
+
+        from screamingface_engine.benchmarks.contracteval.prepare import _CHARS_PER_TOKEN
+
+        real_max_chars = 300_768
+        charged = real_max_chars // _CHARS_PER_TOKEN
+
+        assert charged < MAX_CONTEXT_TOKENS
+        cases, _ = case_records([_row(context="x" * real_max_chars)])
+
+        assert len(cases) == 1

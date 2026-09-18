@@ -1400,7 +1400,13 @@ for case in fusion_report.candidates.only.cases:
 A `limit=N` run is a smoke test, not a ranking — and on this board it is coarser than most,
 because F1 over five cases is built from a handful of confusion-matrix cells. With 70% of rows
 negative, a small sample can easily contain no positive case at all, which makes precision and
-recall undefined and the score 0. Run the full set before quoting any comparison."""),
+recall undefined and the score 0. Run the full set before quoting any comparison.
+
+**Know what the full set costs before you start it.** Contracts are long: the median case is
+about 5,400 input tokens, so one pass over all 4,182 rows is roughly **23M input tokens per
+panel member** — multiply by your members, and again by the synthesiser if it sees their
+answers. There is no spend cap in this stack, so `limit` is the only brake. Raise it in steps
+and read the cost in `report.usage` as you go."""),
     )
 
 

@@ -110,8 +110,12 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
 
     envelope = decode_case_evaluation(grading, expected_case_id)
     attempt: Mapping[str, Any] = envelope["attempts"][0]
-    metadata: object = attempt.get("metadata")
-    fields: dict[str, Any] = dict(metadata) if isinstance(metadata, Mapping) else {}
+    # AIDEV-NOTE (review, PR #984): this used to read `attempt.get("metadata")`, which `_check`
+    # never emits — dead on arrival, ported verbatim from medxpert where it is equally dead. The
+    # empty dict is now explicit. If a future check record carries per-Case report metadata,
+    # THIS is the seam it joins; `ScoredPath.aggregate`'s `case_metadata=` is the other option,
+    # and the right one for anything read from the private answer asset rather than the reply.
+    fields: dict[str, Any] = {}
     return {
         "case": {
             "status": attempt.get("status"),

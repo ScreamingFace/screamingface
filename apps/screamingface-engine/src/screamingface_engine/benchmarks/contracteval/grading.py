@@ -2,7 +2,10 @@
 
 The reference harness is https://github.com/olivialiu121/ContractEval (MIT). It is CITED here
 rather than vendored: we execute nothing from it, we reproduce four small functions, and the
-full transcription lives in `docs/spec/2026-09-09-OME-1148-contracteval-span-extraction.md` §2.
+full transcription lives in `docs/spec/2026-09-17-OME-1148-contracteval-containment.md` §2.
+The four functions this module mirrors are committed verbatim as test material in
+`tests/unit/_contracteval_reference.py`, and `test_contracteval_parity.py` proves the two agree
+over real CUAD gold spans — so a "tidy-up" here fails CI instead of moving our F1 silently.
 
 INVARIANT — this module is protocol, not preference. Every rule below is the reference's
 behaviour including its quirks. A change that makes one of these prettier moves our published

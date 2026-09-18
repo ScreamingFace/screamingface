@@ -1,0 +1,878 @@
+{
+ "_provenance": {
+  "dataset": "theatticusproject/cuad-qa",
+  "revision": "d9c4ee0250ae2eb97bdb5b50773ab14ea62d0631",
+  "split": "test",
+  "license": "CC BY 4.0 (CUAD, The Atticus Project)",
+  "sampled_with": "random.seed(1148); 90 positive + 30 negative rows",
+  "why_gold_spans_only": "the parity test compares GRADERS, which need only the gold spans and synthetic replies — never the contract text. Keeping contexts out holds the fixture small and keeps no contract bodies in the repo."
+ },
+ "rows": [
+  {
+   "case_id": 5,
+   "source_id": "LohaCompanyltd_20191209_F-1_EX-10.16_11917878_EX-10.16_Supply Agreement__Expiration Date",
+   "gold_spans": [
+    "The Contract is valid for 5 years, beginning from and ended on ."
+   ]
+  },
+  {
+   "case_id": 62,
+   "source_id": "CENTRACKINTERNATIONALINC_10_29_1999-EX-10.3-WEB SITE HOSTING AGREEMENT__Price Restrictions",
+   "gold_spans": []
+  },
+  {
+   "case_id": 116,
+   "source_id": "DovaPharmaceuticalsInc_20181108_10-Q_EX-10.2_11414857_EX-10.2_Promotion Agreement__Audit Rights",
+   "gold_spans": [
+    "Dova shall bear the out-of-pocket costs and expenses incurred by the Parties in connection with any such inspection or audit, unless the audit shows an undisputed over- payment for that audited period in excess of [***] of the amounts properly determined, in which case, Valeant shall reimburse Dova for its audit fees and reasonable out-of-pocket expenses in connection with said audit, which reimbursement shall be due and payable within [***] of receiving appropriate invoices and other support for such audit-related costs.",
+    "Valeant shall have the right, at its own expense, during normal business hours and upon reasonable prior notice, through certified public accounting firm or other auditor selected by Valeant and reasonably acceptable to Dova and upon execution of a confidentiality agreement reasonably satisfactory to Dova in form and substance, to inspect and audit the applicable records and books maintained by Dova for purposes of verifying Dova's payment obligations within this Agreement, including the applicable records and books of account maintained by Dova, or any Affiliate, as applicable, with respect to Net Sales in order to confirm the accuracy and completeness of such records and books of account and all payments hereunder; provided, however, that (i) such examination shall not take place more often than once per every twelve (12) months during the Term and once during the one (1) year period following the end of the Term, and (ii) such examination shall not cover a period of time that has previously been audited; provided that Valeant shall have the right to conduct additional \"for cause\" audits to the extent necessary to address significant problems relating to Dova's payment obligations hereunder.",
+    "Where necessary, on reasonable request, Dova's audit rights shall include interviewing Sales Representatives and other employees of Valeant.",
+    "Dova shall have the right, at its own expense, during normal business hours and upon reasonable prior notice, through a certified public accounting firm or other auditor selected by Dova and reasonably acceptable to Valeant and upon execution of a confidentiality agreement reasonably satisfactory to Valeant in form and substance, to inspect and audit the applicable records and books maintained by Valeant relating to the Valeant Activities for purposes of verifying Valeant's compliance with the terms of this Agreement, provided that (i) such examination shall not take place more often than once per every twelve (12) months during the Term and once during the one (1) year period following the end of the Term, and (ii) such examination shall not cover a period of time that has previously been audited; provided that Dova shall have the right to conduct additional \"for cause\" audits to the extent necessary to address significant compliance problems relating to Valeant's obligations hereunder or in response to any inquiry, inspection, investigation or other requirements of a Government Authority in the Territory relating to the Valeant Activities.",
+    "Valeant shall bear the out-of-pocket costs and expenses incurred by the Parties in connection with any such inspection or audit, unless the audit shows an undisputed under-reporting or underpayment for that audited period in excess of [***] of the amounts properly determined, in which case, Dova shall reimburse Valeant for its audit fees and reasonable out-of-pocket expenses in connection with said audit, which reimbursement shall be due and payable within [***] of receiving appropriate invoices and other support for such audit-related costs."
+   ]
+  },
+  {
+   "case_id": 127,
+   "source_id": "PACIRA PHARMACEUTICALS, INC. - A_R STRATEGIC LICENSING, DISTRIBUTION AND MARKETING AGREEMENT __Effective Date",
+   "gold_spans": [
+    "August 10, 2007"
+   ]
+  },
+  {
+   "case_id": 158,
+   "source_id": "PACIRA PHARMACEUTICALS, INC. - A_R STRATEGIC LICENSING, DISTRIBUTION AND MARKETING AGREEMENT __Uncapped Liability",
+   "gold_spans": [
+    "however that such limitation shall not apply to the extent that EKR or any EKR Indemnified Party is required to pay in excess of such  amount to a third party in respect of a final judgment or order obtained by the third party or as a result of PPI's breach of Section 7.2.12 of  the Supply Agreement.",
+    "Any and all liability of PPI to EKR howsoever arising in respect of this Agreement, the Transition Services and Inventory Agreement or the Supply Agreement and their performance, in contract tort or otherwise, shall be limited (except for death or  personal injury caused by the negligence of PPI or its employees while acting in the course of their employment) to [**] US Dollars ($[**]);  provided",
+    "Any and all liability of EKR to PPI howsoever arising in respect of this Agreement, the Transition Services and Inventory Agreement or the Supply Agreement and their performance in contract tort or otherwise shall be limited (except for death or  personal injury caused by the negligence of EKR or its employees while acting in the course of their employment, and except in relation to  any specified payment, lump sum, milestone or royalty payment unpaid) to [**] US Dollars ($[**]); provided however that such limitation  shall not apply to the extent that PPI or any PPI Indemnified Party is required to pay in excess of such amount to a third party in respect of a  final judgment or order obtained by the third party."
+   ]
+  },
+  {
+   "case_id": 215,
+   "source_id": "HERTZGLOBALHOLDINGS,INC_07_07_2016-EX-10.4-INTELLECTUAL PROPERTY AGREEMENT__Non-Compete",
+   "gold_spans": [
+    "During the Interim Period, neither HERC nor any of its affiliates or subsidiaries shall, directly or indirectly, engage in the business of renting or leasing cars, crossovers or light trucks (including sport utility vehicles and light commercial vehicles) in [any country in which THC or any of its affiliates or subsidiaries rents or leases cars, crossovers or light trucks (including sport utility vehicles and light commercial vehicles) as of the date of this Agreement] without THC's prior written consent, except to the extent materially consistent in type and scope with HERC's operations immediately prior to the date of this IPA."
+   ]
+  },
+  {
+   "case_id": 247,
+   "source_id": "TUNIUCORP_03_06_2014-EX-10-COOPERATION AGREEMENT__Document Name",
+   "gold_spans": [
+    "Cooperation Agreement (2014 Amendment)"
+   ]
+  },
+  {
+   "case_id": 252,
+   "source_id": "TUNIUCORP_03_06_2014-EX-10-COOPERATION AGREEMENT__Renewal Term",
+   "gold_spans": []
+  },
+  {
+   "case_id": 259,
+   "source_id": "TUNIUCORP_03_06_2014-EX-10-COOPERATION AGREEMENT__Competitive Restriction Exception",
+   "gold_spans": []
+  },
+  {
+   "case_id": 300,
+   "source_id": "CYBERIANOUTPOSTINC_07_09_1998-EX-10.13-PROMOTION AGREEMENT__Competitive Restriction Exception",
+   "gold_spans": [
+    "The      parties acknowledge that the foregoing will not prevent CNET from      displaying text links and other references to Competing Computer Products      Retailers as reasonably necessary to provide appropriate editorial and      search related services on the CNET Sites. The Retail Promotions granted to      the Company shall be placed in such a way as to provide no more or less      prominence to the Company than is provided to any other Competing Computer      Retailer signing an agreement with CNET.",
+    "During the Term, CNET will not enter into more than      two other agreements under which CNET receives consideration from a      Competing Computer Products Retailer for displaying permanent links to or      other fixed promotions for such Competing Computer Products Retailer on any      CNET Site; provided that the foregoing will not restrict the display of(a)      standard advertisements for any Competing Computer Products Retailer or its      products or (b) any promotions within COMPUTERS.COM or within CNET's Snap!      Online service (which are expressly excluded from this provision)."
+   ]
+  },
+  {
+   "case_id": 306,
+   "source_id": "CYBERIANOUTPOSTINC_07_09_1998-EX-10.13-PROMOTION AGREEMENT__Anti-Assignment",
+   "gold_spans": [
+    "This Agreement may not be assigned by either party, except           (a) to the transferee of substantially all of the business operations           of such party (whether by asset sale, stock sale, merger or otherwise)           or (b) to any entity that controls, is controlled by or is under           common control with such party."
+   ]
+  },
+  {
+   "case_id": 348,
+   "source_id": "MSCIINC_02_28_2008-EX-10.10-__Revenue/Profit Sharing",
+   "gold_spans": []
+  },
+  {
+   "case_id": 413,
+   "source_id": "WASTE2ENERGYHOLDINGS,INC_06_03_2010-EX-10.2-STRATEGIC ALLIANCE AGREEMENT__Agreement Date",
+   "gold_spans": [
+    "19  DAY OF MAY , 2010"
+   ]
+  },
+  {
+   "case_id": 471,
+   "source_id": "GridironBionutrientsInc_20171206_8-K_EX-10.2_10972556_EX-10.2_Endorsement Agreement__Revenue/Profit Sharing",
+   "gold_spans": [
+    "A *donation of $0.05 per Unit sold of Licensed Products within the Contract Territory payable to the **NFL Alumni Northern California Chapter.",
+    "The NFLA-NC will donate 15% of the above described proceeds to the NFLA."
+   ]
+  },
+  {
+   "case_id": 489,
+   "source_id": "GridironBionutrientsInc_20171206_8-K_EX-10.2_10972556_EX-10.2_Endorsement Agreement__Warranty Duration",
+   "gold_spans": []
+  },
+  {
+   "case_id": 540,
+   "source_id": "WEBHELPCOMINC_03_22_2000-EX-10.8-HOSTING AGREEMENT__Notice Period To Terminate Renewal",
+   "gold_spans": [
+    "This Agreement shall continue in effect from the Effective Date for a one (1) year period, unless earlier terminated as set forth below, and thereafter shall renew automatically for successive one (1) year periods unless either party gives the other party at least thirty (30) days prior written notice of its intent not to renew the Agreement."
+   ]
+  },
+  {
+   "case_id": 552,
+   "source_id": "WEBHELPCOMINC_03_22_2000-EX-10.8-HOSTING AGREEMENT__Anti-Assignment",
+   "gold_spans": [
+    "Neither party may assign or otherwise transfer its rights and/or obligations under this Agreement without the prior written consent of the other party."
+   ]
+  },
+  {
+   "case_id": 727,
+   "source_id": "STWRESOURCESHOLDINGCORP_08_06_2014-EX-10.1-COOPERATION AGREEMENT__Unlimited/All-You-Can-Eat-License",
+   "gold_spans": []
+  },
+  {
+   "case_id": 771,
+   "source_id": "HarpoonTherapeuticsInc_20200312_10-K_EX-10.18_12051356_EX-10.18_Development Agreement__Post-Termination Services",
+   "gold_spans": [
+    "If AbbVie terminates this Agreement with respect to a country or other jurisdiction, or in its entirety pursuant to Section 12.3, AbbVie shall have the right for at least [***] and no more than [***], which period shall be determined by Harpoon in its sole discretion, after the effective date of such termination with respect to such country or other jurisdiction to sell or otherwise dispose of all Licensed Compound or Licensed Product then in its inventory and any in-progress inventory, in each case that is intended for sale or disposition in such country or other jurisdiction, as though this Agreement had not terminated with respect to such country or other jurisdiction, and such sale or disposition shall not constitute infringement of Harpoon's or its Affiliates' Patent or other intellectual property or other proprietary rights.",
+    "The insurance policies shall be under an occurrence form, but if only a claims-made form is available to a Party, then such Party shall continue to maintain such insurance after the expiration or termination of this Agreement for the longer of (a) a period of [***] following termination or expiration of this Agreement in its entirety, or (b) with respect to a particular Party, [***] by a Party."
+   ]
+  },
+  {
+   "case_id": 782,
+   "source_id": "CardlyticsInc_20180112_S-1_EX-10.16_11002987_EX-10.16_Maintenance Agreement3__Agreement Date",
+   "gold_spans": [
+    "3/4/11"
+   ]
+  },
+  {
+   "case_id": 788,
+   "source_id": "CardlyticsInc_20180112_S-1_EX-10.16_11002987_EX-10.16_Maintenance Agreement3__Most Favored Nation",
+   "gold_spans": []
+  },
+  {
+   "case_id": 828,
+   "source_id": "AIRSPANNETWORKSINC_04_11_2000-EX-10.5-Distributor Agreement__Governing Law",
+   "gold_spans": [
+    "South Dakota",
+    "This Agreement shall be construed in accordance with and governed by the laws of the State of South Dakota."
+   ]
+  },
+  {
+   "case_id": 847,
+   "source_id": "AIRSPANNETWORKSINC_04_11_2000-EX-10.5-Distributor Agreement__Non-Transferable License",
+   "gold_spans": [
+    "Airspan grants Distributor, and Distributor hereby accepts, a nonexclusive, non-transferable license to use, and to sublicense as set forth below, Software provided by Airspan hereunder only on a single System or unit of Equipment, as may be applicable."
+   ]
+  },
+  {
+   "case_id": 884,
+   "source_id": "GRANTIERRAENERGYINC_05_07_2012-EX-10.6-TRANSPORTATION CONTRACT__Volume Restriction",
+   "gold_spans": [
+    "Bases on the operating conditions of the \"Trasandino\" Pipeline, ECOPETROL shall only receive daily crude oil from the SENDER up to a maximum  equivalent to 12% of the total light crude received in the day at the Orito Plant.",
+    "Contracted Capacity: means the Capacity of the Pipeline committed through Transportation Contracts."
+   ]
+  },
+  {
+   "case_id": 899,
+   "source_id": "GRANTIERRAENERGYINC_05_07_2012-EX-10.6-TRANSPORTATION CONTRACT__Warranty Duration",
+   "gold_spans": [
+    "For claims regarding the quantity or quality of Hydrocarbons, these shall be presented in writing at the latest within fifteen (15) calendar days  after the date of delivery or withdrawal of the Hydrocarbon or the date in which the report for the Volumetric Compensation for Quality is issued."
+   ]
+  },
+  {
+   "case_id": 924,
+   "source_id": "VIVINT SOLAR, INC. - NON-COMPETITION AGREEMENT__Minimum Commitment",
+   "gold_spans": []
+  },
+  {
+   "case_id": 983,
+   "source_id": "CHIPMOSTECHNOLOGIESBERMUDALTD_04_18_2016-EX-4.72-Strategic Alliance Agreement__Covenant Not To Sue",
+   "gold_spans": []
+  },
+  {
+   "case_id": 986,
+   "source_id": "RitterPharmaceuticalsInc_20200313_S-4A_EX-10.54_12055220_EX-10.54_Development Agreement__Parties",
+   "gold_spans": [
+    "Sekisui Diagnostics, LLC and its Affiliates",
+    "Sekisui",
+    "Qualigen, Inc. and its Affiliates",
+    "Qualigen"
+   ]
+  },
+  {
+   "case_id": 996,
+   "source_id": "RitterPharmaceuticalsInc_20200313_S-4A_EX-10.54_12055220_EX-10.54_Development Agreement__No-Solicit Of Customers",
+   "gold_spans": [
+    "However, Qualigen shall not engage any distributors (whether exclusive or non-exclusive) other than Sekisui for the Qualigen Retained Customers",
+    "Sekisui shall not, and shall cause its subdistributors not to, market, rent or sell any Products to the Qualigen Retained Customers. 3. Supply;"
+   ]
+  },
+  {
+   "case_id": 1026,
+   "source_id": "AMBASSADOREYEWEARGROUPINC_11_17_1997-EX-10.28-ENDORSEMENT AGREEMENT__Document Name",
+   "gold_spans": [
+    "Endorsement Agreement"
+   ]
+  },
+  {
+   "case_id": 1072,
+   "source_id": "USASYNTHETICFUELCORP_10_21_2010-EX-10.10-STRATEGIC ALLIANCE AGREEMENT__Renewal Term",
+   "gold_spans": [
+    "This Agreement shall be for an initial term of five (5) years, and unless earlier terminated in accordance with this Agreement, shall automatically renew for an additional term of five (5) years thereafter."
+   ]
+  },
+  {
+   "case_id": 1094,
+   "source_id": "USASYNTHETICFUELCORP_10_21_2010-EX-10.10-STRATEGIC ALLIANCE AGREEMENT__Affiliate License-Licensor",
+   "gold_spans": []
+  },
+  {
+   "case_id": 1102,
+   "source_id": "USASYNTHETICFUELCORP_10_21_2010-EX-10.10-STRATEGIC ALLIANCE AGREEMENT__Cap On Liability",
+   "gold_spans": [
+    "Neither Party shalI be liable to the other Party in connection with this Agreement or the subject matter hereof for any indirect, incidental, special or consequential damages, including but not limited to loss of revenue, cost of capital or loss of profit or business opportunity, whether such liability arises out of contract, tort (including negligence), strict liability or otherwise."
+   ]
+  },
+  {
+   "case_id": 1150,
+   "source_id": "HEMISPHERX - Sales, Marketing, Distribution, and Supply Agreement__Parties",
+   "gold_spans": [
+    "Scientific Products Pharmaceutical Co. LTD.",
+    "Hemispherx Biopharma, Inc.",
+    "SCIENTIFIC PRODUCTS PHARMACEUTICAL CO. LTD",
+    "SCIEN",
+    "HEMISPHERX BIOPHARMA, INC",
+    "HEMISPHERX"
+   ]
+  },
+  {
+   "case_id": 1170,
+   "source_id": "HEMISPHERX - Sales, Marketing, Distribution, and Supply Agreement__Minimum Commitment",
+   "gold_spans": [
+    "SCIEN will have six 6) months after the date of this Agreement to Purchase at least 50 vials to be used by the MOH in treating patients with MERS."
+   ]
+  },
+  {
+   "case_id": 1249,
+   "source_id": "BABCOCK_WILCOXENTERPRISES,INC_08_04_2015-EX-10.17-INTELLECTUAL PROPERTY AGREEMENT between THE BABCOCK _ WILCOX COMPANY and BABCOCK _ WILCOX ENTERPRISES, INC.__Anti-Assignment",
+   "gold_spans": [
+    "This Agreement may not be assigned by either Party, except with the prior written consent of the other Party."
+   ]
+  },
+  {
+   "case_id": 1272,
+   "source_id": "VAPOTHERM, INC. - Manufacturing and Supply Agreement__Document Name",
+   "gold_spans": [
+    "Manufacturing and Supply Agreement"
+   ]
+  },
+  {
+   "case_id": 1273,
+   "source_id": "VAPOTHERM, INC. - Manufacturing and Supply Agreement__Parties",
+   "gold_spans": [
+    "VAPOTHERM, INC.",
+    "MEDICA S.p.A.",
+    "Vapotherm",
+    "Medica"
+   ]
+  },
+  {
+   "case_id": 1361,
+   "source_id": "SPOKHOLDINGS,INC_06_19_2020-EX-10.1-COOPERATION AGREEMENT__Governing Law",
+   "gold_spans": [
+    "This Agreement shall be governed by and construed in accordance with the internal laws of the State of Delaware applicable to agreements made and to be performed within that state."
+   ]
+  },
+  {
+   "case_id": 1520,
+   "source_id": "PhoenixNewMediaLtd_20110421_F-1_EX-10.17_6958322_EX-10.17_Content License Agreement__Agreement Date",
+   "gold_spans": [
+    "November 24, 2009"
+   ]
+  },
+  {
+   "case_id": 1602,
+   "source_id": "BerkshireHillsBancorpInc_20120809_10-Q_EX-10.16_7708169_EX-10.16_Endorsement Agreement__Agreement Date",
+   "gold_spans": [
+    "5/17/12"
+   ]
+  },
+  {
+   "case_id": 1623,
+   "source_id": "BerkshireHillsBancorpInc_20120809_10-Q_EX-10.16_7708169_EX-10.16_Endorsement Agreement__Ip Ownership Assignment",
+   "gold_spans": []
+  },
+  {
+   "case_id": 1659,
+   "source_id": "VALENCETECHNOLOGYINC_02_14_2003-EX-10-JOINT VENTURE CONTRACT__Anti-Assignment",
+   "gold_spans": [
+    "Except as otherwise provided herein, this Contract may not be assigned in whole or in part by any Party without the prior written consent of the other Party and the approval of the Examination and Approval Authority."
+   ]
+  },
+  {
+   "case_id": 1685,
+   "source_id": "Quaker Chemical Corporation - NON COMPETITION AND NON SOLICITATION AGREEMENT__Effective Date",
+   "gold_spans": [
+    "August 1, 2019"
+   ]
+  },
+  {
+   "case_id": 1846,
+   "source_id": "AFSALABANCORPINC_08_01_1996-EX-1.1-AGENCY AGREEMENT__Document Name",
+   "gold_spans": [
+    "AGENCY AGREEMENT"
+   ]
+  },
+  {
+   "case_id": 1847,
+   "source_id": "AFSALABANCORPINC_08_01_1996-EX-1.1-AGENCY AGREEMENT__Parties",
+   "gold_spans": [
+    "SAIF",
+    "Capital Resources, Inc.",
+    "Federal  Deposit Insurance  Corporation",
+    "Savings Association   Insurance  Fund",
+    "Capital Resources",
+    "Company",
+    "FDIC",
+    "AFSALA  Bancorp,  Inc.",
+    "Amsterdam  Federal Savings and Loan  Association",
+    "Association"
+   ]
+  },
+  {
+   "case_id": 1853,
+   "source_id": "AFSALABANCORPINC_08_01_1996-EX-1.1-AGENCY AGREEMENT__Governing Law",
+   "gold_spans": [
+    "This Agreement shall be construed  in accordance with the laws of the District of Columbia."
+   ]
+  },
+  {
+   "case_id": 1891,
+   "source_id": "SigaTechnologiesInc_20190603_8-K_EX-10.1_11695818_EX-10.1_Promotion Agreement__Expiration Date",
+   "gold_spans": [
+    "This Agreement becomes effective on the Effective Date and, unless earlier terminated as provided in this ARTICLE 11, shall continue until the five (5) year anniversary of the Effective Date (the \"Initial Term\")."
+   ]
+  },
+  {
+   "case_id": 1903,
+   "source_id": "SigaTechnologiesInc_20190603_8-K_EX-10.1_11695818_EX-10.1_Promotion Agreement__Rofr/Rofo/Rofn",
+   "gold_spans": [
+    "Notwithstanding the aforementioned requirement, before Promoter destroys any Safety Reports and associated source documents, or training records, it will notify SIGA of its intention to do so and afford SIGA the opportunity to retain such records if it so wishes."
+   ]
+  },
+  {
+   "case_id": 1920,
+   "source_id": "SigaTechnologiesInc_20190603_8-K_EX-10.1_11695818_EX-10.1_Promotion Agreement__Audit Rights",
+   "gold_spans": [
+    "MMT will require its sublicensees to provide to it a report detailing the foregoing expenses and calculations incurred or made by such sublicensee, which report will be made available to SIGA in connection with any audit conducted by SIGA pursuant to Section 6.5.",
+    "The foregoing right of review may be exercised only once per year and only once with respect to each periodic report and payment delivered in accordance with Section 6.2.",
+    "SIGA, or its authorized representatives, shall have the right, at its cost, with reasonable advance notice, during regular business hours, to audit the facility used by the Promoter in order to review the Promoter activities under this Exhibit including, but not limited to, any documents relevant to these activities, for compliance with the safety reporting requirements set out in this Exhibit.",
+    ". An Audit Report shall become final and binding on the Parties thirty (30) days following MMT's receipt thereof, unless MMT delivers written notice of its agreement thereto (in which case such Audit Report shall become final and binding on the date of delivery of such notice of agreement) or written notice of its disagreement thereto (\"Notice of Disagreement\") to SIGA in either case on or prior to such date.",
+    "Reports of the results of any such examination (each an \"Audit Report\") will be (a) limited to details of any discrepancies in MMT's records relating to the Product together with an explanation of the discrepancy and the circumstances giving rise to the discrepancy (b) made available to both Parties and (c) subject to ARTICLE 10.",
+    "SIGA may have an independent top four certified public accountant, reasonably acceptable to MMT (\"SIGA's Auditor\"), have access during normal business hours, and upon [***] Business Days' prior written notice, to examine only those records of MMT (and its Affiliates and sublicensees) as may be reasonably necessary to determine, with respect to any Calendar Year ending not more than [***] before SIGA's request, the correctness or completeness of any report or payment made under this Agreement; provided, however, MMT shall not be required to provide, and neither SIGA nor SIGA's Auditor shall be entitled to review, the tax returns or tax records of MMT or those of its Affiliates and sublicensees."
+   ]
+  },
+  {
+   "case_id": 1935,
+   "source_id": "HPILHOLDING_01_07_2015-EX-99.1-COOPERATION AGREEMENT__Governing Law",
+   "gold_spans": [
+    "This Agreement and its application and interpretation will be governed exclusively by its terms and the laws of the State of Nevada (USA), and excluding any conflicts of law provisions which would require the application of any law other than Nevada."
+   ]
+  },
+  {
+   "case_id": 2086,
+   "source_id": "GridironBionutrientsInc_20171206_8-K_EX-10.1_10972555_EX-10.1_Endorsement Agreement__Cap On Liability",
+   "gold_spans": [
+    "Notwithstanding anything to the contrary in this Agreement, if Company incurs any expenses, damages or other liabilities (including but not limited to reasonable attorney's fees) in connection with the performance or nonperformance of any term or provision of this Agreement, NFLA's liability to Company shall not exceed the remuneration, excluding reimbursement of expenses, actually paid to NFLA by Company",
+    "In no event will NFLA be liable for any indirect, incidental, reliance, special or consequential damages arising out of the performance or nonperformance of this Agreement, whether or not NFLA had been advised of the possibility of such damages."
+   ]
+  },
+  {
+   "case_id": 2090,
+   "source_id": "GridironBionutrientsInc_20171206_8-K_EX-10.1_10972555_EX-10.1_Endorsement Agreement__Covenant Not To Sue",
+   "gold_spans": [
+    "Company agrees that it will not file, during the Contract Period or afterward, any application for trademark registration or otherwise obtain or attempt to obtain ownership of any trademark or trade name within the Contract Territory or in any other country of the world which consists of the NFLA Identification or any mark, design or logo intended to obtain any rights to the name of the NFLA or to identify products as being endorsed b the NFLA."
+   ]
+  },
+  {
+   "case_id": 2099,
+   "source_id": "WOMENSGOLFUNLIMITEDINC_03_29_2000-EX-10.13-ENDORSEMENT AGREEMENT__Governing Law",
+   "gold_spans": [
+    "The validity, interpretation,          construction and performance of this Agreement shall be governed in          accordance with the laws of the State of New Jersey without giving          effect to the principles of conflicts of laws of such state."
+   ]
+  },
+  {
+   "case_id": 2101,
+   "source_id": "WOMENSGOLFUNLIMITEDINC_03_29_2000-EX-10.13-ENDORSEMENT AGREEMENT__Non-Compete",
+   "gold_spans": [
+    "The Professional agrees to divest herself of any management or control interest that she currently has in any entity that is a competitor of\n\n\n\n\n\nthe Company, and not to acquire any such interest during the Term.",
+    "To avoid any possibility of confusion of the public, trademark infringement or interference with the rights of the Company, the Professional agrees not to endorse, license or otherwise authorize the use of her name, likeness or image in connection with another company's golf clubs or golf-related clothing or equipment during the Term and for a period of two (2) years thereafter.",
+    "The Professional agrees (i) to use no golf bag bearing any identification of a competitor of the Company and (ii) to wear no apparel bearing any identification of a competitor of the Company, and will prohibit any caddy of hers from bearing any such identification."
+   ]
+  },
+  {
+   "case_id": 2123,
+   "source_id": "WOMENSGOLFUNLIMITEDINC_03_29_2000-EX-10.13-ENDORSEMENT AGREEMENT__Source Code Escrow",
+   "gold_spans": []
+  },
+  {
+   "case_id": 2151,
+   "source_id": "ScansourceInc_20190509_10-Q_EX-10.2_11661422_EX-10.2_Distributor Agreement__Anti-Assignment",
+   "gold_spans": []
+  },
+  {
+   "case_id": 2221,
+   "source_id": "BOLIVARMININGCORP_05_23_2003-EX-2.1-VISP WEB SITE BUILDING AND HOSTING AGREEMENT__Notice Period To Terminate Renewal",
+   "gold_spans": [
+    "This agreement shall renew automatically each year thereafter, unless either party serves written notice of its intention not to renew, on the other at least 90 days prior to the expiration of the then current term of this agreement."
+   ]
+  },
+  {
+   "case_id": 2350,
+   "source_id": "PaperexchangeComInc_20000322_S-1A_EX-10.4_5202103_EX-10.4_Co-Branding Agreement__Competitive Restriction Exception",
+   "gold_spans": [
+    "Except as set forth in Sections 4.3  [Non-Competition] and 5.8  [Non-Competition], nothing in this Agreement shall be construed as preventing either party from developing other co-branded versions of its materials, data, information and content.",
+    "During the Term and for a period of four years after the termination of this Agreement, VerticalNet shall not, directly or indirectly, by itself, through its Affiliates or through any type of joint venture or similar affiliation with a third party, without prior written approval from PaperExchange, buy, sell or trade",
+    "provided, however, that this Section 5.8.1  [Non-Competition] shall not apply to advertisements, Storefronts or similar features on VerticalNet's Sites."
+   ]
+  },
+  {
+   "case_id": 2368,
+   "source_id": "PaperexchangeComInc_20000322_S-1A_EX-10.4_5202103_EX-10.4_Co-Branding Agreement__Irrevocable Or Perpetual License",
+   "gold_spans": []
+  },
+  {
+   "case_id": 2370,
+   "source_id": "PaperexchangeComInc_20000322_S-1A_EX-10.4_5202103_EX-10.4_Co-Branding Agreement__Post-Termination Services",
+   "gold_spans": [
+    "(b) VerticalNet shall be responsible for all charges, payments or expenses incurred by it in connection with the removal of the PaperExchange Links from Co-Branded Sites and the modification of the Co-Branded Sites, including, but not limited to, the removal of PaperExchange Content; (c) PaperExchange shall be responsible for all charges, payments or expenses incurred by it in connection with the removal of the VerticalNet Links, VerticalNet Content and VerticalNet Archived Content from the PaperExchange Site;",
+    "(i) VerticalNet shall retain ownership of the URLs at which the Co-Branded Sites are located, (I) the Co-Branded URLs shall be owned by the party that offers to pay the highest amount to the other for the ownership of such URLs upon payment of such amount to the other party (k) if the agreement is terminated during the Initial Term by VerticalNet pursuant to Section 8.2  [Termination for Cause], (x) VerticalNet shall be released from its obligations under Section 5.8.1  [Non-Competition] and (y) PaperExchange's obligations under Sections 7.2  [Advertising Revenue] and 7.4  [Revenue Sharing] shall be extended for one year after the date of such termination, and (I) if the agreement is terminated during the Initial Term by PaperExchange pursuant to Section 8.2  [Termination for Cause], VerticalNet shall pay to PaperExchange, as liquidated damages, an amount equal to the product determined by multiplying (1) a fraction, the numerator of which shall be the number of days between the effective date of termination and the scheduled expiration date of the Initial Term, and the denominator of which shall be the number of days",
+    "between the Effective Date and the scheduled expiration date of the Initial Term, by (2) *****",
+    "Upon termination of this Agreement,"
+   ]
+  },
+  {
+   "case_id": 2379,
+   "source_id": "BIOPURECORP_06_30_1999-EX-10.13-AGENCY AGREEMENT__Document Name",
+   "gold_spans": [
+    "AGENCY AGREEMENT"
+   ]
+  },
+  {
+   "case_id": 2382,
+   "source_id": "BIOPURECORP_06_30_1999-EX-10.13-AGENCY AGREEMENT__Effective Date",
+   "gold_spans": [
+    "March 29, 1999",
+    "This Agreement will become effective as of the date first written above and will continue in effect thereafter until terminated pursuant to Paragraph 4.2 below"
+   ]
+  },
+  {
+   "case_id": 2396,
+   "source_id": "BIOPURECORP_06_30_1999-EX-10.13-AGENCY AGREEMENT__Change Of Control",
+   "gold_spans": [
+    "In the event of any material change in the organization,       ownership, management or control of the business of the Agent, the Company       may, at its option, terminate this Agreement upon giving written notice of       termination to the Agent."
+   ]
+  },
+  {
+   "case_id": 2420,
+   "source_id": "TRIZETTOGROUPINC_08_18_1999-EX-10.17-TECHNICAL INFRASTRUCTURE MAINTENANCE AGREEMENT__Document Name",
+   "gold_spans": [
+    "TECHNICAL INFRASTRUCTURE MAINTENANCE AGREEMENT"
+   ]
+  },
+  {
+   "case_id": 2430,
+   "source_id": "TRIZETTOGROUPINC_08_18_1999-EX-10.17-TECHNICAL INFRASTRUCTURE MAINTENANCE AGREEMENT__Exclusivity",
+   "gold_spans": []
+  },
+  {
+   "case_id": 2456,
+   "source_id": "TRIZETTOGROUPINC_08_18_1999-EX-10.17-TECHNICAL INFRASTRUCTURE MAINTENANCE AGREEMENT__Liquidated Damages",
+   "gold_spans": []
+  },
+  {
+   "case_id": 2507,
+   "source_id": "SoupmanInc_20150814_8-K_EX-10.1_9230148_EX-10.1_Franchise Agreement1__Renewal Term",
+   "gold_spans": [
+    "You shall have the option to renew the term of this Agreement, on the terms and conditions set forth in this Agreement, for four (4) additional ten (10) year terms, upon written notice given by you to us not less than six (6) months nor more than twelve (12) months prior to the scheduled expiration date of the term then in effect, provided that each of the following conditions are satisfied:   3.2.1 You shall not be in default of any provision of this Agreement, or any other agreement between you and us or our affiliates, or any standards set forth in the Manuals, and you shall have complied with all the terms and conditions of this Agreement, the Manuals and any other agreements during the term of this Agreement.   3.2.2 You shall have satisfied all monetary obligations owed by you to us and our affiliates, and shall have timely met those obligations throughout the term of this Agreement.   3.2.3 You shall, at our option, execute our then-current form of Master Franchise Agreement and any addenda thereto for the renewal term, which renewal agreement shall supersede this Agreement in all respects, and the terms of which, including, without limitation, continuing fees payable to us, may differ materially and be less advantageous to you than the terms of this Agreement.   3.2.4 You shall comply with our then-current qualification and training requirements.   3.2.5 You shall pay us a renewal fee in the sum of Ten Thousand Dollars ($10,000) for the right to renew this Agreement.   3.2.6 You shall execute a general release, in a form prescribed by us, of any and all claims which you may have or believe to have against us and/or our affiliates and our respective officers, directors, agents and employees, whether the claims are known or unknown, which are based on, arise from or relate to this Agreement or the Franchised Business, as well as claims, known or unknown, which are not based on, do not arise from or do not relate to this Agreement or the Franchised Business, but which relate to other franchise agreements, Franchised Businesses and other agreements between us or our affiliates and you which arose on or before the date of the general release, including, without limitation, all obligations, liabilities, demands, costs, expenses, damages, claims, actions and causes of action, of whatever nature, character or description, arising under federal, state and local laws, rules and ordinances (provided, however, that all rights enjoyed by you and any causes of action arising in your favor from the provisions of Article 33 of the New York General Business Law (\"GBL\") and the regulations issued thereunder shall remain in force; it being the intent of this provision that the non-waiver provisions of GBL Sections 687.4 and 687.5 be satisfied)."
+   ]
+  },
+  {
+   "case_id": 2540,
+   "source_id": "SoupmanInc_20150814_8-K_EX-10.1_9230148_EX-10.1_Franchise Agreement1__Insurance",
+   "gold_spans": [
+    "As it relates to the operation of your Franchised Business: automobile liability insurance coverage, including owned and non-owned vehicles, with limits of not less than One Million Dollars ($1,000,000) per occurrence;",
+    "You must maintain insurance related to your operation of the Franchised Business.",
+    "You shall also maintain such additional insurance as is necessary to comply with all legal requirements concerning insurance.",
+    "As it relates to the Unit Franchisees' operation in the Master Territory, and if you elect to obtain such coverage: general liability insurance, which insurance is in addition to any general liability insurance the Unit Franchisees are required to maintain under their Unit Franchise Agreements.",
+    "As it relates to the operation of your Franchised Business: broad form comprehensive general liability coverage against claims for employment practices coverage, bodily and personal injury, death and property damage caused by or occurring in conjunction with the conduct of business by you pursuant to this Agreement and broad form contractual liability coverage, including errors and omissions coverage, under one or more policies of insurance containing minimum liability coverage prescribed by us from time to time, but in no event in an amount less than Two Million Dollars ($2,000,000) aggregate.",
+    "If you fail to obtain or maintain required insurance coverage and do not obtain such coverage within ten (10) days after written notice from us.",
+    "The maintenance of sufficient insurance coverage shall be your responsibility.",
+    "Such insurance coverage will include:",
+    "We may periodically increase the amounts of coverage required under such insurance policies and require different or additional kinds of insurance at any time including excess liability insurance to reflect inflation, identification of new risks, changes in law or standards of liability, higher damage awards, or other relevant changes in circumstances.",
+    "The insurance policies required herein shall: (a) name us as an additional named insured and contain a waiver of all subrogation rights against us, our affiliates, and our and their successors and assigns; (b) provide for thirty (30) days' prior written notice to us of any material modification, cancellation, or expiration of such policy; (c) provide that the coverage applies separately to each insured against whom a claim is brought as though a separate policy had been issued to each insured; (d) contain no provision which in any way limits or reduces coverage for you in the event of a claim by any one or more of the parties indemnified under this Agreement; (e) be primary to and without right of contribution from any other insurance purchased by the parties indemnified under this Agreement; and (f) extend to and provide indemnity for all obligations assumed by you hereunder and all other items for which you are required to indemnify us under this Agreement.",
+    "During the term of this Agreement, you shall maintain in force under policies of insurance issued by licensed insurers approved by us insurance coverage as we from time to time require.",
+    "Such insurance shall not have a deductible or self-insured retention in excess of Five Thousand Dollars ($5,000);",
+    "As it relates to the operation of your Franchised Business: worker's compensation and employer's liability insurance in statutory amounts, unemployment insurance and state disability insurance as required by governing law for your employees;",
+    "Should you, for any reason, fail to procure or maintain the insurance required by this Agreement, as such requirements may be revised from time to time by us in writing, we shall have the right and authority (without, however, any obligation to do so) immediately to procure such insurance and to charge same to you, which charges shall be payable by you immediately upon notice together with a ten percent (10%) administrative fee.",
+    "Thereafter, prior to the expiration of the term of each insurance policy, you shall furnish us with a copy of each renewal or replacement insurance policy to be maintained by you for the immediately following term and evidence of the payment of the premium therefor.",
+    "You shall provide us with evidence of the insurance required hereunder not later than ten (10) days before you begin operating as a Master Franchisee, and with a complete copy of each insurance policy no more than thirty (30) days after delivery of the original proof of insurance.",
+    "Your obligations to maintain insurance coverage as herein described shall not be affected in any manner by reason of any separate insurance maintained by us nor shall the maintenance of such insurance relieve you of any indemnification obligations under this Agreement."
+   ]
+  },
+  {
+   "case_id": 2562,
+   "source_id": "IntegrityMediaInc_20010329_10-K405_EX-10.17_2373875_EX-10.17_Co-Branding Agreement__Revenue/Profit Sharing",
+   "gold_spans": [
+    "On sales of recorded products pursuant to this Agreement (less                   any returns) Integrity will pay to TL royalties in the amount                   of [**]/1/ ($[**]/1/) for each and every unit of the product                   sold by Integrity in the United States pursuant to this                   Agreement, and [**]/1/ the foregoing rate or [**]/1/ percent                   ([**]/1/%) of Integrity's net receipts, whichever is less, on                   subject products outside the United States.",
+    "On sales of products pursuant to this          Agreement (less any returns) TL will pay to Integrity royalties in the          amount of [**]/1/ ($[**]/1/) for each and every unit of the product          sold by it pursuant to this Agreement.",
+    "On sales of printed products (song books) pursuant to this                   Agreement (less any returns) Integrity will pay to TL                   royalties in the amount of [**]/1/ ($[**]/1/) for each and                   every unit of the product sold by Integrity in the United                   States pursuant to this Agreement, and [**]/1/ the foregoing                   rate or [**]/1/ percent ([**]/1/%) of Integrity's net                   receipts, whichever is less, on subject products outside the                   United States."
+   ]
+  },
+  {
+   "case_id": 2626,
+   "source_id": "OMINTO,INC_03_29_2004-EX-10-RESELLER AGREEMENT__Parties",
+   "gold_spans": [
+    "MEDIANET GROUP TECHNOLOGIES",
+    "MediaNet Group Technologies, Inc.",
+    "RESELLER",
+    "International Direct Response, Inc."
+   ]
+  },
+  {
+   "case_id": 2660,
+   "source_id": "OMINTO,INC_03_29_2004-EX-10-RESELLER AGREEMENT__Cap On Liability",
+   "gold_spans": [
+    "IN NO EVENT SHALL EITHER PARTY BE LIABLE TO EACH OTHER OR ANY OTHER ENTITY FOR ANY SPECIAL, CONSEQUENTIAL, INCIDENTAL OR INDIRECT DAMAGES, HOWEVER CAUSED, ON ANY THEORY OF LIABILITY, AND NOTWITHSTANDING ANY FAILURE OF ESSENTIAL PURPOSE OF ANY LIMITED REMEDY."
+   ]
+  },
+  {
+   "case_id": 2668,
+   "source_id": "GSITECHNOLOGYINC_11_16_2009-EX-10.2-INTELLECTUAL PROPERTY AGREEMENT between SONY ELECTRONICS INC. and GSI TECHNOLOGY, INC.__Agreement Date",
+   "gold_spans": [
+    "August 28, 2009"
+   ]
+  },
+  {
+   "case_id": 2706,
+   "source_id": "GSITECHNOLOGYINC_11_16_2009-EX-10.2-INTELLECTUAL PROPERTY AGREEMENT between SONY ELECTRONICS INC. and GSI TECHNOLOGY, INC.__Third Party Beneficiary",
+   "gold_spans": [
+    "Other than Affiliates of a Party, nothing expressed or implied in this IP Agreement is intended or will be construed to confer  upon or give any Person other than the Parties any rights or remedies under or by reason of this IP Agreement or any transaction contemplated  hereby."
+   ]
+  },
+  {
+   "case_id": 2720,
+   "source_id": "MusclepharmCorp_20170208_10-KA_EX-10.38_9893581_EX-10.38_Co-Branding Agreement__No-Solicit Of Employees",
+   "gold_spans": []
+  },
+  {
+   "case_id": 2726,
+   "source_id": "MusclepharmCorp_20170208_10-KA_EX-10.38_9893581_EX-10.38_Co-Branding Agreement__Revenue/Profit Sharing",
+   "gold_spans": [
+    "In the event that MusclePharm shall sell any Promotional Products above its cost then Endorser shall be entitled to receive 10% of Net Sales from the sale of such Promotional Products.",
+    "In the event that Endorser shall agree to produce the Training Video (such decision shall be made by the Endorser exercisable in his sole discretion) and Products (other than the Licensed Products) are featured and sold in connection with such Training Video then Endorser shall receive ten percent (10%) of Net Sales (as defined below) from the sale of any Products other than the Licensed Products featured and sold directly in conjunction with the Training Video.",
+    "During the Term of this Agreement and during any sell-off period, MusclePharm shall pay Lender a royalty (the \"Royalty\") of 10% on Net Sales (as defined below) of Licensed Products sold through its wholesale Distribution Channels or retail Distribution Channels, as the case may be and 10% on Net Sales of the Training Video and any Products sold in connection with any Training Video as contemplated pursuant to the last sentence of Section 4(a)(i) above."
+   ]
+  },
+  {
+   "case_id": 2738,
+   "source_id": "MusclepharmCorp_20170208_10-KA_EX-10.38_9893581_EX-10.38_Co-Branding Agreement__Source Code Escrow",
+   "gold_spans": []
+  },
+  {
+   "case_id": 2742,
+   "source_id": "MusclepharmCorp_20170208_10-KA_EX-10.38_9893581_EX-10.38_Co-Branding Agreement__Cap On Liability",
+   "gold_spans": [
+    "IN NO EVENT SHALL THE AS PARTIES BE LIABLE FOR SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES.",
+    "In no event shall the AS Parties' indemnification obligations to MusclePharm hereunder exceed the after-tax value of the Cash Consideration received by Lender under this Agreement."
+   ]
+  },
+  {
+   "case_id": 2763,
+   "source_id": "PAXMEDICA,INC_07_02_2020-EX-10.12-Master Service Agreement__Termination For Convenience",
+   "gold_spans": [
+    "Client may terminate this Agreement on thirty (30) days written notice without cause."
+   ]
+  },
+  {
+   "case_id": 2792,
+   "source_id": "DRIVENDELIVERIES,INC_05_22_2020-EX-10.4-CONSULTING AGREEMENT__Effective Date",
+   "gold_spans": [
+    "May 1, 2019"
+   ]
+  },
+  {
+   "case_id": 2830,
+   "source_id": "HALITRON,INC_03_01_2005-EX-10.15-SPONSORSHIP AND DEVELOPMENT AGREEMENT__Document Name",
+   "gold_spans": [
+    "SPONSORSHIP AND DEVELOPMENT AGREEMENT"
+   ]
+  },
+  {
+   "case_id": 2840,
+   "source_id": "HALITRON,INC_03_01_2005-EX-10.15-SPONSORSHIP AND DEVELOPMENT AGREEMENT__Exclusivity",
+   "gold_spans": [
+    "Smith hereby grants to TDA the following rights (the \"Rights\"):",
+    "During the Term (the \"Exclusivity Period\"), Smith hereby represents, warrants and agrees that he will not: (i) render any services in commercials or advertisements on behalf of any computer game or videogame sports software product or service, or (ii) authorize the use of Smith's Likeness in connection with any computer game or videogame golf instruction related sports software product or service.",
+    "(d) the exclusive right to use and reuse the results and proceeds of       the in connection with TDA's Golf Instruction Related Products;"
+   ]
+  },
+  {
+   "case_id": 2867,
+   "source_id": "HALITRON,INC_03_01_2005-EX-10.15-SPONSORSHIP AND DEVELOPMENT AGREEMENT__Warranty Duration",
+   "gold_spans": []
+  },
+  {
+   "case_id": 2892,
+   "source_id": "WestPharmaceuticalServicesInc_20200116_8-K_EX-10.1_11947529_EX-10.1_Supply Agreement__Minimum Commitment",
+   "gold_spans": [
+    "Subject to this Agreement's terms and conditions, Buyer Affiliates shall purchase and ExxonMobil Selling Affiliates shall sell the yearly minimum amount of Product amounts (in the aggregate) listed above",
+    "In accordance with the provisions of this Agreement, ExxonMobil Selling Affiliates agree to sell to Buyer Affiliates, and Buyer Affiliates agree to purchase from ExxonMobil Selling Affiliates, the following product(s) (collectively, \"Product\"):\n\nProducts Quantity [Metric Tons / Year] Container PackageYear 2019 2020 2021 2022 2023 [*****] [*****] Minimum Maximum [*****] [*****] [*****] [*****] [*****] [*****] [*****] [*****] [*****] [*****] Leased metal crates"
+   ]
+  },
+  {
+   "case_id": 2914,
+   "source_id": "PANDIONTHERAPEUTICSHOLDCOLLC_05_22_2020-EX-10.17-CONSULTING AGREEMENT__Agreement Date",
+   "gold_spans": [
+    "27t h day of March, 2017"
+   ]
+  },
+  {
+   "case_id": 2934,
+   "source_id": "PANDIONTHERAPEUTICSHOLDCOLLC_05_22_2020-EX-10.17-CONSULTING AGREEMENT__Volume Restriction",
+   "gold_spans": []
+  },
+  {
+   "case_id": 2975,
+   "source_id": "BizzingoInc_20120322_8-K_EX-10.17_7504499_EX-10.17_Endorsement Agreement__Volume Restriction",
+   "gold_spans": [
+    "Make himself available for four (4) sessions for production of photographs, or radio, television, video or other multi-media  programming for use in Bizzingo's advertising or promotional materials, with each such session not exceeding eight (8) hours.",
+    "Make four (4) public appearance for the purpose of promoting the Network, which may include autograph sessions, dinner  appearances, and/or other appearances not described in 4(a) above, with each such session not exceeding two (2) hours."
+   ]
+  },
+  {
+   "case_id": 2981,
+   "source_id": "BizzingoInc_20120322_8-K_EX-10.17_7504499_EX-10.17_Endorsement Agreement__Affiliate License-Licensee",
+   "gold_spans": [
+    "Subject to the terms and conditions set forth herein, Theismann hereby grants to Bizzingo and its affiliates the unlimited  right and privilege during the Term (as defined herein) and within the Territory to use the Property (as defined herein) in connection with the  advertisement, promotion, and sale of the Network in the Territory whether through film, television, radio, print and Internet media, including the right to use  the Property in or on the Network"
+   ]
+  },
+  {
+   "case_id": 3106,
+   "source_id": "PROFOUNDMEDICALCORP_08_29_2019-EX-4.5-SUPPLY AGREEMENT__Irrevocable Or Perpetual License",
+   "gold_spans": [
+    "For greater certainty, \"New Technology\" shall exclude any (x) modification to Philips pre-existing Intellectual Property Rights (which, shall exclude any Intellectual Property Rights forming part of the \"Purchased Assets\" under the Purchase Agreement) and (y) developments developed not for the Products (collectively, \"Philips Retained Product IP'), provided that Philips and its Affiliates hereby grant to Customer under any such Intellectual Property Rights, which are applicable or used for the manufacturing of the Product, a non- exclusive, non-transferable (except in accordance with clause 18.4 (Assignment)), irrevocable, world-wide, fully paid-up license, without the right to grant sub-licenses, to make, have made, sell or commercialize in any other way the Product."
+   ]
+  },
+  {
+   "case_id": 3109,
+   "source_id": "PROFOUNDMEDICALCORP_08_29_2019-EX-4.5-SUPPLY AGREEMENT__Audit Rights",
+   "gold_spans": []
+  },
+  {
+   "case_id": 3120,
+   "source_id": "TRICITYBANKSHARESCORP_05_15_1998-EX-10-OUTSOURCING AGREEMENT__Effective Date",
+   "gold_spans": [
+    "\"Effective Date\" shall mean February 16, 1998"
+   ]
+  },
+  {
+   "case_id": 3143,
+   "source_id": "TRICITYBANKSHARESCORP_05_15_1998-EX-10-OUTSOURCING AGREEMENT__Non-Transferable License",
+   "gold_spans": [
+    "M&I hereby grants to Customer a non-exclusive, non-transferable license, through the end of the Term, to use the source code (including the right to make modifications thereto) on the terms and conditions set forth in this Article 23, upon payment of the then current license fees and the occurrence of the following events:\n\n     A.   M&I ceases to do business or refuses to provide the Services to Customer; or\n\n     B.   A voluntary or involuntary petition is commenced by or against M&I under any federal or state bankruptcy law, or a trustee in bankruptcy fails to timely assume this Agreement as an executory contract, or a substantial part of M&I's property or assets become subject to levy or seizure by any creditor and, in the case of an involuntary petition, the same is not dismissed within sixty (60) days after filing."
+   ]
+  },
+  {
+   "case_id": 3203,
+   "source_id": "Monsanto Company - SECOND A_R EXCLUSIVE AGENCY AND MARKETING AGREEMENT __Expiration Date",
+   "gold_spans": [
+    "This Agreement shall commence as of the Effective Date and shall continue unless and until terminated as provided herein."
+   ]
+  },
+  {
+   "case_id": 3213,
+   "source_id": "Monsanto Company - SECOND A_R EXCLUSIVE AGENCY AND MARKETING AGREEMENT __Non-Disparagement",
+   "gold_spans": [
+    "The Agent shall not use or facilitate the use of promotional materials which disparage Roundup Products or Industrial Property.",
+    "The parties will ensure that marketing, promotional and selling plans promote the sale of the Natural Products in a manner that is consistent with this Agreement and complementary to Roundup Products, and does not directly or indirectly disparage or advertise against Roundup Products, as set forth in this Agreement."
+   ]
+  },
+  {
+   "case_id": 3229,
+   "source_id": "Monsanto Company - SECOND A_R EXCLUSIVE AGENCY AND MARKETING AGREEMENT __Irrevocable Or Perpetual License",
+   "gold_spans": [
+    "Upon the termination of this Agreement, the license granted in Section 6.11(c) above shall convert to a perpetual, non-exclusive, royalty-free, non-transferable and non-assignable license (without the right to sublicense, except as specifically set forth in Section 6.11(h) below) to use the Additional Roundup Products Formulation Data to make, sell and offer for sale, in the Included Markets for each such Additional Roundup Product, products comparable to such Additional Roundup Products, and to the limited extent necessary, to register such products with federal, state or territorial government authorities (as may be required by law) in the United States and its territories."
+   ]
+  },
+  {
+   "case_id": 3309,
+   "source_id": "ACCELERATEDTECHNOLOGIESHOLDINGCORP_04_24_2003-EX-10.13-JOINT VENTURE AGREEMENT__Affiliate License-Licensee",
+   "gold_spans": []
+  },
+  {
+   "case_id": 3354,
+   "source_id": "SEASPINEHOLDINGSCORP_10_10_2018-EX-10.1-SUPPLY AGREEMENT__Post-Termination Services",
+   "gold_spans": [
+    "After early termination of this Agreement (other than a termination based on a breach of Sections 5 or 8 by Integra) and continuing for a period of eighteen (18) months thereafter, Integra and its Affiliates may Sell any Treated Integra Product and Partially Treated Integra Product in its inventory in the Field, and may, with respect to all components which, prior to the effective date of termination, were ordered or manufactured with the anticipation of being included as Treated Integra Product or Partially Treated Integra Product, complete their manufacture and sell them as though they had been inventory on the effective date of termination, subject to payment of all amounts payable to PcoMed for such Sales under this Agreement"
+   ]
+  },
+  {
+   "case_id": 3369,
+   "source_id": "HfEnterprisesInc_20191223_S-1_EX-10.22_11931299_EX-10.22_Development Agreement__Notice Period To Terminate Renewal",
+   "gold_spans": [
+    "The Initial Term shall automatically renew for one-month periods thereafter unless either party provides 30- days advance notice of termination, unless earlier terminated pursuant to Section 2.2 hereof."
+   ]
+  },
+  {
+   "case_id": 3405,
+   "source_id": "ICORECONNECTINC_10_13_2010-EX-7.1-Strategic Alliance Agreement__Parties",
+   "gold_spans": [
+    "USA Managed Care Organization",
+    "IMedicor",
+    "USA MCO",
+    "IMedicor, Inc"
+   ]
+  },
+  {
+   "case_id": 3423,
+   "source_id": "ICORECONNECTINC_10_13_2010-EX-7.1-Strategic Alliance Agreement__Revenue/Profit Sharing",
+   "gold_spans": [
+    "USA MCO would receive one third of the monthly subscription price, per month, per subscriber (approximately $6.65).",
+    "IMedicor will provide a warrant to purchase 2 million shares of common stock to USA MCO to offset any up-front marketing expense incurred by USA MCO in this project.",
+    "All revenue sharing opportunities will be calculated for all parties after any credit card or other third party processing fees are deducted from the gross sale.",
+    "In addition to the subscription fees, iMedicor would offer a 17% revenue share (cash payout only) through revenues generated with its ClearLobby program.",
+    "USA MCO will have the option to take all or part of its revenue share in equity up to a maximum of 4.9% ownership in iMedicor on a fully diluted basis."
+   ]
+  },
+  {
+   "case_id": 3463,
+   "source_id": "TEARDROPGOLFCO_10_23_1996-EX-10.12-ENDORSEMENT AGREEMENT__Anti-Assignment",
+   "gold_spans": [
+    "Neither TPC nor Consolidated Artists shall have any right to grant sublicenses hereunder or to otherwise",
+    "assign, transfer, alienate, encumber or hypothecate any of its rights or obligations hereunder without the express prior written consent of the other party, except that Consolidated Artists shall have the right to assign the financial benefits hereof and TPC hereby consents to such assignment."
+   ]
+  },
+  {
+   "case_id": 3473,
+   "source_id": "TEARDROPGOLFCO_10_23_1996-EX-10.12-ENDORSEMENT AGREEMENT__Affiliate License-Licensee",
+   "gold_spans": []
+  },
+  {
+   "case_id": 3478,
+   "source_id": "TEARDROPGOLFCO_10_23_1996-EX-10.12-ENDORSEMENT AGREEMENT__Audit Rights",
+   "gold_spans": [
+    "Consolidated Artists and Advantage, at Consolidated Artists' expense, shall have the right during the Contract Period and until two (2) years after the termination of this Agreement to inspect and make copies of the books and records of TPC insofar as they relate to the computation of royalty payments due and owing to Consolidated Artists hereunder."
+   ]
+  },
+  {
+   "case_id": 3497,
+   "source_id": "ScansourceInc_20190822_10-K_EX-10.39_11793959_EX-10.39_Distributor Agreement__No-Solicit Of Customers",
+   "gold_spans": []
+  },
+  {
+   "case_id": 3512,
+   "source_id": "ScansourceInc_20190822_10-K_EX-10.39_11793959_EX-10.39_Distributor Agreement__Non-Transferable License",
+   "gold_spans": []
+  },
+  {
+   "case_id": 3607,
+   "source_id": "PcquoteComInc_19990721_S-1A_EX-10.11_6377149_EX-10.11_Co-Branding Agreement2__Covenant Not To Sue",
+   "gold_spans": []
+  },
+  {
+   "case_id": 3654,
+   "source_id": "EbixInc_20010515_10-Q_EX-10.3_4049767_EX-10.3_Co-Branding Agreement__Expiration Date",
+   "gold_spans": [
+    "The term of this Agreement (the \"Term\") shall commence on the date hereof       (the \"Effective Date\") and shall expire upon delivery of [**] to ebix,       but in no way shall this Agreement extend any later than thirty (30)       months from the Effective Date regardless of the number Filled       Application Forms delivered to ebix. About will make commercially       reasonable efforts to achieve that number in twelve (12) months or less       from the Effective Date."
+   ]
+  },
+  {
+   "case_id": 3667,
+   "source_id": "EbixInc_20010515_10-Q_EX-10.3_4049767_EX-10.3_Co-Branding Agreement__Change Of Control",
+   "gold_spans": [
+    "Either party may terminate immediately upon written notice if the other       party (i) ceases to function as a going concern or to conduct operations       in the normal course of business; (ii) has a petition filed against it       under any state or federal bankruptcy law which petition has not been       dismissed or set aside within ninety (90) days of its filing, or if (a)       About sells all or substantially all of the assets of such party or any       event or series of event whereby any entity acquires beneficial ownership       of the capital stock of such party representing fifty percent (50%) of the       voting stock of such party provided however, that the acquisition of About       by Primedia shall not be grounds for the termination of this Agreement; or       (b) ebix becomes acquired by, merged into or is under the control of any       of the following parties, About may terminate this Agreement immediately       upon by providing ebix written notice: AOL; Yahoo; Lycos/Terra; NBC; CBS;       Looksmart; InfoSpace; CMGI; AltaVista; Disney; Microsoft; CNET;       Excite@Home; AskJeeves; GOTO; Doubleclick; or Lifeminders."
+   ]
+  },
+  {
+   "case_id": 3668,
+   "source_id": "EbixInc_20010515_10-Q_EX-10.3_4049767_EX-10.3_Co-Branding Agreement__Anti-Assignment",
+   "gold_spans": [
+    "Neither party may assign the Agreement without the written consent of the other party, which consent shall not be unreasonably withheld or delayed, except that either party may assign the Agreement without obtaining the consent of the other party to an affiliate or successor by way of purchase, merger, consolidation or similar transaction, subject to the requirement that the Agreement shall be binding and enforceable against any successor or assign."
+   ]
+  },
+  {
+   "case_id": 3675,
+   "source_id": "EbixInc_20010515_10-Q_EX-10.3_4049767_EX-10.3_Co-Branding Agreement__License Grant",
+   "gold_spans": [
+    "Subject to the terms and conditions of this Agreement, ebix hereby grants       to About a limited, non-transferable, fully-paid, worldwide, non-exclusive       right and license to use, reproduce, adapt (but only to pursuant to its       rights under this Agreement), incorporate, integrate and distribute the       ebix Marks and ebix Content, during the Term, solely as necessary to       perform its obligations under this Agreement."
+   ]
+  },
+  {
+   "case_id": 3676,
+   "source_id": "EbixInc_20010515_10-Q_EX-10.3_4049767_EX-10.3_Co-Branding Agreement__Non-Transferable License",
+   "gold_spans": [
+    "Subject to the terms and conditions of this Agreement, ebix hereby grants       to About a limited, non-transferable, fully-paid, worldwide, non-exclusive       right and license to use, reproduce, adapt (but only to pursuant to its       rights under this Agreement), incorporate, integrate and distribute the       ebix Marks and ebix Content, during the Term, solely as necessary to       perform its obligations under this Agreement."
+   ]
+  },
+  {
+   "case_id": 3698,
+   "source_id": "EcoScienceSolutionsInc_20180406_8-K_EX-10.1_11135398_EX-10.1_Sponsorship Agreement__Governing Law",
+   "gold_spans": [
+    "This Agreement shall be governed by and interpreted in accordance with the laws of the State of Florida, without regard to its conflict-of-laws or choice-of law principles."
+   ]
+  },
+  {
+   "case_id": 3896,
+   "source_id": "EMERALDHEALTHTHERAPEUTICSINC_06_10_2020-EX-4.5-CONSULTING AGREEMENT - DR. GAETANO MORELLO N.D. INC.__Document Name",
+   "gold_spans": [
+    "CONSULTING AGREEMENT"
+   ]
+  },
+  {
+   "case_id": 3943,
+   "source_id": "PcquoteComInc_19990721_S-1A_EX-10.11_6377149_EX-10.11_Co-Branding Agreement1__Notice Period To Terminate Renewal",
+   "gold_spans": []
+  },
+  {
+   "case_id": 3963,
+   "source_id": "PcquoteComInc_19990721_S-1A_EX-10.11_6377149_EX-10.11_Co-Branding Agreement1__Non-Transferable License",
+   "gold_spans": []
+  },
+  {
+   "case_id": 3988,
+   "source_id": "ALCOSTORESINC_12_14_2005-EX-10.26-AGENCY AGREEMENT__Exclusivity",
+   "gold_spans": []
+  },
+  {
+   "case_id": 4019,
+   "source_id": "INGEVITYCORP_05_16_2016-EX-10.5-INTELLECTUAL PROPERTY AGREEMENT__Document Name",
+   "gold_spans": [
+    "INTELLECTUAL PROPERTY AGREEMENT"
+   ]
+  },
+  {
+   "case_id": 4025,
+   "source_id": "INGEVITYCORP_05_16_2016-EX-10.5-INTELLECTUAL PROPERTY AGREEMENT__Notice Period To Terminate Renewal",
+   "gold_spans": []
+  },
+  {
+   "case_id": 4102,
+   "source_id": "XinhuaSportsEntertainmentLtd_20070221_F-1_EX-99.4_645553_EX-99.4_Content License Agreement__Parties",
+   "gold_spans": [
+    "XFN",
+    "CHINA ECONOMIC INFORMATION SERVICE OF XINHUA NEWS AGENCY",
+    "CEIS",
+    "XINHUA FINANCIAL NETWORK LIMITED"
+   ]
+  },
+  {
+   "case_id": 4142,
+   "source_id": "MERITLIFEINSURANCECO_06_19_2020-EX-10.(XIV)-MASTER SERVICES AGREEMENT__Document Name",
+   "gold_spans": [
+    "MASTER SERVICES AGREEMENT ("
+   ]
+  }
+ ]
+}

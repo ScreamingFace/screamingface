@@ -78,8 +78,12 @@ def case_records(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
         spans = _gold_spans(row, case_id)
         cases.append({"id": case_id, "input": render_case_input(context, question)})
         answers[case_id] = {
-            "source_id": row.get("id"),
-            "title": row.get("title"),
+            # WHY validated and not `row.get(...)` (review, PR #984): a renamed upstream column
+            # would write `null` into every private record and kill traceability silently, while
+            # the bake still reported success. `source_id` is the only link back to the dataset
+            # row, so it fails the build closed like `context` and `question` do.
+            "source_id": _text(row.get("id"), case_id, "id"),
+            "title": _text(row.get("title"), case_id, "title"),
             "question": question,
             "gold_spans": spans,
             # WHY stored rather than derived downstream: the confusion matrix needs a Case's

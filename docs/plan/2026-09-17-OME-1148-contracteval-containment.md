@@ -1,6 +1,6 @@
 # OME-1148 — ContractEval rebuild plan (on the post-overhaul spine)
 
-**Ticket:** [OME-1148](https://linear.app/openmined/issue/OME-1148/onboard-contracteval-as-a-deterministic-span-extraction-benchmark)
+**Ticket:** [OME-1148](https://linear.app/openmined/issue/OME-1148/onboard-contracteval-as-a-judge-free-clause-extraction-benchmark)
 · **Spec:** `docs/spec/2026-09-17-OME-1148-contracteval-containment.md`
 · **Ledger:** `docs/work/2026-09-17-OME-1148-contracteval-containment.md`
 · **Prior work:** tag `OME-1148-v1-pre-overhaul` (`b39c5da2`) · **Date:** 2026-09-17

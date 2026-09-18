@@ -1,6 +1,6 @@
 # OME-1148 — ContractEval as a judge-free clause-containment board
 
-**Ticket:** [OME-1148](https://linear.app/openmined/issue/OME-1148/onboard-contracteval-as-a-deterministic-span-extraction-benchmark)
+**Ticket:** [OME-1148](https://linear.app/openmined/issue/OME-1148/onboard-contracteval-as-a-judge-free-clause-extraction-benchmark)
 · **Ledger:** `docs/work/2026-09-17-OME-1148-contracteval-containment.md`
 · **Stack:** screamingface-engine, screamingface · **Date:** 2026-09-09, §4 rewritten 2026-09-17
 
@@ -23,7 +23,15 @@ from a **dataset-level confusion matrix**, so the reducer must build one.
 ## 2. Established facts
 
 Read from the reference harness (https://github.com/olivialiu121/ContractEval, MIT), not
-inferred. Mirrored into `.refs/contracteval/` per the protocol-alignment rule.
+inferred.
+
+AMENDED 2026-09-18 (review of PR #984): this previously promised the harness was "mirrored into
+`.refs/contracteval/`". It never was — the vendoring was dropped during implementation because
+`.refs/` is not a repo convention and the upstream analysis scripts import matplotlib, so an
+unexcluded copy fails this stack's gates. The promise outlived the decision, which left the
+fidelity claim resting on nothing. The four functions the metric path depends on are now
+committed verbatim as test material in `tests/unit/_contracteval_reference.py`, and
+`test_contracteval_parity.py` proves ours equal them over 120 real CUAD rows.
 
 **F-1 · The task is verbatim containment, NOT span overlap.** Our July screening notes
 (`LiveTruth_leaderboard_work/docs/new-benchmarks.md`) recorded "F1/F2: how much do the returned
@@ -87,8 +95,11 @@ returning 4,182 rows with the F-7 columns. The blocker is dissolved — we pin t
 **F-7 · Row shape.** `id`, `title`, `context`, `question`, `answers: {text: [...], answer_start:
 [...]}`. Gold spans are `answers['text']`, a list; empty list = no clause exists.
 
-**F-8 · Prompts, verbatim.** System prompt and user template are captured in
-`proprietary_model.py` lines 18-32 and 74-80. `temperature=0`.
+**F-8 · Prompts, verbatim.** System prompt is `proprietary_model.py` lines **75-79**; the user
+template is lines **19-27**. `temperature=0`. (Line ranges corrected 2026-09-18 — this said
+18-32/74-80 while `prompts.py` said 74-80/18-27, and neither matched the file. Verified against
+the source; `test_contracteval_prompts.py` now pins the bytes, which is the check that actually
+protects the exam.)
 
 **F-9 · Count discrepancy, and what it is not.** HF test = 4,182 rows (verified: 102 contracts
 × 41 questions); the paper reports 4,128 *evaluated data points*. The 54-row gap is NOT a
@@ -154,8 +165,17 @@ HealthBench's "refuse to bake a different answer key" idiom. On the pinned revis
 fires; if a future revision grows a document past the budget, the build fails loudly instead of
 silently scoring a model against text it never saw.
 
-**D-8 · `interaction="single_shot"`, `expected_check_cost="free"`.** One Candidate call per case;
+**D-8 · `interaction="single_shot"`. No `check_surface` at all.** One Candidate call per case;
 the check is pure string work.
+
+AMENDED 2026-09-18 (review of PR #984): this read `expected_check_cost="free"`, which described
+a `check_surface` the board deliberately does not ship — so the spec contradicted the code and
+would have sent a future author to "fix" the code back toward a trap. A declared surface is a
+promise the SDK trusts BEFORE spend: declare one without registering the handler and a
+corrective-loop run passes the pre-spend gate, burns paid candidate turns, then dies on a route
+`runtime.install` never serves. Declare it only together with the handler — `grading.verdict`
+is the parser it would use. The reasoning already lives correctly in `definition.py`'s
+AIDEV-NOTE; only the spec was wrong.
 
 ## 4. Design
 

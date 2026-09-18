@@ -1,8 +1,16 @@
 """What the ContractEval board pins — dataset, preparer, protocol, and sampling.
 
-INVARIANT: every value here participates in the board's revision hash. Changing one changes
-every route address, which is the point: an expression addressed to an old revision must never
-resolve against a changed exam.
+INVARIANT: the IDENTITY pins below participate in the board's revision hash — dataset, split,
+dataset revision, preparer revision, protocol revision. Changing one changes every route
+address, which is the point: an expression addressed to an old revision must never resolve
+against a changed exam.
+
+AIDEV-NOTE (review, PR #984): this header used to claim EVERY value here is hashed. It is not,
+and the lockfile's own header must not overclaim. `MAX_TOKENS`, `TEMPERATURE` and
+`MAX_CONTEXT_TOKENS` are OUTSIDE `compute_revision`. That is safe for each of them, but for
+different reasons worth knowing: the first two are advisory (never applied by this board —
+see their note below), and `MAX_CONTEXT_TOKENS` is fail-closed at `prepare._CHARS_PER_TOKEN`,
+so it can refuse a build but can never change a byte that was served.
 
 References:
     - Paper: https://arxiv.org/abs/2508.03080 · https://aclanthology.org/2025.nllp-1.19/
@@ -39,11 +47,15 @@ PROTOCOL_REVISION = "single-shot-extract-v1"
 MAX_TOKENS = 4096
 # The reference calls every model at temperature 0 (proprietary_model.py line 88).
 #
+# WHY a float and not "0" (review, PR #984): this constant exists to be copied into an
+# `sf.Model(params=...)` dict, and the strict wire model rejects a string there — so a string
+# here is a footgun in the one place the value is meant to be used.
+#
 # AIDEV-NOTE: do NOT blindly pass this to every model. Several current reasoning models REJECT
 # `temperature` outright — via OpenRouter, `openai/gpt-5.5` answers 404 for any value and
 # `anthropic/claude-opus-4.8` answers 400, while `gemini-3.1-pro-preview` and `qwen3.7-flash`
 # accept it. The shipped notebook therefore omits temperature rather than pinning it.
-TEMPERATURE = "0"
+TEMPERATURE = 0.0
 
 # WHY a guard and not a truncation budget: measured over all 4,182 rows with `tiktoken`
 # cl100k_base, contexts run min 185 · p50 5,357 · p90 22,688 · max 63,389 tokens — nothing

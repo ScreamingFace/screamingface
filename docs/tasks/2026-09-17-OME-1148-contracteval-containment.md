@@ -1,7 +1,7 @@
 ---
 id: OME-1148
-linear_url: https://linear.app/openmined/issue/OME-1148/onboard-contracteval-as-a-deterministic-span-extraction-benchmark
-status: in_review
+linear_url: https://linear.app/openmined/issue/OME-1148/onboard-contracteval-as-a-judge-free-clause-extraction-benchmark
+status: in_review  # Linear: In Review
 type: feature
 priority: medium
 labels: [screamingface-engine, agentic, autonomous]
@@ -10,7 +10,7 @@ restarted: 2026-09-17
 closed:
 ---
 
-# Onboard ContractEval as a deterministic span-extraction benchmark
+# Onboard ContractEval as a judge-free clause-extraction benchmark
 
 Register the CUAD test split as an Engine-owned benchmark reproducing the ContractEval protocol
 (arXiv 2508.03080): the Candidate returns clause sentences verbatim or the literal

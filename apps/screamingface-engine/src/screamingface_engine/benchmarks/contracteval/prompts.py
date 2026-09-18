@@ -1,7 +1,7 @@
 """The pinned ContractEval Candidate instructions.
 
-INVARIANT: byte-for-byte from the reference harness — `proprietary_model.py` lines 74-80 for the
-system prompt and lines 18-27 for the user template (MIT,
+INVARIANT: byte-for-byte from the reference harness — `proprietary_model.py` lines 75-79 for the
+system prompt and lines 19-27 for the user template (MIT,
 https://github.com/olivialiu121/ContractEval). These bytes feed the board's revision hash, so an
 edit here is a new benchmark identity, not a tweak.
 
