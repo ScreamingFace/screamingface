@@ -8,7 +8,7 @@ from types import TracebackType
 from screamingface_engine.activity.contract import MAX_INTEGER, ActivityKind, safe_fact
 from screamingface_engine.activity.scope import Operation, operation, stop_heartbeats
 from screamingface_engine.activity.session import ActivitySession, activate
-from screamingface_engine.benchmarks.case_context import current_case_id
+from screamingface_engine.benchmarks.case_context import current_case_id, current_case_position
 from screamingface_engine.benchmarks.stages import StageScope
 from screamingface_engine.observations import LogEmitter, ModelObservation, Scalar
 
@@ -135,7 +135,13 @@ def _case_facts() -> dict[str, Scalar]:
     if case_id is None:
         return {}
     try:
-        return {"case_id": safe_fact("case_id", case_id)}
+        result = {"case_id": safe_fact("case_id", case_id)}
+        if position := current_case_position():
+            result.update(
+                case_position=safe_fact("case_position", position[0]),
+                case_count=safe_fact("case_count", position[1]),
+            )
+        return result
     except ValueError:
         # WHY: a legitimate benchmark ID outside the telemetry allowlist must not
         # suppress the whole model event or leak arbitrary/private identifier text.

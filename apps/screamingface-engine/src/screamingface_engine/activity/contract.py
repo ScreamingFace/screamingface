@@ -92,8 +92,12 @@ def safe_fact(name: str, value: object) -> Scalar:
         result = _identifier(value)
         if name != "case_id" and not isinstance(result, str):
             raise ValueError("text identifier required")
-    elif name in _COUNTS or name == "attempt":
-        result = _number(value, integer=True, minimum=1 if name == "attempt" else 0)
+    elif name in _COUNTS or name in {"attempt", "case_position", "case_count"}:
+        result = _number(
+            value,
+            integer=True,
+            minimum=1 if name in {"attempt", "case_position", "case_count"} else 0,
+        )
     elif name == "retry_delay_ms":
         result = _number(value)
     elif name == "finish_reason":
