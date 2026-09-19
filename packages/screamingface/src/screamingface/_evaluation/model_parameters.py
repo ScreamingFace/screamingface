@@ -34,9 +34,11 @@ catalogue row cannot express, so refusing would be a false negative.
 _SEED_PARAM = "seed"
 """The sampling seed's wire name — the one parameter whose denial costs reproducibility.
 
-Mirrors ``ANSWER_SEED_PARAM`` in the Engine's ``runner/request_parameters.py``. A run's ambient
-seed and a Candidate-declared ``seed`` are the same wire field, so a denial means the same thing
-to the reader whichever door it arrived through, and both deserve the same sentence.
+The name is the GATEWAY contract's own key for this parameter (each provider plugin rules it as
+``seed``), which is also what the Engine's ``ANSWER_SEED_PARAM`` spells. Both sides bind to the
+contract independently rather than to each other, so this is a lookup key, not a copy of the
+Engine's constant. A run's ambient seed and a Candidate-declared ``seed`` land on that same key,
+so a denial means the same thing to the reader whichever door it arrived through.
 """
 
 
@@ -216,7 +218,11 @@ def _validate_parameter(details: ModelDetails, name: str, value: object) -> None
                 # said no before they trust it over the projection.
                 "provider_source": parameter.provider_source,
             },
-            hint=_denied_hint(name),
+            # WHY staleness rides the HINT rather than `details`: `provider_stale` is the
+            # cache's verdict about THIS read, so a `true` means the refusal may describe a
+            # catalogue that has since moved — which is advice about what to DO next, not a
+            # fact about the parameter. `details` stays the parameter's own identity.
+            hint=_denied_hint(name, stale=parameter.provider_stale),
         )
     assert parameter.schema is not None
     try:
@@ -238,14 +244,24 @@ def _denied_message(model: str, name: str) -> str:
     return denial
 
 
-def _denied_hint(name: str) -> str:
-    """Offer the two ways out: stop asking for the parameter, or pick a Model that takes it."""
+def _denied_hint(name: str, *, stale: bool) -> str:
+    """Offer the ways out: stop asking for the parameter, or pick a Model that takes it."""
     if name == _SEED_PARAM:
-        return (
+        hint: str = (
             "Drop the seed to run this line-up unseeded, or swap that Model for one whose "
             "provider accepts a seed."
         )
-    return f"Remove {name!r} for that Model, or choose a Model whose provider accepts it."
+    else:
+        hint = f"Remove {name!r} for that Model, or choose a Model whose provider accepts it."
+    if not stale:
+        return hint
+    # WHY the reader needs this and not just the `details` payload: a stale verdict can refuse a
+    # run that would work today, and from the message alone the only visible fix is swapping a
+    # Model that may be perfectly fine.
+    return (
+        f"{hint} This verdict comes from a catalogue read marked stale, so refreshing it may "
+        "change the answer."
+    )
 
 
 __all__: list[str] = []

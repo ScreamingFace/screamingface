@@ -223,6 +223,79 @@ def test_the_refusal_names_the_parameter_the_model_and_the_reproducibility_cost(
     }
 
 
+def test_a_denied_parameter_reports_the_denial_even_when_the_value_is_also_invalid() -> None:
+    """Gate 3 runs BEFORE schema validation, and that order decides the user's next action.
+
+    INVARIANT: pins gate 3 above gate 4. Reversed, a denied `seed` carrying a bad value reports
+    `invalid_model_parameter` — "expected integer" — so the researcher corrects the value,
+    reruns, and hits the same wall. The provider's denial is the fact that ends the
+    conversation, so it is the one reported. Measured: both orders leave every other test in
+    this suite green, which is exactly why this one has to exist.
+    """
+    transport = _ForbiddenTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=_engine({_MEMBER: "unsupported"}),
+        run_transport=transport,
+    )
+
+    with client, pytest.raises(sf.PlanningError) as caught:
+        client.evaluate(sf.Model(_MEMBER, params={"seed": "not-an-integer"}), benchmark="fixture")
+
+    assert caught.value.code == "unsupported_model_parameter"
+    assert "is not supported by the provider" in str(caught.value)
+    assert transport.called is False
+
+
+def test_gateway_disabled_parameter_keeps_its_credential_reason_when_provider_denies() -> None:
+    """Gate 3 runs AFTER the gateway-policy gate, and that order is load-bearing too.
+
+    INVARIANT: pins gate 3 below gate 2. Reversed, a row this account's auth mode cannot reach
+    loses the message naming WHICH credential would open it, and the reader is told the provider
+    refuses when connecting the right credential would in fact have worked.
+    """
+    transport = _ForbiddenTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=_engine({_MEMBER: "unsupported"}, build=_gateway_disabled_seed),
+        run_transport=transport,
+    )
+
+    with client, pytest.raises(sf.PlanningError) as caught:
+        client.evaluate(sf.Model(_MEMBER, params={"seed": 42}), benchmark="fixture")
+
+    assert "is disabled for Model" in str(caught.value)
+    assert caught.value.details == {
+        "model": _MEMBER,
+        "parameter": "seed",
+        "reason": "projection_not_available_for_auth_mode",
+        "applicable_auth_modes": ["oauth"],
+    }
+    assert transport.called is False
+
+
+def test_a_denial_read_from_a_stale_catalogue_says_so_in_the_hint() -> None:
+    """A stale verdict can refuse a run that would work today, so the reader is told.
+
+    INVARIANT: the refusal still fires — the alternative reopens the mid-run spend this whole
+    unit exists to close — but the hint says the evidence is stale, so "swap the Model" is not
+    the only visible fix for a verdict that may already be out of date.
+    """
+    transport = _ForbiddenTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=_engine({_MEMBER: "unsupported"}, build=_stale_seed),
+        run_transport=transport,
+    )
+
+    with client, pytest.raises(sf.PlanningError) as caught:
+        client.evaluate(sf.Model(_MEMBER, params={"seed": 42}), benchmark="fixture")
+
+    assert "stale" in (caught.value.hint or "")
+    assert "refreshing it may change the answer" in (caught.value.hint or "")
+    assert transport.called is False
+
+
 def test_one_denying_member_refuses_the_whole_seeded_run_and_names_that_member() -> None:
     """The supporting member must not mask the denying one, whichever is fetched first."""
     transport = _ForbiddenTransport()
@@ -273,6 +346,32 @@ def test_a_declared_seed_refuses_through_the_same_gate_with_no_ambient_seed() ->
     assert caught.value.code == "unsupported_model_parameter"
     assert "'seed'" in str(caught.value)
     assert transport.called is False
+
+
+def test_declaring_the_seed_only_on_models_that_accept_it_is_allowed() -> None:
+    """The refusal is about what the run ASKED for, not about who is in the line-up.
+
+    A researcher can still seed a fusion that contains a denying Model by declaring the seed
+    per-Model on the ones that accept it and leaving it off the one that does not — the
+    supported way to run a deliberately partial sitting. Nothing was asked of the denying
+    Model, so nothing is refused.
+
+    INVARIANT: this is the negative space of the gate above, and it is easy to destroy. A
+    preflight that checked seed support for every candidate Model regardless of how the seed
+    arrived would look stricter and would silently remove this workflow.
+    """
+    transport = _ReachedTransport()
+    candidate = sf.Fusion([sf.Model(_MEMBER, params={"seed": 42})], synthesizer=_SYNTH)
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=_engine({_SYNTH: "unsupported"}),
+        run_transport=transport,
+    )
+
+    with client, pytest.raises(RuntimeError, match="execution reached"):
+        client.evaluate(candidate, benchmark="fixture")
+
+    assert transport.called is True
 
 
 @pytest.mark.parametrize("support", ["supported", "conditional", "unknown"])
@@ -329,3 +428,36 @@ async def test_async_evaluation_shares_the_same_provider_support_gate() -> None:
 
     assert caught.value.code == "unsupported_model_parameter"
     assert transport.called is False
+
+
+# Row builders for the gate-ORDER and staleness cases below. They live at the end of the
+# module, after the tests that use them, because this file is append-only across cycles:
+# new content goes at the bottom so a reader diffing two cycles sees additions only.
+def _gateway_disabled_parameter(support: str) -> dict[str, object]:
+    """The same row with the GATEWAY's door shut too — both axes closed on one parameter."""
+    row: dict[str, Any] = _parameter(support)
+    row["gateway"] = {
+        "status": "disabled",
+        "reason": "projection_not_available_for_auth_mode",
+        "cache_behavior": "bypass",
+        "applicable_auth_modes": ["oauth"],
+    }
+    return row
+
+
+def _gateway_disabled_seed(model: str, support_by_model: dict[str, str]) -> dict[str, object]:
+    """A ``seed`` row the GATEWAY disables while the provider ALSO denies it — both gates shut."""
+    value: dict[str, Any] = _details(model, support_by_model)
+    value["parameters"]["seed"] = _gateway_disabled_parameter(
+        support_by_model.get(model, "supported")
+    )
+    return value
+
+
+def _stale_seed(model: str, support_by_model: dict[str, str]) -> dict[str, object]:
+    """A denial read from a catalogue snapshot the cache has marked stale."""
+    value: dict[str, Any] = _details(model, support_by_model)
+    row: dict[str, Any] = _parameter(support_by_model.get(model, "supported"))
+    row["provider"] = {**row["provider"], "stale": True}
+    value["parameters"]["seed"] = row
+    return value
