@@ -1,12 +1,12 @@
 ---
 id: OME-1116
 linear_url: https://linear.app/openmined/issue/OME-1116/import-ten-single-shot-inspect-evals-benchmarks-into-the-catalogue
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-04
-closed:
+closed: 2026-09-19
 ---
 
 # Import ten single-shot inspect_evals benchmarks into the catalogue
