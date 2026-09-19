@@ -31,9 +31,11 @@
 #     builds it only inside a version-gated `screamingface-engine-v*` release, so a benchmark-only change
 #     still rides an engine version bump. Independent benchmark versioning needs an explicit tag
 #     plus a control-plane/Runner compatibility check;
-#   - `datasets` (and its pyarrow tail), plus GDPval's `pdfplumber`/`python-docx`, are installed
-#     in a build stage that is thrown away — the runtime image never carries them. Every
-#     `prepare.py` imports them through `importlib` for exactly this reason.
+#   - GDPval's `pdfplumber`/`python-docx` readers are installed in a build stage that is thrown
+#     away — the runtime image never carries them. Every `prepare.py` imports them through
+#     `importlib` for exactly this reason. NOTE `datasets` (and its pyarrow tail) is NOT in that
+#     group any more: `inspect-evals` requires it, so the base image's `--extra inspect` puts it
+#     in the shipped image regardless of what this stage does.
 #
 # INVARIANT: build context is the REPO ROOT, like the base image — `prepare` runs from the
 # installed package, which path-depends on `packages/url4`.
@@ -58,15 +60,21 @@ WORKDIR /app/apps/screamingface-engine
 # Keep this digest and the exact datasets version synchronized with the pinned preparer inputs.
 # Changing either may change the benchmark bytes baked into an image.
 COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 /usr/local/bin/uv /usr/local/bin/uv
-# WHY pdfplumber and python-docx: GDPval's preparer flattens the task's reference PDFs and Word
-# documents to text HERE, at image build time, and that text is baked into the answer key — a Job
-# is offline with a read-only rootfs and cannot parse anything. Pinned exactly for the same reason
-# the datasets version is: a release whose extraction differs would silently change what every
-# candidate is asked. Keep these in step with `packages/screamingface`'s runtime extra and with
-# `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
+# WHY `--extra benchmarks` and not a `uv pip install` line: the preparer's extra packages
+# (GDPval's pdfplumber/python-docx readers) used to be installed here by hand, which put them
+# OUTSIDE the lockfile — any later `uv sync` in this venv pruned them straight back out, and the
+# versions were a second hand-maintained copy of the pins. They are now declared in the engine's
+# `benchmarks` extra, which is a superset of `inspect`, so this one sync resolves the whole
+# preparer world from the lock. Keep the pins in step with `packages/screamingface`'s runtime
+# extra and with `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
+#
+# This stage is thrown away — the runtime image below is `FROM ${BASE}` again, so the readers
+# never ship. `inspect-ai`/`inspect-evals` DO ship, because the base image installs `--extra
+# inspect`: a deployed Engine needs them to register the imported boards at all. If that extra
+# is ever dropped from the base, this build keeps succeeding and silently ships an image missing
+# ten boards' assets — so the two belong in step.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --python /app/apps/screamingface-engine/.venv/bin/python --quiet \
-      "datasets==5.0.0" "pdfplumber==0.11.10" "python-docx==1.2.0"
+    uv sync --frozen --no-dev --extra benchmarks
 RUN /app/apps/screamingface-engine/.venv/bin/python \
       -m screamingface_engine.benchmarks.prepare --root /opt/benchmarks
 

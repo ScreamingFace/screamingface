@@ -36,13 +36,19 @@ COPY packages/url4 ./packages/url4
 COPY apps/screamingface-engine/pyproject.toml apps/screamingface-engine/uv.lock ./apps/screamingface-engine/
 WORKDIR /app/apps/screamingface-engine
 # Deps first (cache-friendly): busts only when pyproject/lock change.
+# WHY --extra inspect: the imported inspect_evals boards call the upstream eval's OWN scorer and
+# prompt code, so a deployment without it registers none of them (`inspect_available()` answers
+# the empty contribution) and the catalogue silently loses ten boards. The benchmark image builds
+# FROM this one, so this is also what lets its preparer bake their dataset snapshots. Safe to
+# carry here, unlike in `packages/screamingface`, whose runtime extra pins litellm — the conflict
+# is declared between THOSE two, and this app depends on neither.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-dev --no-install-project --extra inspect
 # Now the app source (siblings above are already in place).
 COPY apps/screamingface-engine/src ./src
 COPY apps/screamingface-engine/url4.toml ./url4.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --extra inspect
 
 # Must track the builder's Python minor exactly — see the INVARIANT above.
 FROM python:3.13-slim-bookworm AS runtime
