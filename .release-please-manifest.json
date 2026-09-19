@@ -3,7 +3,7 @@
   "packages/url4": "1.5.1",
   "packages/screamingface": "0.1.1",
   "apps/screamingface-engine": "1.5.0",
-  "apps/scoreboard": "0.1.1",
+  "apps/scoreboard": "0.2.0",
   "apps/report-intake": "0.1.0",
   "apps/aigateway-ui": "0.2.0"
 }
