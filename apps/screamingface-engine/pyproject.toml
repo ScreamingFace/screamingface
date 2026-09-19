@@ -70,7 +70,7 @@ inspect = [
     # same board revision can ask different questions. Pinning it here is what makes the
     # version a reviewable decision instead of a resolution accident. Keep in step with
     # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
-    "datasets==5.0.0",
+    "datasets==5.0.1",
 ]
 
 # Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
