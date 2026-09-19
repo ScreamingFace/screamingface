@@ -1389,6 +1389,10 @@ An imported board takes a fusion exactly like a home-grown one — the Engine in
 as an opaque recipe, so nothing about the import changes how ensembles run. `limit` keeps the
 rehearsal cheap; the calls below are paid model calls, so run this cell deliberately and rehearse
 small before any full sweep."""),
+        # WHY an all-OpenRouter panel rather than the Anthropic synthesiser used elsewhere in
+        # these examples: the seeded cells below are the point of this section, and the SDK's
+        # free preflight REFUSES a seeded run whose catalogue marks `seed` unsupported
+        # (OME-1231). An Anthropic synthesiser would make the seeded cells raise.
         nbformat.v4.new_code_cell("""\
 PANEL_PARAMS = {"max_tokens": 8192, "temperature": 0.0}
 SYNTHESIS_PROMPT = (
@@ -1400,7 +1404,7 @@ SYNTHESIS_PROMPT = (
 member1 = sf.Model(model="openrouter/qwen/qwen3.7-flash", params=PANEL_PARAMS)
 member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARAMS)
 synth = sf.Model(
-    model="openrouter/anthropic/claude-haiku-4.5", params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT
+    model="openrouter/qwen/qwen3.8-flash", params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT
 )
 math_panel = sf.Fusion(name="math_panel", members=[member1, member2], synthesizer=synth)
 
@@ -1408,6 +1412,26 @@ math_panel"""),
         nbformat.v4.new_code_cell("""\
 report = sf.evaluate(math_panel, benchmark="inspect-gsm8k", limit=2)
 report"""),
+        nbformat.v4.new_markdown_cell("""\
+### Asking for a reproducible run
+
+`answer_seed` pins the sampler for every model in the fusion — members and synthesiser
+alike — so the same seed asks each provider for the same draw twice.
+
+A seed only means something if every model honours it, so the SDK checks the whole panel
+before spending anything: if a provider's catalogue says outright that the model does not
+support `seed`, the run is refused up front rather than sampled unseeded and reported as
+though it were reproducible. That is why this panel is all-OpenRouter — an Anthropic
+synthesiser would be refused here, since the Messages API has no seed field at all.
+
+Changing the seed is the cheapest way to separate the panel from the draw: what stays the
+same across the two runs below is the panel, what moves is the sampling."""),
+        nbformat.v4.new_code_cell("""\
+report1 = sf.evaluate(math_panel, benchmark="inspect-gsm8k", limit=2, answer_seed=42)
+report1"""),
+        nbformat.v4.new_code_cell("""\
+report2 = sf.evaluate(math_panel, benchmark="inspect-gsm8k", limit=2, answer_seed=7)
+report2"""),
         nbformat.v4.new_markdown_cell("""\
 ## 4. Read the per-case outcomes
 
