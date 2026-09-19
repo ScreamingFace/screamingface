@@ -335,7 +335,13 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
     """The canonical one-invocation expression — one answer per Case, graded once."""
 
     def build(case_count: int) -> Node:
-        candidate_invocation = candidate("$item.input", web_search=_CANDIDATE_WEB_SEARCH)
+        candidate_invocation = candidate(
+            "$item.input",
+            web_search=_CANDIDATE_WEB_SEARCH,
+            case_id="$item.id",
+            case_position="$item._sf_case_position",
+            case_count="$item._sf_case_count",
+        )
         checked = expr(
             src(
                 RelExpr(

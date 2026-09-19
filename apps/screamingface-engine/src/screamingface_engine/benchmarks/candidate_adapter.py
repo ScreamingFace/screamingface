@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_execution import install_case_execution
+from screamingface_engine.benchmarks.case_request import candidate_input, candidate_position
+from screamingface_engine.benchmarks.case_selection import install_case_selection
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.candidate_scope import candidate_invocation_scope
@@ -35,16 +38,24 @@ class _CandidateInvocation:
                 code="candidate_contract_error",
                 permanent=True,
             )
-        policy = _candidate_policy(request.params)
+        input_text, case_id = candidate_input(request)
+        policy = _candidate_policy(
+            {key: value for key, value in request.params.items() if key != "context_format"}
+        )
         try:
-            # WHY both scopes: retrieval narrows what the candidate may fetch; the
+            # WHY: retrieval narrows what the candidate may fetch; the
             # candidate-invocation flag marks its calls as ANSWERING, which is what lets
             # the run's answer seed reach them and never the benchmark's judges (OME-1038).
-            with retrieval_scope(policy), candidate_invocation_scope():
+            # Case scope adds explicit identity to nested observations, outside model input.
+            with (
+                retrieval_scope(policy),
+                candidate_invocation_scope(),
+                case_scope(case_id, position=candidate_position(request)),
+            ):
                 return await evaluate_candidate_recipe(
                     self._node,
                     request.intent,
-                    request.context or "",
+                    input_text,
                     isolate_operation_calls=True,
                 )
         except RetrievalPolicyError as exc:
@@ -60,6 +71,7 @@ def install_candidate_invocation(node: Url4Node) -> None:
 
     node.endpoint(CANDIDATE_ROUTE)(_CandidateInvocation(node))
     install_case_execution(node)
+    install_case_selection(node)
 
 
 def _candidate_policy(params: Mapping[str, str]) -> RetrievalPolicy:

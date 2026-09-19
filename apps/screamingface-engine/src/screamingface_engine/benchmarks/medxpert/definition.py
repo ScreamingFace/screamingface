@@ -117,22 +117,24 @@ def _build(case_count: int) -> Node:
     # inside the grading scope. The protective iterate rebinds `$item` to the
     # `{candidate_invocation, case_id}` struct, so `$item.cot_prompt` read there resolves
     # empty and the model receives a blank prompt — the OME-1126 live-run failure.
-    reasoning = candidate("$item.cot_prompt", web_search=CANDIDATE_WEB_SEARCH, binding="$candidate")
+    reasoning = candidate(
+        "$item.cot_prompt",
+        case_id="$item.id",
+        case_position="$item._sf_case_position",
+        case_count="$item._sf_case_count",
+        web_search=CANDIDATE_WEB_SEARCH,
+        binding="$candidate",
+    )
     # Turn 2 — the commit. Its input carries the question and turn 1's reasoning, and ends on the
     # trigger; the model finishes that sentence, so the letter leads.
     # WHY `candidate_call` (the bare call) and not `candidate()`: `$reasoning` resolves only as
     # a DIRECT sibling of the binding — inside `candidate()`'s wrapper group the reference ships
     # to the model verbatim, and the commit loses the turn-1 essay (OME-1126).
     commit = candidate_call(
-        render(
-            struct(
-                {
-                    "question": "$item.input",
-                    "reasoning": "$reasoning",
-                    "trigger": "$item.trigger",
-                }
-            )
-        ),
+        {"question": "$item.input", "reasoning": "$reasoning", "trigger": "$item.trigger"},
+        case_id="$item.id",
+        case_position="$item._sf_case_position",
+        case_count="$item._sf_case_count",
         web_search=CANDIDATE_WEB_SEARCH,
         binding="$candidate",
     )

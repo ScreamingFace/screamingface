@@ -5,9 +5,10 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from types import TracebackType
 
-from screamingface_engine.activity.contract import MAX_INTEGER, ActivityKind
+from screamingface_engine.activity.contract import MAX_INTEGER, ActivityKind, safe_fact
 from screamingface_engine.activity.scope import Operation, operation, stop_heartbeats
 from screamingface_engine.activity.session import ActivitySession, activate
+from screamingface_engine.benchmarks.case_context import current_case_id
 from screamingface_engine.observations import LogEmitter, ModelObservation, Scalar
 
 
@@ -31,7 +32,8 @@ class ActivityObserver:
         if self.session is None or not self.session.active:
             return _INERT_MODEL_CALL
         return ActivityModelCall(
-            self, operation(emit=emit, kind=ActivityKind.MODEL_CALL, model_id=model_id)
+            self,
+            operation(emit=emit, kind=ActivityKind.MODEL_CALL, model_id=model_id, **_case_facts()),
         )
 
     def bridge_loss(self, dropped: int) -> dict[str, Scalar]:
@@ -100,3 +102,15 @@ class _InertModelCall:
 
 
 _INERT_MODEL_CALL = _InertModelCall()
+
+
+def _case_facts() -> dict[str, Scalar]:
+    case_id = current_case_id()
+    if case_id is None:
+        return {}
+    try:
+        return {"case_id": safe_fact("case_id", case_id)}
+    except ValueError:
+        # WHY: a legitimate benchmark ID outside the telemetry allowlist must not
+        # suppress the whole model event or leak arbitrary/private identifier text.
+        return {}

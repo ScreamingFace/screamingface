@@ -8,7 +8,7 @@
     "openrouter/z-ai/glm-5.2"
   ],
   "limit": 25,
-  "expression_sha": "b04775e20944a6818b2c1b99341342cd866dc99498eea9fe91b47fe7eff5a53e",
+  "expression_sha": "0900d6e77d4763ef62c5215e6e30d9d5186dcf67280c699c461883b435cfd4f3",
   "final_score": "0.8044",
   "case_count": 25,
   "gradeable_count": 20,

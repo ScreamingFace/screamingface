@@ -16,6 +16,7 @@ from screamingface_engine.benchmarks.case_execution import (
     case_execution_payload,
     install_case_execution,
 )
+from screamingface_engine.benchmarks.case_selection import install_case_selection
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
 from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
@@ -377,6 +378,7 @@ async def test_a_limit_one_expression_resolves_end_to_end(tmp_path: Path) -> Non
     _write_assets(tmp_path)
     node = Url4Node("test")
     install(node, tmp_path, WORST30_EXAM)
+    install_case_selection(node)
     install_case_execution(node)
 
     @node.endpoint(CANDIDATE_ROUTE)

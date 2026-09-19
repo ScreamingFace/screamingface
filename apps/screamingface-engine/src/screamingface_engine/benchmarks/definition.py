@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from screamingface_engine.benchmarks.case_request import CONTEXT_FORMAT
 from screamingface_engine.benchmarks.contract import CANDIDATE_BINDING, CANDIDATE_ROUTE
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
-from url4 import Node, RelExpr, build, expr, render, src, text
+from url4 import Node, RelExpr, build, expr, render, src, struct, text
 from url4.peer.server import Url4Node
 
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
@@ -282,9 +283,12 @@ class Benchmark:
 
 
 def candidate_call(
-    input: str,
+    input: str | Mapping[str, object],
     *,
     binding: str = CANDIDATE_REF,
+    case_id: str | None = None,
+    case_position: str | None = None,
+    case_count: str | None = None,
     web_search: bool,
     web_search_exclude: Sequence[str] = (),
 ) -> RelExpr:
@@ -295,9 +299,13 @@ def candidate_call(
     and ships VERBATIM (OME-1126: the MedXpertQA commit's `$reasoning` reached the model
     as the literal string, leaving the prompt without the turn-1 essay). An input that
     must read a sibling binding uses this form inside the group that binds it.
+
+    With case_id, input is a text template or a structured mapping; supply mappings
+    directly rather than pre-rendering them. The handler removes the metadata envelope
+    before evaluation, preserving the resolved input and keeping Case IDs out of prompts.
     """
 
-    if not isinstance(input, str) or not input:
+    if not isinstance(input, str | Mapping) or not input:
         raise ValueError("Candidate Invocation input must be non-empty URL4 context")
     if not isinstance(binding, str) or not binding.startswith("$"):
         raise ValueError("Candidate binding must be a URL4 structural reference")
@@ -310,18 +318,43 @@ def candidate_call(
     params: list[tuple[str, str]] = [("web_search", "true" if web_search else "false")]
     if excluded:
         params.append(("web_search_exclude", ":".join(excluded)))
+    if case_id is None and (case_position is not None or case_count is not None):
+        raise ValueError("Case numbering requires Case identity")
+    context = render(struct(input)) if isinstance(input, Mapping) else input
+    if case_id is not None:
+        context = _candidate_context(input, case_id, case_position, case_count)
+        params.append(("context_format", CONTEXT_FORMAT))
     return RelExpr(
         path=CANDIDATE_ROUTE,
-        context=input,
+        context=context,
         intent=text(binding),
         params=tuple(params),
     )
 
 
+def _candidate_context(
+    input: str | Mapping[str, object],
+    case_id: str,
+    case_position: str | None,
+    case_count: str | None,
+) -> str:
+    if not isinstance(case_id, str) or not case_id:
+        raise ValueError("Case identity must be non-empty URL4 text")
+    envelope: dict[str, object] = {"input": input, "case_id": case_id}
+    if case_position is not None or case_count is not None:
+        if not case_position or not case_count:
+            raise ValueError("Case position and count must be supplied together")
+        envelope.update(case_position=case_position, case_count=case_count)
+    return render(struct(envelope))
+
+
 def candidate(
-    input: str,
+    input: str | Mapping[str, object],
     *,
     binding: str = CANDIDATE_REF,
+    case_id: str | None = None,
+    case_position: str | None = None,
+    case_count: str | None = None,
     web_search: bool,
     web_search_exclude: Sequence[str] = (),
 ) -> Node:
@@ -330,6 +363,9 @@ def candidate(
     call = candidate_call(
         input,
         binding=binding,
+        case_id=case_id,
+        case_position=case_position,
+        case_count=case_count,
         web_search=web_search,
         web_search_exclude=web_search_exclude,
     )
