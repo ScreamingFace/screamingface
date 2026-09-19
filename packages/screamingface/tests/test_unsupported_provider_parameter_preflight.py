@@ -28,6 +28,7 @@ from _model_parameter_fixtures import SUMMARY as _SUMMARY
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
+from screamingface import _default_client
 
 _BENCHMARK_URL4 = render(
     expr(
@@ -461,3 +462,35 @@ def _stale_seed(model: str, support_by_model: dict[str, str]) -> dict[str, objec
     row["provider"] = {**row["provider"], "stale": True}
     value["parameters"]["seed"] = row
     return value
+
+
+def test_the_notebook_call_sf_evaluate_reaches_the_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal is reachable from the door the examples actually use.
+
+    Every test above drives `Client.evaluate`, but `examples/*.ipynb` — and the run that
+    produced this ticket's evidence — call the module-level `sf.evaluate`. Those are two links
+    in one chain, each pinned separately: the wrapper's forwarding in
+    `test_default_client_evaluate_passthrough.py`, the gate here. Two pinned links do not pin
+    the join, and this is the exact join that silently came apart before: `answer_seed` shipped
+    on the Client and stayed unreachable from `sf.evaluate` until a `TypeError` surfaced it
+    (OME-1227).
+
+    So this drives the REAL default-client seam — a real `Client` behind
+    `default_client`, not a recording stub — and asserts the notebook idiom refuses pre-spend.
+    """
+    transport = _ForbiddenTransport()
+    client = sf.Client(
+        engine_url="https://engine.example",
+        http_transport=_engine({_SYNTH: "unsupported"}),
+        run_transport=transport,
+    )
+    monkeypatch.setattr(_default_client, "default_client", lambda: client)
+
+    with client, pytest.raises(sf.PlanningError) as caught:
+        sf.evaluate(_fusion(), benchmark="fixture", answer_seed=42)
+
+    assert caught.value.code == "unsupported_model_parameter"
+    assert _SYNTH in str(caught.value)
+    assert transport.called is False
