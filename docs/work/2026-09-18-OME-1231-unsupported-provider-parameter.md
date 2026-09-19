@@ -1,9 +1,9 @@
 ---
 ticket: OME-1231
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-18
-finished:
+finished: 2026-09-19
 ---
 
 # OME-1231 — Refuse a seeded run before spend when a model's provider cannot take the seed
@@ -107,7 +107,8 @@ Written RED first, against the production path (`sf.Client` / `sf.AsyncClient`, 
   helpers, and a Feynman docstring on `_validate_parameter`, which had none),
   `tests/test_unsupported_provider_parameter_preflight.py` (new, RED first), `CHANGELOG.md`,
   ledger + mirror. No other source file touched; no Engine change; no wire change.
-- **Commits:** one on `OME-1231-parameter-preflight`, `Refs: OME-1231`.
+- **Commits:** three on `OME-1231-parameter-preflight`, merged as `ce147387` (PR #989) —
+  `781ac803` the gate, `d731beaa` the review round, `4461fc77` the notebook-door test.
 - **Gates:** `run_gates.py screamingface` **ALL GATES GREEN** — append-only, ruff check, ruff
   format, pyright, pytest with `--cov-fail-under=95`, notebook determinism, `uv build`,
   distribution check. Full suite 1631 passed / 25 skipped. RED→GREEN confirmed: the 6 refusal
@@ -128,6 +129,33 @@ Written RED first, against the production path (`sf.Client` / `sf.AsyncClient`, 
     field, so a denial costs reproducibility either way and deserves the same sentence. The
     *rule* stays general over `provider_support`; only the *copy* knows about `seed`, and a test
     pins that a non-seed denial gets no seed wording.
+- **Review round (2026-09-19):** four findings, all verified by running the code rather than
+  reading it — two fixed, one relocated, two pushed back.
+  - **Gate ORDER was the change's load-bearing claim and nothing pinned it.** Measured: moving
+    stage 3 below stage 4, or above stage 2, left all 21 preflight tests green while changing
+    what the user is told. On a row that is denied AND carries an invalid value, the reordering
+    reports `invalid_model_parameter` "expected integer" instead of the denial — so the reader
+    corrects the value, reruns, and hits the same wall. Above stage 2, a gateway-disabled row
+    loses the message naming which credential would open it. Two tests now pin each position,
+    each verified to fail under its matching mutation.
+  - **`sf.evaluate` — the notebook door — was never exercised.** Every test drove
+    `Client.evaluate`; the wrapper's forwarding was pinned separately with a stub client. Two
+    pinned links, unpinned join, and that join is exactly what came apart in OME-1227. Added a
+    test through the real `default_client` seam; verified as a pin by mutating the wrapper's two
+    forwarding sites to `None` (the OME-1227 bug reproduced — that test alone fails).
+  - **Stale evidence** now rides the `hint`, not `details`: a stale `unsupported` can refuse a
+    run that works today, and from the message alone the only visible fix is swapping a Model
+    that may be fine. Placed in the hint because it is advice about what to do next, not a fact
+    about the parameter — and, usefully, that choice kept the append-only gate green.
+  - **Pushed back on two.** The async-test style nit copies `test_model_parameter_preflight.py`'s
+    existing idiom verbatim. The proposed `_SEED_PARAM` ↔ Engine `ANSWER_SEED_PARAM` conformance
+    assertion rests on a false premise: the wire name is the GATEWAY contract's key, and both
+    sides bind to it independently, so there is no drift channel between the two constants. The
+    docstring did misname the source of truth, and was corrected.
+  - **No append-only waiver was needed at any point.** The first attempt tripped the gate (10
+    changed lines); making the fixture change additive and moving staleness to the hint brought
+    it to 134 insertions / 0 deletions. The last complaint was a heuristic false positive on new
+    helpers sitting between two old ones, resolved by appending them at the end of the module.
 - **Owner-verify:** against a live stack, `sf.evaluate(fusion, benchmark="inspect-gsm8k",
   limit=2, answer_seed=42)` where the synthesiser is `openrouter/anthropic/claude-haiku-4.5`
   should now raise `PlanningError` immediately with **no cost recorded**, naming the model and
