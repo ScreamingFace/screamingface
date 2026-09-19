@@ -37,4 +37,8 @@ directory, so only one person's sessions could use it. Move it into tracked
 - **Actual files:** as planned
 - **Commits:** 9c103204 — docs(repo): share the code-review agent guide in .claude/agents (+ the close-docs commit)
 - **Gates:** docs-only; pre-commit hooks passed; grep verified no personal names/paths in the shared doc
-- **Deviations:** none
+- **Deviations:** none at the time this was closed. The PR grew afterwards: OME-1223
+  merged two further commits (`d20b8a97`, `ab255233`) into this branch, which revise
+  the shared guide and remove the four-beat output format named above. Its reasoning,
+  deviations and the open questions raised in review are in
+  `docs/work/2026-09-17-OME-1223-review-agent.md`.
