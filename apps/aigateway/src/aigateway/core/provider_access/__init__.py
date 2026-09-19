@@ -22,6 +22,11 @@ from .auth_mode import (
 )
 from .defaults import apply_defaults
 from .ports import ProviderAccess, ProviderCredentialAdmin
+from .profile_admin import (
+    ProfileBackedCredentialAdmin,
+    provider_credential_admin_for,
+    summary_of,
+)
 from .profile_authorize import (
     apply_authorization,
     invalidate_session,
@@ -42,9 +47,11 @@ from .types import (
     Authorization,
     AvailabilityRow,
     AvailabilityStatus,
+    CredentialStoreUnavailable,
     CredentialSummary,
     CredentialTarget,
     ProviderAccessRefusal,
+    ProviderUnknown,
     RequestDefaults,
     ResolvePolicy,
     SelectorAmbiguous,
@@ -63,12 +70,15 @@ __all__ = [
     "Authorization",
     "AvailabilityRow",
     "AvailabilityStatus",
+    "CredentialStoreUnavailable",
     "CredentialSummary",
     "CredentialTarget",
+    "ProfileBackedCredentialAdmin",
     "ProfileBackedProviderAccess",
     "ProviderAccess",
     "ProviderAccessRefusal",
     "ProviderCredentialAdmin",
+    "ProviderUnknown",
     "RequestDefaults",
     "ResolvePolicy",
     "Selector",
@@ -97,8 +107,10 @@ __all__ = [
     "oauth_connection_store",
     "profileless_auth_mode",
     "provider_access_for",
+    "provider_credential_admin_for",
     "provider_name_of",
     "read_defaults",
     "reauth_url_for",
+    "summary_of",
     "target_from_legacy",
 ]

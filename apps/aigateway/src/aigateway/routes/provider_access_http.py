@@ -15,7 +15,9 @@ from typing import Any
 from fastapi import HTTPException
 
 from ..core.provider_access import (
+    CredentialStoreUnavailable,
     ProviderAccessRefusal,
+    ProviderUnknown,
     SelectorAmbiguous,
     SelectorUnknown,
     SelectorUnsupported,
@@ -116,12 +118,50 @@ def render_refusal(exc: ProviderAccessRefusal) -> HTTPException:
         return HTTPException(status_code=400, detail=_unsupported_detail(exc))
     if isinstance(exc, WriteConflict):
         return _write_conflict(exc)
+    rendered = _management_refusal(exc)
+    if rendered is not None:
+        return rendered
+    raise TypeError(f"no HTTP rendering for {type(exc).__name__}")  # pragma: no cover
+
+
+def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
+    """The rows added after A1's read table: the Stage D selector sunset and the A3 admin rows."""
     if isinstance(exc, SelectorUnsupported):
         return HTTPException(
             status_code=400,
             detail={"code": "x_profile_unsupported", "requested_label": exc.requested},
         )
-    raise TypeError(f"no HTTP rendering for {type(exc).__name__}")  # pragma: no cover
+    if isinstance(exc, ProviderUnknown):
+        # `routes/auth.py::upsert_api_key_profile` :1264-1266 at 248b0b6d (the PUT shape; the
+        # delete shell's provider-less shape is `render_legacy_delete_refusal`).
+        return HTTPException(
+            status_code=404, detail={"code": "unknown_provider", "provider": exc.provider}
+        )
+    if isinstance(exc, CredentialStoreUnavailable):
+        # `routes/credential_persistence.py::persist_credentials_or_503` at 248b0b6d.
+        return HTTPException(
+            status_code=503,
+            detail={
+                "code": "credential_store_unavailable",
+                "message": f"Could not store {exc.description}. Try again.",
+            },
+        )
+    return None
+
+
+def render_legacy_delete_refusal(exc: ProviderAccessRefusal) -> HTTPException:
+    """The delete shell's own rows (F3, owner 2026-09-18): today's provider-less 404 bodies.
+
+    # COMPATIBILITY (window-only, retired with the shells at Stage E / OME-1209):
+    # `routes/auth.py::delete_profile_for_account` :1380 and :1384 at 248b0b6d raised
+    # `{"code": "unknown_provider"}` and `{"code": "profile_not_found"}` with NO provider or name
+    # field, unlike every other row. Every other refusal renders through the shared table.
+    """
+    if isinstance(exc, ProviderUnknown):
+        return HTTPException(status_code=404, detail={"code": "unknown_provider"})
+    if isinstance(exc, TargetMissing):
+        return HTTPException(status_code=404, detail={"code": "profile_not_found"})
+    return render_refusal(exc)
 
 
 @contextmanager
@@ -131,3 +171,12 @@ def refusals_as_http() -> Iterator[None]:
         yield
     except ProviderAccessRefusal as exc:
         raise render_refusal(exc) from exc
+
+
+@contextmanager
+def legacy_delete_refusals_as_http() -> Iterator[None]:
+    """`refusals_as_http`, rendering through the delete shell's rows (F3)."""
+    try:
+        yield
+    except ProviderAccessRefusal as exc:
+        raise render_legacy_delete_refusal(exc) from exc
