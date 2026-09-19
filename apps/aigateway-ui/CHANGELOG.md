@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0](https://github.com/ScreamingFace/screamingface/compare/aigateway-ui-v0.2.0...aigateway-ui-v0.3.0) (2026-09-19)
+
+
+### Features
+
+* admin cache-snapshot upload — gateway + console (OME-951) ([cf69fff](https://github.com/ScreamingFace/screamingface/commit/cf69fff81eb5f7e66da9ffbed6048b16a79d78c1))
+* **aigateway-ui:** response-cache console section ([0c8b360](https://github.com/ScreamingFace/screamingface/commit/0c8b360b6068f0e91d2c19e0f842e52dd3ae72f6))
+* standard metadata (cost, latency, tokens) on every cached response ([#930](https://github.com/ScreamingFace/screamingface/issues/930)) ([0d2c00f](https://github.com/ScreamingFace/screamingface/commit/0d2c00f829287b3d8fa1adc8dd380ff3e10b6b06))
+
+
+### Bug Fixes
+
+* **aigateway-ui:** raise server-action body limit for snapshot uploads ([2daf1c5](https://github.com/ScreamingFace/screamingface/commit/2daf1c55dc04c2db701c1f590d1572e8edce7a67))
+* **repo:** complete the org repoint sweep ([32a3868](https://github.com/ScreamingFace/screamingface/commit/32a3868a06a52716efaabe7b51c47aed9d704e4f))
+
+
+### Documentation
+
+* **repo:** repoint the remaining OpenMined org references to ScreamingFace ([9e739a0](https://github.com/ScreamingFace/screamingface/commit/9e739a051cf6abf1778b39b57198f2ad75701205))
+
 ## [0.2.0](https://github.com/OpenMined/screamingface/compare/aigateway-ui-v0.1.0...aigateway-ui-v0.2.0) (2026-08-04)
 
 
