@@ -1,12 +1,12 @@
 ---
 id: OME-1231
 linear_url: https://linear.app/openmined/issue/OME-1231/a-seeded-run-fails-instead-of-saying-the-model-cannot-take-a-seed
-status: in_progress
+status: closed
 type: task
 priority: P2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-09-18
-closed:
+closed: 2026-09-19
 ---
 
 # A seeded run fails instead of saying the model cannot take a seed
