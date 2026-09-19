@@ -25,6 +25,14 @@ data:
   {{- fail "config.activityLevel must be off or full" }}
   {{- end }}
   URL4_CLOUD_ACTIVITY_LEVEL: {{ .Values.config.activityLevel | quote }}
+  # The worker's half of the log level (OME-942). `cli.main` calls `logs.configure()` for the
+  # `worker` mode too, and a worker's process log is the operator's only view of a run that is
+  # not the CloudEvents stream.
+  #
+  # INVARIANT: rendered from the SAME `config.logLevel` as the App's ConfigMap. One value, two
+  # renderings — a level that reached only one half would be a knob that half works, which is
+  # the class of defect OME-942 exists to remove.
+  URL4_CLOUD_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   # Where the worker's children publish their run log. Their own fallback is loopback, which
   # inside a worker pod is that pod — so this must name the NATS Service to reach it.
   URL4_CLOUD_NATS_URL: {{ include "screamingface-engine.natsUrl" . | quote }}

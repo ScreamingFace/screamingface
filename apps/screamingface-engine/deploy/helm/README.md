@@ -294,6 +294,45 @@ helm template apps/screamingface-engine/deploy/helm --set config.natsUrl=nats://
 For a real end-to-end exercise of this chart — the same templates, values-only overrides — see
 [`../kind/README.md`](../kind/README.md).
 
+### Turning a deployment up to DEBUG, and what the probes ask (OME-942)
+
+`config.logLevel` sets the level the `screamingface_engine` logger tree runs at, rendered to
+BOTH halves — the App's ConfigMap and the runner pool's — as `URL4_CLOUD_LOG_LEVEL`. It was
+previously readable by the code and settable by nobody, so no deployed pod could be turned up
+during an incident:
+
+```bash
+helm upgrade ... --set config.logLevel=DEBUG   # then restart the pods
+```
+
+The probes ask two different questions and target two different endpoints:
+
+| Probe | Path | Asks | On failure |
+|---|---|---|---|
+| `livenessProbe` | `/livez` | is this process up? | the pod is RESTARTED |
+| `readinessProbe` | `/readyz` | can this pod's EVENT STREAM reach NATS? | the pod leaves the Service's endpoints |
+
+Both used to target `/healthz`, which answers unconditionally — so the readiness probe could not
+fail whatever the state of the pod's NATS connection. (That is read off the chart and the
+endpoint. No incident is claimed; none was investigated.) Keep liveness broker-blind: a broker
+outage must take pods out of rotation, not restart every replica. `/healthz` is still served,
+unchanged, for anything outside this chart.
+
+**Exactly what `/readyz` asks, and what it does not.** It asks the App's own event-stream
+consumer (`app.state.stream`). The queue runner holds SEPARATE NATS connections and is not
+probed, so a pod whose runner connections are dead while the consumer's is live still reports
+ready. Both the check and the endpoint are time-bounded (3s and 4s) so the probe answers before
+`readinessProbe.timeoutSeconds` rather than parking a handler the kubelet has stopped waiting
+for. The 503 body's `reason` is a fixed literal — never the NATS URL and never the broker's own
+error text, both of which reach an unauthenticated caller through the gateway's `/` route; the
+detail is in the pod's log at WARNING.
+
+**Availability trade, not yet signed off.** Readiness is now broker-aware for a Service fronted
+by a single `/` PathPrefix, so a TOTAL NATS outage empties every replica's endpoints at once —
+including paths that need no broker (token mint, `/docs`, catalog REST, artifact GETs). The
+probe pays off in PARTIAL failure and pays nothing in total failure. See `values.yaml` next to
+the probe definitions, and the OME-942 ledger's D8.
+
 ### Optional live activity
 
 Set `config.activityLevel: "full"` on public deployments to emit the safe v1 model-call

@@ -310,3 +310,37 @@ class _MaxDeliveriesCollector:
 def register_max_deliveries_metrics(metrics: Metrics, get_advisor: Callable[[], Any]) -> None:
     """Register a `_MaxDeliveriesCollector` for `get_advisor` on `metrics.registry`."""
     metrics.registry.register(_MaxDeliveriesCollector(get_advisor))
+
+
+class _ActiveRunsCollector:
+    """A `prometheus_client` custom collector for in-process runs in flight (OME-942).
+
+    `InProcessJobRunner.active_count()` is the admission gate's own input — the number
+    `max_concurrent_runs` is compared against — and its docstring claimed to be what `/metrics`
+    reports while nothing ever read it. An operator watching runs get refused had no series to
+    look at; this is that series.
+    """
+
+    def __init__(self, get_runner: Callable[[], Any]) -> None:
+        self._get_runner = get_runner
+
+    def collect(self) -> Iterable[Any]:
+        runner = self._get_runner()
+        active_count = getattr(runner, "active_count", None)
+        # WHY absence rather than a confident 0 (the same call `_QueueCollector` makes about
+        # depth): the QUEUE runner's runs execute in the worker pool and it keeps no in-process
+        # count, so a 0 here would read as "nothing is running" for a saturated fleet. Where
+        # the count DOES exist it is authoritative from the first moment, so a genuine 0 is
+        # reported as 0 rather than omitted.
+        if active_count is None:
+            return
+        yield GaugeMetricFamily(
+            "screamingface_engine_active_runs",
+            "Runs executing in this App process right now (in-process runner only).",
+            value=float(active_count()),
+        )
+
+
+def register_active_runs_metrics(metrics: Metrics, get_runner: Callable[[], Any]) -> None:
+    """Register an `_ActiveRunsCollector` for `get_runner` on `metrics.registry`."""
+    metrics.registry.register(_ActiveRunsCollector(get_runner))
