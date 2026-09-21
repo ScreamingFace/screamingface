@@ -24,6 +24,7 @@ BASELINE: dict[str, int] = {
     "core/render.py": 687,
     "dag/executor.py": 524,
     "peer/server.py": 501,
+    "io/layer.py": 197,
     "observe.py": 483,
     "core/parser.py": 471,
     "core/builders.py": 468,

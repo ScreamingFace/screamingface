@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from url4.core.collection import parse_collection
 from url4.core.errors import (
     CollectionError,
     ParseError,
@@ -13,7 +14,7 @@ from url4.core.errors import (
 )
 from url4.core.subrequest import encode_subrequest
 from url4.io.http import HttpIOLayer
-from url4.io.layer import FetchRequest, FetchResult, fetch_result, parse_collection, resolve_shelf
+from url4.io.layer import FetchRequest, FetchResult, fetch_result, resolve_shelf
 from url4.io.static import StaticIOLayer
 
 

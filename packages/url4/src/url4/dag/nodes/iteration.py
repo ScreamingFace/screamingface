@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from url4.core.collection import parse_collection
 from url4.core.context import Context
 from url4.core.ensemble import (
     substitute_env_vars,
@@ -17,7 +18,6 @@ from url4.core.nodes import IterationDirectives
 from url4.core.nodes import RelExpr as AstRelExpr
 from url4.core.parser import split_intent
 from url4.core.subrequest import encode_subrequest
-from url4.io.layer import parse_collection
 
 from url4.dag.node import (  # isort: skip
     DagNode,

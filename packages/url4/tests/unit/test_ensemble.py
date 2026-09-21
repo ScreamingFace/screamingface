@@ -7,6 +7,7 @@ import json
 import pytest
 from conftest import RecordingIOLayer
 
+from url4.core.collection import parse_collection
 from url4.core.context import Context
 from url4.core.ensemble import (
     FanoutResponse,
@@ -17,7 +18,6 @@ from url4.core.ensemble import (
 from url4.core.errors import CollectionError, ResolutionError, ScopeError
 from url4.core.subrequest import decode_subrequest
 from url4.dag import ExecutionContext, run
-from url4.io.layer import parse_collection
 from url4.io.static import StaticIOLayer
 
 
