@@ -1,9 +1,9 @@
 ---
 ticket: OME-1235
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-21
-finished:
+finished: 2026-09-21
 ---
 
 # OME-1235 — Refuse undeclared failure names in the SDK and pin its list to the engine's
@@ -70,7 +70,19 @@ cross-app import.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus ~30 fixture migrations across 12 SDK test
+  files (owner-approved batch), the engine-side conformance twin
+  (apps/screamingface-engine/tests/unit/test_failure_code_conformance.py), and the
+  renamed decode test now carrying the wire-boundary refusal pin
+  (tests/test_case_outcome_decoding.py).
+- **Commits:** 685fdc67 (SDK mirror + strict refusal + conformance test) ·
+  b4c6521d (review fixes: engine twin, bidirectional family bind, skip-guard
+  tightening, decode refusal pin). Merged: #1000 38768bd3.
+- **Gates:** run_gates.py screamingface ALL GREEN (ruff, format, pyright, pytest
+  1,642+ passed w/ 95% coverage floor, notebooks, uv build, distribution check);
+  engine stack ALL GREEN with the twin.
+- **Deviations:** conformance blocker fixed with an engine-side twin instead of a
+  workflow-trigger edit (CI config is owner territory); strict-SDK consequence
+  recorded — pre-reconciliation reports refuse to load, accepted pre-launch. Adding
+  a future code is a breaking change for older installed SDKs: ship it in an SDK
+  release before the engine emits it.
