@@ -31,6 +31,12 @@ def skip_quoted(text: str, i: int) -> int:
     """
     j = i + 1
     n = len(text)
+    # INVARIANT: everything scanned so far belongs to the quote run opened at
+    #     ``i`` — a structural character inside the run is never exposed to a
+    #     caller, so quoted regions are never split mid-run.
+    # VARIANT: ``j`` strictly increases (≥ 1 per iteration; 2 across an
+    #     escape), so the scan always terminates; a terminated run (even the
+    #     empty ``''``) returns ≥ i + 2, only exhaustion returns i + 1.
     while j < n:
         ch = text[j]
         if ch == "\\":
@@ -55,6 +61,12 @@ def iter_top_level(expr: str) -> Iterator[tuple[int, str]]:
     depth = 0
     i = 0
     n = len(expr)
+    # INVARIANT: only characters at combined depth 0 OUTSIDE every quote run
+    #     are yielded — a separator inside ``(…)``/``{…}`` or ``'…'`` always
+    #     belongs to its enclosing region and is never seen as structural
+    #     (spec §8 parse rule 8).
+    # VARIANT: ``i`` strictly increases (``i = end`` skips a whole quote run,
+    #     where ``end ≥ i + 1``; every other branch adds 1), so iteration ends.
     while i < n:
         ch = expr[i]
         if ch == "'":
@@ -82,6 +94,11 @@ def iter_non_string_chars(text: str) -> Iterator[tuple[int, str]]:
     """
     i = 0
     n = len(text)
+    # INVARIANT: a character inside a complete ``"…"`` literal is never
+    #     yielded — structural characters there cannot perturb a caller's
+    #     depth scan; only an unterminated ``"`` falls through as ordinary.
+    # VARIANT: ``i`` strictly increases (``i = j + 1`` skips a whole literal,
+    #     where ``j ≥ i + 1``; every other iteration adds 1), so iteration ends.
     while i < n:
         if text[i] == '"':
             j = i + 1
