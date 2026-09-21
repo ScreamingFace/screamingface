@@ -92,7 +92,7 @@ def test_candidate_metrics_cannot_duplicate_top_level_coverage() -> None:
 def test_a_scored_candidate_can_retain_a_safe_candidate_failure() -> None:
     failure = sf.Failure(
         stage="aggregation",
-        code="partial_result",
+        code="grading_failed",
         message="one selected Case could not be graded",
         operation_id="op",
     )
