@@ -142,7 +142,8 @@ def test_wire_processor_param_selects_the_processor() -> None:
 def test_wire_processor_is_not_reattached_as_an_expression_param() -> None:
     # INVARIANT: `processor` is CONSUMED by the node, never appended to the
     # expression's `;` chain — it selects the run's processor, it is not a
-    # protocol param of the expression.
-    from url4.peer.server import _reassemble
+    # protocol param of the expression. (The helper lives in
+    # url4.peer._dispatch since the F2 split; the invariant did not move.)
+    from url4.peer._dispatch import reassemble
 
-    assert ";processor" not in _reassemble("(a)!b", {"processor": "gpt4", "tone": "formal"})
+    assert ";processor" not in reassemble("(a)!b", {"processor": "gpt4", "tone": "formal"})

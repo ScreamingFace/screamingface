@@ -112,7 +112,7 @@ async def test_data_route_media_type_drives_collection_iteration():
 
 
 async def test_empty_string_data_provider_is_served():
-    # server.py _dispatch(): a legitimately falsy provider ("") is served, not
+    # url4.peer/_dispatch.py dispatch(): a legitimately falsy provider ("") is
     # skipped as if the route were missing.
     n = Url4Node("empty")
     n.data("/api/empty", "")

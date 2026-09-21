@@ -1,4 +1,4 @@
-"""The node-side SDK — :class:`Url4Node`: registries, evaluation, and dispatch.
+"""The node-side SDK — :class:`Url4Node`: registries and evaluation.
 
 A node IS an :class:`~url4.io.layer.IOLayer`: it implements ``fetch`` (routing
 relative targets to its own endpoints / eval path / data routes and delegating
@@ -8,22 +8,10 @@ absolute URIs outbound), ``fetch_ex``, and ``fetch_holdings`` (``@`` and
 reuses the same ``fetch`` dispatch, so HTTP behavior and in-process behavior
 can never diverge.
 
-Dispatch contract (mirrors the engine's wire conventions):
-
-- **Endpoint paths are intent processors.** ``GET /claude?[params&]q=(ctx)!i``
-  calls the registered handler with :class:`Request` — ``context`` is *opaque,
-  already-resolved data*. AIDEV-NOTE: engine-internal dispatches wire-escape
-  resolved text, so re-evaluating it would mis-parse — handlers never receive
-  unresolved expressions.
-- **The eval path is the protocol surface** (default ``/v1``). Its ``q=`` is a
-  full url4 expression: the node reconstructs it, re-attaches non-transport
-  protocol params as the ``;``-chain (so ``broadcast``/``quorum`` keep their
-  spec meaning, §6.1.1/§9), and evaluates it against itself — sources resolve
-  HERE (§5.6.3 pass-through), the intent dispatches to the node's default
-  route (explicit ``default_processor``, else its first registered endpoint).
-- **Data routes** serve plain reads (`/api/rows`) for sources and collections.
-- **GET is the only verb.** WHY: url4-engine doctrine N1 — the expression is the
-  address, so the transactional call is an idempotent, cacheable GET.
+The dispatch half — how a relative target resolves against these registries —
+lives in :mod:`url4.peer._dispatch` (the second review's F2 split, made when
+the module-size cap fired): this module owns what a request CAN resolve to
+(registration) and the evaluation facade; that module owns the dispatch order.
 
 Deferred by design: response envelopes, streaming delivery, requestor
 authentication and consent hooks (they need the URL4-Auth-Token / Part C
@@ -34,51 +22,21 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from inspect import isawaitable, signature
+from inspect import signature
 from typing import overload
 
 from url4.core.context import Context
-from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
 from url4.core.render import render
-from url4.core.subrequest import (
-    TRANSPORT_ONLY_PARAMS,
-    decode_expression_http,
-    decode_subrequest_http,
-    extract_expression_params,
-)
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
-from url4.io.layer import FetchRequest, FetchResult, IOLayer, fetch_result, resolve_shelf
+from url4.io.layer import FetchRequest, FetchResult, IOLayer
+from url4.peer import _dispatch
+from url4.peer._dispatch import Request
 from url4.peer._http import asgi_app as _asgi_app
 from url4.peer._http import serve as _serve_node
 from url4.peer._owned import _OwnedIO
 from url4.peer.client import Url4Result
-
-# Transport-level query params a node consumes itself rather than re-attaching
-# to the expression (spec §11.6.3); `processor` is expression-bearing and its
-# delegation semantics (§27.3) are not implemented yet.
-# The ingress set is broader than the spec's transport-only rule: it also drops
-# params this node consumes itself (delivery/cb/meta/v) and `processor`, whose
-# §27.3 delegation semantics are not implemented yet (see `OME-506`).
-# INVARIANT: _TRANSPORT_PARAMS is DERIVED from TRANSPORT_ONLY_PARAMS, so the two
-# can never disagree about resume/rid.
-_TRANSPORT_PARAMS = TRANSPORT_ONLY_PARAMS | frozenset({"delivery", "cb", "meta", "v", "processor"})
-
-
-@dataclass(frozen=True)
-class Request:
-    """One decoded intent-processor call: ``GET <path>?[params&]q=(context)!intent``.
-
-    ``context`` is opaque resolved data (see the module contract); ``params``
-    are the decoded protocol params that preceded ``q=``.
-    """
-
-    path: str
-    context: str
-    intent: str
-    params: Mapping[str, str]
-
 
 EndpointHandler = Callable[[Request], str | Awaitable[str]]
 # handlers may take the requested collection or nothing at all
@@ -255,104 +213,18 @@ class Url4Node:
             raise ValueError(f"path {path!r} is already registered")
 
     # --- the IOLayer ports (a node IS an io layer) ----------------------------------
+    # Thin delegates: the dispatch order lives in url4.peer._dispatch (the F2
+    # split) — one owner, so HTTP (url4.peer._http) and in-process behavior
+    # cannot diverge.
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        if relative or target.startswith("/"):
-            return await self._dispatch(target)
-        return await self._outbound_io().fetch(target, relative=False)
+        return await _dispatch.fetch(self, target, relative=relative)
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
-        if request.relative or request.target.startswith("/"):
-            body = await self._dispatch(request.target)
-            return FetchResult(body, self._data_media_type(request.target))
-        return await fetch_result(self._outbound_io(), request)
-
-    def _data_media_type(self, target: str) -> str | None:
-        """The declared Content-Type of the data route serving ``target``, if any.
-
-        Mirrors ``_dispatch``'s exact-target-then-path data lookup; endpoint and
-        eval-path dispatches have no declared media type and report None.
-        """
-        route = self._data.get(target) or self._data.get(target.partition("?")[0])
-        return route.media_type if route is not None else None
+        return await _dispatch.fetch_ex(self, request)
 
     async def fetch_holdings(self, identity: str | None, collection: str | None) -> str:
-        if identity is None:
-            handler = resolve_shelf(self._self_holdings, collection)
-            if handler is None:
-                raise ResolutionError(
-                    f"node {self.name!r} serves no self holdings for {collection!r}"
-                )
-            return await _text(handler(collection))
-        named = self._identities.get(identity)
-        if named is None:
-            raise ResolutionError(
-                f"unknown identity {identity!r} on node {self.name!r}",
-                code=ErrorCode.UNKNOWN_IDENTITY,
-                permanent=True,
-            )
-        return await _text(named(collection))
-
-    # --- dispatch -----------------------------------------------------------------
-
-    async def _dispatch(self, target: str) -> str:
-        path, sep, query = target.partition("?")
-        params, q = extract_expression_params(query) if sep else ({}, None)
-        if q is not None:
-            expression_result = await self._dispatch_expression(path, q, params)
-            if expression_result is not None:
-                return expression_result
-        # INVARIANT: exact-target first, then the bare path — membership, not
-        # `.get(..., .get(...))`, so a hit avoids the second lookup and a
-        # legitimately falsy provider (e.g. "") is still served rather than skipped.
-        if target in self._data:
-            route: _DataRoute | None = self._data[target]
-        elif path in self._data:
-            route = self._data[path]
-        else:
-            route = None
-        if route is not None:
-            provider = route.provider
-            return await _text(provider() if callable(provider) else provider)
-        raise ResolutionError(
-            f"node {self.name!r} has no endpoint, eval path, or data route at {path!r}",
-            code=ErrorCode.ENDPOINT_NOT_FOUND,
-            permanent=True,
-        )
-
-    async def _dispatch_expression(
-        self, path: str, q: str, params: Mapping[str, str]
-    ) -> str | None:
-        """Route an expression-bearing request, or ``None`` if ``path`` bears none.
-
-        Returning ``None`` (rather than raising) lets :meth:`_dispatch` fall
-        through to the data routes, so a data path carrying its own ``?q=…``
-        query is still served as data.
-        """
-        if path in self._endpoints:
-            return await self._call_endpoint(path, q, params)
-        # Spec §5.6.1/§5.6.3.1 — `{eval_path}/<qualifier>` evaluates the
-        # expression with `@` scoped to that self-holdings collection:
-        # `GET /v1/science?q=(@)!'…'`. Multi-segment qualifiers join with "/"
-        # (`/v1/a/b` -> "a/b"), matching how an identity-collection is carried
-        # (§5.6.2); the bare eval path yields "" -> None, the default shelf.
-        # Endpoints are matched first, so a command route still wins its exact
-        # path; `_check_routable` keeps the two from overlapping.
-        if path == self._eval_path or path.startswith(f"{self._eval_path}/"):
-            collection = path[len(self._eval_path) + 1 :]
-            # AIDEV-NOTE: `processor` is consumed here, not re-attached by
-            # `_reassemble` — it selects this run's processor, not an expression param.
-            return await self._run_text(
-                _reassemble(q, params),
-                self_collection=collection or None,
-                processor=params.get("processor"),
-            )
-        return None
-
-    async def _call_endpoint(self, path: str, q: str, params: Mapping[str, str]) -> str:
-        context, intent = decode_subrequest_http(q)
-        request = Request(path=path, context=context, intent=intent, params=params)
-        return await _text(self._endpoints[path](request))
+        return await _dispatch.fetch_holdings(self, identity, collection)
 
     async def _run_text(
         self,
@@ -412,25 +284,6 @@ class Url4Node:
 
 
 # --- module helpers ------------------------------------------------------------------
-
-
-def _reassemble(q: str, params: Mapping[str, str]) -> str:
-    """Rebuild the eval-path expression, re-attaching non-transport params.
-
-    The dual-convention decode lives with the wire codec
-    (:func:`url4.core.subrequest.decode_expression_http` — one owner, spec §3.4).
-    ``broadcast`` and friends keep their §9 semantics by riding the trailing
-    ``;`` chain the envelope decode reads (a flag param decodes to value "").
-    """
-    text = decode_expression_http(q)
-    for key, value in params.items():
-        if key not in _TRANSPORT_PARAMS:
-            text += f";{key}" if value == "" else f";{key}={value}"
-    return text
-
-
-async def _text(result: str | Awaitable[str]) -> str:
-    return await result if isawaitable(result) else result
 
 
 def _adapt_holdings(handler: Callable[..., str | Awaitable[str]]) -> _HoldingsPort:

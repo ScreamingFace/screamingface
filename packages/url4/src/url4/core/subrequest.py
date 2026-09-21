@@ -36,7 +36,7 @@ _WIRE_UNSAFE = re.compile(r"[()'%&# \x00-\x1f\x7f]")
 # INVARIANT (spec §11.6.3): transport-only parameters are scoped to the single
 # hop that received them and MUST NOT appear on an outbound sub-request. This
 # frozenset is the ONE definition of that rule — the HTTP ingress
-# (`url4.peer.server._reassemble`) and the sub-request builder
+# (`url4.peer._dispatch.reassemble`) and the sub-request builder
 # (`url4.dag.nodes._wire_params`) both consume it. They previously enforced it
 # independently, so a `resume=`/`rid=` written in expression text was stripped
 # inbound but leaked outbound (`OME-501`).
