@@ -1549,11 +1549,12 @@ credit**. No judge, no grading tokens — like MedXpertQA, what you pay for is a
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare contracteval  # first run only: download pinned Benchmark assets
-screamingface up                    # Gateway :9105, Scoreboard :9106, Engine :9108
+screamingface up                    # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
