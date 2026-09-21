@@ -98,6 +98,43 @@ async def test_bare_relexpr_text_path_matches_ast_path() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "expr",
+    [
+        # a nested group beside a plain source — the shape the compiler's own
+        # parity note names: text path defers it to a LazyExprNode thunk, AST
+        # path expands it eagerly
+        "(https://a, (/solve(https://n)!'go')!merge)!'top'",
+        # a nested group beside an expression source
+        "(/proc('x')!'p1', (/solve(https://n)!'go')!merge)!'top'",
+        # nesting two deep
+        "(https://a, (/proc('x')!'p1', (/solve(https://n)!'go')!merge)!'mid')!'top'",
+        # broadcast and outer params ride the same envelope
+        "(https://a, (/solve(https://n)!'go')!merge)!*'top'",
+        "(https://a, (/solve(https://n)!'go')!merge)!'top';quorum=1",
+    ],
+)
+async def test_nested_group_text_path_matches_ast_path(expr: str) -> None:
+    # Result parity for the NESTED-GROUP shapes, extending the bare-relexpr
+    # test above as the parity note in dag/_lowering.py prescribes. The two
+    # paths build legitimately different graphs (a lazy thunk vs eager
+    # expansion), so parity is asserted on the RESOLVED STRING — never on
+    # graph structure — which is the observable contract a caller holds.
+    def io() -> StaticIOLayer:
+        return StaticIOLayer(
+            fetch_map={"https://a": "A", "https://n": "N"},
+            routes={
+                "/solve": lambda context, intent: f"SOLVE[{context}]/{intent}",
+                "/proc": lambda context, intent: f"PROC[{context}]/{intent}",
+            },
+        )
+
+    text_result = await run(expr, io())  # text path (string)
+    ast_result = await run(grammar_parse(expr), io())  # AST path (parsed node)
+    assert text_result == ast_result
+
+
+@pytest.mark.asyncio
 async def test_intent_quotes_are_delimiters_everywhere() -> None:
     # Quotes are delimiters (spec §5.1): stripped uniformly — on a top-level
     # intent AND on a relative expression's own inside-the-parens intent. The
