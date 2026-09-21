@@ -51,6 +51,11 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "healthbench_grading_failed",
         "medxpert_grading_failed",
         "inspect_grading_failed",
+        # WHY declared here (OME-1246): contracteval (engine PR #984) landed in flight
+        # with the OME-1233 vocabulary close, so its two codes never joined the set —
+        # a polarity mismatch then crashed report validation instead of failing the case.
+        "contracteval_grading_failed",
+        "polarity_mismatch",
         "missing_answer_asset",
         "missing_target_asset",
         # spine failure_messages table codes
