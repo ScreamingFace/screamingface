@@ -23,7 +23,7 @@ BASELINE: dict[str, int] = {
     "core/grammar.py": 944,
     "dag/_lowering.py": 737,
     "core/render.py": 687,
-    "cli/_serve.py": 661,
+    "cli/_serve.py": 340,
     "dag/executor.py": 524,
     "peer/server.py": 501,
     "observe.py": 483,
