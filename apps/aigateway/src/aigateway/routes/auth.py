@@ -43,11 +43,22 @@ from ..core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
+from ..core.provider_access import (
+    ProviderCredentialAdmin,
+    ProviderUnknown,
+    TargetMissing,
+    provider_credential_admin_for,
+)
 from .api_key_validation import normalize_api_key, require_valid_api_key
 from .credential_persistence import (
     SupportsCredentialPersistence,
     SupportsCredentialSlot,
     persist_credentials_or_503,
+)
+from .provider_access_http import (
+    legacy_delete_refusals_as_http,
+    refusals_as_http,
+    render_refusal,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,6 +90,16 @@ def _registry_for_app(app):
 
 def _credential_store_for_app(app):
     return app.state.credential_store
+
+
+def _credential_admin(request: Request) -> ProviderCredentialAdmin:
+    """The admin boundary the Profile management shells call (OME-1230, Stage A3)."""
+    return provider_credential_admin_for(request.app)
+
+
+def _projections(summaries) -> list[dict]:
+    # COMPATIBILITY (window-only, Stage E): today's Profile JSON, from the summary's projection.
+    return [summary.legacy_projection for summary in summaries]
 
 
 def _credential_strategy_for_app(
@@ -495,27 +516,28 @@ async def _redirect_uri_for(
     return _gateway_redirect_uri_for(request, cfg)
 
 
+# --- legacy Profile listings: shells over `ProviderCredentialAdmin.list` (OME-1230, A3) ---------
+# COMPATIBILITY: these routes and their JSON are the legacy Profile surface, retired at Stage E
+# (OME-1209); the backing-neutral successor is `GET /v1/provider-access` (A4).
+
+
 @router.get("/v1/auth/profiles")
 async def list_profiles(request: Request, current: CurrentAccount) -> dict:
-    profiles = await _index_store(request).list(str(current.id))
-    return {"profiles": [p.model_dump(mode="json") for p in profiles]}
+    return {"profiles": _projections(await _credential_admin(request).list(str(current.id)))}
 
 
 @router.get("/v1/auth/{provider}/profiles")
 async def list_provider_profiles(provider: str, request: Request, current: CurrentAccount) -> dict:
-    profiles = await _index_store(request).list(str(current.id), provider)
-    return {"profiles": [p.model_dump(mode="json") for p in profiles]}
+    summaries = await _credential_admin(request).list(str(current.id), provider)
+    return {"profiles": _projections(summaries)}
 
 
 @router.get("/v1/auth/{provider}/profiles/{name}")
 async def get_profile(provider: str, name: str, request: Request, current: CurrentAccount) -> dict:
-    p = await _index_store(request).get(str(current.id), provider, name)
-    if p is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "profile_not_found", "provider": provider, "name": name},
-        )
-    return p.model_dump(mode="json")
+    for summary in await _credential_admin(request).list(str(current.id), provider):
+        if summary.selector == name:
+            return summary.legacy_projection
+    raise render_refusal(TargetMissing(provider, name))
 
 
 class StartAuthRequest(BaseModel):
@@ -1257,106 +1279,40 @@ async def upsert_api_key_profile(
     raw_api_key: SecretStr,
     defaults: ProfileDefaults | None,
 ) -> dict:
-    """Create or update a profile that authenticates with a raw API key.
+    """Create or update a profile that authenticates with a raw API key — the ONE shared shell.
 
-    No OAuth round-trip: the profile is AUTHENTICATED as soon as the key is
-    stored. The key is persisted to the profile's credential blob slot (so a
-    later OAuth completion overwrites it, and delete removes it). The RAW key is
-    never returned in responses or logs; the profile carries only a masked
-    display label of the last 4 characters (``account_label = "API key ····WXYZ"``),
-    the same last-4 convention used by Stripe/AWS/GitHub.
+    The tenant route and the admin console (`OME-706`) both call this, so the OME-307 invariants
+    live in exactly one place: `core/provider_access/profile_admin.py::set_api_key`, behind the
+    admin boundary (OME-1230, Stage A3). The shell keeps the two edge halves only:
 
-    WHY `account_id` is a parameter rather than read from the caller: the admin console writes
-    keys on a tenant's behalf (`OME-706`). Both routes MUST share this implementation — it carries
-    the OME-307 transaction-ordering invariants below, and a second copy of them written for the
-    admin path would be a second place for them to rot.
+    - key normalisation and validation BEFORE the boundary is called (F4, owner 2026-09-18 —
+      moving validation into core is outside this stage);
+    - the post-commit OAuth cleanup AFTER it (network I/O, outside any transaction).
+
+    The RAW key is never returned in responses or logs; the response is the boundary's window-only
+    projection of the Profile, byte-identical to today's `Profile.model_dump(mode="json")`.
+    # COMPATIBILITY: retired with the legacy Profile routes at Stage E (OME-1209).
     """
     plugin = _registry(request).get(provider)
     if plugin is None:
-        raise HTTPException(
-            status_code=404, detail={"code": "unknown_provider", "provider": provider}
-        )
+        raise render_refusal(ProviderUnknown(provider))
     api_key = normalize_api_key(raw_api_key)
-    strategy = _credential_strategy_for_app(
-        request.app, plugin, provider, account_id, name, auth_type="api_key"
-    )
-    if strategy is None:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "api_key_not_supported", "provider": provider},
-        )
-
     await require_valid_api_key(request, plugin, provider, api_key)
 
-    idx = _index_store(request)
-    profile = await idx.get(account_id, provider, name)
-    # INVARIANT (OME-307 Unit 3): if we observed an existing profile, publication must not
-    # resurrect it should a concurrent delete remove it before we commit (delete wins).
-    profile_observed = profile is not None
-    if profile is None:
-        profile = Profile(
-            id=profile_id_for(account_id, provider, name),
-            account_id=account_id,
-            provider=provider,
-            name=name,
+    with refusals_as_http():
+        summary = await _credential_admin(request).set_api_key(
+            account_id, provider, raw_api_key=api_key, legacy_name=name, defaults=defaults
         )
-    if defaults is not None:
-        profile.defaults = defaults
-    profile.auth_type = "api_key"
-    profile.state = ProfileState.AUTHENTICATED
-    profile.last_refreshed_at = datetime.now(UTC)
-    profile.account_label = f"API key ····{api_key[-4:]}"
-    profile.scopes = []  # OAuth scopes are meaningless for API-key auth (F24)
-
-    strategy_for_slot = cast(SupportsCredentialSlot, strategy)
-    # WHY: the credential blob and profile index share the Tortoise connection; publish both
-    # in one short transaction so readers never observe a committed mixed auth type.
-    # INVARIANT (OME-307 Blocker 3): the index-row CAS runs FIRST, the credential write SECOND —
-    # ONE consistent lock order shared with delete_profile. The account index row is the sole
-    # ALWAYS-PRESENT row, so it is the only row that serializes a concurrent delete; the
-    # credential row may be absent, and a missing-row operation takes no lock under READ
-    # COMMITTED. Publishing the index first means a racing delete that removed the profile makes
-    # require_present raise BEFORE any credential is written, so nothing is orphaned or resurrected.
-    # INVARIANT (OME-307 Blocker 4): transaction rollback is the SOLE atomicity mechanism here.
-    # ORMStore writes through the transaction's connection, so a failed OR cancelled publication
-    # (including a 3.12 CancelledError, a BaseException) rolls back BOTH the index upsert and the
-    # credential write. There is deliberately NO out-of-transaction compensation: a second,
-    # post-rollback credential mutate is redundant with rollback AND could race a concurrent
-    # writer that legitimately owns the slot (an ABA clobber). Any exception other than the
-    # delete-wins conflict propagates unchanged so the enclosing txn rolls back and re-raises.
-    try:
-        async with in_transaction():
-            # INVARIANT (OME-307 Unit 3): an observed-existing profile publishes conditionally
-            # so a concurrent delete WINS (no resurrection); a first-time key stays an
-            # unconditional create. Splitting the call keeps `upsert(profile)` — the create
-            # contract — untouched for the common path.
-            if profile_observed:
-                await idx.upsert(profile, require_present=True)
-            else:
-                await idx.upsert(profile)
-            await persist_credentials_or_503(
-                strategy_for_slot,
-                {"auth_type": "api_key", "api_key": api_key},
-                description="API-key credentials",
-            )
-    except ProfileTransitionConflict as exc:
-        # A concurrent delete removed the profile we were updating: delete wins, so the
-        # rolled-back publication surfaces as a retryable conflict rather than a 500.
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "profile_conflict", "provider": provider, "profile": name},
-        ) from exc
     # INVARIANT (OME-307 Unit 5): only after the API-key publication COMMITS do we
     # irreversibly cancel any in-flight OAuth flow for this profile. A late OAuth callback is
     # already rejected by authenticate_pending's pending-state CAS (it rolls back and returns
     # 409), so this pop is cleanup, not correctness. Deferring it past the commit means a
-    # failed or cancelled publication above (including a 3.12 CancelledError, a BaseException)
-    # leaves the older OAuth flow usable and orphans no credential. Closing loopback listeners
-    # is network I/O and stays outside the transaction (SF-244 audit F10 stale cleanup).
+    # failed or cancelled publication above leaves the older OAuth flow usable and orphans no
+    # credential. Closing loopback listeners is network I/O and stays outside the transaction
+    # (SF-244 audit F10 stale cleanup) — which is why this half stays in the shell.
     for stale_state in _pending(request).pop_for_profile(account_id, provider, name):
         await _close_loopback_callback(request.app, stale_state)
-    _invalidate_profile_session(request.app, plugin, account_id, name)
-    return profile.model_dump(mode="json")
+    return summary.legacy_projection
 
 
 @router.delete("/v1/auth/{provider}/profiles/{name}", status_code=204)
@@ -1370,36 +1326,16 @@ async def delete_profile(provider: str, name: str, request: Request, current: Cu
 async def delete_profile_for_account(
     request: Request, *, provider: str, name: str, account_id: str
 ) -> None:
-    """Remove one profile and its credential.
+    """Remove one profile and its credential — the ONE shared shell over the admin boundary.
 
     WHY `account_id` is a parameter: the admin console deletes on a tenant's behalf (`OME-706`).
-    The transaction-ordering invariants below are the reason both paths must share this rather
-    than each writing their own delete.
+    The OME-307 transaction ordering lives in `profile_admin.py::delete`; this shell only renders
+    the refusals — through the delete-specific rows, because this route's 404 bodies carry no
+    provider or name field (F3, owner 2026-09-18).
+    # COMPATIBILITY: retired with the legacy Profile routes at Stage E (OME-1209).
     """
-    plugin = _registry(request).get(provider)
-    if plugin is None:
-        raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
-    idx = _index_store(request)
-    p = await idx.get(account_id, provider, name)
-    if p is None:
-        raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
-    strategy = _credential_strategy_for_app(
-        request.app, plugin, provider, account_id, name, auth_type=p.auth_type
-    )
-    # INVARIANT (OME-307 Unit 3 + Blocker 3): publish the profile-index removal and the
-    # credential deletion in ONE transaction so a committed delete never leaves an orphan
-    # credential (a blob with no profile). The index-row CAS runs FIRST: it is the sole
-    # ALWAYS-PRESENT row, so it is the only row that serializes a concurrent api-key set. The
-    # credential row may be ABSENT (e.g. a pending/errored OAuth profile), and a missing-row
-    # DELETE takes NO lock under READ COMMITTED — so serializing on it would let a racing set
-    # slip an INSERT past this delete and orphan a credential. Rollback keeps blob + index
-    # coherent on any failure.
-    async with in_transaction():
-        await idx.remove(p.id)
-        if strategy is not None:
-            await strategy.delete_credentials()
-    # Cache invalidation follows the durable boundary so it reflects the committed delete.
-    _invalidate_profile_session(request.app, plugin, account_id, name)
+    with legacy_delete_refusals_as_http():
+        await _credential_admin(request).delete(account_id, provider, legacy_name=name)
 
 
 @router.post("/v1/auth/{provider}/profiles/{name}/refresh")

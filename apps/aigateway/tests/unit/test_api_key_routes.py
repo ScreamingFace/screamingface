@@ -16,7 +16,7 @@ from contextlib import contextmanager
 import httpx
 import pytest
 
-import aigateway.routes.auth as auth_module
+import aigateway.core.provider_access.profile_admin as profile_admin_module
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import (
@@ -283,7 +283,9 @@ def test_set_api_key_rollback_does_not_compensate_over_same_key_external_commit(
     compensation_calls: list[str] = []
     s1_task = None
     s1_initial_write = False
-    persist_credentials = auth_module.persist_credentials_or_503
+    # OME-1230 (F2, owner 2026-09-18): the API-key body moved behind the provider-credential
+    # admin boundary, so the persistence seam this race patches is the admin module's.
+    persist_credentials = profile_admin_module.persist_credentials_or_refuse
     credential_store = authenticated_client.app.state.credential_store
     write = credential_store.write
     delete = credential_store.delete
@@ -323,7 +325,9 @@ def test_set_api_key_rollback_does_not_compensate_over_same_key_external_commit(
         await _record_s1_compensation("mutate", service_name)
         await mutate(service_name, account, mutator)
 
-    monkeypatch.setattr(auth_module, "persist_credentials_or_503", _fail_first_after_write)
+    monkeypatch.setattr(
+        profile_admin_module, "persist_credentials_or_refuse", _fail_first_after_write
+    )
     monkeypatch.setattr(credential_store, "write", _delay_compensating_write)
     monkeypatch.setattr(credential_store, "delete", _delay_compensating_delete)
     monkeypatch.setattr(credential_store, "mutate", _delay_compensating_mutate)
