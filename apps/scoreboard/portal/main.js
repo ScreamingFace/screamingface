@@ -327,9 +327,13 @@ window.ScorePortal = (function () {
 
     fetchJson("/v1/benchmarks").then(
       function (data) {
-        var benchmarks = (data && data.benchmarks) || [];
+        // OME-1147: filter BEFORE the per-board fetches below, so the page does not request a
+        // board it will never draw. `/v1/benchmarks` deliberately keeps returning every board —
+        // `sf.leaderboards` needs the private ones so challenge participants can submit against
+        // them — so the catalogue is trimmed here rather than at the API.
+        var benchmarks = SFLeaderboardLogic.listedBenchmarks((data && data.benchmarks) || []);
         if (benchmarks.length === 0) {
-          showEmpty(statusNode, "No public benchmarks yet. The API is live; rows will appear here as soon as benchmark specs are registered.");
+          showEmpty(statusNode, "No listed benchmarks yet. The API is live; rows will appear here as soon as benchmark specs are registered.");
           return;
         }
         return Promise.all(benchmarks.map(function (b) { return fetchBoard(b.id); })).then(
