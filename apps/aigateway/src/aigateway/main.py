@@ -63,6 +63,7 @@ from .routes import (
     model_parameters,
     models,
     oauth_connections,
+    provider_access_availability,
     providers,
     tavily_retrieval_cache,
 )
@@ -462,6 +463,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(models.router)
     app.include_router(model_admission.router)
     app.include_router(providers.router)
+    # OME-1244 (A4): the caller-scoped availability successor, over the provider-access port.
+    app.include_router(provider_access_availability.router)
     app.include_router(model_parameters.router)
     app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
