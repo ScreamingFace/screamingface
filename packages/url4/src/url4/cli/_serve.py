@@ -410,6 +410,11 @@ def make_command_handler(
     # caller-supplied intent, context, or param values stays literal instead
     # of cascading (blocks token-injection through caller input). stdin has never
     # been a substitution target, so the selector cannot affect that.
+
+    # CONTRACT: a command route is not guaranteed to run at most once. A timeout is
+    # reported as a transient error, and a `;retry=N` source retries it, so the same
+    # command may run again after its side effect already landed. Command routes MUST
+    # be idempotent.
     """
     if stdin not in COMMAND_STDIN_SOURCES:
         raise ValueError(f"stdin must be one of {list(COMMAND_STDIN_SOURCES)}, got {stdin!r}")
@@ -450,6 +455,13 @@ def _subst_all(template: Sequence[str], request: Request) -> list[str]:
 
 
 async def _run_command(command: list[str], stdin_text: str, timeout: float) -> str:
+    """Run one argv to completion and return its stdout (stdout is the result).
+
+    # CONTRACT: a timeout kills the process and raises a NON-permanent
+    # :class:`~url4.core.errors.ResolutionError`, so a `;retry=N` source retries it.
+    # The engine cannot tell "did not run" from "ran but the answer was lost", so
+    # commands MUST be idempotent.
+    """
     try:
         proc = await asyncio.create_subprocess_exec(
             *command,

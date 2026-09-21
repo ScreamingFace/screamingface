@@ -499,9 +499,12 @@ class GuardNode:
 
     Failure handling: a permanent error (``Url4Error.permanent``) never
     retries; a transient one retries up to ``retries`` extra attempts; a
-    timeout (``;t=``) is transient. A source that still fails is terminal —
-    ``required`` (default) raises, ``optional`` returns a
-    :class:`~url4.dag.node.SourceFailure` value for the group to tolerate.
+    timeout (``;t=``) is transient. A timeout is a *non-result*, not a negative
+    one: the guarded effect may have completed already before the wait stopped,
+    so a retry can apply it twice. Guarded effects must therefore be idempotent.
+    A source that still fails is terminal — ``required`` (default) raises,
+    ``optional`` returns a :class:`~url4.dag.node.SourceFailure` value for the
+    group to tolerate.
     """
 
     inner: DagNode

@@ -109,6 +109,11 @@ handler would, each substituted as a **single token** (never re-split):
 **stdout** is the result. Substitution happens in one pass over *your* template, so
 token-shaped text in a caller's input stays literal: it never expands.
 
+**Commands must be idempotent.** A timeout kills the command and reports a transient
+error, and a `;retry=N` source retries transient errors. The engine cannot tell a
+command that never ran from one that ran and lost its answer. A retry therefore runs
+the command again. Make every command safe to run more than once.
+
 #### Reads: what the node can see
 
 Without these, a served node has no sources: `(/rubrics/42)` has nothing to resolve against
