@@ -17,8 +17,12 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.evaluation import candidate_answer, compact_json
+from screamingface_engine.benchmarks.contract import OperationOutput, encode_candidate_invocation
+from screamingface_engine.benchmarks.evaluation import (
+    CandidateAnswer,
+    candidate_answer,
+    compact_json,
+)
 from screamingface_engine.benchmarks.spine.serving import (
     ServedBoard,
     board_aggregate,
@@ -205,6 +209,45 @@ class TestCandidateRecord:
 
         assert "operations" not in record
 
+    def test_operations_bearing_record_keeps_field_order(self) -> None:
+        # INVARIANT: the goldens replay only the operations-absent path, so this is
+        # the one place pinning that `operations` trails `execution` — a reorder
+        # would change recorded bytes on real member-output runs unseen.
+        base = candidate_answer(encode_candidate_invocation("hi", "stop", None))
+        reply = CandidateAnswer(
+            status=base.status,
+            text=base.text,
+            output=base.output,
+            finish_reason=base.finish_reason,
+            refusal=base.refusal,
+            execution=base.execution,
+            operations=(
+                OperationOutput(
+                    operation_id="op-1", output="hi", finish_reason="stop", accounting=None
+                ),
+            ),
+        )
+
+        record = candidate_record(
+            reply, schema="s", case_id=1, verdict={"correct": True}, tail={"output": "hi"}
+        )
+
+        assert list(record) == [
+            "schema",
+            "case_id",
+            "attempt",
+            "correct",
+            "status",
+            "refusal",
+            "finish_reason",
+            "output",
+            "execution",
+            "operations",
+        ]
+        assert record["operations"] == [
+            {"operation_id": "op-1", "output": "hi", "finish_reason": "stop", "accounting": None}
+        ]
+
 
 # --- preflight -------------------------------------------------------------------
 
@@ -389,6 +432,9 @@ class TestInstallBoard:
 
         routes = board_routes("toy", _REVISION)
         assert routes.cases in getattr(node, "_data", {})
+        # INVARIANT: the booklet's Content-Type is declared, not sniffed — without
+        # "application/json" url4 falls back to sniffing the served collection.
+        assert getattr(node, "_data_media_types", {})[routes.cases] == "application/json"
         installed = frozenset(node.processor_routes())
         assert routes.check in installed
         assert routes.case_evaluation in installed

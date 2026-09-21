@@ -207,6 +207,9 @@ def serve_cases(root: Path, board: ServedBoard) -> Callable[[], str]:
 
     INVARIANT: only a SUCCESSFUL preflight is remembered, so a broken bundle re-fails
     on every call rather than being served from a cache primed before the failure.
+
+    Contract for board authors: every served row's ``id`` must be int-able — the
+    preflight's case_ids are read as ``int(row["id"])``.
     """
 
     preflighted = False
