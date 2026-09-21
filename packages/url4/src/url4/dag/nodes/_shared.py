@@ -7,11 +7,9 @@ once, and the node modules import them as ``from url4.dag.nodes._shared import
 ...``. Nothing here knows a concrete node type; a node module may import this
 one, never the reverse.
 
-Nodes hold their *template* data and perform their own substitution / dispatch
-/ dynamic compilation at ``resolve`` time — "the whole expression is not parsed
-upfront" lives in the node modules: ``LazyExprNode`` compiles its fragment on
-demand, ``MapNode`` re-compiles its body per collection row, and ``ReduceNode``
-parses its reducer only when the rows exist.
+The vocabulary story — nodes holding *template* data and compiling lazily at
+``resolve`` time — lives in the package docstring; this module only carries the
+helpers that story stands on.
 
 All I/O flows through ``ctx.io`` (the port); every ``$`` substitution reuses
 the pure helpers in :mod:`url4.core.ensemble`. Reference-edge inputs use the

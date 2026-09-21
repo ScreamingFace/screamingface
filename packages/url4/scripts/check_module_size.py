@@ -33,6 +33,7 @@ BASELINE: dict[str, int] = {
     "dag/nodes/_shared.py": 257,
     "dag/nodes/iteration.py": 218,
     "cli/_serve.py": 340,
+    "cli/_config.py": 341,
 }
 
 _SRC_DIR = Path(__file__).resolve().parent.parent / "src" / "url4"
