@@ -14,8 +14,9 @@ built-in node classes, and :class:`LoweringRegistry` for extension.
 
 from __future__ import annotations
 
+from url4.dag._run import run
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression, default_registry
-from url4.dag.executor import Executor, check_acyclic, run
+from url4.dag.executor import Executor, check_acyclic
 from url4.dag.node import (
     DEFAULT_RUN_CONCURRENCY,
     BoundedIOLayer,

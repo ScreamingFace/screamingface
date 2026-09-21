@@ -125,7 +125,7 @@ __version__ = "1.5.1"
 # AIDEV-NOTE: HttpIOLayer is resolved lazily (PEP 562) so `import url4` never
 # pulls in httpx — ~44ms of a ~95ms import, paid by `url4 --version` and
 # `url4 eval`, neither of which speaks HTTP. This mirrors the discipline the
-# execution core already keeps: `executor._run_context`, `Client._effective_io`
+# execution core already keeps: `_run._run_context`, `Client._effective_io`
 # and `Url4Node._outbound_io` all import the concrete transport inside the
 # function, so the static import graph names no transport.
 def __getattr__(name: str) -> object:

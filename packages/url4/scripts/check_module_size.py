@@ -6,9 +6,10 @@ Run from the package root (CI does)::
 
 Line counts are a proxy, not a quality measure. This gate exists to keep the
 reviewed hotspot splits — the DAG node vocabulary (``dag/nodes/``), the DAG
-lowering, the serve config and adapter, and the peer server — from silently
-regrowing: a module that earned a split must not creep back over its cap one
-import at a time. The stable grammar/render/executor entries hold the largest
+lowering, the executor/run composition split (``dag/executor.py`` +
+``dag/_run.py``), the serve config and adapter, and the peer server — from
+silently regrowing: a module that earned a split must not creep back over its
+cap one import at a time. The stable grammar/render entries hold the largest
 modules at their reviewed size for the same reason. Lower a BASELINE entry
 when its module shrinks for good; never raise one to make CI pass.
 """
@@ -24,7 +25,8 @@ BASELINE: dict[str, int] = {
     "core/grammar.py": 944,
     "dag/_lowering.py": 737,
     "core/render.py": 687,
-    "dag/executor.py": 524,
+    "dag/_run.py": 261,
+    "dag/executor.py": 302,
     "peer/server.py": 451,
     "io/layer.py": 197,
     "observe.py": 483,

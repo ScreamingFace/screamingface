@@ -58,7 +58,7 @@ class _ObsState:
     shared monotonic sequence counter (:class:`~url4.observe.NodeFinished` /
     :class:`~url4.observe.RunFinished` carry ``engine_seq`` so a downstream
     consumer can order finishes even across concurrent spans). One instance is
-    minted per :func:`~url4.dag.executor.run` call and shared by every
+    minted per :func:`~url4.dag.run` call and shared by every
     :class:`ExecutionContext` in that run (via :meth:`ExecutionContext.child` /
     :meth:`ExecutionContext.with_span`), the same way :class:`_ErrorTally` is
     shared — engine-internal wiring, deliberately kept out of the public
@@ -294,7 +294,7 @@ class ExecutionContext:
         cost_usd: Decimal | None = None,
     ) -> None:
         """Report model token usage under this node's current span. A no-op
-        when no ``observer`` was passed to :func:`~url4.dag.executor.run`.
+        when no ``observer`` was passed to :func:`~url4.dag.run`.
 
         ``model`` is the REQUESTED model; pass ``response_model`` when the provider
         reports which model actually served the call (see :class:`~url4.observe.Usage`).
@@ -333,7 +333,7 @@ class ExecutionContext:
     ) -> None:
         """Report how one model round trip ended, under this node's current
         span. A no-op when no ``observer`` was passed to
-        :func:`~url4.dag.executor.run`.
+        :func:`~url4.dag.run`.
 
         INVARIANT: emits one event per call — a node making several round trips
         (a tool-calling turn) produces several events on the same span, never a
@@ -366,7 +366,7 @@ class ExecutionContext:
         self, severity: str, body: str, *, attributes: Mapping[str, LogScalar] | None = None
     ) -> None:
         """Emit a log line attributed to this node's current span. A no-op
-        when no ``observer`` was passed to :func:`~url4.dag.executor.run`.
+        when no ``observer`` was passed to :func:`~url4.dag.run`.
 
         Attributes are snapshotted immutably. Observer failures still propagate;
         use ``current_log_sink()`` for best-effort producer emission.
