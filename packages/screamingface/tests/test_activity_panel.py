@@ -81,7 +81,7 @@ def test_expanded_activity_is_flat_log_output_not_a_table():
     assert "<table" not in html
     assert "<th" not in html
     assert 'class="sf-activity__call"' in html
-    assert "Answered" in html
+    assert "Completed provider/model call" in html
     assert "provider/model" in html
     assert "completed" in html
 
@@ -117,8 +117,8 @@ def test_flat_model_lines_identify_case_stage_and_model_without_routine_noise():
             ),
         )
     html = activity_html(log, ("candidate",))
-    assert "Case 42: Answered with provider/one" in html
-    assert "Case 007: Answered with provider/two" in html
+    assert "Case 42: Completed provider/one call" in html
+    assert "Case 007: Completed provider/two call" in html
     assert "finish reason" not in html
     assert "Measured" not in html
     assert "60s" not in html
@@ -148,8 +148,8 @@ def test_missing_case_is_not_inferred_from_sibling_and_failures_remain_visible()
         ),
     )
     html = activity_html(log, ("candidate",))
-    assert "Case not identified: Grading with provider/two failed: provider timeout" in html
-    assert "Case 007: Grading with provider/two" not in html
+    assert "Case not identified: provider/two call failed: provider timeout" in html
+    assert "Case 007: provider/two call" not in html
 
 
 def test_retry_attempt_and_nonroutine_finish_reason_are_explained(monkeypatch):
@@ -171,6 +171,6 @@ def test_retry_attempt_and_nonroutine_finish_reason_are_explained(monkeypatch):
         ),
     )
     html = activity_html(log, ("candidate",))
-    assert "retrying: attempt 2" in html
+    assert "Retrying provider/one call: attempt 2" in html
     assert "token limit reached" in html
     assert 'aria-label="Completed"' in html

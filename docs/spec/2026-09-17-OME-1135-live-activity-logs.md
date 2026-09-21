@@ -53,3 +53,6 @@ Owner approved discrete case Grading lines: consume scope=case grading records, 
 
 ## Copy displayed activity — 2026-09-18
 Owner requested a Copy control at the top right of each log box. Add a native keyboard-accessible button within the log viewport, pinned above its displayed page. Copy only rendered, safe text (timestamps, messages and partial-history notices), never raw event payloads or other candidates. Show Copied only on successful browser clipboard write; show an actionable failure label if unavailable. Reuse existing notebook HTML/clipboard pattern, no dependencies or Engine changes. Test button semantics and candidate isolation, then verify actual clipboard output in Jupyter and run Client gates.
+
+## Neutral call wording — 2026-09-21
+Owner approved Calling MODEL → Completed MODEL call on the same logical line, Retrying MODEL call and MODEL call failed. Retain first-observed timestamps, icons, operation identity, case numbering and stage status. Avoid implying member/synthesiser/judge roles. Client-only presentation change in #983. Migrate only the existing wording assertions authorized by this request; preserve behavioral assertions. Add lifecycle/role-neutral regression coverage, run full gates with the explicit append-only migration exception, and keep draft/In Progress.

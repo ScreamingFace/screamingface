@@ -94,13 +94,23 @@ def _stage_label(row: ActivityRow, label: str, outcome: str) -> str:
     return label
 
 
+def _call_label(name: str, outcome: str) -> str:
+    # WHY: stage membership does not establish a member, synthesiser or judge role.
+    return {
+        "started": f"Calling {name}",
+        "running": f"Calling {name}",
+        "completed": f"Completed {name} call",
+        "retrying": f"Retrying {name} call",
+    }.get(outcome, f"{name} call {outcome}")
+
+
 def _description(row: ActivityRow, label: str, *, model: bool = False) -> str:
     facts = dict(row.record.facts)
     prefix = _case_prefix(facts, model=model)
     name = facts.get("model_id")
     outcome = _outcome(row)
     label = _stage_label(row, label, outcome)
-    subject = f"{label} with {name}" if model and name else label
+    subject = _call_label(str(name), outcome) if model and name else label
     details = []
     if failure := facts.get("failure_code"):
         details.append(str(failure).replace("_", " "))
@@ -119,7 +129,9 @@ def _description(row: ActivityRow, label: str, *, model: bool = False) -> str:
         if key in facts:
             details.append(f"{facts[key]} {description}")
     suffix = ": " + "; ".join(details) if details else ""
-    state = "" if outcome in {"started", "running", "completed"} else f" {outcome}"
+    state = (
+        "" if model and name or outcome in {"started", "running", "completed"} else f" {outcome}"
+    )
     return f"{prefix}{subject}{state}{suffix}"
 
 
