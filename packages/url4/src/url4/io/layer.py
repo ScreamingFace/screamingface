@@ -39,7 +39,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
@@ -158,6 +158,27 @@ async def fetch_result(io: IOLayer, request: FetchRequest) -> FetchResult:
     if isinstance(io, SupportsFetchEx):
         return await io.fetch_ex(request)
     return FetchResult(await io.fetch(request.target, relative=request.relative))
+
+
+# --- holdings shelf resolution (spec §5.6) ------------------------------------
+
+
+def resolve_shelf[T](mapping: Mapping[str | None, T], collection: str | None) -> T | None:
+    """Select a holdings shelf from ``mapping`` by the one fallback rule.
+
+    ``collection`` names the requested shelf and its exact key wins. When that
+    key is absent (or ``collection`` is ``None``), the ``None``-key shelf is
+    the default fallback — the spec §5.6.2 unqualified-holdings entry. Returns
+    ``None`` when neither key is present, leaving absence handling to the
+    caller (an error, a non-URL4 source, …). One definition so ``@`` and
+    ``@name`` resolve collections identically across adapters and the peer
+    node.
+    """
+    if collection is not None:
+        exact = mapping.get(collection)
+        if exact is not None:
+            return exact
+    return mapping.get(None)
 
 
 # --- collection parsing (spec §5.3.7) -----------------------------------------
@@ -361,4 +382,5 @@ __all__ = [
     "SupportsProcessorRoutes",
     "fetch_result",
     "parse_collection",
+    "resolve_shelf",
 ]

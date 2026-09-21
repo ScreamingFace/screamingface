@@ -103,6 +103,10 @@ class StaticIOLayer:
 
 
 def _holdings_key(identity: str | None, collection: str | None) -> str:
+    # StaticIOLayer keys its composite identity+collection string directly, so a
+    # missing shelf is a precise error, not a fallback. `resolve_shelf`
+    # (url4.io.layer) is the canonical exact-then-None rule that the node
+    # adapters apply; this deterministic test double deliberately does not.
     base = identity or ""
     if collection is None:
         return base

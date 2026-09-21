@@ -51,7 +51,7 @@ from url4.core.subrequest import (
 )
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
 from url4.dag.node import ProcessFn, default_process
-from url4.io.layer import FetchRequest, FetchResult, IOLayer, fetch_result
+from url4.io.layer import FetchRequest, FetchResult, IOLayer, fetch_result, resolve_shelf
 from url4.peer._owned import _OwnedIO
 from url4.peer.client import Url4Result
 
@@ -293,7 +293,7 @@ class Url4Node:
 
     async def fetch_holdings(self, identity: str | None, collection: str | None) -> str:
         if identity is None:
-            handler = self._self_holdings.get(collection) or self._self_holdings.get(None)
+            handler = resolve_shelf(self._self_holdings, collection)
             if handler is None:
                 raise ResolutionError(
                     f"node {self.name!r} serves no self holdings for {collection!r}"

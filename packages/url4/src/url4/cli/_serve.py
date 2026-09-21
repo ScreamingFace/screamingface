@@ -44,6 +44,7 @@ from url4.core.errors import ResolutionError
 # promised: it is absent from server's __all__, so a tidy-up there would break
 # config validation with no signal.
 from url4.core.grammar import _IDENTITY_NAME_RE
+from url4.io.layer import resolve_shelf
 from url4.peer.server import Request, Url4Node
 
 _HEALTH_PATH = "/healthz"
@@ -533,9 +534,7 @@ def make_identity_handler(
     """
 
     async def handler(collection: str | None) -> str:
-        spec = shelves.get(collection)
-        if spec is None:
-            spec = shelves.get(None)
+        spec = resolve_shelf(shelves, collection)
         if spec is None:
             raise ResolutionError(
                 f"identity {name!r} serves no holdings for collection {collection!r}"
