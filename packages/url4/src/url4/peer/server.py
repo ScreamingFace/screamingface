@@ -52,6 +52,7 @@ from url4.core.subrequest import (
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
 from url4.dag.node import ProcessFn, default_process
 from url4.io.layer import FetchRequest, FetchResult, IOLayer, fetch_result
+from url4.peer._owned import _OwnedIO
 from url4.peer.client import Url4Result
 
 # Transport-level query params a node consumes itself rather than re-attaching
@@ -102,6 +103,14 @@ DataCallable = Callable[[], str | Awaitable[str]]
 DataProvider = str | DataCallable
 
 
+@dataclass(frozen=True)
+class _DataRoute:
+    """A registered data route: its provider plus the optional declared media type."""
+
+    provider: DataProvider
+    media_type: str | None = None
+
+
 class Url4Node:
     """A url4 protocol node: endpoint/holdings/identity registries + dispatch.
 
@@ -126,13 +135,11 @@ class Url4Node:
         self._eval_path = eval_path
         self._processor = default_processor
         self._process = process_fn
-        self._outbound = outbound
-        self._owned_outbound: IOLayer | None = None
+        self._owned = _OwnedIO(outbound)
         self._concurrency = concurrency
         self._strict_fields = strict_fields
         self._endpoints: dict[str, EndpointHandler] = {}
-        self._data: dict[str, DataProvider] = {}
-        self._data_media_types: dict[str, str] = {}
+        self._data: dict[str, _DataRoute] = {}
         self._self_holdings: dict[str | None, _HoldingsPort] = {}
         self._identities: dict[str, _HoldingsPort] = {}
         for path, provider in (data or {}).items():
@@ -180,14 +187,12 @@ class Url4Node:
         :meth:`fetch_ex` reports it when it serves this route.
         """
         self._check_routable(path)
-        if media_type is not None:
-            self._data_media_types[path] = media_type
         if provider is not None:
-            self._data[path] = provider
+            self._data[path] = _DataRoute(provider, media_type)
             return None
 
         def register(fn: DataCallable) -> DataCallable:
-            self._data[path] = fn
+            self._data[path] = _DataRoute(fn, media_type)
             return fn
 
         return register
@@ -283,8 +288,8 @@ class Url4Node:
         Mirrors ``_dispatch``'s exact-target-then-path data lookup; endpoint and
         eval-path dispatches have no declared media type and report None.
         """
-        media = self._data_media_types
-        return media.get(target, media.get(target.partition("?")[0]))
+        route = self._data.get(target) or self._data.get(target.partition("?")[0])
+        return route.media_type if route is not None else None
 
     async def fetch_holdings(self, identity: str | None, collection: str | None) -> str:
         if identity is None:
@@ -316,12 +321,13 @@ class Url4Node:
         # `.get(..., .get(...))`, so a hit avoids the second lookup and a
         # legitimately falsy provider (e.g. "") is still served rather than skipped.
         if target in self._data:
-            provider: DataProvider | None = self._data[target]
+            route: _DataRoute | None = self._data[target]
         elif path in self._data:
-            provider = self._data[path]
+            route = self._data[path]
         else:
-            provider = None
-        if provider is not None:
+            route = None
+        if route is not None:
+            provider = route.provider
             return await _text(provider() if callable(provider) else provider)
         raise ResolutionError(
             f"node {self.name!r} has no endpoint, eval path, or data route at {path!r}",
@@ -417,25 +423,17 @@ class Url4Node:
 
     async def aclose(self) -> None:
         """Close the lazily-owned outbound adapter (injected outbound is left alone)."""
-        owned = self._owned_outbound
-        self._owned_outbound = None
-        if owned is not None:
-            await owned.aclose()  # type: ignore[attr-defined]  # always HttpIOLayer
+        await self._owned.aclose()
 
     async def __aenter__(self) -> Url4Node:
+        await self._owned.__aenter__()
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
-        await self.aclose()
+        await self._owned.__aexit__(*exc_info)
 
     def _outbound_io(self) -> IOLayer:
-        if self._outbound is not None:
-            return self._outbound
-        if self._owned_outbound is None:
-            from url4.io.http import HttpIOLayer  # composition root: lazy transport import
-
-            self._owned_outbound = HttpIOLayer()
-        return self._owned_outbound
+        return self._owned.outbound()
 
     async def _handle_http(self, scope: Mapping, send) -> None:
         if scope["method"] != "GET":

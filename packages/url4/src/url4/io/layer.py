@@ -135,6 +135,20 @@ class SupportsHoldings(Protocol):
     async def fetch_holdings(self, identity: str | None, collection: str | None) -> str: ...
 
 
+@runtime_checkable
+class SupportsClose(Protocol):
+    """Optional adapter capability: releasing an owned transport.
+
+    An adapter that owns resources (``HttpIOLayer`` owns its httpx client)
+    implements ``aclose`` to release them. The peer lifecycle helper
+    (:class:`url4.peer._owned._OwnedIO`) closes only the adapter it created;
+    an injected one is the caller's to manage. Adapters with nothing to
+    release simply don't implement this.
+    """
+
+    async def aclose(self) -> None: ...
+
+
 async def fetch_result(io: IOLayer, request: FetchRequest) -> FetchResult:
     """Resolve ``request`` via ``fetch_ex`` when the adapter provides it.
 
@@ -340,6 +354,7 @@ __all__ = [
     "FetchRequest",
     "FetchResult",
     "IOLayer",
+    "SupportsClose",
     "SupportsDefaultRoute",
     "SupportsFetchEx",
     "SupportsHoldings",

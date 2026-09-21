@@ -50,6 +50,7 @@ from url4.core.render import _render_source, render
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
 from url4.dag.node import ProcessFn, default_process
 from url4.io.layer import IOLayer
+from url4.peer._owned import _OwnedIO
 
 
 @dataclass(frozen=True)
@@ -132,8 +133,7 @@ class Client:
             if node is not None:
                 raise ValueError("pass the node target once — positionally or as node=, not both")
             io, node = None, io
-        self._io = io
-        self._owned_io: IOLayer | None = None
+        self._owned = _OwnedIO(io)
         self._node = node
         self._path = path
         self._processor = processor
@@ -145,25 +145,17 @@ class Client:
 
     async def aclose(self) -> None:
         """Close the lazily-owned io adapter, if any (injected io is left alone)."""
-        owned = self._owned_io
-        self._owned_io = None
-        if owned is not None:
-            await owned.aclose()  # type: ignore[attr-defined]  # owned is always HttpIOLayer
+        await self._owned.aclose()
 
     async def __aenter__(self) -> Client:
+        await self._owned.__aenter__()
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
-        await self.aclose()
+        await self._owned.__aexit__(*exc_info)
 
     def _effective_io(self) -> IOLayer:
-        if self._io is not None:
-            return self._io
-        if self._owned_io is None:
-            from url4.io.http import HttpIOLayer  # composition root: lazy transport import
-
-            self._owned_io = HttpIOLayer()
-        return self._owned_io
+        return self._owned.outbound()
 
     # --- the query surface ------------------------------------------------------
 
