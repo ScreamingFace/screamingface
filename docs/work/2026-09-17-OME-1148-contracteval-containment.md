@@ -93,7 +93,7 @@ migrate one", and it predicted the outcome exactly: all 68 tests passed **unmodi
 
 - **Actual files:** `contracteval/` — `pins prompts grading prepare case_evaluation definition
   runtime` ported byte-identical; `aggregate.py` rewritten onto `ScoredPath` (414 → ~250 lines).
-  `builtins.py`, `cli.py`, `build_notebooks.py`, `examples/12_contracteval.ipynb`, and one
+  `builtins.py`, `cli.py`, `build_notebooks.py`, `examples/13_contracteval.ipynb`, and one
   additive row in `test_benchmark_declaration.py`.
 - **Commits:** `a0a56a26` (docs restart) + the implementation commit below.
 - **Gates:** screamingface-engine ALL GREEN; screamingface ALL GREEN.

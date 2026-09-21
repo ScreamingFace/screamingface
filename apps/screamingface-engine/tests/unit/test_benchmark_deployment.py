@@ -120,7 +120,7 @@ def test_builtin_prepare_cli_prints_one_auditable_record_per_bundle(
         "ifeval": {"cases": 541, "patched_keys": [146, 179]},
     }
 
-    def prepare(_root: Path, on_prepared: object = None) -> dict[str, object]:
+    def prepare(_root: Path, on_prepared: object = None, **_only: object) -> dict[str, object]:
         for bundle, summary in summaries.items():
             if on_prepared is not None:
                 on_prepared(bundle, summary)  # type: ignore[operator]
@@ -142,7 +142,7 @@ def test_builtin_prepare_cli_reports_declared_refusal_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    def refuse(_root: Path, _on_prepared: object = None) -> dict[str, object]:
+    def refuse(_root: Path, _on_prepared: object = None, **_only: object) -> dict[str, object]:
         raise BenchmarkAssetPreparationError("frozen answer key drifted")
 
     monkeypatch.setattr(prepare_module, "prepare_builtin_assets", refuse)
@@ -159,13 +159,49 @@ def test_builtin_prepare_cli_does_not_hide_unexpected_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def explode(_root: Path, _on_prepared: object = None) -> dict[str, object]:
+    def explode(_root: Path, _on_prepared: object = None, **_only: object) -> dict[str, object]:
         raise AssertionError("programming defect")
 
     monkeypatch.setattr(prepare_module, "prepare_builtin_assets", explode)
 
     with pytest.raises(AssertionError, match="programming defect"):
         prepare_module.main(["--root", str(tmp_path)])
+
+
+def test_a_decode_failure_is_not_relabelled_as_a_bundle_selection_mistake(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed dataset row must surface as itself, traceback intact.
+
+    INVARIANT: five preparers call `json.loads` on dataset rows, and `json.JSONDecodeError`
+    subclasses `ValueError` — so an `except ValueError` around the bake would print an
+    operator-facing "selection failed" line for a dataset fault and swallow the stack,
+    sending someone hunting for a typo that does not exist. Unknown bundle ids are caught
+    before any preparer runs instead.
+    """
+
+    def explode(_root: Path, _on_prepared: object = None, **_only: object) -> dict[str, object]:
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", explode)
+
+    with pytest.raises(json.JSONDecodeError):
+        prepare_module.main(["--root", str(tmp_path)])
+
+
+def test_an_unknown_bundle_id_is_refused_before_any_preparer_runs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("a typo must not reach the preparers")
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", refuse)
+
+    assert prepare_module.main(["--root", str(tmp_path), "--bundle", "ghost"]) == 1
+    assert "ghost" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -486,7 +522,7 @@ def test_an_unserializable_summary_key_does_not_abort_the_remaining_bundles(
         "ifeval": {"cases": 541},
     }
 
-    def prepare(_root: Path, on_prepared: object = None) -> dict[str, object]:
+    def prepare(_root: Path, on_prepared: object = None, **_only: object) -> dict[str, object]:
         for bundle, summary in summaries.items():
             if on_prepared is not None:
                 on_prepared(bundle, summary)  # type: ignore[operator]
@@ -510,3 +546,94 @@ def test_the_family_guard_matches_a_computed_family_segment() -> None:
     assert _FAMILY_PREPARER.search('f"screamingface_engine.benchmarks.{name}.prepare"')
     # The orchestrator itself still must not match.
     assert _FAMILY_PREPARER.search("-m screamingface_engine.benchmarks.prepare --root /x") is None
+
+
+def _two_bundle_deployment(calls: list[Path]) -> BenchmarkDeployment:
+    """A deployment whose two bundles each record the directory they were baked into."""
+
+    def prepare(out: Path) -> dict[str, object]:
+        calls.append(out)
+        return {"cases": 1, "out": str(out)}
+
+    return BenchmarkDeployment(
+        (
+            BenchmarkRegistration(_benchmark("one"), asset_bundle=_bundle("alpha", prepare)),
+            BenchmarkRegistration(_benchmark("two"), asset_bundle=_bundle("beta", prepare)),
+        )
+    )
+
+
+def _bundle(bundle_id: str, prepare: Any) -> BenchmarkAssetBundle:
+    return BenchmarkAssetBundle(id=bundle_id, prepare=prepare)
+
+
+def test_preparing_a_named_subset_leaves_every_other_bundle_untouched(tmp_path: Path) -> None:
+    """INVARIANT: a resumed bake must not re-enter a bundle that already completed.
+
+    The imported preparer refuses a non-empty directory by design, so without a way to name
+    the bundles still missing, one interrupted bake forces every sibling to be deleted and
+    re-downloaded. Selection is what makes the bake resumable.
+    """
+
+    calls: list[Path] = []
+
+    prepared = _two_bundle_deployment(calls).prepare_assets(tmp_path, only=("beta",))
+
+    assert calls == [tmp_path / "beta"]
+    assert set(prepared) == {"beta"}
+    assert not (tmp_path / "alpha").exists()
+
+
+def test_selecting_a_bundle_the_deployment_never_declared_refuses_by_name(
+    tmp_path: Path,
+) -> None:
+    """A silent no-op would look exactly like a successful bake in a build log."""
+
+    calls: list[Path] = []
+
+    with pytest.raises(ValueError, match="ghost"):
+        _two_bundle_deployment(calls).prepare_assets(tmp_path, only=("beta", "ghost"))
+
+    assert calls == []
+
+
+def test_prepare_cli_bakes_only_the_bundles_named_on_the_command_line(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def prepare(root: Path, on_prepared: Any = None, *, only: Any = None) -> dict[str, Any]:
+        seen["only"] = only
+        if on_prepared is not None:
+            on_prepared("draco", {"cases": 1})
+        return {"draco": {"cases": 1}}
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", prepare)
+
+    # A REAL bundle id: main() refuses an undeclared one before any preparer runs, so a
+    # made-up name would exercise the refusal rather than the forwarding this test pins.
+    assert prepare_module.main(["--root", str(tmp_path), "--bundle", "draco"]) == 0
+
+    assert seen["only"] == ("draco",)
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [record["bundle"] for record in records] == ["draco"]
+
+
+def test_prepare_cli_lists_bundle_ids_without_baking_anything(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recipe asks WHICH bundles exist before deciding which are still missing."""
+
+    def refuse(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("--list-bundles must not prepare anything")
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", refuse)
+
+    assert prepare_module.main(["--list-bundles"]) == 0
+
+    listed = capsys.readouterr().out.split()
+    assert listed == sorted(listed)
+    assert "draco" in listed

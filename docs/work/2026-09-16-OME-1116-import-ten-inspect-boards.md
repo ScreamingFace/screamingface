@@ -1,9 +1,9 @@
 ---
 ticket: OME-1116
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-16
-finished:
+finished: 2026-09-19
 ---
 
 # OME-1116 — Import ten single-shot inspect_evals benchmarks into the catalogue
@@ -203,3 +203,23 @@ stacked on #966):
   fallback invisibly; record --task-arg list in generated pin provenance;
   GenerateConfig (temperature/max_tokens) neither reproduced nor flagged
   (bites cqa/race_h/winogrande as a comparability fact, accepted as policy).
+
+## Close — 2026-09-19
+
+Closed by owner decision. Ten imported boards on the catalogue (`gsm8k`, `mmlu`,
+`arc_easy`, `arc_challenge`, `commonsense_qa`, `paws`, `boolq`, `mmlu_pro`,
+`winogrande`, `race_h`), each `origin="inspect_evals"`, each two data rows plus a
+pin, zero spine edits. Verified live at `{screamingface: 7, inspect_evals: 10}`.
+
+**Closed WITHOUT the paid acceptance runs the ticket asked for.** No `limit=50`
+sweep and no `corrective_loop` on a free-text board were spent. What was actually
+run end to end against a live Engine, through OME-1202's notebook, is three boards
+at `limit=2`: `inspect-gsm8k` (numeric match, 1.0 unseeded and seeded),
+`inspect-mmlu` (choice), `inspect-boolq` (yes/no). The other seven are verified as
+definitions and bakes only. The close is on the import mechanism being proven, not
+on ten boards having been benchmarked — anyone publishing these scores runs them
+first.
+
+The deferred follow-ups listed in the two review-round sections above remain
+unfiled; they are also recorded on the Linear issue's close comment so closing
+this ledger does not lose them.

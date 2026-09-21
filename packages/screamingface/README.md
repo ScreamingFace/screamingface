@@ -509,6 +509,10 @@ or introduce a separate discovery operation.
 
 ## Examples
 
+From a checkout, `just local-stack-notebooks` runs every notebook below: it bakes the frozen
+benchmark assets, brings the local stack up, serves an Engine carrying the imported
+inspect_evals boards alongside ours, and opens JupyterLab against it.
+
 - [`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb): one Candidate through the
   first canonical `draco` Case, from discovery through Report evidence.
 - [`examples/01_client_tour.ipynb`](examples/01_client_tour.ipynb): a no-spend tour of Client
@@ -521,6 +525,10 @@ or introduce a separate discovery operation.
 - [`examples/08_healthbench.ipynb`](examples/08_healthbench.ipynb): both HealthBench
   boards — the worst-30% open-Fusion challenge and the full 525-case exam with the
   official score — rehearsed cheaply with `limit=1` first.
+- [`examples/12_inspect_evals_benchmarks.ipynb`](examples/12_inspect_evals_benchmarks.ipynb): the
+  catalogue as two origin groups — ours and the imported inspect_evals boards — then a
+  Fusion against one of the imported boards.
+
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 
 ## Development

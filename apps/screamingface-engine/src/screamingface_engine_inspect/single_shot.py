@@ -225,6 +225,11 @@ def single_shot_board(
         description=description,
         revision=revision,
         case_count=case_count,
+        # WHY explicit: `origin` defaults to "screamingface", which is true for every
+        # board authored in this repo and wrong for every board that arrives through
+        # here. The listing groups by this field (OME-1114), so a defaulted row hides
+        # the imported shelf inside our own group.
+        origin="inspect_evals",
         build=_build(routes, case_count),
         install=install,
         focus=focus,

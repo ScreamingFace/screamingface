@@ -64,6 +64,23 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=80 \
             -v
+      # The imported boards' suite opens with `pytest.importorskip("inspect_ai")`, so without
+      # the extra it SKIPS — silently, and it is the only thing pinning that the ten imported
+      # boards publish `origin="inspect_evals"`. Deleting that argument would otherwise leave
+      # CI green while every imported board collapsed back into the ScreamingFace group, which
+      # is the whole of the two-group listing. Same shape as the real-broker guard below: run
+      # the lane for real, then refuse to call a skip a pass.
+      - name: Run the imported-board suite with its extra
+        run: |
+          uv run --extra inspect pytest -q \
+            tests/unit/test_inspect_imported_boards.py \
+            tests/unit/test_inspect_gsm8k_board.py \
+            tests/unit/test_inspect_mmlu_board.py \
+            | tee inspect.txt
+          if grep -qE "[0-9]+ skipped|no tests ran" inspect.txt; then
+            echo "::error::imported-board suite was skipped — the inspect extra was not installed"
+            exit 1
+          fi
       - name: Test report
         uses: dorny/test-reporter@v3
         if: always()

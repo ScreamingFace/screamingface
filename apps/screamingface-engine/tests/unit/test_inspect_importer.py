@@ -17,6 +17,7 @@ layer is injected.
 from __future__ import annotations
 
 import ast
+import re
 import shutil
 import sys
 import types
@@ -821,6 +822,164 @@ def test_generate_refuses_a_revision_that_is_not_a_commit_sha(engine_src_copy: P
             Observations(revision="None", case_count=42, license="mit"),
             engine_src=engine_src_copy,
         )
+
+
+# ---------------------------------------------------------------------------
+# round-trip: emitted rows must CONSTRUCT the real dataclasses (OME-1214). The
+# ast.parse checks above catch template syntax bugs; only construction against
+# the real spec catches a renamed or newly-required field.
+# ---------------------------------------------------------------------------
+
+
+def test_emitted_snapshot_row_constructs_the_real_snapshot_spec(engine_src_copy: Path) -> None:
+    """An emitted prepare.py row must construct the real SnapshotSpec, so a spec
+    change breaks here — in the spec-changer's own PR — not as a TypeError inside
+    a generated file at the next import session.
+
+    INVARIANT: the dataclasses ARE the schema — the emitted kwargs are checked by
+    constructing the real spec, never against a parallel copy that could drift.
+    """
+
+    from screamingface_engine_inspect.prepare import SnapshotSpec
+
+    # The maximal row: every optional kwarg the template can emit is emitted.
+    fragments = generate_rows(
+        "sums",
+        _facts(choice_template=f"{_FAKE_MODULE}:CHOICE_TEMPLATE"),
+        Observations(revision="c" * 40, case_count=42, license="mit"),
+        engine_src=engine_src_copy,
+        shuffle_seed=7,
+    )
+
+    # The row reads pin constants — take them from the written copy, exactly as
+    # prepare.py resolves them at import time.
+    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
+    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+
+    snapshot: Any = namespace["SNAPSHOTS"]["sums"]
+    assert isinstance(snapshot, SnapshotSpec)
+    assert snapshot.dataset == "acme/sums"
+    assert snapshot.config == "main"
+    assert snapshot.split == "test"
+    assert snapshot.dataset_revision == "c" * 40
+    assert snapshot.case_count == 42
+    assert snapshot.record_to_sample == f"{_FAKE_MODULE}:record_to_sample"
+    assert snapshot.prompt_template == f"{_FAKE_MODULE}:TEMPLATE"
+    assert snapshot.choice_template == f"{_FAKE_MODULE}:CHOICE_TEMPLATE"
+    assert snapshot.shuffle_seed == 7
+
+    # The exec above resolves pin constants from ALL of pins.py, but the written
+    # prepare.py resolves them through its import block — a constant the fragment
+    # references that import_names forgot would NameError only at the next import
+    # session (importer.py keeps the two lists independently; review finding on
+    # this PR). Pin both directions, through the maximal row — the only one that
+    # exercises the conditional shuffle_seed arm of both lists.
+    referenced: set[str] = set(re.findall(r"\bSUMS_[A-Z_]+\b", fragments.snapshot))
+    assert referenced == set(fragments.import_names)
+    # Slice the pins import block by its own header — the first ")" in the file
+    # sits inside the module docstring, far above the import.
+    prepare_text: str = (engine_src_copy / "prepare.py").read_text()
+    start: int = prepare_text.index(importer_module._PINS_IMPORT_HEADER)
+    import_block: str = prepare_text[start : prepare_text.index(")", start)]
+    assert all(name in import_block for name in fragments.import_names)
+
+
+def test_emitted_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:
+    """An emitted boards.py row must construct the real BoardSpec, so a spec
+    change breaks here — in the spec-changer's own PR — not at the next import.
+
+    INVARIANT: same as the snapshot round-trip — construction against the real
+    dataclass is the schema check; no parallel copy.
+    """
+
+    from screamingface_engine_inspect.boards import BoardSpec
+
+    fragments = generate_rows(
+        "sums",
+        _facts(),
+        Observations(revision="c" * 40, case_count=42, license="mit"),
+        engine_src=engine_src_copy,
+    )
+
+    namespace: dict[str, Any] = {"BoardSpec": BoardSpec}
+    exec(f"BOARDS = (\n{fragments.board})", namespace)
+
+    (board,) = namespace["BOARDS"]
+    assert isinstance(board, BoardSpec)
+    assert board.key == "sums"
+    assert board.dataset_url == "https://huggingface.co/datasets/acme/sums"
+    assert board.scorer == "inspect_ai.scorer:match"
+    assert dict(board.scorer_kwargs) == {"numeric": True}
+    # Free text ⇒ the check surface is legitimate and declared (OME-796).
+    assert board.with_check_surface is True
+    # Catalogue prose stays the importing agent's job — the tool emits TODOs.
+    assert board.title == "TODO"
+
+
+def test_emitted_minimal_snapshot_row_constructs_the_real_snapshot_spec(
+    engine_src_copy: Path,
+) -> None:
+    """The template's OTHER branch: a row with no prompt_template, no
+    choice_template and no shuffle_seed must also construct the real spec.
+
+    WHY a separate minimal variant: making an optional SnapshotSpec field
+    required (dropping its default) keeps the maximal-row test green — only a
+    row that OMITS the kwarg catches it (review finding on this PR).
+    """
+
+    from screamingface_engine_inspect.prepare import SnapshotSpec
+
+    fragments = generate_rows(
+        "quiz",
+        _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+        engine_src=engine_src_copy,
+    )
+
+    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
+    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+
+    snapshot: Any = namespace["SNAPSHOTS"]["quiz"]
+    assert isinstance(snapshot, SnapshotSpec)
+    assert snapshot.dataset == "acme/sums"
+    assert snapshot.case_count == 7
+    # The omitted kwargs resolve through the spec's own defaults.
+    assert snapshot.prompt_template is None
+    assert snapshot.choice_template is None
+    assert snapshot.shuffle_seed is None
+
+
+def test_emitted_mcq_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:
+    """The board template's OTHER branch: an MCQ row omits scorer_kwargs AND
+    with_check_surface — it must still construct the real BoardSpec.
+
+    WHY a separate MCQ variant: dropping the default of either omitted field
+    keeps the free-text-row test green — only this row catches it (review
+    finding on this PR).
+    """
+
+    from screamingface_engine_inspect.boards import BoardSpec
+
+    fragments = generate_rows(
+        "quiz",
+        _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+        engine_src=engine_src_copy,
+    )
+
+    namespace: dict[str, Any] = {"BoardSpec": BoardSpec}
+    exec(f"BOARDS = (\n{fragments.board})", namespace)
+
+    (board,) = namespace["BOARDS"]
+    assert isinstance(board, BoardSpec)
+    assert board.key == "quiz"
+    assert board.scorer == "inspect_ai.scorer:choice"
+    # The omitted kwargs resolve through the spec's own defaults (OME-796: MCQ
+    # boards never declare the check surface).
+    assert dict(board.scorer_kwargs) == {}
+    assert board.with_check_surface is False
 
 
 def test_injection_charsets_refuse_a_trailing_newline(engine_src_copy: Path) -> None:
