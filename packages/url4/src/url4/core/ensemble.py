@@ -28,6 +28,7 @@ import json
 import re
 from dataclasses import dataclass
 
+from url4.core._scan import iter_non_string_chars
 from url4.core.context import Context
 from url4.core.errors import ErrorCode, ScopeError
 
@@ -141,7 +142,7 @@ def _json_blob_spans(text: str) -> list[tuple[int, int]]:
     spans: list[tuple[int, int]] = []
     depth = 0
     start = -1
-    for i, ch in _non_string_chars(text):
+    for i, ch in iter_non_string_chars(text):
         if ch == "{":
             if depth == 0:
                 start = i
@@ -151,29 +152,6 @@ def _json_blob_spans(text: str) -> list[tuple[int, int]]:
             if depth == 0:
                 spans.append((start, i + 1))
     return spans
-
-
-def _non_string_chars(text: str):
-    """Yield ``(index, char)`` for every char not inside a terminated JSON string.
-
-    A ``"`` whose closing ``"`` exists (``\\`` and ``\"`` escapes honored) is
-    skipped wholesale, so a ``{``/``}`` inside a JSON string value can't perturb a
-    brace-depth scan. An unterminated ``"`` in non-JSON text is yielded as an
-    ordinary char, so braces after it still count — preserving the prior behavior
-    for malformed input (no behavior change where there's no real string).
-    """
-    i = 0
-    n = len(text)
-    while i < n:
-        if text[i] == '"':
-            j = i + 1
-            while j < n and text[j] != '"':
-                j += 2 if text[j] == "\\" else 1
-            if j < n:
-                i = j + 1
-                continue
-        yield i, text[i]
-        i += 1
 
 
 def _in_json_blob(pos: int, spans: list[tuple[int, int]]) -> bool:

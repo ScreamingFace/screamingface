@@ -315,8 +315,10 @@ class ExecutionContext:
     def record_collected_error(self) -> None:
         self._tally.count += 1
 
-    def child(self, scope: Context) -> ExecutionContext:
-        """A context for a spawned fragment: new scope, shared everything else."""
+    def _clone(self, *, scope: Context, span_id: str | None) -> ExecutionContext:
+        """A copy of this context differing only in ``scope`` and the current
+        observation span; every other field — io, processor, hooks, strictness,
+        self-collection, the shared error tally — is carried over."""
         return ExecutionContext(
             self.io,
             processor=self.processor,
@@ -328,26 +330,18 @@ class ExecutionContext:
             _spawn_hook=self._spawn_hook,
             _execute_node_hook=self._execute_node_hook,
             _obs=self._obs,
-            _current_span_id=self._current_span_id,
+            _current_span_id=span_id,
         )
+
+    def child(self, scope: Context) -> ExecutionContext:
+        """A context for a spawned fragment: new scope, shared everything else."""
+        return self._clone(scope=scope, span_id=self._current_span_id)
 
     def with_span(self, span_id: str) -> ExecutionContext:
         """The SAME scope, under a new current-span — the parent id for
         anything this node's ``resolve`` spawns (a lazy fragment, a map row,
         a guarded subtree). Every other field clones like :meth:`child`."""
-        return ExecutionContext(
-            self.io,
-            processor=self.processor,
-            process=self.process,
-            scope=self.scope,
-            strict_fields=self.strict_fields,
-            self_collection=self.self_collection,
-            _tally=self._tally,
-            _spawn_hook=self._spawn_hook,
-            _execute_node_hook=self._execute_node_hook,
-            _obs=self._obs,
-            _current_span_id=span_id,
-        )
+        return self._clone(scope=self.scope, span_id=span_id)
 
     async def spawn(self, text: str, scope: Context) -> str:
         """Compile and execute a url4 *text fragment* on a fresh executor

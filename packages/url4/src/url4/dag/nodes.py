@@ -45,7 +45,7 @@ from url4.core.ensemble import (
     substitute_item,
     substitute_response_vars,
 )
-from url4.core.errors import CollectionError, ErrorCode, ResolutionError, ScopeError, Url4Error
+from url4.core.errors import CollectionError, ErrorCode, ResolutionError, Url4Error
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import IterationDirectives, Params
 from url4.core.nodes import RelExpr as AstRelExpr
@@ -104,10 +104,7 @@ DEFAULT_MAP_CONCURRENCY = 8
 
 def _current_item(scope: Context) -> str | None:
     """The row bound by an enclosing :class:`MapNode`, or None outside a map."""
-    try:
-        return scope.lookup(_ITEM_KEY)
-    except ScopeError:
-        return None
+    return scope.get(_ITEM_KEY)
 
 
 def _substitute(text: str, scope: Context, ctx: ExecutionContext) -> str:

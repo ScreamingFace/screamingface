@@ -392,7 +392,14 @@ def _is_descriptored(collection: str) -> bool:
 def _merge_directives(
     primary: IterationDirectives, secondary: IterationDirectives
 ) -> IterationDirectives:
-    """Field-wise merge: an explicitly non-default ``primary`` field wins."""
+    """Field-wise merge: an explicitly non-default ``primary`` field wins.
+
+    The order is intentional and the merge is therefore NOT commutative — the
+    result depends on which argument is ``primary``. That is correct while both
+    directive sets come from the SAME expression (one source, one evaluation
+    order). If two independent sources ever supply directives, this function
+    needs a defined conflict rule instead.
+    """
     default = IterationDirectives()
     return IterationDirectives(
         concurrency=primary.concurrency or secondary.concurrency,

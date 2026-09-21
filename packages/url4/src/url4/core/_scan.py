@@ -4,7 +4,9 @@ The single primitive behind url4's structure-aware parsing: track ``(``/``)``
 and ``{``/``}`` nesting plus ``'…'`` quote runs (``\\'`` and ``\\\\`` escapes
 honored), so callers can find balanced spans or the characters that sit outside
 all nesting — spec §8 parse rule 8: only separators at depth 0 outside quotes
-are structural. Kept as a dependency-free leaf (imports nothing internal) so
+are structural. JSON string literals (``"…"``) are a separate skip rule for the
+substitution engine's brace scan, because JSON quoting is not the grammar's.
+Kept as a dependency-free leaf (imports nothing internal) so
 the parser envelope-decoders (:mod:`url4.core.parser`), the grammar
 (:mod:`url4.core.grammar`), and the sub-request codec (:mod:`url4.core.subrequest`) share
 one implementation instead of each carrying their own copy.
@@ -68,6 +70,55 @@ def iter_top_level(expr: str) -> Iterator[tuple[int, str]]:
         elif depth == 0:
             yield i, ch
         i += 1
+
+
+def iter_non_string_chars(text: str) -> Iterator[tuple[int, str]]:
+    """Yield ``(index, char)`` for every char not inside a JSON string literal.
+
+    A ``"`` whose closing ``"`` exists (``\\`` and ``\\"`` escapes honored) is
+    skipped wholesale, so a structural character inside a JSON string value
+    cannot perturb a depth scan. An unterminated ``"`` is yielded as an
+    ordinary char — malformed input has no real string to skip.
+    """
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            if j < n:
+                i = j + 1
+                continue
+        yield i, text[i]
+        i += 1
+
+
+def balanced_braces(text: str, start: int) -> int | None:
+    """Return the index just past the ``}`` closing the brace run at ``start``.
+
+    ``start`` points at the first ``{`` of the run. Quote runs are skipped
+    wholesale (``skip_quoted``), so a brace inside a ``'…'`` quote cannot
+    desync the depth count. Returns ``None`` if the braces never balance; a
+    stray ``}`` at depth 0 is swallowed as structural and scanning continues
+    (malformed-input tolerance), as before.
+    """
+    depth = 0
+    i = start
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "'":
+            i = skip_quoted(text, i)
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
 
 
 def balanced_body(text: str, start: int) -> str | None:
@@ -153,6 +204,16 @@ def find_top_level(expr: str, chars: str) -> int | None:
     return None
 
 
+def split_query_segments(text: str) -> list[str]:
+    """Split a query string on its depth-0, unquoted ``&`` separators.
+
+    THE single definition of the §3.3.1 query-segment rule: an ``&`` nested
+    inside ``(…)``/``{…}`` or a ``'…'`` quote belongs to its enclosing value,
+    never to the parameter list. Parts are stripped; empty input yields ``[]``.
+    """
+    return split_top_level(text, "&")
+
+
 def split_top_level(expr: str, sep: str) -> list[str]:
     """Split ``expr`` on ``sep`` at depth 0 outside quotes; parts are stripped.
 
@@ -173,11 +234,14 @@ def split_top_level(expr: str, sep: str) -> list[str]:
 
 __all__ = [
     "balanced_body",
+    "balanced_braces",
     "find_top_level",
     "find_unquoted",
     "iter_iteration_stars",
+    "iter_non_string_chars",
     "iter_top_level",
     "one_paren_layer",
     "skip_quoted",
+    "split_query_segments",
     "split_top_level",
 ]

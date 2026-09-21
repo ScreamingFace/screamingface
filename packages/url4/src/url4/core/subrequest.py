@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from urllib.parse import unquote, unquote_plus
 
 from url4.core._annotations import EXPRESSION_BEARING_KEYS, validate_param
-from url4.core._scan import balanced_body, split_top_level
+from url4.core._scan import balanced_body, split_query_segments
 from url4.core.errors import ParseError
 
 # Characters that cannot appear raw inside a context/intent payload:
@@ -200,7 +200,7 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
     """
     params: dict[str, str] = {}
     q: str | None = None
-    for segment in split_top_level(query_string, "&"):
+    for segment in split_query_segments(query_string):
         if not segment:
             continue
         if q is not None:

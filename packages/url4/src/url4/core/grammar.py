@@ -40,11 +40,13 @@ from url4.core._annotations import (
 )
 from url4.core._scan import (
     balanced_body,
+    balanced_braces,
     find_unquoted,
     iter_iteration_stars,
     iter_top_level,
     one_paren_layer,
     skip_quoted,
+    split_query_segments,
     split_top_level,
 )
 from url4.core.errors import ErrorCode, ParseError
@@ -670,7 +672,7 @@ def _decode_query_params(params_text: str) -> Params:
     if not params_text:
         return ()
     pairs: list[tuple[str, str | None]] = []
-    for segment in split_top_level(params_text, "&"):
+    for segment in split_query_segments(params_text):
         if segment:
             key, eq, value = segment.partition("=")
             decoded = value if eq else None
@@ -788,21 +790,7 @@ def _parse_struct_object(token: str) -> StructObject:
 
 
 def _balanced_braces(token: str) -> int | None:
-    depth = 0
-    i = 0
-    while i < len(token):
-        ch = token[i]
-        if ch == "'":
-            i = skip_quoted(token, i)
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    return None
+    return balanced_braces(token, 0)
 
 
 def _parse_reference(token: str) -> SelfRef | IdentityRef:
