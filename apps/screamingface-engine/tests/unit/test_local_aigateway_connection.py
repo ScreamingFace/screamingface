@@ -83,3 +83,11 @@ def test_the_local_gateway_address_defaults_to_loopback() -> None:
     """INVARIANT: loopback, like `LOCAL_HOST` — pinned against the literal, not the constant."""
     assert Settings(jwt_secret="s" * 32).local_aigateway_base_url == "http://127.0.0.1:9105"
     assert LOCAL_AIGATEWAY_BASE_URL == "http://127.0.0.1:9105"
+
+
+def test_local_app_wires_a_mutable_adapter() -> None:
+    # INVARIANT (D15, OME-1245): Local mode keeps its BYOK controls, so its adapter may write;
+    # the Hosted composition root is the one that passes `mutable=False`.
+    app = _app()
+
+    assert app.state.connections._mutable is True  # noqa: SLF001
