@@ -16,9 +16,19 @@ from screamingface_engine.benchmarks.spine.scored import (
     GradeRequest,
     ScoredPath,
 )
+from screamingface_engine.benchmarks.spine.serving import (
+    BoardRoutes,
+    ServedBoard,
+    board_preflight,
+    board_routes,
+    candidate_record,
+    compute_board_revision,
+    install_board,
+)
 from screamingface_engine.benchmarks.spine.verdict import Verdict, VerdictShape, parse_verdict
 
 __all__ = [
+    "BoardRoutes",
     "CaseGradeOutcome",
     "CasePayload",
     "exam_scorer",
@@ -27,9 +37,15 @@ __all__ = [
     "RowIndex",
     "RowReader",
     "ScoredPath",
+    "ServedBoard",
     "TextPayload",
     "Verdict",
     "VerdictShape",
+    "board_preflight",
+    "board_routes",
+    "candidate_record",
+    "compute_board_revision",
+    "install_board",
     "parse_verdict",
     "read_selected_cases",
     "rubric_grade_case",
