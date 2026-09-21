@@ -21,7 +21,8 @@ from screamingface_engine.benchmarks.medxpert.definition import (
     ROUTE_PREFIX,
 )
 from screamingface_engine.benchmarks.medxpert.prepare import emit
-from screamingface_engine.benchmarks.medxpert.runtime import _cases, _check
+from screamingface_engine.benchmarks.medxpert.runtime import _cases, _check, preflight
+from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 # Captured 2026-09-21 from the pre-migration board (base of this branch).
@@ -86,3 +87,21 @@ class TestServedCases:
             '"cot_prompt":"Q: ' + _QUESTION + "\\nA: Let's think step by step.\","
             '"trigger":"Therefore, among A through E, the answer is"}]'
         )
+
+
+class TestPreflightErrorClass:
+    def test_a_missing_answer_record_is_a_definition_error(self, tmp_path: Path) -> None:
+        """Pin medxpert's per-board deviation: a broken bundle is a DEFINITION error.
+
+        WHY the direct `preflight` call (review of this PR): through `serve_cases`,
+        a missing answer record trips `_build_rows`' own raise before the preflight
+        ever runs, so the declaration's error class was unreachable from that path
+        and its deletion survived the whole suite. This is the one test that dies
+        if `preflight` stops raising `benchmark_definition_error`.
+        """
+        import pytest
+
+        with pytest.raises(ResolutionError) as caught:
+            preflight(_root(tmp_path), (9,))
+
+        assert caught.value.code == "benchmark_definition_error"

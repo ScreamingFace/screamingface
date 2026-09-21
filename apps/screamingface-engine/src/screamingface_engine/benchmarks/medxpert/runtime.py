@@ -173,8 +173,9 @@ BOARD = ServedBoard(
     label="MedXpertQA",
     revision=REVISION,
     declared_case_count=CASE_COUNT,
-    # AIDEV-NOTE: late-bound through the module global so tests (and only tests)
-    # can monkeypatch `runtime.preflight` — a direct reference would freeze it.
+    # AIDEV-NOTE: late-bound through the module global for parity with contracteval's
+    # seam (whose prepare-test assigns `runtime.preflight` directly); a direct
+    # reference here would freeze the original against any such replacement.
     preflight=lambda root, case_ids: preflight(root, case_ids),
     build_rows=_build_rows,
     check=_check,
