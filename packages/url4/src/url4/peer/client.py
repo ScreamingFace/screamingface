@@ -252,14 +252,21 @@ class Client:
         """
         target = node or self._node
         proto = _pairs(params)
+        # WHY check=False: every tree rendered here is parser- or
+        # builder-produced (build() above or the builders) — the exact class
+        # the renderer's round-trip property tests pin — and the verified
+        # re-parse costs ~15x the render on this front-door path.
         if target is None and not proto:
-            request = expression if isinstance(expression, str) else render(expression)
+            request = expression if isinstance(expression, str) else render(expression, check=False)
         else:
             root = _as_composite(build(expression) if isinstance(expression, str) else expression)
             if target is None:
-                request = render(_with_params(root, proto))
+                request = render(_with_params(root, proto), check=False)
             else:
-                request = render(_passthrough(_as_remote(root, target, path or self._path, proto)))
+                request = render(
+                    _passthrough(_as_remote(root, target, path or self._path, proto)),
+                    check=False,
+                )
         ctx = ExecutionContext(
             self._effective_io(),
             processor=self._processor,

@@ -397,7 +397,10 @@ class Url4Node:
         self, expression: str | Node, *, env: Mapping[str, object] | None = None
     ) -> Url4Result:
         """Evaluate a url4 expression in-process, with this node as its world."""
-        request = expression if isinstance(expression, str) else render(expression)
+        # WHY check=False: same front-door reasoning as Client.evaluate — trees
+        # arrive from build() or the builders, both pinned by the renderer's
+        # round-trip property tests, and the verify re-parse costs ~15x the render.
+        request = expression if isinstance(expression, str) else render(expression, check=False)
         text = await self._run_text(request, env)
         return Url4Result(text=text, request=request)
 
