@@ -24,7 +24,7 @@ COST_CEILING = Decimal("999999.999999")
 _ZERO_COST = Decimal("0").quantize(COST_QUANTUM)
 
 
-def _validate_run_cost(value: Decimal) -> Decimal:
+def _validate_run_cost(value: Decimal | None) -> Decimal | None:
     """Reject a cost that cannot be stored; normalize every cost that can.
 
     Only two things are actually unstorable and therefore rejected: a negative or
@@ -45,6 +45,11 @@ def _validate_run_cost(value: Decimal) -> Decimal:
     Those constraints run BEFORE this validator, so they would reject the very
     values it exists to normalize.
     """
+    # OME-822: absent is legal again, but only beside a status saying the amount is
+    # unknowable — `ScoreSubmission.validate_cost_matches_its_status` enforces that
+    # pairing. There is nothing to normalize here.
+    if value is None:
+        return None
     # ge=0 on the field already rejects negatives, and NaN fails that comparison,
     # but +Infinity passes it — and quantize() raises InvalidOperation rather than
     # returning a value, so non-finites have to go before any arithmetic.
@@ -124,6 +129,22 @@ RunCostUsd = Annotated[
     Decimal | None,
     PlainSerializer(_serialize_run_cost, return_type=str | None, when_used="json"),
 ]
+
+# FEATURE: OME-822 / OME-1251 D4 — whether a submitted cost can be believed as a number.
+#
+# INVARIANT: a RUN-level vocabulary, NOT the gateway's per-call `DirectCostStatus`. A run is many
+# calls; no member of that vocabulary can say "forty priced, three not", which is the common case.
+#
+#   complete     every component priced — the amount is exact and is stored
+#   partial      the amount is not derivable, but cache saved-cost evidence exists, so a real
+#                lower bound is known even though the total is not
+#   unavailable  not derivable and no cost evidence at all
+#
+# `partial` and `unavailable` behave identically today — both store a null amount and so leave
+# every cost-bearing surface. The distinction is kept because this is a STORED column: if the
+# board ever shows a lower bound somewhere, `partial` is the set it applies to, and widening the
+# vocabulary later would cost a migration plus another one-directional client rollout.
+RunCostStatus = Literal["complete", "partial", "unavailable"]
 
 # INVARIANT: a baseline's metadata is operator-supplied (via the import CLI, not a
 # public HTTP endpoint) but still bounded, so one bad import can't make
@@ -406,7 +427,38 @@ class ScoreSubmission(BaseModel):
     # requires us to quantize and accept. `ge=0` stays here (it also rejects NaN,
     # which fails the comparison); allow_inf_nan=False stops +Infinity, which
     # would pass ge=0 and then raise inside quantize().
-    run_cost_usd: Decimal = Field(ge=0, allow_inf_nan=False)
+    #
+    # OME-822/OME-1251 D1: OPTIONAL again, but only because `run_cost_status` now carries the
+    # obligation. An absent amount is legal ONLY beside a status that says it is unknowable, and
+    # the model validator below enforces that pairing. Omitting both is still rejected.
+    run_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # INVARIANT (OME-1251 D4): a RUN-level vocabulary, deliberately not the gateway's per-call
+    # `DirectCostStatus`. A run has many calls, and no member of that vocabulary can express
+    # "forty priced, three not" — the common case and the one that matters.
+    #
+    # WHY a required field rather than a nullable one: this is the whole point of OME-822. A
+    # client that can determine its cost and says nothing is a client bug; making the status
+    # required is what turns that silence into a 422 instead of a null the board must interpret.
+    run_cost_status: RunCostStatus
+
+    @model_validator(mode="after")
+    def validate_cost_matches_its_status(self) -> ScoreSubmission:
+        """INVARIANT: `complete` if and only if an amount is present.
+
+        A contract admitting two spellings of the same fact gets both, and the board then has to
+        guess which one the client meant. `complete` asserts an exact amount, so asserting it
+        without one is incoherent; an amount beside a status saying it is unknowable is the same
+        incoherence from the other side. Refusing both keeps `run_cost_status` a fact about the
+        amount rather than a second opinion on it.
+        """
+        priced = self.run_cost_status == "complete"
+        if priced and self.run_cost_usd is None:
+            raise ValueError("run_cost_usd is required when run_cost_status is 'complete'")
+        if not priced and self.run_cost_usd is not None:
+            raise ValueError(
+                f"run_cost_usd must be absent when run_cost_status is {self.run_cost_status!r}"
+            )
+        return self
 
     @field_validator("authors")
     @classmethod
@@ -438,7 +490,7 @@ class ScoreSubmission(BaseModel):
 
     @field_validator("run_cost_usd")
     @classmethod
-    def validate_run_cost(cls, value: Decimal) -> Decimal:
+    def validate_run_cost(cls, value: Decimal | None) -> Decimal | None:
         return _validate_run_cost(value)
 
     @field_validator("url4_expression")
@@ -561,6 +613,22 @@ class ScoreSchema(BaseModel):
     # classification registry. Operator-only, never set via ScoreSubmission.
     openness_override: Literal["open", "closed"] | None = None
     run_cost_usd: RunCostUsd
+    # FEATURE: OME-822 / OME-1251 D1 — why this row's cost is absent, when it is.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for exactly the reason `models` above records. This schema
+    # feeds the private JSONL export whose bytes authorize a purge; emitting
+    # `"run_cost_status": null` on every legacy row would change every export saved before this
+    # field existed, with no row having changed, and a previously certified export could no
+    # longer authorize its own purge.
+    #
+    # INVARIANT: null here is NOT the same as `unavailable`. Null means the row predates this
+    # field — an imported baseline, or a submission from before OME-822. `unavailable` means a
+    # client looked and could not determine the cost. Collapsing the two would lose the
+    # distinction the Pareto frontier depends on.
+    run_cost_status: RunCostStatus | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
     # mismatch supplied by POST remains visible and documented in the shared schema.

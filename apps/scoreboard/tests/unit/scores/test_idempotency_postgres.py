@@ -37,6 +37,7 @@ def _submission(submitted_by: str) -> ScoreSubmission:
         correct_questions=75,
         ran_with_providers=["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
     )
 
 

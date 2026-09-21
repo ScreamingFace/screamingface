@@ -35,6 +35,7 @@ def _submission(*, submitted_by: str, spec_id: str, score: float) -> ScoreSubmis
         correct_questions=int(score * 100),
         ran_with_providers=["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
     )
 
 
@@ -99,6 +100,7 @@ async def test_a_public_benchmark_can_also_be_exported(tortoise_db: None) -> Non
             correct_questions=50,
             ran_with_providers=["openai"],
             run_cost_usd=Decimal("1.000000"),
+            run_cost_status="complete",
         )
     )
 

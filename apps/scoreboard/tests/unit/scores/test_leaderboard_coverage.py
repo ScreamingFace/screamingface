@@ -36,6 +36,7 @@ def _submission(spec_id: str, score: float, total_questions: int) -> ScoreSubmis
         total_questions=total_questions,
         ran_with_providers=["openrouter"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
     )
 
 

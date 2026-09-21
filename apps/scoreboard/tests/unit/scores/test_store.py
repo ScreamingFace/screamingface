@@ -41,6 +41,7 @@ def _submission(
         correct_questions=correct_questions,
         ran_with_providers=providers or ["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
         ran_at_local=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
         client=ClientInfo(name="scoreboard-test", version="0.1.0", platform="test"),
         metadata={"source": "unit"},
@@ -479,6 +480,7 @@ def _revision_submission(
         correct_questions=75,
         ran_with_providers=["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
         benchmark_revision=benchmark_revision,
         metadata=metadata,
     )
@@ -656,6 +658,7 @@ async def test_leaderboard_still_collapses_within_one_revision(tortoise_db: None
             correct_questions=60,
             ran_with_providers=["openai"],
             run_cost_usd=Decimal("1.000000"),
+            run_cost_status="complete",
             benchmark_revision="rev-same",
         )
     )
@@ -669,6 +672,7 @@ async def test_leaderboard_still_collapses_within_one_revision(tortoise_db: None
             correct_questions=90,
             ran_with_providers=["openai"],
             run_cost_usd=Decimal("1.000000"),
+            run_cost_status="complete",
             benchmark_revision="rev-same",
         )
     )
@@ -1132,6 +1136,7 @@ def _owned_submission(
         correct_questions=int(score * 100),
         ran_with_providers=["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
         benchmark_revision=benchmark_revision,
     )
 
@@ -1190,6 +1195,7 @@ def _same_recipe(submitted_by: str) -> ScoreSubmission:
         correct_questions=80,
         ran_with_providers=["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
     )
 
 
@@ -1364,6 +1370,7 @@ async def test_owned_rows_include_every_submission_for_one_spec(tortoise_db: Non
                 correct_questions=int(score * 100),
                 ran_with_providers=["openai"],
                 run_cost_usd=Decimal("1.000000"),
+                run_cost_status="complete",
                 benchmark_revision="rev-1",
             ),
             identity_verified=True,

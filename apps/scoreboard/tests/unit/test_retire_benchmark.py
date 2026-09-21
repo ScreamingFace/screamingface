@@ -46,6 +46,7 @@ def _submission(benchmark_id: str = BENCHMARK) -> ScoreSubmission:
         correct_questions=50,
         ran_with_providers=["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
     )
 
 

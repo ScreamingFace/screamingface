@@ -46,6 +46,7 @@ def _submission(
         correct_questions=correct_questions,
         ran_with_providers=providers or ["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
         ran_at_local=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
         client=ClientInfo(name="scoreboard-test", version="0.1.0", platform="test"),
         metadata={"source": "unit"},
@@ -843,6 +844,7 @@ def _private_submission(
         correct_questions=int(score * 100),
         ran_with_providers=["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
         benchmark_revision=revision,
     )
 
@@ -1311,6 +1313,8 @@ async def test_the_frontier_route_passes_the_registered_case_count(
                 "total_questions": total,
                 "ran_with_providers": ["openrouter"],
                 "run_cost_usd": "1.000000",
+                # OME-822: the amount and its status are a validated pair on the request.
+                "run_cost_status": "complete",
             },
         )
         assert response.status_code == 201, response.text

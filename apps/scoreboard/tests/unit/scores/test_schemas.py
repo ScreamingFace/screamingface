@@ -20,6 +20,10 @@ def _valid_payload() -> dict[str, object]:
         "correct_questions": 3,
         "ran_with_providers": ["openai"],
         "run_cost_usd": "1.25",
+        # OME-822: the amount and its status are a validated pair. Approved Confidence-Gate
+        # exception (2026-09-21) — this shared helper is what every cost test in this file
+        # builds on, and none of their assertions changes.
+        "run_cost_status": "complete",
     }
 
 
@@ -719,3 +723,81 @@ def test_a_json_number_below_the_float_floor_is_a_documented_residual() -> None:
 
     payload["run_cost_usd"] = "1e-400"  # the same value, quoted
     assert ScoreSubmission.model_validate(payload).run_cost_usd == Decimal("0.000001")
+
+
+# --- OME-822 / OME-1251 D1+D4: an unpriceable run says so instead of sending a fake zero -------
+# `run_cost_usd` alone cannot express "this run happened and its cost is not derivable". Required
+# and non-nullable, the only value such a run could send is 0 — publishing an unknown cost as free
+# and ranking it cheapest on the Pareto frontier, which is OME-1143 reintroduced by its own fix.
+# The status is what makes the refusal to guess expressible.
+
+
+def test_a_submission_without_a_status_is_rejected() -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "1.500000"
+    payload.pop("run_cost_status", None)
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+def test_a_complete_status_without_an_amount_is_rejected() -> None:
+    """INVARIANT: the pairing is validated, not assumed.
+
+    A contract that permits two spellings of the same fact gets both, and then the board has to
+    guess which one the client meant. `complete` asserts an exact amount; asserting it while
+    sending none is a client bug, not a legitimate state.
+    """
+    payload = _valid_payload()
+    payload["run_cost_status"] = "complete"
+    payload.pop("run_cost_usd", None)
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+@pytest.mark.parametrize("status", ["partial", "unavailable"])
+def test_an_amount_alongside_an_unpriced_status_is_rejected(status: str) -> None:
+    """The same pairing from the other side. An amount the status says is unknowable is
+    incoherent, and silently dropping one of the two would publish the client's confusion.
+    """
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "1.500000"
+    payload["run_cost_status"] = status
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)
+
+
+def test_a_priced_submission_keeps_its_amount_and_status() -> None:
+    payload = _valid_payload()
+    payload["run_cost_usd"] = "1.500000"
+    payload["run_cost_status"] = "complete"
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("1.500000")
+    assert submission.run_cost_status == "complete"
+
+
+@pytest.mark.parametrize("status", ["partial", "unavailable"])
+def test_an_unpriced_submission_is_accepted_with_no_amount(status: str) -> None:
+    # The whole point: a run whose cost cannot be derived is a legitimate result with one missing
+    # field, not a defective submission.
+    payload = _valid_payload()
+    payload.pop("run_cost_usd", None)
+    payload["run_cost_status"] = status
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd is None
+    assert submission.run_cost_status == status
+
+
+def test_an_unrecognised_status_is_rejected() -> None:
+    payload = _valid_payload()
+    payload.pop("run_cost_usd", None)
+    payload["run_cost_status"] = "probably_fine"
+
+    with pytest.raises(ValidationError):
+        ScoreSubmission.model_validate(payload)

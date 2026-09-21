@@ -27,6 +27,7 @@ from .schemas import (
     BenchmarkSchema,
     LeaderboardEntry,
     LeaderboardStoreEntry,
+    RunCostStatus,
     ScoreSchema,
     ScoreSubmission,
     Visibility,
@@ -111,6 +112,9 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         # construction, which is what actually enforces the invariant at runtime.
         openness_override=cast(Openness | None, model.openness_override),
         run_cost_usd=model.run_cost_usd,
+        # Same CharField narrowing as `openness_override` above. Null means the row predates
+        # OME-822, which is a different fact from the stored value "unavailable".
+        run_cost_status=cast("RunCostStatus | None", model.run_cost_status),
     )
 
 
@@ -159,7 +163,14 @@ def _derived_providers(submission: ScoreSubmission) -> list[str]:
 # INVARIANT: every column `_replay_updates` can return, and nothing else. `_apply_replay_updates`
 # reads these off the locked row to report what the row HOLDS after a replay, so a field that can
 # be written but is missing here would be answered from a pre-lock read instead.
-_REPLAY_FIELDS: tuple[str, ...] = ("authors", "metadata", "models", "ran_with_providers")
+_REPLAY_FIELDS: tuple[str, ...] = (
+    "authors",
+    "metadata",
+    "models",
+    "ran_with_providers",
+    "run_cost_usd",
+    "run_cost_status",
+)
 
 
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
@@ -204,6 +215,19 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
         # The stored providers are derived from the routes (`_derived_providers`), so a replay
         # that fills one must fill the other or the two drift apart on this path alone.
         updates["ran_with_providers"] = _derived_providers(submission)
+    # FEATURE: OME-822 — how a row stored before this field ever gains a cost status.
+    #
+    # INVARIANT: the amount and the status move TOGETHER or not at all. Filling one alone can
+    # leave a row `complete` with a null amount, or an amount whose status says it is
+    # unknowable — the exact incoherence the request validator refuses, reached through the
+    # back door. `_content_hash` excludes both, so a replay carrying a cost dedups to the
+    # stored row and would otherwise discard it silently (OME-770 D8).
+    #
+    # INVARIANT: FILL ONLY, never replace, for the reason `models` records above. A published
+    # cost is a frontier position; a replay must not be able to move one.
+    if existing.run_cost_status is None:
+        updates["run_cost_status"] = submission.run_cost_status
+        updates["run_cost_usd"] = submission.run_cost_usd
     return updates
 
 
@@ -245,6 +269,11 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         # execution, not of the recipe. Two runs of the same recipe can cost
         # different amounts and must still dedup to a single row (OME-391).
         "run_cost_usd": submission.run_cost_usd,
+        # INVARIANT (OME-1251 D1): the amount and its status are stored as a pair. The request
+        # validator already refuses `complete` without an amount and an amount without
+        # `complete`, so storing both verbatim keeps the column consistent with the wire.
+        # Deliberately absent from _content_hash for the same reason as the amount.
+        "run_cost_status": submission.run_cost_status,
         "content_hash": content_hash,
     }
 
