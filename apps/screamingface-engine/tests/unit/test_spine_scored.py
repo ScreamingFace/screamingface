@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
@@ -411,7 +412,11 @@ def test_a_board_owned_missing_row_hook_replaces_the_default_result() -> None:
             failures=[
                 Failure(
                     stage="grading",
-                    code="board_owned_code",
+                    # WHY case_error (OME-1234): boards now pick from the DECLARED
+                    # vocabulary — the former free-spelling hatch is closed, and an
+                    # undeclared code refuses at the Failure model (see the sibling
+                    # test below). The board still owns the CaseResult shape.
+                    code="case_error",
                     message="the board's own wording",
                     retryable=False,
                     case_id=selected.case_id,
@@ -437,8 +442,23 @@ def test_a_board_owned_missing_row_hook_replaces_the_default_result() -> None:
     case = result["cases"][0]
     assert case["grade"] is None
     failure = case["failures"][0]
-    assert (failure["stage"], failure["code"]) == ("grading", "board_owned_code")
+    assert (failure["stage"], failure["code"]) == ("grading", "case_error")
     assert failure["message"] == "the board's own wording"
+
+
+def test_a_board_cannot_mint_an_undeclared_failure_code() -> None:
+    # INVARIANT (OME-1234): the board-owned escape hatch is closed — a board
+    # supplying a code outside DECLARED_FAILURE_CODES fails loudly at the
+    # Failure model instead of publishing a spelling nobody declared.
+    with pytest.raises(ValidationError, match="undeclared failure code"):
+        Failure(
+            stage="grading",
+            code="board_owned_code",
+            message="the board's own wording",
+            retryable=False,
+            case_id=1,
+            metadata={},
+        )
 
 
 def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:

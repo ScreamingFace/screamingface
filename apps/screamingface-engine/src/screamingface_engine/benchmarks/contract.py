@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, cast
 
@@ -45,9 +46,9 @@ CandidateInvocationStatus = Literal["completed", "refused"]
 # may carry. A failed run tells the researcher which KIND of thing went wrong; a code
 # nobody declared here cannot reach a report, so the names stay trustworthy instead of
 # drifting one typo at a time (three grader spellings had already drifted).
-# WHY a frozenset and not (yet) a Literal on Failure.code: the axis closes in a later
-# PR of this stack, after every raise site has been reclassified — closing it first
-# would crash the boards that still pick their own codes mid-migration.
+# WHY a frozenset and not a Literal on Failure.code: one dynamic family
+# (`aigateway_http_<status>`) is also declared, via `is_declared_failure_code` — a
+# Literal cannot express it, and the validator enforces both together.
 # INVARIANT: additions are deliberate — the conformance test pins this exact set, and
 # the SDK keeps its own copy (`_report_primitives.py`, the FailureStage house pattern).
 DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
@@ -112,6 +113,16 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "upstream_error",
     }
 )
+# WHY a pattern beside the set: the connector mints one code PER HTTP status
+# (`aigateway_http_{status}`, runner/connector.py) and the number is load-bearing —
+# 429 vs 500 drives retryability, and ifeval/grade.py already branches on this exact
+# shape. A closed family, not an open axis.
+_AIGATEWAY_HTTP_CODE = re.compile(r"aigateway_http_[1-5][0-9]{2}")
+
+
+def is_declared_failure_code(code: str) -> bool:
+    """Whether a failure code belongs to the declared vocabulary (set or the one family)."""
+    return code in DECLARED_FAILURE_CODES or _AIGATEWAY_HTTP_CODE.fullmatch(code) is not None
 
 
 class _StrictWireModel(BaseModel):
@@ -201,6 +212,18 @@ class Failure(_StrictWireModel):
     retryable: bool | None
     case_id: CaseId | None
     metadata: dict[str, Any]
+
+    @field_validator("code")
+    @classmethod
+    def _validate_code(cls, value: str) -> str:
+        # INVARIANT (OME-1234): every published failure passes through this model,
+        # whichever board produced it — refusing an undeclared code HERE means it can
+        # never reach a report, so the vocabulary cannot drift one typo at a time.
+        # Unknown UPSTREAM codes never hit this: public_error maps them to
+        # upstream_error before a Failure is built.
+        if not is_declared_failure_code(value):
+            raise ValueError(f"undeclared failure code {value!r}")
+        return value
 
     @field_validator("case_id")
     @classmethod
