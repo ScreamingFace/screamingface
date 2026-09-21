@@ -45,7 +45,7 @@ from url4.core.ensemble import (
     substitute_item,
     substitute_response_vars,
 )
-from url4.core.errors import CollectionError, ResolutionError, ScopeError, Url4Error
+from url4.core.errors import CollectionError, ErrorCode, ResolutionError, ScopeError, Url4Error
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import IterationDirectives, Params
 from url4.core.nodes import RelExpr as AstRelExpr
@@ -367,7 +367,11 @@ class HoldingsNode:
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         if not isinstance(ctx.io, SupportsHoldings):
-            code = "self_ref_on_non_url4" if self.identity is None else "identity_ref_on_non_url4"
+            code = (
+                ErrorCode.SELF_REF_ON_NON_URL4
+                if self.identity is None
+                else ErrorCode.IDENTITY_REF_ON_NON_URL4
+            )
             ref = "@" if self.identity is None else f"@{self.identity}"
             raise ResolutionError(
                 f"{ref} requires a URL4-aware adapter (no fetch_holdings port; spec §5.6.6)",
@@ -406,7 +410,7 @@ def _decode_struct(raw: str, scope: Context, ctx: ExecutionContext) -> dict:
     for fld in split_top_level(raw.strip()[1:-1], ","):
         key, sep, value = fld.partition(":")
         if not sep:
-            raise CollectionError(f"malformed struct field {fld!r}", code="malformed_source")
+            raise CollectionError(f"malformed struct field {fld!r}")
         result[key.strip()] = _decode_struct_value(value.strip(), scope, ctx)
     return result
 
@@ -522,7 +526,7 @@ class GuardNode:
         except Exception as exc:  # control-flow signals (CancelledError) propagate
             if not self.optional:
                 raise
-            code = exc.code if isinstance(exc, Url4Error) else "resolution_failed"
+            code = exc.code if isinstance(exc, Url4Error) else ErrorCode.RESOLUTION_FAILED
             return SourceFailure(code, str(exc) or type(exc).__name__)
 
     async def _attempt(self, scope: Context, ctx: ExecutionContext) -> Payload:
@@ -545,7 +549,7 @@ class GuardNode:
                 return await ctx.execute_node(self.inner, scope)
         except TimeoutError as exc:
             raise ResolutionError(
-                f"source timed out after {self.timeout:g}s (;t=)", code="timeout"
+                f"source timed out after {self.timeout:g}s (;t=)", code=ErrorCode.TIMEOUT
             ) from exc
 
 
@@ -567,7 +571,7 @@ class ExpandNode:
             return parse_collection(_as_text(inner), _media_type_of(inner))
         except CollectionError as exc:
             raise CollectionError(
-                f"expansion source is not iterable: {exc}", code="expansion_not_iterable"
+                f"expansion source is not iterable: {exc}", code=ErrorCode.EXPANSION_NOT_ITERABLE
             ) from exc
 
 
@@ -649,7 +653,7 @@ def _check_quorum(g: _Gathered, quorum: int | None) -> None:
     if quorum is not None and resolved < quorum:
         raise ResolutionError(
             f"quorum not met: {resolved} of {quorum} required sources resolved",
-            code="quorum_not_met",
+            code=ErrorCode.QUORUM_NOT_MET,
         )
 
 

@@ -43,7 +43,7 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 
 from url4.core.ensemble import find_references
-from url4.core.errors import ParseError
+from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import (
     Binding,
@@ -702,7 +702,7 @@ def _reject_bare_group(segment: str) -> None:
         raise ParseError(
             f"expression group {segment!r} has no intent — a parenthesized "
             "source group must be followed by !intent (or !*intent)",
-            code="missing_intent",
+            code=ErrorCode.MISSING_INTENT,
         )
 
 

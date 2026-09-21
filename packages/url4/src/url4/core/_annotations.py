@@ -121,7 +121,6 @@ def validate_param(key: str, value: str | None) -> None:
     if not _PARAM_KEY_RE.fullmatch(key):
         raise ParseError(
             f"invalid param key {key!r} — `param-key` takes ALPHA / DIGIT / '.' / '_'",
-            code="malformed_source",
         )
     if not value or key in EXPRESSION_BEARING_KEYS or _is_quoted(value):
         return
@@ -129,7 +128,6 @@ def validate_param(key: str, value: str | None) -> None:
         raise ParseError(
             f"invalid param value {value!r} for {key!r} — `param-value` takes "
             "ALPHA / DIGIT / '.' / '-' / '_' / ',' / ':' / '/'",
-            code="malformed_source",
         )
 
 

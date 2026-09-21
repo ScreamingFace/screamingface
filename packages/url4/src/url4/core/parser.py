@@ -35,7 +35,7 @@ from url4.core._scan import (
 )
 from url4.core._scan import iter_top_level as _iter_top_level
 from url4.core._scan import split_top_level as _split_top_level
-from url4.core.errors import ParseError
+from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import intent_atom, parse, parse_group_root
 from url4.core.nodes import (
     Binding,
@@ -298,7 +298,7 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
             raise ParseError(
                 f"iteration {stripped!r} has no per-row intent — the expression "
                 "after '*' must carry !intent (src*(body)!intent)",
-                code="missing_intent",
+                code=ErrorCode.MISSING_INTENT,
             )
         return envelope
     if require_intent and raw_intent is None and strip_one_paren_layer(source_expr) is not None:
@@ -309,7 +309,7 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
         raise ParseError(
             f"expression group {stripped!r} has no intent — a parenthesized "
             "source group must be followed by !intent (or !*intent)",
-            code="missing_intent",
+            code=ErrorCode.MISSING_INTENT,
         )
     return GroupEnvelope(source_expr, raw_intent, broadcast, params)
 

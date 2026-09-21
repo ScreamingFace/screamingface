@@ -214,7 +214,6 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
                 f"query string {query_string!r} has a parameter after `q=` — "
                 "`q=` is always the last parameter; everything after it belongs "
                 "to the expression",
-                code="malformed_source",
             )
         key, sep, value = segment.partition("=")
         if not sep:
@@ -234,7 +233,6 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
             raise ParseError(
                 f"param {key!r} has an empty value — `param-value` needs at least "
                 "one character; omit the '=' for a valueless flag",
-                code="malformed_source",
             )
         validate_param(key, decoded)
         if key == "q":

@@ -39,7 +39,7 @@ from inspect import isawaitable, signature
 from typing import overload
 
 from url4.core.context import Context
-from url4.core.errors import ResolutionError, Url4Error
+from url4.core.errors import ErrorCode, ResolutionError, Url4Error
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
 from url4.core.render import render
@@ -65,15 +65,18 @@ from url4.peer.client import Url4Result
 _TRANSPORT_PARAMS = TRANSPORT_ONLY_PARAMS | frozenset({"delivery", "cb", "meta", "v", "processor"})
 
 # HTTP status by spec error code; unlisted codes fall back by exception shape.
-_STATUS_BY_CODE = {
-    "malformed_source": 400,
-    "unbound_reference": 400,
-    "endpoint_not_found": 404,
-    "unknown_identity": 404,
-    "identity_unavailable": 404,
-    "identity_access_denied": 403,
-    "consent_required": 403,
-    "consent_withheld": 403,
+# Keyed by ErrorCode members but typed ``dict[str, int]``: ``Url4Error.code`` is a
+# ``str`` and ``StrEnum`` members compare equal to their wire strings, so the
+# lookup is exact without narrowing the exception attribute to the enum.
+_STATUS_BY_CODE: dict[str, int] = {
+    ErrorCode.MALFORMED_SOURCE: 400,
+    ErrorCode.UNBOUND_REFERENCE: 400,
+    ErrorCode.ENDPOINT_NOT_FOUND: 404,
+    ErrorCode.UNKNOWN_IDENTITY: 404,
+    ErrorCode.IDENTITY_UNAVAILABLE: 404,
+    ErrorCode.IDENTITY_ACCESS_DENIED: 403,
+    ErrorCode.CONSENT_REQUIRED: 403,
+    ErrorCode.CONSENT_WITHHELD: 403,
 }
 
 
@@ -295,7 +298,7 @@ class Url4Node:
         if named is None:
             raise ResolutionError(
                 f"unknown identity {identity!r} on node {self.name!r}",
-                code="unknown_identity",
+                code=ErrorCode.UNKNOWN_IDENTITY,
                 permanent=True,
             )
         return await _text(named(collection))
@@ -322,7 +325,7 @@ class Url4Node:
             return await _text(provider() if callable(provider) else provider)
         raise ResolutionError(
             f"node {self.name!r} has no endpoint, eval path, or data route at {path!r}",
-            code="endpoint_not_found",
+            code=ErrorCode.ENDPOINT_NOT_FOUND,
             permanent=True,
         )
 

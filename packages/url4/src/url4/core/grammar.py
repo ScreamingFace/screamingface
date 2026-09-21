@@ -47,7 +47,7 @@ from url4.core._scan import (
     skip_quoted,
     split_top_level,
 )
-from url4.core.errors import ParseError
+from url4.core.errors import ErrorCode, ParseError
 from url4.core.nodes import (
     Binding,
     Expression,
@@ -116,7 +116,6 @@ def _check_expr_path(path: str, token: str) -> None:
         raise ParseError(
             f"invalid expression path {path!r} in {token!r} — a path segment takes "
             "ALPHA / DIGIT / '-' / '_' / '.' / '~'",
-            code="malformed_source",
         )
 
 
@@ -126,7 +125,6 @@ def _check_data_path(token: str) -> None:
     if not _DATA_PATH_RE.fullmatch(path):
         raise ParseError(
             f"invalid data path {path!r} in {token!r}",
-            code="malformed_source",
         )
 
 
@@ -528,7 +526,7 @@ def _parse_iteration(token: str, star: int) -> Iteration:
         raise ParseError(
             f"iteration {token!r} has no per-row intent — the expression after "
             "'*' must carry !intent (src*(body)!intent)",
-            code="missing_intent",
+            code=ErrorCode.MISSING_INTENT,
             position=star,
         )
     return Iteration(collection=_parse_collection(token[:star]), body=body.strip(), intent=intent)
@@ -564,7 +562,7 @@ def _parse_local_expr(token: str) -> Expression:
         raise ParseError(
             f"expression group {token!r} has no intent — a parenthesized source "
             "group must be followed by !intent (or !*intent)",
-            code="missing_intent",
+            code=ErrorCode.MISSING_INTENT,
         )
     if after.startswith("!*"):
         return Expression(sources=sources, intent=intent_atom(after[2:]), broadcast=True)
@@ -696,7 +694,7 @@ def _parse_expr_intent(after: str, token: str) -> Node:
         raise ParseError(
             f"call {token!r} has no intent — a relative or remote expression must "
             "be followed by !intent (a path with no context is a data URI)",
-            code="missing_intent",
+            code=ErrorCode.MISSING_INTENT,
         )
     if after.startswith("!"):
         # AIDEV-NOTE: `intent-op` admits `!*` here too, but RelExpr/RemoteExpr
@@ -713,10 +711,9 @@ def _check_authority(authority: str, token: str) -> None:
     if sep and not _PORT_RE.fullmatch(port):
         raise ParseError(
             f"invalid port {port!r} in {token!r} — `port = 1*DIGIT`",
-            code="malformed_source",
         )
     if not host:
-        raise ParseError(f"remote expression has no host: {token!r}", code="malformed_source")
+        raise ParseError(f"remote expression has no host: {token!r}")
 
 
 def _parse_remote(token: str) -> Node:

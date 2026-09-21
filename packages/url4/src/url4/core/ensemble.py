@@ -29,7 +29,7 @@ import re
 from dataclasses import dataclass
 
 from url4.core.context import Context
-from url4.core.errors import ScopeError
+from url4.core.errors import ErrorCode, ScopeError
 
 # One field-path grammar everywhere (spec §8 field-path production): dot
 # segments and non-negative, no-leading-zero index segments.
@@ -110,7 +110,7 @@ def _fail_segment(seg: str | int, path_text: str, *, strict: bool, ref: str) -> 
     raise ScopeError(
         f"field path '{ref}{path_text}' failed at segment '{seg_text}' "
         "(missing field, wrong type, or index out of bounds; spec §5.3.4.1)",
-        code="malformed_source",
+        code=ErrorCode.MALFORMED_SOURCE,
     )
 
 
