@@ -1,14 +1,14 @@
 ---
 id: OME-1233
 linear_url: https://linear.app/openmined/issue/OME-1233/tell-the-researcher-what-kind-of-failure-ended-their-run
-status: In Progress
+status: Done
 sub_issues: [OME-1234, OME-1235]
 type: task
 priority: Medium
 milestone: Public Launch
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-19
-closed:
+closed: 2026-09-21
 supersedes: [OME-844, OME-1232]
 ---
 

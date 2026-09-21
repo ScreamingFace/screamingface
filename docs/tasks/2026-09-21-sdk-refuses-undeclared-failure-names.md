@@ -1,12 +1,12 @@
 ---
 id: OME-1235
 linear_url: https://linear.app/openmined/issue/OME-1235/refuse-undeclared-failure-names-in-the-sdk-and-pin-its-list-to-the
-status: Backlog
+status: Done
 type: task
 priority: Medium
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-09-21
-closed:
+closed: 2026-09-21
 parent: OME-1233
 blocked_by: [OME-1234]
 ---

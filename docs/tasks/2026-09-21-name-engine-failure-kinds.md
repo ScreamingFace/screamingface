@@ -1,12 +1,12 @@
 ---
 id: OME-1234
 linear_url: https://linear.app/openmined/issue/OME-1234/name-each-kind-of-failure-the-engine-reports-and-refuse-undeclared
-status: In Progress
+status: Done
 type: task
 priority: Medium
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-21
-closed:
+closed: 2026-09-21
 parent: OME-1233
 ---
 

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1234
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-21
-finished:
+finished: 2026-09-21
 ---
 
 # OME-1234 — Name each kind of failure the engine reports, and refuse undeclared names
@@ -95,7 +95,21 @@ Stacked PR train (engine alone exceeds the ~500-line cap):
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus: the aigateway_http_<status> family rule
+  (`is_declared_failure_code`, contract.py), `PublicError.source_code` + the fold in
+  aggregation.py, source_code threading in draco/grade.py, ifeval/grade.py,
+  spine/scored.py, the engine-side conformance twin
+  (tests/unit/test_failure_code_conformance.py, landed via PR #1000), and the e2e
+  failure-tape migration (packages/screamingface/tests/e2e/test_failures.py).
+- **Commits:** 253958fd (declare vocabulary + helpers, PR #997) · 4a5ec59c
+  (reclassify 86 sites, PR #998) · 1c5f93ef (fourth DRACO-pinning tape, PR #998) ·
+  1b2857f0 (close the axis, PR #999) · 8de81647 (source_code at every consumer,
+  PR #999). Merged: #997 57c39ddc · #998 03da5917 · #999 1e18f6cb.
+- **Gates:** run_gates.py screamingface-engine ALL GREEN on every commit (ruff,
+  format, pyright, layering, pytest ~3,150 passed w/ coverage); failure tapes 14/14;
+  --skip-append-only scoped to the four owner-approved prior-test files.
+- **Deviations:** axis closed via frozenset + pattern family instead of a Literal
+  (aigateway_http_<status> is dynamic); 9 mixed-cause except wraps deliberately kept
+  on benchmark_unavailable, each carrying an AIDEV-NOTE (OME-1234) anchor —
+  candidates for a follow-up try-body-split ticket; a stack review's blocker
+  (missed e2e tape) and nits were folded in pre-merge.
