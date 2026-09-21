@@ -41,6 +41,77 @@ FailureStage = Literal["candidate", "grading", "aggregation"]
 # (CandidateInvocationStatus) stays: there it unambiguously means "did not answer".
 CaseStatus = Literal["scored", "failed"]
 CandidateInvocationStatus = Literal["completed", "refused"]
+# FEATURE (OME-1234): the declared failure vocabulary — every code a published Failure
+# may carry. A failed run tells the researcher which KIND of thing went wrong; a code
+# nobody declared here cannot reach a report, so the names stay trustworthy instead of
+# drifting one typo at a time (three grader spellings had already drifted).
+# WHY a frozenset and not (yet) a Literal on Failure.code: the axis closes in a later
+# PR of this stack, after every raise site has been reclassified — closing it first
+# would crash the boards that still pick their own codes mid-migration.
+# INVARIANT: additions are deliberate — the conformance test pins this exact set, and
+# the SDK keeps its own copy (`_report_primitives.py`, the FailureStage house pattern).
+DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        # engine-raised codes grandfathered at declaration time
+        "benchmark_unavailable",
+        "benchmark_operation_unsupported",
+        "benchmark_retrieval_unavailable",
+        "provider_refusal",
+        "model_token_cap",
+        "model_empty_content",
+        "model_parameter_invalid",
+        "aigateway_bad_response",
+        "aigateway_empty_response",
+        "aigateway_transport_error",
+        "invalid_candidate_input",
+        "web_tool_loop_limit",
+        "web_retrieval_invalid",
+        "web_retrieval_unavailable",
+        "result_too_large",
+        "candidate_contract_error",
+        "candidate_policy_invalid",
+        "candidate_policy_escalation",
+        "case_result_missing",
+        "case_execution_failed",
+        "corrective_role_failed",
+        "judge_reply_invalid",
+        "invalid_case_evaluation",
+        "ifeval_checker_failed",
+        "draco_grading_failed",
+        "gdpval_grading_failed",
+        "healthbench_grading_failed",
+        "medxpert_grading_failed",
+        "inspect_grading_failed",
+        "missing_answer_asset",
+        "missing_target_asset",
+        # spine failure_messages table codes (spine/scored.py `_failure`)
+        "missing_case_row",
+        "missing_rubric_asset",
+        "case_error",
+        "incomplete_verdicts",
+        "no_positive_points",
+        "missing_case_rubric",
+        "scorer_error",
+        "invalid_score_value",
+        # fallback defaults (evaluation.py upstream re-raise, aggregation.py default_code)
+        "grading_dependency_failed",
+        "grading_failed",
+        # upstream pass-through codes observed in reports today (public_error keeps
+        # these verbatim; unknown upstream codes map to upstream_error instead)
+        "resolution_failed",
+        "judge_unavailable",
+        "asset_unavailable",
+        "provider_error",
+        "rate_limited",
+        "candidate_failed",
+        "checker_failed",
+        "judge_failed",
+        # classes introduced by OME-1234
+        "benchmark_contract_error",
+        "benchmark_definition_error",
+        "upstream_error",
+    }
+)
 
 
 class _StrictWireModel(BaseModel):
