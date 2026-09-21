@@ -1,9 +1,9 @@
 ---
 ticket: OME-1246
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-21
-finished:
+finished: 2026-09-21
 ---
 
 # OME-1246 — Declare contracteval's failure codes in the engine vocabulary
@@ -45,9 +45,13 @@ every engine push through the pre-push gate.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned.
-- **Commits:** (filled at close)
-- **Gates:** unit: failure-classes + contracteval aggregate 28 passed; full suite via
-  pre-push gate on push.
-- **Deviations:** modified one prior test — the exact-set change-detector — which is
-  that test's designed purpose (owner-approved unblock, this session).
+- **Actual files:** as planned (engine set + change-detector + SDK mirror + docs).
+- **Commits:** fa8bbe85 — fix(screamingface-engine): declare contracteval's failure
+  codes so a failed case reports instead of crashing (+ the close-docs commit).
+- **Gates:** engine pre-push gate green (3,301 passed incl. the previously-red
+  polarity test); SDK conformance test green both sides; review verdict Merge,
+  zero blockers (PR #1002).
+- **Deviations:** (1) modified one prior test — the exact-set change-detector —
+  which is that test's designed purpose (owner-approved unblock); (2) SDK mirror
+  included in this PR rather than a follow-up: the OME-1235 conformance test pins
+  both lists equal, so a split was impossible.
