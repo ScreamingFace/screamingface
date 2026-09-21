@@ -92,6 +92,9 @@ def _error_info(exc: BaseException) -> ErrorInfo:
     code = getattr(exc, "code", None)
     permanent = getattr(exc, "permanent", None)
     return ErrorInfo(
+        # "internal_error" deliberately mirrors ErrorCode.INTERNAL_ERROR as a bare
+        # literal: url4.streaming is a concepts-only wire contract and must not
+        # import url4.core (see test_import_isolation).
         code=code if isinstance(code, str) else "internal_error",
         message=str(exc) or exc.__class__.__name__,
         permanent=permanent if isinstance(permanent, bool) else True,

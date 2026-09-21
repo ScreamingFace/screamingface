@@ -35,7 +35,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 
 # WHY: the principal-name production belongs to the grammar, so config validation
 # reads it from there — the same deliberate private-name import render.py and
@@ -620,7 +620,9 @@ async def _serve_http(base, scope, receive, send, state, config: ServeConfig) ->
             await base(scope, receive, guard.send)
     except TimeoutError:
         if not guard.started:  # nothing sent yet — the node computes the body before sending
-            await _send_error(send, 504, "timeout", f"evaluation exceeded {config.timeout}s")
+            await _send_error(
+                send, 504, ErrorCode.TIMEOUT, f"evaluation exceeded {config.timeout}s"
+            )
     finally:
         state["inflight"] -= 1
 

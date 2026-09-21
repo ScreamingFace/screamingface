@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Count measured when this ratchet was added. Lower it when a suppression goes
 # away; never raise it to make CI pass.
-BASELINE = 9
+BASELINE = 7
 
 _SRC_DIR = Path(__file__).resolve().parent.parent / "src" / "url4"
 
