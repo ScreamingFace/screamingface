@@ -42,6 +42,11 @@ pytestmark = pytest.mark.e2e
 #: Boards under the e2e replay guard (registered in
 #: screamingface_engine.benchmarks.builtins; medxpert is registered but not yet
 #: onboarded here — no golden planned for it).
+#:
+#: contracteval is listed WITHOUT a golden on purpose (OME-1148, review of PR #984): the
+#: manual-onboarding runbook's Step 7 says to wire a new board in here precisely so it SKIPs
+#: loudly until its fixtures exist. A board absent from this tuple is silently unguarded, and
+#: silence is what let medxpert's omission go unnoticed.
 BOARDS = (
     "draco",
     "draco-3pass",
@@ -49,6 +54,7 @@ BOARDS = (
     "healthbench-worst30",
     "healthbench-professional",
     "gdpval-text",
+    "contracteval",
 )
 
 _ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
@@ -61,6 +67,7 @@ _ASSET_BUNDLE = {
     "healthbench-worst30": "healthbench",
     "healthbench-professional": "healthbench",
     "gdpval-text": "gdpval",
+    "contracteval": "contracteval",
 }
 
 

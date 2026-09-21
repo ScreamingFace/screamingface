@@ -117,6 +117,15 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
     # add its row deliberately, and a board that CHANGES its declaration trips here — which a
     # loop over "all single_shot" could not catch once a second shape existed (OME-1126).
     expected = {
+        # ContractEval answers each Case once; a reply quoting the wrong sentences is GRADED
+        # (0.0, and it keeps its cell in the confusion matrix), so only never-graded Cases
+        # reach the shared finalizer — coverage_declare.
+        #
+        # AIDEV-NOTE: this row was added under the owner's ruling of 2026-09-09, re-affirmed
+        # 2026-09-17, and landed with `--skip-append-only` — the append-only gate cannot tell
+        # a new row in a registry table from an edited assertion. Recorded here because the
+        # next reader of THIS file will not open the work ledger (OME-1148).
+        "contracteval": ("coverage_declare", "single_shot"),
         "draco": ("coverage_declare", "single_shot"),
         "draco-3pass": ("coverage_declare", "single_shot"),
         "gdpval-text": ("coverage_declare", "single_shot"),
