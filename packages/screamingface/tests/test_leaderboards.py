@@ -785,7 +785,7 @@ def test_scoreboard_submission_validates_the_score_contract() -> None:
             failures=(
                 sf.Failure(
                     stage="grading",
-                    code="fixture_ungraded",
+                    code="grading_failed",
                     message="the fixture Case could not be graded",
                     case_id=case_id,
                 ),

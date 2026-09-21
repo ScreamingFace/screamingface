@@ -48,7 +48,7 @@ def _report() -> sf.Report:
             failures=(
                 sf.Failure(
                     stage="candidate",
-                    code="provider_timeout",
+                    code="provider_error",
                     message="the provider timed out",
                     case_id=2,
                 ),
@@ -106,7 +106,7 @@ def test_exported_eval_log_opens_in_inspects_own_reader(tmp_path: Path) -> None:
     assert log.samples[0].scores["screamingface"].value == 1.0
     # The failed Case keeps our failure vocabulary in its metadata.
     assert log.samples[1].metadata is not None
-    assert log.samples[1].metadata["failures"][0]["code"] == "provider_timeout"
+    assert log.samples[1].metadata["failures"][0]["code"] == "provider_error"
 
 
 def test_unscored_report_exports_as_error_status_and_reopens(tmp_path: Path) -> None:
@@ -126,7 +126,7 @@ def test_unscored_report_exports_as_error_status_and_reopens(tmp_path: Path) -> 
             failures=(
                 sf.Failure(
                     stage="candidate",
-                    code="provider_timeout",
+                    code="provider_error",
                     message="the provider timed out",
                     case_id=case_id,
                 ),
@@ -166,4 +166,4 @@ def test_unscored_report_exports_as_error_status_and_reopens(tmp_path: Path) -> 
     log = read_eval_log(str(value.export(tmp_path / "failed.eval", format="inspect")))
     assert log.status == "error"
     assert log.samples is not None and len(log.samples) == 2
-    assert log.samples[0].metadata["failures"][0]["code"] == "provider_timeout"
+    assert log.samples[0].metadata["failures"][0]["code"] == "provider_error"

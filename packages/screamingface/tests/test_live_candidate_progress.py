@@ -325,7 +325,7 @@ def report_for(
                 else (
                     sf.Failure(
                         stage="grading",
-                        code="missing_grade",
+                        code="grading_failed",
                         message="fixture grade unavailable",
                         case_id=case_id,
                         metadata={},

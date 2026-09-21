@@ -168,11 +168,19 @@ def test_wire_text_and_string_identity_survive_without_normalization() -> None:
     assert _case_result(payload).to_dict() == payload
 
 
-def test_failure_code_uses_the_engine_open_nonempty_contract() -> None:
+def test_failure_code_uses_the_declared_engine_contract() -> None:
+    # INVARIANT (OME-1235): the wire boundary accepts exactly the declared
+    # vocabulary — a declared code decodes verbatim, and an undeclared one
+    # refuses the payload instead of reaching a researcher. This is the only
+    # pin on the DECODE path; the conformance tests cover direct construction.
     payload = _failed_payload()
-    payload["failures"][0]["code"] = "Provider Error"
+    payload["failures"][0]["code"] = "provider_error"
 
-    assert _case_result(payload).failures[0].code == "Provider Error"
+    assert _case_result(payload).failures[0].code == "provider_error"
+
+    payload["failures"][0]["code"] = "a_code_nobody_declared"
+    with pytest.raises(sf.ExecutionError, match="undeclared failure code"):
+        _case_result(payload)
 
 
 def test_nested_grade_and_evidence_round_trip_the_exact_engine_contract() -> None:

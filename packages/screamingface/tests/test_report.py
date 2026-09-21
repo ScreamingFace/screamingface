@@ -56,7 +56,7 @@ def candidate(
                 failures=(
                     sf.Failure(
                         stage="grading",
-                        code="fixture_ungraded",
+                        code="grading_failed",
                         message="the fixture Case could not be graded",
                         case_id=case.case_id,
                     ),
@@ -300,7 +300,7 @@ def test_report_derives_study_timing_and_complete_usage_from_candidate_runs() ->
 def test_report_flattens_candidate_failures_without_duplicating_them_on_the_wire() -> None:
     owned = sf.Failure(
         stage="candidate",
-        code="gateway_timeout",
+        code="aigateway_http_504",
         message="The model timed out.",
         retryable=True,
         operation_id="op_opus",
@@ -330,7 +330,7 @@ def test_report_is_not_ok_when_a_candidate_has_no_score_and_ungraded_cases() -> 
 def test_failure_serializes_the_locked_domain_contract() -> None:
     failure = sf.Failure(
         stage="grading",
-        code="judge_invalid_response",
+        code="judge_reply_invalid",
         message="The judge returned an invalid verdict.",
         retryable=True,
         operation_id="op_grade_1",
@@ -339,7 +339,7 @@ def test_failure_serializes_the_locked_domain_contract() -> None:
 
     assert failure.to_dict() == {
         "stage": "grading",
-        "code": "judge_invalid_response",
+        "code": "judge_reply_invalid",
         "message": "The judge returned an invalid verdict.",
         "retryable": True,
         "operation_id": "op_grade_1",
@@ -351,7 +351,7 @@ def test_failure_serializes_the_locked_domain_contract() -> None:
 def test_scored_fusion_preserves_partial_member_failure_evidence() -> None:
     member_failure = sf.Failure(
         stage="candidate",
-        code="gateway_timeout",
+        code="aigateway_http_504",
         message="One panel member timed out.",
         retryable=True,
         operation_id="op_panel_2",

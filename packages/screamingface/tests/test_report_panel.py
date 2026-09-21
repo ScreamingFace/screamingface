@@ -55,7 +55,7 @@ def case(
         else [
             sf.Failure(
                 stage="grading",
-                code="fixture_ungraded",
+                code="grading_failed",
                 message="the fixture Case could not be graded",
                 case_id=1,
             )
@@ -429,7 +429,7 @@ def unscored_case(case_id: int = 155) -> CaseResult:
         failures=[
             sf.Failure(
                 stage="grading",
-                code="no_valid_judge_verdict",
+                code="judge_reply_invalid",
                 message="no valid Judge verdict was produced",
                 case_id=case_id,
             )
@@ -485,7 +485,7 @@ def test_partial_grading_evidence_is_presented_as_unscored_not_incorrect() -> No
     html = body(report_html(report(candidate("m", None, cases=(unscored_case(),)))))
 
     assert "unscored" in html
-    assert "no_valid_judge_verdict" in html
+    assert "judge_reply_invalid" in html
     assert "incorrect" not in html
     assert "sf-badge--warn" in html
 
@@ -532,7 +532,7 @@ def test_a_partial_candidate_explains_its_engine_owned_coverage() -> None:
 def test_a_fully_covered_score_can_retain_a_candidate_warning_without_false_partial_copy() -> None:
     failure = sf.Failure(
         stage="aggregation",
-        code="safe_warning",
+        code="grading_failed",
         message="a non-fatal aggregate warning",
         operation_id="op",
     )
@@ -553,7 +553,7 @@ def test_an_unscored_candidate_explains_why_no_score_is_available() -> None:
 def test_a_candidate_level_failure_explains_a_withheld_score() -> None:
     failure = sf.Failure(
         stage="aggregation",
-        code="orphan_rows",
+        code="grading_failed",
         message="aggregate received rows for an unknown Case",
     )
     html = body(report_html(report(candidate("m", None, failures=(failure,)))))
@@ -569,11 +569,11 @@ def test_an_absent_cost_says_it_was_not_reported() -> None:
 
 
 def test_a_failure_without_case_id_or_collected_errors_still_renders() -> None:
-    bare = sf.Failure(stage="aggregation", code="orphan_rows", message="rows without a case")
+    bare = sf.Failure(stage="aggregation", code="grading_failed", message="rows without a case")
     html = _failures_html(cast(Report, SimpleNamespace(failures=(bare,))))
 
     assert "1 failure" in html
-    assert "orphan_rows" in html
+    assert "grading_failed" in html
     assert "rows without a case" in html
 
 
@@ -588,7 +588,7 @@ def test_empty_cases_and_untrusted_failures_have_safe_markup() -> None:
                 failures=(
                     sf.Failure(
                         stage="aggregation",
-                        code="unsafe_text",
+                        code="grading_failed",
                         message="<script>failed</script>",
                     ),
                 )
@@ -597,7 +597,7 @@ def test_empty_cases_and_untrusted_failures_have_safe_markup() -> None:
     )
 
     assert "1 failure" in html
-    assert "aggregation · unsafe_text — &lt;script&gt;failed&lt;/script&gt;" in html
+    assert "aggregation · grading_failed — &lt;script&gt;failed&lt;/script&gt;" in html
     assert "<script>" not in html
 
 
