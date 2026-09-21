@@ -1,11 +1,12 @@
-"""The node-side SDK — :class:`Url4Node`: registries, evaluation, and ASGI serving.
+"""The node-side SDK — :class:`Url4Node`: registries, evaluation, and dispatch.
 
 A node IS an :class:`~url4.io.layer.IOLayer`: it implements ``fetch`` (routing
 relative targets to its own endpoints / eval path / data routes and delegating
 absolute URIs outbound), ``fetch_ex``, and ``fetch_holdings`` (``@`` and
 ``@identity``, spec §5.6). In-process evaluation is therefore just
-``run(expression, io=self)`` — and the ASGI shim reuses the same dispatch, so
-HTTP behavior and in-process behavior can never diverge.
+``run(expression, io=self)`` — and the HTTP adapter in :mod:`url4.peer._http`
+reuses the same ``fetch`` dispatch, so HTTP behavior and in-process behavior
+can never diverge.
 
 Dispatch contract (mirrors the engine's wire conventions):
 
@@ -31,14 +32,13 @@ transport spec); identity handlers may raise the spec error codes themselves.
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from inspect import isawaitable, signature
 from typing import overload
 
 from url4.core.context import Context
-from url4.core.errors import ErrorCode, ResolutionError, Url4Error
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
 from url4.core.render import render
@@ -50,9 +50,8 @@ from url4.core.subrequest import (
 )
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.io.layer import FetchRequest, FetchResult, IOLayer, fetch_result, resolve_shelf
-from url4.peer._asgi import lifespan as _lifespan
-from url4.peer._asgi import send as _send
-from url4.peer._asgi import send_error as _send_error
+from url4.peer._http import asgi_app as _asgi_app
+from url4.peer._http import serve as _serve_node
 from url4.peer._owned import _OwnedIO
 from url4.peer.client import Url4Result
 
@@ -65,21 +64,6 @@ from url4.peer.client import Url4Result
 # INVARIANT: _TRANSPORT_PARAMS is DERIVED from TRANSPORT_ONLY_PARAMS, so the two
 # can never disagree about resume/rid.
 _TRANSPORT_PARAMS = TRANSPORT_ONLY_PARAMS | frozenset({"delivery", "cb", "meta", "v", "processor"})
-
-# HTTP status by spec error code; unlisted codes fall back by exception shape.
-# Keyed by ErrorCode members but typed ``dict[str, int]``: ``Url4Error.code`` is a
-# ``str`` and ``StrEnum`` members compare equal to their wire strings, so the
-# lookup is exact without narrowing the exception attribute to the enum.
-_STATUS_BY_CODE: dict[str, int] = {
-    ErrorCode.MALFORMED_SOURCE: 400,
-    ErrorCode.UNBOUND_REFERENCE: 400,
-    ErrorCode.ENDPOINT_NOT_FOUND: 404,
-    ErrorCode.UNKNOWN_IDENTITY: 404,
-    ErrorCode.IDENTITY_UNAVAILABLE: 404,
-    ErrorCode.IDENTITY_ACCESS_DENIED: 403,
-    ErrorCode.CONSENT_REQUIRED: 403,
-    ErrorCode.CONSENT_WITHHELD: 403,
-}
 
 
 @dataclass(frozen=True)
@@ -391,7 +375,7 @@ class Url4Node:
         )
         return await run(text, ctx=ctx, concurrency=self._concurrency)
 
-    # --- evaluation and serving --------------------------------------------------------
+    # --- evaluation -----------------------------------------------------------------
 
     async def evaluate(
         self, expression: str | Node, *, env: Mapping[str, object] | None = None
@@ -406,24 +390,11 @@ class Url4Node:
 
     def asgi(self):
         """The node as a plain ASGI application (framework-free by construction)."""
-
-        async def app(scope: Mapping, receive, send) -> None:
-            if scope["type"] == "lifespan":
-                await _lifespan(receive, send)
-            elif scope["type"] == "http":
-                await self._handle_http(scope, send)
-
-        return app
+        return _asgi_app(self)
 
     def serve(self, host: str = "127.0.0.1", port: int = 4404, **uvicorn_kwargs) -> None:
         """Serve :meth:`asgi` with uvicorn (requires the ``url4[server]`` extra)."""
-        try:
-            uvicorn = importlib.import_module("uvicorn")
-        except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "serving a Url4Node over HTTP requires uvicorn — install url4[server]"
-            ) from exc
-        uvicorn.run(self.asgi(), host=host, port=port, **uvicorn_kwargs)
+        _serve_node(self, host=host, port=port, **uvicorn_kwargs)
 
     async def aclose(self) -> None:
         """Close the lazily-owned outbound adapter (injected outbound is left alone)."""
@@ -438,21 +409,6 @@ class Url4Node:
 
     def _outbound_io(self) -> IOLayer:
         return self._owned.outbound()
-
-    async def _handle_http(self, scope: Mapping, send) -> None:
-        if scope["method"] != "GET":
-            # Doctrine N1: the url4 expression is the address; the
-            # transactional call is an idempotent, cacheable GET.
-            await _send_error(send, 405, "method_not_allowed", "url4 nodes speak GET")
-            return
-        query = scope.get("query_string", b"").decode("latin-1")
-        target = scope["path"] + (f"?{query}" if query else "")
-        try:
-            body = await self.fetch(target, relative=True)
-        except Url4Error as exc:
-            await _send_error(send, _status_for(exc), exc.code, str(exc))
-            return
-        await _send(send, 200, [(b"content-type", b"text/plain; charset=utf-8")], body.encode())
 
 
 # --- module helpers ------------------------------------------------------------------
@@ -490,15 +446,6 @@ def _adapt_holdings(handler: Callable[..., str | Awaitable[str]]) -> _HoldingsPo
     except ValueError:  # no introspectable signature — assume the port shape
         return handler
     return handler
-
-
-def _status_for(exc: Url4Error) -> int:
-    status = _STATUS_BY_CODE.get(exc.code)
-    if status is not None:
-        return status
-    if isinstance(exc, ResolutionError) and not exc.permanent:
-        return 502  # transient upstream/source failure
-    return 500
 
 
 __all__ = ["DataProvider", "EndpointHandler", "HoldingsHandler", "Request", "Url4Node"]
