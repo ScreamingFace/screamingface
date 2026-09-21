@@ -249,6 +249,13 @@ class Client:
         against ``io``. ``env`` seeds the lexical scope: ``$name`` references
         in the expression resolve against it. ``params`` are protocol params
         merged onto the expression.
+
+        A tree passed as ``Node`` must come from
+        :func:`~url4.core.parser.build` or the builder functions — a tree is
+        rendered with the round-trip re-parse skipped (``check=False``, ~15x
+        the render), so a hand-built tree is rendered *without* round-trip
+        verification and may render to text that reparses differently near a
+        grammar boundary (spec §8.1.2).
         """
         target = node or self._node
         proto = _pairs(params)

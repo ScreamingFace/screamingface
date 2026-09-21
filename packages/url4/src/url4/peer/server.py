@@ -252,7 +252,15 @@ class Url4Node:
     async def evaluate(
         self, expression: str | Node, *, env: Mapping[str, object] | None = None
     ) -> Url4Result:
-        """Evaluate a url4 expression in-process, with this node as its world."""
+        """Evaluate a url4 expression in-process, with this node as its world.
+
+        A tree passed as ``Node`` must come from
+        :func:`~url4.core.parser.build` or the builder functions — a tree is
+        rendered with the round-trip re-parse skipped (``check=False``, ~15x
+        the render), so a hand-built tree is rendered *without* round-trip
+        verification and may render to text that reparses differently near a
+        grammar boundary (spec §8.1.2).
+        """
         # WHY check=False: same front-door reasoning as Client.evaluate — trees
         # arrive from build() or the builders, both pinned by the renderer's
         # round-trip property tests, and the verify re-parse costs ~15x the render.
