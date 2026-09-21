@@ -635,6 +635,9 @@ class _StartGuard:
         self.started = False
 
     async def send(self, message: Mapping) -> None:
+        # INVARIANT: at most one ``http.response.start`` crosses this guard per
+        # request — ``started`` is exactly what lets the 504 timeout path know
+        # the response already began, so it never double-sends.
         if message["type"] == "http.response.start":
             self.started = True
         await self._send(message)
