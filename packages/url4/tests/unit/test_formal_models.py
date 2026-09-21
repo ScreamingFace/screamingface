@@ -7,9 +7,11 @@ breadth-first checker: same model contract (``init`` / ``actions`` /
 model must keep producing its violation — a model that silently stops
 demonstrating its bug protects nothing.
 
-The models mirror ``Executor._run``'s memo invariant (dag/executor.py, the
-INVARIANT comment above the check-then-act): the shared child of a diamond
-resolves exactly once only while the check and the store are one atomic action.
+The models mirror ``Executor._run``'s memo invariant and the ``spawn_hook``
+compile-cache invariant (dag/executor.py, the INVARIANT comments above the
+check-then-act blocks): the shared child of a diamond resolves exactly once,
+and a unique spawned text compiles exactly once — each only while the check
+and the store are one atomic action.
 """
 
 from __future__ import annotations
@@ -81,3 +83,15 @@ def test_executor_memo_buggy_model_still_produces_its_violation() -> None:
     bad = _violations(_load("executor_memo_buggy"))
     assert "child_resolved_at_most_once" in bad, "the bug model stopped demonstrating the bug"
     assert any(state["evals"] == 2 for state in bad["child_resolved_at_most_once"])
+
+
+def test_spawn_cache_model_as_written_is_clean() -> None:
+    """The atomic get → compile → store keeps ``compiles <= 1`` in every state."""
+    assert _violations(_load("spawn_cache_fixed")) == {}
+
+
+def test_spawn_cache_buggy_model_still_produces_its_violation() -> None:
+    """An await between the cache get and the store must stay refutable."""
+    bad = _violations(_load("spawn_cache_buggy"))
+    assert "one_compile_per_unique_text" in bad, "the bug model stopped demonstrating the bug"
+    assert any(state["compiles"] == 2 for state in bad["one_compile_per_unique_text"])
