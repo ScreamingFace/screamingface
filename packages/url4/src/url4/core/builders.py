@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from typing import cast
 
 from url4.core._annotations import _VALID_ON_ERROR
 from url4.core.grammar import _IDENT_RE, _STRUCT_KEY_RE, intent_atom, parse, parse_value
@@ -43,6 +44,7 @@ from url4.core.nodes import (
     Iteration,
     IterationDirectives,
     Node,
+    OnErrorPolicy,
     Params,
     RelUrl,
     SelfRef,
@@ -427,7 +429,9 @@ def _directives(
         raise ValueError(f"iteration.slice={slice!r} needs 0 <= start <= end")
     return IterationDirectives(
         concurrency=concurrency,
-        on_error=on_error if on_error is not None else "collect",
+        # The membership check above is the runtime proof; the cast records it
+        # for the type system, which cannot see through the `in` test.
+        on_error=cast(OnErrorPolicy, on_error) if on_error is not None else "collect",
         slice=slice,
         fmt_result=fmt_result,
     )

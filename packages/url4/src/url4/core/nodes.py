@@ -48,6 +48,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+# The closed set of per-row failure policies (§5.3.6). The surface validator
+# (core._annotations) derives its accepted set from this Literal, so the wire
+# grammar, the Python builders, and MapNode's dispatch cannot drift apart — and
+# an unknown policy is unrepresentable on the dataclass rather than caught (or
+# missed) by an == chain at resolve time.
+OnErrorPolicy = Literal["skip", "fail", "collect"]
+
 Params = tuple[tuple[str, str | None], ...]
 """Ordered ``key → value`` protocol parameters; a valueless flag carries None."""
 
@@ -198,7 +205,7 @@ class IterationDirectives:
     """
 
     concurrency: int | None = None
-    on_error: str = "collect"  # "skip" | "fail" | "collect" (default, §5.3.6)
+    on_error: OnErrorPolicy = "collect"
     slice: tuple[int, int] | None = None
     fmt_result: str | None = None
 
