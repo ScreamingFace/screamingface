@@ -86,6 +86,12 @@ Stacked PR train (engine alone exceeds the ~500-line cap):
   → benchmark_definition_error; test_draco_failure_integrity.py:354 and
   test_spine_scored.py:621/:628 → judge_reply_invalid. Gates run with
   --skip-append-only for exactly these three files.
+- Review finding (stack review, 2026-09-21): a FOURTH DRACO-pinning test was missed —
+  the e2e failure tape packages/screamingface/tests/e2e/test_failures.py:516 (+ :29
+  docstring). Updated to judge_reply_invalid with a retryable-is-True assertion (the
+  retry flip now has an end-to-end pin). The --skip-append-only owner approval
+  extends to this fourth file. Also folded in: #997's del-loop-variables nit in
+  failure_classes.py.
 
 ## Outcome (fill at the end — required before COMMIT)
 
