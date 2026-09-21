@@ -13,21 +13,15 @@ from pathlib import Path
 import pytest
 
 from screamingface._report_primitives import (
+    _AIGATEWAY_HTTP_CODE,
     DECLARED_FAILURE_CODES,
     Failure,
     is_declared_failure_code,
 )
 
-_ENGINE_CONTRACT = (
-    # parents[4] = the monorepo root (tests/unit → tests → screamingface → packages → root)
-    Path(__file__).resolve().parents[4]
-    / "apps"
-    / "screamingface-engine"
-    / "src"
-    / "screamingface_engine"
-    / "benchmarks"
-    / "contract.py"
-)
+# parents[4] = the monorepo root (tests/unit → tests → screamingface → packages → root)
+_ENGINE_APP = Path(__file__).resolve().parents[4] / "apps" / "screamingface-engine"
+_ENGINE_CONTRACT = _ENGINE_APP / "src" / "screamingface_engine" / "benchmarks" / "contract.py"
 
 
 def _failure(code: str) -> Failure:
@@ -58,12 +52,16 @@ def test_retired_spellings_are_refused() -> None:
             _failure(retired)
 
 
-@pytest.mark.skipif(not _ENGINE_CONTRACT.exists(), reason="engine source not present")
+@pytest.mark.skipif(not _ENGINE_APP.exists(), reason="engine app not present (installed run)")
 def test_the_sdk_copy_matches_the_engine_copy() -> None:
     # INVARIANT (the conformance bind, OME-1233): the engine and SDK keep two
     # deliberate copies of one list — a code added on one side and forgotten on
     # the other fails HERE, loudly, instead of drifting apart. Parsed from the
     # engine's source because an app's internals may never be imported.
+    # WHY the guard splits in two: skip only when the whole engine APP is absent
+    # (an installed-package run); a present app with a missing/renamed contract file
+    # must FAIL, not skip — a dead-battery skip would retire the bind silently.
+    assert _ENGINE_CONTRACT.exists(), "engine contract.py moved — update the bind"
     tree = ast.parse(_ENGINE_CONTRACT.read_text(encoding="utf-8"))
     engine_codes: set[str] | None = None
     engine_family: str | None = None
@@ -88,4 +86,7 @@ def test_the_sdk_copy_matches_the_engine_copy() -> None:
     assert engine_codes == set(DECLARED_FAILURE_CODES)
     assert engine_family is not None, "engine aigateway_http family pattern not found"
     assert is_declared_failure_code("aigateway_http_500")
-    assert engine_family == r"aigateway_http_[1-5][0-9]{2}"
+    # INVARIANT: the family bind is BIDIRECTIONAL — the SDK's compiled pattern must
+    # be byte-identical to the engine's, not merely accept the same happy cases
+    # (a widened SDK regex would otherwise stay green).
+    assert _AIGATEWAY_HTTP_CODE.pattern == engine_family == r"aigateway_http_[1-5][0-9]{2}"

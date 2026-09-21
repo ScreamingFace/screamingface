@@ -39,6 +39,20 @@ cross-app import.
   batch edit. Consequence accepted: reports published before the reconciliation
   (carrying no_valid_judge_verdict) will refuse to load; acceptable pre-launch.
 
+## Review fixes (PR #1000 review, 2026-09-21)
+
+- Blocker (conformance never fires on engine drift, CI is path-filtered): fixed with
+  an ENGINE-SIDE twin test (apps/screamingface-engine/tests/unit/
+  test_failure_code_conformance.py) parsing the SDK source — whichever side drifts,
+  that side's lane goes red. Chosen over editing workflow triggers (owner territory).
+- Family bind made bidirectional: both twins assert the compiled pattern strings are
+  byte-identical, not just accepted examples.
+- Dead-battery skip tightened on both twins: skip only when the sibling app/package
+  DIR is absent (installed run); a present dir with a missing file FAILS.
+- Misnamed decode test renamed (test_failure_code_uses_the_declared_engine_contract)
+  and extended into the wire-boundary refusal pin: undeclared code payload →
+  sf.ExecutionError — the only decode-path pin.
+
 ## Test plan
 
 - RED: SDK `Failure(code="undeclared")` raises (invariant: an undeclared code cannot
