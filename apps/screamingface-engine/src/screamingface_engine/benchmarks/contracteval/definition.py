@@ -12,6 +12,7 @@ carries per-case polarity up to the scorer instead of averaging.
 References:
     - Paper: https://arxiv.org/abs/2508.03080 · https://aclanthology.org/2025.nllp-1.19/
     - Reference harness: https://github.com/olivialiu121/ContractEval (MIT)
+      @ f2de74479bb067a13da2fd034972eec6905563b2 (repo tip at the 2026-09-09 fetch)
     - Dataset: https://huggingface.co/datasets/theatticusproject/cuad-qa
 """
 

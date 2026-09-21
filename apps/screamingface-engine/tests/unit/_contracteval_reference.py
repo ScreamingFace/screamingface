@@ -5,7 +5,10 @@ the paper's, and it is only evidence while it stays a faithful copy. If our boar
 the divergence belongs in the spec as a named deviation and in a test that asserts it — never
 in a quiet edit here.
 
-Source: https://github.com/olivialiu121/ContractEval (MIT), fetched 2026-09-09.
+Source: https://github.com/olivialiu121/ContractEval (MIT), fetched 2026-09-09 at commit
+f2de74479bb067a13da2fd034972eec6905563b2 — the frozen blobs the line references below point at:
+https://github.com/olivialiu121/ContractEval/blob/f2de74479bb067a13da2fd034972eec6905563b2/proprietary_model.py
+https://github.com/olivialiu121/ContractEval/blob/f2de74479bb067a13da2fd034972eec6905563b2/Evaluation.py
 Paper: https://arxiv.org/abs/2508.03080 · https://aclanthology.org/2025.nllp-1.19/
 
 WHY transcribed rather than vendored wholesale: the upstream files are analysis scripts that

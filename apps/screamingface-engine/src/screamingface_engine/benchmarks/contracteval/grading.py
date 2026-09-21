@@ -1,6 +1,7 @@
 """ContractEval's deterministic grading — the paper's definitions, reproduced exactly.
 
-The reference harness is https://github.com/olivialiu121/ContractEval (MIT). It is CITED here
+The reference harness is https://github.com/olivialiu121/ContractEval (MIT), pinned at commit
+f2de74479bb067a13da2fd034972eec6905563b2 (repo tip at the 2026-09-09 fetch). It is CITED here
 rather than vendored: we execute nothing from it, we reproduce four small functions, and the
 full transcription lives in `docs/spec/2026-09-17-OME-1148-contracteval-containment.md` §2.
 The four functions this module mirrors are committed verbatim as test material in

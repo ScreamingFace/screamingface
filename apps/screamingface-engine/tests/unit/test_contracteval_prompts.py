@@ -9,8 +9,9 @@ Before this, no test mentioned `SYSTEM_PROMPT`, `USER_TEMPLATE` or `render_case_
 transcription typo was undetectable with every gate green, and would have moved our F1 off the
 paper's while still claiming to be it.
 
-Transcribed from https://github.com/olivialiu121/ContractEval (MIT) `proprietary_model.py` —
-system prompt lines 75-79, user template lines 19-27.
+Transcribed from https://github.com/olivialiu121/ContractEval (MIT) `proprietary_model.py` at
+commit f2de74479bb067a13da2fd034972eec6905563b2 — system prompt lines 75-79, user template
+lines 19-27.
 """
 
 from __future__ import annotations
@@ -34,6 +35,10 @@ _REFERENCE_SYSTEM_PROMPT = (
     'If no part of the Context is relevant to the Question, respond with: "No related clause."\n'
 )
 
+# KNOWN one-byte delta from the pinned commit: the reference opens with `"Context: \n"`
+# (trailing space); the board's `USER_TEMPLATE` — and therefore this pin — drops it. Recorded
+# in `prompts.py`'s docstring; restoring the byte would re-address every route via
+# `compute_revision`, so that decision belongs to the board owner, not a tidy-up here.
 _REFERENCE_USER_TEMPLATE = "Context:\n```\n{context}\n```\nQuestion:\n```\n{question}\n```\n"
 
 

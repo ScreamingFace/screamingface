@@ -1,9 +1,17 @@
 """The pinned ContractEval Candidate instructions.
 
-INVARIANT: byte-for-byte from the reference harness — `proprietary_model.py` lines 75-79 for the
+INVARIANT: byte-for-byte from the reference harness at commit
+f2de74479bb067a13da2fd034972eec6905563b2 — `proprietary_model.py` lines 75-79 for the
 system prompt and lines 19-27 for the user template (MIT,
-https://github.com/olivialiu121/ContractEval). These bytes feed the board's revision hash, so an
-edit here is a new benchmark identity, not a tweak.
+https://github.com/olivialiu121/ContractEval/blob/f2de74479bb067a13da2fd034972eec6905563b2/proprietary_model.py).
+These bytes feed the board's revision hash, so an edit here is a new benchmark identity, not a
+tweak.
+
+KNOWN one-byte delta (review of PR #984, verified against the pinned commit): the reference's
+user template opens with `"Context: \n"` — trailing space — and `USER_TEMPLATE` below drops it.
+Restoring the byte would change `compute_revision`, i.e. re-address every route, so it is
+recorded here instead of silently "fixed"; see the matching note in
+`tests/unit/test_contracteval_prompts.py`.
 
 WHY the wording matters more than usual: the grader is pure string containment, so "Do not
 rephrase or summarize in any way" is not style guidance — it is the difference between a correct
