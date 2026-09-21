@@ -115,6 +115,12 @@ class Executor:
         # id -> (task, node); the node reference pins the id for the run's lifetime
         self._memo: dict[int, tuple[asyncio.Task, DagNode]] = {}
         self._tg: asyncio.TaskGroup | None = None
+        # Debug-only guard for the resolve-once invariant documented in ``_run``:
+        # id -> how many times that node's evaluation task ran. Not allocated, and
+        # never incremented or asserted, under ``python -O`` (``__debug__`` is
+        # False), so the production hot path is unchanged.
+        if __debug__:
+            self._resolve_counts: dict[int, int] = {}
 
     async def execute(self, root: DagNode, *, _prevalidated: bool = False) -> str:
         """Execute ``root`` and render the sink payload as the run's string result.
@@ -149,6 +155,8 @@ class Executor:
                 result = await self._run(root, self._ctx._current_span_id)
         except BaseExceptionGroup as group:
             reraise_first(group)
+        if __debug__:
+            self._check_resolve_counts()
         return result
 
     async def _run(self, node: DagNode, parent_span_id: str | None) -> Payload:
@@ -173,7 +181,25 @@ class Executor:
             self._memo[id(node)] = memoized = (task, node)
         return await memoized[0]
 
+    def _check_resolve_counts(self) -> None:
+        """Assert the resolve-once invariant documented in ``_run`` (debug only).
+
+        Every node scheduled during a *successful* run must have resolved exactly
+        once; a shared diamond dependency resolving twice is the silent regression
+        the ``_run`` comment forbids. Compiled out under ``python -O``
+        (``__debug__`` False), so it costs nothing in production.
+        """
+        duplicates = {node_id: n for node_id, n in self._resolve_counts.items() if n != 1}
+        assert not duplicates, (
+            f"executor memo invariant violated: nodes resolved != once: {duplicates}"
+        )
+
     async def _eval(self, node: DagNode, parent_span_id: str | None) -> Payload:
+        if __debug__:
+            # One entry per node whose evaluation task started. On the success
+            # path each scheduled task runs its single ``resolve``, so a count of
+            # 2 means the ``_run`` memo let a shared node schedule twice.
+            self._resolve_counts[id(node)] = self._resolve_counts.get(id(node), 0) + 1
         obs = self._ctx._obs
         roles = list(node.deps)  # insertion order → deterministic scheduling
         if obs is None:

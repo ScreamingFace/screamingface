@@ -217,6 +217,13 @@ Errors come back as JSON: `{"error": {"code": "...", "message": "..."}}`.
 uv run url4 eval "(/upper(hi)!'go')"
 ```
 
+## Development
+
+CI runs a suppression ratchet: `scripts/check_suppressions.py` counts every `# type: ignore`
+and `# noqa` under `src/url4`, and fails when the total is above the `BASELINE` in that
+script. Remove a suppression instead of raising the baseline; when you remove one for good,
+lower `BASELINE` to the new count.
+
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE).
