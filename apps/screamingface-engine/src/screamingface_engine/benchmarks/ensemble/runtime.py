@@ -51,8 +51,13 @@ from screamingface_engine.benchmarks.ensemble.policy import (
     SELECT_ROUTE,
     member_labels,
 )
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import compact_json, json_array, json_object
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_definition_error as _definition_error,
+)
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.model_outcomes import (
     ModelOutcome,
@@ -94,9 +99,9 @@ class _RecipeInvocation:
 
     async def __call__(self, request: Request) -> str:
         if request.params:
-            raise _unavailable("corrective Recipe invocation does not accept parameters")
+            raise _definition_error("corrective Recipe invocation does not accept parameters")
         if not request.intent.strip():
-            raise _unavailable("corrective Recipe invocation expression must be non-empty")
+            raise _definition_error("corrective Recipe invocation expression must be non-empty")
         invocation = await evaluate_candidate_recipe(
             self._node,
             request.intent,
@@ -175,7 +180,7 @@ def _select(request: Request) -> str:
 
     payload = json_object(request.context, "corrective selection")
     if set(payload) != {"round", "tie"}:
-        raise _unavailable("corrective selection payload must carry exactly round and tie")
+        raise _contract_error("corrective selection payload must carry exactly round and tie")
     members = _round_records(payload["round"], "selection round")
     label = _tie_label(payload["tie"], members)
     passers = [member for member in members if member["passed"]]
@@ -210,12 +215,12 @@ def _answer(request: Request) -> str:
 
     payload = json_object(request.context, "corrective answer")
     if set(payload) != {"selected", "next"}:
-        raise _unavailable("corrective answer payload must carry exactly selected and next")
+        raise _contract_error("corrective answer payload must carry exactly selected and next")
     selected = _corrective_outcome(payload["selected"], "corrective answer selected")
     next_value = payload["next"]
     items = json_array(next_value, "corrective continuation") if next_value != "" else []
     if len(items) > 1:
-        raise _unavailable("corrective continuation must carry at most one outcome")
+        raise _contract_error("corrective continuation must carry at most one outcome")
     if not items:
         return compact_json(selected)
     outcome = _corrective_outcome(items[0], "corrective continuation outcome")
@@ -226,7 +231,7 @@ def _result(request: Request) -> str:
     """Project the selected member invocation back into the outer Candidate scope."""
 
     if request.params:
-        raise _unavailable("corrective result does not accept parameters")
+        raise _definition_error("corrective result does not accept parameters")
     outcome = _corrective_outcome(request.context, "corrective result")
     output, finish_reason, refusal = _invocation(outcome["invocation"], "corrective result")
     record_candidate_execution(
@@ -246,15 +251,15 @@ def _corrective_outcome(value: object, label: str) -> dict[str, Any]:
     outcome = json_object(value, label)
     expected = {"schema", "invocation", "round", "passed"}
     if set(outcome) != expected or outcome.get("schema") != _CORRECTIVE_OUTCOME_SCHEMA:
-        raise _unavailable(f"{label} must be a {_CORRECTIVE_OUTCOME_SCHEMA} outcome")
+        raise _contract_error(f"{label} must be a {_CORRECTIVE_OUTCOME_SCHEMA} outcome")
     invocation = outcome["invocation"]
     _invocation(invocation, label)
     round_number = outcome["round"]
     if isinstance(round_number, bool) or not isinstance(round_number, int) or round_number < 1:
-        raise _unavailable(f"{label} round must be a positive integer")
+        raise _contract_error(f"{label} round must be a positive integer")
     passed = outcome["passed"]
     if not isinstance(passed, bool):
-        raise _unavailable(f"{label} passed must be a boolean")
+        raise _contract_error(f"{label} passed must be a boolean")
     return dict(outcome)
 
 
@@ -268,7 +273,7 @@ def _gate_intent(intent: str) -> tuple[str, int, int]:
     attempt = _positive_int(attempt_part, "attempt")
     max_rounds = _positive_int(max_part, "max_rounds")
     if attempt > max_rounds:
-        raise _unavailable(f"corrective attempt {attempt} exceeds max_rounds {max_rounds}")
+        raise _definition_error(f"corrective attempt {attempt} exceeds max_rounds {max_rounds}")
     return kind, attempt, max_rounds
 
 
@@ -277,10 +282,10 @@ def _round_records(value: object, label: str) -> list[dict[str, Any]]:
 
     payload = json_object(value, label)
     if not payload:
-        raise _unavailable(f"{label} must carry at least one member record")
+        raise _contract_error(f"{label} must carry at least one member record")
     expected = member_labels(len(payload))
     if tuple(payload) != expected:
-        raise _unavailable(f"{label} member labels must be consecutive from 'a'")
+        raise _contract_error(f"{label} member labels must be consecutive from 'a'")
     return [
         _surface_record(payload[key], f"{label} member {key!r}", key=key.upper())
         for key in expected
@@ -293,25 +298,25 @@ def _surface_record(value: object, label: str, *, key: str) -> dict[str, Any]:
     record = _decoded_record(value, label)
     passed = record["passed"]
     if not isinstance(passed, bool):
-        raise _unavailable(f"{label} passed must be a boolean")
+        raise _contract_error(f"{label} passed must be a boolean")
     satisfaction = record["satisfaction"]
     if (
         isinstance(satisfaction, bool)
         or not isinstance(satisfaction, int | float)
         or not 0.0 <= satisfaction <= 1.0
     ):
-        raise _unavailable(f"{label} satisfaction must be a number in [0, 1]")
+        raise _contract_error(f"{label} satisfaction must be a number in [0, 1]")
     feedback = record["feedback"]
     if not isinstance(feedback, str):
-        raise _unavailable(f"{label} feedback must be text")
+        raise _contract_error(f"{label} feedback must be text")
     answer = record["answer"]
     if not isinstance(answer, str):
-        raise _unavailable(f"{label} answer must be text")
+        raise _contract_error(f"{label} answer must be text")
     invocation = record["invocation"]
     output, _finish_reason, refusal = _invocation(invocation, label)
     invocation_answer = refusal if refusal is not None else output
     if invocation_answer != answer:
-        raise _unavailable(f"{label} answer must equal its Candidate Invocation text")
+        raise _contract_error(f"{label} answer must equal its Candidate Invocation text")
     return {
         "key": key,
         "passed": passed,
@@ -334,12 +339,12 @@ def _decoded_record(value: object, label: str) -> dict[str, Any]:
         try:
             value = json.loads(value)
         except ValueError as exc:
-            raise _unavailable(f"{label} must be a JSON check-surface record: {exc}") from None
+            raise _contract_error(f"{label} must be a JSON check-surface record: {exc}") from None
     if not isinstance(value, dict) or value.get("schema") != CHECK_SURFACE_SCHEMA:
-        raise _unavailable(f"{label} must be a {CHECK_SURFACE_SCHEMA} check-surface record")
+        raise _contract_error(f"{label} must be a {CHECK_SURFACE_SCHEMA} check-surface record")
     expected = {"schema", "passed", "satisfaction", "feedback", "answer", "invocation"}
     if set(value) != expected:
-        raise _unavailable(
+        raise _contract_error(
             f"{label} must carry exactly schema, passed, satisfaction, feedback, answer, "
             "and invocation"
         )
@@ -348,11 +353,11 @@ def _decoded_record(value: object, label: str) -> dict[str, Any]:
 
 def _invocation(value: object, label: str) -> tuple[str, str | None, str | None]:
     if not isinstance(value, str):
-        raise _unavailable(f"{label} Candidate Invocation must be text")
+        raise _contract_error(f"{label} Candidate Invocation must be text")
     try:
         return decode_candidate_invocation(value)
     except (TypeError, ValueError) as exc:
-        raise _unavailable(f"{label} has an invalid Candidate Invocation: {exc}") from exc
+        raise _contract_error(f"{label} has an invalid Candidate Invocation: {exc}") from exc
 
 
 def _tie_label(value: object, members: list[dict[str, Any]]) -> str | None:
@@ -391,13 +396,13 @@ def _judge_label(reply: object, selected: Mapping[str, object]) -> str | None:
 
 def _positive_int(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int | str):
-        raise _unavailable(f"corrective {label} must be an integer, got {value!r}")
+        raise _contract_error(f"corrective {label} must be an integer, got {value!r}")
     try:
         selected = int(value)
     except ValueError:
-        raise _unavailable(f"corrective {label} must be an integer, got {value!r}") from None
+        raise _contract_error(f"corrective {label} must be an integer, got {value!r}") from None
     if selected < 1:
-        raise _unavailable(f"corrective {label} must be positive, got {selected}")
+        raise _contract_error(f"corrective {label} must be positive, got {selected}")
     return selected
 
 

@@ -69,6 +69,7 @@ for _helper in (benchmark_contract_error, benchmark_definition_error, judge_fail
         raise AssertionError(f"failure class helper mints undeclared code {_code!r}")
 if UPSTREAM_FALLBACK_CODE not in DECLARED_FAILURE_CODES:
     raise AssertionError("upstream fallback code is not declared")
+del _helper, _code  # the self-check's loop variables are not module surface
 
 __all__ = [
     "UPSTREAM_FALLBACK_CODE",

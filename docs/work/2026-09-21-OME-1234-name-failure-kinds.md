@@ -70,6 +70,29 @@ Stacked PR train (engine alone exceeds the ~500-line cap):
 - Retryable is per class, not blanket never-retry.
 - Message texts byte-identical; no golden re-record; no benchmark revision bumps.
 
+## Progress notes
+
+- PR (a) merged-ready: #997 (declared list + helpers), commits 832cf7af / 253958fd.
+- PR (b): 86 sites triaged — 48 reclassified (contract/definition/judge), 29 correctly
+  kept as genuine asset-unavailability, **9 deliberately left on the catch-all** (each
+  wraps one except clause mixing asset-IO with payload/definition causes; splitting the
+  try-bodies exceeds byte-identical-message scope). Each leftover carries an
+  `AIDEV-NOTE (OME-1234)` anchor; acceptance criterion "catch-all reachable only from
+  the assets class" is relaxed to "assets class + the 9 annotated mixed wraps" — the
+  (c) PR's unreachability check must allow exactly these.
+- DRACO grader migration done in (b): `no_valid_judge_verdict` → `judge_reply_invalid`,
+  retryable None → True (matches GDPval/HealthBench rationale).
+- Prior-test edits (owner-approved in the pickup Q&A): test_benchmark_evaluation.py:87
+  → benchmark_definition_error; test_draco_failure_integrity.py:354 and
+  test_spine_scored.py:621/:628 → judge_reply_invalid. Gates run with
+  --skip-append-only for exactly these three files.
+- Review finding (stack review, 2026-09-21): a FOURTH DRACO-pinning test was missed —
+  the e2e failure tape packages/screamingface/tests/e2e/test_failures.py:516 (+ :29
+  docstring). Updated to judge_reply_invalid with a retryable-is-True assertion (the
+  retry flip now has an end-to-end pin). The --skip-append-only owner approval
+  extends to this fourth file. Also folded in: #997's del-loop-variables nit in
+  failure_classes.py.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:**

@@ -13,6 +13,10 @@ from screamingface_engine.benchmarks.contract import (
     OperationOutput,
     decode_candidate_invocation_record,
 )
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error,
+    benchmark_definition_error,
+)
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
@@ -79,7 +83,7 @@ def case_evaluation_endpoint(
             detail = str(exc)
             if error_context_head is not None:
                 detail += f"; context head: {request.context[:error_context_head]!r}"
-            raise benchmark_unavailable(detail) from exc
+            raise benchmark_contract_error(detail) from exc
         return compact_json(result)
 
     return endpoint
@@ -120,7 +124,7 @@ def attempt_records_endpoint(
             detail = str(exc)
             if error_context_head is not None:
                 detail += f"; context head: {request.context[:error_context_head]!r}"
-            raise benchmark_unavailable(detail) from exc
+            raise benchmark_contract_error(detail) from exc
         return compact_json(result)
 
     return endpoint
@@ -166,7 +170,7 @@ def json_object(value: object, label: str) -> JsonObject:
 
     decoded = _decode_json(value, label)
     if not isinstance(decoded, dict):
-        raise benchmark_unavailable(f"{label} must be a JSON object")
+        raise benchmark_contract_error(f"{label} must be a JSON object")
     return decoded
 
 
@@ -175,7 +179,7 @@ def json_array(value: object, label: str) -> list[object]:
 
     decoded = _decode_json(value, label)
     if not isinstance(decoded, list):
-        raise benchmark_unavailable(f"{label} must be a JSON array")
+        raise benchmark_contract_error(f"{label} must be a JSON array")
     return decoded
 
 
@@ -185,7 +189,7 @@ def _decode_json(value: object, label: str) -> object:
     try:
         return json.loads(value)
     except ValueError as exc:
-        raise benchmark_unavailable(f"{label} must be JSON: {exc}") from exc
+        raise benchmark_contract_error(f"{label} must be JSON: {exc}") from exc
 
 
 def compact_json(value: object) -> str:
@@ -237,9 +241,9 @@ def _aggregate_selection(intent: str, available: int, label: str) -> int:
         selected_case_count = int(raw_count)
         positive_count(selected_case_count, "selected_case_count")
     except ValueError as exc:
-        raise benchmark_unavailable(str(exc)) from exc
+        raise benchmark_definition_error(str(exc)) from exc
     if selected_case_count > available:
-        raise benchmark_unavailable(
+        raise benchmark_definition_error(
             f"selected_case_count cannot exceed available_case_count ({available})"
         )
     return selected_case_count

@@ -30,7 +30,7 @@ own metadata (the cases.json extras, e.g. ``domain``) where pre-fold published
 The seven e2e failure tapes pin an error row's UPSTREAM code ("rate_limited",
 "provider_error") on a candidate-stage, grade-less failure; a missing row lands as
 the finalizer's ``case_result_missing``; a missing rubric is ``missing_case_rubric``
-with a ``row_index``; an unscoreable Case is ``no_valid_judge_verdict`` carrying its
+with a ``row_index``; an unscoreable Case is ``judge_reply_invalid`` carrying its
 full zeroed metric block as audit material. The draco-3pass golden pins the scored
 path (100 cases, score 0.3593).
 
@@ -228,12 +228,12 @@ def _hook_failure_result(
 ) -> CaseResult:
     """An unscoreable Case retains its full zeroed metric block as audit material."""
 
-    assert outcome.failure_code == "no_valid_judge_verdict"
+    assert outcome.failure_code == "judge_reply_invalid"
     failure: dict[str, Any] = {
         "stage": "grading",
         "code": outcome.failure_code,
         "message": "no valid Judge verdict was produced for this Case",
-        "retryable": None,
+        "retryable": True,
         "case_id": int(selected.case_id),
         "metadata": {"row_index": index},
     }
