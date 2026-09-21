@@ -87,3 +87,24 @@ def test_the_aigateway_http_family_is_declared() -> None:
 def test_a_malformed_family_spelling_is_still_refused() -> None:
     with pytest.raises(ValidationError, match="undeclared failure code"):
         _failure("aigateway_http_9999")
+
+
+def test_a_folded_code_surfaces_its_source_spelling_in_metadata() -> None:
+    # INVARIANT: the fold never destroys information — the raw upstream spelling
+    # rides in metadata.source_code so on-call can see what the gateway said.
+    from screamingface_engine.benchmarks.aggregation import (
+        SelectedCase,
+        grading_failure_case_result,
+    )
+    from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+    from screamingface_engine.benchmarks.evaluation import candidate_answer
+
+    case = grading_failure_case_result(
+        selected_case=SelectedCase(case_id=1, input="q", metadata={}),
+        candidate=candidate_answer(encode_candidate_invocation("a", "stop", None)),
+        error={"code": "some_new_gateway_code", "message": "boom", "retryable": True},
+        method="rubric",
+    )
+    failure = case.failures[0]
+    assert failure.code == "upstream_error"
+    assert failure.metadata["source_code"] == "some_new_gateway_code"

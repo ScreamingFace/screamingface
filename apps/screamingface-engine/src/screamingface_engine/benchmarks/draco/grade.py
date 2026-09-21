@@ -185,6 +185,9 @@ def _error_row_result(selected: SelectedCase, index: int, row: Mapping[str, Any]
     )
     if diagnostic.kind is not None:
         metadata["error_kind"] = diagnostic.kind
+    if diagnostic.source_code is not None:
+        # The upstream spelling that was folded into upstream_error — kept for on-call.
+        metadata["source_code"] = diagnostic.source_code
     return failed_case_result(
         selected_case=selected,
         failures=[
