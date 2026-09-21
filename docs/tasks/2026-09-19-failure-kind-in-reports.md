@@ -1,7 +1,8 @@
 ---
 id: OME-1233
 linear_url: https://linear.app/openmined/issue/OME-1233/tell-the-researcher-what-kind-of-failure-ended-their-run
-status: Backlog
+status: In Progress
+sub_issues: [OME-1234, OME-1235]
 type: task
 priority: Medium
 milestone: Public Launch
