@@ -340,13 +340,20 @@ def _log_attributes(attributes: Mapping[str, LogScalar] | None) -> dict[str, Log
     return snapshot
 
 
-_log_drop_counts: dict[str, int] = dict.fromkeys(
-    ("expired", "thread", "body", "severity", "attributes", "emit"), 0
-)
+# The drop counters are keyed by the phase that rejected a submission. The
+# Literal — not a bare ``str`` — is what makes an unknown key unrepresentable: a
+# misspelled reason fails the type check instead of raising KeyError inside the
+# sink's own error handler, where a raise would defeat the "diagnostics cannot
+# recurse" contract (_NodeLogSink.__call__ counts drops from its except arm).
+LogDropReason = Literal["expired", "thread", "body", "severity", "attributes", "emit"]
+
+_LOG_DROP_REASONS: Final[tuple[LogDropReason, ...]] = get_args(LogDropReason)
+
+_log_drop_counts: dict[str, int] = {reason: 0 for reason in _LOG_DROP_REASONS}
 _log_drop_lock = threading.Lock()
 
 
-def _record_log_drop(reason: str) -> None:
+def _record_log_drop(reason: LogDropReason) -> None:
     # INVARIANT: fixed keys, bounded integers, no payload or callbacks under the lock.
     with _log_drop_lock:
         _log_drop_counts[reason] = min(_log_drop_counts[reason] + 1, sys.maxsize)
@@ -382,7 +389,7 @@ class _NodeLogSink:
         if threading.get_ident() != self._thread:
             _record_log_drop("thread")
             return
-        phase = "body"
+        phase: LogDropReason = "body"
         try:
             if type(body) is not str or not body:
                 raise ValueError("invalid body")
