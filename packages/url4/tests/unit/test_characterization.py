@@ -7,14 +7,17 @@ executable-DAG rewrite, these pin the subtle semantics it must reproduce.
 from __future__ import annotations
 
 import json
+import random
 
 import pytest
 from conftest import RecordingIOLayer
 
 from url4 import StaticIOLayer
 from url4.core.grammar import parse as grammar_parse
+from url4.core.parser import build
+from url4.core.render import render
 from url4.core.subrequest import decode_subrequest
-from url4.dag import run
+from url4.dag import compile_expression, run
 
 
 @pytest.mark.asyncio
@@ -132,6 +135,133 @@ async def test_nested_group_text_path_matches_ast_path(expr: str) -> None:
     text_result = await run(expr, io())  # text path (string)
     ast_result = await run(grammar_parse(expr), io())  # AST path (parsed node)
     assert text_result == ast_result
+
+
+# --- generated lowering-path parity corpus (second review, F3) ----------------------
+
+
+# The two hand-picked parity tests above cover only the shapes their authors
+# thought of. The lowering's wiring decisions live in twin functions
+# (``_slot_from_text``/``_slot_from_ast``, ``_compile_group_text``/
+# ``_lower_expression``, ``_map_from_text``/``_lower_iteration``), so every
+# path-specific bug is a twin-fix hazard — the iteration-body reference bug
+# (CHANGELOG 1.3.0) had to be fixed once per path. This corpus composes
+# grammar-shaped expressions from a seeded part list (sources × name/weight
+# descriptors × nesting × iteration × broadcast × references) and asserts
+# RESULT parity for each: the lazy text path (``compile_expression(str)``) and
+# the eager AST path (``compile_expression(build(str))``) must resolve to the
+# same string. Per the AIDEV-NOTE on ``_compile_text``, parity is asserted on
+# the resolved string only — never on graph structure (the two paths
+# legitimately build different graphs). The seed is pinned, so any failure
+# reproduces exactly.
+_PARITY_SEED = 0x5EED_2026  # pinned — a new seed is a new corpus and needs review
+_PARITY_SAMPLES = 150
+_PARITY_ROWS = json.dumps([{"q": "r0", "answer": "a0"}, {"q": "r1", "answer": "a1"}])
+
+_INTENTS = ("'top'", "'go'", "go", "'sum'", "'mid'")
+_ROW_INTENTS = ("'row'", "row", "'R $item'")
+
+
+def _parity_io() -> StaticIOLayer:
+    """The deterministic world every corpus shape resolves against."""
+    return StaticIOLayer(
+        fetch_map={"https://a": "A", "https://n": "N", "https://rows": _PARITY_ROWS},
+        routes={
+            "/solve": lambda context, intent: f"SOLVE[{context}]/{intent}",
+            "/proc": lambda context, intent: f"PROC[{context}]/{intent}",
+            "/reduce": lambda context, intent: f"REDUCE[{context}]/{intent}",
+        },
+    )
+
+
+def _relexpr(rng: random.Random) -> str:
+    """A relative-expression source — with its own mandatory ``!intent``."""
+    call = rng.choice(("/solve", "/proc"))
+    context = rng.choice(("'ctx'", "https://n", "'x'"))
+    return f"{call}({context})!{rng.choice(_INTENTS)}"
+
+
+def _source(rng: random.Random, depth: int) -> str:
+    """One group member: a URI, a binding, a name:weight descriptor, a
+    relative expression, or (nested) a plain group."""
+    if depth > 0 and rng.random() < 0.3:
+        return _group(rng, depth - 1)
+    return rng.choice(("https://a", "https://n", "a=https://a", "w:0.5:https://a", _relexpr(rng)))
+
+
+def _group(rng: random.Random, depth: int) -> str:
+    """A plain ``(src, …)!intent`` group — safe at any nesting depth.
+
+    Envelope extras (``!*`` broadcast, ``;quorum``) are composed only at the
+    top level (see ``_parity_expression``): this generator composes proven
+    grammar shapes, it does not explore the error surface.
+    """
+    members = ", ".join(_source(rng, depth) for _ in range(rng.randint(1, 3)))
+    return f"({members})!{rng.choice(_INTENTS)}"
+
+
+def _iteration(rng: random.Random, *, inline_collection: bool) -> str:
+    """The §5.3 iteration production ``collection*(body)!per-row-intent``.
+
+    A call body (``/solve(…)``) must carry its own ``!intent`` — the per-row
+    intent wraps *outside* the body; an empty body leaves ``$item`` to the
+    per-row intent; a binding body packs it into the row context. The inline
+    paren collection (``('r0', 'r1')``) is composed only where it is a proven
+    shape — at the top level; nested under a wrapper the collection's parens
+    sit below depth 0 and the ``*(`` scan no longer sees the iteration
+    (``inline_collection=False`` under the reduce/named-source wrappers).
+    """
+    json_rows = not (inline_collection and rng.random() < 0.4)
+    collection = "https://rows" if json_rows else "('r0', 'r1')"
+    item = "$item.q" if json_rows else "$item"
+    body = rng.choice(("", f"/solve({item})!'go'", f"t={item}"))
+    directives = rng.choice(
+        (
+            "",
+            ";iteration.concurrency=1",
+            ";iteration.on_error=collect",
+            ";iteration.concurrency=2;iteration.on_error=collect",
+        )
+    )
+    return f"{collection}*({body})!{rng.choice(_ROW_INTENTS)}{directives}"
+
+
+def _parity_expression(rng: random.Random) -> str:
+    """Compose one corpus shape from the proven part families."""
+    roll = rng.random()
+    if roll < 0.08:  # broadcast: the intent resolves once, is shared per source
+        members = ", ".join(rng.sample(("https://a", "https://n"), 2))
+        expr = f"({members})!*{rng.choice(_INTENTS)}"
+    elif roll < 0.14:  # quorum rides the trailing ; chain
+        expr = f"{_group(rng, 2)};quorum=1"
+    elif roll < 0.52:
+        expr = _group(rng, 2)
+    elif roll < 0.74:
+        expr = _iteration(rng, inline_collection=True)
+    elif roll < 0.86:  # cross-row reduce over an iteration (§5.3)
+        expr = f"({_iteration(rng, inline_collection=False)})!/reduce()!'agg'"
+    else:  # an iteration as a name:weight source of an outer expression (§5.3.1)
+        expr = f"(scores:0.0:{_iteration(rng, inline_collection=False)})!'Agg $scores'"
+    return expr
+
+
+@pytest.mark.asyncio
+async def test_generated_parity_corpus_text_path_matches_ast_path() -> None:
+    # Every raw shape is canonicalized through build → render first, so both
+    # paths start from identical surface text (and the canonicalization itself
+    # is checked: the canonical text must build the same AST as the raw text).
+    # `processor="/reduce"` keeps reduce-shaped compositions (a lone relative-
+    # expression group) resolvable; it applies to both sides alike.
+    rng = random.Random(_PARITY_SEED)
+    for i in range(_PARITY_SAMPLES):
+        raw = _parity_expression(rng)
+        canonical = render(build(raw))
+        assert build(canonical) == build(raw), (i, raw, canonical)
+        text_graph = compile_expression(canonical)
+        ast_graph = compile_expression(build(canonical))
+        text_result = await run(text_graph, _parity_io(), processor="/reduce")
+        ast_result = await run(ast_graph, _parity_io(), processor="/reduce")
+        assert text_result == ast_result, (i, raw, canonical, text_result, ast_result)
 
 
 @pytest.mark.asyncio
