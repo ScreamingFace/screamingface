@@ -32,7 +32,6 @@ transport spec); identity handlers may raise the spec error codes themselves.
 from __future__ import annotations
 
 import importlib
-import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from inspect import isawaitable, signature
@@ -52,6 +51,9 @@ from url4.core.subrequest import (
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
 from url4.dag.node import ProcessFn, default_process
 from url4.io.layer import FetchRequest, FetchResult, IOLayer, fetch_result, resolve_shelf
+from url4.peer._asgi import lifespan as _lifespan
+from url4.peer._asgi import send as _send
+from url4.peer._asgi import send_error as _send_error
 from url4.peer._owned import _OwnedIO
 from url4.peer.client import Url4Result
 
@@ -448,7 +450,7 @@ class Url4Node:
         except Url4Error as exc:
             await _send_error(send, _status_for(exc), exc.code, str(exc))
             return
-        await _send(send, 200, "text/plain; charset=utf-8", body.encode())
+        await _send(send, 200, [(b"content-type", b"text/plain; charset=utf-8")], body.encode())
 
 
 # --- module helpers ------------------------------------------------------------------
@@ -495,32 +497,6 @@ def _status_for(exc: Url4Error) -> int:
     if isinstance(exc, ResolutionError) and not exc.permanent:
         return 502  # transient upstream/source failure
     return 500
-
-
-async def _lifespan(receive, send) -> None:
-    while True:
-        message = await receive()
-        if message["type"] == "lifespan.startup":
-            await send({"type": "lifespan.startup.complete"})
-        elif message["type"] == "lifespan.shutdown":
-            await send({"type": "lifespan.shutdown.complete"})
-            return
-
-
-async def _send(send, status: int, content_type: str, body: bytes) -> None:
-    await send(
-        {
-            "type": "http.response.start",
-            "status": status,
-            "headers": [(b"content-type", content_type.encode())],
-        }
-    )
-    await send({"type": "http.response.body", "body": body})
-
-
-async def _send_error(send, status: int, code: str, message: str) -> None:
-    payload = json.dumps({"error": {"code": code, "message": message}})
-    await _send(send, status, "application/json", payload.encode())
 
 
 __all__ = ["DataProvider", "EndpointHandler", "HoldingsHandler", "Request", "Url4Node"]

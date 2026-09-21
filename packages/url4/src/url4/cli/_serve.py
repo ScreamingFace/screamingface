@@ -45,6 +45,8 @@ from url4.core.errors import ResolutionError
 # config validation with no signal.
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.io.layer import resolve_shelf
+from url4.peer._asgi import lifespan as _lifespan
+from url4.peer._asgi import send_error as _send_error
 from url4.peer.server import Request, Url4Node
 
 _HEALTH_PATH = "/healthz"
@@ -582,7 +584,7 @@ def build_asgi_app(node: Url4Node, config: ServeConfig) -> AsgiApp:
 
     async def app(scope: Mapping, receive: Callable, send: Callable) -> None:
         if scope["type"] == "lifespan":
-            await _lifespan(receive, send, node)
+            await _lifespan(receive, send, on_shutdown=node.aclose)
         elif scope["type"] == "http":
             await _serve_http(base, scope, receive, send, state, config)
         else:  # pragma: no cover - no websocket surface in v1
@@ -595,7 +597,9 @@ async def _serve_http(base, scope, receive, send, state, config: ServeConfig) ->
     if state["inflight"] >= config.max_inflight:
         # INVARIANT: check-then-increment is atomic on the single-threaded loop (no
         # await between), so two requests can never both pass a full gate.
-        await _send_error(send, 503, "overloaded", "server at capacity, retry shortly", retry=True)
+        await _send_error(
+            send, 503, "overloaded", "server at capacity, retry shortly", retry_after=1
+        )
         return
     state["inflight"] += 1
     guard = _StartGuard(send)
@@ -620,28 +624,6 @@ class _StartGuard:
         if message["type"] == "http.response.start":
             self.started = True
         await self._send(message)
-
-
-async def _send_error(
-    send: Callable, status: int, code: str, message: str, *, retry: bool = False
-) -> None:
-    body = json.dumps({"error": {"code": code, "message": message}}).encode()
-    headers = [(b"content-type", b"application/json")]
-    if retry:
-        headers.append((b"retry-after", b"1"))
-    await send({"type": "http.response.start", "status": status, "headers": headers})
-    await send({"type": "http.response.body", "body": body})
-
-
-async def _lifespan(receive: Callable, send: Callable, node: Url4Node) -> None:
-    while True:
-        message = await receive()
-        if message["type"] == "lifespan.startup":
-            await send({"type": "lifespan.startup.complete"})
-        elif message["type"] == "lifespan.shutdown":
-            await node.aclose()  # graceful: release the node's owned outbound adapter
-            await send({"type": "lifespan.shutdown.complete"})
-            return
 
 
 __all__ = [
