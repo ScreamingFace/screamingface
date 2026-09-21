@@ -48,8 +48,7 @@ from url4.core.subrequest import (
     decode_subrequest_http,
     extract_expression_params,
 )
-from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
-from url4.dag.node import ProcessFn, default_process
+from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.io.layer import FetchRequest, FetchResult, IOLayer, fetch_result, resolve_shelf
 from url4.peer._asgi import lifespan as _lifespan
 from url4.peer._asgi import send as _send

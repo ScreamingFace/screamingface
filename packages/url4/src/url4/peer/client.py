@@ -47,8 +47,7 @@ from url4.core.context import Context
 from url4.core.nodes import Expression, Iteration, Node, Params, RemoteExpr, Source, Text
 from url4.core.parser import build
 from url4.core.render import _render_source, render
-from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
-from url4.dag.node import ProcessFn, default_process
+from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.io.layer import IOLayer
 from url4.peer._owned import _OwnedIO
 

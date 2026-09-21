@@ -22,7 +22,9 @@ from url4.dag.node import (
     DagNode,
     ExecutionContext,
     Payload,
+    ProcessFn,
     SourceFailure,
+    default_process,
 )
 from url4.dag.nodes import (
     DEFAULT_MAP_CONCURRENCY,
@@ -71,6 +73,7 @@ __all__ = [
     "MapNode",
     "MergeNode",
     "Payload",
+    "ProcessFn",
     "ProcessNode",
     "ReduceNode",
     "RelUrlNode",
@@ -81,6 +84,7 @@ __all__ = [
     "WebFetchNode",
     "check_acyclic",
     "compile_expression",
+    "default_process",
     "default_registry",
     "run",
 ]

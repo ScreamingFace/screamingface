@@ -6,7 +6,7 @@ forever and never sees two conflicting outcomes. ``_terminate``'s docstring stat
 these tests pin all four arms.
 
 Also pins the producer-side sequencer invariants (F5b): the wire ``sequence`` counter in
-``lifecycle._Sequencer`` and the ``engine_seq`` counter in ``dag.node._ObsState`` are
+``lifecycle._Sequencer`` and the ``engine_seq`` counter in ``dag._context._ObsState`` are
 strictly monotonic and gap-free, and each fails loudly if the increment ever breaks.
 
 Requires the ``[streaming]`` extra (pydantic). The dev group installs it; the import guard
@@ -24,7 +24,7 @@ import pytest
 
 pytest.importorskip("pydantic")
 
-from url4.dag.node import _ObsState
+from url4.dag._context import _ObsState
 from url4.observe import NullObserver
 from url4.streaming.interfaces import (
     Completed,

@@ -1,8 +1,10 @@
 """The DAG core contracts: the :class:`DagNode` protocol and :class:`ExecutionContext`.
 
-This module is the DAG's dependency sink — it imports only the language-core
-leaves (context, io_layer), so node implementations, the compiler, and the
-executor can all depend on it without cycles.
+This module is the DAG's contracts sink: the node protocol, the payload and hook
+types, and the graph-traversal helpers. It imports only the language-core leaves
+(context) plus its own private implementation module (:mod:`url4.dag._context`),
+so node implementations, the compiler, and the executor can all depend on it
+without cycles.
 
 Design notes
 ------------
@@ -28,8 +30,12 @@ Design notes
   it flows through the group gather instead of cancelling the TaskGroup.
   Custom nodes should contract on ``str``.
 
-The per-run :class:`ExecutionContext` and the run-wide :class:`BoundedIOLayer`
-live in :mod:`url4.dag._context`; this module re-exports them unchanged.
+The per-run :class:`ExecutionContext`, the run-wide :class:`BoundedIOLayer`, and
+``default_process``/``DEFAULT_RUN_CONCURRENCY`` live in :mod:`url4.dag._context`;
+this module re-exports them unchanged — they are part of the public surface, and
+``url4.dag`` re-exports them in turn. Engine internals (``_ErrorTally``,
+``_ObsState``, the unset-hook fallbacks, ``_declared_default_route``) stay in
+``_context``: import them from there, never from here.
 """
 
 from __future__ import annotations
@@ -45,11 +51,6 @@ from url4.dag._context import (  # isort: skip
     DEFAULT_RUN_CONCURRENCY,
     BoundedIOLayer,
     ExecutionContext,
-    _declared_default_route as _declared_default_route,
-    _ErrorTally as _ErrorTally,
-    _execute_node_unset as _execute_node_unset,
-    _ObsState as _ObsState,
-    _spawn_unset as _spawn_unset,
     default_process,
 )
 

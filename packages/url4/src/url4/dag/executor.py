@@ -39,6 +39,7 @@ from url4.observe import (
     _bind_node_sinks,
 )
 
+from url4.dag._context import _ObsState  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import (  # isort: skip
     DEFAULT_RUN_CONCURRENCY,
@@ -48,7 +49,6 @@ from url4.dag.node import (  # isort: skip
     Payload,
     ProcessFn,
     SourceFailure,
-    _ObsState,
     default_process,
     node_children,
     reraise_first,
@@ -155,8 +155,14 @@ class Executor:
                 result = await self._run(root, self._ctx._current_span_id)
         except BaseExceptionGroup as group:
             reraise_first(group)
-        if __debug__:
-            self._check_resolve_counts()
+        finally:
+            # Checked on the failure paths too: a run that double-resolved a node
+            # before failing still did the duplicate I/O. If the assert fires while
+            # an error is already propagating, the invariant break becomes the
+            # surfaced error and the original travels as its ``__context__`` —
+            # the diagnostic is not lost.
+            if __debug__:
+                self._check_resolve_counts()
         return result
 
     async def _run(self, node: DagNode, parent_span_id: str | None) -> Payload:
