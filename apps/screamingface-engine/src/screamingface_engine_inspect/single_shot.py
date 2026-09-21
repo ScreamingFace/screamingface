@@ -50,6 +50,9 @@ from screamingface_engine.benchmarks.evaluation import (
     positive_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
@@ -404,6 +407,8 @@ def _check(root: Path) -> Callable[[Request], str]:
                 raise ValueError(f"the private target record for case {case_id} is unusable")
             answer = candidate_answer(request.context)
         except (OSError, TypeError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         record: dict[str, Any] = {
             "schema": CHECK_SCHEMA,
@@ -437,7 +442,7 @@ def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]
         if request.intent == "feedback":
             return _surface_feedback(request.context)
         if request.intent != "check":
-            raise _unavailable(f"unsupported check-surface operation {request.intent!r}")
+            raise _contract_error(f"unsupported check-surface operation {request.intent!r}")
         try:
             payload = json_object(request.context, "imported board check surface")
             if set(payload) != {"input", "invocation"}:
@@ -449,6 +454,8 @@ def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]
                 board, root, input_text=input_text, invocation=invocation
             )
         except (OSError, TypeError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         return compact_json(verdict)
 
@@ -458,10 +465,12 @@ def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]
 def _surface_feedback(record_json: object) -> str:
     record = json_object(record_json, "imported board check-surface feedback")
     if record.get("schema") != CHECK_SURFACE_SCHEMA:
-        raise _unavailable(f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record")
+        raise _contract_error(
+            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+        )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
-        raise _unavailable("check-surface record feedback must be text")
+        raise _contract_error("check-surface record feedback must be text")
     return feedback
 
 

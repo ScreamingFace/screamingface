@@ -618,14 +618,14 @@ def test_a_board_owned_hook_failure_result_replaces_the_failed_assembly() -> Non
             score=None,
             metrics=outcome_metrics,
             checks=[],
-            failure_code="no_valid_judge_verdict",
+            failure_code="judge_reply_invalid",
         )
     )
 
     def board_hook_failure(
         selected: SelectedCase, index: int, row: Mapping[str, Any], outcome: CaseGradeOutcome
     ) -> CaseResult:
-        assert outcome.failure_code == "no_valid_judge_verdict"
+        assert outcome.failure_code == "judge_reply_invalid"
         return CaseResult(
             status="failed",
             case_id=selected.case_id,

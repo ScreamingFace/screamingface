@@ -29,6 +29,9 @@ from screamingface_engine.benchmarks.evaluation import (
     positive_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_definition_error as _definition_error,
+)
 from screamingface_engine.benchmarks.medxpert import aggregate as reducing
 from screamingface_engine.benchmarks.medxpert.answering import (
     extract_choice_letter,
@@ -90,7 +93,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
         if reducing.load_answer(root, case_id) is None:
             problems.append(f"answer record for case {case_id} missing or invalid")
     if problems:
-        raise _unavailable("MedXpertQA assets failed preflight: " + "; ".join(problems[:8]))
+        raise _definition_error("MedXpertQA assets failed preflight: " + "; ".join(problems[:8]))
 
 
 def _cases(root: Path):
@@ -109,7 +112,7 @@ def _cases(root: Path):
             case_id = int(row["id"])
             answer = reducing.load_answer(root, case_id)
             if answer is None:
-                raise _unavailable(f"answer record for case {case_id} missing or invalid")
+                raise _definition_error(f"answer record for case {case_id} missing or invalid")
             enriched.append(
                 {
                     "id": case_id,
@@ -148,6 +151,8 @@ def _check(root: Path):
                 commit.text, int(answer["options_count"]), trigger=trigger
             )
         except (OSError, TypeError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         record: dict[str, Any] = {
             "schema": CHECK_SCHEMA,

@@ -145,7 +145,7 @@ def incomplete_grade(
         score=None,
         metrics=metrics,
         checks=_checks(case_id, rubric, check_records, evidence, criteria_expected),
-        failure_code="no_valid_judge_verdict",
+        failure_code="judge_reply_invalid",
     )
 
 

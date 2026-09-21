@@ -52,6 +52,13 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import candidate_answer, compact_json, json_object
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_definition_error as _definition_error,
+)
+from screamingface_engine.benchmarks.failure_classes import judge_failure as _judge_failure
 from screamingface_engine.benchmarks.spine.verdict import recovered_array
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
@@ -153,7 +160,7 @@ def check_surface(node: Url4Node, root: Path, config: RubricCheck):
         )
         satisfaction = _score(criteria, verdicts)
         if satisfaction is None:
-            raise _unavailable(
+            raise _definition_error(
                 f"{config.label} case {case_id} has no positively weighted criterion to "
                 "check against"
             )
@@ -177,17 +184,17 @@ def check_surface(node: Url4Node, root: Path, config: RubricCheck):
 def _payload(config: RubricCheck, value: object) -> tuple[str, str, str]:
     payload = json_object(value, f"{config.label} check surface")
     if set(payload) != {"input", "invocation"}:
-        raise _unavailable(
+        raise _contract_error(
             f"{config.label} check surface context must carry exactly input and invocation"
         )
     question = payload["input"]
     invocation = payload["invocation"]
     if not isinstance(question, str) or not isinstance(invocation, str):
-        raise _unavailable(f"{config.label} check surface input and invocation must be text")
+        raise _contract_error(f"{config.label} check surface input and invocation must be text")
     try:
         answer = candidate_answer(invocation).text
     except (TypeError, ValueError) as exc:
-        raise _unavailable(
+        raise _contract_error(
             f"{config.label} check surface Candidate Invocation is invalid: {exc}"
         ) from exc
     return question, invocation, answer
@@ -202,17 +209,17 @@ def _case_by_input(config: RubricCheck, root: Path, question: str) -> int:
 
     cases = json.loads(_read(root / "cases.json", f"{config.label} cases"))
     if not isinstance(cases, list):
-        raise _unavailable(f"{config.label} cases must be a JSON array")
+        raise _definition_error(f"{config.label} cases must be a JSON array")
     matches = [
         case.get("id") for case in cases if isinstance(case, dict) and case.get("input") == question
     ]
     if not matches:
-        raise _unavailable(f"no {config.label} case matches the check surface input")
+        raise _contract_error(f"no {config.label} case matches the check surface input")
     if len(matches) > 1:
-        raise _unavailable(f"the check surface input matches more than one {config.label} case")
+        raise _contract_error(f"the check surface input matches more than one {config.label} case")
     case_id = matches[0]
     if isinstance(case_id, bool) or not isinstance(case_id, int):
-        raise _unavailable(f"{config.label} case id must be an integer")
+        raise _definition_error(f"{config.label} case id must be an integer")
     return case_id
 
 
@@ -223,11 +230,11 @@ def _asked(config: RubricCheck, question: str) -> str:
         return question
     envelope = json.loads(question) if question.strip().startswith("{") else None
     if not isinstance(envelope, Mapping) or envelope.get("schema") != CANDIDATE_INPUT_SCHEMA:
-        raise _unavailable(f"{config.label} check surface input is not a chat envelope")
+        raise _definition_error(f"{config.label} check surface input is not a chat envelope")
     messages = envelope.get("messages")
     decoded = json.loads(messages) if isinstance(messages, str) else messages
     if not isinstance(decoded, list) or not decoded:
-        raise _unavailable(f"{config.label} check surface input carries no messages")
+        raise _definition_error(f"{config.label} check surface input carries no messages")
     return "\n\n".join(
         f"{turn.get('role')}: {turn.get('content')}"
         for turn in decoded
@@ -243,10 +250,10 @@ def _criteria(config: RubricCheck, root: Path, case_id: int) -> list[dict[str, A
         _read(root / "rubrics" / f"{case_id}.json", f"{config.label} rubric {case_id}")
     )
     if not isinstance(rubric, Mapping):
-        raise _unavailable(f"{config.label} rubric {case_id} must be a JSON object")
+        raise _definition_error(f"{config.label} rubric {case_id} must be a JSON object")
     criteria = list(_read_criteria(config.shape, rubric))
     if not criteria:
-        raise _unavailable(f"{config.label} rubric {case_id} carries no criteria")
+        raise _definition_error(f"{config.label} rubric {case_id} carries no criteria")
     return criteria
 
 
@@ -319,7 +326,7 @@ async def _judged(
             # Re-attribute the runner's token-cap failure to the CHECK JUDGE: without the
             # role, the report reads as the candidate running dry. Same budget, same
             # truncation — retrying pays to fail identically, so fail on first strike.
-            raise _unavailable(
+            raise _judge_failure(
                 f"the {config.label} check judge ran out of tokens "
                 f"(judge {_judge_budget(config)}, set in the benchmark's check_policy): {exc}"
             ) from exc
@@ -330,7 +337,7 @@ async def _judged(
     # Url4Result carries no finish_reason, so the reply's shape is the only signal a
     # reader gets: a long reply whose tail is mid-JSON means truncation (raise the
     # judge's token budget); a short prose tail means the judge ignored the format.
-    raise _unavailable(
+    raise _judge_failure(
         f"the {config.label} check judge returned no usable verdict in {CHECK_ATTEMPTS} attempts"
         f" (judge {_judge_budget(config)}, set in the benchmark's check_policy; "
         f"last reply: {len(last_reply)} chars, tail: {last_reply[-160:]!r})"
@@ -513,10 +520,12 @@ def _shortfall(row: Mapping[str, Any], verdicts: Mapping[str, bool]) -> bool:
 def _surface_feedback(config: RubricCheck, value: object) -> str:
     record = json_object(value, f"{config.label} check-surface feedback")
     if record.get("schema") != CHECK_SURFACE_SCHEMA:
-        raise _unavailable(f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record")
+        raise _contract_error(
+            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+        )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
-        raise _unavailable("check-surface record feedback must be text")
+        raise _contract_error("check-surface record feedback must be text")
     return feedback
 
 

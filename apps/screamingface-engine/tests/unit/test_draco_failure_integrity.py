@@ -351,7 +351,9 @@ def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
             "metadata": {"rejection_reason": "invalid_json"},
         }
     ]
-    assert result["cases"][0]["failures"][0]["code"] == "no_valid_judge_verdict"
+    # WHY judge_reply_invalid (OME-1234): the reconciled grader spelling — DRACO's
+    # no_valid_judge_verdict merged into the shared judge-failure code.
+    assert result["cases"][0]["failures"][0]["code"] == "judge_reply_invalid"
 
 
 def test_a_row_claiming_another_selected_case_aborts() -> None:
