@@ -4,19 +4,49 @@ linear_url: https://linear.app/openmined/issue/OME-822/require-run-cost-usd-on-d
 status: in_review
 type: task
 priority: 2
-labels: [scoreboard, agentic, deferred]
+labels: [scoreboard, agentic, autonomous]
+parent: OME-1251
 created: 2026-08-13
 closed:
 ---
 
-# Require run cost on direct leaderboard submissions
+# Require a run cost, and let an unpriceable run say so
 
-Make `run_cost_usd` mandatory and non-null on the direct Scoreboard submission contract now that
-the accounting, run-total, persistence, and SDK-publish chain is shipped. Keep storage and every
-read DTO nullable for imported and historical rows; zero continues to mean a genuinely free run.
+Scoreboard half of epic `OME-1251`.
+
+**Rescoped 2026-09-21.** The original scope — make `run_cost_usd` mandatory and non-null — was
+wrong on its own. An unpriced run has no legal value to send, so it would send `0`: publishing
+an unknown cost as free and handing it the cheapest slot on the Pareto frontier. That is the bug
+`OME-1143` describes, reintroduced by its own fix.
+
+## What ships
+
+A submission carries a real amount **or** a status saying the amount is unknowable. Omission is
+still rejected, which is what this ticket exists to enforce: a client that can determine its cost
+and stays silent is a client bug, not a null the board has to interpret.
+
+| | |
+| -- | -- |
+| Wire | `run_cost_status` required; `run_cost_usd` optional but **gated** — a model validator refuses `complete` without an amount, and an amount without `complete` |
+| Vocabulary | `complete` \| `partial` \| `unavailable` — run-level, NOT the gateway's per-call `DirectCostStatus` (`OME-1251` D4) |
+| Storage | The status is a **stored column** (`0014_score_run_cost_status`). The amount stores `null` whenever the status is not `complete` |
+| Frontier | **No change** — `scores/pareto.py:91` already skips a null-cost entry, and `formatCost` already renders an em-dash |
+
+Null for both fields stays a third, distinct state: the row predates this field. That is not the
+same as `unavailable`, where a client looked and could not determine the cost.
+
+## Not a `ranking_notice`
+
+`OME-1251` D2 originally said an unpriced row would carry one. Withdrawn. That type means *"why a
+score will not enter the current ranking"*, and an unpriced row **does** rank — it is absent only
+from the cost frontier. Recorded as an `AIDEV-NOTE` on `ScoreRankingNotice`.
 
 ## Artifacts
 
-- Spec: `docs/spec/2026-09-04-OME-822-require-run-cost.md`
-- Plan: `docs/plan/2026-09-04-OME-822-require-run-cost.md`
-- Ledger: `docs/work/2026-09-04-OME-822-require-run-cost.md`
+- Spec: `docs/spec/2026-09-21-OME-822-cost-status.md` (extends `2026-09-04-OME-822-require-run-cost.md`)
+- Plan: `docs/plan/2026-09-21-OME-822-cost-status.md`
+- Ledger: `docs/work/2026-09-21-OME-822-cost-status.md`
+- PR: #841
+
+Related: `OME-1252` (the client half), `OME-1143` (the bug this serves), `OME-770`, `OME-1181`
+(whose Q2 `exclude_if` and Q3 fill-only-under-lock rules are both reused here).
