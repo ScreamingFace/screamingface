@@ -12,7 +12,7 @@ from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.ifeval.grade import AggregateError, aggregate
 from screamingface_engine.runner.connector import _raise_for_status
 from url4.core.errors import ResolutionError
-from url4.dag.nodes import _error_payload
+from url4.dag.nodes._shared import _error_payload
 
 _SPEC = {
     153: {

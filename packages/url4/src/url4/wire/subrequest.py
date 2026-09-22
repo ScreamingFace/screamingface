@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from urllib.parse import unquote, unquote_plus
 
 from url4.core._annotations import EXPRESSION_BEARING_KEYS, validate_param
-from url4.core._scan import balanced_body, split_top_level
+from url4.core._scan import balanced_body, split_query_segments
 from url4.core.errors import ParseError
 
 # Characters that cannot appear raw inside a context/intent payload:
@@ -36,7 +36,7 @@ _WIRE_UNSAFE = re.compile(r"[()'%&# \x00-\x1f\x7f]")
 # INVARIANT (spec §11.6.3): transport-only parameters are scoped to the single
 # hop that received them and MUST NOT appear on an outbound sub-request. This
 # frozenset is the ONE definition of that rule — the HTTP ingress
-# (`url4.peer.server._reassemble`) and the sub-request builder
+# (`url4.peer._dispatch.reassemble`) and the sub-request builder
 # (`url4.dag.nodes._wire_params`) both consume it. They previously enforced it
 # independently, so a `resume=`/`rid=` written in expression text was stripped
 # inbound but leaked outbound (`OME-501`).
@@ -200,7 +200,7 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
     """
     params: dict[str, str] = {}
     q: str | None = None
-    for segment in split_top_level(query_string, "&"):
+    for segment in split_query_segments(query_string):
         if not segment:
             continue
         if q is not None:
@@ -214,7 +214,6 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
                 f"query string {query_string!r} has a parameter after `q=` — "
                 "`q=` is always the last parameter; everything after it belongs "
                 "to the expression",
-                code="malformed_source",
             )
         key, sep, value = segment.partition("=")
         if not sep:
@@ -234,7 +233,6 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
             raise ParseError(
                 f"param {key!r} has an empty value — `param-value` needs at least "
                 "one character; omit the '=' for a valueless flag",
-                code="malformed_source",
             )
         validate_param(key, decoded)
         if key == "q":

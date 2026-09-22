@@ -31,7 +31,7 @@ from url4.core.errors import ParseError
 from url4.core.grammar import parse
 from url4.core.nodes import RelExpr
 from url4.core.parser import build
-from url4.core.subrequest import extract_expression_params
+from url4.wire.subrequest import extract_expression_params
 
 # --- param-key: no "-" -----------------------------------------------------------
 

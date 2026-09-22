@@ -1,28 +1,17 @@
-"""The node-side SDK — :class:`Url4Node`: registries, evaluation, and ASGI serving.
+"""The node-side SDK — :class:`Url4Node`: registries and evaluation.
 
 A node IS an :class:`~url4.io.layer.IOLayer`: it implements ``fetch`` (routing
 relative targets to its own endpoints / eval path / data routes and delegating
 absolute URIs outbound), ``fetch_ex``, and ``fetch_holdings`` (``@`` and
 ``@identity``, spec §5.6). In-process evaluation is therefore just
-``run(expression, io=self)`` — and the ASGI shim reuses the same dispatch, so
-HTTP behavior and in-process behavior can never diverge.
+``run(expression, io=self)`` — and the HTTP adapter in :mod:`url4.peer._http`
+reuses the same ``fetch`` dispatch, so HTTP behavior and in-process behavior
+can never diverge.
 
-Dispatch contract (mirrors the engine's wire conventions):
-
-- **Endpoint paths are intent processors.** ``GET /claude?[params&]q=(ctx)!i``
-  calls the registered handler with :class:`Request` — ``context`` is *opaque,
-  already-resolved data*. AIDEV-NOTE: engine-internal dispatches wire-escape
-  resolved text, so re-evaluating it would mis-parse — handlers never receive
-  unresolved expressions.
-- **The eval path is the protocol surface** (default ``/v1``). Its ``q=`` is a
-  full url4 expression: the node reconstructs it, re-attaches non-transport
-  protocol params as the ``;``-chain (so ``broadcast``/``quorum`` keep their
-  spec meaning, §6.1.1/§9), and evaluates it against itself — sources resolve
-  HERE (§5.6.3 pass-through), the intent dispatches to the node's default
-  route (explicit ``default_processor``, else its first registered endpoint).
-- **Data routes** serve plain reads (`/api/rows`) for sources and collections.
-- **GET is the only verb.** WHY: url4-engine doctrine N1 — the expression is the
-  address, so the transactional call is an idempotent, cacheable GET.
+The dispatch half — how a relative target resolves against these registries —
+lives in :mod:`url4.peer._dispatch` (the second review's F2 split, made when
+the module-size cap fired): this module owns what a request CAN resolve to
+(registration) and the evaluation facade; that module owns the dispatch order.
 
 Deferred by design: response envelopes, streaming delivery, requestor
 authentication and consent hooks (they need the URL4-Auth-Token / Part C
@@ -31,65 +20,23 @@ transport spec); identity handlers may raise the spec error codes themselves.
 
 from __future__ import annotations
 
-import importlib
-import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from inspect import isawaitable, signature
+from inspect import signature
 from typing import overload
 
 from url4.core.context import Context
-from url4.core.errors import ResolutionError, Url4Error
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
 from url4.core.render import render
-from url4.core.subrequest import (
-    TRANSPORT_ONLY_PARAMS,
-    decode_expression_http,
-    decode_subrequest_http,
-    extract_expression_params,
-)
-from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
-from url4.dag.node import ProcessFn, default_process
-from url4.io.layer import FetchRequest, FetchResult, IOLayer, fetch_result
-from url4.peer.client import Url4Result
-
-# Transport-level query params a node consumes itself rather than re-attaching
-# to the expression (spec §11.6.3); `processor` is expression-bearing and its
-# delegation semantics (§27.3) are not implemented yet.
-# The ingress set is broader than the spec's transport-only rule: it also drops
-# params this node consumes itself (delivery/cb/meta/v) and `processor`, whose
-# §27.3 delegation semantics are not implemented yet (see `OME-506`).
-# INVARIANT: _TRANSPORT_PARAMS is DERIVED from TRANSPORT_ONLY_PARAMS, so the two
-# can never disagree about resume/rid.
-_TRANSPORT_PARAMS = TRANSPORT_ONLY_PARAMS | frozenset({"delivery", "cb", "meta", "v", "processor"})
-
-# HTTP status by spec error code; unlisted codes fall back by exception shape.
-_STATUS_BY_CODE = {
-    "malformed_source": 400,
-    "unbound_reference": 400,
-    "endpoint_not_found": 404,
-    "unknown_identity": 404,
-    "identity_unavailable": 404,
-    "identity_access_denied": 403,
-    "consent_required": 403,
-    "consent_withheld": 403,
-}
-
-
-@dataclass(frozen=True)
-class Request:
-    """One decoded intent-processor call: ``GET <path>?[params&]q=(context)!intent``.
-
-    ``context`` is opaque resolved data (see the module contract); ``params``
-    are the decoded protocol params that preceded ``q=``.
-    """
-
-    path: str
-    context: str
-    intent: str
-    params: Mapping[str, str]
-
+from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
+from url4.io.layer import FetchRequest, FetchResult, IOLayer
+from url4.peer import _dispatch
+from url4.peer._dispatch import Request
+from url4.peer._http import asgi_app as _asgi_app
+from url4.peer._http import serve as _serve_node
+from url4.peer._owned import _OwnedIO
+from url4.peer.client import Url4Result, _blaming_render
 
 EndpointHandler = Callable[[Request], str | Awaitable[str]]
 # handlers may take the requested collection or nothing at all
@@ -97,6 +44,14 @@ HoldingsHandler = Callable[[str | None], str | Awaitable[str]] | Callable[[], st
 _HoldingsPort = Callable[[str | None], str | Awaitable[str]]
 DataCallable = Callable[[], str | Awaitable[str]]
 DataProvider = str | DataCallable
+
+
+@dataclass(frozen=True)
+class _DataRoute:
+    """A registered data route: its provider plus the optional declared media type."""
+
+    provider: DataProvider
+    media_type: str | None = None
 
 
 class Url4Node:
@@ -123,13 +78,11 @@ class Url4Node:
         self._eval_path = eval_path
         self._processor = default_processor
         self._process = process_fn
-        self._outbound = outbound
-        self._owned_outbound: IOLayer | None = None
+        self._owned = _OwnedIO(outbound)
         self._concurrency = concurrency
         self._strict_fields = strict_fields
         self._endpoints: dict[str, EndpointHandler] = {}
-        self._data: dict[str, DataProvider] = {}
-        self._data_media_types: dict[str, str] = {}
+        self._data: dict[str, _DataRoute] = {}
         self._self_holdings: dict[str | None, _HoldingsPort] = {}
         self._identities: dict[str, _HoldingsPort] = {}
         for path, provider in (data or {}).items():
@@ -177,14 +130,12 @@ class Url4Node:
         :meth:`fetch_ex` reports it when it serves this route.
         """
         self._check_routable(path)
-        if media_type is not None:
-            self._data_media_types[path] = media_type
         if provider is not None:
-            self._data[path] = provider
+            self._data[path] = _DataRoute(provider, media_type)
             return None
 
         def register(fn: DataCallable) -> DataCallable:
-            self._data[path] = fn
+            self._data[path] = _DataRoute(fn, media_type)
             return fn
 
         return register
@@ -262,103 +213,18 @@ class Url4Node:
             raise ValueError(f"path {path!r} is already registered")
 
     # --- the IOLayer ports (a node IS an io layer) ----------------------------------
+    # Thin delegates: the dispatch order lives in url4.peer._dispatch (the F2
+    # split) — one owner, so HTTP (url4.peer._http) and in-process behavior
+    # cannot diverge.
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        if relative or target.startswith("/"):
-            return await self._dispatch(target)
-        return await self._outbound_io().fetch(target, relative=False)
+        return await _dispatch.fetch(self, target, relative=relative)
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
-        if request.relative or request.target.startswith("/"):
-            body = await self._dispatch(request.target)
-            return FetchResult(body, self._data_media_type(request.target))
-        return await fetch_result(self._outbound_io(), request)
-
-    def _data_media_type(self, target: str) -> str | None:
-        """The declared Content-Type of the data route serving ``target``, if any.
-
-        Mirrors ``_dispatch``'s exact-target-then-path data lookup; endpoint and
-        eval-path dispatches have no declared media type and report None.
-        """
-        media = self._data_media_types
-        return media.get(target, media.get(target.partition("?")[0]))
+        return await _dispatch.fetch_ex(self, request)
 
     async def fetch_holdings(self, identity: str | None, collection: str | None) -> str:
-        if identity is None:
-            handler = self._self_holdings.get(collection) or self._self_holdings.get(None)
-            if handler is None:
-                raise ResolutionError(
-                    f"node {self.name!r} serves no self holdings for {collection!r}"
-                )
-            return await _text(handler(collection))
-        named = self._identities.get(identity)
-        if named is None:
-            raise ResolutionError(
-                f"unknown identity {identity!r} on node {self.name!r}",
-                code="unknown_identity",
-                permanent=True,
-            )
-        return await _text(named(collection))
-
-    # --- dispatch -----------------------------------------------------------------
-
-    async def _dispatch(self, target: str) -> str:
-        path, sep, query = target.partition("?")
-        params, q = extract_expression_params(query) if sep else ({}, None)
-        if q is not None:
-            expression_result = await self._dispatch_expression(path, q, params)
-            if expression_result is not None:
-                return expression_result
-        # INVARIANT: exact-target first, then the bare path — membership, not
-        # `.get(..., .get(...))`, so a hit avoids the second lookup and a
-        # legitimately falsy provider (e.g. "") is still served rather than skipped.
-        if target in self._data:
-            provider: DataProvider | None = self._data[target]
-        elif path in self._data:
-            provider = self._data[path]
-        else:
-            provider = None
-        if provider is not None:
-            return await _text(provider() if callable(provider) else provider)
-        raise ResolutionError(
-            f"node {self.name!r} has no endpoint, eval path, or data route at {path!r}",
-            code="endpoint_not_found",
-            permanent=True,
-        )
-
-    async def _dispatch_expression(
-        self, path: str, q: str, params: Mapping[str, str]
-    ) -> str | None:
-        """Route an expression-bearing request, or ``None`` if ``path`` bears none.
-
-        Returning ``None`` (rather than raising) lets :meth:`_dispatch` fall
-        through to the data routes, so a data path carrying its own ``?q=…``
-        query is still served as data.
-        """
-        if path in self._endpoints:
-            return await self._call_endpoint(path, q, params)
-        # Spec §5.6.1/§5.6.3.1 — `{eval_path}/<qualifier>` evaluates the
-        # expression with `@` scoped to that self-holdings collection:
-        # `GET /v1/science?q=(@)!'…'`. Multi-segment qualifiers join with "/"
-        # (`/v1/a/b` -> "a/b"), matching how an identity-collection is carried
-        # (§5.6.2); the bare eval path yields "" -> None, the default shelf.
-        # Endpoints are matched first, so a command route still wins its exact
-        # path; `_check_routable` keeps the two from overlapping.
-        if path == self._eval_path or path.startswith(f"{self._eval_path}/"):
-            collection = path[len(self._eval_path) + 1 :]
-            # AIDEV-NOTE: `processor` is consumed here, not re-attached by
-            # `_reassemble` — it selects this run's processor, not an expression param.
-            return await self._run_text(
-                _reassemble(q, params),
-                self_collection=collection or None,
-                processor=params.get("processor"),
-            )
-        return None
-
-    async def _call_endpoint(self, path: str, q: str, params: Mapping[str, str]) -> str:
-        context, intent = decode_subrequest_http(q)
-        request = Request(path=path, context=context, intent=intent, params=params)
-        return await _text(self._endpoints[path](request))
+        return await _dispatch.fetch_holdings(self, identity, collection)
 
     async def _run_text(
         self,
@@ -381,95 +247,53 @@ class Url4Node:
         )
         return await run(text, ctx=ctx, concurrency=self._concurrency)
 
-    # --- evaluation and serving --------------------------------------------------------
+    # --- evaluation -----------------------------------------------------------------
 
     async def evaluate(
         self, expression: str | Node, *, env: Mapping[str, object] | None = None
     ) -> Url4Result:
-        """Evaluate a url4 expression in-process, with this node as its world."""
-        request = expression if isinstance(expression, str) else render(expression)
-        text = await self._run_text(request, env)
+        """Evaluate a url4 expression in-process, with this node as its world.
+
+        A tree passed as ``Node`` is rendered with the round-trip re-parse
+        skipped (``check=False``, ~15x the render). A tree the grammar cannot
+        faithfully carry (spec §8.1.2) is still reported as
+        :class:`~url4.core.errors.RenderError` naming the tree — the check runs
+        only once the run has already failed, so it costs nothing when the tree
+        is sound.
+        """
+        # WHY check=False: same front-door reasoning as Client.evaluate — the verify
+        # re-parse costs ~15x the render, and _blaming_render pays it only on failure.
+        if isinstance(expression, str):
+            request, rendered = expression, None
+        else:
+            request, rendered = render(expression, check=False), expression
+        text = await _blaming_render(rendered, request, self._run_text(request, env))
         return Url4Result(text=text, request=request)
 
     def asgi(self):
         """The node as a plain ASGI application (framework-free by construction)."""
-
-        async def app(scope: Mapping, receive, send) -> None:
-            if scope["type"] == "lifespan":
-                await _lifespan(receive, send)
-            elif scope["type"] == "http":
-                await self._handle_http(scope, send)
-
-        return app
+        return _asgi_app(self)
 
     def serve(self, host: str = "127.0.0.1", port: int = 4404, **uvicorn_kwargs) -> None:
         """Serve :meth:`asgi` with uvicorn (requires the ``url4[server]`` extra)."""
-        try:
-            uvicorn = importlib.import_module("uvicorn")
-        except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "serving a Url4Node over HTTP requires uvicorn — install url4[server]"
-            ) from exc
-        uvicorn.run(self.asgi(), host=host, port=port, **uvicorn_kwargs)
+        _serve_node(self, host=host, port=port, **uvicorn_kwargs)
 
     async def aclose(self) -> None:
         """Close the lazily-owned outbound adapter (injected outbound is left alone)."""
-        owned = self._owned_outbound
-        self._owned_outbound = None
-        if owned is not None:
-            await owned.aclose()  # type: ignore[attr-defined]  # always HttpIOLayer
+        await self._owned.aclose()
 
     async def __aenter__(self) -> Url4Node:
+        await self._owned.__aenter__()
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
-        await self.aclose()
+        await self._owned.__aexit__(*exc_info)
 
     def _outbound_io(self) -> IOLayer:
-        if self._outbound is not None:
-            return self._outbound
-        if self._owned_outbound is None:
-            from url4.io.http import HttpIOLayer  # composition root: lazy transport import
-
-            self._owned_outbound = HttpIOLayer()
-        return self._owned_outbound
-
-    async def _handle_http(self, scope: Mapping, send) -> None:
-        if scope["method"] != "GET":
-            # Doctrine N1: the url4 expression is the address; the
-            # transactional call is an idempotent, cacheable GET.
-            await _send_error(send, 405, "method_not_allowed", "url4 nodes speak GET")
-            return
-        query = scope.get("query_string", b"").decode("latin-1")
-        target = scope["path"] + (f"?{query}" if query else "")
-        try:
-            body = await self.fetch(target, relative=True)
-        except Url4Error as exc:
-            await _send_error(send, _status_for(exc), exc.code, str(exc))
-            return
-        await _send(send, 200, "text/plain; charset=utf-8", body.encode())
+        return self._owned.outbound()
 
 
 # --- module helpers ------------------------------------------------------------------
-
-
-def _reassemble(q: str, params: Mapping[str, str]) -> str:
-    """Rebuild the eval-path expression, re-attaching non-transport params.
-
-    The dual-convention decode lives with the wire codec
-    (:func:`url4.core.subrequest.decode_expression_http` — one owner, spec §3.4).
-    ``broadcast`` and friends keep their §9 semantics by riding the trailing
-    ``;`` chain the envelope decode reads (a flag param decodes to value "").
-    """
-    text = decode_expression_http(q)
-    for key, value in params.items():
-        if key not in _TRANSPORT_PARAMS:
-            text += f";{key}" if value == "" else f";{key}={value}"
-    return text
-
-
-async def _text(result: str | Awaitable[str]) -> str:
-    return await result if isawaitable(result) else result
 
 
 def _adapt_holdings(handler: Callable[..., str | Awaitable[str]]) -> _HoldingsPort:
@@ -485,41 +309,6 @@ def _adapt_holdings(handler: Callable[..., str | Awaitable[str]]) -> _HoldingsPo
     except ValueError:  # no introspectable signature — assume the port shape
         return handler
     return handler
-
-
-def _status_for(exc: Url4Error) -> int:
-    status = _STATUS_BY_CODE.get(exc.code)
-    if status is not None:
-        return status
-    if isinstance(exc, ResolutionError) and not exc.permanent:
-        return 502  # transient upstream/source failure
-    return 500
-
-
-async def _lifespan(receive, send) -> None:
-    while True:
-        message = await receive()
-        if message["type"] == "lifespan.startup":
-            await send({"type": "lifespan.startup.complete"})
-        elif message["type"] == "lifespan.shutdown":
-            await send({"type": "lifespan.shutdown.complete"})
-            return
-
-
-async def _send(send, status: int, content_type: str, body: bytes) -> None:
-    await send(
-        {
-            "type": "http.response.start",
-            "status": status,
-            "headers": [(b"content-type", content_type.encode())],
-        }
-    )
-    await send({"type": "http.response.body", "body": body})
-
-
-async def _send_error(send, status: int, code: str, message: str) -> None:
-    payload = json.dumps({"error": {"code": code, "message": message}})
-    await _send(send, status, "application/json", payload.encode())
 
 
 __all__ = ["DataProvider", "EndpointHandler", "HoldingsHandler", "Request", "Url4Node"]
