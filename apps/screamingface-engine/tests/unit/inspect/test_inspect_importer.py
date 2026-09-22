@@ -230,6 +230,189 @@ def test_introspect_refuses_a_task_that_never_loads_hf(monkeypatch: pytest.Monke
         introspect_task(f"{_FAKE_MODULE}:local")
 
 
+def test_introspect_binds_through_the_vendored_hf_dataset_shim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """inspect_evals ≥0.20 routes hf_dataset through its ``(*args, **kwargs)`` retry
+    shim; binding against the shim buries every real kwarg in the VAR_KEYWORD
+    bucket, and the conserved-kwargs guard then refuses the ENTIRE hf family as
+    "kwarg(s) kwargs" (OME-1238). The recorder must bind the caller's arguments
+    against the real hf_dataset signature — including a positionally passed path.
+    Bound through the REAL vendored shim, not a hand-written stand-in, so a shim
+    reshape on a pin bump fails here first."""
+
+    from inspect_evals.utils.huggingface import hf_dataset as vendored_shim
+
+    def wrapped_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                "acme/sums",
+                split="test",
+                name="main",
+                sample_fields=module.record_to_sample,
+                revision="deadbeef" * 5,
+            ),
+            solver=[prompt_template(sys.modules[_FAKE_MODULE].TEMPLATE), generate()],
+            scorer=match(numeric=True),
+        )
+
+    module = _install_fake_eval(monkeypatch, sums=wrapped_task)
+    module.hf_dataset = vendored_shim  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+
+    assert facts.dataset == "acme/sums"
+    assert facts.config == "main"
+    assert facts.split == "test"
+    assert facts.pinned_revision == "deadbeef" * 5
+    assert facts.record_to_sample == f"{_FAKE_MODULE}:record_to_sample"
+
+
+def test_introspect_refuses_an_unknown_variadic_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the vendored shim is verified pass-through — identity, not shape. A
+    wrapper that mutated kwargs before forwarding would make the conserved-kwargs
+    guard reason about arguments the real load never sees, so any other fully
+    variadic wrapper refuses."""
+
+    import inspect_ai.dataset
+
+    def homegrown_wrapper(*args: Any, **kwargs: Any) -> Any:
+        return inspect_ai.dataset.hf_dataset(*args, **kwargs)
+
+    def wrapped_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                "acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=generate(),
+            scorer=match(),
+        )
+
+    module = _install_fake_eval(monkeypatch, sums=wrapped_task)
+    module.hf_dataset = homegrown_wrapper  # type: ignore[attr-defined]
+
+    with pytest.raises(ImporterError, match="variadic wrapper"):
+        introspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_shim_call_with_an_extra_kwarg_refuses_under_its_own_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flatten's whole point: a kwarg landing in the real signature's own
+    ``**kwargs`` bucket must be judged BY NAME — the refusal says ``data_files``,
+    never the opaque bucket name ``kwargs``."""
+
+    from inspect_evals.utils.huggingface import hf_dataset as vendored_shim
+
+    def extra_kwarg_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums",
+                split="test",
+                sample_fields=module.record_to_sample,
+                data_files="rows.parquet",
+            ),
+            solver=generate(),
+            scorer=match(),
+        )
+
+    module = _install_fake_eval(monkeypatch, sums=extra_kwarg_task)
+    module.hf_dataset = vendored_shim  # type: ignore[attr-defined]
+
+    with pytest.raises(ImporterError, match="data_files"):
+        introspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_an_unbindable_hf_dataset_call_refuses_as_importer_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The importer's contract: every refusal is an ImporterError naming the fact —
+    bind_partial's bare TypeError (e.g. a doubled path argument) must not leak."""
+
+    from inspect_evals.utils.huggingface import hf_dataset as vendored_shim
+
+    def doubled_arg_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                "acme/sums",
+                path="acme/other",
+                split="test",
+                sample_fields=module.record_to_sample,
+            ),
+            solver=generate(),
+            scorer=match(),
+        )
+
+    module = _install_fake_eval(monkeypatch, sums=doubled_arg_task)
+    module.hf_dataset = vendored_shim  # type: ignore[attr-defined]
+
+    with pytest.raises(ImporterError, match="does not bind"):
+        introspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_introspect_resolves_a_prompt_template_from_a_sibling_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AIME keeps its prompt template in a shared helper (utils.aime_common), not
+    the task module — the row must POINT at the defining module (OME-1238)."""
+
+    sibling_name = f"{_FAKE_MODULE}.common"
+    sibling = types.ModuleType(sibling_name)
+    sibling.SHARED_TEMPLATE = "Shared instructions.\n\n{prompt}\n"  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, sibling_name, sibling)
+
+    def shared_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=[prompt_template(sibling.SHARED_TEMPLATE), generate()],
+            scorer=match(numeric=True),
+        )
+
+    _install_fake_eval(monkeypatch, shared=shared_task)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:shared")
+
+    assert facts.prompt_template == f"{sibling_name}:SHARED_TEMPLATE"
+
+
+def test_introspect_refuses_an_ambiguous_sibling_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two sibling modules holding the same template object cannot yield ONE
+    dotted reference — the importer must refuse, never pick silently."""
+
+    shared_template = "Ambiguous instructions.\n\n{prompt}\n"
+    for suffix in ("common_a", "common_b"):
+        name = f"{_FAKE_MODULE}.{suffix}"
+        sibling = types.ModuleType(name)
+        sibling.SHARED_TEMPLATE = shared_template  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, name, sibling)
+
+    def ambiguous_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=[prompt_template(shared_template), generate()],
+            scorer=match(numeric=True),
+        )
+
+    _install_fake_eval(monkeypatch, ambiguous=ambiguous_task)
+
+    with pytest.raises(ImporterError, match="exactly one module"):
+        introspect_task(f"{_FAKE_MODULE}:ambiguous")
+
+
 # ---------------------------------------------------------------------------
 # capture_observations
 # ---------------------------------------------------------------------------

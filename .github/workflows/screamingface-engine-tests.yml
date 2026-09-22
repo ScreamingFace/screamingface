@@ -64,21 +64,21 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=80 \
             -v
-      # The imported boards' suite opens with `pytest.importorskip("inspect_ai")`, so without
-      # the extra it SKIPS — silently, and it is the only thing pinning that the ten imported
-      # boards publish `origin="inspect_evals"`. Deleting that argument would otherwise leave
-      # CI green while every imported board collapsed back into the ScreamingFace group, which
-      # is the whole of the two-group listing. Same shape as the real-broker guard below: run
-      # the lane for real, then refuse to call a skip a pass.
-      - name: Run the imported-board suite with its extra
+      # The inspect suites open with `pytest.importorskip("inspect_ai")`, so without the
+      # extra they SKIP — silently. An explicit file list here rotted once already: the
+      # importer's and snapshots' suites were never listed, so the importer's regression
+      # pins ran in no CI lane at all (review finding on PR 1009). The selector is now a
+      # DIRECTORY — tests/unit/inspect — enforced from the extra-less lane above by
+      # tests/unit/test_inspect_suite_location.py: an importorskip'ing file outside the
+      # directory fails lane 1 loudly, so this lane's target cannot rot silently again,
+      # and the ~250 extra-independent files are not re-run here. Two guards below:
+      # `could not import` refuses the one skip that means "the dependency this lane
+      # exists to install is missing"; `no tests ran` refuses an emptied/renamed target.
+      - name: Run the inspect suites with the inspect extra
         run: |
-          uv run --extra inspect pytest -q \
-            tests/unit/test_inspect_imported_boards.py \
-            tests/unit/test_inspect_gsm8k_board.py \
-            tests/unit/test_inspect_mmlu_board.py \
-            | tee inspect.txt
-          if grep -qE "[0-9]+ skipped|no tests ran" inspect.txt; then
-            echo "::error::imported-board suite was skipped — the inspect extra was not installed"
+          uv run --extra inspect pytest -q -rs tests/unit/inspect | tee inspect.txt
+          if grep -qE "could not import|no tests ran" inspect.txt; then
+            echo "::error::the inspect lane proved nothing — missing extra import or empty target dir"
             exit 1
           fi
       - name: Test report
