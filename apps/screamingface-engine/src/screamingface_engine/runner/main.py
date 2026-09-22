@@ -262,6 +262,7 @@ def build_executor(
     benchmark_assets_root: Path | None = None,
     io_gate: FairShareGate | None = None,
     observers: tuple[ObserverFactory, ...] = (),
+    io_provider: Callable[[], Any] | None = None,
 ) -> OperationCapturingExecutor:
     """Wire an executor over the DECLARED world — without building it yet.
 
@@ -326,9 +327,23 @@ def build_executor(
     io_wrap: Callable[[Any], Any] | None = None
     if io_gate is not None and run_key:
         io_wrap = lambda io: FairShareIOLayer(io, io_gate, run_key)  # noqa: E731 - binding read
+    # FEATURE (unit 3, prd/03 C8): LOCAL mode builds ONE world, mounts it as the node's ASGI
+    # surface, and runs every in-process run against that same world. `io_provider` is how a
+    # caller hands that shared world in WITHOUT building it here: it is read at executor BUILD
+    # time (once per run) rather than captured, because local mode builds the world in the App's
+    # startup hook, after this factory exists. A provider rather than the world itself also keeps
+    # `build_executor`'s `partial` shape intact — the local composition's `benchmarks` and
+    # `observers` keywords are read by tests, and a bespoke callable would erase them.
+    #
+    # INVARIANT: `None` (the deployed Job, and every non-local caller) leaves the per-run world
+    # factory in place, byte-identical to before. The shared world's own teardown belongs to
+    # whoever built it, so `world_factory` is cleared when an io is supplied or the run would
+    # close a world it does not own.
+    shared_io = io_provider() if io_provider is not None else None
     return OperationCapturingExecutor(
         Url4Executor(
-            world_factory=_world,
+            io=shared_io,
+            world_factory=None if shared_io is not None else _world,
             request_scope_factory=_scope_from_env,
             result_cap=inline_cap,
             hard_cap=hard_cap,

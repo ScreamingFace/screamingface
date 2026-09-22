@@ -22,13 +22,16 @@ the production code path, unmodified.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
+from starlette.datastructures import Headers
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
@@ -44,7 +47,14 @@ from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.metrics import register_fair_share_metrics
+from screamingface_engine.request_scope import (
+    AnswerSeedError,
+    request_scope,
+    request_scope_from_headers,
+)
+from screamingface_engine.rest.forwarder import forwarded_headers
 from screamingface_engine.runner.fair_share import FairShareGate
+from screamingface_engine.world.serving import compose_serving_world, engine_route_paths
 
 _logger = logging.getLogger(__name__)
 
@@ -166,6 +176,189 @@ def _local_activity_configuration(
     return settings, level
 
 
+_NODE_MOUNT_NAME = "node"
+
+
+class _LocalNodeMount:
+    """Mount the shared node's ASGI surface in-process, behind the App's identity boundary (C8).
+
+    FEATURE (unit 3, prd/03 §2.3): ``serve --local`` has no forwarder and no network hop, so the
+    node's ASGI app is mounted directly into the App and only an otherwise-unmatched path reaches
+    it. It is registered LAST (:func:`_mount_node_last`), so every engine literal route wins by
+    route precedence — the same D3 rule the deployed shape gets from mounting the forwarder last.
+
+    # INVARIANT: identity is BUILT, never copied. This wrapper runs the SAME strip-and-reset
+    # helper the deployed forwarder uses (``forwarded_headers``): only the allowlisted request
+    # headers plus the identity survive, so a client's Cookie, Authorization or URL4-Capability
+    # never reaches the node. Local mode has no edge to verify against, so the header it reads IS
+    # the caller's claim — the bind is loopback-only precisely because there is no trust boundary
+    # here, which is also why this shape must never be deployed (C8).
+
+    # INVARIANT: the caller's state is bound by the SAME sync scope producer the node tier uses
+    # (``request_scope_from_headers``), so a mount call reads its identity, profile, seed and
+    # cache policy from the ContextVar exactly as a deployed node does. F2's per-request binding
+    # is what lets this one node serve both the mount and every in-process run without mixing
+    # them.
+
+    NOT a deployment option: no admission/timeout ladder, no NetworkPolicy, no forwarder. It is
+    the development shape of the sync surface (C8).
+    """
+
+    __slots__ = ("_holder",)
+
+    def __init__(self, holder: dict[str, Any]) -> None:
+        # The holder is filled by the App's startup hook. A dict rather than a built node because
+        # ``create_local_app`` is synchronous and building the world is not, and because the
+        # executor factory (created before startup) must read the same world at run time.
+        self._holder = holder
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            # Lifetime and websocket scopes belong to the parent App; the node owns no websocket
+            # surface. Mirrors the forwarder's guard.
+            return
+        node_asgi = self._holder.get("asgi")
+        if node_asgi is None:
+            # No node means no mounts: a declaration with neither ``[aigateway]`` nor a read-side
+            # shelf is a legitimate empty world, and every path is unknown. Fail closed in the
+            # mount surface's own envelope rather than a bare 500.
+            await _send_local_error(
+                send,
+                404,
+                "endpoint_not_found",
+                "the local node serves no mounts: declare an [aigateway] model or a read-side "
+                "shelf in url4.toml",
+            )
+            return
+        raw_headers = Headers(scope=scope)
+        try:
+            bound = request_scope_from_headers(raw_headers)
+        except AnswerSeedError as exc:
+            # A declared sitting must not silently run without its seed (OME-1038). The node tier
+            # maps this to 400 before dispatch; local mode calls the same producer itself, so it
+            # owns the same mapping rather than letting a malformed seed escape as a 500.
+            await _send_local_error(send, 400, "malformed_source", str(exc))
+            return
+        cleaned = forwarded_headers(
+            (
+                (name.decode("latin-1"), value.decode("latin-1"))
+                for name, value in scope.get("headers") or ()
+            ),
+            verified_identity=bound.identity_headers,
+        )
+        child_scope = {
+            **scope,
+            "headers": [
+                (name.encode("latin-1"), value.encode("latin-1")) for name, value in cleaned
+            ],
+        }
+        with request_scope(bound):
+            await node_asgi(child_scope, receive, send)
+
+
+async def _send_local_error(send: Any, status: int, code: str, message: str) -> None:
+    """The mount surface's error envelope (OQ-3.1): url4's ``{"error": {...}}`` envelope."""
+    body = json.dumps({"error": {"code": code, "message": message}}).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [(b"content-type", b"application/json")],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
+
+
+def _mount_node_last(app: FastAPI, node_mount: _LocalNodeMount) -> None:
+    """Mount the local node at ``/`` and ASSERT it is the App's FINAL route (D3).
+
+    WHAT the assertion is for: FastAPI resolves the FIRST matching route, so a catch-all mount
+    that is not last silently swallows every literal route registered after it. A comment cannot
+    stop a future ``include_router`` from landing below this call; an assertion can. The
+    composition root checks its own work instead of trusting registration order — the T3
+    refactor note.
+    """
+    app.mount("/", node_mount, name=_NODE_MOUNT_NAME)
+    _assert_node_mounted_last(app, node_mount)
+
+
+def _assert_node_mounted_last(app: FastAPI, node_mount: object) -> None:
+    """Raise unless ``node_mount`` is the LAST route and the ONLY catch-all mount.
+
+    Two separate ways a silent reorder can happen: a route appended after the mount, and a second
+    ``/`` mount that shadows whichever is registered first. Both are checked, because either one
+    leaves the engine or the node unreachable while the process looks healthy.
+    """
+    routes = list(app.router.routes)
+    last = routes[-1] if routes else None
+    if last is None or getattr(last, "app", None) is not node_mount:
+        raise AssertionError(
+            "the node ASGI mount must be the LAST route: a catch-all mount registered before the "
+            "engine's literal routes shadows them (prd/03 D3). Register it after every route and "
+            "router; see local._mount_node_last."
+        )
+    catch_alls = [
+        route for route in routes if getattr(route, "path", None) == "" and hasattr(route, "app")
+    ]
+    if catch_alls != [last]:
+        raise AssertionError(
+            "exactly ONE catch-all mount may exist and it must be the node's; a second at '/' "
+            "would shadow the node or the engine depending on registration order (prd/03 D3)."
+        )
+
+
+def _install_local_node(
+    app: FastAPI,
+    *,
+    holder: dict[str, Any],
+    run_env: Mapping[str, str],
+    benchmarks: BenchmarkRegistry,
+) -> None:
+    """Mount the shared node LAST and register its build/teardown hooks (prd/03 C8).
+
+    Extracted from :func:`create_local_app` so the composition root stays a readable sequence of
+    wiring steps; the mount, the world build and the ordered teardown belong together.
+
+    # INVARIANT: the shutdown hook is registered HERE, so the caller must call this AFTER the
+    # runner's and the gate's own shutdown hooks. That ordering is the correctness property: the
+    # world is the io the runs were using, so it is closed once they have drained and released
+    # their gate permits.
+
+    # WHY no node-tier aigateway overrides and no url4 admission/timeout wrapper. Local is a
+    # DEVELOPMENT shape (C8), and ONE node serves both the sync mount and the in-process runs.
+    # The run path is the regression oracle, so the shared node keeps the DECLARED aigateway
+    # config (its timeout and ``allow_outbound``) rather than the deployed tier's 30 s/28 s ladder
+    # and forced-off outbound layer — those are properties of a stateless public tier, not of a
+    # loopback dev process that also evaluates arbitrary expressions.
+    """
+    node_mount = _LocalNodeMount(holder)
+    app.state.node_mount = node_mount
+    _mount_node_last(app, node_mount)
+
+    async def _build_shared_node() -> None:
+        """Compose the ONE world both surfaces use, guarded against the App's real route table."""
+        world, aclose = await compose_serving_world(
+            env=run_env,
+            # F4/D3: run the collision guard against the routes the mount actually joins, so a
+            # declared mount shadowed by an engine literal fails startup instead of vanishing.
+            engine_routes=engine_route_paths(app),
+            benchmarks=benchmarks,
+        )
+        holder["io"] = world
+        holder["aclose"] = aclose
+        asgi = getattr(world, "asgi", None)
+        holder["asgi"] = asgi() if callable(asgi) else None
+        app.state.node_world = world
+
+    async def _close_shared_node() -> None:
+        aclose = holder.get("aclose")
+        if aclose is not None:
+            await aclose()
+
+    app.router.on_startup.append(_build_shared_node)
+    app.router.on_shutdown.append(_close_shared_node)
+
+
 def create_local_app(
     settings: Settings | None = None,
     *,
@@ -215,9 +408,22 @@ def create_local_app(
     # `io_gate`) and closed AFTER the runner on shutdown, so cancelled runs release their
     # permits into a gate that still accepts the releases.
     io_gate = FairShareGate(settings.local_io_capacity)
+    # FEATURE (unit 3, C8): ONE world serves both the mounted node's ASGI surface and every
+    # in-process run. The world is built in the App's startup hook (building is async; this
+    # function is not) and parked here, so the executor factory below can read it at run time.
+    # Empty until startup completes; a run scheduled without the App's lifespan falls back to the
+    # per-run world builder.
+    holder: dict[str, Any] = {}
     job_runner = InProcessJobRunner(
         stream,
-        partial(build_executor, benchmarks=benchmarks, io_gate=io_gate, observers=observers),
+        partial(
+            build_executor,
+            benchmarks=benchmarks,
+            io_gate=io_gate,
+            observers=observers,
+            # Read AT RUN TIME so the shared node exists by the time a run is scheduled.
+            io_provider=lambda: holder.get("io"),
+        ),
         base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
@@ -245,10 +451,14 @@ def create_local_app(
     # cancelled fetch releases its permit in a `finally` — closing the gate before those
     # releases land would drop them on a dead object instead of the books.
     app.router.on_shutdown.append(io_gate.aclose)
-    if catalog is not None:
-        app.router.on_shutdown.append(catalog.aclose)
-    if connections is not None:
-        app.router.on_shutdown.append(connections.aclose)
+    # FEATURE (unit 3, prd/03 §2.3 / C8): the local mount, registered after ALL routes and after
+    # the runner/gate shutdown hooks whose ordering it depends on. `_mount_node_last` asserts the
+    # route precedence rather than trusting it; there is NO forwarder and NO NetworkPolicy here —
+    # this is the development shape of the sync surface, never a deployment option.
+    _install_local_node(app, holder=holder, run_env=run_env, benchmarks=benchmarks)
+    for adapter in (catalog, connections):
+        if adapter is not None:
+            app.router.on_shutdown.append(adapter.aclose)
     return app
 
 
