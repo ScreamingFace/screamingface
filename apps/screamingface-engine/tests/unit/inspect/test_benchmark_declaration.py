@@ -154,6 +154,7 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         "inspect-paws": ("coverage_declare", "single_shot"),
         "inspect-boolq": ("coverage_declare", "single_shot"),
         "inspect-aime24": ("coverage_declare", "single_shot"),
+        "inspect-aime25": ("coverage_declare", "single_shot"),
     }
     actual = {
         benchmark.id: (

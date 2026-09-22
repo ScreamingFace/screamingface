@@ -48,6 +48,12 @@ from screamingface_engine_inspect.pins import (
     AIME24_DATASET_REVISION,
     AIME24_SHUFFLE_SEED,
     AIME24_SPLIT,
+    AIME25_CASE_COUNT,
+    AIME25_CONFIG,
+    AIME25_DATASET,
+    AIME25_DATASET_REVISION,
+    AIME25_SHUFFLE_SEED,
+    AIME25_SPLIT,
     ARC_CHALLENGE_CASE_COUNT,
     ARC_CHALLENGE_CONFIG,
     ARC_CHALLENGE_DATASET,
@@ -285,6 +291,19 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         record_to_sample="inspect_evals.aime2024.aime2024:record_to_sample",
         prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
         shuffle_seed=AIME24_SHUFFLE_SEED,
+    ),
+    "aime25": SnapshotSpec(
+        dataset=AIME25_DATASET,
+        config=AIME25_CONFIG,
+        split=AIME25_SPLIT,
+        dataset_revision=AIME25_DATASET_REVISION,
+        case_count=AIME25_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.aime2025.aime2025:aime2025;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.aime2025.aime2025:record_to_sample",
+        prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
+        shuffle_seed=AIME25_SHUFFLE_SEED,
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
