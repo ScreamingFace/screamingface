@@ -53,21 +53,17 @@ class _Sequencer:
         self._subject = topic
         self._n = 0
 
-    def _check_invariants(self, previous: int) -> None:
-        """INVARIANT: emitted sequence numbers are strictly monotonic and gap-free.
-
-        ``previous`` is the last number emitted (``0`` before the first frame), so the
-        counter just advanced must be exactly ``previous + 1`` — and therefore at least
-        ``1``. A consumer finds missing frames by these numbers, so a gap is
-        unrecoverable; this turns it into a loud producer-side failure instead of a silent
-        hole in the stream. A plain ``assert`` on purpose: cheap, and stripped under ``-O``.
-        """
-        assert self._n == previous + 1 >= 1, f"sequence gap: {previous} -> {self._n}"
-
     def next(self, traceparent: str, tracestate: str | None = None) -> _Envelope:
+        # INVARIANT: emitted sequence numbers are strictly monotonic and gap-free.
+        # ``previous`` is the last number emitted (``0`` before the first frame), so the
+        # counter just advanced must be exactly ``previous + 1`` — and therefore at least
+        # ``1``. A consumer finds missing frames by these numbers, so a gap is
+        # unrecoverable; this turns it into a loud producer-side failure instead of a silent
+        # hole in the stream. Inline on purpose: this runs once per streamed frame, and
+        # ``-O`` strips an assert statement but not a call to a method containing one.
         previous = self._n
         self._n += 1
-        self._check_invariants(previous)
+        assert self._n == previous + 1 >= 1, f"sequence gap: {previous} -> {self._n}"
         return _Envelope(
             id=uuid4().hex,
             source=self._source,

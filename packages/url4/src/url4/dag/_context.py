@@ -78,21 +78,17 @@ class _ObsState:
     def new_span_id(self) -> str:
         return secrets.token_hex(8)  # 16 hex chars
 
-    def _check_invariants(self, previous: int) -> None:
-        """INVARIANT: ``engine_seq`` values are strictly monotonic and gap-free.
-
-        ``previous`` is the last value handed out (``0`` before the first), so the counter
-        just advanced must be exactly ``previous + 1`` — and therefore at least ``1``.
-        Consumers order concurrent finishes by these values, so a duplicated or skipped one
-        makes their ordering wrong; a plain ``assert`` catches the producer-side edit that
-        would cause it, and is stripped under ``-O``.
-        """
-        assert self._seq == previous + 1 >= 1, f"engine_seq gap: {previous} -> {self._seq}"
-
     def next_seq(self) -> int:
+        # INVARIANT: ``engine_seq`` values are strictly monotonic and gap-free. ``previous``
+        # is the last value handed out (``0`` before the first), so the counter just advanced
+        # must be exactly ``previous + 1`` — and therefore at least ``1``. Consumers order
+        # concurrent finishes by these values, so a duplicated or skipped one makes their
+        # ordering wrong; a plain ``assert`` catches the producer-side edit that would cause
+        # it. Inline on purpose: this runs once per node finish, and ``-O`` strips an assert
+        # statement but not a call to a method containing one.
         previous = self._seq
         self._seq += 1
-        self._check_invariants(previous)
+        assert self._seq == previous + 1 >= 1, f"engine_seq gap: {previous} -> {self._seq}"
         return self._seq
 
 

@@ -167,25 +167,7 @@ def test_sequencer_numbers_are_gap_free_and_monotonic() -> None:
     assert numbers == [1, 2, 3, 4, 5]
 
 
-def test_sequencer_invariant_rejects_a_gap() -> None:
-    seq = _Sequencer(TOPIC, "root")
-    seq.next("00-trace")
-    seq.next("00-trace")
-
-    with pytest.raises(AssertionError):
-        seq._check_invariants(previous=0)
-
-
 def test_obs_state_engine_seq_is_gap_free_and_monotonic() -> None:
     obs = _ObsState(NullObserver(), "trace")
 
     assert [obs.next_seq() for _ in range(5)] == [1, 2, 3, 4, 5]
-
-
-def test_obs_state_invariant_rejects_a_gap() -> None:
-    obs = _ObsState(NullObserver(), "trace")
-    obs.next_seq()
-    obs.next_seq()
-
-    with pytest.raises(AssertionError):
-        obs._check_invariants(previous=0)
