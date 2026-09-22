@@ -24,6 +24,7 @@ from typing import Any, Literal, cast
 from screamingface_engine import job_env
 from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.observations import bridge_loss_attributes
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
@@ -747,6 +748,7 @@ class Url4Executor(Executor):
         artifact_store: ArtifactWriter | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None = None,
         world_factory: WorldFactory | None = None,
+        request_scope_factory: Callable[[], RequestScope] | None = None,
         io_wrap: Callable[[IOLayer], IOLayer] | None = None,
         io_concurrency: int | None = None,
     ) -> None:
@@ -765,6 +767,12 @@ class Url4Executor(Executor):
         self._artifact_store = artifact_store
         self._world_aclose = world_aclose
         self._world_factory = world_factory
+        # FEATURE (F2, prd/01): the child boot's caller-state producer, resolved lazily when the
+        # run starts so a malformed value fails INSIDE the run (a Terminated frame) rather than
+        # taking down the scheduling caller with nothing on the stream — the same reason the
+        # world itself is resolved lazily. `None` is a direct-IO executor (tests, the local
+        # spine): it binds nothing and relies on an outer producer's scope.
+        self._request_scope_factory = request_scope_factory
         # FEATURE (OME-908): the run's downstream admission policy, injected as data.
         # `io_wrap` is the LOCAL shape — one wrapper binding this run into the process's
         # shared `FairShareGate` — and when set it REPLACES URL4's per-run bound, so the
@@ -829,6 +837,18 @@ class Url4Executor(Executor):
         finally:
             await self._aclose_world()
 
+    def _scope_context(self) -> contextlib.AbstractContextManager[RequestScope | None]:
+        """The request scope bound around one run, or a no-op when no producer was supplied.
+
+        WHY a method rather than inline in `_drive`: the factory must run INSIDE the driving task
+        (a ContextVar token may not cross a task boundary) and inside the `bridge.close()` guard,
+        so the selection of "bind a scope or nothing" lives here. A factory that raises therefore
+        leaves the consumer's `drain` a closed bridge rather than one it waits on forever.
+        """
+        if self._request_scope_factory is None:
+            return contextlib.nullcontext()
+        return request_scope(self._request_scope_factory())
+
     async def _run_steps(
         self,
         url4: str,
@@ -858,8 +878,17 @@ class Url4Executor(Executor):
             # `ValueError: Token was created in a different Context`, which is what a cancelled
             # run did (`test_a_cancelled_run_records_stopped`). This task is a single context for
             # its whole life, and it is where every model call actually happens.
-            with run_trace_scope(trace):
-                try:
+            #
+            # FEATURE (F2): the request scope is bound in the SAME task and for the same reason.
+            # A producer (the child boot, or unit 3's sync layer) resolves the caller's state;
+            # binding it here is what lets the stateless connector read it and what makes every
+            # model call the run spawns inherit it (AC4).
+            #
+            # INVARIANT: `bridge.close()` is in the `finally` that ENCLOSES the factory call. A
+            # malformed scope value raising outside it would leave the consumer's `drain`
+            # waiting forever on a bridge nobody closes — a run that hangs instead of failing.
+            try:
+                with run_trace_scope(trace), self._scope_context():
                     if trace is not None:
                         return await url4_run(
                             url4,
@@ -870,8 +899,8 @@ class Url4Executor(Executor):
                             **self._run_kwargs,
                         )
                     return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
-                finally:
-                    bridge.close()
+            finally:
+                bridge.close()
 
         task = asyncio.ensure_future(_drive())
         try:

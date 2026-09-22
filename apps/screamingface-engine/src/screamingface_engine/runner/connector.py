@@ -28,6 +28,7 @@ from screamingface_engine.operation_accounting import (
     combine_operation_accounting,
 )
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
+from screamingface_engine.request_scope import RequestScope, current_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
@@ -270,15 +271,16 @@ class _ModelEndpoint:
     `build_aigateway_world`'s *other* frame locals along with them — e.g. `owns_client`,
     `client`, `tavily_client` — which a closure would keep alive for the whole run even though
     `__call__` never touches them, but this class holds only the fields it actually needs.
+
+    FEATURE (F2, prd/01): the handler is STATELESS with respect to the caller. Identity,
+    profile, cache policy and answer seed are read from `current_scope()` per call, so one world
+    can serve many callers without letting one request's values reach another's (AC2). Anything
+    added here must be world-level (a route, an HTTP client), never per-request.
     """
 
     __slots__ = (
-        "_answer_seed",
-        "_cache",
         "_cfg",
         "_http_client",
-        "_identity_headers",
-        "_profile",
         "_routes",
         "_tavily_api_key",
         "_tavily_http",
@@ -289,34 +291,26 @@ class _ModelEndpoint:
         *,
         http_client: httpx.AsyncClient,
         cfg: AigatewayConfig,
-        profile: str | None,
         routes: dict[str, ModelSpec],
         tavily_http: httpx.AsyncClient | None,
         tavily_api_key: str | None,
-        identity_headers: Mapping[str, str] | None = None,
-        cache: CachePolicy,
-        answer_seed: int | None = None,
     ) -> None:
         self._http_client = http_client
         self._cfg = cfg
-        self._profile = profile
         self._routes = routes
         self._tavily_http = tavily_http
         self._tavily_api_key = tavily_api_key
-        self._identity_headers = identity_headers
-        # INVARIANT: per-RUN, like `_cache` below — one run has exactly one declared sitting.
-        # Held as the wire string so the merge into params is allocation-free and typo-proof.
-        self._answer_seed = None if answer_seed is None else str(answer_seed)
-        # INVARIANT: held HERE and not on `cfg`. This object is built once per RUN, while `cfg` is
-        # the world every run in the process shares — and in local mode those runs share an event
-        # loop, so a policy parked on `cfg` is the previous caller's answer applied to this one.
-        self._cache = cache
 
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
         try:
             spec = self._routes[request.path]
+            # INVARIANT (F2): the caller's state is read HERE, per call, from the request scope —
+            # never held on `self`. Two concurrent callers through this one handler each observe
+            # their own scope because each runs in its own context (AC2), and a spawned model
+            # call inherits the scope of the task that created it (AC4).
+            scope = current_scope()
             retrieval_policy = current_retrieval_policy()
             params = apply_retrieval_policy(request.params, retrieval_policy)
             # FEATURE (OME-1038): the run's declared answer seed, stamped AFTER the retrieval
@@ -324,7 +318,11 @@ class _ModelEndpoint:
             # grading — a judge whose pinned params carry no seed must not be re-keyed per
             # sitting), and only onto calls that pin no seed of their own. None is a no-op, so
             # an undeclared run's egress stays byte-identical to today's.
-            ambient_seed = self._answer_seed if in_candidate_invocation() else None
+            ambient_seed = (
+                (None if scope.answer_seed is None else str(scope.answer_seed))
+                if in_candidate_invocation()
+                else None
+            )
             params = apply_answer_seed(params, ambient_seed)
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
@@ -338,15 +336,13 @@ class _ModelEndpoint:
                 return await _chat_completion_loop(
                     http_client=self._http_client,
                     cfg=self._cfg,
-                    profile=self._profile,
+                    scope=scope,
                     messages=_messages(request.context, request.intent),
                     params=params,
                     spec=spec,
                     tavily_http=self._tavily_http,
                     tavily_api_key=self._tavily_api_key,
                     retrieval_policy=retrieval_policy,
-                    identity_headers=self._identity_headers,
-                    cache=self._cache,
                 )
         except RunnerRequestError as exc:
             error = ResolutionError(str(exc), code=exc.code, permanent=exc.permanent)
@@ -358,27 +354,20 @@ class _ModelEndpoint:
 async def build_aigateway_world(
     cfg: AigatewayConfig,
     *,
-    profile: str | None = None,
     client: httpx.AsyncClient | None = None,
     tavily_api_key: str | None = None,
     tavily_client: httpx.AsyncClient | None = None,
-    identity_headers: Mapping[str, str] | None = None,
-    cache: CachePolicy | None = None,
-    answer_seed: int | None = None,
 ) -> AigatewayWorld:
     """Build the `Url4Node` world: one endpoint per declared model, routed to aigateway.
 
-    ``identity_headers`` is the caller's verified identity (canonical header name →
-    value, see `screamingface_engine.job_env.IDENTITY_HEADER_ENV`), rendered onto
-    every chat-completions request this world makes. It is per-RUN rather than
-    per-call: one run has exactly one caller, so the endpoint holds it for the run's
-    duration exactly as it holds `profile`.
+    The world carries NO caller state (F2). Identity, profile, cache policy and answer seed are
+    per-request values read from the `request_scope` ContextVar by `_ModelEndpoint.__call__`, so
+    the same world can be shared by every caller in the process without one request's values
+    reaching another's. A producer binds the scope before any handler runs — the child run path
+    in `runner.main.request_scope_from_env`, the sync surface per request (unit 3).
 
-    ``cache`` is that run's cache policy, and it is a PARAMETER of this call rather than a field of
-    `cfg` for exactly one reason: `cfg` is the world, one description of the gateway shared by
-    every run in the process, and a per-run value there is a value one run reads out of another's.
-    ``None`` means nothing was stated, which reaches the wire as no `cache` field at all — the
-    gateway's own default — so this half never has to re-decide what silence means.
+    ``client``, ``tavily_api_key`` and ``tavily_client`` remain build-time inputs because they
+    are world-level: one HTTP client and one optional tool credential serve every request.
 
     Raises:
         WorldConfigError: no models are declared, or `default_model` is not among them.
@@ -413,15 +402,9 @@ async def build_aigateway_world(
     call_model = _ModelEndpoint(
         http_client=http_client,
         cfg=cfg,
-        profile=profile,
         routes=routes,
         tavily_http=tavily_http,
         tavily_api_key=normalized_tavily_key,
-        identity_headers=identity_headers or None,
-        # `is not None`, not `or`: a policy is a pydantic model and always truthy, but spelling the
-        # fallback explicitly says what it is — an unstated policy, not a stated default.
-        cache=cache if cache is not None else CachePolicy(),
-        answer_seed=answer_seed,
     )
 
     # WHY: `outbound=StaticIOLayer()` denies every absolute-URL fetch: an unmapped target raises
@@ -719,15 +702,13 @@ async def _chat_completion_loop(
     *,
     http_client: httpx.AsyncClient,
     cfg: AigatewayConfig,
-    profile: str | None,
+    scope: RequestScope,
     messages: list[dict],
     spec: ModelSpec,
     params: Mapping[str, str],
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
     retrieval_policy: RetrievalPolicy | None = None,
-    identity_headers: Mapping[str, str] | None = None,
-    cache: CachePolicy,
 ) -> str:
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
@@ -760,7 +741,7 @@ async def _chat_completion_loop(
         retrieval_policy=retrieval_policy,
     )
     sampling = model_params(params)
-    headers = _headers(profile, identity_headers)
+    headers = _headers(scope)
     operation_accounting: list[OperationAccounting | None] = []
     for _ in range(cfg.web_tool_max_iterations):
         body = {"model": real_model_id, "messages": messages, **sampling, **extra}
@@ -769,7 +750,7 @@ async def _chat_completion_loop(
             real_model_id=real_model_id,
             headers=headers,
             body=body,
-            cache=cache,
+            cache=scope.cache,
             max_tokens=sampling.get("max_tokens"),
             operation_accounting=operation_accounting,
         )
@@ -950,16 +931,14 @@ def _invalid_candidate_input(detail: str) -> NoReturn:
     )
 
 
-def _headers(
-    profile: str | None, identity_headers: Mapping[str, str] | None = None
-) -> dict[str, str]:
+def _headers(scope: RequestScope) -> dict[str, str]:
     """The outgoing aigateway headers: the caller's identity, then the values this world owns.
 
-    INVARIANT: the gateway-owned header is written LAST. `identity_headers` reaches here from an
-    inbound request, and although Envoy guarantees a client cannot forge the identity header
-    itself, nothing guarantees the mapping holds ONLY that key — so `X-Profile` is applied over it
-    rather than under it, and no inbound value can displace this run's routing choice. Same
-    ordering rule the aigateway provider plugins apply to their own gateway-owned headers.
+    INVARIANT: the gateway-owned header is written LAST. `scope.identity_headers` reaches here
+    from an inbound request, and although Envoy guarantees a client cannot forge the identity
+    header itself, nothing guarantees the mapping holds ONLY that key — so `X-Profile` is applied
+    over it rather than under it, and no inbound value can displace this run's routing choice.
+    Same ordering rule the aigateway provider plugins apply to their own gateway-owned headers.
 
     WHY no `Authorization`: aigateway runs `cloudflare_headers` when deployed and `disabled`
     locally. Neither mode reads a bearer token, and a deployed caller cannot obtain one, so the
@@ -970,11 +949,16 @@ def _headers(
     identity mapping. Absent (no bound run) the key is OMITTED rather than sent empty: a
     well-formed header carrying a zero or invented id would parse everywhere, join nothing, and
     look correct in every log it reached.
+
+    INVARIANT (F2): identity, profile and seed come from the REQUEST SCOPE, never from `self`, so
+    a shared world renders each caller's own values (AC2). The scope's `traceparent` wins when a
+    producer set one (the sync surface, unit 3); the ensemble run keeps sourcing it from
+    `run_trace_scope`, which url4's lifecycle binds inside the driving task.
     """
-    headers = dict(identity_headers or {})
-    if profile is not None:
-        headers["X-Profile"] = profile
-    traceparent = current_traceparent()
+    headers = dict(scope.identity_headers)
+    if scope.profile is not None:
+        headers["X-Profile"] = scope.profile
+    traceparent = scope.traceparent if scope.traceparent is not None else current_traceparent()
     if traceparent is not None:
         headers["traceparent"] = traceparent
     return headers

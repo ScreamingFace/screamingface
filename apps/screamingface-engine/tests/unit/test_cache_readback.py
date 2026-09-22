@@ -43,6 +43,7 @@ import json
 import httpx
 import pytest
 
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.cache_readback import (
     CacheOutcome,
     CacheStatus,
@@ -393,8 +394,10 @@ async def _run_against(
     cfg = AigatewayConfig(models=(ModelSpec(id=_MODEL),), default_model=_MODEL)
     rec = _Recorder()
     async with gateway.client() as client:
-        world = await build_aigateway_world(cfg, client=client, cache=cache)
-        result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node, observer=rec)
+        world = await build_aigateway_world(cfg, client=client)
+        # F2: the cache policy travels in the request scope, not on the world.
+        with request_scope(RequestScope(cache=cache if cache is not None else CachePolicy())):
+            result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node, observer=rec)
     return result, rec
 
 

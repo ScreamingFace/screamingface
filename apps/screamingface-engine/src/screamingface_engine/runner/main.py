@@ -35,6 +35,7 @@ from screamingface_engine.client_provenance import (
 )
 from screamingface_engine.logs import run_scope
 from screamingface_engine.observations import ObserverFactory
+from screamingface_engine.request_scope import RequestScope
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
@@ -62,6 +63,34 @@ class _SummarizingExecutor(Protocol):
 
 class RunnerConfigError(ValueError):
     """The per-run Job environment is missing or malformed."""
+
+
+def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
+    """Producer 1 (F2, AC6): the child boot's caller state, read off its Job environment.
+
+    One run has exactly one caller, so every value the connector used to pin on the handler is
+    here instead, resolved once before the world is built and bound around the run by
+    `Url4Executor`. The identity and profile are optional (absent means anonymous / the
+    gateway's default); the cache policy is total; the seed is the one value that REFUSES the
+    run when malformed.
+
+    Raises:
+        RunnerConfigError: ``ANSWER_SEED`` is present but not an integer. This is the same
+            refusal `job_env.answer_seed_from_env` always produced — a run silently executed
+            without its declared seed would publish a score claiming a sitting it never had.
+    """
+
+    try:
+        answer_seed = job_env.answer_seed_from_env(env)
+    except ValueError as exc:
+        raise RunnerConfigError(str(exc)) from exc
+    return RequestScope(
+        identity_headers=job_env.identity_from_env(env),
+        profile=env.get(job_env.AIGATEWAY_PROFILE),
+        answer_seed=answer_seed,
+        cache=job_env.cache_policy_from_env(env),
+        origin="run",
+    )
 
 
 def stream_grace_s(env: Mapping[str, str]) -> float:
@@ -283,13 +312,6 @@ def build_executor(
         # is anonymous. The old unconditional token requirement made every deployed run fail
         # before it issued a single request, because a deployed caller has no way to obtain one.
         cache = job_env.cache_policy_from_env(env)
-        # FEATURE (OME-1038): the run's declared answer seed. Read per RUN like the cache
-        # policy; a malformed value REFUSES the run — executed unseeded, it would publish a
-        # score claiming a sitting it never had (see `job_env.answer_seed_from_env`).
-        try:
-            answer_seed = job_env.answer_seed_from_env(env)
-        except ValueError as exc:
-            raise RunnerConfigError(str(exc)) from exc
         world = await build_aigateway_world(
             AigatewayConfig(
                 base_url=section.base_url,
@@ -299,15 +321,6 @@ def build_executor(
                 timeout_s=section.timeout_s,
                 web_tool_max_iterations=section.web_tool_max_iterations,
             ),
-            profile=env.get(job_env.AIGATEWAY_PROFILE),
-            identity_headers=job_env.identity_from_env(env),
-            # Read back per RUN, from this run's own environment — never folded into the
-            # `AigatewayConfig` above, which describes the WORLD and is shared by every run the
-            # process serves. `cache_policy_from_env` is total, so an env that states nothing
-            # yields a policy that states nothing, which the connector sends as no `cache` field
-            # at all — participation, without this half re-deciding what silence means.
-            cache=cache,
-            answer_seed=answer_seed,
             client=client,
             tavily_api_key=env.get(job_env.TAVILY_API_KEY),
             tavily_client=tavily_client,
@@ -348,6 +361,16 @@ def build_executor(
         return world.node, world.aclose
 
     inline_cap, hard_cap, artifact_store = result_delivery_from_env(env)
+
+    # FEATURE (F2, prd/01): the child boot's caller state is resolved by this producer when the
+    # run starts, and bound around the run by `Url4Executor` — so the world carries nothing
+    # per-request and the stateless connector reads the caller's own values (AC2). The factory is
+    # LAZY for the same reason the world itself is: a malformed seed must fail the run (a
+    # Terminated frame on the topic), not take down the scheduling caller before the stream
+    # exists. See `Url4Executor._resolve_world` and the `InProcessJobRunner.schedule` comment.
+    def _scope_from_env() -> RequestScope:
+        return request_scope_from_env(env)
+
     # FEATURE (OME-908): the run's downstream admission policy. `io_gate` is LOCAL mode's
     # shared fair-share gate; when present, the run's world io is wrapped into it under the
     # run's TOPIC key and `url4_run` states `concurrency=None` explicitly (the gate replaces
@@ -363,6 +386,7 @@ def build_executor(
     return OperationCapturingExecutor(
         Url4Executor(
             world_factory=_world,
+            request_scope_factory=_scope_from_env,
             result_cap=inline_cap,
             hard_cap=hard_cap,
             memory_budget=bridge_budget_from_env(env),

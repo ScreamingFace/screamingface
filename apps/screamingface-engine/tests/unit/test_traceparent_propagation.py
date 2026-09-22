@@ -26,6 +26,7 @@ from starlette.requests import Request
 
 from screamingface_engine.connections.aigateway import AigatewayConnections
 from screamingface_engine.connections.port import Caller
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.rest.connections import _caller
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor
@@ -94,10 +95,13 @@ async def _run_in_scope(
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
-        world = await build_aigateway_world(
-            cfg, client=client, identity_headers=identity, profile=profile
-        )
-        with run_trace_scope(trace):
+        world = await build_aigateway_world(cfg, client=client)
+        # F2: identity and profile are per-REQUEST now, so they travel in the scope, not on the
+        # world. `trace` stays in its own scope — the ensemble path's producer is url4's lifecycle.
+        with (
+            run_trace_scope(trace),
+            request_scope(RequestScope(identity_headers=identity or {}, profile=profile)),
+        ):
             await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
     assert len(gw.requests) == 1
     return gw.requests[0]

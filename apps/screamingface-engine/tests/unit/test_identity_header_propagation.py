@@ -28,6 +28,7 @@ from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
@@ -243,8 +244,10 @@ async def _run_once(identity: dict[str, str] | None) -> httpx.Request:
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, client=client, identity_headers=identity)
-        await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
+        world = await build_aigateway_world(cfg, client=client)
+        # F2: the identity is per-REQUEST and travels in the scope, not on the world.
+        with request_scope(RequestScope(identity_headers=identity or {})):
+            await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
     assert len(gw.requests) == 1
     return gw.requests[0]
 
@@ -274,13 +277,14 @@ async def test_an_inbound_header_cannot_displace_the_runs_own_profile() -> None:
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
-        world = await build_aigateway_world(
-            cfg,
-            client=client,
-            profile="gateway-owned",
-            identity_headers={**IDENTITY, "X-Profile": "attacker-profile"},
-        )
-        await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
+        world = await build_aigateway_world(cfg, client=client)
+        with request_scope(
+            RequestScope(
+                profile="gateway-owned",
+                identity_headers={**IDENTITY, "X-Profile": "attacker-profile"},
+            )
+        ):
+            await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
 
     assert gw.requests[0].headers["x-profile"] == "gateway-owned"
 

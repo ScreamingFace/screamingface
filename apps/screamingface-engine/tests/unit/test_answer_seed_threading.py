@@ -37,6 +37,7 @@ from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.runner.request_parameters import apply_answer_seed
@@ -44,6 +45,7 @@ from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
 from url4.dag import run as url4_run
+from url4.io.layer import IOLayer
 from url4.streaming.protocol import CachePolicy
 
 SECRET = "answer-seed-secret"
@@ -358,9 +360,11 @@ async def _bodies(answer_seed: int | None, *, expression: str | None = None) -> 
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, client=client, answer_seed=answer_seed)
+        world = await build_aigateway_world(cfg, client=client)
         install_candidate_invocation(world.node)
-        await url4_run(expression or _candidate_wrapped(), io=world.node)
+        # F2: the seed is per-REQUEST now — it travels in the scope, not on the world.
+        with request_scope(RequestScope(answer_seed=answer_seed)):
+            await url4_run(expression or _candidate_wrapped(), io=world.node)
     return gw
 
 
@@ -422,17 +426,22 @@ async def test_two_concurrent_runs_with_different_seeds_do_not_contaminate_each_
 
     from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 
+    async def _seeded(seed: int | None, node: IOLayer, context: str) -> None:
+        # Each run binds its own scope: this is what F2 gives the concurrency guarantee on.
+        with request_scope(RequestScope(answer_seed=seed)):
+            await url4_run(_candidate_wrapped(context), io=node)
+
     async with gw.client() as client:
-        first = await build_aigateway_world(shared_cfg, client=client, answer_seed=1)
-        second = await build_aigateway_world(shared_cfg, client=client, answer_seed=2)
+        first = await build_aigateway_world(shared_cfg, client=client)
+        second = await build_aigateway_world(shared_cfg, client=client)
         unseeded = await build_aigateway_world(shared_cfg, client=client)
         for world in (first, second, unseeded):
             install_candidate_invocation(world.node)
 
         await asyncio.gather(
-            url4_run(_candidate_wrapped("run-a"), io=first.node),
-            url4_run(_candidate_wrapped("run-b"), io=second.node),
-            url4_run(_candidate_wrapped("run-c"), io=unseeded.node),
+            _seeded(1, first.node, "run-a"),
+            _seeded(2, second.node, "run-b"),
+            _seeded(None, unseeded.node, "run-c"),
         )
 
     by_context = {body["messages"][-1]["content"]: body for body in gw.bodies}
@@ -482,9 +491,10 @@ async def test_the_seed_reaches_candidate_calls_and_never_judge_calls() -> None:
     )
 
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, client=client, answer_seed=7)
+        world = await build_aigateway_world(cfg, client=client)
         install_candidate_invocation(world.node)
-        await url4_run(outer, io=world.node)
+        with request_scope(RequestScope(answer_seed=7)):
+            await url4_run(outer, io=world.node)
 
     by_context = {body["messages"][-1]["content"]: body for body in gw.bodies}
     assert by_context["case-ctx"]["seed"] == 7
