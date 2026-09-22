@@ -15,7 +15,7 @@ from screamingface._ui.activity_widget import CandidateActivityRow
 from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.evaluation_view import _evaluation_fragments
 from screamingface.events import Event, Log
-from screamingface.report import Report
+from screamingface.report import CandidateResult, Report
 
 
 class _NotebookEvaluationView:
@@ -117,6 +117,12 @@ class _NotebookEvaluationView:
             if not self._tick:
                 self._refresh()
         self._dirty.set()
+
+    def candidate_result(self, result: CandidateResult) -> None:
+        with self._lock:
+            self._progress.candidate_result(result)
+            self._activity.end(self._candidate_indexes[result.name])
+            self._refresh()
 
     def reconcile(self, report: Report) -> None:
         with self._lock:

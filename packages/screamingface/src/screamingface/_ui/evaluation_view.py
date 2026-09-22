@@ -259,7 +259,7 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
     suffix = "".join(f" · {escape(detail)}" for detail in details)
     score = (
         "Not scored yet"
-        if not row.score_available and row.status in {"queued", "running"}
+        if not row.score_available and row.status in {"queued", "running", "finished"}
         else "Not scored"
         if not row.score_available or row.score is None
         else f"{row.score:g}"

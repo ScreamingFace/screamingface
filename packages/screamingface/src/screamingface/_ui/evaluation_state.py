@@ -403,6 +403,9 @@ class _EvaluationProgress:
                     totals[reason] = totals.get(reason, 0) + count
         return tuple(sorted(totals.items(), key=lambda item: (-item[1], item[0])))
 
+    def candidate_result(self, result: CandidateResult) -> None:
+        self._rows_by_name[result.name].reconcile(result)
+
     def reconcile(self, report: Report) -> None:
         if self.case_count is not None and report.case_count != self.case_count:
             raise ValueError("final Report has the wrong selected Case count")

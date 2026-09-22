@@ -148,3 +148,11 @@ Owner requested one-word nonwrapping status, independently stopped candidate tim
 Verification: regression demonstrates Finished · 12s remains fixed at later refresh times while another candidate runs; an unmatched child termination cannot finish the candidate. Final Report remains score authority. Existing assertions migrated only for requested completion, one-word labels, frozen terminal durations and column widths. Browser measurement confirms all six header/cell x positions and widths match, status computes nowrap, and only shared border separates header and rows. Notebook modules refreshed without provider calls. Review: no Engine/wire/API/dependency changes; execution completion is based on root terminal evidence, never aggregation-log inference.
 
 Outcome: final Client gates all green, including full tests with 95% coverage, types, lint, format, notebooks and distribution. Draft/In Progress retained.
+
+
+## Per-candidate final result — 2026-09-22
+Reconcile each completed candidate row from its validated CandidateResult before siblings finish. Notify from each transport completion in both sync and async execution; preserve final report ordering, validation and public event callbacks. UI completion remains fault-contained. Final Report still reconciles the whole view; no provisional scores or inferred cache totals. Test fast-second/slow-first completion and independent row values.
+
+Verification: six completion tests pass, covering fast-second/slow-first sync and async ordering, real result validation through the notebook observer, independent row values, single-candidate delivery, and a failing display callback that preserves the outcome. Public event callbacks and final candidate ordering are unchanged. Existing per-candidate cache evidence is retained; final result reconciles score, qualifier, case count, duration and reported usage without waiting for siblings. Notebook modules reloaded without executing paid evaluations.
+
+Outcome: all Client gates green (lint, formatting, types, full suite/95% coverage, notebooks, build/distribution). No prior tests edited in this iteration; existing branch-wide append-only exception retained. Review confirmed existing failure/cancellation and final report behavior preserved, with only independently delivered row updates added. Draft/In Progress retained.

@@ -49,3 +49,7 @@ Owner requested less empty space around activity and single-line horizontally sc
 
 ## Candidate status and alignment — 2026-09-22
 Owner requested one-word nonwrapping status, independently stopped candidate timers, and aligned contiguous table headers/rows. Root Terminated events establish execution completion and freeze duration from event timestamps; final reports remain score authority. Multiple simultaneous stages show Running, inactive stages show Waiting. Normalize widget wrapper margins and equal header/row borders. Verify concurrent candidate completion, nested terminal isolation, final report reconciliation, and rendered alignment.
+
+
+## Per-candidate final result — 2026-09-22
+Reconcile each completed candidate row from its validated CandidateResult before siblings finish. Notify from each transport completion in both sync and async execution; preserve final report ordering, validation and public event callbacks. UI completion remains fault-contained. Final Report still reconciles the whole view; no provisional scores or inferred cache totals. Test fast-second/slow-first completion and independent row values.

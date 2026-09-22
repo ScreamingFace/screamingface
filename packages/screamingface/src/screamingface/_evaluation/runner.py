@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
 from screamingface._evaluation.benchmark import _BenchmarkResource
+from screamingface._evaluation.completion import completion_callback
 from screamingface._evaluation.model import (
     Candidate,
     _candidate_values,
@@ -26,7 +27,7 @@ from screamingface._evaluation.model_parameters import preflight_async, prefligh
 from screamingface.discovery import ModelDetails, ModelInfo
 from screamingface.events import Event
 from screamingface.recipe import Recipe
-from screamingface.report import Report
+from screamingface.report import CandidateResult, Report
 
 
 class _ModelCatalog(Protocol):
@@ -93,7 +94,9 @@ def evaluate_sync(
         check_disclosure=check_disclosure,
     )
     try:
-        outcomes = _run_candidates_sync(transport, selected_candidates, observer)
+        outcomes = _run_candidates_sync(
+            transport, selected_candidates, observer, completion_callback(evaluation, observer)
+        )
         report = report_from_outcomes(evaluation, outcomes)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
@@ -150,7 +153,9 @@ async def evaluate_async(
         check_disclosure=check_disclosure,
     )
     try:
-        outcomes = await _run_candidates_async(transport, selected_candidates, observer)
+        outcomes = await _run_candidates_async(
+            transport, selected_candidates, observer, completion_callback(evaluation, observer)
+        )
         report = report_from_outcomes(evaluation, outcomes)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
@@ -235,6 +240,11 @@ class _SyncEventObserver:
 
         return observe
 
+    def candidate_result(self, result: CandidateResult) -> None:
+        selected = getattr(self._builtin, "candidate_result", None)
+        if callable(selected):
+            _observe_progress(selected, result)
+
     def reconcile(self, report: Report) -> None:
         _reconcile_progress(self._builtin, report)
 
@@ -271,6 +281,11 @@ class _AsyncEventObserver:
                         await returned
 
         return observe
+
+    def candidate_result(self, result: CandidateResult) -> None:
+        selected = getattr(self._builtin, "candidate_result", None)
+        if callable(selected):
+            _observe_progress(selected, result)
 
     def reconcile(self, report: Report) -> None:
         _reconcile_progress(self._builtin, report)
@@ -378,25 +393,24 @@ def _run_candidates_sync(
     transport: SyncRunTransport,
     candidates: tuple[Candidate, ...],
     observer: _SyncEventObserver | None,
+    on_complete: Callable[[Candidate, _RunOutcome], None] | None = None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
-    if len(candidates) == 1:
-        candidate = candidates[0]
+    def run(candidate: Candidate) -> _RunOutcome:
         selected_observer = None if observer is None else observer.bind(candidate)
         if observer is not None:
             observer.begin(candidate)
-        return ((candidate, transport.run(candidate, selected_observer)),)
+        outcome = transport.run(candidate, selected_observer)
+        if on_complete is not None:
+            _observe_progress(on_complete, candidate, outcome)
+        return outcome
+
+    if len(candidates) == 1:
+        return ((candidates[0], run(candidates[0])),)
 
     with ThreadPoolExecutor(
         max_workers=min(len(candidates), _MAX_CANDIDATES_IN_FLIGHT),
         thread_name_prefix="screamingface-candidate",
     ) as executor:
-
-        def run(candidate: Candidate) -> _RunOutcome:
-            selected_observer = None if observer is None else observer.bind(candidate)
-            if observer is not None:
-                observer.begin(candidate)
-            return transport.run(candidate, selected_observer)
-
         futures = ()
         try:
             futures = tuple(executor.submit(run, candidate) for candidate in candidates)
@@ -418,14 +432,8 @@ async def _run_candidates_async(
     transport: AsyncRunTransport,
     candidates: tuple[Candidate, ...],
     observer: _AsyncEventObserver | None,
+    on_complete: Callable[[Candidate, _RunOutcome], None] | None = None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
-    if len(candidates) == 1:
-        candidate = candidates[0]
-        selected_observer = None if observer is None else observer.bind(candidate)
-        if observer is not None:
-            await observer.begin(candidate)
-        return ((candidate, await transport.run(candidate, selected_observer)),)
-
     gate = asyncio.Semaphore(_MAX_CANDIDATES_IN_FLIGHT)
 
     async def run(candidate: Candidate) -> _RunOutcome:
@@ -433,7 +441,13 @@ async def _run_candidates_async(
             selected_observer = None if observer is None else observer.bind(candidate)
             if observer is not None:
                 await observer.begin(candidate)
-            return await transport.run(candidate, selected_observer)
+            outcome = await transport.run(candidate, selected_observer)
+            if on_complete is not None:
+                _observe_progress(on_complete, candidate, outcome)
+            return outcome
+
+    if len(candidates) == 1:
+        return ((candidates[0], await run(candidates[0])),)
 
     tasks = tuple(asyncio.create_task(run(candidate)) for candidate in candidates)
     try:
