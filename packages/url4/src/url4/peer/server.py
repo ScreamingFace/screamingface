@@ -36,7 +36,7 @@ from url4.peer._dispatch import Request
 from url4.peer._http import asgi_app as _asgi_app
 from url4.peer._http import serve as _serve_node
 from url4.peer._owned import _OwnedIO
-from url4.peer.client import Url4Result
+from url4.peer.client import Url4Result, _blaming_render
 
 EndpointHandler = Callable[[Request], str | Awaitable[str]]
 # handlers may take the requested collection or nothing at all
@@ -254,18 +254,20 @@ class Url4Node:
     ) -> Url4Result:
         """Evaluate a url4 expression in-process, with this node as its world.
 
-        A tree passed as ``Node`` must come from
-        :func:`~url4.core.parser.build` or the builder functions — a tree is
-        rendered with the round-trip re-parse skipped (``check=False``, ~15x
-        the render), so a hand-built tree is rendered *without* round-trip
-        verification and may render to text that reparses differently near a
-        grammar boundary (spec §8.1.2).
+        A tree passed as ``Node`` is rendered with the round-trip re-parse
+        skipped (``check=False``, ~15x the render). A tree the grammar cannot
+        faithfully carry (spec §8.1.2) is still reported as
+        :class:`~url4.core.errors.RenderError` naming the tree — the check runs
+        only once the run has already failed, so it costs nothing when the tree
+        is sound.
         """
-        # WHY check=False: same front-door reasoning as Client.evaluate — trees
-        # arrive from build() or the builders, both pinned by the renderer's
-        # round-trip property tests, and the verify re-parse costs ~15x the render.
-        request = expression if isinstance(expression, str) else render(expression, check=False)
-        text = await self._run_text(request, env)
+        # WHY check=False: same front-door reasoning as Client.evaluate — the verify
+        # re-parse costs ~15x the render, and _blaming_render pays it only on failure.
+        if isinstance(expression, str):
+            request, rendered = expression, None
+        else:
+            request, rendered = render(expression, check=False), expression
+        text = await _blaming_render(rendered, request, self._run_text(request, env))
         return Url4Result(text=text, request=request)
 
     def asgi(self):
