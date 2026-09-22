@@ -76,6 +76,9 @@ jobs:
             tests/unit/test_inspect_imported_boards.py \
             tests/unit/test_inspect_gsm8k_board.py \
             tests/unit/test_inspect_mmlu_board.py \
+            tests/unit/test_inspect_importer.py \
+            tests/unit/test_inspect_snapshots.py \
+            tests/unit/test_benchmark_declaration.py \
             | tee inspect.txt
           if grep -qE "[0-9]+ skipped|no tests ran" inspect.txt; then
             echo "::error::imported-board suite was skipped — the inspect extra was not installed"
