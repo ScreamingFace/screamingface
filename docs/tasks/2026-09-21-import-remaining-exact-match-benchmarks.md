@@ -1,7 +1,7 @@
 ---
 id: OME-1238
 linear_url: https://linear.app/openmined/issue/OME-1238/import-the-remaining-exact-match-benchmarks-the-roadmap-names
-status: in_progress
+status: done
 type: feature
 priority: P1
 labels: [screamingface-engine, agentic, autonomous]
