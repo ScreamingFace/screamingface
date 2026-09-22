@@ -97,8 +97,8 @@ def test_verification_compares_in_constant_time(monkeypatch: pytest.MonkeyPatch)
     calls: list[tuple[str, str]] = []
     real = hmac.compare_digest
 
-    def _spy(a: object, b: object) -> bool:
-        calls.append((str(a), str(b)))
+    def _spy(a: str, b: str) -> bool:
+        calls.append((a, b))
         return real(a, b)
 
     monkeypatch.setattr(signing.hmac, "compare_digest", _spy)

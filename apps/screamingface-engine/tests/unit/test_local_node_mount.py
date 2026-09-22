@@ -21,7 +21,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi import FastAPI
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
 from screamingface_engine import job_env
 from screamingface_engine.catalog.port import Credential, ModelCatalog, compute_etag
@@ -146,6 +146,9 @@ def test_the_node_mount_is_the_final_route(tmp_path: Path) -> None:
     route = app.router.routes[-1]
 
     assert getattr(route, "path", None) == ""
+    # The final route is the ASGI catch-all mount; `BaseRoute` has no `.app`, so narrow first —
+    # the assertion IS the type proof that the last route is the mount.
+    assert isinstance(route, Mount)
     assert route.app is app.state.node_mount
     # AND: the guard itself passes on the shape the composition root built.
     _assert_node_mounted_last(app, app.state.node_mount)
