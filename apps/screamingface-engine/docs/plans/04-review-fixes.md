@@ -152,7 +152,7 @@ The batches run in order. B5 changes only chart files, so it can run in parallel
 | FX-30 | FW-H1, SF-2 | Local mode: when the run env's `URL4_CLOUD_EXTRA_MODELS` names a route that the shared node does not serve, the run builds its own per-run world, as before. Use one helper, `world.factory.shared_world_serves(io, env) -> bool`. |
 | FX-31 | FW-M1, SF-3 | `NodeMountRoute` (§2.3) replaces `Mount("/")` in the App and in local mode. |
 | FX-32 | FW-M3 | One install function for both shapes, and it asserts the order. Remove the `forwarder=` parameter of `create_app`. |
-| FX-33 | FW-M2 | `httpx.Timeout(forward, connect=2.0)`. `ConnectTimeout` and `PoolTimeout` take the connection-error branch (one retry, then 503). |
+| FX-33 | FW-M2 | `httpx.Timeout(forward, connect=2.0, pool=2.0)`. `ConnectTimeout` and `PoolTimeout` take the connection-error branch (one retry, then 503). The pool wait is bounded like connect, so the worst case before a 503 stays about 4 s, not 70 s (B2 review). A trailing slash on a mount gets Starlette's 307 to the mount, like every engine route. |
 | FX-34 | FW-L3, HL-M3 | The forward budget comes only from `Settings.node_forward_timeout_s`. Remove `FORWARD_TIMEOUT_S`. |
 | FX-35 | FW-L4 | Remove `_rewrite_location` and the two prefix parameters. Keep `identity_resolver` as the one test seam; its docstring says so. |
 | FX-36 | FW-L5 | Node unreachable: code `upstream_unavailable`, as a named constant. |

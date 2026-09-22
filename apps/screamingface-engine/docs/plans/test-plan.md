@@ -146,9 +146,12 @@ risks above are unobservable in production:
    30 s is wrong.
 2. In-flight gauge and `503` count on the node tier — tells us whether the cap is
    wrong.
-3. Request logs carrying `origin=sync|run` alongside the existing `topic` and
-   `trace_id` — without this, sync and ensemble traffic are indistinguishable in the
-   logs.
+3. Request logs carrying `origin=sync` alongside the existing `topic` and `trace_id`.
+   Ensemble lines carry no `origin` field, so they stay byte-identical to `main`
+   (`04-review-fixes.md` FX-39); a line without `origin` is an ensemble line.
+4. The counter `screamingface_engine_node_sync_budget_exhausted_total` — the R7 signal,
+   because with the request deadline a slow model ends as `502
+   aigateway_deadline_exceeded`, not `504` (`04-review-fixes.md` §2.2b).
 
 ## 10. Gaps and assumptions
 
