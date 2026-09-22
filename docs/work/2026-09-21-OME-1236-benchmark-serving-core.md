@@ -1,9 +1,9 @@
 ---
 ticket: OME-1236
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-21
-finished:
+finished: 2026-09-21
 ---
 
 # OME-1236 — Extract the shared benchmark serving core; migrate contracteval + medxpert
@@ -59,7 +59,28 @@ Three stacked PRs:
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** `spine/serving.py` + `spine/__init__.py` + `test_spine_serving.py`
+  (PR #1003); `contracteval/{runtime,definition}.py` + migration goldens (PR #1004);
+  `medxpert/{runtime,definition}.py` + migration goldens (PR #1005). Stack sits on
+  PR #1002 (`OME-1246`, undeclared contracteval failure codes — found because the
+  pre-push gate replays the full suite and main was red).
+- **Commits:** per PR branch — core `6fda91e4` + test hardening `15fd6720`;
+  contracteval `af7d9eb8` + note fix `f3c74b5b`; medxpert `e97de4e8` + review
+  hardening + this close-docs commit.
+- **Gates:** engine pre-push gate green (full suite); 23 spine contract tests;
+  migration goldens replayed against pre-migration code on both sides (review);
+  review verdict: stack mergeable, zero code blockers.
 - **Deviations:**
+  - The decode ladder was NOT extracted: `check` (and each board's payload
+    decode) stayed board-owned — the two donors' checks are genuinely different
+    exams, and the spine deliberately does not average over them. The plan's
+    "seven functions + decode ladder" landed as "six shared + check envelope
+    helper (`candidate_record`)".
+  - contracteval kept `runtime.py` thin wrappers (`_cases`, `preflight`) to
+    preserve prior tests' seams, and `case_evaluation.py` was never touched
+    (its binder/decoder are exam-specific validation, not plumbing).
+  - medxpert behavioral delta (declared in PR #1005): the cases route now runs
+    the memoized preflight before first serve.
+  - Review-driven hardening: booklet Content-Type pinned, operations-bearing
+    record order pinned, medxpert's definition-error preflight class pinned
+    (mutation-verified).

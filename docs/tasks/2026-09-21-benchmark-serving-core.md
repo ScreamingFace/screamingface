@@ -1,12 +1,12 @@
 ---
 id: OME-1236
 linear_url: https://linear.app/openmined/issue/OME-1236/let-a-new-hand-built-benchmark-declare-only-its-dataset-prompt-grading
-status: in_progress
+status: done
 type: task
 priority: 3
 labels: [screamingface-engine, agentic, autonomous, task]
 created: 2026-09-21
-closed:
+closed: 2026-09-21
 ---
 
 # Let a new hand-built benchmark declare only its dataset, prompt, grading, and scoring
