@@ -224,6 +224,9 @@ uv run url4 eval "(/upper(hi)!'go')"
 
 ## Development
 
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the three-layer map (language / engine /
+node), the import-direction rule, and a task index of where to start.
+
 CI runs a suppression ratchet: `scripts/check_suppressions.py` counts every `# type: ignore`
 and `# noqa` under `src/url4`, and fails when the total is above the `BASELINE` in that
 script. Remove a suppression instead of raising the baseline; when you remove one for good,

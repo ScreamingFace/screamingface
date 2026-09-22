@@ -10,6 +10,10 @@ compiled by their owning node at resolve time, not upfront.
 Public surface: :func:`compile_expression` / :class:`Graph` (compiler),
 :func:`run` / :class:`Executor` / :class:`ExecutionContext` (execution), the
 built-in node classes, and :class:`LoweringRegistry` for extension.
+
+The execution-time value semantics the nodes call (collection parsing, ``$``
+substitution) live in :mod:`url4.dag.semantics`. See ``ARCHITECTURE.md`` for the
+layer map and the import-direction rule.
 """
 
 from __future__ import annotations
