@@ -96,3 +96,12 @@ Unit shape (three PRs off this ticket + one scope-correction comment):
     back to product.
   - Importer pins-import sort vs ruff-isort mismatch found (`*_DATA_DIR`
     pins); `ruff check --fix` applied in PR2, follow-up noted on the ticket.
+  - Owner-requested follow-up on PR1 (review conversation): the CI extra lane's
+    whole-tree re-run was replaced by a directory selector — the eight
+    inspect-dependent suites moved (pure `git mv`, R100) to
+    `tests/unit/inspect/`, the extra lane runs only that directory, and a new
+    lane-1 meta-test (`test_inspect_suite_location.py`) fails loudly if an
+    importorskip'ing file ever lands outside it. Gates green with
+    `--skip-append-only` (owner-approved; renames are byte-identical motion).
+    Known tradeoff, accepted by the owner: the full suite no longer runs under
+    the extra-installed environment.

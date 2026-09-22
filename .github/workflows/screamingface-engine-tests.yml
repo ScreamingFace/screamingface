@@ -67,16 +67,18 @@ jobs:
       # The inspect suites open with `pytest.importorskip("inspect_ai")`, so without the
       # extra they SKIP — silently. An explicit file list here rotted once already: the
       # importer's and snapshots' suites were never listed, so the importer's regression
-      # pins ran in no CI lane at all (review finding on PR 1009). So run the WHOLE unit
-      # tree with the extra and refuse precisely the skip that means "a dependency this
-      # lane exists to install is missing": importorskip's `could not import` reason.
-      # Environmental skips stay allowed (a NATS-needing test without a broker, a
-      # Linux-only rlimit test) — the real-broker guard below owns the NATS half for real.
-      - name: Run the unit suite with the inspect extra
+      # pins ran in no CI lane at all (review finding on PR 1009). The selector is now a
+      # DIRECTORY — tests/unit/inspect — enforced from the extra-less lane above by
+      # tests/unit/test_inspect_suite_location.py: an importorskip'ing file outside the
+      # directory fails lane 1 loudly, so this lane's target cannot rot silently again,
+      # and the ~250 extra-independent files are not re-run here. Two guards below:
+      # `could not import` refuses the one skip that means "the dependency this lane
+      # exists to install is missing"; `no tests ran` refuses an emptied/renamed target.
+      - name: Run the inspect suites with the inspect extra
         run: |
-          uv run --extra inspect pytest -q -rs tests/unit | tee inspect.txt
+          uv run --extra inspect pytest -q -rs tests/unit/inspect | tee inspect.txt
           if grep -qE "could not import|no tests ran" inspect.txt; then
-            echo "::error::a suite was skipped for a missing import — the inspect extra was not installed"
+            echo "::error::the inspect lane proved nothing — missing extra import or empty target dir"
             exit 1
           fi
       - name: Test report
