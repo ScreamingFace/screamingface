@@ -292,3 +292,19 @@ async def test_the_child_boots_producer_is_what_the_run_path_binds() -> None:
 
     assert gw.requests[0].headers["X-User-Email"] == "run@x.test"
     assert gw.requests[0].headers["X-Profile"] == "prof"
+
+
+# --- FX-1 (04-review-fixes §2.1): the request deadline -------------------------------------
+
+
+def test_a_scope_has_no_deadline_by_default() -> None:
+    """The run producer binds no deadline, so the ensemble path's retry is unchanged."""
+    assert RequestScope().deadline is None
+    assert request_scope_from_env({}).deadline is None
+
+
+def test_the_sync_producer_carries_the_deadline_it_is_given() -> None:
+    from screamingface_engine.request_scope import request_scope_from_headers
+
+    assert request_scope_from_headers({}).deadline is None
+    assert request_scope_from_headers({}, deadline=123.5).deadline == 123.5

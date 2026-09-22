@@ -107,3 +107,20 @@ def test_verification_compares_in_constant_time(monkeypatch: pytest.MonkeyPatch)
 
     assert signing.verify_artifact_signature(_ID, exp=str(exp), sig=sig, key=KEY, now=_NOW)
     assert calls, "verification did not use hmac.compare_digest"
+
+
+@pytest.mark.parametrize(
+    "sig",
+    [
+        pytest.param("é" * 64, id="non-ascii"),
+        pytest.param("Z" * 64, id="non-hex-ascii"),
+        pytest.param(" ", id="line-separator"),
+    ],
+)
+def test_a_non_ascii_or_non_hex_signature_answers_false_and_never_raises(sig: str) -> None:
+    """FX-10 (NT-M6): `hmac.compare_digest` raises TypeError on a non-ASCII str.
+
+    A query string is caller-controlled, so a crafted `sig` must mean "not signed", never a 500.
+    """
+    exp = int(_NOW) + 600
+    assert not signing.verify_artifact_signature(_ID, exp=str(exp), sig=sig, key=KEY, now=_NOW)

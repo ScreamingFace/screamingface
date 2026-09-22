@@ -32,7 +32,7 @@ pytestmark = pytest.mark.asyncio
 
 _MODEL = "openrouter/test/candidate"
 _PROMPT = "SECRET-PROMPT-TEXT what is 2+2?"
-_LOGGER = "screamingface_engine.world.connector"
+_LOGGER = "screamingface_engine.runner.connector"
 
 
 class _Resp:
@@ -233,3 +233,34 @@ async def test_post_completion_reports_a_retry_when_the_first_attempt_fails_tran
     assert isinstance(result[0], httpx.Response)
     assert result[1] is True
     assert flaky.calls == 2
+
+
+async def test_a_cancelled_call_logs_cancelled_and_reraises_without_failing_the_observation(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """FX-18 (NT-L9): a sync timeout cancels the call; before this the log said nothing."""
+    from screamingface_engine.observations import ModelCall
+
+    failed: list[str] = []
+    monkeypatch.setattr(ModelCall, "failed", lambda self, code: failed.append(code))
+    entered = asyncio.Event()
+
+    async def fetch(client, *, headers, body, cache):
+        entered.set()
+        await asyncio.Event().wait()
+
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        task = asyncio.create_task(_run_loop(monkeypatch, fetch))
+        await asyncio.wait_for(entered.wait(), timeout=1.0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    records = [r for r in caplog.records if "cancelled" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert records[0].name == _LOGGER
+    message = records[0].getMessage()
+    assert message.startswith(f"model call cancelled model={_MODEL} duration=")
+    assert message.endswith("s")
+    assert failed == []
+    assert not [r for r in caplog.records if "failed" in r.getMessage()]

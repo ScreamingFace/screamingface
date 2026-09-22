@@ -30,7 +30,12 @@ from screamingface_engine.artifacts import ArtifactStore, signing
 from screamingface_engine.config import Settings
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
-from screamingface_engine.world.node_tier import NodeTier, NodeTierSettings, build_node_tier
+from screamingface_engine.world.node_tier import (
+    NodeTier,
+    NodeTierError,
+    NodeTierSettings,
+    build_node_tier,
+)
 
 _MODEL = "anthropic/claude-haiku-4-5"
 _KEY = "u3-spill-artifact-signing-key-0123456789abcdef"
@@ -191,18 +196,16 @@ async def test_an_over_hard_cap_response_is_413_and_writes_nothing(tmp_path: Pat
 
 @pytest.mark.asyncio
 async def test_the_hard_cap_wins_even_when_the_caps_are_inverted(tmp_path: Path) -> None:
-    """T6: the hard-cap check runs FIRST, so a huge inline cap cannot bypass the ceiling."""
+    """T6: inverted caps can no longer reach the send boundary — FX-13 refuses them at boot.
+
+    WHY updated (04-review-fixes FX-13): the tier used to serve inverted caps and rely on the
+    hard-cap-first order; `NodeTierSettings.validate()` now refuses them before the world is
+    built, so a huge inline cap still cannot bypass the ceiling, and nothing is written.
+    """
     settings = _settings(result_inline_cap_bytes=100, result_hard_cap_bytes=30)
-    tier, store, client, _gw = await _serve(tmp_path, body="Z" * 50, settings=settings)
-    try:
-        async with _node_client(tier) as node:
-            response = await _get_mount(node)
-        assert response.status_code == 413
-        assert response.json()["error"]["code"] == "result_too_large"
-        assert not (tmp_path / "artifacts").exists() or not any((tmp_path / "artifacts").iterdir())
-    finally:
-        await tier.aclose()
-        await client.aclose()
+    with pytest.raises(NodeTierError, match="result_inline_cap_bytes"):
+        await _serve(tmp_path, body="Z" * 50, settings=settings)
+    assert not (tmp_path / "artifacts").exists() or not any((tmp_path / "artifacts").iterdir())
 
 
 @pytest.mark.asyncio
@@ -234,17 +237,16 @@ async def test_a_spill_write_failure_is_502_and_never_returns_the_body_inline(
 
 @pytest.mark.asyncio
 async def test_a_spill_with_no_signing_key_is_502_and_not_inline(tmp_path: Path) -> None:
-    """A missing signing key means an unfetchable redirect; refuse rather than leak inline."""
+    """A missing signing key means an unfetchable redirect; the tier now refuses to START.
+
+    WHY updated (04-review-fixes FX-9): an empty key used to be tolerated at build and failed
+    each spill with a 502. `build_node_tier` now raises `NodeTierError`, so a pod with no key
+    never serves at all — and the body is still never returned inline, because nothing serves.
+    """
     body = "Q" * (_INLINE + 1)
-    tier, _store, client, _gw = await _serve(tmp_path, body=body, signing_key="")
-    try:
-        async with _node_client(tier) as node:
-            response = await _get_mount(node)
-        assert response.status_code == 502
-        assert body not in response.text
-    finally:
-        await tier.aclose()
-        await client.aclose()
+    with pytest.raises(NodeTierError, match="signing key"):
+        await _serve(tmp_path, body=body, signing_key="")
+    assert not (tmp_path / "artifacts").exists() or not any((tmp_path / "artifacts").iterdir())
 
 
 @pytest.mark.asyncio

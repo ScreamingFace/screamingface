@@ -36,9 +36,12 @@ from screamingface_engine.world.node_tier import (
     build_node_tier,
 )
 from screamingface_engine.world.serving import MountCollisionError
+from url4.peer.server import Url4Node
+from url4.streaming.protocol.signals import ResultArtifact
 
 _MODEL = "anthropic/claude-haiku-4-5"
 _FAST = NodeTierSettings(request_timeout_s=5.0, aigateway_timeout_s=4.0)
+_KEY = "node-tier-test-artifact-signing-key-0123456789"
 _TRACE = "00-" + "a" * 32 + "-" + "b" * 16 + "-01"
 _TRACE_ID = "a" * 32
 
@@ -60,6 +63,23 @@ def _config(models: tuple[str, ...] = (_MODEL,)) -> WorldConfig:
     )
 
 
+class _NeverSpills:
+    """A trusted, injected spill store for tests whose bodies stay far under the inline cap.
+
+    WHY (FX-8/FX-9): `build_node_tier` refuses a filesystem store read from the env and an empty
+    signing key, so a test that is not about spilling injects this store and `_KEY`.
+    """
+
+    def write_bytes(self, encoded: bytes) -> ResultArtifact:
+        raise AssertionError("a small sync body must never spill")
+
+    def write_text(self, body: str) -> ResultArtifact:
+        raise AssertionError("a small sync body must never spill")
+
+
+_NEVER_SPILLS = _NeverSpills()
+
+
 def _node_client(tier: NodeTier) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=tier), base_url="http://node.test")
 
@@ -78,7 +98,12 @@ async def _serve(
     gw = _MockAigateway(real_ids if real_ids is not None else route_ids)
     client = gw.client()
     tier = await build_node_tier(
-        env={}, config=_config(route_ids), client=client, settings=settings
+        env={},
+        config=_config(route_ids),
+        client=client,
+        settings=settings,
+        artifact_store=_NEVER_SPILLS,
+        artifact_signing_key=_KEY,
     )
     return tier, gw, client
 
@@ -127,7 +152,14 @@ async def test_a_mount_call_returns_the_model_answer() -> None:
     """AC1: one direct mount hit returns the model's answer as text/plain."""
     gw = _MockAigateway((_MODEL,), responses={_MODEL: "PARIS"})
     async with gw.client() as client:
-        tier = await build_node_tier(env={}, config=_config(), client=client, settings=_FAST)
+        tier = await build_node_tier(
+            env={},
+            config=_config(),
+            client=client,
+            settings=_FAST,
+            artifact_store=_NEVER_SPILLS,
+            artifact_signing_key=_KEY,
+        )
         try:
             async with _node_client(tier) as node:
                 response = await node.get(
@@ -234,7 +266,14 @@ async def test_a_slow_call_times_out_cleanly_and_cancels_the_gateway_call() -> N
         transport=httpx.MockTransport(hanging), base_url="http://aigateway.test"
     )
     settings = NodeTierSettings(request_timeout_s=0.05, aigateway_timeout_s=0.04)
-    tier = await build_node_tier(env={}, config=_config(), client=client, settings=settings)
+    tier = await build_node_tier(
+        env={},
+        config=_config(),
+        client=client,
+        settings=settings,
+        artifact_store=_NEVER_SPILLS,
+        artifact_signing_key=_KEY,
+    )
     try:
         async with _node_client(tier) as node:
             response = await node.get(
@@ -353,7 +392,14 @@ async def test_the_in_flight_cap_sheds_with_503_and_retry_after() -> None:
     settings = NodeTierSettings(
         request_timeout_s=5.0, aigateway_timeout_s=4.0, max_inflight_per_worker=1, workers=1
     )
-    tier = await build_node_tier(env={}, config=_config(), client=client, settings=settings)
+    tier = await build_node_tier(
+        env={},
+        config=_config(),
+        client=client,
+        settings=settings,
+        artifact_store=_NEVER_SPILLS,
+        artifact_signing_key=_KEY,
+    )
     try:
         async with _node_client(tier) as node:
             first = asyncio.create_task(
@@ -381,8 +427,17 @@ async def test_the_in_flight_cap_sheds_with_503_and_retry_after() -> None:
 
 @pytest.mark.asyncio
 async def test_readiness_reports_503_until_the_world_is_ready() -> None:
+    async def _never_called(scope: object, receive: object, send: object) -> None:
+        raise AssertionError("/readyz never reaches the node")  # pragma: no cover
+
     tier = NodeTier(
-        settings=NodeTierSettings(), metrics=build_node_metrics(), readiness=NodeReadiness()
+        settings=NodeTierSettings(),
+        metrics=build_node_metrics(),
+        readiness=NodeReadiness(),
+        node=Url4Node("readiness-test"),
+        inner=_never_called,
+        mounts=frozenset(),
+        world_aclose=None,
     )
     async with _node_client(tier) as node:
         not_ready = await node.get("/readyz")
@@ -440,7 +495,14 @@ async def test_the_world_builds_offline_and_calls_fail_502() -> None:
     """AC19: a tier that cannot start without its downstream turns one outage into two."""
     transport = _UnreachableTransport()
     client = httpx.AsyncClient(transport=transport, base_url="http://aigateway.test")
-    tier = await build_node_tier(env={}, config=_config(), client=client, settings=_FAST)
+    tier = await build_node_tier(
+        env={},
+        config=_config(),
+        client=client,
+        settings=_FAST,
+        artifact_store=_NEVER_SPILLS,
+        artifact_signing_key=_KEY,
+    )
     try:
         assert transport.calls == 0, "the world build must not touch the network"
         assert tier.readiness.ready is True

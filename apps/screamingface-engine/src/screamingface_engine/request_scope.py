@@ -65,6 +65,10 @@ class RequestScope:
     `job_env.IDENTITY_HEADER_ENV`). ``origin`` distinguishes the two producers — "run" for a
     child process booted from its environment, "sync" for a per-request handler (unit 3) — so
     metrics, logs and the cache key can name the surface without inferring it.
+
+    ``deadline`` (04-review-fixes §2.1) is a :func:`time.monotonic` instant by which the
+    request must have answered, or ``None`` when no request budget applies. The sync producer
+    sets ``start + request_timeout_s``; the run producer sets ``None``.
     """
 
     identity_headers: Mapping[str, str] = field(default_factory=dict)
@@ -73,6 +77,10 @@ class RequestScope:
     answer_seed: int | None = None
     cache: CachePolicy = field(default_factory=CachePolicy)
     origin: Literal["sync", "run"] = "run"
+    # WHY on the scope and not on the connector: the transport retry is the only place that can
+    # tell whether one more attempt still fits the budget, and the wrapper that owns the budget
+    # cannot see the retry. A retry the wrapper then cuts off is billed and useless (NT-H1).
+    deadline: float | None = None
 
 
 # INVARIANT: NO default. A permissive default would let an unbound read silently produce an
@@ -92,7 +100,9 @@ class AnswerSeedError(ValueError):
     """
 
 
-def request_scope_from_headers(headers: Mapping[str, str]) -> RequestScope:
+def request_scope_from_headers(
+    headers: Mapping[str, str], *, deadline: float | None = None
+) -> RequestScope:
     """Producer 2 (F2, AC6): the sync surface's caller state, read off the verified headers.
 
     ``headers`` must look up case-insensitively (contracts.md C1 forwards HTTP header names; the
@@ -104,6 +114,8 @@ def request_scope_from_headers(headers: Mapping[str, str]) -> RequestScope:
     The identity is the EDGE-VERIFIED header (D4). A client-supplied ``X-User-Email`` never
     reaches this function: the App strips and re-sets it before forwarding, and the node tier is
     reachable only from the App (C2 trust boundary).
+
+    ``deadline`` is the request's :func:`time.monotonic` budget end (§2.1), carried unchanged.
 
     Raises:
         AnswerSeedError: ``X-Answer-Seed`` is present but not an integer. The same refusal the
@@ -117,6 +129,7 @@ def request_scope_from_headers(headers: Mapping[str, str]) -> RequestScope:
         answer_seed=_optional_int(headers.get(ANSWER_SEED_HEADER)),
         cache=parse_cache_control(headers.get(CACHE_CONTROL_HEADER)) or CachePolicy(),
         origin="sync",
+        deadline=deadline,
     )
 
 

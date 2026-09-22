@@ -667,7 +667,10 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # `build_asgi_app` admission/timeout middleware, plus the wire subrequest decoder used to
         # explain a missing `q`. It is an engine adapter in exactly `connector`'s sense, and the
         # control plane may import `world`, so it belongs in this allowance (not a new one).
-        Path("screamingface_engine/world/node_tier.py"),
+        # FX-21 split the one module into a package; these are its modules that speak url4.
+        Path("screamingface_engine/world/node_tier/build.py"),
+        Path("screamingface_engine/world/node_tier/send.py"),
+        Path("screamingface_engine/world/node_tier/tier.py"),
     }
 )
 

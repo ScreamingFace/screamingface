@@ -27,7 +27,7 @@ from screamingface_engine.operation_accounting import (
     combine_operation_accounting,
 )
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
-from screamingface_engine.request_scope import RequestScope, current_scope
+from screamingface_engine.request_scope import RequestScope, RequestScopeError, current_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
@@ -77,7 +77,10 @@ from url4.streaming.protocol import CachePolicy
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _truncate_tool_result = truncate_tool_result
-logger = logging.getLogger(__name__)
+# WHY the pre-refactor name, not `__name__` (FX-19): this module moved from `runner/` to
+# `world/` in unit 1, and operators filter the runtime log by logger name. Keeping the old name
+# keeps every model-call lifecycle line byte-identical to `main`.
+logger = logging.getLogger("screamingface_engine.runner.connector")
 
 # Transport-retry policy for the aigateway hop (OME-1016). A transport failure
 # (connection reset, read error, timeout) is transient by nature, so the connector
@@ -185,6 +188,16 @@ async def _observed_round_trip(
             real_model_id,
             time.monotonic() - started,
             exc.code,
+        )
+        raise
+    except asyncio.CancelledError:
+        # WHY (FX-18): a sync timeout or a dropped caller cancels the call. Without this line the
+        # log shows a dispatch and then nothing. It is not a failure of the call, so the
+        # observation is not told `failed`; the observer sees the cancellation on scope exit.
+        logger.warning(
+            "model call cancelled model=%s duration=%.1fs",
+            real_model_id,
+            time.monotonic() - started,
         )
         raise
     finally:
@@ -610,27 +623,97 @@ async def _post_completion(
     Returns the response and WHETHER A RETRY PRECEDED IT. A retried attempt may already have
     been processed and billed with only its reply lost, so accounting must not treat the
     attempt that finally answered as the whole operation.
+
+    FEATURE (04-review-fixes §2.1, FX-1): when the bound request scope carries a ``deadline``
+    (the sync surface), each attempt's timeout is ``min(configured, time left)``, and a retry is
+    not started when the backoff plus one full attempt no longer fits. With no deadline (the
+    ensemble path) the post is the one this function has always made.
     """
+    deadline = _current_deadline()
+    # WHY the READ timeout is "the configured timeout": it bounds how long one attempt waits for
+    # aigateway's answer, which is what a slow model spends. The world builds its client with
+    # `httpx.Timeout(timeout_s)`, which sets all four parts to that one value.
+    configured = http_client.timeout.read
     last: httpx.TransportError | None = None
     for attempt in range(_TRANSPORT_RETRIES + 1):
         try:
-            return await http_client.post(
-                _COMPLETIONS_PATH, headers=headers, json=body
-            ), attempt > 0
+            response = await _post_attempt(
+                http_client, headers=headers, body=body, deadline=deadline, configured=configured
+            )
         except httpx.TransportError as exc:
             last = exc
             if attempt < _TRANSPORT_RETRIES:
                 delay = _transport_backoff(attempt)
+                if deadline is not None and not _retry_fits(deadline, delay, configured):
+                    break
                 observation = current_model_call()
                 if observation is not None:
                     observation.retry(attempt=attempt + 2, delay_seconds=delay)
                 await asyncio.sleep(delay)
-    assert last is not None  # the loop always runs at least once
+            continue
+        if response is None:
+            break
+        return response, attempt > 0
+    detail = (
+        _transport_detail(last)
+        if last is not None
+        else "the request deadline passed before an attempt"
+    )
     raise ResolutionError(
-        f"aigateway request failed at the transport layer: {_transport_detail(last)}",
+        f"aigateway request failed at the transport layer: {detail}",
         code="aigateway_transport_error",
         permanent=False,
     ) from last
+
+
+def _current_deadline() -> float | None:
+    """The bound request's deadline, or None when no request budget applies.
+
+    WHY an unbound read means "no deadline" and does not raise: `_post_completion` worked with no
+    scope bound before FX-1, and a missing deadline must keep it byte-identical. The loud AC5
+    refusal stays where it matters — `_ModelEndpoint` reads the caller's identity through
+    `current_scope()`, which still raises when nothing is bound.
+    """
+    try:
+        return current_scope().deadline
+    except RequestScopeError:
+        return None
+
+
+async def _post_attempt(
+    http_client: httpx.AsyncClient,
+    *,
+    headers: dict[str, str],
+    body: dict,
+    deadline: float | None,
+    configured: float | None,
+) -> httpx.Response | None:
+    """One POST, capped to the time left; ``None`` when the deadline has passed (no call made).
+
+    INVARIANT: with no deadline the POST passes no ``timeout`` — the client's own configured
+    timeout applies, byte-identical to the ensemble path before FX-1.
+    """
+    if deadline is None:
+        return await http_client.post(_COMPLETIONS_PATH, headers=headers, json=body)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return None
+    return await http_client.post(
+        _COMPLETIONS_PATH,
+        headers=headers,
+        json=body,
+        timeout=remaining if configured is None else min(configured, remaining),
+    )
+
+
+def _retry_fits(deadline: float, delay: float, configured: float | None) -> bool:
+    """Whether the backoff plus one full attempt still ends before ``deadline``.
+
+    WHY the CONFIGURED timeout and not the time left: an attempt capped to the time left is the
+    attempt the wrapper would cut off — billed and useless (NT-H1). With no configured read
+    timeout, only the backoff itself has to fit.
+    """
+    return deadline - time.monotonic() >= delay + (configured or 0.0)
 
 
 def _transport_backoff(attempt: int) -> float:
