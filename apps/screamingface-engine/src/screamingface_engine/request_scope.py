@@ -29,7 +29,19 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Literal
 
+from screamingface_engine import job_env
+from screamingface_engine.cache_intent import parse_cache_control
 from url4.streaming.protocol import CachePolicy
+from url4.streaming.trace import valid_traceparent
+
+# The sync surface's forwarded header names (contracts.md C1). They live HERE, beside the only
+# function that reads them, so the node tier cannot half-rename one. INVARIANT: these are HTTP
+# header names, NOT the Job env names `job_env.IDENTITY_HEADER_ENV` maps to — the two carriers
+# differ on purpose and are reconciled only by `identity_from_headers`/`identity_from_env`.
+PROFILE_HEADER = "X-Profile"
+ANSWER_SEED_HEADER = "X-Answer-Seed"
+CACHE_CONTROL_HEADER = "Cache-Control"
+TRACEPARENT_HEADER = "traceparent"
 
 
 class RequestScopeError(RuntimeError):
@@ -70,6 +82,60 @@ _scope: contextvars.ContextVar[RequestScope] = contextvars.ContextVar(
 )
 
 
+class AnswerSeedError(ValueError):
+    """The sync caller's ``X-Answer-Seed`` was present but not an integer.
+
+    A NAMED refusal mirroring `runner.main.RunnerConfigError`'s seed error: a request that
+    declared a sitting must not silently run without it (OME-1038), because the response would
+    then claim a sitting it never had. The node tier maps this to 400 rather than inventing a
+    default.
+    """
+
+
+def request_scope_from_headers(headers: Mapping[str, str]) -> RequestScope:
+    """Producer 2 (F2, AC6): the sync surface's caller state, read off the verified headers.
+
+    ``headers`` must look up case-insensitively (contracts.md C1 forwards HTTP header names; the
+    ASGI layer supplies a case-insensitive view). It is the header-carrier sibling of
+    `runner.main.request_scope_from_env`: the two share every VALUE's representation (identity via
+    `job_env.identity_from_*`, the cache policy via :func:`cache_intent.parse_cache_control`) and
+    differ only in carrier and in ``origin`` — which is exactly the one field that names them.
+
+    The identity is the EDGE-VERIFIED header (D4). A client-supplied ``X-User-Email`` never
+    reaches this function: the App strips and re-sets it before forwarding, and the node tier is
+    reachable only from the App (C2 trust boundary).
+
+    Raises:
+        AnswerSeedError: ``X-Answer-Seed`` is present but not an integer. The same refusal the
+            child boot makes, for the same reason (OME-1038).
+    """
+
+    return RequestScope(
+        identity_headers=job_env.identity_from_headers(headers),
+        profile=_optional(headers.get(PROFILE_HEADER)),
+        traceparent=valid_traceparent(_optional(headers.get(TRACEPARENT_HEADER))),
+        answer_seed=_optional_int(headers.get(ANSWER_SEED_HEADER)),
+        cache=parse_cache_control(headers.get(CACHE_CONTROL_HEADER)) or CachePolicy(),
+        origin="sync",
+    )
+
+
+def _optional(raw: str | None) -> str | None:
+    """A present-but-blank header is absence, not an empty value."""
+    return (raw or "").strip() or None
+
+
+def _optional_int(raw: str | None) -> int | None:
+    """A missing/blank ``X-Answer-Seed`` is None; a non-integer is a loud refusal."""
+    text = _optional(raw)
+    if text is None:
+        return None
+    try:
+        return int(text)
+    except ValueError as exc:
+        raise AnswerSeedError(f"{ANSWER_SEED_HEADER} must be an integer, got {raw!r}") from exc
+
+
 def current_scope() -> RequestScope:
     """The caller state bound for this task.
 
@@ -101,4 +167,15 @@ def request_scope(scope: RequestScope) -> Iterator[RequestScope]:
         _scope.reset(token)
 
 
-__all__ = ["RequestScope", "RequestScopeError", "current_scope", "request_scope"]
+__all__ = [
+    "ANSWER_SEED_HEADER",
+    "CACHE_CONTROL_HEADER",
+    "PROFILE_HEADER",
+    "TRACEPARENT_HEADER",
+    "AnswerSeedError",
+    "RequestScope",
+    "RequestScopeError",
+    "current_scope",
+    "request_scope",
+    "request_scope_from_headers",
+]

@@ -45,10 +45,17 @@ _FORMAT = "%(levelname)s:     %(name)s %(run_context)s%(message)s"
 
 @dataclass(frozen=True, slots=True)
 class RunContext:
-    """The one run a process log line belongs to, when it belongs to one."""
+    """The one run a process log line belongs to, when it belongs to one.
 
-    topic: str
+    ``origin`` names the SURFACE that produced the line — "run" for the ensemble path's child,
+    "sync" for the node tier's per-request handler (unit 3). It is the RequestScope origin field
+    rendered onto the log, and it exists because without it a sync line and an ensemble line are
+    indistinguishable in the runtime log (test-plan.md §9).
+    """
+
+    topic: str | None = None
     trace_id: str | None = None
+    origin: str = "run"
 
 
 _run_context: contextvars.ContextVar[RunContext | None] = contextvars.ContextVar(
@@ -57,16 +64,23 @@ _run_context: contextvars.ContextVar[RunContext | None] = contextvars.ContextVar
 
 
 @contextmanager
-def run_scope(topic: str, trace_id: str | None = None) -> Iterator[None]:
+def run_scope(
+    topic: str | None, trace_id: str | None = None, *, origin: str = "run"
+) -> Iterator[None]:
     """Bind one run's identity for the duration of a scope; restore on exit.
 
     The run mode wraps its whole run in this, so every `screamingface_engine` record emitted
     inside — including the executor's own warnings, which never see the topic — carries the
     run's `topic` and, when known, its W3C `trace_id`. ContextVars propagate across awaits
     within a task and into child tasks, so the executor's `_drive` task inherits the binding.
+
+    ``topic`` is ``None`` for the sync surface: a sync request addresses a MOUNT, not a capability
+    topic, and inventing one would read as a run that never existed. ``origin`` defaults to
+    "run" so every existing ensemble caller renders byte-identically to before this field
+    existed (origin is prepended only when a scope is bound).
     """
 
-    token = _run_context.set(RunContext(topic=topic, trace_id=trace_id))
+    token = _run_context.set(RunContext(topic=topic, trace_id=trace_id, origin=origin))
     try:
         yield
     finally:
@@ -93,7 +107,13 @@ class RunContextFilter(logging.Filter):
         if context is None:
             record.run_context = ""
             return True
-        parts = [f"topic={context.topic}"]
+        # INVARIANT: `origin` is FIRST and unconditional, so `topic=… trace_id=…` stays a
+        # contiguous substring for the existing run-line assertions. `topic` is omitted for a
+        # sync request, which has no capability topic; an omitted field is absence, never a
+        # placeholder (a `topic=None` would read as a run whose topic is the string "None").
+        parts = [f"origin={context.origin}"]
+        if context.topic is not None:
+            parts.append(f"topic={context.topic}")
         if context.trace_id is not None:
             parts.append(f"trace_id={context.trace_id}")
         record.run_context = " ".join(parts) + " "

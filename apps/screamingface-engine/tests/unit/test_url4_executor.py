@@ -662,6 +662,12 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         Path("screamingface_engine/world/factory.py"),
         Path("screamingface_engine/world/candidate_adapter.py"),
         Path("screamingface_engine/world/corrective.py"),
+        # unit 3 (prd/03): the node tier is the serving shape of the shared world. It speaks the
+        # url4 ENGINE directly because that IS its product — `node.asgi()` wrapped in url4's own
+        # `build_asgi_app` admission/timeout middleware, plus the wire subrequest decoder used to
+        # explain a missing `q`. It is an engine adapter in exactly `connector`'s sense, and the
+        # control plane may import `world`, so it belongs in this allowance (not a new one).
+        Path("screamingface_engine/world/node_tier.py"),
     }
 )
 
