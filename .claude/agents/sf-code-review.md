@@ -636,6 +636,15 @@ become blockers merely because a stronger test is possible.
   years, the reader knows whether the test or the business rule is wrong. "Asserts
   the function returned something" is weak unless that is the actual contract. Snapshot
   tests are useful when they protect a meaningful contract and changes are reviewed.
+- **New test files use plain `test_` functions — no `class Test` grouping.** The repo
+  convention is function-style (252/260 engine unit test files; the SDK, scoreboard,
+  and url4 suites entirely); pytest classes here are pure namespacing, and twice a
+  single work-train's class-style files became a local convention that neighbouring
+  PRs then copied (the engine's contracteval/spine family; aigateway's
+  `usage_accounting/` suite — the OME-1236 stack's migration goldens copied the former
+  and were flattened on owner request, PRs #1004/#1005, 2026-09-22). Flag a class-based
+  NEW test file as Minor. Never retro-flag existing class-style files or ask for a
+  drive-by flatten of code the diff didn't touch.
 
 ---
 
