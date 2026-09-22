@@ -59,6 +59,31 @@ The timeout ladder becomes:
 | Node spill write | **4 s**, after the request budget |
 | Node → aigateway, per attempt | **min(28 s, time left)** |
 
+### 2.2a The tier's admission covers the spill (B1 review round)
+
+url4 releases its admission slot when `inner` returns, so a request that is still spilling is
+no longer counted. Memory per pod is then not bounded by `max_inflight × hard_cap`. Therefore:
+
+- The tier keeps its own in-flight counter. It checks and increments **before** `inner` (no
+  `await` between), and decrements **after** `finish()`. At the cap it answers url4's own
+  `503 overloaded` envelope with `Retry-After: retry_after_s`.
+- url4's gate stays, with the same cap, as a backstop. It can no longer fire first.
+- The in-flight gauge and the shed counter use the tier's counter. The shed counter counts only
+  `overloaded`.
+
+This amends the unit 3 rule "admission is url4's": url4 owns admission **per evaluation**, and
+the tier owns admission **per request**, because only the tier sees the spill phase.
+
+### 2.2b A budget that runs out upstream has its own code
+
+With the deadline, a slow model ends as `502` at about 28 s, not `504`. The R7 signal
+("is 30 s too short?") must stay visible. The connector raises the transient code
+`aigateway_deadline_exceeded` (still `502`) when an attempt times out at a deadline-bounded
+timeout, or when it skips a retry because the deadline is too near. The tier counts
+`timeout` (504) and `aigateway_deadline_exceeded` in the counter
+`screamingface_engine_node_sync_budget_exhausted_total`. The run path has no deadline, so its
+codes do not change.
+
 ### 2.3 A route that matches only known mounts
 
 A catch-all `Mount("/")` is a FULL match for every path. It therefore changes the answer on
@@ -103,12 +128,12 @@ The batches run in order. B5 changes only chart files, so it can run in parallel
 | FX-5 | HL-M1 | `/metrics` on its own port (`URL4_CLOUD_NODE_METRICS_PORT`, default 9110), served by a second uvicorn server or `prometheus_client.start_http_server`. Remove `/metrics` from the mount port. |
 | FX-6 | NT-M2 | The per-request log line runs inside `run_scope`, so it carries `origin=sync` and `trace_id`. |
 | FX-7 | NT-M3 | Histogram buckets up to 40 s, for example `(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 20, 25, 30, 35, 40)`. |
-| FX-8 | NT-M4, SF-7, HL-H1 | `build_node_tier` refuses a filesystem artifact store (`NodeTierError`), unless `allow_local_store=True` (tests and local only). |
-| FX-9 | NT-M5 | `build_node_tier` refuses an empty signing key when a store exists; the spill signs **before** it writes. |
+| FX-8 | NT-M4, SF-7, HL-H1 | `build_node_tier` refuses a filesystem artifact store resolved from the env (`NodeTierError`). An injected store (tests) is trusted. |
+| FX-9 | NT-M5 | `build_node_tier` refuses an empty signing key when a store exists. The id comes from the write, so the spill checks the key before it writes and signs after. |
 | FX-10 | NT-M6, FW-L1 | `verify_artifact_signature` returns `False` for a non-ASCII or non-hex `sig`; it never raises. |
 | FX-11 | NT-M9, HL-M5 | The node tier's own hard-cap default is 64 MiB (`NODE_DEFAULT_RESULT_HARD_CAP_BYTES`). Remove the extra body copy. |
 | FX-12 | NT-L1 | The wrapper sets `Retry-After` on url4's overload 503 to `retry_after_s`. |
-| FX-13 | NT-L3 | `NodeTierSettings.validate()` at boot: fail when `max_inflight < 1`, or when `aigateway_timeout_s >= request_timeout_s`. |
+| FX-13 | NT-L3 | `NodeTierSettings.validate()` at boot: fail when `max_inflight < 1`, when `aigateway_timeout_s >= request_timeout_s`, or when `spill_timeout_s <= 0`. Inverted caps are NOT refused: the hard cap already wins. |
 | FX-14 | NT-L4, FW-L2 | `world/wire.py` (§2.4); starlette `Headers` replaces `_CaseInsensitiveHeaders`. |
 | FX-15 | NT-L5 | One-phase construction: build the world first, then `NodeTier(...)` with every field. Remove the `assert inner is not None` and the private writes. |
 | FX-16 | NT-L6 | A store-construction error marks readiness failed, like every other build error. |
@@ -180,7 +205,7 @@ The batches run in order. B5 changes only chart files, so it can run in parallel
 | FX-83 | HL-M3 | Render the App's `URL4_CLOUD_NODE_FORWARD_TIMEOUT_S` as `requestTimeoutS + spillTimeoutS + 1`. Render the node's `URL4_CLOUD_NODE_SPILL_TIMEOUT_S`. Template `fail` when `aigatewayTimeoutS >= requestTimeoutS`, or when the grace period is not larger than `preStop + requestTimeoutS + spillTimeoutS`. |
 | FX-84 | HL-M4 | The node pod renders `podLabels` **before** the chart-owned labels. |
 | FX-85 | HL-M5 | The node pod renders `URL4_CLOUD_RESULT_HARD_CAP_BYTES` from `node.resultHardCapBytes` (default 64 MiB). |
-| FX-86 | HL-H1 | Template `fail` when `node.enabled` is true and the artifact backend is not `s3`. `node.enabled` defaults to **false**; `values-cloud.yaml` turns it on. |
+| FX-86 | HL-H1 | Template `fail` when `node.enabled` is true and the artifact backend is not `s3`. `node.enabled` defaults to **false**. `values-cloud.yaml` keeps it off, because its artifact backend is not `s3`; an operator turns it on together with an S3 backend. |
 | FX-87 | HL-L5 | No duplicate `app.kubernetes.io/component` key on node objects. |
 | FX-88 | HL-L9 | A `startupProbe` on `/livez` covers the world build. |
 | FX-89 | HL-M7, HL-L1, HL-L10, HL-L11 | *docs*: chart README and NOTES cover the node tier, its label set, S3, the signing key (`existingSecret` for GitOps) and web tools off. Remove the `config_digest`-on-the-node claim. Use `curl --get --data-urlencode` in the example. |
@@ -195,6 +220,7 @@ The batches run in order. B5 changes only chart files, so it can run in parallel
 | A public url4 API for read-side parsing (U2-8) | It changes `packages/url4`. Record it as a follow-up. |
 | Renaming `RunnerRequestError` (U1-L6) | The rename touches many modules and changes nothing at run time. |
 | Hiding the mount set from callers with no identity (FW-L11) | The mount names are already public on `/v1/models`. |
+| The App selectors also match garage StatefulSet pods when `garage.enabled` (found in the B5 review) | Pre-existing. Low harm: garage has no `http` port and its pods are owned by the StatefulSet. A StatefulSet selector cannot change, so the fix is its own migration. Follow-up. |
 | An in-flight gauge that excludes shed requests (NT-L8) | url4 owns admission and the wrapper cannot see it. The gauge help text says "requests inside the tier, including shed ones". |
 
 ## 5. Exit criteria
