@@ -1,29 +1,32 @@
 # 04: documentation as part of every PR
 
-Status: not started. No spec, no plan.
+Status: layer 2 (the CI check) built, verified against real history, and live. Layers 1 and
+3 blocked on child 01. See `spec.md`, `plan.md`, `symbol-page-map.md`,
+`packages/screamingface/scripts/check_docs_sync.py`, and
+`.github/workflows/docs-sync-check.yml`.
 
 ## Scope, from the ticket
 
 Whenever a PR is made, documentation is part of it, automatically generated.
 
-## The decision this needs first
+## The mechanism
 
-The line admits at least three incompatible readings, and they cost very different amounts:
+Three layers, not three alternatives: in-loop drafting while a change is made, a minimal CI
+check at PR time, and a follow-up PR for anything that still merges without one. Full detail
+in `spec.md`.
 
-| Mechanism | What it does | Cost |
-|---|---|---|
-| CI gate | fails a PR that changes public behaviour with no docs change | needs a definition of "public behaviour" that a script can evaluate |
-| in-loop step | the SDLC loop drafts docs while the change is being made | no CI work, but nothing enforces it |
-| follow-up bot | opens a separate docs PR after the code PR merges | docs always lag by one merge |
+The CI check's two hard questions, both answered in the spec: what counts as public surface
+(`__all__` in the Client's `__init__.py`, resolved to its backing file by parsing the
+import statements directly, not a directory-naming convention), and how a changed symbol
+maps to its docs page (`symbol-page-map.md`).
 
-## The complication
+## Contents
 
-The documentation site is not in this monorepo. A gate here cannot require a change that has
-to land in another repository, so whichever mechanism wins has to answer the cross-repo
-question explicitly.
-
-## Expected contents
-
-- `spec.md`, which is mostly the mechanism decision
-- `plan.md`
-- the implementation, or a pointer to the PRs
+- `spec.md`: the mechanism
+- `plan.md`: three steps, all done
+- `symbol-page-map.md`: 55 of 58 `__all__` names mapped to their docs page, three named as
+  gaps rather than silently missing
+- `packages/screamingface/scripts/check_docs_sync.py`: the check, live, verified against two
+  real historical commits, one that fails and one that passes
+- `.github/workflows/docs-sync-check.yml`: its own workflow rather than a job in
+  `public-docs-tests.yml`, since that workflow's trigger would never see a Python-only change
