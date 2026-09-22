@@ -155,6 +155,43 @@ def changed_files(base_ref: str) -> set[str]:
     return set(result.stdout.splitlines())
 
 
+def find_missing_for_changed(
+    changed_symbols: list[str],
+    newly_exported: set[str],
+    changed: set[str],
+) -> list[tuple[str, str]]:
+    missing: list[tuple[str, str]] = []
+    for name in changed_symbols:
+        if name in EXEMPT:
+            continue
+        page = SYMBOL_PAGE.get(name)
+        if page is None:
+            reason = "newly exported" if name in newly_exported else "source file changed"
+            note = f"(no page assigned, {reason}; add one to SYMBOL_PAGE or EXEMPT)"
+            missing.append((name, note))
+            continue
+        page_path = f"{API_PAGE_DIR}/{page}"
+        if page_path not in changed:
+            missing.append((name, page_path))
+    return missing
+
+
+def find_missing_for_removed(removed: set[str], changed: set[str]) -> list[tuple[str, str]]:
+    """A removed name still owes a docs change: its page needs updating or removing to
+    match, not because a new page is needed. Skips names that were exempt or never had a
+    page, since there is nothing on the page to reconcile.
+    """
+    missing: list[tuple[str, str]] = []
+    for name in sorted(removed):
+        page = SYMBOL_PAGE.get(name)
+        if page is None:
+            continue
+        page_path = f"{API_PAGE_DIR}/{page}"
+        if page_path not in changed:
+            missing.append((name, f"{page_path} (removed from __all__, page not updated)"))
+    return missing
+
+
 def main() -> None:
     base_ref = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
     changed = changed_files(base_ref)
@@ -173,32 +210,10 @@ def main() -> None:
         for name in head_names
         if name in sources and str(sources[name].relative_to(REPO_ROOT)) in changed
     }
-
     changed_symbols = sorted(newly_exported | file_changed)
 
-    missing: list[tuple[str, str]] = []
-    for name in changed_symbols:
-        if name in EXEMPT:
-            continue
-        page = SYMBOL_PAGE.get(name)
-        if page is None:
-            reason = "newly exported" if name in newly_exported else "source file changed"
-            missing.append((name, f"(no page assigned, {reason}; add one to SYMBOL_PAGE or EXEMPT)"))
-            continue
-        page_path = f"{API_PAGE_DIR}/{page}"
-        if page_path not in changed:
-            missing.append((name, page_path))
-
-    # A removed name still owes a docs change, since its page needs updating or removing to
-    # match, not because a new page is needed. Skip names that were exempt or never had a
-    # page: there is nothing on the page to reconcile.
-    for name in sorted(removed):
-        page = SYMBOL_PAGE.get(name)
-        if page is None:
-            continue
-        page_path = f"{API_PAGE_DIR}/{page}"
-        if page_path not in changed:
-            missing.append((name, f"{page_path} (removed from __all__, page not updated)"))
+    missing = find_missing_for_changed(changed_symbols, newly_exported, changed)
+    missing += find_missing_for_removed(removed, changed)
 
     if missing:
         print("public surface changed with no matching docs update:", file=sys.stderr)
