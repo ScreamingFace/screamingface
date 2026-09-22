@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -25,7 +25,9 @@ from screamingface_engine.connections.port import (
     ConnectionUnavailable,
     OAuthAuthorization,
 )
-from screamingface_engine.connections.profile_availability import decode_profile_statuses
+from screamingface_engine.connections.provider_access_availability import (
+    decode_provider_access,
+)
 from screamingface_engine.connections.provider_id import is_provider_id
 from screamingface_engine.connections.upstream_errors import raise_for_status
 
@@ -33,13 +35,13 @@ logger = logging.getLogger(__name__)
 
 _PROVIDERS_PATH = "/v1/providers"
 _CONNECTIONS_PATH = "/v1/oauth/connections"
-_PROFILES_PATH = "/v1/auth/profiles"
+# The caller-scoped, read-only availability successor (D17): provider and status only.
+_PROVIDER_ACCESS_PATH = "/v1/provider-access"
 _API_KEY_PATH = f"{_CONNECTIONS_PATH}/api-key"
 # Inter-service contract: assigning this label explicitly designates a row for ScreamingFace
 # management. Rows under every other label remain outside this adapter's public projection.
 _MANAGED_LABEL = "screamingface"
 _MAX_OAUTH_EXPIRES_IN_SECONDS = 30 * 60
-ListingSource = Literal["connections", "profiles"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,21 +67,20 @@ class _ConnectionRow:
 class AigatewayConnections:
     """Combine AI Gateway provider capabilities with caller-scoped connection state."""
 
-    def __init__(
-        self,
-        client: httpx.AsyncClient,
-        *,
-        listing_source: ListingSource = "connections",
-    ) -> None:
+    def __init__(self, client: httpx.AsyncClient, *, mutable: bool = True) -> None:
+        # FEATURE (OME-1245, D15): one explicit flag decides both what this adapter lists and
+        # whether it may write. Hosted (`mutable=False`) reads the caller's provider-access
+        # availability and refuses every mutation before I/O; Local (`mutable=True`) lists and
+        # manages the caller's own rows under `/v1/oauth/connections`.
         self._client = client
-        self._listing_source = listing_source
+        self._mutable = mutable
 
     async def list(self, caller: Caller) -> tuple[Connection, ...]:
         providers = await self._providers(caller)
-        if self._listing_source == "profiles":
-            statuses = await self._profile_statuses(caller)
+        if not self._mutable:
+            statuses = await self._availability(caller)
             return tuple(
-                _profile_connection(provider, statuses.get(provider.id, "not_connected"))
+                _status_only(provider, statuses.get(provider.id, "not_connected"))
                 for provider in providers
             )
         rows = await self._rows(caller)
@@ -167,9 +168,10 @@ class AigatewayConnections:
         await self._client.aclose()
 
     def _require_mutable(self) -> None:
-        # INVARIANT: profile-backed hosted reads and caller-managed OAuth writes use separate
-        # Gateway stores. Never accept a credential into state this adapter cannot report or use.
-        if self._listing_source == "profiles":
+        # INVARIANT (D15): a Hosted adapter reports the caller's provider access but owns none of
+        # it — its listing is read-only status, so a credential must never leave the Engine or
+        # reach any store. Refuse before any gateway request; the REST layer renders this as 400.
+        if not self._mutable:
             raise ConnectionMethodUnsupported()
 
     async def _providers(self, caller: Caller) -> tuple[_Provider, ...]:
@@ -205,11 +207,14 @@ class AigatewayConnections:
             raise ConnectionBadResponse()
         return [_validate_row(row) for row in rows]
 
-    async def _profile_statuses(self, caller: Caller) -> dict[str, ConnectionStatus]:
-        response = await self._request("GET", _PROFILES_PATH, caller)
+    async def _availability(self, caller: Caller) -> dict[str, ConnectionStatus]:
+        # WHY `replace(caller, profile=None)`: the availability listing is caller-scoped and
+        # `X-Profile` is non-selecting on it (D17), so the selector is not forwarded on this one
+        # request. Identity and `traceparent` still travel through `_headers`, unchanged.
+        response = await self._request("GET", _PROVIDER_ACCESS_PATH, replace(caller, profile=None))
         if response.status_code != 200:
             raise ConnectionBadResponse()
-        return decode_profile_statuses(_decode_object(response))
+        return decode_provider_access(_decode_object(response))
 
     async def _request(
         self,
@@ -257,18 +262,11 @@ def _select(rows: list[_ConnectionRow], provider: str) -> _ConnectionRow | None:
 
 
 def _disconnected(provider: _Provider) -> Connection:
-    return Connection(
-        provider=provider.id,
-        display_name=provider.display_name,
-        auth_methods=provider.auth_methods,
-        status="not_connected",
-    )
+    return _status_only(provider, "not_connected")
 
 
-def _profile_connection(
-    provider: _Provider,
-    status: ConnectionStatus,
-) -> Connection:
+def _status_only(provider: _Provider, status: ConnectionStatus) -> Connection:
+    """A catalogue row carrying only a status: no credential method, no account label."""
     return Connection(
         provider=provider.id,
         display_name=provider.display_name,
@@ -470,4 +468,4 @@ def _account_label(value: object) -> str | None:
     return None
 
 
-__all__ = ["AigatewayConnections", "ListingSource"]
+__all__ = ["AigatewayConnections"]
