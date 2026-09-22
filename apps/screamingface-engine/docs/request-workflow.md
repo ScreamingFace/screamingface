@@ -275,7 +275,7 @@ swallow — leaving the client staring at heartbeats forever.
 | mode dispatch | `screamingface_engine/cli.py::main` — `serve` (default) / `run` / `worker`, each imported lazily |
 | Runner lifecycle | `screamingface_engine/runner/main.py::main`, `url4/streaming/lifecycle.py::run` |
 | url4 engine bridge | `screamingface_engine/runner/executor.py::{Url4Executor,_Bridge,_RunState}` |
-| aigateway connector | `screamingface_engine/runner/connector.py::{build_aigateway_world,_chat_completion_loop}`, `screamingface_engine/world_config.py::{load_config,routes_for}` |
+| aigateway connector | `screamingface_engine/world/connector.py::{build_aigateway_world,_chat_completion_loop}`, `screamingface_engine/world/config.py::{load_config,routes_for}` |
 | aigateway chat | `aigateway/routes/chat.py::chat_completions` (+ `chat_dispatch.py`) |
 | stream ports + implementations | `url4/streaming/interfaces/stream.py` (the abstractions), `screamingface_engine/adapters/jetstream.py::{JetStreamPublisher,JetStreamConsumer}` (JetStream, shared leaf), `screamingface_engine/testing/memory_stream.py` (test double) |
 | the layering rule | `.claude/scripts/check_layering.py`, `screamingface_engine/runner/__init__.py` |

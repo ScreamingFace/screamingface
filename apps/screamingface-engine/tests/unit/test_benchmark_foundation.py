@@ -20,7 +20,6 @@ from screamingface_engine.benchmarks import (
     candidate,
     link_candidate,
 )
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.contract import (
     CANDIDATE_BINDING,
     CANDIDATE_ROUTE,
@@ -34,11 +33,12 @@ from screamingface_engine.model_outcomes import (
     capture_model_outcomes,
     record_model_outcome,
 )
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.main import build_executor
-from screamingface_engine.runner.web_tools import _is_blocked
 from screamingface_engine.testing import InMemoryEventStream
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
+from screamingface_engine.world.web_tools import _is_blocked
 from url4 import Node, RelExpr, RelUrl, build, expr, iterate, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node

@@ -5,8 +5,7 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine import job_env
-from screamingface_engine.models.registry import EMPTY_MODEL_WORLD
-from screamingface_engine.world_config import (
+from screamingface_engine.world.config import (
     AigatewaySection,
     ModelSpec,
     WorldConfig,
@@ -15,6 +14,7 @@ from screamingface_engine.world_config import (
     parse_config,
     routes_for,
 )
+from screamingface_engine.world.models.registry import EMPTY_MODEL_WORLD
 
 _MINIMAL = """
 [aigateway]

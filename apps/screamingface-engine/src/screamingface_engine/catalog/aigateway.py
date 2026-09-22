@@ -208,7 +208,7 @@ def _reject_non_json_constant(value: str) -> Never:
 def _headers(credential: Credential) -> dict[str, str]:
     """Build the upstream request headers from the credential's identity and profile.
 
-    INVARIANT: the gateway-owned header is written LAST, mirroring ``runner.connector._headers`` —
+    INVARIANT: the gateway-owned header is written LAST, mirroring ``world.connector._headers`` —
     the identity mapping is not guaranteed to hold only identity keys, so no value in it can
     displace ``X-Profile``.
 

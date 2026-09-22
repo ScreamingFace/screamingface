@@ -29,10 +29,10 @@ from screamingface_engine.runner.cache_counters import (
     RunCacheCounters,
     SavedCostTotals,
 )
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.summary import RunSummary
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.streaming.protocol import CachePolicy
 
 _MODEL = "anthropic/claude-haiku-4-5"

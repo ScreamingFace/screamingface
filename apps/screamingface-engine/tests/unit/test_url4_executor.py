@@ -647,10 +647,17 @@ def _imports_url4_engine(py_file: Path) -> bool:
 _ALLOWED_RUNNER_IMPORTERS = frozenset(
     {
         Path("screamingface_engine/runner/executor.py"),
-        Path("screamingface_engine/runner/connector.py"),
         # OME-908: the fair-share io wrapper binds a run into the shared gate — an io-port
         # adapter in exactly connector's sense, so it shares the engine-import allowance.
         Path("screamingface_engine/runner/fair_share.py"),
+        # prd/01 F1: the shared world is the engine-importing half now. `connector` builds the
+        # `Url4Node`, `factory` types the world over `url4.io`, and the candidate/corrective
+        # installers register endpoints on the node. The control plane may import `world`, so
+        # the allowance is listed here by its new home rather than by its old `benchmarks` one.
+        Path("screamingface_engine/world/connector.py"),
+        Path("screamingface_engine/world/factory.py"),
+        Path("screamingface_engine/world/candidate_adapter.py"),
+        Path("screamingface_engine/world/corrective.py"),
     }
 )
 

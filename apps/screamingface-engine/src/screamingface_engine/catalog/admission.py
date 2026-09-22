@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
 from screamingface_engine.catalog.port import Credential
-from screamingface_engine.models.registry import is_route_legal
+from screamingface_engine.world.models.registry import is_route_legal
 
 _OPENROUTER_PREFIX = "openrouter/"
 

@@ -23,16 +23,16 @@ import httpx
 import pytest
 
 from screamingface_engine.request_scope import RequestScope
-from screamingface_engine.runner import connector as connector_module
-from screamingface_engine.runner.connector import AigatewayConfig, _chat_completion_loop
-from screamingface_engine.runner.errors import RunnerRequestError
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world import connector as connector_module
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, _chat_completion_loop
+from screamingface_engine.world.errors import RunnerRequestError
 
 pytestmark = pytest.mark.asyncio
 
 _MODEL = "openrouter/test/candidate"
 _PROMPT = "SECRET-PROMPT-TEXT what is 2+2?"
-_LOGGER = "screamingface_engine.runner.connector"
+_LOGGER = "screamingface_engine.world.connector"
 
 
 class _Resp:

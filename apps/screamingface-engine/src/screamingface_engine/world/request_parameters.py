@@ -10,8 +10,8 @@ import json
 from collections.abc import Mapping
 
 from screamingface_engine.retrieval_policy import RetrievalPolicy, normalize_excluded_domains
-from screamingface_engine.runner.errors import RunnerRequestError
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.errors import RunnerRequestError
 
 WEB_SEARCH_PARAM = "web_search"
 WEB_SEARCH_EXCLUDE_PARAM = "web_search_exclude"

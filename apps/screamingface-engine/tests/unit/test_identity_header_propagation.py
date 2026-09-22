@@ -29,10 +29,10 @@ from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
 from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.dag import run as url4_run
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 

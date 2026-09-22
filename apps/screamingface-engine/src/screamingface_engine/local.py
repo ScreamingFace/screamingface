@@ -106,7 +106,7 @@ def _with_runner_config(env: Mapping[str, str]) -> Mapping[str, str]:
     Deliberately narrow: an explicit ``URL4_RUNNER_CONFIG`` always wins, and so does a real
     ``/etc/url4/url4.toml`` — this only fills a gap that exists nowhere but a source checkout.
     """
-    from screamingface_engine.world_config import DEFAULT_CONFIG_PATH
+    from screamingface_engine.world.config import DEFAULT_CONFIG_PATH
 
     if job_env.RUNNER_CONFIG in env or Path(DEFAULT_CONFIG_PATH).is_file():
         return env
@@ -188,7 +188,7 @@ def create_local_app(
 
     # WHY the import is function-local: it is THE line that crosses the layering boundary, and
     # keeping it here means the crossing happens when a local App is actually built rather than on
-    # any import of this module. What it defers is `runner.connector`/`runner.executor` and httpx
+    # any import of this module. What it defers is `world.connector`/`runner.executor` and httpx
     # — not the engine itself, which `url4/__init__` has already pulled in via any `url4.streaming`
     # import (see the SCOPE NOTE in `check_layering.py`).
     from screamingface_engine.observation_plugins import observation_factories

@@ -1,6 +1,9 @@
-"""The declared model world. See :mod:`screamingface_engine.models.registry` for the invariants."""
+"""The declared model world.
 
-from screamingface_engine.models.registry import (
+See :mod:`screamingface_engine.world.models.registry` for the invariants.
+"""
+
+from screamingface_engine.world.models.registry import (
     EMPTY_MODEL_WORLD,
     ROUTE_ID_RE,
     ModelRegistry,

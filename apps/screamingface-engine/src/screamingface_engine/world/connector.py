@@ -21,7 +21,6 @@ import httpx
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
-from screamingface_engine.models.registry import decode_route_id
 from screamingface_engine.observations import ModelCall, current_model_call
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
@@ -33,25 +32,28 @@ from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
 )
-from screamingface_engine.runner.accounting import (
+from screamingface_engine.trace_scope import current_traceparent
+from screamingface_engine.world.accounting import (
     CallAccounting,
     avoided_usd_for_outcome,
     read_aigw,
     retained_operation_accounting,
 )
-from screamingface_engine.runner.cache import policy_to_body_field
-from screamingface_engine.runner.cache_readback import (
+from screamingface_engine.world.cache import policy_to_body_field
+from screamingface_engine.world.cache_readback import (
     CacheOutcome,
     read_cache_outcome,
     requires_revalidation,
 )
-from screamingface_engine.runner.errors import RunnerRequestError
-from screamingface_engine.runner.model_response import (
+from screamingface_engine.world.config import ModelSpec, WorldConfigError, provider_of, routes_for
+from screamingface_engine.world.errors import RunnerRequestError
+from screamingface_engine.world.model_response import (
     Choice,
     parse_choice,
     raise_if_unusable,
 )
-from screamingface_engine.runner.request_parameters import (
+from screamingface_engine.world.models.registry import decode_route_id
+from screamingface_engine.world.request_parameters import (
     WEB_SEARCH_PARAM,
     apply_answer_seed,
     apply_retrieval_policy,
@@ -59,7 +61,7 @@ from screamingface_engine.runner.request_parameters import (
     model_params,
     wants_web_search,
 )
-from screamingface_engine.runner.web_tools import (
+from screamingface_engine.world.web_tools import (
     WEB_TOOLS,
     WebToolRuntime,
     append_tool_results,
@@ -67,8 +69,6 @@ from screamingface_engine.runner.web_tools import (
     build_runtime,
     truncate_tool_result,
 )
-from screamingface_engine.trace_scope import current_traceparent
-from screamingface_engine.world_config import ModelSpec, WorldConfigError, provider_of, routes_for
 from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
 from url4.observe import current_log_sink, current_response_sink, current_usage_sink

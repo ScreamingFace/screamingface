@@ -27,7 +27,7 @@ from test_aigateway_connector import _MockAigateway
 from screamingface_engine import job_env
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.runner.main import build_executor
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 from url4.streaming.interfaces import Completed
 
 pytestmark = pytest.mark.asyncio

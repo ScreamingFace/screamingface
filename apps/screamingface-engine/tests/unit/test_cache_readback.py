@@ -44,15 +44,15 @@ import httpx
 import pytest
 
 from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.runner.cache_readback import (
+from screamingface_engine.runner.executor import _RunState
+from screamingface_engine.world.cache_readback import (
     CacheOutcome,
     CacheStatus,
     read_cache_outcome,
     requires_revalidation,
 )
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.runner.executor import _RunState
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.dag import run as url4_run
 from url4.observe import ModelResponse, NodeFinished, NodeStarted, ObservationEvent
 from url4.streaming.interfaces import Traced

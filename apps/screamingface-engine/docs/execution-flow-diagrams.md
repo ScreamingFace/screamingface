@@ -73,7 +73,7 @@ Notes the boxes can't carry:
 ```mermaid
 flowchart TD
     main["runner/main.py — entrypoint<br>(screamingface-engine run, via cli.py, lazily)<br>params_from_env() → topic/url4 · build_executor()"]
-    config["world_config.py<br>load_config(url4.toml)"]
+    config["world/config.py<br>load_config(url4.toml)"]
     connector["runner/connector.py<br>build_aigateway_world() → Url4Node world<br>(routes DECLARED by url4.toml → POST /v1/chat/completions, + Tavily tools)"]
     deny["runner/executor.deny_by_default_world()"]
     executor["runner/executor.py<br>Url4Executor.execute()<br>_Bridge (sync Observer → async generator)<br>_RunState (engine events → Traced Span/Cost/Log)<br>drives url4.dag.run(io)"]
@@ -92,7 +92,7 @@ flowchart TD
     executor -. typed by .- port
 ```
 
-`world_config.py` is the single parser for the DECLARED model world. The control plane uses it to
+`world/config.py` is the single parser for the DECLARED model world. The control plane uses it to
 project discovery and the run mode uses it to build routes, so the two cannot disagree.
 `url4.toml` ships in the image at `/etc/url4/url4.toml`, baked from
 `apps/screamingface-engine/url4.toml`.
@@ -141,7 +141,7 @@ sequenceDiagram
 | orchestrator (shared: `url4.streaming`) | `lifecycle.py` | Drives the executor, wraps frames as CloudEvents, publishes the Started…Terminated lifecycle |
 | adapter (the **only** url4-engine importer) | `runner/executor.py` | `Url4Executor`: `_Bridge` (sync→async), `_RunState` (events→Traced), drives the DAG |
 | world builder | `runner/connector.py` | Builds the `Url4Node` "world" of declared routes → aigateway chat (+ optional Tavily tools) |
-| declared world | `world_config.py` | Parses `url4.toml` (`/etc/url4/url4.toml`) once for both control-plane discovery and Runner execution |
+| declared world | `world/config.py` | Parses `url4.toml` (`/etc/url4/url4.toml`) once for both control-plane discovery and Runner execution |
 | boundary doc | `runner/__init__.py` | No re-exports — it carries the layering rule (what this half may and may not import) |
 
 ### Control plane (`src/screamingface_engine/`)

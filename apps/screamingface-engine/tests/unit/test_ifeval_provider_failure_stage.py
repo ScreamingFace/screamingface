@@ -10,7 +10,7 @@ import pytest
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.ifeval.grade import AggregateError, aggregate
-from screamingface_engine.runner.connector import _raise_for_status
+from screamingface_engine.world.connector import _raise_for_status
 from url4.core.errors import ResolutionError
 from url4.dag.nodes._shared import _error_payload
 

@@ -392,7 +392,7 @@ def _headers(caller: Caller) -> dict[str, str]:
     """The upstream headers for one caller-scoped request: identity, then what we own.
 
     INVARIANT: the gateway-owned headers are written LAST, the same rule
-    ``runner.connector._headers`` and ``catalog.aigateway._headers`` apply. `caller.identity` is
+    ``world.connector._headers`` and ``catalog.aigateway._headers`` apply. `caller.identity` is
     built from inbound request headers, and although the mesh guarantees the identity header
     itself is not forged, nothing guarantees the mapping holds ONLY that key — so a caller
     cannot displace this request's own trace or routing profile by sending their own.

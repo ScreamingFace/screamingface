@@ -143,7 +143,7 @@ A JSON array of gateway model ids. Per-run for the same reason the identity is: 
 does not exist until the gateway admits something, so Helm cannot supply it — the App writes
 the CURRENT overlay onto every scheduled run, which is what lets a model admitted a second
 ago reach the very next run. The run mode merges these ADDITIVELY into the declared world
-(:func:`screamingface_engine.world_config.parse_config`); an id already declared keeps its declared
+(:func:`screamingface_engine.world.config.parse_config`); an id already declared keeps its declared
 spec, so the overlay can never weaken a compiled route.
 """
 
@@ -189,7 +189,7 @@ def cache_policy_from_env(env: Mapping[str, str]) -> CachePolicy:
 
     Returns a policy rather than ``CachePolicy | None`` because an all-unstated
     policy already IS "nothing declared":
-    :func:`screamingface_engine.runner.cache.policy_to_body_field` renders it as an
+    :func:`screamingface_engine.world.cache.policy_to_body_field` renders it as an
     absent `cache` field, which the gateway reads as participation. So a Job whose env
     carries no policy behaves like every other one WITHOUT the run mode re-deciding
     what silence means.
@@ -284,7 +284,7 @@ DEFAULT_STREAM_GRACE_S = 60.0
 which any client can still hold a valid ticket and be attached to the run."""
 
 RUNNER_CONFIG = "URL4_RUNNER_CONFIG"
-"""Path to the declared world (:mod:`screamingface_engine.world_config`). Baked into
+"""Path to the declared world (:mod:`screamingface_engine.world.config`). Baked into
 the image; the App never writes it."""
 
 ARTIFACTS_DIR = "URL4_CLOUD_ARTIFACTS_DIR"

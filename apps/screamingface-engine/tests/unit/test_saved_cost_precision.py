@@ -23,8 +23,8 @@ from __future__ import annotations
 from decimal import Decimal
 from fractions import Fraction
 
-from screamingface_engine.runner.accounting import AMOUNT_PRECISION
 from screamingface_engine.runner.cache_counters import SavedCostTotals
+from screamingface_engine.world.accounting import AMOUNT_PRECISION
 
 # The producer's published bound, exactly: 18 integer digits and 33 fractional digits. A value
 # that arrived AT the bound is legal input, so the accumulator must carry it without rounding.

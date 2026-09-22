@@ -2,10 +2,12 @@
 (`url4.dag.run`) and bridges its synchronous `url4.observe` callback events into the async
 `url4.streaming.protocol` wire frames the run publishes over NATS.
 
-This is the only module (besides `connector`) that may import the url4 ENGINE — the composition
-root (`runner.main`) types its world factory against `World`/`WorldFactory` here without ever
-importing the engine itself. `tests/unit/test_url4_executor.py` pins that pair over the whole
-distribution, control plane included.
+This module imports the url4 ENGINE and, since prd/01 F1, shares that allowance with the
+shared world package (`world.connector`, `world.factory`, and the candidate/corrective
+installers). The composition root (`runner.main`) types its world factory against
+`World`/`WorldFactory` here without ever importing the engine itself.
+`tests/unit/test_url4_executor.py` pins that allowance over the whole distribution, control
+plane included.
 """
 
 from __future__ import annotations
@@ -25,14 +27,14 @@ from screamingface_engine import job_env
 from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from screamingface_engine.trace_scope import run_trace_scope
+from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
+from screamingface_engine.world.factory import World, WorldFactory, deny_by_default_world
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
-from url4.io.static import StaticIOLayer
 from url4.observe import (
     Log,
     ModelResponse,
@@ -718,15 +720,9 @@ def _log_frame(event: Log) -> LogData:
     )
 
 
-World = tuple[IOLayer, Callable[[], Awaitable[None]] | None]
-"""A resolved world: its io layer plus the teardown that owns whatever it allocated.
-
-Exported so the composition root can type its factory WITHOUT importing the engine — only
-this module and `connector` may (pinned by
-``test_only_url4_executor_module_imports_url4``).
-"""
-
-WorldFactory = Callable[[], Awaitable[World]]
+# `World`, `WorldFactory` and `deny_by_default_world` are re-exported from
+# :mod:`screamingface_engine.world.factory` at the top of this module: the shared world owns
+# them now, so the run mode types its factory without a second definition to drift from.
 
 
 class Url4Executor(Executor):
@@ -869,7 +865,7 @@ class Url4Executor(Executor):
 
         async def _drive() -> str:
             # FEATURE (OME-1119): the run's trace is bound HERE, inside the driving task, so the
-            # world's outbound aigateway calls carry it (`runner.connector._headers`).
+            # world's outbound aigateway calls carry it (`world.connector._headers`).
             #
             # WHY not around `execute`'s own `async for ... yield`: `execute` is an ASYNC
             # GENERATOR, and consecutive steps of one can be driven from different contexts —
@@ -1004,8 +1000,4 @@ class Url4Executor(Executor):
             _logger.warning("aigateway world teardown failed", exc_info=True)
 
 
-def deny_by_default_world() -> IOLayer:
-    return StaticIOLayer()
-
-
-__all__ = ["Url4Executor", "deny_by_default_world"]
+__all__ = ["Url4Executor", "World", "WorldFactory", "deny_by_default_world"]

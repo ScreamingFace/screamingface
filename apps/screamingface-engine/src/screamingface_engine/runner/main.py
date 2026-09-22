@@ -12,7 +12,6 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -24,10 +23,8 @@ from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.artifacts import ArtifactStore, ArtifactWriter, S3ArtifactStore
 from screamingface_engine.artifacts.wiring import s3_config_from_values
-from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
+from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
-from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
 from screamingface_engine.client_provenance import (
     CLIENT_VERSION_ENV,
     ProvenanceExecutor,
@@ -36,16 +33,15 @@ from screamingface_engine.client_provenance import (
 from screamingface_engine.logs import run_scope
 from screamingface_engine.observations import ObserverFactory
 from screamingface_engine.request_scope import RequestScope
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
+from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.runner.summary import RunSummary
 from screamingface_engine.tracing.relay import SpanRelay, SpanSink, otlp_configured
-from screamingface_engine.world_config import WorldConfig, WorldConfigError, load_config
+from screamingface_engine.world.config import WorldConfig
+from screamingface_engine.world.factory import World, build_world
 from url4.streaming.interfaces import EventPublisher
 from url4.streaming.lifecycle import run
-from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import parse_traceparent
 
 logger = logging.getLogger(__name__)
@@ -293,72 +289,20 @@ def build_executor(
     """
 
     async def _world() -> World:
-        # `include_extra_models`: the Runner boot is the ONE parse that reads the
-        # Job-scoped URL4_CLOUD_EXTRA_MODELS overlay (review F3) — this env IS the
-        # Job's own, written by the App at schedule time.
-        resolved = config if config is not None else load_config(env, include_extra_models=True)
-        section = resolved.aigateway
-        if section is None:
-            if len(benchmarks):
-                raise WorldConfigError(
-                    "installed Benchmarks require a declared aigateway model world"
-                )
-            # WHY: a world with no [aigateway] table is a legitimate empty world; the node itself
-            # denies everything undeclared.
-            return deny_by_default_world(), None
-        # WHY: no credential check here; aigateway runs `cloudflare_headers` when deployed
-        # and `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to
-        # demand. Identity is forwarded when present and simply absent locally, where every caller
-        # is anonymous. The old unconditional token requirement made every deployed run fail
-        # before it issued a single request, because a deployed caller has no way to obtain one.
-        cache = job_env.cache_policy_from_env(env)
-        world = await build_aigateway_world(
-            AigatewayConfig(
-                base_url=section.base_url,
-                default_model=section.default_model,
-                models=section.models,
-                allow_outbound=section.allow_outbound,
-                timeout_s=section.timeout_s,
-                web_tool_max_iterations=section.web_tool_max_iterations,
-            ),
+        # FEATURE (F1, prd/01): building the world lives in the shared world package, because
+        # both halves build one. This closure supplies only the run mode's per-Job wiring — the
+        # Job's own env, its optional test clients, and the run key the world log names. The
+        # factory stays LAZY so a bad config or unreachable gateway surfaces as a Terminated
+        # frame on the topic rather than crashing the scheduling caller before the stream exists.
+        return await build_world(
+            env=env,
+            config=config,
             client=client,
-            tavily_api_key=env.get(job_env.TAVILY_API_KEY),
             tavily_client=tavily_client,
+            benchmarks=benchmarks,
+            benchmark_assets_root=benchmark_assets_root,
+            run_key=run_key,
         )
-        if len(benchmarks):
-            # WHY: installation can fail through any concrete Benchmark adapter. AsyncExitStack
-            # guarantees the already-open model world closes without a catch-all exception clause.
-            async with AsyncExitStack() as cleanup:
-                cleanup.push_async_callback(world.aclose)
-                install_candidate_invocation(world.node)
-                # The corrective loop's generic gate/select/answer endpoints are
-                # engine capability, not benchmark surface — installed once beside
-                # the candidate invocation for every world that runs benchmarks.
-                install_corrective_runtime(world.node)
-                benchmarks.install(
-                    world.node,
-                    assets_root=(
-                        benchmark_assets_root
-                        if benchmark_assets_root is not None
-                        else assets_root(env)
-                    ),
-                )
-                cleanup.pop_all()
-        # FEATURE (OME-1069): the world's resolved shape, logged once per run. The topic comes
-        # from the run's own env (`run_key`); the trace id is appended by the run-context
-        # filter, which is bound by the time the world is built. Model ids are public catalog
-        # names; `web_tools` is derived from the PRESENCE of the Tavily key, never the key
-        # itself; `cache` states whether the run declared a policy, not the policy's content.
-        logger.info(
-            "runner world topic=%s models=%d default_model=%s web_tools=%s cache=%s outbound=%s",
-            run_key,
-            len(section.models),
-            section.default_model,
-            "enabled" if world.web_tools_enabled else "disabled",
-            _cache_stated(cache),
-            "allowed" if section.allow_outbound else "denied",
-        )
-        return world.node, world.aclose
 
     inline_cap, hard_cap, artifact_store = result_delivery_from_env(env)
 
@@ -421,18 +365,6 @@ def span_sink(env: Mapping[str, str]) -> SpanSink | None:
     except Exception:
         logger.warning("span export is configured but could not be started", exc_info=True)
         return None
-
-
-def _cache_stated(policy: CachePolicy) -> str:
-    """Whether a run's cache policy stated anything — 'stated' or 'not-stated'.
-
-    Its own token rather than the rendered policy: "did not declare" and "declared an
-    all-unset policy" are different statements, and the world log only needs the first.
-    """
-
-    if policy.participate is not None or policy.max_age is not None:
-        return "stated"
-    return "not-stated"
 
 
 def _nats_host(url: str) -> str:

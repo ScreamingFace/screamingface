@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine import job_env
-from screamingface_engine.models.registry import EMPTY_MODEL_WORLD, decode_route_id
-from screamingface_engine.world_config import (
+from screamingface_engine.world.config import (
     WorldConfigError,
     declared_model_ids,
     load_config,
     parse_config,
 )
+from screamingface_engine.world.models.registry import EMPTY_MODEL_WORLD, decode_route_id
 
 
 def _config(model: str) -> dict[str, object]:

@@ -15,9 +15,9 @@ from typing import Protocol
 import httpx
 
 from screamingface_engine.retrieval_policy import RetrievalPolicy
-from screamingface_engine.runner.errors import RunnerRequestError
-from screamingface_engine.runner.request_parameters import WEB_SEARCH_PARAM, caller_exclusions
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.errors import RunnerRequestError
+from screamingface_engine.world.request_parameters import WEB_SEARCH_PARAM, caller_exclusions
 
 WEB_TOOLS = [
     {

@@ -7,7 +7,7 @@ AIDEV-NOTE: when aigateway's list changes, ``test_declared_models_match_aigatewa
 until this tuple matches. Add or remove the slug; never edit the guard.
 """
 
-from screamingface_engine.models.registry import ProviderSeed
+from screamingface_engine.world.models.registry import ProviderSeed
 
 ANTIGRAVITY = ProviderSeed(
     provider="antigravity",

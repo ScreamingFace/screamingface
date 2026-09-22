@@ -9,7 +9,7 @@ from screamingface_engine.activity.contract import ActivityLevel
 from screamingface_engine.observation_plugins import observation_factories
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.testing import InMemoryEventStream
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 from url4.streaming.lifecycle import run as publish_run
 from url4.streaming.protocol import LogEvent, TerminatedEvent
 
@@ -91,7 +91,7 @@ async def test_real_round_trip_emits_safe_node_scoped_outcome(refused):
 
 @pytest.mark.asyncio
 async def test_transport_retry_emits_actual_delay_without_an_extra_call(monkeypatch):
-    from screamingface_engine.runner import connector
+    from screamingface_engine.world import connector
 
     monkeypatch.setattr(connector, "_transport_backoff", lambda attempt: 0.0)
     attempts = 0
@@ -161,7 +161,7 @@ async def test_safe_failure_does_not_expose_provider_details_or_retry_http():
 @pytest.mark.asyncio
 async def test_real_wait_uses_fixed_activity_and_independent_operator_heartbeat(monkeypatch):
     from screamingface_engine.activity import scope
-    from screamingface_engine.runner import connector
+    from screamingface_engine.world import connector
 
     release, intervals, calls = asyncio.Event(), [], []
 
@@ -197,7 +197,7 @@ async def test_real_wait_uses_fixed_activity_and_independent_operator_heartbeat(
 async def test_actual_connector_cancellation_keeps_error_and_joins_timer(monkeypatch):
     from screamingface_engine.observation_plugins import observation_factories
     from screamingface_engine.observations import RunObservations
-    from screamingface_engine.runner import connector
+    from screamingface_engine.world import connector
     from url4.streaming.protocol import CachePolicy
 
     entered, calls, logs = asyncio.Event(), [], []

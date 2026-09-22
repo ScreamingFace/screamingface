@@ -18,7 +18,7 @@ The file format mirrors ``url4 serve``'s (``url4.cli._serve``), one way stricter
 must also be renderable as a URL4 expression path (see ``models.registry.ROUTE_ID_RE``).
 
 The MODEL LIST itself lives in
-:data:`screamingface_engine.models.builtins.BUILTIN_MODEL_WORLD`, seeded from every
+:data:`screamingface_engine.world.models.builtins.BUILTIN_MODEL_WORLD`, seeded from every
 aigateway provider plugin (OME-859). This module merges that world with the optional,
 additive ``[[aigateway.models]]`` array, so one function still produces the single
 world both halves consume.
@@ -41,8 +41,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from screamingface_engine import job_env
-from screamingface_engine.models.builtins import BUILTIN_MODEL_WORLD
-from screamingface_engine.models.registry import (
+from screamingface_engine.world.models.builtins import BUILTIN_MODEL_WORLD
+from screamingface_engine.world.models.registry import (
     ROUTE_ID_RE,
     ModelRegistry,
     decode_route_id,

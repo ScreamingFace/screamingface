@@ -21,24 +21,24 @@ from test_aigateway_connector import _MockAigateway
 from test_answer_seed_threading import _candidate_wrapped
 
 from screamingface_engine import job_env
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.request_scope import (
     RequestScope,
     RequestScopeError,
     current_scope,
     request_scope,
 )
-from screamingface_engine.runner.connector import (
-    AigatewayConfig,
-    _ModelEndpoint,
-    build_aigateway_world,
-)
 from screamingface_engine.runner.main import (
     RunnerConfigError,
     build_executor,
     request_scope_from_env,
 )
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.connector import (
+    AigatewayConfig,
+    _ModelEndpoint,
+    build_aigateway_world,
+)
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
 from url4.streaming.protocol import CachePolicy
@@ -198,7 +198,7 @@ async def test_no_handler_world_or_module_object_retains_a_request_scope() -> No
     scope-shaped slot and holds no scope value after a request, the world holds no scope object,
     and the connector module holds none either.
     """
-    import screamingface_engine.runner.connector as connector_module
+    import screamingface_engine.world.connector as connector_module
 
     gw = _MockAigateway((MODEL,))
     cfg = AigatewayConfig(models=gw.models, default_model=MODEL)

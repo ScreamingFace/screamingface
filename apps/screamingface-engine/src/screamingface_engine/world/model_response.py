@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from screamingface_engine.model_outcomes import ModelOutcome
-from screamingface_engine.runner.errors import RunnerRequestError
+from screamingface_engine.world.errors import RunnerRequestError
 
 
 @dataclass(frozen=True, slots=True)

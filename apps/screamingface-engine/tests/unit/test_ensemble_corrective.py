@@ -31,7 +31,7 @@ from screamingface_engine.benchmarks.ensemble.policy import (
     MEMBER_LABEL_SCHEME,
     SELECT_ROUTE,
 )
-from screamingface_engine.benchmarks.ensemble.runtime import install_corrective_runtime
+from screamingface_engine.world.corrective import install_corrective_runtime
 from url4 import RelExpr, Text, expr, iterate, ref, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node

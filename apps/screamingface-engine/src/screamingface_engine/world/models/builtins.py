@@ -18,13 +18,13 @@ full compiled set (OME-859 spec §6 consequence 1) — before it, the same call 
 more clearly, as an unknown route.
 """
 
-from screamingface_engine.models.registry import ModelRegistry
-from screamingface_engine.models.seeds.anthropic import ANTHROPIC
-from screamingface_engine.models.seeds.antigravity import ANTIGRAVITY
-from screamingface_engine.models.seeds.codex import CODEX
-from screamingface_engine.models.seeds.gemini_cli import GEMINI_CLI
-from screamingface_engine.models.seeds.huggingface import HUGGINGFACE
-from screamingface_engine.models.seeds.openrouter import OPENROUTER
+from screamingface_engine.world.models.registry import ModelRegistry
+from screamingface_engine.world.models.seeds.anthropic import ANTHROPIC
+from screamingface_engine.world.models.seeds.antigravity import ANTIGRAVITY
+from screamingface_engine.world.models.seeds.codex import CODEX
+from screamingface_engine.world.models.seeds.gemini_cli import GEMINI_CLI
+from screamingface_engine.world.models.seeds.huggingface import HUGGINGFACE
+from screamingface_engine.world.models.seeds.openrouter import OPENROUTER
 
 BUILTIN_MODEL_WORLD = ModelRegistry(
     (ANTHROPIC, ANTIGRAVITY, CODEX, GEMINI_CLI, HUGGINGFACE, OPENROUTER)

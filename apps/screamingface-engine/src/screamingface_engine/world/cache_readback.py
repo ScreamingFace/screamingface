@@ -1,7 +1,7 @@
 """Read the gateway's cache answer off a chat-completions response, and decide what
 to do with it (spec §7 / D7, plan Batch 7).
 
-The mirror image of :mod:`screamingface_engine.runner.cache`, and a separate module
+The mirror image of :mod:`screamingface_engine.world.cache`, and a separate module
 from it on purpose: that one is four lines guarding ONE invariant — nothing but
 `use-cache` ever goes out — and burying a structured-field parser beside it would
 hide the single most expensive rule in this feature. Egress out, ingress here.
