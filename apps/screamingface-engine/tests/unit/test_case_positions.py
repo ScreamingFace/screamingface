@@ -131,3 +131,25 @@ def test_numbering_requires_case_identity_and_a_complete_pair():
     ):
         with pytest.raises(ValueError, match="Case"):
             candidate_call("question", web_search=False, **values)
+
+
+@pytest.mark.asyncio
+async def test_contracteval_supplies_case_metadata_without_changing_answer_input(
+    monkeypatch, tmp_path
+):
+    from test_contracteval_resolution import _GOLD, _run
+
+    from screamingface_engine.benchmarks import candidate_adapter
+
+    original = candidate_adapter.evaluate_candidate_recipe
+    seen = []
+
+    async def evaluate(node, expression, input_text, **kwargs):
+        seen.append((current_case_id(), current_case_position()))
+        return await original(node, expression, input_text, **kwargs)
+
+    monkeypatch.setattr(candidate_adapter, "evaluate_candidate_recipe", evaluate)
+    result, requests = await _run(tmp_path, _GOLD)
+    assert seen == [(str(result["cases"][0]["case_id"]), (1, 1))]
+    assert result["score"] == 1.0
+    assert len(requests) == 1

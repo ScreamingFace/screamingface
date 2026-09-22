@@ -100,7 +100,13 @@ def _build(case_count: int) -> Node:
     `$item.input` by `prepare`, so there is nothing to assemble here.
     """
 
-    candidate_invocation = candidate("$item.input", web_search=CANDIDATE_WEB_SEARCH)
+    candidate_invocation = candidate(
+        "$item.input",
+        case_id="$item.id",
+        case_position="$item._sf_case_position",
+        case_count="$item._sf_case_count",
+        web_search=CANDIDATE_WEB_SEARCH,
+    )
     checked = expr(
         src(
             RelExpr(
