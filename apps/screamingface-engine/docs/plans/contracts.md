@@ -11,9 +11,10 @@ caller gets a meaningful error instead of a severed connection. [proposed]
 | Layer | Budget | Why |
 |---|---|---|
 | Cloudflare edge | ~100 s (not ours) | Outermost. Must never be the thing that fires. |
-| App → node forward | 35 s | Slightly above the node's own budget so the node's 504 wins the race. |
+| App → node forward | 35 s | Derived: node request budget + spill budget + 1 s, so the node's own answer always wins the race. Never a second literal (`04-review-fixes.md` §2.2). |
 | Node request wrapper | **30 s** | `ans:Q5`. Emits 504. |
-| Node → aigateway | 28 s | Fails inside the wrapper, so the caller gets a 502 naming the cause rather than a bare 504. Overrides `url4.toml`'s 600 s default on this tier. |
+| Node spill write | 4 s | Runs after the request budget, outside url4's timeout, so a slow deposit gives a 502, never a missing response. |
+| Node → aigateway, per attempt | min(28 s, time left) | Fails inside the wrapper, so the caller gets a 502 naming the cause rather than a bare 504. A transport retry starts only when a full attempt still fits in the request deadline. Overrides `url4.toml`'s 600 s default on this tier. |
 
 The 600 s default in `url4.toml` is correct for the ensemble path and wrong for the
 sync tier. The node tier must override it rather than inherit it. [proposed]
@@ -26,7 +27,7 @@ sync tier. The node tier must override it rather than inherit it. [proposed]
 |---|---|
 | Endpoint | `GET /<mount path>?q=(context)!intent` |
 | Protocol | HTTP/1.1, GET only |
-| Auth | Edge-verified `X-User-Email`, injected by Cloudflare Access / Envoy. Never trusted from the client. (`ans:Q4`) |
+| Auth | Edge-verified `X-User-Email`, injected by Cloudflare Access / Envoy. Never trusted from the client. (`ans:Q4`) The App trusts the edge-set header exactly as the ensemble path does today; it adds no verification step of its own (`04-review-fixes.md` RD1). |
 | Request headers | `X-Profile` (optional), `Cache-Control` (optional, RFC 9111 request directives), `X-Answer-Seed` (optional int), `traceparent` (optional, strict W3C) |
 | Success | `200`, `text/plain; charset=utf-8`, body is the handler's return value |
 | Large result | `303 See Other`, `Location: /artifacts/{id}` **plus a short-lived signature** when the body exceeds 512 KiB (D9, OQ-3.2 decision) |
@@ -62,7 +63,7 @@ Status mapping is url4's own (`peer/_http.py:30-93`):
 | 404 | `endpoint_not_found`, `unknown_identity`, `identity_unavailable` |
 | 405 | non-GET method |
 | 413 | body over the hard cap **[proposed, engine addition]** |
-| 502 | transient downstream failure |
+| 502 | downstream failure: transient, or a permanent aigateway refusal (a url4 `500` whose code is not a url4 `ErrorCode` is remapped to `502` on the node tier, `04-review-fixes.md` §2.2) |
 | 503 | over capacity, with `Retry-After` |
 | 504 | request exceeded 30 s **[engine addition via the serve wrapper]** |
 
@@ -205,7 +206,8 @@ No network hop. `serve --local` mounts `node.asgi()` into the FastAPI app, regis
 |---|---|
 | Ordering invariant | Every engine literal route is registered before the mount. Pinned by a test that asserts `/v1/models` reaches the engine and bare `/v1?q=` reaches the node. |
 | Shared world | The in-process run path uses the same node as its `IOLayer`, wrapped per run for fair-share I/O. F2 makes this safe. |
-| Divergence from deployed | Local has no forwarder and no NetworkPolicy. It is a development shape and must not be presented as a deployment option. |
+| Divergence from deployed | Local has no forwarder and no NetworkPolicy. A local sync call has no 30 s ladder, no admission cap, no missing-`q` 400 and no fair-share gate; only in-process runs are gated. It is a development shape and must not be presented as a deployment option. |
+| Admitted models | A run whose `URL4_CLOUD_EXTRA_MODELS` names a route the shared node does not serve builds its own per-run world, as before the shared node existed (OME-880; `04-review-fixes.md` FX-30). |
 
 ---
 

@@ -308,7 +308,7 @@ the App, assert the node Service refuses the connection.
 | The tier has no `RLIMIT_AS`; one response OOMs a shared pod | Medium | High | D1 removes fan-out, so blast is one model response; plus the 512 KiB cap, the hard cap, and pod memory limits |
 | Two error dialects on one origin confuse clients | **High** | Low | OQ-3.1. The cost is documentation, not correctness |
 | Loosening `/artifacts/{id}` auth widens an existing route | Medium | High | OQ-3.2; prefer signed URLs if the loosening is unacceptable |
-| Gray failure: node slow but passing probes | Medium | Medium | Readiness reflects in-flight saturation, not just liveness |
+| Gray failure: node slow but passing probes | Medium | Medium | `503` shedding with `Retry-After`, plus the in-flight gauge and the 503 counter. Readiness is drain-only (`04-review-fixes.md` RD2): a saturated pod stays ready, because removing it moves its load onto the others |
 | App and node briefly disagree on mounts during a rolling deploy | Medium | Low | `config_digest` on health; unknown mounts 404 at the App rather than forwarding |
 
 ## 7. Open questions

@@ -65,8 +65,8 @@ retained between them.
   (`q` present?) × (method). This is where url4's fall-through produces the
   confusing `404` that AC11 replaces, and a table makes the gap obvious.
 - **State transitions** — node pod lifecycle: starting → world built → ready →
-  saturated → draining. Assert readiness at each, particularly that *saturated* is
-  not *ready* (R5, gray failure).
+  saturated → draining. Assert readiness at each: *saturated* stays *ready* and sheds
+  with `503`; *draining* is not ready (`04-review-fixes.md` RD2).
 - **Pairwise** — the config matrix: section (`data`, `holdings`, `identities`) ×
   provider kind (`value`, `file`, `command`) × declared/absent. Full enumeration is
   small enough here that pairwise is a convenience, not a necessity.

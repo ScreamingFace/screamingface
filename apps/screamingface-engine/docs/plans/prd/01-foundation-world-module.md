@@ -193,7 +193,7 @@ assertion edits. Run before declaring the unit done.
 | A hidden dependency on handler state changes answer determinism | Medium | High | T5 golden parity; `answer_seed` covered explicitly |
 | Import cycle when splitting `world` out | Medium | Medium | `world` depends only on `packages/url4` and stdlib; T7 catches the rest |
 | The layering change is read as permission to blur the halves | Low | High | The rule comment names this document and states the narrowed wording |
-| A test-only import of `runner` from `world` slips in | Medium | Low | Layering check runs over `src/` and `tests/` alike |
+| A test-only import of `runner` from `world` slips in | Medium | Low | The layering check covers `src/`. Tests are not layered: a test may import both halves (`04-review-fixes.md` FX-71) |
 
 ## 7. Open questions
 
