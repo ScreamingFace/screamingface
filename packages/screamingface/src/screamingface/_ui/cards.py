@@ -6,6 +6,10 @@ from collections.abc import Mapping, Sequence
 from html import escape
 from typing import TYPE_CHECKING
 
+from screamingface._catalogue_vocabulary import (
+    DECLARED_DIFFICULTY_TIERS,
+    DECLARED_INTERACTION_TYPES,
+)
 from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.engine_origin import _is_hosted_engine
 from screamingface._ui.style import NO_MATH
@@ -95,9 +99,10 @@ def models_rows_html(records: Sequence[ModelInfo]) -> str:
     )
 
 
-# FEATURE: benchmark provenance tabs (OME-1114) — origin → (tab label, source URL).
+# FEATURE: benchmark provenance (OME-1114) — origin → (label, source URL), shown as
+# a per-row chip since the two-axis map landed (OME-1257).
 # WHY SDK-side: pure presentation of one server field; the Engine ships no links.
-# An origin absent from this map still renders — its own tab, named by the origin
+# An origin absent from this map still renders — a plain chip named by the origin
 # string, with no source link — so a newer Engine's new origin degrades gracefully.
 _ORIGIN_SOURCES: Mapping[str, tuple[str, str]] = {
     "screamingface": ("ScreamingFace", "https://leaderboard.dev.screamingface.ai/"),
@@ -106,38 +111,150 @@ _ORIGIN_SOURCES: Mapping[str, tuple[str, str]] = {
 
 
 def origin_label(origin: str) -> str:
-    """Human tab title for one origin; an unmapped origin names itself."""
+    """Human name for one origin; an unmapped origin names itself."""
 
     label, _ = _ORIGIN_SOURCES.get(origin, (origin, ""))
     return label
 
 
-def origin_source_html(origin: str) -> str:
-    """One escaped source-collection link for a mapped origin; empty otherwise."""
+def origin_chip_html(origin: str) -> str:
+    """One provenance chip per row — linked to its source collection when mapped.
 
-    _, url = _ORIGIN_SOURCES.get(origin, (origin, ""))
+    DON'T-REGRESS (OME-1114): the two-axis map (OME-1257) moved provenance from
+    top-level tabs to this per-row chip; the ours/imported distinction AND the
+    source-collection links must stay visible in the listing.
+    """
+
+    label, url = _ORIGIN_SOURCES.get(origin, (origin, ""))
     if not url:
-        return ""
+        return f"<span class='sf-chip'>{escape(label)}</span>"
     return (
-        f"<div class='sf-card__hint'><a href='{escape(url)}' target='_blank' "
-        f"rel='noopener'>{escape(url)}</a></div>"
+        f"<a class='sf-chip' href='{escape(url)}' target='_blank' "
+        f"rel='noopener'>{escape(label)}</a>"
     )
 
 
-def benchmark_origin_panel_html(origin: str, records: Sequence[Benchmark]) -> str:
-    """One tab body: the origin's source link above its benchmark rows."""
+# FEATURE: the two-axis catalogue map (OME-1257) — tier → (shelf title, one-line
+# tagline teaching what the shelf means). WHY SDK-side: pure presentation of one
+# server field, ordered by the shared vocabulary; the Engine ships no display text.
+# A tier absent from this map still renders — its own trailing shelf, named by the
+# Engine's word verbatim — so a newer Engine's new tier degrades gracefully.
+_TIER_PRESENTATION: Mapping[str, tuple[str, str]] = {
+    "easy": (
+        "Easy",
+        "Warm-up boards — material frontier models largely saturate; quick, cheap signal.",
+    ),
+    "medium": (
+        "Medium",
+        "Real headroom without expert stakes — knowledge exams, instruction following.",
+    ),
+    "hard": (
+        "Hard",
+        "Expert-written work today's best models visibly fail — where fusion gains matter most.",
+    ),
+}
+# The tier value the listing shows for a board whose Engine predates difficulty tiers.
+UNSPECIFIED_TIER_LABEL = "Unspecified"
+_INTERACTION_LABELS: Mapping[str, str] = {
+    "single_shot": "Single-shot",
+    "multi_turn": "Multi-turn",
+    "agentic": "Agentic",
+}
+# AIDEV-NOTE: "agentic" is a PRESENTATION-ONLY chip today — the Engine declares no such
+# interaction value yet (its InteractionType comment says agentic shapes arrive later).
+# The chip advertises the axis's future; reconcile this spelling with the Engine's when
+# the real declared value lands, and the conformance pin stays on the DECLARED tuples.
+_UPCOMING_INTERACTIONS: tuple[str, ...] = ("agentic",)
+_UNDECLARED_INTERACTION_LABEL = "Undeclared interaction"
 
-    return origin_source_html(origin) + benchmarks_rows_html(records)
+
+def tier_label(tier: str | None) -> str:
+    """Shelf title for one tier; None means an Engine that never declared one."""
+
+    if tier is None:
+        return UNSPECIFIED_TIER_LABEL
+    label, _ = _TIER_PRESENTATION.get(tier, (tier, ""))
+    return label
 
 
-def benchmark_origin_sections_html(
-    groups: Sequence[tuple[str, Sequence[Benchmark]]],
+def _tier_tagline_html(tier: str | None) -> str:
+    if tier is None:
+        return (
+            "<div class='sf-card__hint'>Boards from an Engine that predates difficulty tiers.</div>"
+        )
+    _, tagline = _TIER_PRESENTATION.get(tier, (tier, ""))
+    if not tagline:
+        return ""
+    return f"<div class='sf-card__hint'>{escape(tagline)}</div>"
+
+
+def interaction_label(interaction: str | None) -> str:
+    """Lane title for one interaction shape; an unmapped shape names itself."""
+
+    if interaction is None:
+        return _UNDECLARED_INTERACTION_LABEL
+    return _INTERACTION_LABELS.get(interaction, interaction)
+
+
+def difficulty_chip_options() -> tuple[tuple[str, str | None], ...]:
+    """(label, wire value) pairs for the widget's Difficulty chips — All first.
+
+    FEATURE: clickable facet chips over the catalogue (OME-1257). ``None`` is the
+    All chip's value: no filter on this axis.
+    """
+
+    return (("All", None), *((tier_label(tier), tier) for tier in DECLARED_DIFFICULTY_TIERS))
+
+
+def interaction_chip_options() -> tuple[tuple[str, str | None], ...]:
+    """(label, wire value) pairs for the widget's Interaction chips — All first.
+
+    WHY the upcoming values appear: an "Agentic" chip over an empty lane teaches the
+    reader where agentic boards will land, exactly like the always-shown lane headers.
+    """
+
+    values: tuple[str, ...] = (*DECLARED_INTERACTION_TYPES, *_UPCOMING_INTERACTIONS)
+    return (("All", None), *((interaction_label(value), value) for value in values))
+
+
+def catalog_empty_html(message: str) -> str:
+    """One escaped empty-state line for a catalogue body with nothing to show."""
+
+    return f"<div class='sf-catalog__empty'>{escape(message)}</div>"
+
+
+def benchmark_tier_panel_html(
+    tier: str | None,
+    lanes: Sequence[tuple[str | None, Sequence[Benchmark]]],
 ) -> str:
-    """Static fallback for the tabbed catalogue: one titled section per origin."""
+    """One shelf: the tier's tagline, then one interaction lane per group.
+
+    WHY lanes render even as a single group: the interaction axis is half the map —
+    showing "Single-shot" over today's boards teaches the reader where multi-turn
+    and agentic lanes will appear as they land (OME-1257).
+    """
+
+    if not lanes:
+        return _tier_tagline_html(tier) + benchmarks_rows_html(())
+    # WHY the sub color: the lane header must read as SUBORDINATE to the tier title
+    # above it — same mono small-caps register, one step softer ink (existing tokens
+    # only; no new styles).
+    body = "".join(
+        "<div class='sf-section__title sf-catalog__sub'>"
+        f"{escape(interaction_label(interaction))}</div>" + benchmarks_rows_html(records)
+        for interaction, records in lanes
+    )
+    return _tier_tagline_html(tier) + body
+
+
+def benchmark_tier_sections_html(
+    sections: Sequence[tuple[str | None, Sequence[tuple[str | None, Sequence[Benchmark]]]]],
+) -> str:
+    """Static fallback for the tabbed map: one titled shelf per tier, easy→hard."""
 
     return "".join(
-        _section(origin_label(origin), benchmark_origin_panel_html(origin, records))
-        for origin, records in groups
+        _section(tier_label(tier), benchmark_tier_panel_html(tier, lanes))
+        for tier, lanes in sections
     )
 
 
@@ -147,8 +264,10 @@ def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
     return "".join(
         "<div class='sf-catalog__row'>"
         f"<div class='sf-catalog__id'>{escape(record.title)}</div>"
-        f"{_tags(_chip(record.id) + _chip(f'{record.case_count} cases'))}"
-        f"<div class='sf-card__hint'>{escape(record.description)}</div></div>"
+        + _tags(
+            _chip(record.id) + _chip(f"{record.case_count} cases") + origin_chip_html(record.origin)
+        )
+        + f"<div class='sf-card__hint'>{escape(record.description)}</div></div>"
         for record in records
     )
 
@@ -319,8 +438,9 @@ def _status_chips(client: _ClientLike) -> str:
 
 
 def _status_chip(text: str) -> str:
-    # WHY: neutral (muted) chips keep gold rationed to the win — a client is not a "win".
-    return f"<span class='sf-chip sf-chip--muted'>{escape(text)}</span>"
+    # WHY plain sf-chip: every card chip is neutral now — SFDS v2 rations gold to the
+    # win, and no data chip is a win. The former --muted modifier became the base look.
+    return f"<span class='sf-chip'>{escape(text)}</span>"
 
 
 __all__: list[str] = []
