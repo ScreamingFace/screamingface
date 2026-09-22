@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -73,6 +74,12 @@ def _submission(
         total_questions=100,
         correct_questions=75,
         ran_with_providers=ran_with_providers or ["openrouter"],
+        # OME-822: a cost and its status are now required on every direct submission. Added here
+        # as an approved Confidence-Gate exception (2026-09-21) — 18 tests in this file fail
+        # without it, all through this one constructor, and not one of them mentions cost or
+        # changes an assertion. The cheapest honest fixture is a priced run.
+        run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
     )
 
 

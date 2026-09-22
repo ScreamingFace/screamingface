@@ -100,6 +100,18 @@ class BaseScore(BaseScoreboardModel):
     # recipe already submitted without a cost cannot later gain one — the
     # resubmission dedups to the existing row.
     run_cost_usd = fields.DecimalField(max_digits=12, decimal_places=6, null=True)
+    # FEATURE: OME-822 / OME-1251 D1 — why `run_cost_usd` is absent, when it is.
+    #
+    # INVARIANT: STORED, not derived at submit time. `ranking_notice` is built in
+    # `_submission_response` via `model_copy` and never persisted; a revision mismatch survives
+    # that because it is recomputable on read, by comparing the stored revision against the
+    # registered one. Unpriced-ness is NOT recomputable — once the amount is null, nothing
+    # distinguishes "the client said it could not be priced" from "this row predates the field".
+    # That distinction is what keeps the Pareto frontier honest, so it lives in a column.
+    #
+    # NULL means the row predates OME-822 (an imported baseline, or an older submission), which
+    # is a different fact from the stored value "unavailable".
+    run_cost_status = fields.CharField(max_length=16, null=True)
     # INVARIANT: sha256 hex over the submission's recipe identity (benchmark, spec,
     # url4 expression, result numbers, provider order) — NOT submitted_by or client
     # metadata. Unique so the DB itself rejects a duplicate recipe, independent of

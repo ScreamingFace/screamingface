@@ -30,6 +30,8 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
         "total_questions": 4,
         "correct_questions": 3,
         "ran_with_providers": ["openai"],
+        "run_cost_usd": "1.250000",
+        "run_cost_status": "complete",
         "ran_at_local": "2026-05-21T12:00:00+00:00",
         "client": {"name": "scoreboard-test", "version": "0.1.0", "platform": "test"},
         "metadata": {"source": "unit"},
@@ -220,6 +222,50 @@ async def test_post_score_future_version_returns_422(score_client: AsyncClient) 
 
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["body", "version"]
+
+
+@pytest.mark.parametrize("run_cost_usd", [None, pytest.param("omitted", id="omitted")])
+async def test_post_score_still_accepts_a_deployed_client_payload(
+    score_client: AsyncClient,
+    run_cost_usd: str | None,
+) -> None:
+    """EXPAND phase: a client that sends no status must keep submitting (OME-1258).
+
+    Rewritten twice. The first version asserted cost required and non-nullable, which would have
+    forced an unpriceable run to send `0`. The second asserted that silence is rejected — the
+    point of OME-822 — but that is UNDEPLOYABLE: the live SDK sends `run_cost_usd` and no status
+    (`leaderboards.py:445` on main), so it would 422 every real submission the moment this
+    deployed, and the client cannot ship first because an older board is `extra="forbid"`
+    (review of PR #841, 2026-09-22).
+
+    Refusing silence moves to `OME-1258`, after `OME-1252` is released and confirmed live. This
+    test is what stops that refusal arriving early.
+    """
+    payload = _valid_payload(run_cost_usd=run_cost_usd)
+    payload.pop("run_cost_status")
+    if run_cost_usd == "omitted":
+        payload.pop("run_cost_usd")
+
+    response = await score_client.post("/v1/scores", json=payload)
+
+    assert response.status_code == 201, response.text
+
+
+@pytest.mark.parametrize("status", ["partial", "unavailable"])
+async def test_post_score_accepts_a_run_whose_cost_is_not_derivable(
+    score_client: AsyncClient,
+    status: str,
+) -> None:
+    # The state the earlier contract had no legal spelling for. A run with a known score and an
+    # unknown cost is a legitimate result with one missing field, not a defective submission.
+    payload = _valid_payload()
+    payload.pop("run_cost_usd")
+    payload["run_cost_status"] = status
+
+    response = await score_client.post("/v1/scores", json=payload)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["run_cost_usd"] is None
 
 
 async def test_post_score_url4_expression_too_long_returns_422(
@@ -417,6 +463,14 @@ async def test_openapi_schema_includes_new_endpoints(score_client: AsyncClient) 
     assert post_score["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/ScoreSubmission",
     )
+    # OME-822/OME-1251 D1: both cost fields are PUBLISHED but neither is required during the
+    # expand phase — the deployed SDK sends no status, so requiring it would 422 every live
+    # submission on deploy (`OME-1258` flips it). The pairing between them is enforced by a
+    # model validator, which OpenAPI cannot express either way.
+    submission_schema = response.json()["components"]["schemas"]["ScoreSubmission"]
+    assert "run_cost_status" in submission_schema["properties"]
+    assert "run_cost_status" not in submission_schema["required"]
+    assert "run_cost_usd" not in submission_schema["required"]
     assert post_score["responses"]["201"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/ScoreSchema",
     )

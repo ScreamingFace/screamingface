@@ -45,6 +45,9 @@ def _validate_run_cost(value: Decimal | None) -> Decimal | None:
     Those constraints run BEFORE this validator, so they would reject the very
     values it exists to normalize.
     """
+    # OME-822: absent is legal again, but only beside a status saying the amount is
+    # unknowable — `ScoreSubmission.validate_cost_matches_its_status` enforces that
+    # pairing. There is nothing to normalize here.
     if value is None:
         return None
     # ge=0 on the field already rejects negatives, and NaN fails that comparison,
@@ -126,6 +129,22 @@ RunCostUsd = Annotated[
     Decimal | None,
     PlainSerializer(_serialize_run_cost, return_type=str | None, when_used="json"),
 ]
+
+# FEATURE: OME-822 / OME-1251 D4 — whether a submitted cost can be believed as a number.
+#
+# INVARIANT: a RUN-level vocabulary, NOT the gateway's per-call `DirectCostStatus`. A run is many
+# calls; no member of that vocabulary can say "forty priced, three not", which is the common case.
+#
+#   complete     every component priced — the amount is exact and is stored
+#   partial      the amount is not derivable, but cache saved-cost evidence exists, so a real
+#                lower bound is known even though the total is not
+#   unavailable  not derivable and no cost evidence at all
+#
+# `partial` and `unavailable` behave identically today — both store a null amount and so leave
+# every cost-bearing surface. The distinction is kept because this is a STORED column: if the
+# board ever shows a lower bound somewhere, `partial` is the set it applies to, and widening the
+# vocabulary later would cost a migration plus another one-directional client rollout.
+RunCostStatus = Literal["complete", "partial", "unavailable"]
 
 # INVARIANT: a baseline's metadata is operator-supplied (via the import CLI, not a
 # public HTTP endpoint) but still bounded, so one bad import can't make
@@ -388,17 +407,11 @@ class ScoreSubmission(BaseModel):
     # (D-SCORE-006). Persisted onto the flat client_* columns by the store.
     client: ClientInfo | None = None
     metadata: dict[str, Any] | None = None
-    # INVARIANT: absent (None) means "no cost was reported" and is NOT the same as
-    # 0. A fully cache-served run genuinely costing nothing is a legitimate 0, so
-    # OME-770's Pareto frontier must exclude None rather than rank it as the
-    # cheapest entry. Decimal, not float — this is money.
-    #
-    # AIDEV-NOTE: optional only because nothing emits a run cost yet (OME-303 is
-    # unmerged, the Engine does not roll per-call cost into a run total, and the
-    # Client has no field for it), and because the column lands on an already
-    # populated table. Once a client can send it, a direct submission arriving
-    # without one is a client bug and should be REJECTED — null then means
-    # "imported or legacy" only. Tracked on OME-770.
+    # INVARIANT (OME-822): every direct submission reports a cost. A fully
+    # cache-served run genuinely costing nothing is represented by 0; omission or
+    # null is a client bug and is rejected by this non-nullable required field.
+    # Database and read DTOs deliberately remain nullable because imported and
+    # legacy rows can still have no known cost. Decimal, not float — this is money.
     # INVARIANT: the request contract mirrors the column exactly — DECIMAL(12, 6).
     # `ge=0` alone let three failures through, each reproduced live:
     #   0.0000009 -> accepted (201) and silently stored as 0.000001, publishing a
@@ -414,7 +427,60 @@ class ScoreSubmission(BaseModel):
     # requires us to quantize and accept. `ge=0` stays here (it also rejects NaN,
     # which fails the comparison); allow_inf_nan=False stops +Infinity, which
     # would pass ge=0 and then raise inside quantize().
+    #
+    # OME-822/OME-1251 D1: OPTIONAL again, but only because `run_cost_status` now carries the
+    # obligation. An absent amount is legal ONLY beside a status that says it is unknowable, and
+    # the model validator below enforces that pairing. Omitting both is still rejected.
     run_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # INVARIANT (OME-1251 D4): a RUN-level vocabulary, deliberately not the gateway's per-call
+    # `DirectCostStatus`. A run has many calls, and no member of that vocabulary can express
+    # "forty priced, three not" — the common case and the one that matters.
+    #
+    # OPTIONAL, and that is the EXPAND half of a deliberate expand/contract split (OME-1258).
+    #
+    # WHY not required, which is what OME-822 asks for: the deployed SDK sends `run_cost_usd`
+    # and no status (`packages/screamingface/.../leaderboards.py:445` on main). A required field
+    # here 422s EVERY live submission the moment this deploys — including payloads carrying a
+    # perfectly good cost — and the client cannot ship first either, because an older board is
+    # `extra="forbid"` and rejects the unknown field. That is a deadlock, and this PR's own
+    # documented deploy order could not work (review of PR #841, 2026-09-22).
+    #
+    # `OME-1258` flips it to required once `OME-1252` is released and confirmed live in the SDK
+    # version submitters actually run. Until then silence is accepted, which is precisely the
+    # thing OME-822 exists to stop — so the flip is a ticket, not a maybe.
+    run_cost_status: RunCostStatus | None = None
+
+    @model_validator(mode="after")
+    def validate_cost_matches_its_status(self) -> ScoreSubmission:
+        """INVARIANT: when a status IS given, `complete` if and only if an amount is present.
+
+        A contract admitting two spellings of the same fact gets both, and the board then has to
+        guess which one the client meant. `complete` asserts an exact amount, so asserting it
+        without one is incoherent; an amount beside a status saying it is unknowable is the same
+        incoherence from the other side. Refusing both keeps `run_cost_status` a fact about the
+        amount rather than a second opinion on it.
+
+        INVARIANT: an ABSENT status beside an amount resolves to `complete`. That is not a guess
+        — an amount IS the claim the status would make. Resolving here rather than at the store
+        means the submission object, the stored row and the response all carry the same fact,
+        and it keeps pre-OME-1252 clients producing correctly labelled rows instead of a
+        population the flip in `OME-1258` would have to clean up afterwards.
+
+        An absent status with no amount stays absent: that is a legacy-shaped row, and the board
+        genuinely does not know whether the client looked. `OME-1258` is what starts refusing it.
+        """
+        if self.run_cost_status is None:
+            if self.run_cost_usd is not None:
+                self.run_cost_status = "complete"
+            return self
+        priced = self.run_cost_status == "complete"
+        if priced and self.run_cost_usd is None:
+            raise ValueError("run_cost_usd is required when run_cost_status is 'complete'")
+        if not priced and self.run_cost_usd is not None:
+            raise ValueError(
+                f"run_cost_usd must be absent when run_cost_status is {self.run_cost_status!r}"
+            )
+        return self
 
     @field_validator("authors")
     @classmethod
@@ -514,7 +580,23 @@ class BenchmarkSchema(BaseModel):
 
 
 class ScoreRankingNotice(BaseModel):
-    """Why a successfully persisted score will not enter the current ranking."""
+    """Why a successfully persisted score will not enter the current ranking.
+
+    AIDEV-NOTE: "the current ranking", literally. This is for a row that is stored and readable
+    but ABSENT FROM THE RANKED BOARD. It is not a general "something about this row is off"
+    channel, and widening it to one costs the type its meaning.
+
+    An unpriced run (OME-822, `run_cost_status` of `partial` or `unavailable`) deliberately does
+    NOT use this, and `OME-1251` D2's original wording — which said it would — was withdrawn for
+    that reason. Such a row DOES rank: its score is known and not in doubt. It is absent only
+    from the Pareto frontier and the other surfaces that read cost as a number. Giving it a
+    notice here would assert something false about it on every read.
+
+    `run_cost_status` already travels on `ScoreSchema`, so the client is told why its cost is
+    missing without a second, worse-shaped carrier. Note also that the two fields below are
+    revision-specific and required — a member added for any other reason would have to make
+    them optional, which weakens the shape for the one case that does belong here.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -569,6 +651,22 @@ class ScoreSchema(BaseModel):
     # classification registry. Operator-only, never set via ScoreSubmission.
     openness_override: Literal["open", "closed"] | None = None
     run_cost_usd: RunCostUsd
+    # FEATURE: OME-822 / OME-1251 D1 — why this row's cost is absent, when it is.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for exactly the reason `models` above records. This schema
+    # feeds the private JSONL export whose bytes authorize a purge; emitting
+    # `"run_cost_status": null` on every legacy row would change every export saved before this
+    # field existed, with no row having changed, and a previously certified export could no
+    # longer authorize its own purge.
+    #
+    # INVARIANT: null here is NOT the same as `unavailable`. Null means the row predates this
+    # field — an imported baseline, or a submission from before OME-822. `unavailable` means a
+    # client looked and could not determine the cost. Collapsing the two would lose the
+    # distinction the Pareto frontier depends on.
+    run_cost_status: RunCostStatus | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
     # mismatch supplied by POST remains visible and documented in the shared schema.
