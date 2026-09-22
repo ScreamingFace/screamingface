@@ -57,6 +57,8 @@ def test_board_identity_and_declaration() -> None:
     assert board.declaration.as_block() == {
         "failure_policy": "coverage_declare",
         "interaction": "single_shot",
+        # OME-1257: grade-school material frontier models saturate.
+        "difficulty": "easy",
     }
     assert board.case_count == 1319
     assert board.dataset_url is not None and "gsm8k" in board.dataset_url

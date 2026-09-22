@@ -180,6 +180,9 @@ CONTRACTEVAL = Benchmark(
         failure_policy="coverage_declare",
         # One Candidate invocation per Case.
         interaction="single_shot",
+        # Specialized legal extraction with real headroom, but deterministic string
+        # containment over given text — no expert-frontier stakes (OME-1257).
+        difficulty="medium",
     ),
     # AIDEV-NOTE: no check_surface — deliberately, matching MedXpertQA. The declaration is a
     # promise the SDK trusts BEFORE spend: declaring one without serving the route lets a

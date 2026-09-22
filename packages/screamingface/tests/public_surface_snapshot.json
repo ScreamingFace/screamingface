@@ -107,10 +107,12 @@
       "Benchmark": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int', origin: 'str' = 'screamingface') -> None",
+          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int', origin: 'str' = 'screamingface', interaction: 'str | None' = None, difficulty: 'str | None' = None) -> None",
           "case_count": "field",
           "description": "field",
+          "difficulty": "field",
           "id": "field",
+          "interaction": "field",
           "origin": "field",
           "revision": "field",
           "title": "field"

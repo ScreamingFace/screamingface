@@ -71,6 +71,7 @@ def _benchmark(benchmark_id: str) -> Benchmark:
         declaration=BenchmarkDeclaration(
             failure_policy="coverage_declare",
             interaction="single_shot",
+            difficulty="easy",
         ),
     )
 

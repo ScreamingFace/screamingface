@@ -44,6 +44,7 @@ def _benchmark(
         declaration=BenchmarkDeclaration(
             failure_policy="coverage_declare",
             interaction="single_shot",
+            difficulty="easy",
         ),
     )
     return build() if origin is None else build(origin=origin)

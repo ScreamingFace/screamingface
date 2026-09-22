@@ -22,6 +22,8 @@ class _BenchmarkEntry:
     revision: str
     case_count: int
     origin: str
+    interaction: str | None
+    difficulty: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +130,8 @@ def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
         revision=_wire_text(item.get("revision"), "Benchmark revision", _catalog_invalid),
         case_count=case_count,
         origin=_benchmark_origin(item),
+        interaction=_optional_axis(item, "interaction"),
+        difficulty=_optional_axis(item, "difficulty"),
     )
 
 
@@ -145,6 +149,22 @@ def _benchmark_origin(item: Mapping[str, object]) -> str:
     if "origin" not in item:
         return "screamingface"
     return _wire_text(item.get("origin"), "Benchmark origin", _catalog_invalid)
+
+
+def _optional_axis(item: Mapping[str, object], key: str) -> str | None:
+    """Carry one grouping axis verbatim; older Engines mean 'never declared'.
+
+    FEATURE: two-axis catalogue grouping (OME-1257).
+    INVARIANT: an ABSENT key decodes as None (an Engine predating the axis — unlike
+    ``origin`` there is no true-fact default to state), while a PRESENT key must be
+    non-blank text: a blank or non-string value is Engine data corruption, surfaced
+    as a catalogue defect rather than coerced to None. The SDK never validates the
+    value against the Engine's closed set (origin tolerance doctrine, OME-1114).
+    """
+
+    if key not in item:
+        return None
+    return _wire_text(item.get(key), f"Benchmark {key}", _catalog_invalid)
 
 
 def _catalog_invalid(message: str) -> NoReturn:

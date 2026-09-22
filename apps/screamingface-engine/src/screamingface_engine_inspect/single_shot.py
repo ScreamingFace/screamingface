@@ -33,6 +33,7 @@ from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
     CheckSurface,
+    DifficultyTier,
     candidate,
 )
 from screamingface_engine.benchmarks.deployment import (
@@ -159,6 +160,7 @@ def single_shot_board(
     prepare: BenchmarkAssetPreparer,
     install: Callable[[Url4Node, Path], None],
     with_check_surface: bool,
+    difficulty: DifficultyTier,
     multiple_correct: bool = False,
 ) -> ImportedBoard:
     """Assemble one imported single-shot board from its declarations.
@@ -176,6 +178,8 @@ def single_shot_board(
     Args:
         board_key: the flat identity tail ("gsm8k" → benchmark id "inspect-gsm8k").
         title, description, focus, dataset_url: leaderboard display fields (OME-904).
+        difficulty: the catalogue's hand-assigned easy→hard tier, authored on the
+            BoardSpec row (OME-1257).
         case_count: rows in the pinned split — the board's declared exam size.
         revision_pins: every dataset fact that participates in exam identity.
         scorer_factory: zero-arg callable returning the imported eval's scorer.
@@ -243,6 +247,9 @@ def single_shot_board(
             # publishes coverage — the declaration matches the code (OME-1039).
             failure_policy="coverage_declare",
             interaction="single_shot",
+            # The tier is authored on the BoardSpec row (the imported board's one
+            # authoring site) and threaded through verbatim (OME-1257).
+            difficulty=difficulty,
         ),
         check_surface=(
             CheckSurface(

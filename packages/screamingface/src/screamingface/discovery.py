@@ -279,11 +279,20 @@ class Benchmark:
     case_count: int
     # FEATURE: provenance tabs (OME-1114) — origin verbatim, open set; default = old Engines.
     origin: str = "screamingface"
+    # FEATURE: two-axis catalogue grouping (OME-1257) — the served interaction and
+    # difficulty verbatim, open set; None = an Engine that predates the axis (no
+    # true-fact default exists: a tier nobody assigned is not a tier).
+    interaction: str | None = None
+    difficulty: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _benchmark_id(self.id))
         for name in ("title", "description", "revision", "origin"):
             object.__setattr__(self, name, _nonblank(getattr(self, name), f"Benchmark {name}"))
+        for name in ("interaction", "difficulty"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _nonblank(value, f"Benchmark {name}"))
         if (
             isinstance(self.case_count, bool)
             or not isinstance(self.case_count, int)

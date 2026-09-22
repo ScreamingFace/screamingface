@@ -648,6 +648,10 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
         '        description="TODO",',
         '        focus="TODO",',
         f'        dataset_url="https://huggingface.co/datasets/{facts.dataset}",',
+        "        # TODO(review): assign the catalogue's easy→hard tier (OME-1257) —",
+        '        # "easy" | "medium" | "hard". The literal TODO is',
+        "        # refused by name at registration, so an unassigned tier cannot ship.",
+        '        difficulty="TODO",  # type: ignore[arg-type]',
         # WHY two lines: a long task_ref must never push a generated line past
         # the 100-column lint gate.
         "        # Provenance: this scorer is declared by the Task of",
