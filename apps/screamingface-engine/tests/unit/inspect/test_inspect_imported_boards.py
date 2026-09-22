@@ -43,12 +43,13 @@ _EXPECTED_FAMILIES: dict[str, bool] = {
     "race_h": True,
     "paws": False,
     "boolq": False,
+    "aime24": False,
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
 
 
-def test_catalogue_holds_all_ten_imported_boards() -> None:
+def test_catalogue_holds_every_imported_board() -> None:
     """OME-1116 acceptance: ≥10 imported boards; the row table IS the catalogue."""
 
     assert {spec.key for spec in BOARDS} == set(_EXPECTED_FAMILIES)
@@ -149,4 +150,19 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     was the 2026-09-17 review blocker, and this set is its regression pin."""
 
     seeded: set[str] = {key for key, spec in SNAPSHOTS.items() if spec.shuffle_seed is not None}
-    assert seeded == {"mmlu", "commonsense_qa", "mmlu_pro", "race_h", "paws", "boolq"}
+    # aime24: OURS policy seed (owner-approved 2026-09-22) — upstream serves dataset
+    # order (AIME I then II, roughly ascending difficulty within each), so an unseeded
+    # import would give a limited run only the easier AIME I half.
+    assert seeded == {"mmlu", "commonsense_qa", "mmlu_pro", "race_h", "paws", "boolq", "aime24"}
+
+
+def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
+    """The aime24 sha is COPIED from the eval's own pinned constant (upstream pins
+    win at import time) — a dependency bump that moves upstream's pin must fail
+    here instead of silently serving a different exam than the eval means."""
+
+    from inspect_evals.aime2024.aime2024 import AIME2024_DATASET_REVISION
+
+    from screamingface_engine_inspect.pins import AIME24_DATASET_REVISION
+
+    assert AIME24_DATASET_REVISION == AIME2024_DATASET_REVISION
