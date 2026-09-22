@@ -53,6 +53,10 @@ class _RunState:
         self._started_at: datetime | None = None
         self._result: tuple[str | None, str | None, _ResultArtifact | None] | None = None
         self._root_usage: AccountingUsage | None = None
+        # None, not Decimal(0): "no priceable saving observed" is a different fact from "saved
+        # nothing", and the run-level status derivation reads exactly that difference.
+        self._saved_cost_usd: Decimal | None = None
+        self._saved_cost_archive_usd: Decimal | None = None
         self._last_sequence = 0
         self._event_ids: set[str] = set()
         self._consecutive_replay_requests = 0
@@ -170,7 +174,16 @@ class _RunState:
         return _Accepted(event=_log(envelope, data))
 
     def _span(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        return _Accepted(event=_span(envelope, data))
+        span = _span(envelope, data)
+        # INVARIANT (OME-1252): accumulate the two provenances SEPARATELY, and never a third
+        # holding their sum. Each producing field is already a span total, so summing across the
+        # run's spans reproduces the engine's own figure — the contract stated on the wire field
+        # and asserted engine-side by `test_cache_saved_cost_spans.py`.
+        self._saved_cost_usd = _accumulated(self._saved_cost_usd, span.cache_saved_cost_usd)
+        self._saved_cost_archive_usd = _accumulated(
+            self._saved_cost_archive_usd, span.cache_saved_cost_archive_usd
+        )
+        return _Accepted(event=span)
 
     def _usage(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
         usage_event = _usage(envelope, data)
@@ -229,6 +242,8 @@ class _RunState:
                 result_body=self._result[0],
                 media_type=self._result[1],
                 root_usage=self._root_usage,
+                cache_saved_cost_usd=self._saved_cost_usd,
+                cache_saved_cost_archive_usd=self._saved_cost_archive_usd,
                 artifact=self._result[2],
             ),
         )
@@ -352,7 +367,28 @@ def _span(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Span:
         refusal=_optional_text(data.get("refusal"), "span refusal"),
         cache_status=_cache_status(data.get("cache_status")),
         cache_reason=_optional_text(data.get("cache_reason"), "span cache_reason"),
+        # OME-1252: the counterfactual this span's hits avoided, one field per provenance.
+        # Absent is not zero — `None` means nothing priceable was saved, which is a different
+        # claim from "saved nothing".
+        cache_saved_cost_usd=_optional_saved_cost(
+            data.get("cache_saved_cost_usd"), "span cache_saved_cost_usd"
+        ),
+        cache_saved_cost_archive_usd=_optional_saved_cost(
+            data.get("cache_saved_cost_archive_usd"), "span cache_saved_cost_archive_usd"
+        ),
     )
+
+
+def _optional_saved_cost(value: object, label: str) -> Decimal | None:
+    """A counterfactual amount, or None when the producer reported none.
+
+    INVARIANT: absent stays absent. Defaulting to `Decimal(0)` would turn "nothing priceable was
+    saved" into "a hit worth nothing", and the run-level derivation reads exactly that difference
+    to tell `partial` from `unavailable`.
+    """
+    if value is None:
+        return None
+    return _decimal(value, label)
 
 
 def _usage(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Usage:
@@ -586,6 +622,18 @@ def _timestamp(value: object) -> datetime:
 
 def _optional_timestamp(value: object) -> datetime | None:
     return None if value is None else _timestamp(value)
+
+
+def _accumulated(total: Decimal | None, amount: Decimal | None) -> Decimal | None:
+    """Add one span's contribution, keeping absent distinct from zero.
+
+    INVARIANT: a run that observed nothing priceable stays `None`. Seeding with `Decimal(0)`
+    would make every run look like it saved nothing, which reads as evidence where there is
+    none — and `partial` vs `unavailable` turns on precisely that.
+    """
+    if amount is None:
+        return total
+    return amount if total is None else total + amount
 
 
 def _decimal(value: object, label: str) -> Decimal:

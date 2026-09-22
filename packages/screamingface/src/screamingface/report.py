@@ -11,7 +11,7 @@ from decimal import Decimal
 from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, overload
+from typing import Literal, cast, overload
 
 from screamingface._evaluation.model import _canonical_url4
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
@@ -39,6 +39,15 @@ from screamingface.operation_accounting import OperationAccounting, OperationCac
 from screamingface.url4 import Url4
 
 type RecipeKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
+# FEATURE: OME-1252 / OME-1251 D4 — whether this run's reported cost can be believed as a
+# number. A RUN-level vocabulary, deliberately not the gateway's per-call `DirectCostStatus`:
+# a run is many calls, and no member of that one can say "forty priced, three not".
+#
+#   complete     every component priced — `usage.cost_usd` is exact
+#   partial      not derivable, but provider-authored cache savings were observed, so a real
+#                lower bound exists even though the total does not
+#   unavailable  not derivable, and no such evidence
+type RunCostStatus = Literal["complete", "partial", "unavailable"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -190,6 +199,10 @@ class CandidateResult:
     members: tuple[MemberResult, ...]
     failures: tuple[Failure, ...]
     usage: Usage
+    # INVARIANT: a fact ABOUT `usage.cost_usd`, not a second opinion on it. `complete` asserts
+    # the amount is exact; the other two assert it is absent. The Scoreboard refuses the
+    # mismatched pair, so the Client must not produce one.
+    run_cost_status: RunCostStatus
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
 
     def __init__(
@@ -211,6 +224,7 @@ class CandidateResult:
         members: Sequence[MemberResult],
         failures: Sequence[Failure],
         usage: Usage,
+        run_cost_status: RunCostStatus | None = None,
         trace_id: str | None = None,
         answer_seed: int | None = None,
     ) -> None:
@@ -273,6 +287,7 @@ class CandidateResult:
             "members": selected_members,
             "failures": selected_failures,
             "usage": _usage(usage, "Candidate"),
+            "run_cost_status": _run_cost_status(run_cost_status, usage),
             "_metric_items": metric_items,
         }
         for attribute, value in values.items():
@@ -644,6 +659,34 @@ def _combined_usage(values: tuple[Usage, ...]) -> Usage:
         reasoning_tokens=total("reasoning_tokens"),
         cost_usd=cost,
     )
+
+
+def _run_cost_status(value: object, usage: Usage) -> RunCostStatus:
+    """Narrow the status, and refuse one that contradicts the amount beside it.
+
+    INVARIANT: `complete` if and only if an amount is present. The Scoreboard enforces the same
+    pairing and rejects the mismatch, so producing one here only moves a 422 from submit time to
+    the field. `complete` asserts an exact cost; asserting it without one is incoherent, and an
+    amount beside a status saying the cost is unknowable is the same incoherence reversed.
+
+    WHY absent INFERS rather than defaulting to a member: the status is a fact ABOUT the amount,
+    so a caller who supplied only an amount has already said everything needed. A literal default
+    would have to be wrong for one of the two cases — and `"complete"` was, for every unpriced
+    fixture in the suite. `partial` is never inferred: it needs cache evidence the amount alone
+    cannot carry, so only `_evaluation/results.py` can name it.
+    """
+    if value is None:
+        return "complete" if usage.cost_usd is not None else "unavailable"
+    if value not in ("complete", "partial", "unavailable"):
+        raise ValueError(
+            "Candidate run_cost_status must be 'complete', 'partial', or 'unavailable'"
+        )
+    priced = value == "complete"
+    if priced and usage.cost_usd is None:
+        raise ValueError("a Candidate with run_cost_status 'complete' must carry a cost")
+    if not priced and usage.cost_usd is not None:
+        raise ValueError(f"a Candidate with a cost cannot have run_cost_status {value!r}")
+    return cast("RunCostStatus", value)
 
 
 def _optional_number(value: object, label: str) -> float | None:

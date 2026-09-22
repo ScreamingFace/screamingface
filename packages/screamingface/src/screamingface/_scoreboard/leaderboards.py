@@ -457,7 +457,12 @@ def _submission(
         "models": _submission_models(candidate_result.models),
         "ran_with_providers": list(_providers(candidate_result.models)),
         "ran_at_local": _timestamp_text(candidate_result.completed_at),
+        # INVARIANT (OME-1252 / OME-1251 D1): the amount and its status travel as a validated
+        # PAIR. The board refuses `complete` without an amount and an amount beside any other
+        # status, so sending a mismatched pair only moves a 422 from submit time into the field.
+        # `_run_cost_status` on the result already enforces the same rule at construction.
         "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
+        "run_cost_status": candidate_result.run_cost_status,
         "client": {
             "name": "screamingface",
             "version": _package_version(),

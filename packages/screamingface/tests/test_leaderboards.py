@@ -1347,6 +1347,11 @@ def test_the_submission_payload_gains_only_the_cost_key() -> None:
         "ran_with_providers",
         "ran_at_local",
         "run_cost_usd",
+        # OME-1252: what the cost beside it is worth. Added as an approved Confidence-Gate
+        # exception (2026-09-22) — this guard exists so a DELIBERATE payload change is recorded
+        # rather than absorbed, which is exactly what this line does. The set stays exhaustive;
+        # nothing is removed and no assertion is loosened.
+        "run_cost_status",
         "client",
         "metadata",
     }
