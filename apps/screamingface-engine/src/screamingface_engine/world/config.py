@@ -26,7 +26,10 @@ world both halves consume.
 ``[data]``, ``[holdings]`` and ``[identities]`` are parsed here (F3, prd/02) and delegated to
 url4's own resolvers, so provider semantics have exactly one owner. ``[commands]`` stays reserved:
 its argv templates are exec mounts and the node tier has no sandbox for them, so declaring one is
-a loud error — a config that looks like it works must not silently serve nothing.
+a loud error — a config that looks like it works must not silently serve nothing. A
+``command``-backed provider is refused in EVERY read-side section for the same reason (R12):
+url4 runs a subprocess for it wherever it is declared, so ``[data]``, ``[holdings]`` and
+``[identities]`` all reject it at load rather than expose the exec surface at the node tier.
 
 # AIDEV-NOTE: delegation to url4's `_config` resolvers replaces the old duplication of
 # `_serve.py`'s parsing (F3). The provider rules — value/file/command, the `default` shelf, the
@@ -38,7 +41,7 @@ from __future__ import annotations
 
 import json
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -304,26 +307,63 @@ def _parse_read_side(
         identities = _toml_identity_map(raw.get("identities"))
     except Url4ConfigError as exc:
         raise WorldConfigError(f"invalid world config: {exc}") from exc
-    _reject_command_backed_data(data)
+    _reject_command_backed_read_side(data, holdings, identities)
     return data, holdings, identities
 
 
-def _reject_command_backed_data(data: Mapping[str, ProviderSpec]) -> None:
-    """Refuse a command-backed `[data]` route — an exec mount the node tier cannot sandbox.
+def _reject_command_backed_read_side(
+    data: Mapping[str, ProviderSpec],
+    holdings: Mapping[str | None, ProviderSpec],
+    identities: Mapping[str, Mapping[str | None, ProviderSpec]],
+) -> None:
+    """Refuse a command-backed read-side provider — an exec mount the node tier cannot sandbox.
 
     WHY reject rather than skip: a skipped mount becomes a production 404 with no explanation,
-    while this names the path and the provider kind so the operator fixes the declaration. WHY
-    only `[data]`: D2 restricts data providers to value/file; holdings and identities are
-    operator-declared shelves and are accepted whole (prd/02 F3).
+    while this names each offending declaration so the operator fixes it.
+
+    WHY every read-side section and not just ``[data]``: D2's table restricts only ``[data]``,
+    but a ``command`` provider is an exec surface wherever it is declared. url4's ``_provide``
+    runs ``asyncio.create_subprocess_exec`` for a command source regardless of the mount kind
+    (``cli/_serve.py``), so a ``[holdings]``/``[identities]`` command is the same unsandboxed
+    subprocess on the same network-reachable node tier that F3 rejects for ``[commands]``. R12
+    (test-plan §2) names a command-backed provider explicitly; resolving the spec inconsistency
+    in R12's direction is what keeps its mitigation true.
     """
-    offenders = sorted(path for path, spec in data.items() if spec.command is not None)
+    offenders = sorted(
+        label
+        for label, spec in _read_side_providers(data, holdings, identities)
+        if spec.command is not None
+    )
     if not offenders:
         return
     raise WorldConfigError(
-        f"[data] route(s) {offenders} use a 'command' provider — command-backed data routes are "
-        "exec mounts with no sandbox on the node tier, so they are rejected in v1; declare a "
-        "'value' or 'file' provider instead"
+        f"{offenders} use a 'command' provider — command-backed providers are exec mounts "
+        "with no sandbox on the node tier, so they are rejected in v1; declare a 'value' or "
+        "'file' provider instead"
     )
+
+
+def _read_side_providers(
+    data: Mapping[str, ProviderSpec],
+    holdings: Mapping[str | None, ProviderSpec],
+    identities: Mapping[str, Mapping[str | None, ProviderSpec]],
+) -> Iterator[tuple[str, ProviderSpec]]:
+    """Every declared read-side provider as ``(label, spec)``, label naming section and shelf.
+
+    The label is what the rejection error reports, so an operator sees ``[holdings] 'secret'``
+    rather than a bare provider kind they cannot locate in the file.
+    """
+    for path, spec in data.items():
+        yield f"[data] {path!r}", spec
+    for collection, spec in holdings.items():
+        yield f"[holdings] {_shelf_name(collection)}", spec
+    for name, shelves in identities.items():
+        for collection, spec in shelves.items():
+            yield f"[identities.{name}] {_shelf_name(collection)}", spec
+
+
+def _shelf_name(collection: str | None) -> str:
+    return "default" if collection is None else repr(collection)
 
 
 def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:

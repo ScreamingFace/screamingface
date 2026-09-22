@@ -41,11 +41,13 @@ from url4.streaming.protocol import CachePolicy
 logger = logging.getLogger(__name__)
 
 READ_SIDE_TIMEOUT_S = 120.0
-"""Provider timeout for the read-side mounts, matching url4 serve's own default.
+"""Provider timeout passed to url4's read-side handler builders.
 
-Only a ``command`` provider reads it (``value`` and ``file`` do not), and ``[data]`` rejects
-commands outright, so it is currently reachable only through a ``[holdings]``/``[identities]``
-command provider. Kept equal to url4's default so a shelf behaves the same on either tier.
+Kept equal to url4 serve's own default so a shelf behaves the same on either tier. It is inert
+for ``value`` and ``file`` providers (neither reads it), and ``command`` providers are refused in
+EVERY read-side section at config load (R12), so no accepted declaration currently reaches it.
+The constant stays because the handler builders require it and dropping it would be a refactor
+beyond the exec-surface fix.
 """
 
 World = tuple[IOLayer, Callable[[], Awaitable[None]] | None]

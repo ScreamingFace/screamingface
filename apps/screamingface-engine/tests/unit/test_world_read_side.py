@@ -78,6 +78,37 @@ def test_command_backed_data_provider_is_rejected_naming_the_path_and_kind() -> 
     assert "command" in message, message
 
 
+def test_command_backed_holdings_provider_is_rejected_naming_the_collection_and_kind() -> None:
+    # R12 (test-plan §2): a `command` provider is an exec mount WHEREVER it is declared. The
+    # shelf builders take the same ProviderSpec shape as `[data]`, and url4's `_provide` runs
+    # `asyncio.create_subprocess_exec` for a command source regardless of the mount kind — so a
+    # `[holdings]` command is the same unsandboxed subprocess on the same network-reachable node
+    # tier. Reject it at load, naming the collection and kind, rather than at first read.
+    with pytest.raises(WorldConfigError) as excinfo:
+        _config(_AIGATEWAY + '\n[holdings]\nsecret = { command = ["cat", "/etc/shadow"] }\n')
+
+    message = str(excinfo.value)
+    assert "holdings" in message, message
+    assert "secret" in message, message
+    assert "command" in message, message
+
+
+def test_command_backed_identity_shelf_provider_is_rejected_naming_the_collection_and_kind() -> (
+    None
+):
+    # The identity shelf is the same exec surface one level deeper (identity -> collection); the
+    # error must name BOTH so the operator knows which declaration to change.
+    with pytest.raises(WorldConfigError) as excinfo:
+        _config(
+            _AIGATEWAY + '\n[identities.alice]\ndefault = { command = ["cat", "/etc/shadow"] }\n'
+        )
+
+    message = str(excinfo.value)
+    assert "identities" in message, message
+    assert "alice" in message, message
+    assert "command" in message, message
+
+
 # --- T2: [commands] stays rejected, and the message says why --------------------------------------
 
 
