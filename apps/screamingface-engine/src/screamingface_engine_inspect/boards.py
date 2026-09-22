@@ -389,6 +389,33 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: mit.
         scorer="inspect_ai.scorer:choice",
     ),
+    BoardSpec(
+        key="hellaswag",
+        title="HellaSwag",
+        description=(
+            "10,042 everyday scenarios (the HellaSwag validation split — test "
+            "labels are withheld upstream), each a story context with four "
+            "candidate continuations where only one is plausible; the wrong "
+            "ones are adversarially machine-generated, imported from "
+            "inspect_evals. One named deviation: the eval sends its task "
+            "instruction ('Choose the most plausible continuation for the "
+            "story.') as a system message, while this board delivers it as the "
+            "leading text of the candidate input, because a benchmark cannot "
+            "address a candidate's system role. Grading is inspect's own "
+            "choice scorer against the published key, so no judge tokens are "
+            "spent; cases are served in the upstream order (the eval does not "
+            "shuffle by default); benchmark score = plain accuracy over the "
+            "cases run. No mid-run check surface (elimination attack over few "
+            "options)."
+        ),
+        focus="Commonsense sentence continuation (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/Rowan/hellaswag",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.hellaswag.hellaswag:hellaswag.
+        # License: UNKNOWN on the HF card; MIT per the upstream source repo
+        # (owner-approved 2026-09-22 — see pins.py).
+        scorer="inspect_ai.scorer:choice",
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 

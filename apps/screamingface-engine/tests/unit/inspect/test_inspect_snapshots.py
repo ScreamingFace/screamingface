@@ -28,6 +28,7 @@ pytest.importorskip("inspect_evals")
 from screamingface_engine_inspect.prepare import (  # noqa: E402
     SNAPSHOTS,
     PrepareError,
+    SnapshotSpec,
     emit_snapshot,
     mcq_prompt,
 )
@@ -367,4 +368,72 @@ def test_wmdp_snapshot_bakes_letter_target_in_upstream_order(tmp_path: Path) -> 
     assert "target" not in json.dumps(cases)
     target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
     assert target == {"target": "B", "choices": ["no", "yes", "never", "maybe"]}
+    assert summary["cases"] == 2
+
+
+# ── system message as leading input text ─────────────────────────────────────
+
+
+def test_snapshot_with_system_message_bakes_it_as_leading_input_text(
+    tmp_path: Path,
+) -> None:
+    """OME-1253: a benchmark cannot address a candidate's system role, so an
+    eval's system instruction is delivered as the LEADING TEXT of the candidate
+    input (contracteval precedent) — stripped, once, ahead of the untouched
+    render — and it never leaks into the private targets."""
+
+    spec = SnapshotSpec(
+        dataset="acme/sums",
+        config="",
+        split="test",
+        dataset_revision="deadbeef" * 5,
+        case_count=2,
+        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
+        system_message="inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE",
+    )
+    emit_snapshot(spec, _WMDP_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # Leading text: the eval's instruction (stripped of its surrounding
+    # newlines), a blank line, then the normal MCQ render.
+    assert cases[0]["input"].startswith("Choose the most plausible continuation for the story.\n\n")
+    assert "A) no" in cases[0]["input"] and "Pick B." in cases[0]["input"]
+    target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
+    assert target == {"target": "B", "choices": ["no", "yes", "never", "maybe"]}
+
+
+# ── hellaswag ────────────────────────────────────────────────────────────────
+
+_HELLASWAG_ROWS: list[dict[str, Any]] = [
+    {
+        "ctx": "She cracks the eggs into a bowl and",
+        "endings": ["whisks them.", "paints the wall.", "drives away.", "sings."],
+        "label": "0",
+        "source_id": "activitynet~v_1",
+    },
+    {
+        "ctx": "He laces up his running shoes and",
+        "endings": ["eats the laces.", "heads out the door.", "melts.", "sleeps."],
+        "label": "1",
+        "source_id": "activitynet~v_2",
+    },
+]
+
+
+def test_hellaswag_snapshot_leads_with_their_instruction(tmp_path: Path) -> None:
+    """OME-1253 (owner-approved): hellaswag's task instruction lives in a SYSTEM
+    message upstream; the board delivers it as the input's leading text (named
+    deviation — a benchmark cannot address a candidate's system role), ahead of
+    the untouched MCQ render, with the key private."""
+
+    summary = emit_snapshot(SNAPSHOTS["hellaswag"], _HELLASWAG_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # No shuffle: rows keep the upstream order.
+    assert [case["id"] for case in cases] == [1, 2]
+    assert cases[0]["input"].startswith("Choose the most plausible continuation for the story.\n\n")
+    assert "She cracks the eggs into a bowl and" in cases[0]["input"]
+    assert "A) whisks them." in cases[0]["input"]
+    # INVARIANT: the public booklet never carries the answer key.
+    assert "target" not in json.dumps(cases)
+    target = json.loads((tmp_path / "targets" / "2.json").read_text(encoding="utf-8"))
+    assert target["target"] == "B" and target["choices"][1] == "heads out the door."
     assert summary["cases"] == 2

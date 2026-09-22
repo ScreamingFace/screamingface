@@ -1176,3 +1176,33 @@ def test_injection_charsets_refuse_a_trailing_newline(engine_src_copy: Path) -> 
             Observations(revision="c" * 40, case_count=42, license="mit\n"),
             engine_src=engine_src_copy,
         )
+
+
+def test_introspect_binds_a_module_level_system_message_as_a_fact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1253 (owner-approved): an eval's system instruction kept in a module
+    constant is delivered as LEADING INPUT TEXT at bake time (a benchmark cannot
+    address a candidate's system role — contracteval precedent), so the row
+    POINTS at it as a fact instead of dropping it behind a review flag. An
+    inline-literal system message still flags (the prior test)."""
+
+    from inspect_ai.solver import system_message
+
+    def storyteller() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=[system_message(module.INSTRUCTIONS), generate()],
+            scorer=match(numeric=True),
+        )
+
+    module = _install_fake_eval(monkeypatch, storyteller=storyteller)
+    module.INSTRUCTIONS = "Choose the most plausible continuation for the story."  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:storyteller")
+
+    assert facts.system_message == f"{_FAKE_MODULE}:INSTRUCTIONS"
+    assert facts.custom_solvers == ()

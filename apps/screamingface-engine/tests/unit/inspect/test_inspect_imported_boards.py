@@ -49,6 +49,7 @@ _EXPECTED_FAMILIES: dict[str, bool] = {
     "wmdp_bio": True,
     "wmdp_chem": True,
     "wmdp_cyber": True,
+    "hellaswag": True,
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))

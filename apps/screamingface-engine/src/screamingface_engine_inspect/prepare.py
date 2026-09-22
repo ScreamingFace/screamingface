@@ -81,6 +81,11 @@ from screamingface_engine_inspect.pins import (
     GSM8K_DATASET,
     GSM8K_DATASET_REVISION,
     GSM8K_SPLIT,
+    HELLASWAG_CASE_COUNT,
+    HELLASWAG_CONFIG,
+    HELLASWAG_DATASET,
+    HELLASWAG_DATASET_REVISION,
+    HELLASWAG_SPLIT,
     MMLU_CASE_COUNT,
     MMLU_CONFIG,
     MMLU_DATASET,
@@ -161,6 +166,12 @@ class SnapshotSpec:
     #: SINGLE_ANSWER render (mmlu_pro, winogrande, race_h) — same dotted-reference
     #: convention as ``prompt_template``, resolved lazily at bake time.
     choice_template: str | None = None
+    #: The eval's system instruction, delivered as the LEADING TEXT of the
+    #: candidate input at bake time — a benchmark cannot address a candidate's
+    #: system role (the contracteval named-deviation pattern), so the
+    #: instruction rides ahead of the render. Same dotted-reference convention
+    #: as ``prompt_template``.
+    system_message: str | None = None
     shuffle_seed: int | None = None
 
 
@@ -387,6 +398,21 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # bake's unfiltered rows are the same exam.
         record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
     ),
+    "hellaswag": SnapshotSpec(
+        dataset=HELLASWAG_DATASET,
+        config=HELLASWAG_CONFIG,
+        split=HELLASWAG_SPLIT,
+        dataset_revision=HELLASWAG_DATASET_REVISION,
+        case_count=HELLASWAG_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.hellaswag.hellaswag:hellaswag;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.hellaswag.hellaswag:record_to_sample",
+        # Named deviation: the eval sends this as a SYSTEM message; the
+        # bake delivers it as leading input text (a benchmark cannot
+        # address a candidate's system role).
+        system_message="inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE",
+    ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
 
@@ -489,6 +515,12 @@ def emit_snapshot(
     choice_template: str | None = (
         None if spec.choice_template is None else _resolve(spec.choice_template)
     )
+    # WHY stripped once here: eval constants often carry framing newlines
+    # (hellaswag's SYSTEM_MESSAGE); the leading text must join the render with
+    # exactly one blank line.
+    system_text: str | None = (
+        None if spec.system_message is None else str(_resolve(spec.system_message)).strip()
+    )
     ordered: list[dict[str, Any]] = list(rows)
     if spec.shuffle_seed is not None:
         random.Random(spec.shuffle_seed).shuffle(ordered)
@@ -503,6 +535,11 @@ def emit_snapshot(
                 f"case {case_id}: record_to_sample refused the row ({type(exc).__name__}: {exc})"
             ) from exc
         target, choices = _validated_target(sample, case_id)
+        input_text: str = _prompt(sample, choices, template, choice_template)
+        if system_text is not None:
+            # Named deviation (contracteval pattern): the eval's SYSTEM
+            # instruction becomes the input's leading text, render untouched.
+            input_text = f"{system_text}\n\n{input_text}"
         # WHY "case_id" beside "id": the board's url4 protocol template reads
         # $item.case_id per Case (the transport contract's string spelling);
         # "id" is the integer the engine's row/target files key on.
@@ -510,7 +547,7 @@ def emit_snapshot(
             {
                 "id": case_id,
                 "case_id": str(case_id),
-                "input": _prompt(sample, choices, template, choice_template),
+                "input": input_text,
             }
         )
         targets[case_id] = (
