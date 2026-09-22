@@ -195,23 +195,35 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
 def _binding_signature(binding: Any) -> _inspect.Signature:
     """The signature the recorded call arguments bind against.
 
-    WHY the fallback: inspect_evals ≥0.20 routes hf_dataset through a fully
+    WHY the substitution: inspect_evals ≥0.20 routes hf_dataset through a fully
     variadic retry shim (``def hf_dataset(*args, **kwargs)`` in
     utils/huggingface.py). Binding against the shim buries every real kwarg in
     the VAR_KEYWORD bucket, and the conserved-kwargs guard then refuses the
-    whole family as "kwarg(s) kwargs" (OME-1238). A pure pass-through wrapper
-    borrows the real hf_dataset's parameter names instead.
+    whole family as "kwarg(s) kwargs" (OME-1238). That ONE shim — checked by
+    identity, never by shape — borrows the real hf_dataset's parameter names,
+    because it is verified pass-through (it only injects ``retry=False``). Any
+    other fully variadic wrapper is refused: a wrapper that renamed or mutated
+    kwargs before forwarding would make the conserved-kwargs guard reason about
+    arguments the real load never sees (review finding on PR 1009).
     """
 
     signature: _inspect.Signature = _inspect.signature(binding)
-    if all(
+    if not all(
         parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
         for parameter in signature.parameters.values()
     ):
+        return signature
+    from inspect_evals.utils.huggingface import hf_dataset as vendored_shim
+
+    if binding is vendored_shim:
         from inspect_ai.dataset import hf_dataset as real_hf_dataset
 
         return _inspect.signature(real_hf_dataset)
-    return signature
+    raise ImporterError(
+        "hf_dataset is a fully variadic wrapper the importer does not recognize — only "
+        "inspect_evals.utils.huggingface's shim is verified pass-through; extend the "
+        "importer for this wrapper"
+    )
 
 
 def _bound_call_arguments(
@@ -225,7 +237,16 @@ def _bound_call_arguments(
     'kwargs' instead of the ``limit`` that actually changes the exam.
     """
 
-    arguments: dict[str, Any] = dict(signature.bind_partial(*args, **kwargs).arguments)
+    try:
+        arguments: dict[str, Any] = dict(signature.bind_partial(*args, **kwargs).arguments)
+    except TypeError as exc:
+        # WHY: bind_partial raises a bare TypeError on a call the signature cannot
+        # hold (e.g. a doubled argument); the importer's contract is that every
+        # refusal is an ImporterError naming the fact that stopped it.
+        raise ImporterError(
+            f"the eval's hf_dataset call does not bind against the hf_dataset "
+            f"signature ({exc}) — the importer cannot read this call's arguments"
+        ) from exc
     for name, parameter in signature.parameters.items():
         if parameter.kind is parameter.VAR_KEYWORD and name in arguments:
             arguments.update(arguments.pop(name))
@@ -388,9 +409,10 @@ def _template_attribute(module: Any, template: Any, task_ref: str) -> str:
     """Find the module attribute holding the template — the row must POINT, not copy.
 
     The task module wins; when it has no match the template may live in a shared
-    helper of the eval's own package (AIME's utils.aime_common — OME-1238), so
-    the search widens to that package's loaded modules — still requiring exactly
-    one match, because two candidate references cannot both be THE row's pointer.
+    helper elsewhere in the eval DISTRIBUTION (AIME's inspect_evals.utils.aime_common
+    — OME-1238), so the search widens to the loaded modules under the task module's
+    top-level package — still requiring exactly one match, because two candidate
+    references cannot both be THE row's pointer.
     """
 
     matches: list[str] = [
