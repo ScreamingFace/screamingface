@@ -266,10 +266,11 @@ BOARDS: tuple[BoardSpec, ...] = (
             "answer is an integer from 0 to 999; the model solves step by step "
             "and commits its final answer on a closing 'ANSWER:' line. Grading "
             "is the eval's own scorer — a numeric match of the reply's final "
-            "line against the answer key — so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. Free-form "
-            "replies make the mid-run check surface legitimate (corrective "
-            "loop)."
+            "line against the answer key — so no judge tokens are spent. Cases "
+            "are served in a fixed seeded shuffle so a limited run spans both "
+            "exams and the difficulty range. Benchmark score = plain accuracy "
+            "over the cases run. Free-form replies make the mid-run check "
+            "surface legitimate (corrective loop)."
         ),
         focus="Competition mathematics (AIME 2024)",
         dataset_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",

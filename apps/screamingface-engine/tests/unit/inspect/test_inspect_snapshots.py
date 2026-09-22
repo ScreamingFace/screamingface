@@ -256,6 +256,8 @@ def test_aime24_snapshot_bakes_the_shared_template_and_integer_target(
 
     summary = emit_snapshot(SNAPSHOTS["aime24"], _AIME24_ROWS, tmp_path)
     cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # The spec's policy shuffle (seed 20260922) happens to leave a 2-row fixture
+    # in place, so the assertions below still address rows by original order.
     assert [case["id"] for case in cases] == [1, 2]
     # Their USER_PROMPT_TEMPLATE wraps the verbatim problem (imported prompt = data).
     assert "Find the sum of 3 and 4." in cases[0]["input"]

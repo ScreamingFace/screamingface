@@ -46,6 +46,7 @@ from screamingface_engine_inspect.pins import (
     AIME24_CONFIG,
     AIME24_DATASET,
     AIME24_DATASET_REVISION,
+    AIME24_SHUFFLE_SEED,
     AIME24_SPLIT,
     ARC_CHALLENGE_CASE_COUNT,
     ARC_CHALLENGE_CONFIG,
@@ -283,6 +284,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # verify against the eval's task.
         record_to_sample="inspect_evals.aime2024.aime2024:record_to_sample",
         prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
+        shuffle_seed=AIME24_SHUFFLE_SEED,
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }

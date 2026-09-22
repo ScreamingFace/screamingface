@@ -168,6 +168,7 @@ AIME24_CONFIG = ""
 AIME24_SPLIT = "train"
 AIME24_DATASET_REVISION = "8d88b2876a82a080e2f172cc9b25d0d9d2cb4792"
 AIME24_CASE_COUNT = 30
+AIME24_SHUFFLE_SEED = 20260922
 
 # --- importer: generated pin rows land above this line ---
 

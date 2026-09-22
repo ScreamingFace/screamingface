@@ -150,7 +150,10 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     was the 2026-09-17 review blocker, and this set is its regression pin."""
 
     seeded: set[str] = {key for key, spec in SNAPSHOTS.items() if spec.shuffle_seed is not None}
-    assert seeded == {"mmlu", "commonsense_qa", "mmlu_pro", "race_h", "paws", "boolq"}
+    # aime24: OURS policy seed (owner-approved 2026-09-22) — upstream serves dataset
+    # order (AIME I then II, roughly ascending difficulty within each), so an unseeded
+    # import would give a limited run only the easier AIME I half.
+    assert seeded == {"mmlu", "commonsense_qa", "mmlu_pro", "race_h", "paws", "boolq", "aime24"}
 
 
 def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
