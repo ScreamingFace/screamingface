@@ -186,3 +186,105 @@ def test_a_legacy_row_emits_no_status_on_the_wire() -> None:
     )
 
     assert "run_cost_status" not in json.loads(row.model_dump_json())
+
+
+# --- Review of PR #841, 2026-09-22: two P1 findings, both reproduced before being fixed --------
+
+
+@pytest.mark.asyncio
+async def test_a_deployed_client_payload_still_submits(tortoise_db: None) -> None:
+    """P1: the documented deploy order was impossible, and this is the case that proved it.
+
+    The deployed SDK sends `run_cost_usd` and NO status
+    (`packages/screamingface/.../leaderboards.py:445` on main). A required status would 422 every
+    live submission the moment this deploys — including payloads carrying a perfectly good cost —
+    and the client cannot ship first either, because an older board is `extra="forbid"`.
+
+    So the field is optional for now (`OME-1258` flips it), and an absent status beside an amount
+    resolves to `complete`. That resolution is not a guess: an amount IS the claim the status
+    would make.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    legacy = ScoreSubmission(
+        benchmark_id="hle",
+        spec_id="deployed-client",
+        url4_expression="url4://benchmark/hle/deployed-client",
+        submitted_by="alice@example.test",
+        score=0.75,
+        total_questions=100,
+        correct_questions=75,
+        ran_with_providers=["openrouter"],
+        run_cost_usd=Decimal("3.000000"),
+    )
+    stored, _ = await store.submit(legacy)
+    row = await Score.get(id=stored.id)
+
+    assert row.run_cost_usd == Decimal("3.000000")
+    assert row.run_cost_status == "complete"
+
+
+def test_an_absent_status_with_no_amount_stays_absent() -> None:
+    # The legacy-shaped row. The board genuinely does not know whether the client looked, so it
+    # must not claim `unavailable` on the client's behalf. `OME-1258` is what starts refusing it.
+    submission = ScoreSubmission(
+        benchmark_id="hle",
+        spec_id="silent",
+        url4_expression="url4://benchmark/hle/silent",
+        submitted_by="alice@example.test",
+        score=0.75,
+        total_questions=100,
+        correct_questions=75,
+        ran_with_providers=["openrouter"],
+    )
+
+    assert submission.run_cost_usd is None
+    assert submission.run_cost_status is None
+
+
+@pytest.mark.asyncio
+async def test_a_replay_cannot_erase_a_migrated_priced_amount(tortoise_db: None) -> None:
+    """P1: a null STATUS is not proof the amount is unfilled.
+
+    Migration `0014` leaves the status null on every pre-existing row, INCLUDING rows carrying a
+    real published amount. Gating the fill on the status alone treated such a row as empty, so
+    the first same-owner replay overwrote both — an `unavailable` replay erasing a published
+    `9.000000`, a `complete` one moving a frontier position.
+
+    The earlier cannot-move-cost test could not catch this: it built a post-migration row whose
+    status was already `complete`, which is not the production state. This builds the real one.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    first, _ = await store.submit(
+        _cost_submission(spec_id="migrated", status="complete", cost="9.000000")
+    )
+    # Exactly what migration 0014 leaves behind: money published, label absent.
+    await Score.filter(id=first.id).update(run_cost_status=None)
+
+    await store.submit(_cost_submission(spec_id="migrated", status="unavailable", cost=None))
+    row = await Score.get(id=first.id)
+
+    assert row.run_cost_usd == Decimal("9.000000")
+
+
+@pytest.mark.asyncio
+async def test_a_replay_heals_a_migrated_rows_missing_label(tortoise_db: None) -> None:
+    # The amount is the sentinel; the status is a label on it. A migrated priced row can recover
+    # its label without asking the client, because an amount IS the claim `complete` makes — so
+    # the population OME-1258 inherits is already correct.
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    first, _ = await store.submit(
+        _cost_submission(spec_id="healed", status="complete", cost="4.000000")
+    )
+    await Score.filter(id=first.id).update(run_cost_status=None)
+
+    await store.submit(_cost_submission(spec_id="healed", status="complete", cost="4.000000"))
+    row = await Score.get(id=first.id)
+
+    assert row.run_cost_status == "complete"
+    assert row.run_cost_usd == Decimal("4.000000")

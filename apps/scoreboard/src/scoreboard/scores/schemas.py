@@ -436,21 +436,43 @@ class ScoreSubmission(BaseModel):
     # `DirectCostStatus`. A run has many calls, and no member of that vocabulary can express
     # "forty priced, three not" — the common case and the one that matters.
     #
-    # WHY a required field rather than a nullable one: this is the whole point of OME-822. A
-    # client that can determine its cost and says nothing is a client bug; making the status
-    # required is what turns that silence into a 422 instead of a null the board must interpret.
-    run_cost_status: RunCostStatus
+    # OPTIONAL, and that is the EXPAND half of a deliberate expand/contract split (OME-1258).
+    #
+    # WHY not required, which is what OME-822 asks for: the deployed SDK sends `run_cost_usd`
+    # and no status (`packages/screamingface/.../leaderboards.py:445` on main). A required field
+    # here 422s EVERY live submission the moment this deploys — including payloads carrying a
+    # perfectly good cost — and the client cannot ship first either, because an older board is
+    # `extra="forbid"` and rejects the unknown field. That is a deadlock, and this PR's own
+    # documented deploy order could not work (review of PR #841, 2026-09-22).
+    #
+    # `OME-1258` flips it to required once `OME-1252` is released and confirmed live in the SDK
+    # version submitters actually run. Until then silence is accepted, which is precisely the
+    # thing OME-822 exists to stop — so the flip is a ticket, not a maybe.
+    run_cost_status: RunCostStatus | None = None
 
     @model_validator(mode="after")
     def validate_cost_matches_its_status(self) -> ScoreSubmission:
-        """INVARIANT: `complete` if and only if an amount is present.
+        """INVARIANT: when a status IS given, `complete` if and only if an amount is present.
 
         A contract admitting two spellings of the same fact gets both, and the board then has to
         guess which one the client meant. `complete` asserts an exact amount, so asserting it
         without one is incoherent; an amount beside a status saying it is unknowable is the same
         incoherence from the other side. Refusing both keeps `run_cost_status` a fact about the
         amount rather than a second opinion on it.
+
+        INVARIANT: an ABSENT status beside an amount resolves to `complete`. That is not a guess
+        — an amount IS the claim the status would make. Resolving here rather than at the store
+        means the submission object, the stored row and the response all carry the same fact,
+        and it keeps pre-OME-1252 clients producing correctly labelled rows instead of a
+        population the flip in `OME-1258` would have to clean up afterwards.
+
+        An absent status with no amount stays absent: that is a legacy-shaped row, and the board
+        genuinely does not know whether the client looked. `OME-1258` is what starts refusing it.
         """
+        if self.run_cost_status is None:
+            if self.run_cost_usd is not None:
+                self.run_cost_status = "complete"
+            return self
         priced = self.run_cost_status == "complete"
         if priced and self.run_cost_usd is None:
             raise ValueError("run_cost_usd is required when run_cost_status is 'complete'")

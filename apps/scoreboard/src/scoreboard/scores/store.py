@@ -225,9 +225,23 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
     #
     # INVARIANT: FILL ONLY, never replace, for the reason `models` records above. A published
     # cost is a frontier position; a replay must not be able to move one.
-    if existing.run_cost_status is None:
+    # INVARIANT: a null STATUS is not proof the amount is unfilled. Migration `0014` leaves the
+    # status null on EVERY pre-existing row, including rows carrying a real published
+    # `run_cost_usd`. Gating on the status alone therefore treats a migrated priced row as empty
+    # and lets the first same-owner replay overwrite both — an `unavailable` replay erasing a
+    # published amount, a `complete` one moving a frontier position. Reproduced in review of PR
+    # #841 against a row holding `9.000000` with a null status.
+    #
+    # This is the same class of bug `OME-1181` Q3 fixed for `models`, reintroduced by choosing
+    # the wrong sentinel. The AMOUNT is the sentinel; the status is a label on it.
+    if existing.run_cost_usd is None and existing.run_cost_status is None:
         updates["run_cost_status"] = submission.run_cost_status
         updates["run_cost_usd"] = submission.run_cost_usd
+    elif existing.run_cost_status is None:
+        # A migrated priced row. The money is published and stays untouched; the missing label is
+        # recoverable without asking the client, because an amount IS the claim `complete` makes.
+        # Healing it here means the population `OME-1258` inherits is already correct.
+        updates["run_cost_status"] = "complete"
     return updates
 
 

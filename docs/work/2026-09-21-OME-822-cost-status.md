@@ -146,3 +146,72 @@ line 34 is untouched — the read DTO keeps its nullable cost, as designed.
 5. **`_validate_run_cost` was restored to accept `None`.** `#841` had narrowed it to
    non-nullable; D1 makes the amount optional again, gated on the status. The narrowing was part
    of the change this unit supersedes.
+
+## Review round 2 (PR #841, 2026-09-22)
+
+Two P1 findings from HupBaHa, both confirmed against the code before any fix, both mine.
+
+### P1-1 — the deploy order I documented was impossible
+
+The deployed SDK sends `run_cost_usd` and **no status**: `leaderboards.py:445` on `origin/main`
+is the only cost line there. A required `run_cost_status` therefore 422s **every live
+submission the moment this deploys**, including payloads carrying a perfectly good cost. The
+client cannot ship first either, because an older board is `extra="forbid"` and rejects the
+unknown field.
+
+That is a deadlock. Worse, this ticket's own "ships and deploys first" instruction prescribed
+the order that cannot work. I designed the requirement around "silence is rejected" and never
+checked what the live client actually sends.
+
+**Fix: expand/contract.** `run_cost_status` is optional here. An absent status beside an amount
+resolves to `complete` — not a guess, an amount IS the claim that status makes. Absent with no
+amount stays absent: legacy-shaped, because the board does not know whether the client looked.
+`OME-1258` flips it to required once `OME-1252` is released and confirmed live.
+
+The resolution happens in the model validator rather than the store, so the submission object,
+the stored row and the response all carry the same fact — and pre-`OME-1252` clients produce
+correctly labelled rows instead of a population the flip would have to clean up.
+
+### P1-2 — a null status is not proof the amount is unfilled
+
+`_replay_updates` gated the fill on `existing.run_cost_status is None`. Migration `0014` leaves
+the status null on **every** pre-existing row, including rows carrying a real published amount.
+So the first same-owner replay on a migrated priced row overwrote both: an `unavailable` replay
+erasing a published `9.000000`, a `complete` one moving a frontier position.
+
+This is the same class of bug `OME-1181` Q3 fixed for `models`, reintroduced by choosing the
+wrong sentinel. **The amount is the sentinel; the status is a label on it.**
+
+My own cannot-move-cost test could not catch it: it built a post-migration row whose status was
+already `complete`, which is not the production state.
+
+**Fix.** Fill both only when both are null. A migrated row with an amount and no status has its
+label healed to `complete` and its money left alone — recoverable without asking the client,
+for the same reason the inference above is sound.
+
+### Tests
+
+Four appended to `test_run_cost_status.py`: a deployed-client payload still submits and stores
+`complete`; an absent status with no amount stays absent; a replay cannot erase a migrated
+priced amount; a replay heals a migrated row's missing label.
+
+Three of my own tests from round 1 were rewritten, because they asserted the required contract
+this round proves undeployable. None is a prior test on `origin/main`:
+
+* `test_a_submission_without_a_status_is_rejected` → `…_resolves_it_from_the_amount`, plus a new
+  neither-field case
+* `test_post_score_requires_a_cost_or_a_reason_it_is_absent` → `…_still_accepts_a_deployed_client_payload`
+* the OpenAPI assertion now pins that both cost fields are **published but not required**, which
+  is the expand-phase contract
+
+### Deviation
+
+**Fix preceded test on both findings.** The reviewer supplied the reproduction, so the failing
+case was established before the change — but by them, not by me, and not as a committed RED. The
+migrated-row test does fail against the previous code, which I checked by reasoning through the
+old branch rather than by reverting. Recorded rather than dressed up as TDD.
+
+### Gates
+
+`run_gates.py scoreboard --base origin/main --skip-append-only` ALL GREEN. Full suite
+**722 passed / 3 skipped / 3 deselected**.

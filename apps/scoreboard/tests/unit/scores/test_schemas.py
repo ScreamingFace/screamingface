@@ -732,13 +732,39 @@ def test_a_json_number_below_the_float_floor_is_a_documented_residual() -> None:
 # The status is what makes the refusal to guess expressible.
 
 
-def test_a_submission_without_a_status_is_rejected() -> None:
+def test_a_submission_without_a_status_resolves_it_from_the_amount() -> None:
+    """EXPAND phase (OME-1258). The deployed SDK sends an amount and no status, so rejecting
+    silence here would 422 every live submission the moment this deploys.
+
+    The resolution is not a guess: an amount IS the claim `complete` makes. Doing it in the
+    validator rather than the store means the submission object, the stored row and the response
+    all carry the same fact, and pre-OME-1252 clients produce correctly labelled rows instead of
+    a population the flip would have to clean up.
+
+    Rewritten from `test_a_submission_without_a_status_is_rejected`, which asserted the required
+    contract this PR could not deploy. Refusal moves to `OME-1258`.
+    """
     payload = _valid_payload()
     payload["run_cost_usd"] = "1.500000"
     payload.pop("run_cost_status", None)
 
-    with pytest.raises(ValidationError):
-        ScoreSubmission.model_validate(payload)
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd == Decimal("1.500000")
+    assert submission.run_cost_status == "complete"
+
+
+def test_a_submission_with_neither_amount_nor_status_stays_unlabelled() -> None:
+    # The legacy-shaped row. The board does not know whether the client looked, so it must not
+    # claim `unavailable` on the client's behalf. `OME-1258` is what starts refusing this.
+    payload = _valid_payload()
+    payload.pop("run_cost_usd", None)
+    payload.pop("run_cost_status", None)
+
+    submission = ScoreSubmission.model_validate(payload)
+
+    assert submission.run_cost_usd is None
+    assert submission.run_cost_status is None
 
 
 def test_a_complete_status_without_an_amount_is_rejected() -> None:
