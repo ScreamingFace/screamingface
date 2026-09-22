@@ -11,6 +11,7 @@ from tortoise.transactions import in_transaction
 from aigateway.core.auth.middleware import CurrentAccount
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.errors import AuthError, CredentialNotFoundError
+from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.schemas import (
     CreateApiKeyConnectionRequest,
     CreateOAuthConnectionRequest,
@@ -33,10 +34,17 @@ from aigateway.core.oauth.token_service import (
 from aigateway.core.oauth_pkce import generate_pkce, generate_state
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
+from aigateway.core.provider_access import (
+    credential_name_of,
+    republish_effective_api_key,
+    retire_effective,
+)
+from aigateway.core.provider_access.connection_locator import credential_strategy_for_connection
 
 from .api_key_validation import normalize_api_key, require_valid_api_key
 from .auth import _redirect_uri_for
 from .credential_persistence import persist_credentials_or_503
+from .provider_access_http import refusals_as_http
 
 logger = logging.getLogger(__name__)
 
@@ -266,9 +274,12 @@ async def set_connection_api_key(
             status_code=404,
             detail={"code": "unknown_provider", "provider": connection.provider},
         )
+    # WHY the locator: a migrated pair's effective row addresses the Profile blob (S2'b4); a
+    # plain row's UUID locator spells today's UUID name, so nothing changes for it.
+    credential_name = credential_name_of(plugin, connection, account_id=account_id)
     strategy = credential_strategy_from(
         plugin,
-        credential_key_for(account_id, connection.id),
+        credential_name,
         auth_type="api_key",
         credential_store=request.app.state.credential_store,
     )
@@ -291,32 +302,51 @@ async def set_connection_api_key(
     # the always-present connection row can. Persisting first would let a concurrent delete's
     # missing-row credential delete no-op, then our commit would orphan a credential under a
     # revoked connection.
-    async with in_transaction():
-        latest_connection = await store.get(account_id, connection_id)
-        if (
-            latest_connection is None
-            or latest_connection.auth_type != "api_key"
-            or latest_connection.status not in ("active", "error")
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "connection_conflict",
-                    "message": "Connection changed during API-key validation",
-                },
+    with refusals_as_http():
+        async with in_transaction():
+            connection = await _replace_api_key(
+                request, store, account_id, connection_id, strategy, api_key
             )
-        connection = await store.reactivate(latest_connection)
-        if connection is None:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "connection_conflict",
-                    "message": "Connection changed during API-key validation",
-                },
-            )
-        await _persist_api_key_credentials(strategy, api_key)
-    credential_strategy_cache(request.app).evict(credential_key_for(account_id, connection.id))
+    credential_strategy_cache(request.app).evict(credential_name)
     return response_from_connection(connection)
+
+
+async def _replace_api_key(
+    request: Request,
+    store: OAuthConnectionStore,
+    account_id: str,
+    connection_id: UUID,
+    strategy,
+    api_key: str,
+) -> OAuthConnection:
+    """The publication boundary of a key replacement — marker → index → row → blob."""
+    latest_connection = await store.get(account_id, connection_id)
+    if (
+        latest_connection is None
+        or latest_connection.auth_type != "api_key"
+        or latest_connection.status not in ("active", "error")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "connection_conflict",
+                "message": "Connection changed during API-key validation",
+            },
+        )
+    # INVARIANT (D14, S2'b4): a migrated pair's effective row fences the pair and mirrors the
+    # compat document FIRST (marker, index), then the row, then the blob — a no-op otherwise.
+    await republish_effective_api_key(request.app, latest_connection, raw_api_key=api_key)
+    connection = await store.reactivate(latest_connection)
+    if connection is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "connection_conflict",
+                "message": "Connection changed during API-key validation",
+            },
+        )
+    await _persist_api_key_credentials(strategy, api_key)
+    return connection
 
 
 @router.patch("/v1/oauth/connections/{connection_id}", response_model=OAuthConnectionResponse)
@@ -352,22 +382,37 @@ async def patch_connection(
 @router.delete("/v1/oauth/connections/{connection_id}", status_code=204)
 async def delete_connection(connection_id: UUID, request: Request, current: CurrentAccount) -> None:
     store = _store(request)
-    async with in_transaction():
-        connection = await store.get(str(current.id), connection_id)
-        if connection is None:
-            raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-        # INVARIANT (OME-307 Blocker 3): mark the ALWAYS-PRESENT connection row revoked FIRST
-        # (mark_revoked UPDATEs by PK and takes its row lock, held until commit), THEN delete the
-        # credential blob SECOND — ONE consistent lock order shared with set_connection_api_key.
-        # The credential row may be ABSENT; a missing-row delete takes no lock under READ
-        # COMMITTED, so it cannot serialize a concurrent set. Locking the connection row first
-        # forces a racing set to observe the revoke (its reactivate CAS matches 0 rows and 409s),
-        # so nothing is orphaned or resurrected.
-        await store.mark_revoked(connection)
-        await _delete_credentials(request, connection.credential_locator)
+    with refusals_as_http():
+        async with in_transaction():
+            connection = await _delete_connection(request, store, str(current.id), connection_id)
     # Evict the shared cached strategy so a deleted connection's still-valid token
-    # can't keep being served from memory (SF-282).
-    credential_strategy_cache(request.app).evict(credential_key_for(str(current.id), connection_id))
+    # can't keep being served from memory (SF-282) — under the name the locator derives, which
+    # for a migrated pair's effective row is the Profile address (S2'b4).
+    plugin = request.app.state.providers.get(connection.provider)
+    credential_strategy_cache(request.app).evict(
+        credential_name_of(plugin, connection, account_id=str(current.id))
+    )
+
+
+async def _delete_connection(
+    request: Request, store: OAuthConnectionStore, account_id: str, connection_id: UUID
+) -> OAuthConnection:
+    connection = await store.get(account_id, connection_id)
+    if connection is None:
+        raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
+    # INVARIANT (D14, S2'b4): a migrated pair's effective row retires the pair FIRST — marker
+    # (effective → None) and compat document — before the row and the blob; no-op otherwise.
+    await retire_effective(request.app, connection)
+    # INVARIANT (OME-307 Blocker 3): mark the ALWAYS-PRESENT connection row revoked FIRST
+    # (mark_revoked UPDATEs by PK and takes its row lock, held until commit), THEN delete the
+    # credential blob SECOND — ONE consistent lock order shared with set_connection_api_key.
+    # The credential row may be ABSENT; a missing-row delete takes no lock under READ
+    # COMMITTED, so it cannot serialize a concurrent set. Locking the connection row first
+    # forces a racing set to observe the revoke (its reactivate CAS matches 0 rows and 409s),
+    # so nothing is orphaned or resurrected.
+    await store.mark_revoked(connection)
+    await _delete_credentials(request, connection.credential_locator)
+    return connection
 
 
 @router.get(
@@ -433,16 +478,17 @@ async def refresh_connection(
     # asyncio.Lock single-flights the refresh across paths instead of a private
     # fresh strategy with its own lock (SF-323). The post-refresh eviction below
     # still forces later dispatch to rebuild from the persisted credentials.
+    # WHY the locator (S2'b4): a migrated pair's effective row addresses the Profile blob; the
+    # locator-derived name is the one the chat path caches under, so ONE eviction covers both.
     provider = connection.provider
-    credential_name = credential_key_for(str(current.id), connection.id)
+    account_id = str(current.id)
+    credential_name = credential_name_of(plugin, connection, account_id=account_id)
     strategy = credential_strategy_cache(request.app).get_or_create(
         provider=provider,
         auth_type="oauth",
         credential_name=credential_name,
-        build=lambda: plugin.oauth_strategy_for(
-            credential_name,
-            credential_store=request.app.state.credential_store,
-            http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+        build=lambda: credential_strategy_for_connection(
+            request.app, plugin, provider, connection, account_id=account_id
         ),
     )
     if strategy is None:

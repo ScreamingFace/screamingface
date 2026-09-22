@@ -21,6 +21,7 @@ TORTOISE_CONFIG: dict[str, Any] = {
                 "aigateway.core.auth.models",
                 "aigateway.core.credential_blob",
                 "aigateway.core.oauth.models",
+                "aigateway.core.provider_access.models",
                 "aigateway.core.request_cache.models",
                 "aigateway.core.secrets.models",
             ],

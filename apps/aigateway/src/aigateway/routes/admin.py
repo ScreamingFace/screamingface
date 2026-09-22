@@ -45,8 +45,7 @@ from ..core.auth.cloudflare_identity import (
     account_for_identity,
 )
 from ..core.auth.models import Account
-from ..core.profile_index import ProfileIndexStore
-from ..core.provider_access import provider_credential_admin_for
+from ..core.provider_access import facade_target, patch_facade, provider_credential_admin_for
 from .auth import delete_profile_for_account, upsert_api_key_profile
 
 logger = logging.getLogger(__name__)
@@ -130,10 +129,6 @@ def describe_admin_security(schema: dict[str, Any]) -> dict[str, Any]:
             if isinstance(operation, dict):
                 operation["security"] = requirement
     return schema
-
-
-def _index_store(request: Request) -> ProfileIndexStore:
-    return request.app.state.profile_index
 
 
 def _note_actor(request: Request, admin: CurrentAdmin) -> None:
@@ -275,15 +270,18 @@ async def patch_account_profile(
 ) -> AdminProfileOut:
     _note_actor(request, admin)
     await _require_account(account_id)
-    idx = _index_store(request)
-    profile = await idx.get(str(account_id), provider, name)
-    if profile is None:
+    # FEATURE (OME-1208 S2'b3): the same facade as the tenant PATCH — metadata on the document,
+    # a migrated pair's state rendered from its effective Connection.
+    target = await facade_target(
+        request.app, account_id=str(account_id), provider=provider, name=name
+    )
+    if target is None:
         raise HTTPException(
             status_code=404,
             detail={"code": "profile_not_found", "provider": provider, "name": name},
         )
-    updated = await idx.update_metadata(
-        profile.id, defaults=body.defaults, account_label=body.account_label
+    updated = await patch_facade(
+        request.app, target, defaults=body.defaults, account_label=body.account_label
     )
     return AdminProfileOut.model_validate(updated, from_attributes=True)
 
