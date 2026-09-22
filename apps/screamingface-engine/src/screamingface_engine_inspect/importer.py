@@ -155,11 +155,11 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     recorded: list[tuple[dict[str, Any], Any]] = []
     # WHY bind against the REAL signature: 17 of 80 inspect_evals call sites pass
     # path (some also split) positionally — a kwargs-only recorder would drop them.
-    signature = _inspect.signature(module.hf_dataset)
+    signature: _inspect.Signature = _binding_signature(module.hf_dataset)
 
     def recorder(*args: Any, **kwargs: Any) -> Any:
         stub = MemoryDataset([Sample(input="stub", target="A", choices=["a", "b"])])
-        recorded.append((dict(signature.bind_partial(*args, **kwargs).arguments), stub))
+        recorded.append((_bound_call_arguments(signature, args, kwargs), stub))
         return stub
 
     original: Any = module.hf_dataset
@@ -190,6 +190,46 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         upstream_shuffle=bool(kwargs.get("shuffle")),
         upstream_shuffle_seed=kwargs.get("seed") if kwargs.get("shuffle") else None,
     )
+
+
+def _binding_signature(binding: Any) -> _inspect.Signature:
+    """The signature the recorded call arguments bind against.
+
+    WHY the fallback: inspect_evals ≥0.20 routes hf_dataset through a fully
+    variadic retry shim (``def hf_dataset(*args, **kwargs)`` in
+    utils/huggingface.py). Binding against the shim buries every real kwarg in
+    the VAR_KEYWORD bucket, and the conserved-kwargs guard then refuses the
+    whole family as "kwarg(s) kwargs" (OME-1238). A pure pass-through wrapper
+    borrows the real hf_dataset's parameter names instead.
+    """
+
+    signature: _inspect.Signature = _inspect.signature(binding)
+    if all(
+        parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
+        for parameter in signature.parameters.values()
+    ):
+        from inspect_ai.dataset import hf_dataset as real_hf_dataset
+
+        return _inspect.signature(real_hf_dataset)
+    return signature
+
+
+def _bound_call_arguments(
+    signature: _inspect.Signature, args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """One recorded hf_dataset call as ``{parameter name: value}``, with any
+    VAR_KEYWORD bucket flattened so extra kwargs keep their own names.
+
+    WHY: the conserved-kwargs guard judges kwargs BY NAME — a bucket entry like
+    ``kwargs={'limit': 500}`` would be judged as one opaque kwarg called
+    'kwargs' instead of the ``limit`` that actually changes the exam.
+    """
+
+    arguments: dict[str, Any] = dict(signature.bind_partial(*args, **kwargs).arguments)
+    for name, parameter in signature.parameters.items():
+        if parameter.kind is parameter.VAR_KEYWORD and name in arguments:
+            arguments.update(arguments.pop(name))
+    return arguments
 
 
 def _module_level_row_rule(sample_fields: Any, task_ref: str) -> Any:
@@ -345,19 +385,39 @@ def _solver_facts(
 
 
 def _template_attribute(module: Any, template: Any, task_ref: str) -> str:
-    """Find the module attribute holding the template — the row must POINT, not copy."""
+    """Find the module attribute holding the template — the row must POINT, not copy.
+
+    The task module wins; when it has no match the template may live in a shared
+    helper of the eval's own package (AIME's utils.aime_common — OME-1238), so
+    the search widens to that package's loaded modules — still requiring exactly
+    one match, because two candidate references cannot both be THE row's pointer.
+    """
 
     matches: list[str] = [
         name
         for name, value in vars(module).items()
         if value is template and not name.startswith("_")
     ]
-    if len(matches) != 1:
-        raise ImporterError(
-            f"{task_ref}: cannot resolve the prompt template to exactly one module "
-            f"attribute (found {matches!r}) — add the prompt_template reference by hand"
+    if len(matches) == 1:
+        return f"{module.__name__}:{matches[0]}"
+    found: list[str] = [f"{module.__name__}:{name}" for name in matches]
+    if not matches:
+        package_prefix: str = f"{module.__name__.partition('.')[0]}."
+        found = sorted(
+            f"{sibling_name}:{attribute}"
+            for sibling_name, sibling in sys.modules.items()
+            if sibling is not None
+            and sibling is not module
+            and sibling_name.startswith(package_prefix)
+            for attribute, value in vars(sibling).items()
+            if value is template and not attribute.startswith("_")
         )
-    return f"{module.__name__}:{matches[0]}"
+        if len(found) == 1:
+            return found[0]
+    raise ImporterError(
+        f"{task_ref}: cannot resolve the prompt template to exactly one module "
+        f"attribute (found {found!r}) — add the prompt_template reference by hand"
+    )
 
 
 def _is_literal(value: Any) -> bool:

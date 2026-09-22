@@ -230,6 +230,103 @@ def test_introspect_refuses_a_task_that_never_loads_hf(monkeypatch: pytest.Monke
         introspect_task(f"{_FAKE_MODULE}:local")
 
 
+def test_introspect_binds_through_a_variadic_hf_dataset_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """inspect_evals ≥0.20 routes hf_dataset through a ``(*args, **kwargs)`` retry
+    wrapper; binding against the wrapper buries every real kwarg in the VAR_KEYWORD
+    bucket, and the conserved-kwargs guard then refuses the ENTIRE hf family as
+    "kwarg(s) kwargs" (OME-1238). The recorder must bind the caller's arguments
+    against the real hf_dataset signature — including a positionally passed path."""
+
+    import inspect_ai.dataset
+
+    def wrapped_hf_dataset(*args: Any, **kwargs: Any) -> Any:
+        return inspect_ai.dataset.hf_dataset(*args, **kwargs)
+
+    def wrapped_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                "acme/sums",
+                split="test",
+                name="main",
+                sample_fields=module.record_to_sample,
+                revision="deadbeef" * 5,
+            ),
+            solver=[prompt_template(sys.modules[_FAKE_MODULE].TEMPLATE), generate()],
+            scorer=match(numeric=True),
+        )
+
+    module = _install_fake_eval(monkeypatch, sums=wrapped_task)
+    module.hf_dataset = wrapped_hf_dataset  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+
+    assert facts.dataset == "acme/sums"
+    assert facts.config == "main"
+    assert facts.split == "test"
+    assert facts.pinned_revision == "deadbeef" * 5
+    assert facts.record_to_sample == f"{_FAKE_MODULE}:record_to_sample"
+
+
+def test_introspect_resolves_a_prompt_template_from_a_sibling_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AIME keeps its prompt template in a shared helper (utils.aime_common), not
+    the task module — the row must POINT at the defining module (OME-1238)."""
+
+    sibling_name = f"{_FAKE_MODULE}.common"
+    sibling = types.ModuleType(sibling_name)
+    sibling.SHARED_TEMPLATE = "Shared instructions.\n\n{prompt}\n"  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, sibling_name, sibling)
+
+    def shared_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=[prompt_template(sibling.SHARED_TEMPLATE), generate()],
+            scorer=match(numeric=True),
+        )
+
+    _install_fake_eval(monkeypatch, shared=shared_task)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:shared")
+
+    assert facts.prompt_template == f"{sibling_name}:SHARED_TEMPLATE"
+
+
+def test_introspect_refuses_an_ambiguous_sibling_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two sibling modules holding the same template object cannot yield ONE
+    dotted reference — the importer must refuse, never pick silently."""
+
+    shared_template = "Ambiguous instructions.\n\n{prompt}\n"
+    for suffix in ("common_a", "common_b"):
+        name = f"{_FAKE_MODULE}.{suffix}"
+        sibling = types.ModuleType(name)
+        sibling.SHARED_TEMPLATE = shared_template  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, name, sibling)
+
+    def ambiguous_task() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=[prompt_template(shared_template), generate()],
+            scorer=match(numeric=True),
+        )
+
+    _install_fake_eval(monkeypatch, ambiguous=ambiguous_task)
+
+    with pytest.raises(ImporterError, match="exactly one module"):
+        introspect_task(f"{_FAKE_MODULE}:ambiguous")
+
+
 # ---------------------------------------------------------------------------
 # capture_observations
 # ---------------------------------------------------------------------------
