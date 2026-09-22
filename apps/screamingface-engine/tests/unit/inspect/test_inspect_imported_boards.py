@@ -44,6 +44,7 @@ _EXPECTED_FAMILIES: dict[str, bool] = {
     "paws": False,
     "boolq": False,
     "aime24": False,
+    "aime25": False,
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -150,10 +151,19 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     was the 2026-09-17 review blocker, and this set is its regression pin."""
 
     seeded: set[str] = {key for key, spec in SNAPSHOTS.items() if spec.shuffle_seed is not None}
-    # aime24: OURS policy seed (owner-approved 2026-09-22) — upstream serves dataset
-    # order (AIME I then II, roughly ascending difficulty within each), so an unseeded
-    # import would give a limited run only the easier AIME I half.
-    assert seeded == {"mmlu", "commonsense_qa", "mmlu_pro", "race_h", "paws", "boolq", "aime24"}
+    # aime24/aime25: OURS policy seed (owner-approved 2026-09-22) — upstream serves
+    # dataset order (AIME I then II, roughly ascending difficulty within each), so an
+    # unseeded import would give a limited run only the easier AIME I half.
+    assert seeded == {
+        "mmlu",
+        "commonsense_qa",
+        "mmlu_pro",
+        "race_h",
+        "paws",
+        "boolq",
+        "aime24",
+        "aime25",
+    }
 
 
 def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
@@ -166,3 +176,14 @@ def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
     from screamingface_engine_inspect.pins import AIME24_DATASET_REVISION
 
     assert AIME24_DATASET_REVISION == AIME2024_DATASET_REVISION
+
+
+def test_aime25_pin_tracks_upstreams_own_revision_constant() -> None:
+    """Same drift guard as aime24: the sha is copied from the eval's own pinned
+    constant — a dependency bump that moves upstream's pin must fail here."""
+
+    from inspect_evals.aime2025.aime2025 import AIME2025_DATASET_REVISION
+
+    from screamingface_engine_inspect.pins import AIME25_DATASET_REVISION
+
+    assert AIME25_DATASET_REVISION == AIME2025_DATASET_REVISION

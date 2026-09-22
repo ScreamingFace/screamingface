@@ -268,3 +268,33 @@ def test_aime24_snapshot_bakes_the_shared_template_and_integer_target(
     # Their record_to_sample rule: target=str(record["Answer"]).
     assert target == {"target": "7"}
     assert summary["cases"] == 2
+
+
+# ── aime25 ───────────────────────────────────────────────────────────────────
+
+_AIME25_ROWS: list[dict[str, Any]] = [
+    {"id": "2025-I-1", "problem": "Find the sum of 5 and 6.", "answer": "11"},
+    {"id": "2025-I-2", "problem": "Compute 20 times 20.", "answer": "400"},
+]
+
+
+def test_aime25_snapshot_bakes_their_row_rule_and_private_target(
+    tmp_path: Path,
+) -> None:
+    """OME-1238: aime25's row rule uses lowercase field names and a string
+    answer (unlike aime24's uppercase fields + integer answer) — the bake must
+    read the right fields and keep the key private."""
+
+    summary = emit_snapshot(SNAPSHOTS["aime25"], _AIME25_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # The spec's policy shuffle (seed 20260922) happens to leave a 2-row fixture
+    # in place, so the assertions below still address rows by original order.
+    assert [case["id"] for case in cases] == [1, 2]
+    # The shared USER_PROMPT_TEMPLATE wraps the verbatim problem.
+    assert "Find the sum of 5 and 6." in cases[0]["input"]
+    assert 'form "ANSWER: $ANSWER"' in cases[0]["input"]
+    # INVARIANT: the public booklet never carries the answer key.
+    assert "400" not in json.dumps(cases)
+    target = json.loads((tmp_path / "targets" / "2.json").read_text(encoding="utf-8"))
+    assert target == {"target": "400"}
+    assert summary["cases"] == 2
