@@ -4,6 +4,15 @@ Spec: `docs/spec/2026-09-21-OME-822-cost-status.md`
 Ledger: `docs/work/2026-09-21-OME-822-cost-status.md`
 Branch: `OME-822-require-run-cost` (PR `#841`), rebased onto `origin/main` 2026-09-21.
 
+> **AMENDED 2026-09-22 — what shipped diverged from this plan.** Review of `#841` (P1-1) showed a
+> **required** `run_cost_status` 422s every live submission the instant the board deploys, and the
+> client cannot ship first because an older board is `extra="forbid"`. The contract was split:
+> `OME-822` ships the field **optional** (expand), `OME-1252` makes the SDK send it, and
+> `OME-1258` flips it to required. See spec §2 as amended.
+>
+> This plan is kept as the record of what was planned. The steps it prescribes that assume the
+> required contract are marked **SUPERSEDED** inline. `OME-1258` is where they come back.
+
 ## Step 0 — the approved fixture edit, first
 
 `tests/unit/scores/test_model_identities.py:66` gains `run_cost_usd` in the local `_submission()`
@@ -17,7 +26,11 @@ new contract.
 
 Append to `tests/unit/scores/test_schemas.py` and `tests/unit/scores/test_store.py`:
 
-1. a submission with neither amount nor status is rejected with a field error
+1. ~~a submission with neither amount nor status is rejected with a field error~~ —
+   **SUPERSEDED.** That pair is **accepted** on the shipped head and stores an unlabelled row.
+   Replaced by `test_a_submission_with_neither_amount_nor_status_stays_unlabelled`, plus a case
+   pinning that an absent status beside an amount resolves to `complete`. `OME-1258` restores the
+   rejection.
 2. `complete` without an amount is rejected — the pairing, not just presence
 3. an amount with `partial` is rejected — the same pairing from the other side
 4. `complete` + amount round-trips; the stored amount is the submitted one
@@ -34,12 +47,15 @@ Run; confirm each fails for the stated reason.
 `scores/schemas.py`
 
 - `RunCostStatus = Literal["complete", "partial", "unavailable"]`
-- `run_cost_status: RunCostStatus` required on `ScoreSubmission`
+- `run_cost_status: RunCostStatus | None = None` on `ScoreSubmission` — **optional**, not
+  required as this line originally read. The expand phase; `OME-1258` flips it
 - `run_cost_status: RunCostStatus | None` on `ScoreSchema`, with `exclude_if` so a legacy row
   emits nothing — the `OME-1181` Q2 lesson: `ScoreSchema` feeds the byte-exact JSONL export whose
   digest authorises a private-board purge, and a new always-present key changes every historical
   digest
-- a `model_validator` pinning §2.1: `complete` ⇔ an amount is present
+- a `model_validator` pinning §2.1: `complete` ⇔ an amount is present, **when a status was
+  supplied**. An absent status beside an amount resolves to `complete`; both absent is accepted
+  and stays unlabelled (spec §2.3)
 
 `scores/models/score.py` — `run_cost_status = fields.CharField(max_length=16, null=True)`
 
@@ -73,6 +89,9 @@ the gate runner runs migrations.
 
 Fill the Outcome, commit with `Refs: OME-822`, push, update `#841`'s body. The PR body predates
 this contract entirely and describes only the required-field change.
+
+**Not fully done:** the body was rewritten for the required contract, then the expand split
+landed and left it stale again. `OME-1265` finishes it.
 
 Also correct `OME-822`'s Linear body — its D1 bullet still names the gateway's `DirectCostStatus`
 vocabulary, superseded by D4.
