@@ -1,9 +1,9 @@
 ---
 ticket: OME-1238
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-22
-finished:
+finished: 2026-09-22
 ---
 
 # OME-1238 — Import the remaining exact-match benchmarks the roadmap names
@@ -105,3 +105,8 @@ Unit shape (three PRs off this ticket + one scope-correction comment):
     `--skip-append-only` (owner-approved; renames are byte-identical motion).
     Known tradeoff, accepted by the owner: the full suite no longer runs under
     the extra-installed environment.
+  - Merged 2026-09-22: PR #1009 (squash, incl. identity-checked shim, hardened
+    refusals, tests/unit/inspect lane), PR #1010 (aime24 + revision-pin test +
+    serving shuffle), PR #1011 (aime25 with pinned serving shuffle). PR2/PR3
+    were rebased onto the moved test paths before merge. Docs closed in this
+    follow-up PR (close-in-feature-PR missed for the stack's last commit).
