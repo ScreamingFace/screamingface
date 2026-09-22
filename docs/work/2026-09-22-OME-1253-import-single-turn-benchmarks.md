@@ -1,9 +1,9 @@
 ---
 ticket: OME-1253
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-22
-finished:
+finished: 2026-09-22
 ---
 
 # OME-1253 — Import every remaining single-turn text benchmark from inspect_evals
@@ -65,7 +65,9 @@ flag to product) and full 248-ref reconciliation.
   2 appended bake tests + 3 roster extensions + ledger + mirror. No batch-2 PR:
   all three candidates failed the per-board fidelity check (see Deviations).
 - **Commits:** `7bf89ee` feat(screamingface-engine): import the musr and wmdp
-  boards (PR #1016).
+  boards (PR #1016, CI green); `a4c5a92` feat(screamingface-engine): import
+  hellaswag, delivering its system instruction as leading input text
+  (PR #1018, stacked on #1016). Both await owner merge.
 - **Gates:** `run_gates.py screamingface-engine` ALL GREEN on the committed
   branch (append-only included — the roster extensions are extension-only vs
   main); pytest 3537 passed, 0 failed, 9 skipped. Offline full-bakes 250/250,
@@ -73,8 +75,13 @@ flag to product) and full 248-ref reconciliation.
 - **Deviations:**
   - Batch plan reshuffled: 10 of the sweep's in-scope 22 were already on main,
     so the train shrank to 7 choice + 4 custom-deterministic candidates.
-  - hellaswag import held: HF card licence UNKNOWN (GitHub repo is MIT) —
-    owner licence call. sec_qa_v1/v2 held: cc-by-nc-sa-4.0 (non-commercial).
+  - hellaswag licence owner-approved (MIT per upstream source repo) and
+    imported in PR #1018 — with an owner-approved importer/prepare seam:
+    a module-level system message binds as a fact and bakes as leading
+    input text (contracteval named-deviation pattern). "No importer
+    changes" premise amended by the owner for this seam only.
+  - sec_qa_v1/v2 licence-REFUSED by owner: cc-by-nc-sa-4.0 non-commercial
+    is incompatible with the public catalogue.
   - ds1000 / class_eval / compute_eval fidelity-refused: docker-sandbox
     code-execution scorers (ds1000 also injects a model-specific system
     message). Not row-importable; sent back on the ticket.
@@ -83,3 +90,5 @@ flag to product) and full 248-ref reconciliation.
   - bbh / lingoly / mbpp re-probed ONLINE: upstream TypeError / gated dataset /
     prompt-template refusal. All three refused with verbatim reasons on the
     ticket's scope-correction comment.
+  - Unlock pipes deferred by owner sizing call (~100 LoC each): filed as
+    OME-1264 (lab_bench + truthfulqa + infinite_bench families).
