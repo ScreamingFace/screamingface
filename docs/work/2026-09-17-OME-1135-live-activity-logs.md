@@ -132,3 +132,11 @@ Owner requested less empty space around activity and single-line horizontally sc
 Compact layout verification: 58 focused activity/progress tests pass. Actual Jupyter output refreshed without provider calls; long name has 76px overflow and horizontal scrolling reached its end, clicking the name still toggles expansion. Tight 8px log inset replaces 12px/16px and fixed minimum height; viewport remains capped at 280px. Existing test migrations only cover the requested height and name focus changes. Review: presentation only, no wire/state/privacy changes, dependencies or raw data exposure. Full gates rerun after discovering two additional old-layout assertions.
 
 Outcome: all Client gates green, including lint, formatting, types, full tests/95% coverage, notebooks, build and distribution. Append-only exception limited to owner-requested layout assertion migrations. Draft status retained.
+
+
+## Content-sized activity follow-up — 2026-09-22
+The live notebook retains an older global console height:280px rule. Explicitly reset console height/min-height/overflow, reduce vertical padding, and overlay Copy in a reserved right gutter so it takes no extra row. Verify rendered short and overflowing content without provider calls.
+
+Verified in the existing Jupyter output with stale fixed-height CSS still present: ten rows now measure 199.953px, console padding is 4px 8px, toolbar height is zero, and the widget retains max-height 280px. Screenshot confirms no empty top/bottom block and Copy aligned with the first row. No provider calls or evaluation state changes.
+
+Outcome: 58 focused tests pass and all Client gates are green (lint, format, types, full tests/95% coverage, notebooks, distribution). Existing branch-wide append-only exception retained for previously authorized assertion migrations; no tests changed in this follow-up. Notebook display saved.

@@ -9,14 +9,15 @@ from screamingface._ui.activity_record import LABELS, TERMINAL
 from screamingface._ui.activity_state import ActivityLog, ActivityRow
 
 STYLE = """<style>
-.sf-activity-console{box-sizing:border-box;
- margin:0;padding:8px;border:1px solid var(--sf-line);
+.sf-activity-console{box-sizing:border-box;height:auto;min-height:0;overflow:visible;
+ margin:0;padding:4px 8px;border:1px solid var(--sf-line);
  background:var(--sf-surface);color:var(--sf-ink);font:12px/1.6 "IBM Plex Mono",monospace;
  font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:left}
-.sf-activity-tools{display:flex;justify-content:flex-end;position:sticky;top:0;
- z-index:1;background:var(--sf-surface);padding-bottom:4px}
+.sf-activity-tools{position:sticky;top:0;height:0;padding:0;z-index:1}
+.sf-activity-tools .sf-activity-copy{position:absolute;right:0;top:0}
+.sf-activity-content{padding-right:80px}
 .sf-activity-copy{font:inherit;color:var(--sf-ink-2);background:var(--sf-surface);
- border:1px solid var(--sf-line);border-radius:0;padding:2px 8px;cursor:pointer}
+ border:1px solid var(--sf-line);border-radius:0;padding:0 8px;cursor:pointer}
 .sf-activity-copy:hover{color:var(--sf-ink);border-color:var(--sf-accent)}
 .sf-activity-copy:focus-visible{outline:2px solid var(--sf-accent);outline-offset:2px}
 .sf-activity-console .sf-activity__stage{display:flex;margin:0;padding:0;font:inherit}
