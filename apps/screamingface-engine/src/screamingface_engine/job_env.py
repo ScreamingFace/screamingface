@@ -413,7 +413,7 @@ holding — re-adding a per-run secret must go through it rather than around it.
 
 REQUIRED = frozenset({TOPIC, EXPRESSION})
 """Absent ⇒ run mode raises ``runner.main.RunnerConfigError`` at boot (the PER-RUN env error; a
-bad declared world is ``world_config.WorldConfigError``). Every adapter must write these."""
+bad declared world is ``world.config.WorldConfigError``). Every adapter must write these."""
 
 WRITTEN_BY_APP = frozenset(
     {

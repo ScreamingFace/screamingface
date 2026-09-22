@@ -13,7 +13,7 @@ the defect `build_aigateway_world`'s own docstring warns about for `cache`. A Co
 read at request time rather than build time, so the world stays cacheable and the value cannot
 outlive its run. This is also the idiom the same call site already uses:
 `current_retrieval_policy()` and `operation_call_identity()` sit beside it in
-`runner/connector.py`.
+`world/connector.py`.
 
 INVARIANT: the id here is the one `url4.streaming.lifecycle.run` resolved and handed to
 `Executor.execute`, NOT `logs.RunContext.trace_id`. `runner/main.py` binds the log context from

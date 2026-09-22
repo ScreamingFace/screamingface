@@ -74,6 +74,48 @@ def test_a_world_module_importing_runner_fails(tmp_path, monkeypatch) -> None:
     assert any("world/bad_world.py" in offender for offender in offenders), offenders
 
 
+def test_a_world_module_importing_a_control_plane_module_fails(tmp_path, monkeypatch) -> None:
+    """AC7, the other clause: `world` imports neither HALF — and `rest` is control plane even
+    though it is not `runner`. Without this fixture the clause was implemented but unpinned."""
+
+    src = _source_tree(tmp_path)
+    _write(
+        src,
+        "world/bad_control.py",
+        "from screamingface_engine.rest.routes import router\n",
+    )
+    offenders = _offenders(tmp_path, monkeypatch)
+    assert any("world/bad_control.py" in offender for offender in offenders), offenders
+
+
+def test_a_runner_module_importing_world_serving_fails(tmp_path, monkeypatch) -> None:
+    """The F4 composition helper (`world.serving`) is serving-side: it imports Starlette and
+    compiles the App's route table. A Job's cold start stays engine + httpx + nats-py, so the
+    run half may import `world` — everything except this one module."""
+
+    src = _source_tree(tmp_path)
+    _write(
+        src,
+        "runner/imports_guard.py",
+        "from screamingface_engine.world.serving import compose_serving_world\n",
+    )
+    offenders = _offenders(tmp_path, monkeypatch)
+    assert any("runner/imports_guard.py" in offender for offender in offenders), offenders
+
+
+def test_a_control_plane_module_importing_world_serving_passes(tmp_path, monkeypatch) -> None:
+    """The mirror of the exception: the serving half composes serving worlds — that is its job."""
+
+    src = _source_tree(tmp_path)
+    _write(
+        src,
+        "rest/uses_guard.py",
+        "from screamingface_engine.world.serving import compose_serving_world\n",
+    )
+    offenders = _offenders(tmp_path, monkeypatch)
+    assert not any("rest/uses_guard.py" in offender for offender in offenders), offenders
+
+
 def test_a_control_plane_module_may_import_world(tmp_path, monkeypatch) -> None:
     """AC8: the control plane is ENTITLED to the world — that is the whole point of the category."""
 

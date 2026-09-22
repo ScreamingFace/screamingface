@@ -133,7 +133,6 @@ def test_current_scope_never_returns_a_default_constructed_scope() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.asyncio
 async def test_a_spawned_task_inherits_the_bound_scope() -> None:
     async def read_seed() -> int | None:
         return current_scope().answer_seed
@@ -145,7 +144,6 @@ async def test_a_spawned_task_inherits_the_bound_scope() -> None:
     assert child.result() == 5
 
 
-@pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_sibling_tasks_bound_to_different_scopes_stay_isolated() -> None:
     async def read_in(scope: RequestScope) -> int | None:

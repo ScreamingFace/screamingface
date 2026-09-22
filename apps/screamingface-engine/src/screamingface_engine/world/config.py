@@ -532,7 +532,7 @@ def _merge(registry: ModelRegistry, declared: tuple[ModelSpec, ...]) -> tuple[Mo
     `ModelSpec.id` is therefore ALWAYS the url4-route form, for every entry, whether it came
     from the registry or from TOML. The real gateway id is recovered with `decode_route_id`
     exactly where a real request or a comparison against aigateway's own catalog needs it
-    (`runner/connector.py`, `catalog/executable.py`) — nowhere else needs to know the
+    (`world/connector.py`, `catalog/executable.py`) — nowhere else needs to know the
     distinction.
 
     A TOML entry for a registry id REPLACES that spec, which is how `web_search = false` reaches

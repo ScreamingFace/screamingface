@@ -20,7 +20,10 @@ One image ships two modes, and the whole point of that shape is a rule about wha
   Run mode:      runner.executor (the url4 engine) · runner.main
   Worker:        worker (the claim loop, the supervisor, the exec wrapper)
 
-  World (prd/01): world — importable by BOTH halves, importing NEITHER.
+  World (prd/01): world — importable by BOTH halves, importing NEITHER. One exception, one
+                  direction: the run half may not import `world.serving` (the F4 composition
+                  helper) — it compiles the App's route table and imports Starlette, which no
+                  Job's cold start should pay for. The serving half imports it freely.
   Shared leaves:  job_env · subjects · adapters.jetstream · request_scope · candidate_scope ·
                   model_outcomes · observations — importable by BOTH, importing NEITHER.
 
@@ -94,6 +97,14 @@ RULES: list[tuple[str, set[str], str]] = [
         CONTROL_PLANE,
         "the run mode is the data plane; a Job must not load the serving half (FastAPI, uvicorn, "
         "the kubernetes client) it will never call",
+    ),
+    (
+        "runner",
+        {"world.serving"},
+        "world.serving composes a SERVING world — Starlette route compilation against the App's "
+        "route table (prd/02 F4) — and no Job ever composes one. Everything else in `world` is the "
+        "run mode's to import; this one module would drag Starlette back into a Job's cold start, "
+        "which is exactly what rule 1 above keeps out",
     ),
     (
         "",  # every control-plane module, listed below

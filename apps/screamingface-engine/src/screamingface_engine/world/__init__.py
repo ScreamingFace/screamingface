@@ -8,8 +8,8 @@
 # `world/` is therefore its own category: importable by BOTH halves, importing NEITHER. It depends
 # only on `packages/url4`, the standard library, and engine shared leaves (`job_env`,
 # `request_scope`, `observations`, ...). It must never import `runner`, the control plane, or the
-# worker; `check_layering.py` proves it, and `.claude/scripts/tests` plus
-# `tests/unit/test_layering_world.py` pin the rule with fixtures.
+# worker; `check_layering.py` proves it, and `tests/unit/test_layering_world.py` pins the rule
+# with fixtures.
 #
 # F2 (the request scope) is what makes one world safe to share: the connector reads caller state
 # from the `request_scope` ContextVar per call, so nothing here holds a caller's identity.

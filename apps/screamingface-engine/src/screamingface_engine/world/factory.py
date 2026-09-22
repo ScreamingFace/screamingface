@@ -40,6 +40,13 @@ from url4.streaming.protocol import CachePolicy
 
 logger = logging.getLogger(__name__)
 
+# CHARACTERIZATION (prd/01 AC1 — the ensemble path is byte-for-byte unchanged): the per-run
+# "runner world topic=…" line was emitted on logger `screamingface_engine.runner.main` before F1
+# moved its emitter into this package, and log routing keyed on that name must not change with
+# the code's address. This ONE line keeps its historical logger; world-side logs that are new
+# (the D8 shelf declarations below) use `logger` above.
+_RUN_PATH_LOGGER = logging.getLogger("screamingface_engine.runner.main")
+
 READ_SIDE_TIMEOUT_S = 120.0
 """Provider timeout passed to url4's read-side handler builders.
 
@@ -65,6 +72,22 @@ def deny_by_default_world() -> IOLayer:
     """A world that resolves nothing — the shape of a Job with no declared `[aigateway]` table."""
 
     return StaticIOLayer()
+
+
+def _bare_read_side_world(resolved: WorldConfig) -> Url4Node:
+    """A read-side-only declaration becomes a bare node — not a deny-by-default layer.
+
+    WHY the same ``ValueError`` → ``WorldConfigError`` translation as the aigateway branch in
+    :func:`build_world` and no aclose: a registration failure must surface as ``WorldConfigError``
+    whichever branch declared the mounts (a bare read-side node owns nothing to close yet —
+    failing the build IS the cleanup).
+    """
+    node = Url4Node("world")
+    try:
+        register_read_side_mounts(node, resolved)
+    except ValueError as exc:
+        raise WorldConfigError(f"cannot register the declared read-side mounts: {exc}") from exc
+    return node
 
 
 async def build_world(
@@ -104,9 +127,7 @@ async def build_world(
         # WHY a bare node: a [data]/[holdings]/[identities]-only declaration must still become a
         # mount (F3, prd/02 AC1). Returning the deny-by-default layer here would drop the operator's
         # declaration in silence — the exact failure AC3 rejects for command providers.
-        node = Url4Node("world")
-        register_read_side_mounts(node, resolved)
-        return node, None
+        return _bare_read_side_world(resolved), None
     # WHY: no credential check here; aigateway runs `cloudflare_headers` when deployed and
     # `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to demand.
     # Identity is forwarded when present and simply absent locally, where every caller is
@@ -155,7 +176,7 @@ async def build_world(
     # bound by the time the world is built. Model ids are public catalog names; `web_tools` is
     # derived from the PRESENCE of the Tavily key, never the key itself; `cache` states whether
     # the run declared a policy, not the policy's content.
-    logger.info(
+    _RUN_PATH_LOGGER.info(
         "runner world topic=%s models=%d default_model=%s web_tools=%s cache=%s outbound=%s",
         run_key,
         len(section.models),

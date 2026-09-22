@@ -211,7 +211,7 @@ the Runner and on to aigateway (`job_env.IDENTITY_HEADER_ENV`):
 When `TAVILY_API_KEY` reaches the run's child process (a `secretKeyRef` on the runner pool's
 Deployment — never a literal in the queue message, since a queue message is readable by any
 worker), the aigateway connector
-(`runner/connector.py`):
+(world/connector.py):
 
 - declares `web_search` / `web_fetch` (OpenAI function‑calling shape) to the model,
 - runs a **bounded** tool‑calling loop (`web_tool_max_iterations`, default 5):
