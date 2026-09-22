@@ -11,8 +11,16 @@ lowering, the executor/run composition split (``dag/executor.py`` +
 dispatch half (``peer/server.py`` + ``peer/_dispatch.py``) — from
 silently regrowing: a module that earned a split must not creep back over its
 cap one import at a time. The stable grammar/render entries hold the largest
-modules at their reviewed size for the same reason. Lower a BASELINE entry
-when its module shrinks for good; never raise one to make CI pass.
+modules at their reviewed size for the same reason.
+
+A baseline is a *measurement*, not the cap: the cap is the baseline plus
+``HEADROOM``. That slack is what keeps the gate honest. With a zero-slack cap,
+adding one comment line to a module already at its baseline fails CI, and the
+only way out is to raise the entry — which this gate forbids, so the ratchet
+would make routine edits unlandable and teach everyone to edit the baselines
+anyway. With slack, a comment or a guard clause lands, and regrowth by dozens
+of lines still fails. Lower a BASELINE entry when its module shrinks for good;
+never raise one to make CI pass.
 """
 
 from __future__ import annotations
@@ -20,8 +28,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Physical line count (``wc -l``) when this ratchet was added. Lower an entry
-# when its module shrinks; never raise it to make CI pass.
+# Lines a module may grow past its baseline before the gate fails. Small on
+# purpose: enough for an edit, not enough for a new responsibility.
+HEADROOM = 10
+
+# Physical line count (``wc -l``) when each module was last reviewed at its
+# size. Lower an entry when its module shrinks; never raise it to make CI pass
+# — HEADROOM is what absorbs ordinary edits.
 BASELINE: dict[str, int] = {
     "core/grammar.py": 944,
     "dag/_lowering.py": 737,
@@ -56,16 +69,20 @@ def main() -> int:
         return 1
 
     failures: list[str] = []
-    for rel, cap in sorted(BASELINE.items()):
+    for rel, baseline in sorted(BASELINE.items()):
         path = _SRC_DIR / rel
         if not path.is_file():
             failures.append(f"{rel}: missing — update BASELINE when a module moves")
             continue
+        cap = baseline + HEADROOM
         count = _line_count(path)
         marker = "  << over cap" if count > cap else ""
         print(f"{count:5d} / {cap:5d}  {rel}{marker}")
         if count > cap:
-            failures.append(f"{rel}: {count} lines, {count - cap} over its cap of {cap}")
+            failures.append(
+                f"{rel}: {count} lines, {count - cap} over its cap of {cap} "
+                f"(baseline {baseline} + headroom {HEADROOM})"
+            )
 
     if failures:
         print(f"\nerror: {len(failures)} module(s) above their size cap:", file=sys.stderr)
