@@ -165,6 +165,60 @@ cap. This supersedes the OME-1065 quota-admission feature, which was retired wit
 adapter — the counted resource changed from namespace quota headroom to queue depth, and the
 cache-plus-reservation shape did not.
 
+## The node tier (unit 3)
+
+The sync surface (`GET /<mount>?q=`) can run as its own Deployment, separate from the App, so a
+slow or crashing sync call cannot take down the WebSocket relays that in-flight ensemble runs
+depend on. **Off by default** (`node.enabled: false`) — turn it on with:
+
+```bash
+--set node.enabled=true --set artifactStorage.backend=s3
+```
+
+**Needs S3.** The node's spill path (a response over 512 KiB) writes to the SAME object store
+the App reads it back from, across pods — the chart REFUSES `node.enabled=true` paired with any
+`artifactStorage.backend` other than `s3` (OME-929, the same failure mode `runner: queue` +
+`artifactStorage.backend: filesystem` already refuses one tier over). `values-cloud.yaml` leaves
+the node off for exactly this reason: it does not set an s3 backend, so turning the node on there
+needs `--set artifactStorage.backend=s3` (and usually `--set garage.enabled=true`, or a real S3
+endpoint) at install time.
+
+**Its own label set.** The node Deployment's pods carry `app.kubernetes.io/name: url4-cloud` —
+the SAME name as the App, so aigateway's own NetworkPolicy admits the node's outbound calls
+without a CNI change — but `app.kubernetes.io/instance: <release>-node`, NOT the App's plain
+`<release>`. This is deliberate (FX-80): the App's own Service and Deployment select on a bare
+`{name, instance}` pair with no component qualifier, which is a SUPERSET match — before the
+node's instance diverged, the App's Service silently fronted the node's pods too, and the App
+Deployment's replace/evict blast radius silently covered them as well. Nothing on the App side
+changes to fix this; the node's own instance value is what breaks the match.
+
+> **If you run an aigateway NetworkPolicy of your own (outside this repo)**, it must admit peers
+> by `app.kubernetes.io/name: url4-cloud` alone, not by `name` AND `instance` together — a policy
+> that also matches on `instance` denies the node tier's calls, because the node's instance is
+> never the App's.
+
+**Metrics on their own port.** `/metrics` is served on `node.metrics.port` (default `9110`),
+separate from the request port `node.port` (`9109`) — a scrape can never compete with a sync
+call for the same listener. The NetworkPolicy admits it via a SECOND, independent ingress rule,
+gated on `node.metrics.scrapeFrom` (a list of NetworkPolicy peer objects, default `[]`): with no
+peer configured, metrics is reachable from nowhere else in the cluster, and no rule renders at
+all.
+
+**The artifact-signing key (OQ-3.2).** The node signs a spilled artifact's short-lived `303`
+`Location`; the App verifies it. The SAME `URL4_CLOUD_ARTIFACT_SIGNING_KEY` Secret must reach
+both tiers — `artifactSigning.existingSecret` (recommended for GitOps) is created out-of-band.
+Left empty, the chart generates one and reuses it across upgrades via Helm's `lookup` function —
+but `lookup` reads the LIVE cluster, so it returns nothing under `helm template` (no cluster to
+query). A GitOps controller that renders offline (ArgoCD/Flux `helm template`, not `helm
+upgrade --install` against a live cluster) will therefore see a NEW random key on every render
+unless `artifactSigning.existingSecret` names a Secret it manages itself.
+
+**Web tools are off on the node tier.** The node Deployment's `envFrom` never references the
+Tavily Secret, regardless of `tavily.enabled` — only the runner pool does. A sync call has a 30 s
+budget (`node.requestTimeoutS`), and a web-tool-enabled mount usually exhausts that budget before
+its iteration count (contracts.md C4); operators should prefer `web_search = false` on model
+routes the sync surface serves.
+
 ## Artifact storage (OME-929)
 
 A Run whose serialized result exceeds the inline cap (1 MiB) is parked under its content address,
@@ -260,10 +314,15 @@ by a node drain; the `preStop` drain is what protects its runs (they close out a
 ## Labels
 
 All resources carry the k8s **recommended labels** (`app.kubernetes.io/name·instance·version·
-managed-by·part-of·component`) via `templates/_helpers.tpl` (docs/protocol.md §9). The runner
-pool is the one deliberate exception: its pods carry `app.kubernetes.io/name: url4-runner` — the
-label aigateway's NetworkPolicy admits the run workload by (the old Job labels), so the pool
-replaces the Jobs without a CNI change.
+managed-by·part-of·component`) via `templates/_helpers.tpl` (docs/protocol.md §9). Two deliberate
+exceptions:
+
+- The runner pool's pods carry `app.kubernetes.io/name: url4-runner` — the label aigateway's
+  NetworkPolicy admits the run workload by (the old Job labels), so the pool replaces the Jobs
+  without a CNI change.
+- The node tier's pods keep `app.kubernetes.io/name: url4-cloud` (the SAME name as the App, for
+  the same aigateway-admission reason) but carry `app.kubernetes.io/instance: <release>-node`,
+  not the App's own `<release>` (FX-80). See "The node tier" section above for why.
 
 ## OCI image annotations
 

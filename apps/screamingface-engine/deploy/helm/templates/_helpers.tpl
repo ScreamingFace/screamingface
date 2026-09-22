@@ -168,6 +168,42 @@ this value is set (`config.Settings.node_base_url`), so a disabled tier arms not
 {{- end -}}
 
 {{/*
+Node-tier SELECTOR labels (FX-80, §2.5): the SAME `name` as the App and runner pool (aigateway's
+NetworkPolicy admits by that name), but a DIFFERENT `instance` — `<release>-node` rather than
+`<release>`.
+
+WHY this must differ: the App's own Service and Deployment select on the plain {name, instance}
+pair, WITH NO component qualifier (`screamingface-engine.selectorLabels`). Kubernetes selector
+matching is a SUBSET test — a pod carrying extra labels still matches — so before this helper
+existed the node pods (same name, same instance, PLUS component: node) were silently inside the
+App Service's endpoints and the App Deployment's replace/evict blast radius too. Giving the node
+its own instance breaks that subset match with no change on the App side at all: `<release>-node`
+can never equal `<release>`.
+*/}}
+{{- define "screamingface-engine.nodeSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "screamingface-engine.name" . }}
+app.kubernetes.io/instance: {{ printf "%s-node" .Release.Name }}
+{{- end -}}
+
+{{/*
+Full recommended labels for node-tier OBJECTS (FX-87). `screamingface-engine.labels` always
+resolves `app.kubernetes.io/component: control-plane`, and every node template used to append
+`component: node` right after it — a genuine YAML duplicate mapping key. Most parsers silently
+keep the LAST occurrence (which happened to be correct here), but that is luck, not a contract,
+and a stray reorder would silently swap the component back to control-plane. This helper builds
+the same recommended set with `component: node` and `nodeSelectorLabels` baked in from the start,
+so the key is written exactly once.
+*/}}
+{{- define "screamingface-engine.nodeLabels" -}}
+helm.sh/chart: {{ include "screamingface-engine.chart" . }}
+{{ include "screamingface-engine.nodeSelectorLabels" . }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: screamingface
+app.kubernetes.io/component: node
+{{- end -}}
+
+{{/*
 Name of the Secret holding the shared artifact-signing key (OQ-3.2). An `existingSecret` wins
 (the prod shape — created out-of-band or by an External Secrets / Sealed Secrets flow);
 otherwise the chart creates `<fullname>-artifact-signing`. The SAME name reaches both tiers:

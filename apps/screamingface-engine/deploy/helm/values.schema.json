@@ -267,10 +267,20 @@
           "type": "integer",
           "minimum": 0
         },
+        "spillTimeoutS": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "The spill write's own bound (§2.2), applied AFTER the request wrapper returns and outside its own timeout. Feeds the App's derived URL4_CLOUD_NODE_FORWARD_TIMEOUT_S (requestTimeoutS + spillTimeoutS + 1) and the terminationGracePeriodSeconds guard below."
+        },
         "artifactUrlTtlS": {
           "type": "integer",
           "minimum": 1,
           "description": "OQ-3.2: lifetime of a spilled artifact's signed URL. The App enforces the same expiry from the signature."
+        },
+        "resultHardCapBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The node's own hard cap on a response body (mirrors NT-M9's NODE_DEFAULT_RESULT_HARD_CAP_BYTES); a body over this fails 413 rather than spilling. Rendered as URL4_CLOUD_RESULT_HARD_CAP_BYTES."
         },
         "preStopSleepSeconds": {
           "type": [
@@ -282,7 +292,7 @@
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 1,
-          "description": "INVARIANT: must exceed preStopSleepSeconds + the worst-case sync hold (requestTimeoutS) so a rollout never SIGKILLs an in-flight request."
+          "description": "INVARIANT: the chart FAILS to render unless this exceeds preStopSleepSeconds + requestTimeoutS + spillTimeoutS, so a rollout never SIGKILLs an in-flight request or its spill write."
         },
         "resources": {
           "type": "object"
@@ -292,6 +302,32 @@
         },
         "readinessProbe": {
           "type": "object"
+        },
+        "startupProbe": {
+          "type": "object",
+          "description": "Covers the world build, which can outlast liveness's own restart window. periodSeconds x failureThreshold must stay >= 120s (FX-88)."
+        },
+        "metrics": {
+          "type": "object",
+          "description": "The tier's own scrape surface, on a port separate from request traffic (FX-82, RD2).",
+          "properties": {
+            "port": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "scrapeFrom": {
+              "type": "array",
+              "description": "NetworkPolicy peer objects admitted to the metrics port. Empty (default) renders NO second ingress rule, so metrics is reachable from nowhere else in the cluster.",
+              "items": {
+                "type": "object"
+              }
+            }
+          },
+          "required": [
+            "port",
+            "scrapeFrom"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -304,12 +340,16 @@
         "maxInflightPerWorker",
         "workers",
         "retryAfterS",
+        "spillTimeoutS",
         "artifactUrlTtlS",
+        "resultHardCapBytes",
         "preStopSleepSeconds",
         "terminationGracePeriodSeconds",
         "resources",
         "livenessProbe",
-        "readinessProbe"
+        "readinessProbe",
+        "startupProbe",
+        "metrics"
       ],
       "additionalProperties": false
     },

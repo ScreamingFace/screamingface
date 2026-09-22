@@ -11,6 +11,19 @@ The runner pool (fixed worker pool, OME-1092) is running as:
 The control plane holds no RBAC: it cannot create Pods, and the ServiceAccount
 "{{ include "screamingface-engine.serviceAccountName" . }}" exists for pod identity only.
 
+{{- if .Values.node.enabled }}
+
+The node tier (sync surface, unit 3) is running as:
+  Deployment/{{ include "screamingface-engine.nodeName" . }} ({{ .Values.node.replicas }} replicas)
+  Service/{{ include "screamingface-engine.nodeName" . }} (port {{ .Values.node.service.port }}, reachable only from the App)
+  NetworkPolicy/{{ include "screamingface-engine.nodeName" . }} (App-only ingress; see the chart README's "The node tier" section for the label set an external aigateway policy must admit)
+{{- else }}
+
+The node tier (sync surface) is OFF (the default). Turn it on with:
+  --set node.enabled=true --set artifactStorage.backend=s3
+(the chart refuses node.enabled without an s3-compatible artifact store — OME-929).
+{{- end }}
+
 {{- if .Values.ingress.enabled }}
 
 Reachable via Ingress:

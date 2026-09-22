@@ -15,12 +15,11 @@ kind: PodDisruptionBudget
 metadata:
   name: {{ include "screamingface-engine.nodeName" . }}
   labels:
-    {{- include "screamingface-engine.labels" . | nindent 4 }}
-    app.kubernetes.io/component: node
+    {{- include "screamingface-engine.nodeLabels" . | nindent 4 }}
 spec:
   maxUnavailable: 1
   selector:
     matchLabels:
-      {{- include "screamingface-engine.selectorLabels" . | nindent 6 }}
+      {{- include "screamingface-engine.nodeSelectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: node
 {{- end }}

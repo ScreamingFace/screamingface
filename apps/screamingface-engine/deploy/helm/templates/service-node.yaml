@@ -2,16 +2,17 @@
 {{/*
 The node tier's Service: what the App's forwarder dials (`config.Settings.node_base_url`). The
 selector carries `component: node` so it fronts ONLY the node pods — the node shares
-`app.kubernetes.io/name` with the App (so aigateway admits its calls), so name+instance alone
-would also select the App.
+`app.kubernetes.io/name` with the App (so aigateway admits its calls), so name alone would also
+select the App. `instance` differs too (FX-80, §2.5): the App's OWN Service selects on plain
+{name, instance} with no component, so it is a SUPERSET match for anything sharing both — before
+the node's instance diverged, the App's Service silently fronted the node's pods as well.
 */}}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "screamingface-engine.nodeName" . }}
   labels:
-    {{- include "screamingface-engine.labels" . | nindent 4 }}
-    app.kubernetes.io/component: node
+    {{- include "screamingface-engine.nodeLabels" . | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -20,6 +21,6 @@ spec:
       targetPort: http
       protocol: TCP
   selector:
-    {{- include "screamingface-engine.selectorLabels" . | nindent 4 }}
+    {{- include "screamingface-engine.nodeSelectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: node
 {{- end }}

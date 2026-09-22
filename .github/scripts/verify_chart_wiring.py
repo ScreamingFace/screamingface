@@ -711,11 +711,23 @@ check(
 )
 
 print("\nscreamingface-engine chart")
+# FX-86: `node.enabled` defaults to FALSE (the chart refuses it paired with any
+# artifactStorage.backend other than `s3`, OME-929), so every check below that needs the node
+# tier's objects renders with BOTH set explicitly.
+ENGINE_NODE_ARGS = (
+    "--set",
+    "node.enabled=true",
+    "--set",
+    "artifactStorage.backend=s3",
+    "--set-string",
+    "artifactStorage.s3.endpointUrl=http://garage:3900",
+)
 engine_chart = render(
     ENGINE_CHART,
     ENGINE_RELEASE,
     "--set-string",
     "config.natsUrl=nats://nats.example:4222",
+    *ENGINE_NODE_ARGS,
 )
 # The chart now renders THREE Deployments (the App, the runner pool OME-1092, and the node tier
 # of unit 3), so each is looked up by name rather than by `find` (which would silently return
@@ -861,10 +873,7 @@ engine_s3 = render(
     ENGINE_RELEASE,
     "--set-string",
     "config.natsUrl=nats://nats.example:4222",
-    "--set",
-    "artifactStorage.backend=s3",
-    "--set-string",
-    "artifactStorage.s3.endpointUrl=http://garage:3900",
+    *ENGINE_NODE_ARGS,
 )
 signing_name = f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-artifact-signing"
 artifact_name = f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-artifact-storage"
@@ -898,8 +907,17 @@ engine_podlabels = render(
     ENGINE_RELEASE,
     "--set-string",
     "config.natsUrl=nats://nats.example:4222",
+    *ENGINE_NODE_ARGS,
     "--set-string",
     "podLabels.app\\.kubernetes\\.io/component=platform-convention",
+)
+node_podlabels_labels = find_named(engine_podlabels, "Deployment", node_name)["spec"][
+    "template"
+]["metadata"]["labels"]
+check(
+    node_podlabels_labels.get("app.kubernetes.io/component") == "node",
+    "the node's OWN component label is ALSO chart-owned (FX-84) — a podLabels override cannot "
+    "silently change which selector the node's own pods match either",
 )
 override_app_labels = find_named(
     engine_podlabels, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
@@ -925,6 +943,224 @@ check(
     ),
     "under the podLabels override the node policy's peer STILL matches the App pods — a "
     "platform convention cannot lock the App out of the node",
+)
+
+# --- FX-80/FX-90: every selector matches EXACTLY its own Deployment's pod template -----------
+# The bug this closes: the node used to share the App's {name, instance} pair, so the App's own
+# Service and Deployment selectors (a plain {name, instance}, no component) were a SUPERSET
+# match for the node's pods too — silently routing public traffic and eviction/replace churn to
+# a tier that was never meant to receive either. Checked generically so the NEXT stray selector
+# is caught the same way, not just this one.
+engine_pod_templates = {
+    doc["metadata"]["name"]: doc["spec"]["template"]["metadata"]["labels"]
+    for doc in engine_chart
+    if doc.get("kind") == "Deployment"
+}
+_ENGINE_SELECTOR_OWNERS = {
+    (
+        "Service",
+        f"{ENGINE_RELEASE}-{ENGINE_RELEASE}",
+    ): f"{ENGINE_RELEASE}-{ENGINE_RELEASE}",
+    ("Service", node_name): node_name,
+    (
+        "Deployment",
+        f"{ENGINE_RELEASE}-{ENGINE_RELEASE}",
+    ): f"{ENGINE_RELEASE}-{ENGINE_RELEASE}",
+    (
+        "Deployment",
+        f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-runner",
+    ): f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-runner",
+    ("Deployment", node_name): node_name,
+    ("PodDisruptionBudget", node_name): node_name,
+    ("NetworkPolicy", node_name): node_name,
+}
+
+
+def _selector_of(doc: dict) -> dict:
+    if doc["kind"] == "Service":
+        return doc["spec"]["selector"]
+    if doc["kind"] == "NetworkPolicy":
+        return doc["spec"]["podSelector"]["matchLabels"]
+    return doc["spec"]["selector"]["matchLabels"]
+
+
+_selector_mismatches: list[str] = []
+for (kind, name), owner in _ENGINE_SELECTOR_OWNERS.items():
+    selector = _selector_of(find_named(engine_chart, kind, name))
+    for deployment_name, pod_labels in engine_pod_templates.items():
+        matches = all(pod_labels.get(k) == v for k, v in selector.items())
+        if deployment_name == owner and not matches:
+            _selector_mismatches.append(
+                f"{kind}/{name} does not even match its OWN pods"
+            )
+        elif deployment_name != owner and matches:
+            _selector_mismatches.append(
+                f"{kind}/{name} ALSO matches {deployment_name}'s pods"
+            )
+check(
+    not _selector_mismatches,
+    "every Service/Deployment/PDB/NetworkPolicy selector matches EXACTLY its intended "
+    "Deployment's pod template and no other"
+    + (f" — {_selector_mismatches}" if _selector_mismatches else ""),
+)
+check(
+    not all(
+        engine_pod_templates[node_name].get(k) == v
+        for k, v in find_named(
+            engine_chart, "Service", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
+        )["spec"]["selector"].items()
+    ),
+    "the App's Service selector does NOT match the node pods (FX-90) — before the node's own "
+    "instance existed, the App's plain name+instance selector silently fronted it too",
+)
+check(
+    node_peer.get("app.kubernetes.io/component") == "control-plane"
+    and not all(
+        engine_pod_templates[node_name].get(k) == v for k, v in node_peer.items()
+    ),
+    "the node NetworkPolicy's admitted peer (component: control-plane) does NOT match the "
+    "node's OWN pods — it names the App and only the App",
+)
+
+# --- FX-82: /metrics on its own port, admitted by a peer-scoped second ingress rule ----------
+node_container = find_named(engine_chart, "Deployment", node_name)["spec"]["template"][
+    "spec"
+]["containers"][0]
+node_ports = {p["name"]: p["containerPort"] for p in node_container["ports"]}
+check(
+    node_ports["http"] != node_ports["metrics"] and node_ports["metrics"] == 9110,
+    "the node's http and metrics containerPorts are DISTINCT — a scrape can no longer share the "
+    "request listener, and the NetworkPolicy can admit a scraper to metrics only",
+)
+check(
+    len(url4_node_policy["spec"]["ingress"]) == 1,
+    "with no node.metrics.scrapeFrom configured, the chart renders NO second ingress rule — "
+    "metrics stays reachable from nowhere else in the cluster by default",
+)
+engine_scrape = render(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    *ENGINE_NODE_ARGS,
+    "--set-string",
+    r"node.metrics.scrapeFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=monitoring",
+    "--set-string",
+    r"node.metrics.scrapeFrom[0].podSelector.matchLabels.app\.kubernetes\.io/name=prometheus",
+)
+scrape_policy = find_named(engine_scrape, "NetworkPolicy", node_name)
+scrape_rule = next(
+    (
+        rule
+        for rule in scrape_policy["spec"]["ingress"]
+        if any(p.get("port") == 9110 for p in rule.get("ports", []))
+    ),
+    None,
+)
+check(
+    scrape_rule is not None
+    and all(p.get("port") == 9110 for p in scrape_rule["ports"])
+    and "monitoring"
+    in {
+        e.get("namespaceSelector", {})
+        .get("matchLabels", {})
+        .get("kubernetes.io/metadata.name")
+        for e in scrape_rule["from"]
+    },
+    "a configured node.metrics.scrapeFrom peer is admitted to the metrics port ONLY, in its own "
+    "ingress rule — never to the request port",
+)
+
+# --- FX-85: the node's own hard cap renders as a plain integer, never scientific notation -----
+node_env = {e["name"]: e.get("value") for e in node_container["env"]}
+check(
+    node_env.get("URL4_CLOUD_RESULT_HARD_CAP_BYTES") == "67108864",
+    "URL4_CLOUD_RESULT_HARD_CAP_BYTES renders as a plain integer string — Helm decodes large "
+    "values.yaml integers as float64, and a bare `quote` would emit scientific notation "
+    "(6.7108864e+07) that no Settings byte-size field can parse",
+)
+
+# --- FX-81: the App rolls when the shared signing Secret rotates, but only when node.enabled --
+check(
+    "checksum/artifact-signing"
+    in url4_deployment["spec"]["template"]["metadata"]["annotations"],
+    "the App pod carries checksum/artifact-signing when node.enabled — a rotated key must roll "
+    "the App too, or it keeps verifying the node's NEW signatures against the OLD key",
+)
+engine_no_node = render(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+)
+check(
+    "checksum/artifact-signing"
+    not in find_named(
+        engine_no_node, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
+    )["spec"]["template"]["metadata"]["annotations"],
+    "with node.enabled=false (the default) the App carries NO checksum/artifact-signing "
+    "annotation — there is no signer, so there is nothing to roll for",
+)
+check(
+    not any(
+        doc.get("kind") == "Deployment" and doc["metadata"]["name"] == node_name
+        for doc in engine_no_node
+    ),
+    "node.enabled defaults to false (FX-86) — a bare `helm template` renders no node objects",
+)
+
+# --- FX-86: the chart REFUSES node.enabled without an s3 artifact backend --------------------
+node_no_s3_error = render_fails(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    "--set",
+    "node.enabled=true",
+)
+check(
+    node_no_s3_error is not None and "OME-929" in node_no_s3_error,
+    "REFUSES node.enabled=true with the default filesystem artifactStorage.backend, naming the "
+    "rule that governs the choice — a node with no shared object store cannot serve its own "
+    "spilled results",
+)
+
+# --- FX-83: the chart REFUSES an unsafe timeout ladder or an unsafe grace period -------------
+node_ladder_error = render_fails(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    *ENGINE_NODE_ARGS,
+    "--set",
+    "node.aigatewayTimeoutS=30",
+)
+check(
+    node_ladder_error is not None and "node.requestTimeoutS" in node_ladder_error,
+    "REFUSES node.aigatewayTimeoutS >= node.requestTimeoutS — the inner failure must win so the "
+    "caller gets a 502 naming aigateway rather than a bare 504",
+)
+node_grace_error = render_fails(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    *ENGINE_NODE_ARGS,
+    "--set",
+    "node.terminationGracePeriodSeconds=38",
+)
+check(
+    node_grace_error is not None and "node.spillTimeoutS" in node_grace_error,
+    "REFUSES a node.terminationGracePeriodSeconds too small for preStop + requestTimeoutS + "
+    "spillTimeoutS — otherwise the kubelet SIGKILLs an in-flight spill write",
+)
+engine_forward_configmap = find_named(
+    engine_chart, "ConfigMap", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
+)
+check(
+    engine_forward_configmap["data"].get("URL4_CLOUD_NODE_FORWARD_TIMEOUT_S") == "35",
+    "URL4_CLOUD_NODE_FORWARD_TIMEOUT_S is DERIVED (requestTimeoutS + spillTimeoutS + 1 = 35 by "
+    "default), never a second literal that could drift from the node's own ladder",
 )
 
 print("\nreport-intake chart")

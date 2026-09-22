@@ -50,7 +50,37 @@ _CLOUD_ARGS = (
 
 
 def _render(*extra: str) -> list[dict[str, Any]]:
-    """Render the chart and return its documents. Raises if helm refuses."""
+    """Render the chart and return its documents. Raises if helm refuses.
+
+    FX-86: `node.enabled` defaults to FALSE (the chart refuses it paired with any
+    `artifactStorage.backend` other than `s3`, OME-929), so this helper turns the tier on AND
+    supplies the s3 backend it requires — every test in this file is ABOUT the node tier, so
+    that is the shape almost every one of them needs. A test of the OFF default overrides
+    `node.enabled=false` explicitly; a test of the refusal itself calls `_render_raw`.
+    """
+    args = [
+        "helm",
+        "template",
+        _RELEASE,
+        str(_CHART),
+        "--set-string",
+        "config.natsUrl=nats://nats.example:4222",
+        "--set",
+        "node.enabled=true",
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set-string",
+        "artifactStorage.s3.endpointUrl=http://garage:3900",
+    ]
+    args += extra
+    result = subprocess.run(args, capture_output=True, text=True, check=True)
+    return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+
+
+def _render_raw(*extra: str) -> subprocess.CompletedProcess[str]:
+    """Render with NO node/artifact defaults injected — for the off-switch and refusal tests,
+    which are about what the chart does BEFORE anything opts the tier in. Does not raise; the
+    caller reads `.returncode` and `.stderr` itself."""
     args = [
         "helm",
         "template",
@@ -60,23 +90,7 @@ def _render(*extra: str) -> list[dict[str, Any]]:
         "config.natsUrl=nats://nats.example:4222",
     ]
     args += extra
-    result = subprocess.run(args, capture_output=True, text=True, check=True)
-    return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
-
-
-def _render_s3(*extra: str) -> list[dict[str, Any]]:
-    """A deployment whose spill path is object storage — the shape the node tier needs.
-
-    `artifactStorage.backend=s3` is what makes the runner and node share an artifact store;
-    the S3 secrets only render in this shape, so the Secret wiring is asserted against it.
-    """
-    return _render(
-        "--set",
-        "artifactStorage.backend=s3",
-        "--set-string",
-        "artifactStorage.s3.endpointUrl=http://garage:3900",
-        *extra,
-    )
+    return subprocess.run(args, capture_output=True, text=True, check=False)
 
 
 def _values() -> dict[str, Any]:
@@ -165,16 +179,19 @@ def test_readiness_gates_on_the_world_and_liveness_does_not_gate_on_a_downstream
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
-def test_the_metrics_port_is_exposed_beside_http() -> None:
-    """The node serves `/metrics` on its single ASGI app, so the metrics port and the HTTP port
-    are the same NUMBER — both are named so a scrape can target `metrics` and the Service can
-    target `http`, and the number itself is `node.port` rather than a second source of truth."""
+def test_the_metrics_port_is_separate_from_http() -> None:
+    """FX-82/RD2: `/metrics` moved OFF the request port, so a scrape can never compete with a
+    sync call for the same listener, and a NetworkPolicy rule can admit a scraper to metrics
+    ONLY. Both are still named so the Service can target `http` and a ServiceMonitor-style scrape
+    can target `metrics`, but the two container ports are now DISTINCT numbers."""
     docs = _render()
     container = _node_container(docs)
     ports = {p["name"]: p["containerPort"] for p in container["ports"]}
+    values = _values()["node"]
 
-    assert ports["http"] == _values()["node"]["port"]
-    assert ports["metrics"] == ports["http"]
+    assert ports["http"] == values["port"]
+    assert ports["metrics"] == values["metrics"]["port"]
+    assert ports["metrics"] != ports["http"]
 
 
 # --- the Service and its selectors -----------------------------------------------------------
@@ -313,13 +330,312 @@ def test_the_node_env_carries_the_ladder_and_reuses_the_shared_deploy_time_confi
 
     assert env["URL4_CLOUD_NODE_REQUEST_TIMEOUT_S"] == str(values["requestTimeoutS"])
     assert env["URL4_CLOUD_NODE_AIGATEWAY_TIMEOUT_S"] == str(values["aigatewayTimeoutS"])
+    assert env["URL4_CLOUD_NODE_SPILL_TIMEOUT_S"] == str(values["spillTimeoutS"])
     assert env["URL4_CLOUD_NODE_MAX_INFLIGHT_PER_WORKER"] == str(values["maxInflightPerWorker"])
     assert env["URL4_CLOUD_NODE_WORKERS"] == str(values["workers"])
     assert env["URL4_CLOUD_NODE_RETRY_AFTER_S"] == str(values["retryAfterS"])
     assert env["URL4_CLOUD_NODE_ARTIFACT_URL_TTL_S"] == str(values["artifactUrlTtlS"])
     assert env["URL4_CLOUD_NODE_PORT"] == str(values["port"])
+    assert env["URL4_CLOUD_NODE_METRICS_PORT"] == str(values["metrics"]["port"])
+    # FX-85: rendered as a PLAIN integer string. Helm decodes values.yaml through JSON, so a
+    # large whole number arrives as float64, and a bare `quote` would emit scientific notation
+    # (`6.7108864e+07`) that no Settings byte-size field can parse.
+    assert env["URL4_CLOUD_RESULT_HARD_CAP_BYTES"] == str(values["resultHardCapBytes"])
+    assert "e+" not in env["URL4_CLOUD_RESULT_HARD_CAP_BYTES"]
 
     assert {"configMapRef": {"name": f"{_RELEASE}-{_RELEASE}-runner-env"}} in container["envFrom"]
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_app_forward_timeout_is_derived_from_the_nodes_own_ladder() -> None:
+    """FX-83/§2.2: `URL4_CLOUD_NODE_FORWARD_TIMEOUT_S` is `requestTimeoutS + spillTimeoutS + 1`,
+    rendered from the node's OWN values rather than carrying a second literal that could drift
+    from the ladder the node tier actually enforces."""
+    docs = _render()
+    values = _values()["node"]
+    configmap = _find(docs, "ConfigMap", f"{_RELEASE}-{_RELEASE}")
+
+    expected = values["requestTimeoutS"] + values["spillTimeoutS"] + 1
+    assert configmap["data"]["URL4_CLOUD_NODE_FORWARD_TIMEOUT_S"] == str(expected)
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_startup_probe_covers_the_world_build() -> None:
+    """FX-88: `/livez` on `http`, with `periodSeconds x failureThreshold >= 120s` so a large
+    declared world has room to build before EITHER steady-state probe starts counting failures."""
+    docs = _render()
+    container = _node_container(docs)
+    probe = container["startupProbe"]
+
+    assert probe["httpGet"]["path"] == "/livez"
+    assert probe["httpGet"]["port"] == "http"
+    assert probe["periodSeconds"] * probe["failureThreshold"] >= 120
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_app_rolls_when_the_signing_secret_rotates_only_with_the_node_on() -> None:
+    """FX-81: the App VERIFIES the node's signed 303 with this Secret (OQ-3.2), so a rotated key
+    must roll the App too. With the node off there is no signer, so there is nothing to roll
+    for, and the annotation must not appear at all."""
+    with_node = _find(_render(), "Deployment", f"{_RELEASE}-{_RELEASE}")
+    assert "checksum/artifact-signing" in with_node["spec"]["template"]["metadata"]["annotations"]
+
+    without_node = _find(
+        _render("--set", "node.enabled=false"), "Deployment", f"{_RELEASE}-{_RELEASE}"
+    )
+    assert (
+        "checksum/artifact-signing"
+        not in without_node["spec"]["template"]["metadata"]["annotations"]
+    )
+
+
+# --- FX-80/FX-90: every selector matches exactly its own Deployment's pod template -----------
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+@pytest.mark.parametrize("prod_like", [False, True])
+def test_every_selector_matches_exactly_its_own_deployment(prod_like: bool) -> None:
+    """The bug this closes: the node used to share the App's {name, instance} pair, so the App's
+    OWN Service and Deployment selectors — a plain {name, instance}, no component — were a
+    SUPERSET match for the node's pods too, silently routing public traffic (and eviction churn)
+    to a tier that was never meant to receive either."""
+    docs = _render(*_CLOUD_ARGS) if prod_like else _render()
+    pods = {
+        doc["metadata"]["name"]: doc["spec"]["template"]["metadata"]["labels"]
+        for doc in docs
+        if doc.get("kind") == "Deployment"
+    }
+    app_name = f"{_RELEASE}-{_RELEASE}"
+    runner_name = f"{_RELEASE}-{_RELEASE}-runner"
+    owners = {
+        ("Service", app_name): app_name,
+        ("Service", _NODE_NAME): _NODE_NAME,
+        ("Deployment", app_name): app_name,
+        ("Deployment", runner_name): runner_name,
+        ("Deployment", _NODE_NAME): _NODE_NAME,
+        ("PodDisruptionBudget", _NODE_NAME): _NODE_NAME,
+        ("NetworkPolicy", _NODE_NAME): _NODE_NAME,
+    }
+
+    for (kind, name), owner in owners.items():
+        doc = _find(docs, kind, name)
+        if kind == "Service":
+            selector = doc["spec"]["selector"]
+        elif kind == "NetworkPolicy":
+            selector = doc["spec"]["podSelector"]["matchLabels"]
+        else:
+            selector = doc["spec"]["selector"]["matchLabels"]
+        for deployment_name, pod_labels in pods.items():
+            matches = all(pod_labels.get(k) == v for k, v in selector.items())
+            if deployment_name == owner:
+                assert matches, f"{kind}/{name} does not even match its own pods {pod_labels!r}"
+            else:
+                assert not matches, (
+                    f"{kind}/{name} ALSO matches {deployment_name}'s pods {pod_labels!r} — a "
+                    "stray selector"
+                )
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_node_instance_label_differs_from_the_apps() -> None:
+    """FX-80/§2.5 directly: the node keeps `name: url4-cloud` (aigateway admits by that name) but
+    uses `instance: <release>-node`, never the App's own `<release>`."""
+    docs = _render()
+    node_labels = _node_pod(docs)["metadata"]["labels"]
+    app_labels = _app_pod(docs)["metadata"]["labels"]
+
+    assert node_labels["app.kubernetes.io/name"] == app_labels["app.kubernetes.io/name"]
+    assert node_labels["app.kubernetes.io/instance"] == f"{_RELEASE}-node"
+    assert node_labels["app.kubernetes.io/instance"] != app_labels["app.kubernetes.io/instance"]
+
+
+# --- FX-82: /metrics on its own port, admitted by an independent, opt-in ingress rule ---------
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_no_metrics_scrape_peer_by_default() -> None:
+    """`node.metrics.scrapeFrom` defaults to `[]`, which must render NO second ingress rule at
+    all — metrics is then reachable from nowhere else in the cluster, the safe default for a
+    port nothing scrapes yet."""
+    docs = _render()
+    policy = _find(docs, "NetworkPolicy", _NODE_NAME)
+
+    assert len(policy["spec"]["ingress"]) == 1
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_a_configured_metrics_scrape_peer_is_admitted_to_the_metrics_port_only() -> None:
+    docs = _render(
+        "--set-string",
+        r"node.metrics.scrapeFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=monitoring",
+        "--set-string",
+        r"node.metrics.scrapeFrom[0].podSelector.matchLabels.app\.kubernetes\.io/name=prometheus",
+    )
+    policy = _find(docs, "NetworkPolicy", _NODE_NAME)
+    values = _values()["node"]
+
+    assert len(policy["spec"]["ingress"]) == 2
+    scrape_rule = next(
+        rule
+        for rule in policy["spec"]["ingress"]
+        if any(p["port"] == values["metrics"]["port"] for p in rule["ports"])
+    )
+    assert all(p["port"] == values["metrics"]["port"] for p in scrape_rule["ports"])
+    peer = scrape_rule["from"][0]
+    assert peer["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"] == "monitoring"
+    assert peer["podSelector"]["matchLabels"]["app.kubernetes.io/name"] == "prometheus"
+
+
+# --- FX-86: the chart refuses node.enabled without an s3 artifact backend ---------------------
+
+
+def test_node_is_disabled_by_default() -> None:
+    """FX-86: the default posture needs no `--set` at all to prove it — a bare render (no s3, no
+    node.enabled) must not even ATTEMPT to render the node objects."""
+    result = _render_raw()
+    assert result.returncode == 0, result.stderr
+    docs = [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+    names = {doc.get("metadata", {}).get("name") for doc in docs}
+    assert _NODE_NAME not in names
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_node_enabled_without_s3_backend_is_refused() -> None:
+    """FX-86/OME-929: the spill path writes an over-cap sync result to the SAME store the App
+    reads it back from across pods, so any backend other than `s3` leaves it unservable — the
+    chart refuses at render time rather than deploying a tier that fails on its first spill."""
+    result = _render_raw("--set", "node.enabled=true")
+
+    assert result.returncode != 0
+    assert "OME-929" in result.stderr
+
+
+# --- FX-83: the chart refuses an unsafe timeout ladder or an unsafe grace period ---------------
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_node_refuses_an_aigateway_timeout_at_or_above_the_request_timeout() -> None:
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            _RELEASE,
+            str(_CHART),
+            "--set-string",
+            "config.natsUrl=nats://nats.example:4222",
+            "--set",
+            "node.enabled=true",
+            "--set",
+            "artifactStorage.backend=s3",
+            "--set-string",
+            "artifactStorage.s3.endpointUrl=http://garage:3900",
+            "--set",
+            "node.aigatewayTimeoutS=30",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "node.requestTimeoutS" in result.stderr
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_node_refuses_a_termination_grace_period_too_small_for_the_ladder() -> None:
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            _RELEASE,
+            str(_CHART),
+            "--set-string",
+            "config.natsUrl=nats://nats.example:4222",
+            "--set",
+            "node.enabled=true",
+            "--set",
+            "artifactStorage.backend=s3",
+            "--set-string",
+            "artifactStorage.s3.endpointUrl=http://garage:3900",
+            "--set",
+            "node.terminationGracePeriodSeconds=38",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "node.spillTimeoutS" in result.stderr
+
+
+# --- FX-87: no duplicated app.kubernetes.io/component key on any node object -------------------
+
+
+class _StrictDuplicateKeyLoader(yaml.SafeLoader):
+    """A SafeLoader that RAISES on a duplicate mapping key instead of silently keeping the last
+    occurrence — the default `yaml.safe_load` behavior, and exactly the behavior that let a
+    genuine duplicate `app.kubernetes.io/component` key through unnoticed (FX-87). Sourced
+    inline rather than adding a `ruamel.yaml` dependency for one test."""
+
+
+def _no_duplicate_keys(loader: yaml.SafeLoader, node: yaml.MappingNode) -> dict[str, Any]:
+    mapping: dict[str, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=True)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"found duplicate key {key!r}", node.start_mark
+            )
+        mapping[key] = loader.construct_object(value_node, deep=True)
+    return mapping
+
+
+_StrictDuplicateKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys
+)
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+@pytest.mark.parametrize(
+    "template_path",
+    [
+        "deployment-node.yaml",
+        "service-node.yaml",
+        "networkpolicy-node.yaml",
+        "poddisruptionbudget-node.yaml",
+        "secret-artifact-signing.yaml",
+    ],
+)
+def test_node_object_labels_have_no_duplicate_component_key(template_path: str) -> None:
+    """`screamingface-engine.labels` already resolves `component: control-plane`; every node
+    template used to append `component: node` right after it, a genuine YAML duplicate mapping
+    key. Most parsers silently keep the LAST occurrence (which happened to be correct here), but
+    that is luck, not a contract — a strict loader that REJECTS a duplicate is the only check
+    that would have caught it, and the only one immune to a future reorder swapping it back."""
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            _RELEASE,
+            str(_CHART),
+            "--set-string",
+            "config.natsUrl=nats://nats.example:4222",
+            "--set",
+            "node.enabled=true",
+            "--set",
+            "artifactStorage.backend=s3",
+            "--set-string",
+            "artifactStorage.s3.endpointUrl=http://garage:3900",
+            "--show-only",
+            f"templates/{template_path}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    try:
+        list(yaml.load_all(result.stdout, Loader=_StrictDuplicateKeyLoader))
+    except yaml.constructor.ConstructorError as exc:
+        pytest.fail(f"{template_path}: duplicate mapping key in rendered YAML: {exc}")
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
@@ -341,7 +657,7 @@ def test_both_secrets_are_referenced_by_the_node_pod_and_the_signing_key_is_shar
     """The spill path needs the S3 credential pair, and OQ-3.2 needs one HMAC key BOTH tiers
     read — the node signs the 303, the App verifies. A Secret that reaches only one tier means
     every redirect is unfetchable (verify fails) or every spill is refused (no signer)."""
-    docs = _render_s3()
+    docs = _render()
     node_container = _node_container(docs)
     app_container = _app_container(docs)
 
@@ -367,7 +683,7 @@ def test_both_secrets_are_referenced_by_the_node_pod_and_the_signing_key_is_shar
 def test_an_existing_signing_secret_is_used_verbatim() -> None:
     """The prod shape: an operator (or an External Secrets flow) owns the Secret, so the chart
     references it by name and renders none of its own — and BOTH tiers still get it."""
-    docs = _render_s3(
+    docs = _render(
         "--set-string",
         "artifactSigning.existingSecret=my-signing-secret",
     )

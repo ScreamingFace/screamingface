@@ -35,6 +35,13 @@ spec:
         # updated, running pod kept the OLD env, silently wrong behavior).
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.node.enabled }}
+        # FX-81: the App VERIFIES the node's signed 303 with this same key (OQ-3.2), so a
+        # rotated signing Secret must roll the App too — without this annotation the App keeps
+        # verifying against the OLD key until its next unrelated restart, and every redirect the
+        # node signs with the new one fails closed until then.
+        checksum/artifact-signing: {{ include (print $.Template.BasePath "/secret-artifact-signing.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

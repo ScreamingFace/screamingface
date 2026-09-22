@@ -13,18 +13,30 @@ ContextVar bound for the request's duration.
 # NOT probe a downstream. A tier that cannot start without aigateway, or that restarts when
 # aigateway blinks, turns one outage into two (AC18/AC19).
 */}}
+{{- if ne .Values.artifactStorage.backend "s3" -}}
+{{- fail (printf "node.enabled requires artifactStorage.backend: s3 (OME-929) — the node's spill path writes an over-cap sync result to the SAME store the App must read it back from across pods; any other backend leaves a spilled result unservable" ) -}}
+{{- end -}}
+{{- if ge (float64 .Values.node.aigatewayTimeoutS) (float64 .Values.node.requestTimeoutS) -}}
+{{- fail (printf "node.aigatewayTimeoutS (%v) must stay BELOW node.requestTimeoutS (%v): otherwise the request wrapper times out first and the caller gets a bare 504 instead of a 502 naming aigateway as the cause" .Values.node.aigatewayTimeoutS .Values.node.requestTimeoutS) -}}
+{{- end -}}
+{{/* WHY `le`, not `lt`: the grace period must be STRICTLY GREATER than preStop + the request
+budget + the spill budget, or the kubelet's SIGKILL lands at the exact instant a maximally slow
+request-then-spill would still be running. */ -}}
+{{- $nodeMinGrace := ceil (addf (float64 .Values.node.preStopSleepSeconds) (float64 .Values.node.requestTimeoutS) (float64 .Values.node.spillTimeoutS)) -}}
+{{- if le (float64 .Values.node.terminationGracePeriodSeconds) $nodeMinGrace -}}
+{{- fail (printf "node.terminationGracePeriodSeconds (%v) must exceed node.preStopSleepSeconds (%v) + node.requestTimeoutS (%v) + node.spillTimeoutS (%v) = %v: the kubelet SIGKILLs the pod at the termination deadline, and a drain cut short interrupts an in-flight sync request or its spill write" (float64 .Values.node.terminationGracePeriodSeconds) (float64 .Values.node.preStopSleepSeconds) (float64 .Values.node.requestTimeoutS) (float64 .Values.node.spillTimeoutS) $nodeMinGrace) -}}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "screamingface-engine.nodeName" . }}
   labels:
-    {{- include "screamingface-engine.labels" . | nindent 4 }}
-    app.kubernetes.io/component: node
+    {{- include "screamingface-engine.nodeLabels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.node.replicas }}
   selector:
     matchLabels:
-      {{- include "screamingface-engine.selectorLabels" . | nindent 6 }}
+      {{- include "screamingface-engine.nodeSelectorLabels" . | nindent 6 }}
       # The node's OWN component label. It shares `app.kubernetes.io/name` with the App so
       # aigateway's NetworkPolicy admits its outbound calls by that name, but without the
       # component the node Service would also front the App's pods — and the NodePolicy would
@@ -33,12 +45,16 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: node
-        app.kubernetes.io/part-of: screamingface
+        {{- include "screamingface-engine.nodeSelectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        # INVARIANT (FX-84): CHART-OWNED and rendered AFTER `podLabels`, mirroring the App
+        # Deployment's own rule (see its identical comment) — an operator's `podLabels` override
+        # must not be able to change which selector this pod matches. Rendered in this order a
+        # platform convention adds a label; it can never rewrite `component` or `part-of`.
+        app.kubernetes.io/component: node
+        app.kubernetes.io/part-of: screamingface
       annotations:
         # INVARIANT: a ConfigMap/Secret value change alone rolls the pod — the same rule the App
         # and runner pool carry. The node's aigateway address, artifact-store settings and both
@@ -83,13 +99,13 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           ports:
-            # The single ASGI app serves mounts AND the ops paths, so `metrics` and `http` are
-            # the same containerPort. Both are named so a scrape can target `metrics` and the
-            # Service can target `http`.
+            # FX-82/RD2: `/metrics` moved off the request port so a scrape can never compete with
+            # a sync call for the listener, and so the NetworkPolicy can admit a scraper to ONLY
+            # this port. Two DISTINCT containerPorts now; the Service still targets only `http`.
             - name: http
               containerPort: {{ .Values.node.port }}
             - name: metrics
-              containerPort: {{ .Values.node.port }}
+              containerPort: {{ .Values.node.metrics.port }}
           env:
             # The tier's OWN ladder, rendered from `node` — the same values the probes and the
             # resource arithmetic already consume. Without these the tier reads the code
@@ -98,6 +114,8 @@ spec:
               value: {{ .Values.node.requestTimeoutS | quote }}
             - name: URL4_CLOUD_NODE_AIGATEWAY_TIMEOUT_S
               value: {{ .Values.node.aigatewayTimeoutS | quote }}
+            - name: URL4_CLOUD_NODE_SPILL_TIMEOUT_S
+              value: {{ .Values.node.spillTimeoutS | quote }}
             - name: URL4_CLOUD_NODE_MAX_INFLIGHT_PER_WORKER
               value: {{ .Values.node.maxInflightPerWorker | quote }}
             - name: URL4_CLOUD_NODE_WORKERS
@@ -108,6 +126,14 @@ spec:
               value: {{ .Values.node.artifactUrlTtlS | quote }}
             - name: URL4_CLOUD_NODE_PORT
               value: {{ .Values.node.port | quote }}
+            - name: URL4_CLOUD_NODE_METRICS_PORT
+              value: {{ .Values.node.metrics.port | quote }}
+            # `int64`, not a bare `quote`: Helm decodes values through JSON, which has no
+            # integer type, so a large whole number like the 64 MiB default arrives as a
+            # float64 — and Go's default float formatting renders it in SCIENTIFIC NOTATION
+            # (`6.7108864e+07`), which no Settings int/byte-size field can parse.
+            - name: URL4_CLOUD_RESULT_HARD_CAP_BYTES
+              value: {{ .Values.node.resultHardCapBytes | int64 | quote }}
           envFrom:
             # The SAME deploy-time env the worker pool reads: AIGATEWAY_BASE_URL and the
             # artifact-store settings are rendered once, into this ConfigMap, so the sync tier
@@ -132,6 +158,12 @@ spec:
             {{- toYaml .Values.node.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.node.readinessProbe | nindent 12 }}
+          # FX-88: covers the world build. A large declared world can take longer to build than
+          # liveness's own restart window tolerates; the startup probe gives it room BEFORE
+          # liveness/readiness start counting failures at all, without weakening either probe's
+          # own steady-state cadence.
+          startupProbe:
+            {{- toYaml .Values.node.startupProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.node.resources | nindent 12 }}
           # INVARIANT: pairs with `securityContext.readOnlyRootFilesystem`. Without one writable

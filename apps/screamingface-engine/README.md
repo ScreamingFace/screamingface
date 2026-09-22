@@ -148,8 +148,9 @@ work.
 A caller sends a direct mount path with a `q` query:
 
 ```sh
-curl -H 'X-User-Email: alice@example.com' \
-  'https://engine.example.com/anthropic/claude-haiku-4-5?q=(Hello)!Reply with exactly: PARIS'
+curl -H 'X-User-Email: alice@example.com' --get \
+  --data-urlencode 'q=(Hello)!Reply with exactly: PARIS' \
+  'https://engine.example.com/anthropic/claude-haiku-4-5'
 ```
 
 Two placements serve it. Deployed, the App forwards the request verbatim to the node tier (D6).
@@ -213,16 +214,20 @@ defines the url4 status mapping.
   tiers. A different key makes every signed fetch fail closed, which is safe but useless. The
   signature TTL is 10 minutes by default; the node sets it with
   `URL4_CLOUD_NODE_ARTIFACT_URL_TTL_S`. A bare `/artifacts/{id}` stays capability-token-only.
-- **`config_digest` detects a rolling-deploy skew.** When the forwarder is armed, the App reports
-  the SHA-256 of the `url4.toml` file it derived its mount set from:
+- **`config_digest` detects a rolling-deploy skew.** This is the App's OWN `/healthz`, and only
+  the App's — the node tier exposes no digest of its own. When the forwarder is armed, `/healthz`
+  reports the SHA-256 of the `url4.toml` file the App derived its mount set from:
 
   ```json
   {"status": "ok", "config_digest": "<sha256>"}
   ```
 
-  Both tiers read the same baked file, so a digest that does not match the running node tier
-  means the two tiers run different configuration. During such a skew, an unknown mount answers
-  `404` at the App and never reaches the node.
+  Both tiers read the same baked file, so in steady state the App's digest and whatever the
+  running node tier was built from agree. During a rolling deploy they can briefly diverge — an
+  App pod on the new build paired with a node pod still on the old one, or the reverse. There is
+  no digest-to-digest comparison to detect that (the node has nothing to compare against); what
+  actually surfaces the skew is that an unknown mount answers `404` at the App and never reaches
+  the node.
 
 ## Model catalog — `GET /v1/models`
 
