@@ -14,19 +14,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Mapping
+import tempfile
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
 import pytest
-from fastapi import FastAPI
 from starlette.datastructures import Headers
 
 from screamingface_engine import job_env
-from screamingface_engine.app import create_app
+from screamingface_engine.app import _install_forwarder, create_app
 from screamingface_engine.config import Settings
 from screamingface_engine.rest.forwarder import (
-    NodeForwarder,
     derive_forward_contract,
     forwarded_headers,
 )
@@ -77,28 +77,54 @@ class _StubNode:
         return httpx.MockTransport(handler)
 
 
-def _forwarder(
+# A world that declares exactly `_MOUNTS`: the model route, and one `[data]` route.
+_MOUNTS_CONFIG = (
+    "[aigateway]\n"
+    'base_url = "http://aigateway.test"\n'
+    f'default_route = "/{_MODEL}"\n'
+    "\n[data]\n"
+    '"/corpus/papers" = { value = "rows", media_type = "text/plain" }\n'
+)
+
+
+@asynccontextmanager
+async def _served(
     stub: _StubNode,
     *,
-    mounts: frozenset[str] = _MOUNTS,
     identity_resolver: Callable[[Headers], Mapping[str, str]] | None = None,
-    **kwargs: object,
-) -> NodeForwarder:
-    return NodeForwarder(
-        node_base_url="http://node.test",
-        mount_paths=mounts,
-        identity_resolver=identity_resolver,
-        client=httpx.AsyncClient(transport=stub.transport()),
-        **kwargs,  # type: ignore[arg-type]
-    )
+) -> AsyncIterator[tuple[httpx.AsyncClient, str]]:
+    """The App as production builds it (FX-32): `create_app`, then `_install_forwarder`.
 
-
-def _app(forwarder: NodeForwarder) -> FastAPI:
-    return create_app(Settings(jwt_secret="s" * 32), forwarder=forwarder)
-
-
-def _app_client(app: FastAPI) -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://app.test")
+    The lifespan runs, because the mount set is derived in a startup hook. Yields the client and
+    the config file's sha256, which `/healthz` reports.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        config = Path(tmp) / "url4.toml"
+        config.write_text(_MOUNTS_CONFIG)
+        settings = Settings(
+            jwt_secret="s" * 32,
+            node_base_url="http://node.test",
+            # FX-38: a node tier needs a store both tiers share.
+            artifact_store="s3",
+            artifact_s3_endpoint_url="http://garage.test:3900",
+            artifact_s3_bucket="artifacts",
+            artifact_s3_access_key="GKtest",
+            artifact_s3_secret_key="secret",
+        )
+        app = create_app(settings)
+        _install_forwarder(
+            app,
+            settings,
+            env={job_env.RUNNER_CONFIG: str(config)},
+            client=httpx.AsyncClient(transport=stub.transport()),
+            identity_resolver=identity_resolver,
+        )
+        async with app.router.lifespan_context(app):
+            assert app.state.forwarder.mount_paths >= _MOUNTS
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://app.test"
+            ) as client:
+                yield client, hashlib.sha256(config.read_bytes()).hexdigest()
 
 
 # --- T2 / AC4: the verified identity is the only identity that leaves -------------------------
@@ -134,8 +160,10 @@ async def test_forwarded_headers_strip_the_client_identity_and_set_the_verified_
 async def test_a_forged_identity_header_is_replaced_by_the_verified_value() -> None:
     """AC4: the outbound request carries the edge-verified value, never the client's."""
     stub = _StubNode(_ok(body=b"PARIS"))
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get(
             f"/{_MODEL}",
             params={"q": "('')!'Reply with exactly: PARIS'"},
@@ -153,8 +181,8 @@ async def test_a_forged_identity_header_is_replaced_by_the_verified_value() -> N
 async def test_a_request_without_verified_identity_is_rejected_and_not_forwarded() -> None:
     """AC4: no verified identity is a 403, never an anonymous forward."""
     stub = _StubNode()
-    forwarder = _forwarder(stub)  # default resolver reads the edge-injected header
-    async with _app_client(_app(forwarder)) as client:
+    # The default resolver reads the edge-injected header.
+    async with _served(stub) as (client, _digest):
         response = await client.get(f"/{_MODEL}", params={"q": "('')!'x'"})
 
     assert response.status_code == 403
@@ -165,9 +193,11 @@ async def test_a_request_without_verified_identity_is_rejected_and_not_forwarded
 async def test_the_forwarded_request_carries_path_and_query_unchanged() -> None:
     """C2: the path and query are forwarded verbatim, including percent-encoding."""
     stub = _StubNode()
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
     query = "q=(%27%27)!%27Reply%20with%20PARIS%27"
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         await client.get(f"/{_MODEL}?{query}", headers={"X-User-Email": _FORGED})
 
     sent = stub.calls[0]
@@ -179,21 +209,28 @@ async def test_the_forwarded_request_carries_path_and_query_unchanged() -> None:
 
 
 async def test_an_unknown_path_404s_at_the_app_without_forwarding() -> None:
-    """AC12: a path outside the set is answered at the App and never reaches the node."""
+    """AC12: a path outside the set is answered at the App and never reaches the node.
+
+    FX-31: the App's node route does not match it, so the ENGINE answers with its own 404.
+    """
     stub = _StubNode()
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get("/not/a/mount", headers={"X-User-Email": _VERIFIED})
 
     assert response.status_code == 404
-    assert json.loads(response.text)["error"]["code"] == "endpoint_not_found"
+    assert json.loads(response.text) == {"detail": "Not Found"}
     assert stub.calls == []
 
 
 async def test_a_known_mount_is_forwarded() -> None:
     stub = _StubNode(_ok(body=b"rows"))
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get("/corpus/papers", headers={"X-User-Email": _VERIFIED})
 
     assert response.status_code == 200
@@ -209,8 +246,10 @@ async def test_a_connection_error_is_retried_exactly_once() -> None:
         "connection refused", request=httpx.Request("GET", "http://node.test")
     )
     stub = _StubNode(_raises(refused), _ok(body=b"PARIS"))
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get(f"/{_MODEL}", headers={"X-User-Email": _VERIFIED})
 
     assert response.status_code == 200
@@ -220,8 +259,10 @@ async def test_a_connection_error_is_retried_exactly_once() -> None:
 async def test_a_timeout_is_not_retried() -> None:
     timeout = httpx.ReadTimeout("node slow", request=httpx.Request("GET", "http://node.test"))
     stub = _StubNode(_raises(timeout))
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get(f"/{_MODEL}", headers={"X-User-Email": _VERIFIED})
 
     assert len(stub.calls) == 1
@@ -230,8 +271,10 @@ async def test_a_timeout_is_not_retried() -> None:
 
 async def test_a_five_hundred_is_not_retried() -> None:
     stub = _StubNode(_ok(status=500, body=b"boom"))
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get(f"/{_MODEL}", headers={"X-User-Email": _VERIFIED})
 
     assert len(stub.calls) == 1
@@ -246,8 +289,10 @@ async def test_a_node_503_and_retry_after_pass_through_unmodified() -> None:
     """AC7: the node's own shedding is not rewritten by the forwarder."""
     body = json.dumps({"error": {"code": "overloaded", "message": "capacity"}}).encode()
     stub = _StubNode(_ok(status=503, body=body, headers={"Retry-After": "7"}))
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get(f"/{_MODEL}", headers={"X-User-Email": _VERIFIED})
 
     assert response.status_code == 503
@@ -262,8 +307,10 @@ async def test_node_down_is_503_with_retry_after_and_never_500() -> None:
         raise httpx.ConnectError("refused", request=request)
 
     stub = _StubNode(refused)
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get(f"/{_MODEL}", headers={"X-User-Email": _VERIFIED})
 
     assert response.status_code == 503
@@ -272,27 +319,27 @@ async def test_node_down_is_503_with_retry_after_and_never_500() -> None:
     assert len(stub.calls) == 2
 
 
-async def test_a_303_location_is_rewritten_when_the_prefix_differs_and_keeps_the_query() -> None:
-    location = "/artifacts/abc123?exp=1000&sig=deadbeef"
+async def test_a_303_location_under_any_prefix_is_relayed_unchanged() -> None:
+    """FX-35: the prefix rewrite is gone; no Location is rewritten, whatever its prefix."""
+    location = "/downloads/abc123?exp=1000&sig=deadbeef"
     stub = _StubNode(_ok(status=303, body=b"", headers={"Location": location}))
-    forwarder = _forwarder(
-        stub,
-        identity_resolver=lambda _h: {"X-User-Email": _VERIFIED},
-        node_artifact_prefix="/artifacts/",
-        app_artifact_prefix="/downloads/",
-    )
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get(f"/{_MODEL}", headers={"X-User-Email": _VERIFIED})
 
     assert response.status_code == 303
-    assert response.headers["Location"] == "/downloads/abc123?exp=1000&sig=deadbeef"
+    assert response.headers["Location"] == location
 
 
 async def test_a_303_location_is_unchanged_when_the_prefixes_match() -> None:
     location = "/artifacts/abc123?exp=1000&sig=deadbeef"
     stub = _StubNode(_ok(status=303, body=b"", headers={"Location": location}))
-    forwarder = _forwarder(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED})
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+        client,
+        _digest,
+    ):
         response = await client.get(f"/{_MODEL}", headers={"X-User-Email": _VERIFIED})
 
     assert response.headers["Location"] == location
@@ -304,16 +351,11 @@ async def test_a_303_location_is_unchanged_when_the_prefixes_match() -> None:
 async def test_healthz_reports_the_config_digest_when_the_forwarder_is_configured() -> None:
     """erd.md §2: a rolling deploy where the two tiers disagree is visible on health."""
     stub = _StubNode()
-    forwarder = _forwarder(
-        stub,
-        identity_resolver=lambda _h: {"X-User-Email": _VERIFIED},
-        config_digest="abc123",
-    )
-    async with _app_client(_app(forwarder)) as client:
+    async with _served(stub) as (client, digest):
         response = await client.get("/healthz")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "config_digest": "abc123"}
+    assert response.json() == {"status": "ok", "config_digest": digest}
 
 
 async def test_healthz_has_no_digest_without_a_forwarder() -> None:

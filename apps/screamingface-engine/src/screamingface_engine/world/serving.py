@@ -23,16 +23,20 @@ between "precedence works" and "precedence silently ate the eval path".
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
 import httpx
-from starlette.routing import compile_path
+from starlette.applications import Starlette
+from starlette.datastructures import URLPath
+from starlette.routing import BaseRoute, Match, NoMatchFound, compile_path
+from starlette.types import Receive, Scope, Send
 
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.world.config import WorldConfig, WorldConfigError
 from screamingface_engine.world.factory import World, build_world
+from screamingface_engine.world.wire import AsgiApp
 
 
 class MountCollisionError(WorldConfigError):
@@ -190,11 +194,84 @@ async def compose_serving_world(
     return world
 
 
+class NodeMountRoute(BaseRoute):
+    """The node's surface on the App: a route that matches ONLY the paths the node serves.
+
+    FEATURE (unit 3, 04-review-fixes §2.3): the deployed App forwards its declared mounts to the
+    node tier, and ``serve --local`` serves them in-process. Both install THIS route, last.
+
+    WHY not ``Mount("/")``: a catch-all mount is a FULL match for every path, so it changed the
+    answer on existing engine routes — a wrong method on ``/token`` became url4's 404 instead of
+    the engine's 405, and ``/healthz/`` was never redirected. A route that matches only known
+    paths leaves Starlette's normal answers (405, the trailing-slash 307, the engine's 404) in
+    place for everything else, and an unknown path never reaches the node.
+
+    INVARIANT: the match is on the PATH, never the method. Any method on a known path is a FULL
+    match, so the node's own 405 answers a wrong method on a mount (AC14).
+
+    WHY ``paths`` is a callable, not a set: the App derives its mount set in a startup hook, after
+    this route is installed, so the route reads the set at match time.
+    """
+
+    def __init__(self, app: AsgiApp, *, paths: Callable[[], frozenset[str]], name: str) -> None:
+        self.app = app
+        self.name = name
+        self._paths = paths
+
+    def matches(self, scope: Scope) -> tuple[Match, Scope]:
+        if scope["type"] == "http" and scope["path"] in self._paths():
+            return Match.FULL, {"endpoint": self.app}
+        return Match.NONE, {}
+
+    def url_path_for(self, name: str, /, **path_params: Any) -> URLPath:
+        # The node's paths are data, not named routes: nothing may build a URL to one by name.
+        raise NoMatchFound(name, path_params)
+
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.app(scope, receive, send)
+
+
+def install_node_route(app: Starlette, route: NodeMountRoute) -> None:
+    """Append the node route to ``app`` and assert that it is the last and only one (D3).
+
+    The ONE install function for both shapes (FX-32): the deployed App's forwarder and local
+    mode's in-process node both come through here, so the ordering check cannot be skipped by one.
+    """
+    app.router.routes.append(route)
+    assert_node_route_last(app, route)
+
+
+def assert_node_route_last(app: Starlette, route: NodeMountRoute) -> None:
+    """Raise unless ``route`` is the App's LAST route and its ONLY node route.
+
+    WHY last: the router tries routes in order, so every engine route is tried first (D3) and a
+    path that is both an engine route and a mount goes to the engine — which F4's guard then
+    refuses at startup, loudly. WHY one: a second node route would split the node's surface
+    between two path sets. WHY an assertion: a comment cannot stop a future ``include_router``
+    from landing below the install call; this check can.
+    """
+    routes = list(app.router.routes)
+    if not routes or routes[-1] is not route:
+        raise AssertionError(
+            "the node route must be the LAST route: register it after every engine route and "
+            "router (prd/03 D3; world.serving.install_node_route)."
+        )
+    node_routes = [candidate for candidate in routes if isinstance(candidate, NodeMountRoute)]
+    if node_routes != [route]:
+        raise AssertionError(
+            "exactly ONE node route may exist: a second would shadow the node or the engine "
+            "depending on registration order (prd/03 D3)."
+        )
+
+
 __all__ = [
     "MountCollisionError",
+    "NodeMountRoute",
+    "assert_node_route_last",
     "check_mount_collisions",
     "compose_serving_world",
     "engine_route_paths",
+    "install_node_route",
     "node_eval_path",
     "node_mount_paths",
 ]

@@ -21,13 +21,14 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi import FastAPI
-from starlette.routing import Mount, Route
+from starlette.routing import Route
 
 from screamingface_engine import job_env
 from screamingface_engine.catalog.port import Credential, ModelCatalog, compute_etag
 from screamingface_engine.config import Settings
 from screamingface_engine.local import create_local_app
 from screamingface_engine.runner.fair_share import FairShareIOLayer
+from screamingface_engine.world.serving import NodeMountRoute, assert_node_route_last
 
 _READ_SIDE_ONLY = '[data]\n"/corpus" = { value = "rows", media_type = "text/plain" }\n'
 
@@ -139,36 +140,37 @@ async def test_a_malformed_answer_seed_is_a_400_in_the_mount_envelope(
 
 
 def test_the_node_mount_is_the_final_route(tmp_path: Path) -> None:
-    """INVARIANT (D3): the catch-all mount is last, so every literal route precedes it."""
-    from screamingface_engine.local import _assert_node_mounted_last
+    """INVARIANT (D3): the node route is last, so every literal route precedes it.
 
+    FX-31/FX-32: the last route is the `NodeMountRoute` (not a catch-all `Mount`), installed by
+    the one install function both shapes share.
+    """
     app = _app(_config_file(tmp_path))
     route = app.router.routes[-1]
 
-    assert getattr(route, "path", None) == ""
-    # The final route is the ASGI catch-all mount; `BaseRoute` has no `.app`, so narrow first —
-    # the assertion IS the type proof that the last route is the mount.
-    assert isinstance(route, Mount)
+    # `BaseRoute` has no `.app`, so narrow first — the assertion IS the type proof that the last
+    # route is the node route.
+    assert isinstance(route, NodeMountRoute)
     assert route.app is app.state.node_mount
     # AND: the guard itself passes on the shape the composition root built.
-    _assert_node_mounted_last(app, app.state.node_mount)
+    assert_node_route_last(app, route)
 
 
 def test_the_ordering_guard_rejects_a_route_registered_after_the_mount(
     tmp_path: Path,
 ) -> None:
-    """A future insertion after the mount would silently shadow every engine route (D3).
+    """A future insertion after the node route must trip the guard (D3).
 
     Simulated by appending a literal route directly, which is exactly what an errant
-    ``include_router`` after the mount would do.
+    ``include_router`` after the install would do.
     """
-    from screamingface_engine.local import _assert_node_mounted_last
-
     app = _app(_config_file(tmp_path))
+    route = app.router.routes[-1]
+    assert isinstance(route, NodeMountRoute)
     app.router.routes.append(Route("/late", lambda _request: None))
 
     with pytest.raises(AssertionError):
-        _assert_node_mounted_last(app, app.state.node_mount)
+        assert_node_route_last(app, route)
 
 
 # --- the shared IOLayer: one node for the mount AND every in-process run -----------------------

@@ -11,12 +11,14 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import httpx
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.factory import build_job_runner
@@ -59,7 +61,11 @@ from screamingface_engine.rest import (
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.forwarder import NodeForwarder, derive_forward_contract
 from screamingface_engine.schemas import customize_openapi
-from screamingface_engine.world.serving import engine_route_paths
+from screamingface_engine.world.serving import (
+    NodeMountRoute,
+    engine_route_paths,
+    install_node_route,
+)
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
 from url4.streaming.interfaces import EventConsumer, JobRunner
@@ -105,7 +111,6 @@ def create_app(
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
-    forwarder: NodeForwarder | None = None,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -150,26 +155,17 @@ def create_app(
     _install_max_deliveries_advisor(app, settings)
     if clock is not None:
         app.state.clock = clock
-    _install_surfaces(app, forwarder)
+    _install_surfaces(app)
     return app
 
 
-def _install_surfaces(app: FastAPI, forwarder: NodeForwarder | None) -> None:
-    """Register every HTTP surface, with the sync forwarder LAST.
-
-    FEATURE (unit 3, D6/C2): the forwarder is mounted under `/` only when a node Service is
-    configured. Mounting it last is what lets every engine literal route win by route precedence
-    (D3); the forwarder then answers 404 itself for anything outside the derived mount set
-    (AC12).
-    """
+def _install_surfaces(app: FastAPI) -> None:
+    """Register every engine HTTP surface. The sync forwarder is NOT here: `_install_forwarder`
+    appends it after these, in production and in tests alike (FX-32)."""
     install_problem_handlers(app)
     for api_router in _ROUTERS:
         app.include_router(api_router)
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
-    if forwarder is not None:
-        app.state.forwarder = forwarder
-        app.state.config_digest = forwarder.config_digest
-        app.mount("/", forwarder, name="forwarder")
     customize_openapi(app)
 
 
@@ -198,6 +194,10 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
     the DEFAULT before OME-929, reachable by configuring nothing, and nothing in the setup said
     so. It fails at boot now.
 
+    INVARIANT (FX-38): a node tier (`node_base_url` set) with filesystem storage is refused for
+    the same reason. The node pod spills an over-cap sync result and redirects the caller to THIS
+    App, whose disk is not the node pod's — so the redirect would 404.
+
     AIDEV-NOTE: if a shared RWX volume is ever mounted into both pods, THIS is the check to
     relax — deliberately, and with the mount as evidence. Do not relax it to quiet a startup
     error; that restores the bug.
@@ -213,6 +213,12 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
                     job_env.ARTIFACT_S3_SECRET_KEY: settings.artifact_s3_secret_key,
                 }
             )
+        )
+    if settings.node_base_url:
+        raise ValueError(
+            "a node tier is configured (node_base_url), and the node pod's disk is not this "
+            "App's (OME-929): a spilled sync result redirected here would 404. Set "
+            f"{job_env.ARTIFACT_STORE}=s3 and the {job_env.ARTIFACT_S3_BUCKET} settings."
         )
     if settings.runner == "queue":
         # WHY: `queue` (OME-1090) runs each run in a worker pod — either way the run executes in
@@ -454,22 +460,38 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     return app
 
 
-def _install_forwarder(app: FastAPI, settings: Settings, *, env: Mapping[str, str]) -> None:
-    """Derive the forwardable mount set at startup and mount the App's sync forwarder.
+def _install_forwarder(
+    app: FastAPI,
+    settings: Settings,
+    *,
+    env: Mapping[str, str],
+    client: httpx.AsyncClient | None = None,
+    identity_resolver: Callable[[Headers], Mapping[str, str]] | None = None,
+) -> None:
+    """Derive the forwardable mount set at startup and install the App's sync forwarder LAST.
 
     FEATURE (unit 3, D6/C2): the App forwards ONLY mounts it can see in the same world module the
     node uses. The derivation is async (building the world is async), so it runs in a startup hook
-    and FILLS the already-mounted forwarder; requests are not accepted until startup completes.
+    and FILLS the already-installed forwarder; requests are not accepted until startup completes.
     Failure to derive (a bad config, or an F4 collision) fails startup, matching C7: the process
     must not serve a half-configured world (R11).
+
+    INVARIANT (FX-32): this is the ONE way a forwarder reaches the App, in production and in
+    tests. ``client`` and ``identity_resolver`` pass straight to `NodeForwarder` so a test can put
+    a stub node behind the production install path; production leaves both ``None``.
     """
     if not settings.node_base_url:
         return
     forwarder = NodeForwarder(
-        node_base_url=settings.node_base_url, timeout_s=settings.node_forward_timeout_s
+        node_base_url=settings.node_base_url,
+        timeout_s=settings.node_forward_timeout_s,
+        client=client,
+        identity_resolver=identity_resolver,
     )
     app.state.forwarder = forwarder
-    app.mount("/", forwarder, name="forwarder")
+    install_node_route(
+        app, NodeMountRoute(forwarder, paths=lambda: forwarder.mount_paths, name="forwarder")
+    )
 
     async def _derive() -> None:
         contract = await derive_forward_contract(env=env, engine_routes=engine_route_paths(app))

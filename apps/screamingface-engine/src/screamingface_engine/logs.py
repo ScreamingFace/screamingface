@@ -76,8 +76,7 @@ def run_scope(
 
     ``topic`` is ``None`` for the sync surface: a sync request addresses a MOUNT, not a capability
     topic, and inventing one would read as a run that never existed. ``origin`` defaults to
-    "run" so every existing ensemble caller renders byte-identically to before this field
-    existed (origin is prepended only when a scope is bound).
+    "run", and "run" is never rendered, so every ensemble line is byte-identical to `main`.
     """
 
     token = _run_context.set(RunContext(topic=topic, trace_id=trace_id, origin=origin))
@@ -107,16 +106,18 @@ class RunContextFilter(logging.Filter):
         if context is None:
             record.run_context = ""
             return True
-        # INVARIANT: `origin` is FIRST and unconditional, so `topic=… trace_id=…` stays a
-        # contiguous substring for the existing run-line assertions. `topic` is omitted for a
-        # sync request, which has no capability topic; an omitted field is absence, never a
-        # placeholder (a `topic=None` would read as a run whose topic is the string "None").
-        parts = [f"origin={context.origin}"]
+        # INVARIANT (FX-39, contracts.md C9): a RUN line is byte-identical to `main` — the
+        # ensemble path is the regression oracle, and log routing keys on its exact text. So
+        # `origin` is rendered only when it is NOT "run": the sync surface names itself, the run
+        # path stays silent. `topic` is omitted for a sync request, which has no capability
+        # topic; an omitted field is absence, never a placeholder (a `topic=None` would read as a
+        # run whose topic is the string "None").
+        parts = [] if context.origin == "run" else [f"origin={context.origin}"]
         if context.topic is not None:
             parts.append(f"topic={context.topic}")
         if context.trace_id is not None:
             parts.append(f"trace_id={context.trace_id}")
-        record.run_context = " ".join(parts) + " "
+        record.run_context = " ".join(parts) + " " if parts else ""
         return True
 
 

@@ -15,6 +15,7 @@ so one world serves many callers.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
@@ -29,7 +30,13 @@ from screamingface_engine.benchmarks import (
     assets_root,
 )
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
-from screamingface_engine.world.config import WorldConfig, WorldConfigError, load_config
+from screamingface_engine.world.config import (
+    ModelSpec,
+    WorldConfig,
+    WorldConfigError,
+    load_config,
+    routes_for,
+)
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world.corrective import install_corrective_runtime
 from url4.cli._serve import make_data_provider, make_identity_handler, make_shelf_handler
@@ -188,6 +195,41 @@ async def build_world(
     return world.node, world.aclose
 
 
+def shared_world_serves(io: IOLayer, env: Mapping[str, str]) -> bool:
+    """Whether the shared world routes every model the run's admitted overlay names (FX-30).
+
+    FEATURE (OME-880, contracts.md C8): a model the gateway admits AFTER local startup reaches a
+    run only through ``URL4_CLOUD_EXTRA_MODELS``, and the shared node was built before it existed.
+    ``False`` tells the caller to build a per-run world, as every run did before the shared node.
+
+    WHY ``routes_for`` over ``ModelSpec`` ids: it is the encoding ``build_aigateway_world``
+    registers routes with, so this check and the node cannot disagree about a route's path.
+
+    WHY a malformed overlay is ``False`` and not a raise: the per-run world parses it again and
+    refuses it with its own loud ``WorldConfigError`` — the one error this overlay has always had.
+    """
+    raw = env.get(job_env.EXTRA_MODELS)
+    if raw is None or not raw.strip():
+        return True
+    ids = _overlay_ids(raw)
+    if ids is None:
+        return False
+    wanted = routes_for(tuple(ModelSpec(id=model_id) for model_id in ids))
+    served = frozenset(io.processor_routes()) if isinstance(io, Url4Node) else frozenset()
+    return wanted.keys() <= served
+
+
+def _overlay_ids(raw: str) -> list[str] | None:
+    """The overlay's model ids, or ``None`` when it is not a JSON array of strings."""
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return None
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    return None
+
+
 def _cache_stated(policy: CachePolicy) -> str:
     """Whether a run's cache policy stated anything — 'stated' or 'not-stated'.
 
@@ -259,4 +301,5 @@ __all__ = [
     "build_world",
     "deny_by_default_world",
     "register_read_side_mounts",
+    "shared_world_serves",
 ]

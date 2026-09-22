@@ -21,7 +21,16 @@ _REPO_CONFIG = Path(__file__).resolve().parents[2] / "url4.toml"
 
 def test_install_forwarder_derives_the_mount_set_and_digest_at_startup() -> None:
     """AC12/erd §2: at startup the App learns its forwardable paths and the config digest."""
-    settings = Settings(jwt_secret="s" * 32, node_base_url="http://node.test")
+    settings = Settings(
+        jwt_secret="s" * 32,
+        node_base_url="http://node.test",
+        # FX-38: a node tier needs a store both tiers share.
+        artifact_store="s3",
+        artifact_s3_endpoint_url="http://garage.test:3900",
+        artifact_s3_bucket="artifacts",
+        artifact_s3_access_key="GKtest",
+        artifact_s3_secret_key="secret",
+    )
     app = create_app(settings)
     _install_forwarder(app, settings, env={job_env.RUNNER_CONFIG: str(_REPO_CONFIG)})
 
@@ -31,5 +40,6 @@ def test_install_forwarder_derives_the_mount_set_and_digest_at_startup() -> None
 
     expected = hashlib.sha256(_REPO_CONFIG.read_bytes()).hexdigest()
     assert health == {"status": "ok", "config_digest": expected}
+    # FX-31: an unknown path does not match the node route, so the ENGINE answers it.
     assert unknown.status_code == 404
-    assert unknown.json()["error"]["code"] == "endpoint_not_found"
+    assert unknown.json() == {"detail": "Not Found"}

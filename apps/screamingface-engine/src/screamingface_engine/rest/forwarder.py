@@ -7,18 +7,19 @@ edge-verified value before forwarding (AC4).
 
 # INVARIANT: only KNOWN MOUNTS are forwarded (contracts.md C2 option 2). The forwardable set is
 # derived at App startup from the SAME `world` module the node uses, so both tiers resolve one
-# declaration and drift is impossible within a release. An unknown path is a 404 at the App and
-# never reaches the node (AC12/T10) — that is what makes D6's "verbatim" safe rather than a
-# proxy for typos.
+# declaration and drift is impossible within a release. The App's `NodeMountRoute` matches only
+# that set, so an unknown path is the engine's own 404 and never reaches the node (AC12/T10) —
+# that is what makes D6's "verbatim" safe rather than a proxy for typos.
 
 # INVARIANT: the outbound header set is BUILT, never copied. `forwarded_headers` is the ONE
 # strip-and-reset helper (shared with local mode): every inbound header except the allowlist is
 # dropped and the identity is set from the VERIFIED value, so a client-supplied `X-User-Email`,
 # a Cookie, an `Authorization` or a `URL4-Capability` cannot survive the hop.
 
-# INVARIANT: the retry is transport-level and narrow — exactly one retry on a CONNECTION error,
-# never on a timeout and never on a 5xx (AC9/T8). A timeout may mean the node is mid-call and
-# billing; retrying would double one caller's cost for one request.
+# INVARIANT: the retry is transport-level and narrow — exactly one retry when the request never
+# reached the node (a refused connection, a connect timeout, a pool timeout), never on a read or
+# write timeout and never on a 5xx (AC9/T8). A read or write timeout may mean the node is
+# mid-call and billing; retrying would double one caller's cost for one request.
 
 # INVARIANT: this module lives under `rest/` (a control-plane package), not as a new top-level
 # module. The layering gate classifies an unlisted top-level module as a shared leaf that may not
@@ -28,12 +29,10 @@ edge-verified value before forwarding (AC4).
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-from collections.abc import Awaitable, Callable, Iterable, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import httpx
 from starlette.datastructures import Headers
@@ -47,18 +46,17 @@ from screamingface_engine.request_scope import (
 )
 from screamingface_engine.world.config import DEFAULT_CONFIG_PATH, WorldConfig
 from screamingface_engine.world.serving import compose_serving_world, node_mount_paths
+from screamingface_engine.world.wire import AsgiReceive, AsgiScope, AsgiSend, send_url4_error, write
 
 logger = logging.getLogger(__name__)
 
-# The App's forward budget (contracts.md ladder): above the node's own 30 s so the node's 504
-# wins the race and the caller gets a meaningful error instead of a severed connection. It is
-# the App's number, not the node tier's, so it lives here rather than in `NodeTierSettings`.
-FORWARD_TIMEOUT_S = 35.0
+# WHY a separate, short connect budget (FX-33): the node is one in-cluster hop away. A connect
+# that takes longer than this is a node that is not there, and waiting the whole forward budget
+# for it would hold the caller for 35 s to learn what the retry learns in 2.
+_CONNECT_TIMEOUT_S = 2.0
 
-# The App's own artifact route prefix (`rest/artifacts.py`: `GET /artifacts/{artifact_id}`). The
-# node signs a `303` Location under the same prefix today; the rewrite is kept because the two
-# placements may diverge, and it must preserve the query string, which carries the signature.
-ARTIFACT_PATH_PREFIX = "/artifacts/"
+# The failures where the request never reached the node, so a retry cannot double a bill.
+_CONNECTION_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 
 # The forwarded request headers, and ONLY these (contracts.md C2). Identity is not in the list:
 # it is set from the verified value, never copied from the wire.
@@ -86,6 +84,10 @@ _HOP_BY_HOP = frozenset(
     }
 )
 
+# WHY `server` and `date` are dropped too (FX-37): the App's own server writes both on every
+# response, so relaying the node's would send two of each.
+_NOT_RELAYED = _HOP_BY_HOP | {"server", "date"}
+
 _MISSING_IDENTITY_MESSAGE = (
     "the sync surface requires an edge-verified identity (X-User-Email); this request carried "
     "none, so it is refused rather than forwarded anonymously"
@@ -103,6 +105,7 @@ _UNREACHABLE_MESSAGE = "the node tier is unreachable; retry shortly"
 _ENDPOINT_NOT_FOUND = "endpoint_not_found"
 _IDENTITY_ACCESS_DENIED = "identity_access_denied"
 _TIMEOUT_CODE = "timeout"
+_UPSTREAM_UNAVAILABLE = "upstream_unavailable"
 
 
 class _NodeTimeout(Exception):
@@ -190,48 +193,51 @@ def _config_file_digest(env: Mapping[str, str]) -> str | None:
         return None
 
 
-AsgiScope = MutableMapping[str, Any]
-AsgiReceive = Callable[[], Awaitable[MutableMapping[str, Any]]]
-AsgiSend = Callable[[MutableMapping[str, Any]], Awaitable[None]]
-
-
 class NodeForwarder:
     """The App's ASGI forwarder to the node Service.
 
-    Mounted LAST on the App (`app.mount("/", forwarder)`) so every engine literal route wins and
-    only otherwise-unmatched paths reach it — the same precedence rule D3 relies on for the eval
-    path. A path outside the derived mount set is answered here and never forwarded.
+    Installed on the App behind a `NodeMountRoute` (`app._install_forwarder`), which matches only
+    the derived mount set — so every engine route keeps its own answer and only a declared mount
+    reaches this class. The defensive 404 below covers a path outside the set all the same.
+
+    ``timeout_s`` has no default (FX-34): the forward budget comes only from
+    `Settings.node_forward_timeout_s`, which the chart derives from the node's own budgets.
     """
 
     def __init__(
         self,
         *,
         node_base_url: str,
+        timeout_s: float,
         mount_paths: frozenset[str] = frozenset(),
-        timeout_s: float = FORWARD_TIMEOUT_S,
         config_digest: str | None = None,
         identity_resolver: Callable[[Headers], Mapping[str, str]] | None = None,
         client: httpx.AsyncClient | None = None,
-        node_artifact_prefix: str = ARTIFACT_PATH_PREFIX,
-        app_artifact_prefix: str = ARTIFACT_PATH_PREFIX,
     ) -> None:
         self._node_base_url = node_base_url
         self._mount_paths = mount_paths
         self._config_digest = config_digest
         self._identity_resolver = identity_resolver
-        self._node_artifact_prefix = node_artifact_prefix
-        self._app_artifact_prefix = app_artifact_prefix
         # WHY a shared client with keep-alive: C2 names it, and a per-request client would pay a
-        # TCP/TLS handshake on every sync call. `timeout` is the whole ladder number, applied to
-        # connect/read/write/pool uniformly; the node's own 30 s wrapper fires first.
+        # TCP/TLS handshake on every sync call. `timeout_s` bounds read/write/pool; connect has
+        # its own short bound (`_CONNECT_TIMEOUT_S`). The node's own 30 s wrapper fires first.
         self._owns_client = client is None
-        self._client = client if client is not None else httpx.AsyncClient(timeout=timeout_s)
+        self._client = (
+            client
+            if client is not None
+            else httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=_CONNECT_TIMEOUT_S))
+        )
 
     # --- wiring --------------------------------------------------------------------------
 
     def set_mount_paths(self, paths: Iterable[str]) -> None:
         """Populate the forwardable set after startup derivation (production wiring)."""
         self._mount_paths = frozenset(paths)
+
+    @property
+    def mount_paths(self) -> frozenset[str]:
+        """The forwardable set — what the App's `NodeMountRoute` matches against."""
+        return self._mount_paths
 
     def set_config_digest(self, digest: str | None) -> None:
         self._config_digest = digest
@@ -251,7 +257,7 @@ class NodeForwarder:
             return
         path = str(scope.get("path") or "")
         if path not in self._mount_paths:
-            await _send_url4_error(
+            await send_url4_error(
                 send,
                 404,
                 _ENDPOINT_NOT_FOUND,
@@ -260,16 +266,16 @@ class NodeForwarder:
             return
         identity = self._resolve_identity(scope)
         if not identity:
-            await _send_url4_error(send, 403, _IDENTITY_ACCESS_DENIED, _MISSING_IDENTITY_MESSAGE)
+            await send_url4_error(send, 403, _IDENTITY_ACCESS_DENIED, _MISSING_IDENTITY_MESSAGE)
             return
         await self._forward(scope, send, identity)
 
     def _resolve_identity(self, scope: AsgiScope) -> Mapping[str, str]:
         """The caller's verified identity, or an empty mapping when none is present.
 
-        A resolver is injectable so a test can present a verified value the client header does
-        NOT contain, modelling Envoy's overwrite: production reads the edge-injected header, and
-        the resolver IS that trust boundary (C2).
+        ``identity_resolver`` is this class's one test seam: a test can present a verified value
+        the client header does NOT contain, modelling Envoy's overwrite. Production leaves it
+        ``None`` and reads the edge-injected header, which IS the trust boundary (C2, RD1).
         """
         headers = Headers(scope=scope)
         if self._identity_resolver is None:
@@ -281,10 +287,12 @@ class NodeForwarder:
         try:
             response = await self._send_with_policy(request)
         except _NodeTimeout:
-            await _send_url4_error(send, 504, _TIMEOUT_CODE, _TIMEOUT_MESSAGE)
+            await send_url4_error(send, 504, _TIMEOUT_CODE, _TIMEOUT_MESSAGE)
             return
         except _NodeUnreachable:
-            await _send_url4_error(send, 503, "unavailable", _UNREACHABLE_MESSAGE, retry_after=1)
+            await send_url4_error(
+                send, 503, _UPSTREAM_UNAVAILABLE, _UNREACHABLE_MESSAGE, retry_after=1
+            )
             return
         await self._relay(send, response)
 
@@ -307,18 +315,19 @@ class NodeForwarder:
         )
 
     async def _send_with_policy(self, request: httpx.Request) -> httpx.Response:
-        """Send once; retry exactly once on a CONNECTION error only (AC9/T8).
+        """Send once; retry exactly once when the request never reached the node (AC9/T8).
 
-        A timeout raises immediately on the first attempt: a read timeout may mean the node is
-        mid-call and billing, and retrying doubles the cost. A 5xx is a RESPONSE, so it is never
-        retried at all — it is relayed unchanged.
+        A connect or pool timeout is a connection failure, not a slow node: nothing was sent, so
+        it takes the retry like a refused connection (FX-33). A read or write timeout raises on
+        the first attempt: the node may be mid-call and billing, and a retry doubles the cost. A
+        5xx is a RESPONSE, so it is never retried at all — it is relayed unchanged.
         """
         try:
             return await self._client.send(request)
+        except _CONNECTION_ERRORS:
+            logger.warning("node connection failed; retrying once")
         except httpx.TimeoutException:
             raise _NodeTimeout from None
-        except httpx.ConnectError:
-            logger.warning("node connection failed; retrying once")
         except httpx.TransportError as exc:
             raise _NodeUnreachable from exc
         return await self._retry(request)
@@ -326,84 +335,34 @@ class NodeForwarder:
     async def _retry(self, request: httpx.Request) -> httpx.Response:
         try:
             return await self._client.send(request)
+        except _CONNECTION_ERRORS as exc:
+            raise _NodeUnreachable from exc
         except httpx.TimeoutException:
             raise _NodeTimeout from None
         except httpx.TransportError as exc:
             raise _NodeUnreachable from exc
 
     async def _relay(self, send: AsgiSend, response: httpx.Response) -> None:
+        # A `303` is relayed unchanged: the node signs its Location under the App's own
+        # `/artifacts/` route, and its query string carries the signature (OQ-3.2).
         body = await response.aread()
-        status = response.status_code
         headers = _response_headers(response, body)
-        if status == 303:
-            headers = _rewrite_location(
-                headers,
-                node_prefix=self._node_artifact_prefix,
-                app_prefix=self._app_artifact_prefix,
-            )
         await response.aclose()
-        await _write(send, status, headers, body)
+        await write(send, response.status_code, headers, body)
 
 
 def _response_headers(response: httpx.Response, body: bytes) -> list[tuple[bytes, bytes]]:
-    """The node's response headers, minus hop-by-hop ones, with a corrected content-length."""
+    """The node's response headers, minus the unrelayed ones, with a corrected content-length."""
     headers = [
         (name.lower().encode("latin-1"), value.encode("latin-1"))
         for name, value in response.headers.multi_items()
-        if name.lower() not in _HOP_BY_HOP
+        if name.lower() not in _NOT_RELAYED
     ]
     headers.append((b"content-length", str(len(body)).encode("ascii")))
     return headers
 
 
-def _rewrite_location(
-    headers: Sequence[tuple[bytes, bytes]], *, node_prefix: str, app_prefix: str
-) -> list[tuple[bytes, bytes]]:
-    """Rewrite a ``303`` Location only when the node's artifact prefix differs from the App's.
-
-    INVARIANT: only the PREFIX is replaced. The rest of the value — crucially the ``exp``/``sig``
-    query string the OQ-3.2 signature travels in — is copied verbatim, so the redirect stays
-    fetchable at the App.
-    """
-    if node_prefix == app_prefix:
-        return list(headers)
-    out: list[tuple[bytes, bytes]] = []
-    for name, value in headers:
-        if name == b"location":
-            decoded = value.decode("latin-1")
-            if decoded.startswith(node_prefix):
-                decoded = app_prefix + decoded[len(node_prefix) :]
-                value = decoded.encode("latin-1")
-        out.append((name, value))
-    return out
-
-
-async def _send_url4_error(
-    send: AsgiSend,
-    status: int,
-    code: str,
-    message: str,
-    *,
-    retry_after: int | None = None,
-) -> None:
-    """The mount surface's error envelope (OQ-3.1): url4's ``{"error":{...}}``, not problem+json."""
-    headers = [(b"content-type", b"application/json")]
-    if retry_after is not None:
-        headers.append((b"retry-after", str(retry_after).encode("ascii")))
-    body = json.dumps({"error": {"code": str(code), "message": message}}).encode()
-    await _write(send, status, headers, body)
-
-
-async def _write(
-    send: AsgiSend, status: int, headers: Sequence[tuple[bytes, bytes]], body: bytes
-) -> None:
-    await send({"type": "http.response.start", "status": status, "headers": list(headers)})
-    await send({"type": "http.response.body", "body": body})
-
-
 __all__ = [
-    "ARTIFACT_PATH_PREFIX",
-    "FORWARD_TIMEOUT_S",
     "ForwardContract",
     "NodeForwarder",
     "derive_forward_contract",

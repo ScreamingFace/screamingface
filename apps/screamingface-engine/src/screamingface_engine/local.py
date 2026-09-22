@@ -8,6 +8,10 @@ the same REST sync-hold and WS pump a deployed App reads from JetStream. Everyth
 swapped adapters — auth, the 428 subscriber gate, sequencing, replay-from, the model catalog — is
 the production code path, unmodified.
 
+The one exception is the in-process sync surface (unit 3, contracts.md C8). A local sync call gets
+none of the deployed node tier's guards: no 30 s timeout ladder, no admission cap, no missing-``q``
+400 and no fair-share gate — only the in-process runs are gated. See `_LocalNodeMount`.
+
 # INVARIANT: this module is the ONLY place the control plane and the run mode meet, which is why
 # `.claude/scripts/check_layering.py` lists it in BOTH `CONTROL_PLANE` and `_EXEMPT` — exactly as
 # it does `cli.py`, and for the same reason. Being exempt is not the same as being unexamined:
@@ -22,7 +26,6 @@ the production code path, unmodified.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from collections.abc import Mapping
@@ -54,7 +57,15 @@ from screamingface_engine.request_scope import (
 )
 from screamingface_engine.rest.forwarder import forwarded_headers
 from screamingface_engine.runner.fair_share import FairShareGate
-from screamingface_engine.world.serving import compose_serving_world, engine_route_paths
+from screamingface_engine.world.serving import (
+    NodeMountRoute,
+    compose_serving_world,
+    engine_route_paths,
+    install_node_route,
+    node_eval_path,
+    node_mount_paths,
+)
+from screamingface_engine.world.wire import AsgiReceive, AsgiScope, AsgiSend, send_url4_error
 
 _logger = logging.getLogger(__name__)
 
@@ -180,12 +191,12 @@ _NODE_MOUNT_NAME = "node"
 
 
 class _LocalNodeMount:
-    """Mount the shared node's ASGI surface in-process, behind the App's identity boundary (C8).
+    """Serve the shared node's ASGI surface in-process, behind the App's identity boundary (C8).
 
     FEATURE (unit 3, prd/03 §2.3): ``serve --local`` has no forwarder and no network hop, so the
-    node's ASGI app is mounted directly into the App and only an otherwise-unmatched path reaches
-    it. It is registered LAST (:func:`_mount_node_last`), so every engine literal route wins by
-    route precedence — the same D3 rule the deployed shape gets from mounting the forwarder last.
+    node's ASGI app is served directly by the App. It sits behind the SAME `NodeMountRoute` the
+    deployed forwarder uses, installed last by the same `install_node_route`: only the node's
+    mounts and its eval path reach it, and every other path keeps the engine's own answer.
 
     # INVARIANT: identity is BUILT, never copied. This wrapper runs the SAME strip-and-reset
     # helper the deployed forwarder uses (``forwarded_headers``): only the allowlisted request
@@ -200,8 +211,10 @@ class _LocalNodeMount:
     # is what lets this one node serve both the mount and every in-process run without mixing
     # them.
 
-    NOT a deployment option: no admission/timeout ladder, no NetworkPolicy, no forwarder. It is
-    the development shape of the sync surface (C8).
+    NOT a deployment option (C8). A local sync call gets none of the node tier's guards: no 30 s
+    timeout ladder, no admission cap, no missing-``q`` 400 and no fair-share gate — only the
+    in-process RUNS are gated. There is no forwarder and no NetworkPolicy either. It is the
+    development shape of the sync surface.
     """
 
     __slots__ = ("_holder",)
@@ -212,7 +225,7 @@ class _LocalNodeMount:
         # executor factory (created before startup) must read the same world at run time.
         self._holder = holder
 
-    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+    async def __call__(self, scope: AsgiScope, receive: AsgiReceive, send: AsgiSend) -> None:
         if scope.get("type") != "http":
             # Lifetime and websocket scopes belong to the parent App; the node owns no websocket
             # surface. Mirrors the forwarder's guard.
@@ -222,7 +235,7 @@ class _LocalNodeMount:
             # No node means no mounts: a declaration with neither ``[aigateway]`` nor a read-side
             # shelf is a legitimate empty world, and every path is unknown. Fail closed in the
             # mount surface's own envelope rather than a bare 500.
-            await _send_local_error(
+            await send_url4_error(
                 send,
                 404,
                 "endpoint_not_found",
@@ -237,7 +250,7 @@ class _LocalNodeMount:
             # A declared sitting must not silently run without its seed (OME-1038). The node tier
             # maps this to 400 before dispatch; local mode calls the same producer itself, so it
             # owns the same mapping rather than letting a malformed seed escape as a 500.
-            await _send_local_error(send, 400, "malformed_source", str(exc))
+            await send_url4_error(send, 400, "malformed_source", str(exc))
             return
         cleaned = forwarded_headers(
             (
@@ -256,57 +269,6 @@ class _LocalNodeMount:
             await node_asgi(child_scope, receive, send)
 
 
-async def _send_local_error(send: Any, status: int, code: str, message: str) -> None:
-    """The mount surface's error envelope (OQ-3.1): url4's ``{"error": {...}}`` envelope."""
-    body = json.dumps({"error": {"code": code, "message": message}}).encode()
-    await send(
-        {
-            "type": "http.response.start",
-            "status": status,
-            "headers": [(b"content-type", b"application/json")],
-        }
-    )
-    await send({"type": "http.response.body", "body": body})
-
-
-def _mount_node_last(app: FastAPI, node_mount: _LocalNodeMount) -> None:
-    """Mount the local node at ``/`` and ASSERT it is the App's FINAL route (D3).
-
-    WHAT the assertion is for: FastAPI resolves the FIRST matching route, so a catch-all mount
-    that is not last silently swallows every literal route registered after it. A comment cannot
-    stop a future ``include_router`` from landing below this call; an assertion can. The
-    composition root checks its own work instead of trusting registration order — the T3
-    refactor note.
-    """
-    app.mount("/", node_mount, name=_NODE_MOUNT_NAME)
-    _assert_node_mounted_last(app, node_mount)
-
-
-def _assert_node_mounted_last(app: FastAPI, node_mount: object) -> None:
-    """Raise unless ``node_mount`` is the LAST route and the ONLY catch-all mount.
-
-    Two separate ways a silent reorder can happen: a route appended after the mount, and a second
-    ``/`` mount that shadows whichever is registered first. Both are checked, because either one
-    leaves the engine or the node unreachable while the process looks healthy.
-    """
-    routes = list(app.router.routes)
-    last = routes[-1] if routes else None
-    if last is None or getattr(last, "app", None) is not node_mount:
-        raise AssertionError(
-            "the node ASGI mount must be the LAST route: a catch-all mount registered before the "
-            "engine's literal routes shadows them (prd/03 D3). Register it after every route and "
-            "router; see local._mount_node_last."
-        )
-    catch_alls = [
-        route for route in routes if getattr(route, "path", None) == "" and hasattr(route, "app")
-    ]
-    if catch_alls != [last]:
-        raise AssertionError(
-            "exactly ONE catch-all mount may exist and it must be the node's; a second at '/' "
-            "would shadow the node or the engine depending on registration order (prd/03 D3)."
-        )
-
-
 def _install_local_node(
     app: FastAPI,
     *,
@@ -314,7 +276,7 @@ def _install_local_node(
     run_env: Mapping[str, str],
     benchmarks: BenchmarkRegistry,
 ) -> None:
-    """Mount the shared node LAST and register its build/teardown hooks (prd/03 C8).
+    """Install the shared node's route LAST and register its build/teardown hooks (prd/03 C8).
 
     Extracted from :func:`create_local_app` so the composition root stays a readable sequence of
     wiring steps; the mount, the world build and the ordered teardown belong together.
@@ -333,7 +295,13 @@ def _install_local_node(
     """
     node_mount = _LocalNodeMount(holder)
     app.state.node_mount = node_mount
-    _mount_node_last(app, node_mount)
+    # WHY a provider over `holder`: the path set exists only once startup has built the world.
+    install_node_route(
+        app,
+        NodeMountRoute(
+            node_mount, paths=lambda: holder.get("paths", frozenset()), name=_NODE_MOUNT_NAME
+        ),
+    )
 
     async def _build_shared_node() -> None:
         """Compose the ONE world both surfaces use, guarded against the App's real route table."""
@@ -348,6 +316,12 @@ def _install_local_node(
         holder["aclose"] = aclose
         asgi = getattr(world, "asgi", None)
         holder["asgi"] = asgi() if callable(asgi) else None
+        # No node means no mounts and no eval path: every path is then the engine's.
+        holder["paths"] = (
+            node_mount_paths(world) | {node_eval_path(world)}
+            if holder["asgi"] is not None
+            else frozenset()
+        )
         app.state.node_world = world
 
     async def _close_shared_node() -> None:
@@ -381,9 +355,10 @@ def create_local_app(
 
     # WHY the import is function-local: it is THE line that crosses the layering boundary, and
     # keeping it here means the crossing happens when a local App is actually built rather than on
-    # any import of this module. What it defers is `world.connector`/`runner.executor` and httpx
-    # — not the engine itself, which `url4/__init__` has already pulled in via any `url4.streaming`
-    # import (see the SCOPE NOTE in `check_layering.py`).
+    # any import of this module. What it defers is the RUN mode — `runner.main`, `runner.executor`
+    # and the observation plugins. It does NOT defer `world.connector` or httpx: the module-level
+    # `world.serving` import (the shared node) already loads both, and `url4/__init__` loads the
+    # engine itself via any `url4.streaming` import (see the SCOPE NOTE in `check_layering.py`).
     from screamingface_engine.observation_plugins import observation_factories
     from screamingface_engine.runner.main import build_executor
 
@@ -451,10 +426,10 @@ def create_local_app(
     # cancelled fetch releases its permit in a `finally` — closing the gate before those
     # releases land would drop them on a dead object instead of the books.
     app.router.on_shutdown.append(io_gate.aclose)
-    # FEATURE (unit 3, prd/03 §2.3 / C8): the local mount, registered after ALL routes and after
-    # the runner/gate shutdown hooks whose ordering it depends on. `_mount_node_last` asserts the
-    # route precedence rather than trusting it; there is NO forwarder and NO NetworkPolicy here —
-    # this is the development shape of the sync surface, never a deployment option.
+    # FEATURE (unit 3, prd/03 §2.3 / C8): the local node route, installed after ALL routes and
+    # after the runner/gate shutdown hooks whose ordering it depends on. `install_node_route`
+    # asserts the route order rather than trusting it; there is NO forwarder and NO NetworkPolicy
+    # here — this is the development shape of the sync surface, never a deployment option.
     _install_local_node(app, holder=holder, run_env=run_env, benchmarks=benchmarks)
     for adapter in (catalog, connections):
         if adapter is not None:

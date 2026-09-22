@@ -587,17 +587,18 @@ async def test_sync_request_logs_carry_origin_sync_and_the_trace_id(
     assert "sync request mount=/" in rendered
 
 
-def test_a_run_scope_line_still_carries_origin_run_topic_and_trace_id(
+def test_a_run_scope_line_carries_topic_and_trace_id_but_no_origin(
     _restore_app_logger: None,
 ) -> None:
+    """FX-39: a run line is main's line; only the sync surface names its origin."""
     stream = io.StringIO()
     configure(stream)
     with run_scope("cap-topic", _TRACE_ID):
         logging.getLogger("screamingface_engine.ws.bridge").info("run started")
 
     rendered = stream.getvalue()
-    assert "origin=run topic=cap-topic" in rendered
-    assert f"trace_id={_TRACE_ID}" in rendered
+    assert f"topic=cap-topic trace_id={_TRACE_ID} run started" in rendered
+    assert "origin=" not in rendered
 
 
 def test_node_mode_dispatches_to_the_node_entrypoint(monkeypatch: pytest.MonkeyPatch) -> None:

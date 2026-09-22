@@ -38,8 +38,8 @@ from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLay
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.runner.summary import RunSummary
 from screamingface_engine.tracing.relay import SpanRelay, SpanSink, otlp_configured
-from screamingface_engine.world.config import WorldConfig
-from screamingface_engine.world.factory import World, build_world
+from screamingface_engine.world.config import WorldConfig, load_config
+from screamingface_engine.world.factory import World, build_world, shared_world_serves
 from url4.streaming.interfaces import EventPublisher
 from url4.streaming.lifecycle import run
 from url4.streaming.trace import parse_traceparent
@@ -288,15 +288,30 @@ def build_executor(
     the wrapper is the only executor this function ever builds.
     """
 
+    # INVARIANT (FX-40, contracts.md C9): a malformed ANSWER_SEED behaves exactly as on `main`.
+    # `main` parsed the seed inside the world factory, AFTER the empty-world early return and
+    # BEFORE the model world was built. So a world with no `[aigateway]` never reads the seed and
+    # the run succeeds, and a declared world refuses the run before anything is built — the
+    # refusal comes out of `_resolve_world`, ahead of the summary, so `last_summary()` is `None`.
+    world_reads_seed = True
+
     async def _world() -> World:
         # FEATURE (F1, prd/01): building the world lives in the shared world package, because
         # both halves build one. This closure supplies only the run mode's per-Job wiring — the
         # Job's own env, its optional test clients, and the run key the world log names. The
         # factory stays LAZY so a bad config or unreachable gateway surfaces as a Terminated
         # frame on the topic rather than crashing the scheduling caller before the stream exists.
+        nonlocal world_reads_seed
+        # Resolved here, not inside `build_world`, only to see the section before building; the
+        # SAME resolved object is handed on, so the world is built from one parse.
+        resolved = config if config is not None else load_config(env, include_extra_models=True)
+        if resolved.aigateway is None:
+            world_reads_seed = False
+        else:
+            request_scope_from_env(env)
         return await build_world(
             env=env,
-            config=config,
+            config=resolved,
             client=client,
             tavily_client=tavily_client,
             benchmarks=benchmarks,
@@ -313,7 +328,15 @@ def build_executor(
     # Terminated frame on the topic), not take down the scheduling caller before the stream
     # exists. See `Url4Executor._resolve_world` and the `InProcessJobRunner.schedule` comment.
     def _scope_from_env() -> RequestScope:
-        return request_scope_from_env(env)
+        try:
+            return request_scope_from_env(env)
+        except RunnerConfigError:
+            if world_reads_seed:
+                raise
+            # FX-40: no model call in this world reads the seed, and `main` never parsed it.
+            return request_scope_from_env(
+                {name: value for name, value in env.items() if name != job_env.ANSWER_SEED}
+            )
 
     # FEATURE (OME-908): the run's downstream admission policy. `io_gate` is LOCAL mode's
     # shared fair-share gate; when present, the run's world io is wrapped into it under the
@@ -340,6 +363,11 @@ def build_executor(
     # whoever built it, so `world_factory` is cleared when an io is supplied or the run would
     # close a world it does not own.
     shared_io = io_provider() if io_provider is not None else None
+    # FEATURE (FX-30, OME-880): a model admitted after the shared node was built is not a route
+    # on it. Such a run builds its own per-run world, exactly as before the shared node existed,
+    # and that world owns its own teardown.
+    if shared_io is not None and not shared_world_serves(shared_io, env):
+        shared_io = None
     return OperationCapturingExecutor(
         Url4Executor(
             io=shared_io,

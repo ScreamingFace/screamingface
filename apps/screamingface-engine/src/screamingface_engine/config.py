@@ -171,9 +171,10 @@ class Settings(BaseSettings):
     # node tier exists in this deployment (the Helm unit writes this from the Service name), and a
     # wrong guess would silently forward to nothing.
     node_base_url: str | None = None
-    # The App -> node forward budget (contracts.md ladder): above the node's own 30 s so the
-    # node's 504 wins the race. Kept in step with `rest.forwarder.FORWARD_TIMEOUT_S` by this
-    # default; the setting exists so a deployment can tune the outer hop without a rebuild.
+    # The App -> node forward budget (contracts.md ladder): above the node's request budget
+    # plus its spill write, so the node's own 504 wins the race. INVARIANT (FX-34): this is the
+    # ONLY source of the number — `NodeForwarder` has no default. The chart renders it as
+    # `requestTimeoutS + spillTimeoutS + 1` (35 s with the defaults).
     node_forward_timeout_s: float = 35.0
 
     # --- model catalog (OME-625). The catalog endpoint forwards the CALLER's
