@@ -30,9 +30,21 @@ close: Linear comment (close template) + state Done + mirror closed
 | `asana-product` | Reading product/marketing context from Asana | READ-ONLY. Never creates/updates in Asana; dev items link back via `asana_url` |
 | `working-in-this-repo` | Starting any change; unsure where code goes / which CI / how to PR | The routing map: components, toolchains, CI lanes, release lanes, branch/PR rules |
 | `screamingface-design` | Any UI/UX/visual/copy decision | The brand law (overrides shadcn/Tailwind defaults) |
+| `product-context` | Writing a ticket, a docs page, or any copy | What ScreamingFace is, terminology, personas, and what may be claimed. Status per item: canonical, provisional, or open |
 
 Loop parity: the `SHARED-LOOP` regions of `sdlc-python` and `sdlc-electron` are
 byte-identical — edit them TOGETHER, `repo-checks.yml` CI enforces it.
+
+### Working in `public-docs/`, or writing any docs, README, or release note
+
+| Invoke | For |
+|---|---|
+| `product-context` | Product facts, terminology, personas, claims |
+| `writing-docs` | Page shape, prose craft, review. Pending publication, not yet installed here |
+
+Advisory, not a gate: `run_gates.py` does not check whether either skill was used. The
+closest thing to enforcement is `docs-sync-check.yml` (below), which checks that a docs
+page changed, not that either skill produced it.
 
 ## Agents (`.claude/agents/`)
 
@@ -55,6 +67,8 @@ byte-identical — edit them TOGETHER, `repo-checks.yml` CI enforces it.
   gates, first-red stops). Run from repo root: `uv run .claude/scripts/run_gates.py aigateway`.
 - `check_loop_parity.py` — verifies the sdlc skills' SHARED-LOOP regions are identical.
 - `repo-checks.yml` — runs parity on any `.claude/skills/sdlc-**` / `.claude/scripts/**` change.
+- `docs-sync-check.yml` — requires a docs page change for a changed public `sf.*` export.
+  See `packages/screamingface/scripts/check_docs_sync.py`.
 
 ## Linear — the work-item system (MCP ONLY)
 
@@ -77,16 +91,7 @@ byte-identical — edit them TOGETHER, `repo-checks.yml` CI enforces it.
 
 ## Product context
 
-- **ScreamingFace**: an open-source AI ensemble toolkit — combine models (Claude, Gemini,
-  Codex, Ollama) to beat single-model SOTA, running locally on subscriptions users already
-  pay for, scores tracked on a public leaderboard (screamingface.ai). Built by OpenMined.
-- **Key concepts**: `url4` — DAG-based protocol encoding AI task chains as readable URLs ·
-  **Enclave** — secure cloud runner + cache · **Ensemble** — multi-model > any single
-  model · **SOTA** — the benchmark scores to beat.
-- **App screens** (desktop): Settings (model connections) · Spend (usage/cost) ·
-  Eval Studio (run benchmarks) · Cache/Log (query cache browser).
-- **Team**: TBD — being reshuffled, to be settled in the next couple of days
-  (2026-07-08). Linear project lead: Irina.
+Superseded by the `product-context` skill (`.claude/skills/product-context/`).
 
 ## History
 
