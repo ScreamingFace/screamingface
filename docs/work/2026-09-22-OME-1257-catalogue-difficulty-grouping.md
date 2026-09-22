@@ -56,7 +56,8 @@ by the two axes so the listing reads as a map.
   cannot ship); SDK `Benchmark` also gained `interaction` (the mapper silently
   dropped it before, and the listing needs both axes); public-surface snapshot
   regenerated + CHANGELOG entry.
-- **Commits:** pending owner `--skip-append-only` approval (see Deviations).
+- **Commits:** PR #1012 `feat(screamingface-engine): declare a difficulty tier on every benchmark` + stacked PR #1013 `feat(screamingface): render the catalogue as a faceted map with chips` (shas final on merge; owner approved `--skip-append-only` 2026-09-22).
+  NOTE: Outcome items about the listing/chips/gold migration land in the STACKED PR #1013; the declaration/wire/conformance items land in #1012. Post-review rebase added tiers for `inspect-aime24`/`inspect-aime25` (OME-1238 landed mid-stack): both `medium` — competition-exam mathematics, headroom without expert stakes.
 - **Gates:** engine — ruff ✓ format ✓ pyright 0 errors ✓ layering ✓ pytest 3272
   passed / 13 skipped ✓; SDK — ruff ✓ format ✓ pyright 0 errors ✓ pytest 1667
   passed / 26 skipped ✓ notebooks ✓ build ✓ distribution ✓ lock ✓. Coverage gates
