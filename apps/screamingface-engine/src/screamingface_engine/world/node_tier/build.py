@@ -68,6 +68,14 @@ async def build_node_tier(
     except NodeTierError as exc:
         resolved_readiness.fail(str(exc))
         raise
+    try:
+        # FX-16: a store error is a build error like every other, so readiness names it.
+        # WHY before the world: a refused store or key then leaves nothing built to tear down.
+        store = _resolve_store(env, artifact_store)
+        signing_key = _resolve_signing_key(env, artifact_signing_key)
+    except Exception as exc:
+        resolved_readiness.fail(str(exc))
+        raise
     node, world_aclose = await _serving_node(
         env=env,
         config=_tier_config(config if config is not None else load_config(env), resolved_settings),
@@ -77,14 +85,6 @@ async def build_node_tier(
         engine_routes=frozenset(engine_routes) if engine_routes is not None else OPS_PATHS,
         readiness=resolved_readiness,
     )
-    try:
-        # FX-16: a store error is a build error like every other, so readiness names it.
-        store = _resolve_store(env, artifact_store)
-        signing_key = _resolve_signing_key(env, artifact_signing_key)
-    except Exception as exc:
-        resolved_readiness.fail(str(exc))
-        await _teardown(node, world_aclose)
-        raise
     tier = NodeTier(
         settings=resolved_settings,
         metrics=metrics or build_node_metrics(),
@@ -140,13 +140,6 @@ async def _serving_node(
         readiness.fail(reason)
         raise NodeTierError(reason)
     return io, world_aclose
-
-
-async def _teardown(node: Url4Node, world_aclose: WorldTeardown | None) -> None:
-    """Close a world that was built but will not serve — the same order as `NodeTier.aclose`."""
-    if world_aclose is not None:
-        await world_aclose()
-    await node.aclose()
 
 
 def _resolve_store(env: Mapping[str, str], injected: ArtifactWriter | None) -> ArtifactWriter:

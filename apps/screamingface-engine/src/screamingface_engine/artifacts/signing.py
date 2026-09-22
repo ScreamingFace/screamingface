@@ -83,27 +83,43 @@ def verify_artifact_signature(
     signature byte by byte.
 
     The expiry is inclusive: a signature is valid while ``now <= expires_at``. An absent or
-    unparseable expiry, an empty key, a ``sig`` that is not ASCII hex, and any mismatch all
-    answer ``False`` — this function never raises, so a malformed query string can only mean
-    "not signed", never a 500.
+    unparseable expiry, an empty key, a ``sig`` that is not ASCII hex, an ``artifact_id`` that
+    cannot be encoded, and any mismatch all answer ``False`` — this function never raises, so a
+    malformed request can only mean "not signed", never a 500.
     """
     if not key or not sig or not _is_hex(sig):
         return False
     expires_at = _parse_expiry(exp)
     if expires_at is None or now > expires_at:
         return False
-    expected = hmac.new(key.encode("utf-8"), _message(artifact_id, expires_at), hashlib.sha256)
-    return hmac.compare_digest(expected.hexdigest(), sig)
+    expected = _expected_signature(artifact_id, expires_at, key)
+    return expected is not None and hmac.compare_digest(expected, sig)
+
+
+def _expected_signature(artifact_id: str, expires_at: int, key: str) -> str | None:
+    """The hex signature this key would issue, or None when ``artifact_id`` cannot be encoded.
+
+    WHY None and not a raise: the id comes from the request path, so a lone surrogate is
+    caller-controlled. It can name no artifact this node signed, so it is "not signed", never
+    a 500.
+    """
+    try:
+        message = _message(artifact_id, expires_at)
+    except UnicodeEncodeError:
+        return None
+    return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
 def _is_hex(sig: str) -> bool:
     """Whether ``sig`` is ASCII hex — the only shape `sign_artifact_id` ever issues.
 
+    ``_HEX_DIGITS`` holds only ASCII characters, so the membership test alone proves ASCII.
+
     WHY checked before the comparison: `hmac.compare_digest` raises ``TypeError`` for a ``str``
     with non-ASCII characters, and ``sig`` is caller-controlled (FX-10). Rejecting the shape
     first keeps the never-raises contract without weakening the constant-time comparison.
     """
-    return sig.isascii() and all(char in _HEX_DIGITS for char in sig)
+    return all(char in _HEX_DIGITS for char in sig)
 
 
 def _parse_expiry(exp: str | None) -> int | None:

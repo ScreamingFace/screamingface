@@ -196,16 +196,18 @@ async def test_an_over_hard_cap_response_is_413_and_writes_nothing(tmp_path: Pat
 
 @pytest.mark.asyncio
 async def test_the_hard_cap_wins_even_when_the_caps_are_inverted(tmp_path: Path) -> None:
-    """T6: inverted caps can no longer reach the send boundary — FX-13 refuses them at boot.
-
-    WHY updated (04-review-fixes FX-13): the tier used to serve inverted caps and rely on the
-    hard-cap-first order; `NodeTierSettings.validate()` now refuses them before the world is
-    built, so a huge inline cap still cannot bypass the ceiling, and nothing is written.
-    """
+    """T6: the hard-cap check runs FIRST, so a huge inline cap cannot bypass the ceiling."""
     settings = _settings(result_inline_cap_bytes=100, result_hard_cap_bytes=30)
-    with pytest.raises(NodeTierError, match="result_inline_cap_bytes"):
-        await _serve(tmp_path, body="Z" * 50, settings=settings)
-    assert not (tmp_path / "artifacts").exists() or not any((tmp_path / "artifacts").iterdir())
+    tier, store, client, _gw = await _serve(tmp_path, body="Z" * 50, settings=settings)
+    try:
+        async with _node_client(tier) as node:
+            response = await _get_mount(node)
+        assert response.status_code == 413
+        assert response.json()["error"]["code"] == "result_too_large"
+        assert not (tmp_path / "artifacts").exists() or not any((tmp_path / "artifacts").iterdir())
+    finally:
+        await tier.aclose()
+        await client.aclose()
 
 
 @pytest.mark.asyncio

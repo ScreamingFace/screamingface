@@ -11,7 +11,6 @@ submodule. After this import, `node_tier.serve` is the function (`cli._node` rel
 Reach the submodule through `importlib.import_module` or `from ...node_tier.serve import ...`.
 """
 
-from screamingface_engine.world.node_tier.build import _tier_config as _tier_config
 from screamingface_engine.world.node_tier.build import build_node_tier
 from screamingface_engine.world.node_tier.metrics import NodeMetrics, build_node_metrics
 from screamingface_engine.world.node_tier.serve import serve

@@ -97,9 +97,8 @@ def test_default_settings_validate() -> None:
         ({"aigateway_timeout_s": 30.0}, "aigateway_timeout_s"),
         ({"aigateway_timeout_s": 31.0}, "aigateway_timeout_s"),
         ({"spill_timeout_s": 0.0}, "spill_timeout_s"),
-        ({"result_inline_cap_bytes": 101, "result_hard_cap_bytes": 100}, "result_inline_cap"),
     ],
-    ids=["no-inflight", "aigw-equals-request", "aigw-over-request", "no-spill-time", "caps"],
+    ids=["no-inflight", "aigw-equals-request", "aigw-over-request", "no-spill-time"],
 )
 def test_invalid_settings_are_refused_by_name(overrides: dict[str, Any], names: str) -> None:
     with pytest.raises(NodeTierError, match=names):

@@ -123,7 +123,7 @@ def test_the_ladder_numbers_live_in_settings_and_decrease_inward() -> None:
 
 def test_the_tier_overrides_allow_outbound_and_the_aigateway_timeout() -> None:
     """C3/§10: the tier must not inherit url4.toml's 600 s or its outbound allowance."""
-    from screamingface_engine.world.node_tier import _tier_config
+    from screamingface_engine.world.node_tier.build import _tier_config
 
     overridden = _tier_config(_config(), NodeTierSettings())
     assert overridden.aigateway is not None
@@ -459,7 +459,14 @@ async def test_a_failed_collision_guard_marks_readiness_failed_and_refuses_to_st
     )
     readiness = NodeReadiness()
     with pytest.raises(MountCollisionError):
-        await build_node_tier(env={}, config=config, engine_routes={"/token"}, readiness=readiness)
+        await build_node_tier(
+            env={},
+            config=config,
+            engine_routes={"/token"},
+            readiness=readiness,
+            artifact_store=_NEVER_SPILLS,
+            artifact_signing_key=_KEY,
+        )
     assert readiness.ready is False
     assert readiness.reason is not None and "/token" in readiness.reason
 
@@ -494,7 +501,11 @@ class _UnreachableTransport(httpx.AsyncBaseTransport):
 async def test_the_world_builds_offline_and_calls_fail_502() -> None:
     """AC19: a tier that cannot start without its downstream turns one outage into two."""
     transport = _UnreachableTransport()
-    client = httpx.AsyncClient(transport=transport, base_url="http://aigateway.test")
+    # The world gives its aigateway client `aigateway_timeout_s`; this injected one matches, so a
+    # refused connection leaves room for the retry (§2.2b) and keeps its transport code.
+    client = httpx.AsyncClient(
+        transport=transport, base_url="http://aigateway.test", timeout=_FAST.aigateway_timeout_s
+    )
     tier = await build_node_tier(
         env={},
         config=_config(),

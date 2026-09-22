@@ -124,3 +124,12 @@ def test_a_non_ascii_or_non_hex_signature_answers_false_and_never_raises(sig: st
     """
     exp = int(_NOW) + 600
     assert not signing.verify_artifact_signature(_ID, exp=str(exp), sig=sig, key=KEY, now=_NOW)
+
+
+def test_an_artifact_id_that_cannot_be_encoded_answers_false_and_never_raises() -> None:
+    """Review round (item 6): the id is caller-controlled too — a lone surrogate in the path
+    made `_message` raise `UnicodeEncodeError`, a 500 instead of "not signed"."""
+    exp = int(_NOW) + 600
+    assert not signing.verify_artifact_signature(
+        "\ud800", exp=str(exp), sig="ab" * 32, key=KEY, now=_NOW
+    )

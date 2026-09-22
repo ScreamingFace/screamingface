@@ -109,11 +109,8 @@ class NodeTierSettings:
             )
         if self.spill_timeout_s <= 0:
             raise NodeTierError(f"spill_timeout_s must be positive, got {self.spill_timeout_s:g}")
-        if self.result_inline_cap_bytes > self.result_hard_cap_bytes:
-            raise NodeTierError(
-                f"result_inline_cap_bytes ({self.result_inline_cap_bytes}) must not exceed "
-                f"result_hard_cap_bytes ({self.result_hard_cap_bytes})"
-            )
+        # WHY inverted caps are NOT refused (FX-13 as amended): the hard-cap check runs first
+        # (`decide_result_delivery`), so an inline cap above the hard cap cannot bypass it.
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> NodeTierSettings:

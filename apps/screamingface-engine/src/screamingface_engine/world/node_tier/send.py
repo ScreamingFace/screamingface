@@ -32,8 +32,10 @@ _RESULT_TOO_LARGE = "result_too_large"
 _ARTIFACT_SPILL_FAILED = "artifact_spill_failed"
 
 # url4's admission refusal (`url4.cli._serve._serve_http`). It is not an `ErrorCode` member —
-# url4 writes it as a literal — so the engine names it once, here.
+# url4 writes it as a literal — so the engine names it once, here. The tier's own gate (§2.2a)
+# answers with the same envelope, so a caller cannot tell which gate shed it.
 _OVERLOADED = "overloaded"
+_OVERLOADED_MESSAGE = "server at capacity, retry shortly"
 _URL4_CODES = frozenset(code.value for code in ErrorCode)
 
 
@@ -47,17 +49,23 @@ class _ObservedSend:
     timeout to change a string would be the thing `build_asgi_app` exists to prevent.
     """
 
-    __slots__ = ("_send", "_timeout", "_rewrite", "_status")
+    __slots__ = ("_send", "_timeout", "_rewrite", "_status", "_code")
 
     def __init__(self, send: AsgiSend, timeout: float) -> None:
         self._send = send
         self._timeout = timeout
         self._rewrite = False
         self._status = 0
+        self._code: str | None = None
 
     @property
     def status(self) -> int:
         return self._status
+
+    @property
+    def code(self) -> str | None:
+        """The final ``error.code`` the caller received, or None for a success or a bare body."""
+        return self._code
 
     async def __call__(self, message: MutableMapping[str, Any]) -> None:
         if message["type"] == "http.response.start":
@@ -79,6 +87,10 @@ class _ObservedSend:
                 "body": _timeout_body(self._timeout),
                 "more_body": False,
             }
+        if message["type"] == "http.response.body" and self._status >= 400:
+            # Only an error body is parsed: error envelopes are small by construction, and a
+            # success body may be up to the hard cap.
+            self._code = _error_code(message.get("body", b""))
         await self._send(message)
 
 

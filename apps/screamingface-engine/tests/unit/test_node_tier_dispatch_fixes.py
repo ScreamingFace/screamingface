@@ -121,7 +121,7 @@ async def test_a_retry_that_cannot_fit_the_deadline_is_not_started_and_the_calle
         async with _node_client(tier) as node:
             response = await node.get(f"/{_MODEL}", params=_Q, headers=_ME)
         assert response.status_code == 502, response.text
-        assert response.json()["error"]["code"] == "aigateway_transport_error"
+        assert response.json()["error"]["code"] == "aigateway_deadline_exceeded"
         assert len(posts) == 1
     finally:
         await tier.aclose()

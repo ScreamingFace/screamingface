@@ -1,8 +1,8 @@
 """The node tier's own Prometheus registry and the three signals test-plan §9 names.
 
-FEATURE (unit 3, prd/03): the observability the accepted risks need to be visible — the 504
-rate and duration (R7) and the in-flight cap (R5). Served on its own port (FX-5, RD2), never on
-the mount port.
+FEATURE (unit 3, prd/03): the observability the accepted risks need to be visible — whether
+the 30 s budget is too short (R7) and whether the in-flight cap is wrong (R5). Served on its own
+port (FX-5, RD2), never on the mount port.
 """
 
 from __future__ import annotations
@@ -30,14 +30,18 @@ class NodeMetrics:
     request_duration: Histogram
     inflight: Gauge
     shed: Counter
+    budget_exhausted: Counter
 
 
 def build_node_metrics() -> NodeMetrics:
     """Build the node tier's registry.
 
-    ``request_duration`` is labelled by ``status``, so the 504 RATE (``_count{status="504"}``)
-    and the 504 DURATION histogram come from one series — the signal that answers whether the
-    accepted 30 s risk (R7) is wrong. ``inflight`` and ``shed`` answer whether the cap (R5) is.
+    ``budget_exhausted`` is the R7 signal (§2.2b): it counts the requests whose budget ran out,
+    whichever layer noticed — url4's ``504 timeout``, or the connector's ``502
+    aigateway_deadline_exceeded`` when the deadline stopped an aigateway attempt first. The 504
+    count alone is NOT that signal: with the deadline, a slow model usually ends as that 502.
+    ``request_duration`` is labelled by the FINAL ``status``, so it shows how long each outcome
+    took. ``inflight`` and ``shed`` answer whether the cap (R5) is wrong.
     """
     registry = CollectorRegistry()
     request_duration = Histogram(
@@ -49,16 +53,25 @@ def build_node_metrics() -> NodeMetrics:
     )
     inflight = Gauge(
         "screamingface_engine_node_sync_inflight",
-        "Sync requests inside the node tier, including shed ones.",
+        "Sync requests admitted by the node tier, spill phase included.",
         registry=registry,
     )
     shed = Counter(
         "screamingface_engine_node_sync_shed_total",
-        "Sync requests shed with 503 because the node tier was at capacity.",
+        "Sync requests shed with 503 overloaded because the node tier was at capacity.",
+        registry=registry,
+    )
+    budget_exhausted = Counter(
+        "screamingface_engine_node_sync_budget_exhausted_total",
+        "Sync requests whose budget ran out: 504 timeout or 502 aigateway_deadline_exceeded.",
         registry=registry,
     )
     return NodeMetrics(
-        registry=registry, request_duration=request_duration, inflight=inflight, shed=shed
+        registry=registry,
+        request_duration=request_duration,
+        inflight=inflight,
+        shed=shed,
+        budget_exhausted=budget_exhausted,
     )
 
 

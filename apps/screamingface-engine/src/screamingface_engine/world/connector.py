@@ -628,6 +628,11 @@ async def _post_completion(
     (the sync surface), each attempt's timeout is ``min(configured, time left)``, and a retry is
     not started when the backoff plus one full attempt no longer fits. With no deadline (the
     ensemble path) the post is the one this function has always made.
+
+    FEATURE (§2.2b): when the BUDGET is what ran out — an attempt timed out at the time-left
+    bound, the time left was already gone, or a retry did not fit — the transient code is
+    ``aigateway_deadline_exceeded`` (still a 502), so the R7 signal stays countable. With no
+    deadline the codes are unchanged.
     """
     deadline = _current_deadline()
     # WHY the READ timeout is "the configured timeout": it bounds how long one attempt waits for
@@ -636,31 +641,26 @@ async def _post_completion(
     configured = http_client.timeout.read
     last: httpx.TransportError | None = None
     for attempt in range(_TRANSPORT_RETRIES + 1):
+        timeout = _attempt_timeout(deadline, configured, last)
         try:
-            response = await _post_attempt(
-                http_client, headers=headers, body=body, deadline=deadline, configured=configured
-            )
+            response = await _post_attempt(http_client, headers=headers, body=body, timeout=timeout)
         except httpx.TransportError as exc:
             last = exc
+            if isinstance(exc, httpx.TimeoutException) and _deadline_bound(timeout, configured):
+                raise _deadline_exceeded(exc) from exc
             if attempt < _TRANSPORT_RETRIES:
                 delay = _transport_backoff(attempt)
                 if deadline is not None and not _retry_fits(deadline, delay, configured):
-                    break
+                    raise _deadline_exceeded(exc) from exc
                 observation = current_model_call()
                 if observation is not None:
                     observation.retry(attempt=attempt + 2, delay_seconds=delay)
                 await asyncio.sleep(delay)
             continue
-        if response is None:
-            break
         return response, attempt > 0
-    detail = (
-        _transport_detail(last)
-        if last is not None
-        else "the request deadline passed before an attempt"
-    )
+    assert last is not None  # every path out of the loop that did not return set it
     raise ResolutionError(
-        f"aigateway request failed at the transport layer: {detail}",
+        f"aigateway request failed at the transport layer: {_transport_detail(last)}",
         code="aigateway_transport_error",
         permanent=False,
     ) from last
@@ -680,30 +680,53 @@ def _current_deadline() -> float | None:
         return None
 
 
+def _attempt_timeout(
+    deadline: float | None, configured: float | None, last: httpx.TransportError | None
+) -> float | None:
+    """The next attempt's timeout: None (the client's own) with no deadline, else the time left
+    capped by ``configured``.
+
+    Raises:
+        ResolutionError: ``aigateway_deadline_exceeded`` when no time is left for an attempt.
+    """
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise _deadline_exceeded(last)
+    return remaining if configured is None else min(configured, remaining)
+
+
+def _deadline_bound(timeout: float | None, configured: float | None) -> bool:
+    """Whether an attempt ran under the time-left bound rather than the configured timeout."""
+    return timeout is not None and (configured is None or timeout < configured)
+
+
+def _deadline_exceeded(cause: httpx.TransportError | None) -> ResolutionError:
+    """The transient refusal for a request whose budget ran out upstream (§2.2b)."""
+    detail = _transport_detail(cause) if cause is not None else "no time left for an attempt"
+    return ResolutionError(
+        f"aigateway request ran out of the request budget: {detail}",
+        code="aigateway_deadline_exceeded",
+        permanent=False,
+    )
+
+
 async def _post_attempt(
     http_client: httpx.AsyncClient,
     *,
     headers: dict[str, str],
     body: dict,
-    deadline: float | None,
-    configured: float | None,
-) -> httpx.Response | None:
-    """One POST, capped to the time left; ``None`` when the deadline has passed (no call made).
+    timeout: float | None,
+) -> httpx.Response:
+    """One POST under ``timeout``, or under the client's own timeout when it is None.
 
     INVARIANT: with no deadline the POST passes no ``timeout`` — the client's own configured
     timeout applies, byte-identical to the ensemble path before FX-1.
     """
-    if deadline is None:
+    if timeout is None:
         return await http_client.post(_COMPLETIONS_PATH, headers=headers, json=body)
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        return None
-    return await http_client.post(
-        _COMPLETIONS_PATH,
-        headers=headers,
-        json=body,
-        timeout=remaining if configured is None else min(configured, remaining),
-    )
+    return await http_client.post(_COMPLETIONS_PATH, headers=headers, json=body, timeout=timeout)
 
 
 def _retry_fits(deadline: float, delay: float, configured: float | None) -> bool:

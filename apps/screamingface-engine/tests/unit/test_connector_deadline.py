@@ -80,7 +80,7 @@ async def test_a_retry_that_cannot_fit_backoff_plus_one_attempt_is_not_started(
         with request_scope(RequestScope(deadline=time.monotonic() + 1.2)):
             with pytest.raises(ResolutionError) as caught:
                 await connector_module._post_completion(client, headers={}, body={})
-    assert caught.value.code == "aigateway_transport_error"
+    assert caught.value.code == "aigateway_deadline_exceeded"
     assert caught.value.permanent is False
     assert len(gateway.read_timeouts) == 1
     assert time.monotonic() - started < 0.4, "the connector slept for a retry it never made"
@@ -104,6 +104,6 @@ async def test_an_expired_deadline_makes_no_call() -> None:
         with request_scope(RequestScope(deadline=time.monotonic() - 0.1)):
             with pytest.raises(ResolutionError) as caught:
                 await connector_module._post_completion(client, headers={}, body={})
-    assert caught.value.code == "aigateway_transport_error"
+    assert caught.value.code == "aigateway_deadline_exceeded"
     assert caught.value.permanent is False
     assert gateway.read_timeouts == []

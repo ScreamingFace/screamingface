@@ -19,10 +19,12 @@ no second verification step here, by decision.
 # for the duration of its request. Nothing derived from a request may be stored on `self`; the
 # erd.md invariant is what makes one node safe for two concurrent callers (T1).
 
-# INVARIANT: the admission (503 + `Retry-After`) and timeout (504) mechanics are url4's
-# (`build_asgi_app`), never re-implemented here. This module passes a `ServeConfig` carrying the
-# engine's ladder numbers and wraps the result; the engine owns only the 504 body's wording, the
-# `Retry-After` value, and the 500 → 502 remap for a downstream failure (§2.2).
+# INVARIANT: the timeout (504) mechanic is url4's (`build_asgi_app`), never re-implemented here.
+# Admission has two owners at ONE cap (§2.2a): url4 admits per EVALUATION (its slot is freed when
+# `inner` returns), and the tier admits per REQUEST, because only the tier sees the spill phase
+# after that. The tier's gate runs first, so url4's gate is a backstop that cannot fire first.
+# Both answer the same `503 overloaded` envelope. Beyond that the engine owns only the 504 body's
+# wording, the `Retry-After` value, and the 500 → 502 remap for a downstream failure (§2.2).
 
 # WHY this package lives under `world/` rather than a new control-plane package: it serves the
 # shared world and imports it, and `.claude/scripts/check_layering.py` classifies an unlisted
@@ -50,7 +52,12 @@ from screamingface_engine.request_scope import (
     request_scope_from_headers,
 )
 from screamingface_engine.world.node_tier.metrics import NodeMetrics
-from screamingface_engine.world.node_tier.send import _ObservedSend, _SpillSend
+from screamingface_engine.world.node_tier.send import (
+    _OVERLOADED,
+    _OVERLOADED_MESSAGE,
+    _ObservedSend,
+    _SpillSend,
+)
 from screamingface_engine.world.node_tier.settings import NodeTierSettings
 from screamingface_engine.world.wire import (
     AsgiApp,
@@ -80,6 +87,9 @@ _MISSING_Q_MESSAGE = "this mount requires a `q` query parameter: GET <mount>?q=(
 # Engine-added code (contracts.md C1): a present-but-unusable request header.
 _MALFORMED_HEADER = "malformed_header"
 _DRAINING = "draining"
+# The final codes that mean "the request budget ran out" (§2.2b, the R7 signal): url4's 504 and
+# the connector's deadline-bounded 502.
+_BUDGET_EXHAUSTED_CODES = frozenset({str(ErrorCode.TIMEOUT), "aigateway_deadline_exceeded"})
 
 
 @dataclass(slots=True)
@@ -147,6 +157,9 @@ class NodeTier:
         self._artifact_store = artifact_store
         self._signing_key = signing_key
         self._clock = clock if clock is not None else time.time
+        # §2.2a: the requests admitted and not yet finished, spill phase included. A count, not
+        # caller state, so the STATELESS invariant holds.
+        self._inflight = 0
         self._closed = False
 
     # --- what the composition root reads -------------------------------------------------
@@ -276,7 +289,6 @@ class NodeTier:
             spill_timeout_s=self._settings.spill_timeout_s,
             retry_after_s=self._settings.retry_after_s,
         )
-        self._metrics.inflight.inc()
         # INVARIANT: both scopes are bound around the call and reset after it, so a sibling
         # request task can never observe this caller's identity or this request's log context.
         # The per-request log line is INSIDE them (FX-6), so it carries origin and trace_id.
@@ -284,24 +296,52 @@ class NodeTier:
             request_scope(bound),
             run_scope(None, parse_traceparent(bound.traceparent), origin="sync"),
         ):
+            admitted = self._admit()
             try:
-                await self._inner(scope, receive, spill)
-                # WHY after `inner` returns (§2.2): the finish — and its spill — runs outside
-                # url4's `asyncio.timeout`, so a late spill still answers the caller.
-                await spill.finish()
+                if admitted:
+                    await self._inner(scope, receive, spill)
+                    # WHY after `inner` returns (§2.2): the finish — and its spill — runs outside
+                    # url4's `asyncio.timeout`, so a late spill still answers the caller.
+                    await spill.finish()
+                else:
+                    self._metrics.shed.inc()
+                    await send_url4_error(
+                        observed,
+                        503,
+                        _OVERLOADED,
+                        _OVERLOADED_MESSAGE,
+                        retry_after=self._settings.retry_after_s,
+                    )
             finally:
-                self._metrics.inflight.dec()
+                if admitted:
+                    self._release()
                 duration = time.monotonic() - started
                 status = observed.status
                 self._metrics.request_duration.labels(status=str(status)).observe(duration)
-                if status == 503:
-                    self._metrics.shed.inc()
+                if observed.code in _BUDGET_EXHAUSTED_CODES:
+                    self._metrics.budget_exhausted.inc()
                 logger.info(
                     "sync request mount=%s status=%d duration_ms=%.1f",
                     path,
                     status,
                     duration * 1000.0,
                 )
+
+    def _admit(self) -> bool:
+        """Take an in-flight slot, or refuse at the cap (§2.2a).
+
+        INVARIANT: check-then-increment with no `await` between, so on the single-threaded loop
+        two requests can never both pass a full gate — the same rule url4's own gate follows.
+        """
+        if self._inflight >= self._settings.max_inflight:
+            return False
+        self._inflight += 1
+        self._metrics.inflight.inc()
+        return True
+
+    def _release(self) -> None:
+        self._inflight -= 1
+        self._metrics.inflight.dec()
 
     def _is_mount_missing_q(self, scope: AsgiScope) -> bool:
         path = str(scope.get("path") or "")
