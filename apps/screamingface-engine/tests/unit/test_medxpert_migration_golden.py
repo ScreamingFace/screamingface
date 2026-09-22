@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.medxpert.definition import (
     AGGREGATE_ROUTE,
@@ -48,60 +50,55 @@ def _root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-class TestRevisionAndRoutes:
-    def test_revision_is_byte_identical_to_the_pre_migration_exam(self) -> None:
-        assert REVISION == _GOLDEN_REVISION
-
-    def test_routes_resolve_at_the_recorded_addresses(self) -> None:
-        assert ROUTE_PREFIX == f"/benchmarks/medxpert/{_GOLDEN_REVISION}"
-        assert CASES_ROUTE == f"{ROUTE_PREFIX}/cases"
-        assert CHECK_ROUTE == f"{ROUTE_PREFIX}/check"
-        assert CASE_EVALUATION_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
-        assert AGGREGATE_ROUTE == f"{ROUTE_PREFIX}/aggregate"
+def test_revision_is_byte_identical_to_the_pre_migration_exam() -> None:
+    assert REVISION == _GOLDEN_REVISION
 
 
-class TestCheckRecordBytes:
-    def test_check_record_is_byte_identical(self, tmp_path: Path) -> None:
-        # The exact string the pre-migration `_check` produced for this fixture,
-        # including field ORDER — the envelope participates in recorded protocol.
-        handler = _check(_root(tmp_path))
-        commit = encode_candidate_invocation("the answer is (E) alteplase", "stop", None)
-        context = json.dumps({"reasoning": "I think E.", "commit": commit})
-
-        record = handler(Request(path="/t", context=context, intent="1", params={}))
-
-        assert record == (
-            '{"schema":"screamingface.medxpert-check.v1","case_id":1,"attempt":1,'
-            '"answer":"E","answered":true,"status":"completed","refusal":null,'
-            '"finish_reason":"stop","commit_output":"the answer is (E) alteplase",'
-            '"reasoning":"I think E.","execution":null}'
-        )
+def test_routes_resolve_at_the_recorded_addresses() -> None:
+    assert ROUTE_PREFIX == f"/benchmarks/medxpert/{_GOLDEN_REVISION}"
+    assert CASES_ROUTE == f"{ROUTE_PREFIX}/cases"
+    assert CHECK_ROUTE == f"{ROUTE_PREFIX}/check"
+    assert CASE_EVALUATION_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
+    assert AGGREGATE_ROUTE == f"{ROUTE_PREFIX}/aggregate"
 
 
-class TestServedCases:
-    def test_served_rows_are_byte_identical(self, tmp_path: Path) -> None:
-        served_bytes = _cases(_root(tmp_path))()
+def test_check_record_is_byte_identical(tmp_path: Path) -> None:
+    # The exact string the pre-migration `_check` produced for this fixture,
+    # including field ORDER — the envelope participates in recorded protocol.
+    handler = _check(_root(tmp_path))
+    commit = encode_candidate_invocation("the answer is (E) alteplase", "stop", None)
+    context = json.dumps({"reasoning": "I think E.", "commit": commit})
 
-        assert served_bytes == (
-            '[{"id":1,"case_id":"1","input":"' + _QUESTION + '",'
-            '"cot_prompt":"Q: ' + _QUESTION + "\\nA: Let's think step by step.\","
-            '"trigger":"Therefore, among A through E, the answer is"}]'
-        )
+    record = handler(Request(path="/t", context=context, intent="1", params={}))
+
+    assert record == (
+        '{"schema":"screamingface.medxpert-check.v1","case_id":1,"attempt":1,'
+        '"answer":"E","answered":true,"status":"completed","refusal":null,'
+        '"finish_reason":"stop","commit_output":"the answer is (E) alteplase",'
+        '"reasoning":"I think E.","execution":null}'
+    )
 
 
-class TestPreflightErrorClass:
-    def test_a_missing_answer_record_is_a_definition_error(self, tmp_path: Path) -> None:
-        """Pin medxpert's per-board deviation: a broken bundle is a DEFINITION error.
+def test_served_rows_are_byte_identical(tmp_path: Path) -> None:
+    served_bytes = _cases(_root(tmp_path))()
 
-        WHY the direct `preflight` call (review of this PR): through `serve_cases`,
-        a missing answer record trips `_build_rows`' own raise before the preflight
-        ever runs, so the declaration's error class was unreachable from that path
-        and its deletion survived the whole suite. This is the one test that dies
-        if `preflight` stops raising `benchmark_definition_error`.
-        """
-        import pytest
+    assert served_bytes == (
+        '[{"id":1,"case_id":"1","input":"' + _QUESTION + '",'
+        '"cot_prompt":"Q: ' + _QUESTION + "\\nA: Let's think step by step.\","
+        '"trigger":"Therefore, among A through E, the answer is"}]'
+    )
 
-        with pytest.raises(ResolutionError) as caught:
-            preflight(_root(tmp_path), (9,))
 
-        assert caught.value.code == "benchmark_definition_error"
+def test_a_missing_answer_record_is_a_definition_error(tmp_path: Path) -> None:
+    """Pin medxpert's per-board deviation: a broken bundle is a DEFINITION error.
+
+    WHY the direct `preflight` call (review of this PR): through `serve_cases`,
+    a missing answer record trips `_build_rows`' own raise before the preflight
+    ever runs, so the declaration's error class was unreachable from that path
+    and its deletion survived the whole suite. This is the one test that dies
+    if `preflight` stops raising `benchmark_definition_error`.
+    """
+    with pytest.raises(ResolutionError) as caught:
+        preflight(_root(tmp_path), (9,))
+
+    assert caught.value.code == "benchmark_definition_error"
