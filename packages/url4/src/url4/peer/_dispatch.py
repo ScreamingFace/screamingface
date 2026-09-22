@@ -36,13 +36,13 @@ from inspect import isawaitable
 from typing import TYPE_CHECKING
 
 from url4.core.errors import ErrorCode, ResolutionError
-from url4.core.subrequest import (
+from url4.io.layer import FetchRequest, FetchResult, fetch_result, resolve_shelf
+from url4.wire.subrequest import (
     TRANSPORT_ONLY_PARAMS,
     decode_expression_http,
     decode_subrequest_http,
     extract_expression_params,
 )
-from url4.io.layer import FetchRequest, FetchResult, fetch_result, resolve_shelf
 
 if TYPE_CHECKING:  # the node type only — this module never constructs one
     from url4.peer.server import Url4Node
@@ -189,7 +189,7 @@ def reassemble(q: str, params: Mapping[str, str]) -> str:
     """Rebuild the eval-path expression, re-attaching non-transport params.
 
     The dual-convention decode lives with the wire codec
-    (:func:`url4.core.subrequest.decode_expression_http` — one owner, spec §3.4).
+    (:func:`url4.wire.subrequest.decode_expression_http` — one owner, spec §3.4).
     ``broadcast`` and friends keep their §9 semantics by riding the trailing
     ``;`` chain the envelope decode reads (a flag param decodes to value "").
     """

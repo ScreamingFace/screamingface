@@ -52,7 +52,7 @@ a requestor (:class:`Client`), or stand up a node (:class:`Url4Node`)::
 
 The execution engine — DAG compilation, the executor, lowering — lives one
 level down: ``from url4.dag import compile_expression, run``; the wire codecs
-in :mod:`url4.core.subrequest`; scope internals in :mod:`url4.core.context`.
+in :mod:`url4.wire.subrequest`; scope internals in :mod:`url4.core.context`.
 """
 
 from __future__ import annotations

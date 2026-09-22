@@ -16,8 +16,8 @@ from url4 import StaticIOLayer
 from url4.core.grammar import parse as grammar_parse
 from url4.core.parser import build
 from url4.core.render import render
-from url4.core.subrequest import decode_subrequest
 from url4.dag import compile_expression, run
+from url4.wire.subrequest import decode_subrequest
 
 
 @pytest.mark.asyncio

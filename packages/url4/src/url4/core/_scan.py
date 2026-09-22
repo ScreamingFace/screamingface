@@ -8,7 +8,7 @@ are structural. JSON string literals (``"…"``) are a separate skip rule for th
 substitution engine's brace scan, because JSON quoting is not the grammar's.
 Kept as a dependency-free leaf (imports nothing internal) so
 the parser envelope-decoders (:mod:`url4.core.parser`), the grammar
-(:mod:`url4.core.grammar`), and the sub-request codec (:mod:`url4.core.subrequest`) share
+(:mod:`url4.core.grammar`), and the sub-request codec (:mod:`url4.wire.subrequest`) share
 one implementation instead of each carrying their own copy.
 """
 

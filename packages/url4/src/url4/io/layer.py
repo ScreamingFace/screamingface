@@ -29,10 +29,10 @@ never pulls one in:
 - :class:`~url4.io.http.HttpIOLayer` — httpx ``GET`` adapter; what
   :func:`~url4.run` uses when no layer is supplied.
 
-Collection parsing — :func:`parse_collection`, the iterable-items decoder the
-``*`` iteration and ``;expand`` expansion operators consume — lives in
-:mod:`url4.core.collection`; this module re-exports it for its historical
-consumers.
+Collection parsing (spec §5.3.7) is NOT a port concern; it lives with the engine
+that consumes it, in :mod:`url4.dag.semantics.collection`. This module defines
+the port only, so it stays importable by the engine without pulling in an
+adapter or an engine helper.
 """
 
 from __future__ import annotations
@@ -40,8 +40,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
-
-from url4.core.collection import parse_collection  # re-export; see docstring
 
 
 @runtime_checkable
@@ -192,6 +190,5 @@ __all__ = [
     "SupportsHoldings",
     "SupportsProcessorRoutes",
     "fetch_result",
-    "parse_collection",
     "resolve_shelf",
 ]

@@ -649,7 +649,7 @@ def _find_expression_param(token: str, qmark: int) -> int | None:
     """The offset of ``q=(`` as a query parameter after ``qmark``, or None.
 
     # INVARIANT: ``&`` separates query parameters only at depth 0 outside
-    # quotes — the same rule :func:`url4.core.subrequest.extract_expression_params`
+    # quotes — the same rule :func:`url4.wire.subrequest.extract_expression_params`
     # applies on the wire. A quote-only scan mistook an ``&`` nested inside a
     # parenthesized expression-bearing value (``processor=(/x?a=1&b=2&q=(y)!z)``)
     # for a parameter boundary and locked onto the INNER ``q=(`` (`OME-501`).

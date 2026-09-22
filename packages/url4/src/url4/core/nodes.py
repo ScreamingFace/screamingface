@@ -39,7 +39,7 @@ the packed sources and is referenceable by name.
 
 Deliberately absent: there is no structural node for *embedded* ``$name`` /
 ``$N`` references inside text — those are resolved by string interpolation at
-evaluation time (spec §8.2; see :mod:`url4.core.ensemble`). Only a *standalone*
+evaluation time (spec §8.2; see :mod:`url4.dag.semantics.ensemble`). Only a *standalone*
 reference in a value position parses structurally, as :class:`VarRef`.
 """
 

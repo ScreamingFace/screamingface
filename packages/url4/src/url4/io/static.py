@@ -14,8 +14,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from inspect import isawaitable
 
 from url4.core.errors import ErrorCode, ResolutionError
-from url4.core.subrequest import decode_subrequest, extract_expression_params
 from url4.io.layer import FetchRequest, FetchResult
+from url4.wire.subrequest import decode_subrequest, extract_expression_params
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]
 

@@ -10,13 +10,13 @@ from typing import Literal
 
 from url4.core._scan import skip_quoted, split_top_level
 from url4.core.context import Context
-from url4.core.ensemble import (
-    substitute_env_vars,
-)
 from url4.core.errors import CollectionError, ErrorCode, ResolutionError
 from url4.core.nodes import Params
-from url4.core.subrequest import encode_subrequest
+from url4.dag.semantics.ensemble import (
+    substitute_env_vars,
+)
 from url4.io.layer import FetchRequest, SupportsHoldings
+from url4.wire.subrequest import encode_subrequest
 
 from url4.dag.node import (  # isort: skip
     DagNode,

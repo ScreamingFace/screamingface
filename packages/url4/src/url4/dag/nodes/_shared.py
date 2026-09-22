@@ -12,7 +12,7 @@ The vocabulary story — nodes holding *template* data and compiling lazily at
 helpers that story stands on.
 
 All I/O flows through ``ctx.io`` (the port); every ``$`` substitution reuses
-the pure helpers in :mod:`url4.core.ensemble`. Reference-edge inputs use the
+the pure helpers in :mod:`url4.dag.semantics.ensemble`. Reference-edge inputs use the
 ``bind:<name>`` / ``pos:<N>`` role convention — :func:`_frame` turns them into
 a :class:`~url4.core.context.Context` frame chained onto ``ctx.scope``.
 
@@ -28,14 +28,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from url4.core.context import Context
-from url4.core.ensemble import (
+from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.nodes import Params
+from url4.dag.semantics.ensemble import (
     substitute_env_vars,
     substitute_item,
 )
-from url4.core.errors import ErrorCode, ResolutionError
-from url4.core.nodes import Params
-from url4.core.subrequest import strip_transport_params
 from url4.io.layer import FetchRequest, fetch_result
+from url4.wire.subrequest import strip_transport_params
 
 from url4.dag.node import (  # isort: skip
     ExecutionContext,

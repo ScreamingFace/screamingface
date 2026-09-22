@@ -34,7 +34,6 @@ import re
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 
-from url4.core.ensemble import find_references
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import (
@@ -64,6 +63,7 @@ from url4.core.parser import (
     split_top_level_commas,
     strip_one_paren_layer,
 )
+from url4.dag.semantics.ensemble import find_references
 
 from url4.dag._wiring import (  # isort: skip
     Edges,

@@ -1,12 +1,11 @@
 """Collection parsing (spec §5.3.7): fetched text → iterable string items.
 
-Moved out of :mod:`url4.io.layer` (report.md M2): parsing a body by declared
-media type (or by conservative sniffing when the adapter reports none) is a
-LANGUAGE concern — the ``*`` iteration and ``;expand`` operators consume it —
-not a port definition. The module is stdlib-only plus the error hierarchy, so
-it stays a core leaf: it imports no adapter, and no adapter machinery imports
-it back. :mod:`url4.io.layer` re-exports :func:`parse_collection`, which stays
-the import surface its historical consumers use.
+An ENGINE-side runtime decoder, not a language (text ↔ AST) concern and not an
+I/O-port concern. The ``*`` iteration (:class:`~url4.dag.nodes.MapNode`) and the
+``;expand`` operator (:class:`~url4.dag.nodes.ExpandNode`) are the only
+consumers, and both are engine nodes. The module is stdlib-only plus the error
+hierarchy, so it is a leaf inside the engine: it imports no adapter and no
+sibling engine module.
 """
 
 from __future__ import annotations

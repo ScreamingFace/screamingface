@@ -7,14 +7,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from url4.core.context import Context
-from url4.core.ensemble import (
+from url4.core.errors import ResolutionError
+from url4.dag.processor import resolve_processor_target
+from url4.dag.semantics.ensemble import (
     FanoutResponse,
     build_reducer_input,
     substitute_response_vars,
 )
-from url4.core.errors import ResolutionError
-from url4.core.subrequest import encode_subrequest
-from url4.dag.processor import resolve_processor_target
+from url4.wire.subrequest import encode_subrequest
 
 from url4.dag.node import (  # isort: skip
     DagNode,
@@ -258,7 +258,7 @@ class FanoutReduceNode:
 
     The N sources (each a relative expression, ``call:i``) resolve in parallel;
     ``meta[i]`` carries the i-th one's ``(name, weight)`` label. The formatted
-    reducer input (:func:`~url4.core.ensemble.build_reducer_input`) is then fetched
+    reducer input (:func:`~url4.dag.semantics.ensemble.build_reducer_input`) is then fetched
     from the configured ``ctx.processor`` route as ``processor?q=()!<input>`` —
     the reduce step is itself a localhost fetch. A failed optional call is
     excluded from the reducer input (it is not a resolved response).

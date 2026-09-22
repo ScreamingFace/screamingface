@@ -15,7 +15,7 @@ from url4.core._scan import (
     split_top_level,
 )
 from url4.core.errors import ParseError
-from url4.core.subrequest import (
+from url4.wire.subrequest import (
     decode_subrequest,
     encode_subrequest,
     extract_expression_params,
