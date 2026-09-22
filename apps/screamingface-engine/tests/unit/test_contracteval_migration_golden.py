@@ -42,44 +42,42 @@ def _root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-class TestRevisionAndRoutes:
-    def test_revision_is_byte_identical_to_the_pre_migration_exam(self) -> None:
-        assert REVISION == _GOLDEN_REVISION
-
-    def test_routes_resolve_at_the_recorded_addresses(self) -> None:
-        assert ROUTE_PREFIX == f"/benchmarks/contracteval/{_GOLDEN_REVISION}"
-        assert CASES_ROUTE == f"{ROUTE_PREFIX}/cases"
-        assert CHECK_ROUTE == f"{ROUTE_PREFIX}/check"
-        assert CASE_EVALUATION_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
-        assert AGGREGATE_ROUTE == f"{ROUTE_PREFIX}/aggregate"
+def test_revision_is_byte_identical_to_the_pre_migration_exam() -> None:
+    assert REVISION == _GOLDEN_REVISION
 
 
-class TestCheckRecordBytes:
-    def test_check_record_is_byte_identical(self, tmp_path: Path) -> None:
-        # The exact string the pre-migration `_check` produced for this fixture,
-        # including field ORDER — the envelope participates in recorded protocol.
-        handler = _check(_root(tmp_path))
-        context = encode_candidate_invocation(f"The clause reads: {_GOLD_SPAN}", "stop", None)
-
-        record = handler(Request(path="/t", context=context, intent="1", params={}))
-
-        assert record == (
-            '{"schema":"screamingface.contracteval-check.v1","case_id":1,"attempt":1,'
-            '"correct":true,"is_positive":true,"abstained":false,"jaccard":0.7,'
-            '"status":"completed","refusal":null,"finish_reason":"stop",'
-            '"output":"The clause reads: This Agreement is governed by Delaware law.",'
-            '"execution":null}'
-        )
+def test_routes_resolve_at_the_recorded_addresses() -> None:
+    assert ROUTE_PREFIX == f"/benchmarks/contracteval/{_GOLDEN_REVISION}"
+    assert CASES_ROUTE == f"{ROUTE_PREFIX}/cases"
+    assert CHECK_ROUTE == f"{ROUTE_PREFIX}/check"
+    assert CASE_EVALUATION_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
+    assert AGGREGATE_ROUTE == f"{ROUTE_PREFIX}/aggregate"
 
 
-class TestServedCases:
-    def test_served_rows_keep_shape_and_compact_bytes(self, tmp_path: Path) -> None:
-        served_bytes = _cases(_root(tmp_path))()
+def test_check_record_is_byte_identical(tmp_path: Path) -> None:
+    # The exact string the pre-migration `_check` produced for this fixture,
+    # including field ORDER — the envelope participates in recorded protocol.
+    handler = _check(_root(tmp_path))
+    context = encode_candidate_invocation(f"The clause reads: {_GOLD_SPAN}", "stop", None)
 
-        served = json.loads(served_bytes)
-        assert [list(row) for row in served] == [["id", "case_id", "input"]]
-        assert served[0]["id"] == 1
-        assert served[0]["case_id"] == "1"
-        # INVARIANT: compact separators, no ASCII escaping — the payload's exact
-        # formatting is part of the recorded protocol.
-        assert served_bytes == json.dumps(served, ensure_ascii=False, separators=(",", ":"))
+    record = handler(Request(path="/t", context=context, intent="1", params={}))
+
+    assert record == (
+        '{"schema":"screamingface.contracteval-check.v1","case_id":1,"attempt":1,'
+        '"correct":true,"is_positive":true,"abstained":false,"jaccard":0.7,'
+        '"status":"completed","refusal":null,"finish_reason":"stop",'
+        '"output":"The clause reads: This Agreement is governed by Delaware law.",'
+        '"execution":null}'
+    )
+
+
+def test_served_rows_keep_shape_and_compact_bytes(tmp_path: Path) -> None:
+    served_bytes = _cases(_root(tmp_path))()
+
+    served = json.loads(served_bytes)
+    assert [list(row) for row in served] == [["id", "case_id", "input"]]
+    assert served[0]["id"] == 1
+    assert served[0]["case_id"] == "1"
+    # INVARIANT: compact separators, no ASCII escaping — the payload's exact
+    # formatting is part of the recorded protocol.
+    assert served_bytes == json.dumps(served, ensure_ascii=False, separators=(",", ":"))
