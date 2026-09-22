@@ -43,12 +43,13 @@ _EXPECTED_FAMILIES: dict[str, bool] = {
     "race_h": True,
     "paws": False,
     "boolq": False,
+    "aime24": False,
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
 
 
-def test_catalogue_holds_all_ten_imported_boards() -> None:
+def test_catalogue_holds_every_imported_board() -> None:
     """OME-1116 acceptance: ≥10 imported boards; the row table IS the catalogue."""
 
     assert {spec.key for spec in BOARDS} == set(_EXPECTED_FAMILIES)

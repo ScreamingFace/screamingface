@@ -257,6 +257,30 @@ BOARDS: tuple[BoardSpec, ...] = (
         #   inspect_evals.race_h.race_h:race_h. License: other.
         scorer="inspect_ai.scorer:choice",
     ),
+    BoardSpec(
+        key="aime24",
+        title="AIME 2024",
+        description=(
+            "All 30 problems of the 2024 American Invitational Mathematics "
+            "Examination (AIME I and II), imported from inspect_evals. Every "
+            "answer is an integer from 0 to 999; the model solves step by step "
+            "and commits its final answer on a closing 'ANSWER:' line. Grading "
+            "is the eval's own scorer — a numeric match of the reply's final "
+            "line against the answer key — so no judge tokens are spent. "
+            "Benchmark score = plain accuracy over the cases run. Free-form "
+            "replies make the mid-run check surface legitimate (corrective "
+            "loop)."
+        ),
+        focus="Competition mathematics (AIME 2024)",
+        dataset_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.aime2024.aime2024:aime2024.
+        # License: mit.
+        scorer="inspect_evals.aime2024.aime2024:aime_scorer",
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ boards must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 

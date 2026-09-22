@@ -227,3 +227,42 @@ def test_snapshot_with_choice_template_bakes_it(tmp_path: Path) -> None:
     assert "Think step by step before answering." in cases[0]["input"]
     assert "Pick B." in cases[0]["input"]
     assert "A) no" in cases[0]["input"]
+
+
+# ── aime24 ───────────────────────────────────────────────────────────────────
+
+_AIME24_ROWS: list[dict[str, Any]] = [
+    {
+        "ID": "2024-I-1",
+        "Problem": "Find the sum of 3 and 4.",
+        "Answer": 7,
+        "Solution": "3 + 4 = 7.",
+    },
+    {
+        "ID": "2024-I-2",
+        "Problem": "Compute 10 times 10.",
+        "Answer": 100,
+        "Solution": "10 * 10 = 100.",
+    },
+]
+
+
+def test_aime24_snapshot_bakes_the_shared_template_and_integer_target(
+    tmp_path: Path,
+) -> None:
+    """OME-1238: the aime24 rows point at a template OUTSIDE the task module
+    (utils.aime_common) and an integer answer the row rule stringifies — the bake
+    must render the shared template verbatim and keep the key private."""
+
+    summary = emit_snapshot(SNAPSHOTS["aime24"], _AIME24_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    assert [case["id"] for case in cases] == [1, 2]
+    # Their USER_PROMPT_TEMPLATE wraps the verbatim problem (imported prompt = data).
+    assert "Find the sum of 3 and 4." in cases[0]["input"]
+    assert 'form "ANSWER: $ANSWER"' in cases[0]["input"]
+    # INVARIANT: the public booklet never carries the answer key.
+    assert "100" not in json.dumps(cases)
+    target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
+    # Their record_to_sample rule: target=str(record["Answer"]).
+    assert target == {"target": "7"}
+    assert summary["cases"] == 2

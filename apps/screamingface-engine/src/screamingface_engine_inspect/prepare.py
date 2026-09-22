@@ -42,6 +42,11 @@ from typing import TYPE_CHECKING, Any
 
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine_inspect.pins import (
+    AIME24_CASE_COUNT,
+    AIME24_CONFIG,
+    AIME24_DATASET,
+    AIME24_DATASET_REVISION,
+    AIME24_SPLIT,
     ARC_CHALLENGE_CASE_COUNT,
     ARC_CHALLENGE_CONFIG,
     ARC_CHALLENGE_DATASET,
@@ -266,6 +271,18 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # WHY the shuffle: questions arrive in per-passage runs, so a small
         # limit=N run would see few passages; the seed rides the revision hash.
         shuffle_seed=RACE_H_SHUFFLE_SEED,
+    ),
+    "aime24": SnapshotSpec(
+        dataset=AIME24_DATASET,
+        config=AIME24_CONFIG,
+        split=AIME24_SPLIT,
+        dataset_revision=AIME24_DATASET_REVISION,
+        case_count=AIME24_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.aime2024.aime2024:aime2024;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.aime2024.aime2024:record_to_sample",
+        prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
