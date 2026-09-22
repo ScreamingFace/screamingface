@@ -11,10 +11,11 @@ import asyncio
 import contextlib
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
@@ -56,7 +57,9 @@ from screamingface_engine.rest import (
     connection_router,
 )
 from screamingface_engine.rest import router as rest_router
+from screamingface_engine.rest.forwarder import NodeForwarder, derive_forward_contract
 from screamingface_engine.schemas import customize_openapi
+from screamingface_engine.world.serving import engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
 from url4.streaming.interfaces import EventConsumer, JobRunner
@@ -80,7 +83,14 @@ _ROUTERS = (
 
 
 @router.get("/healthz", include_in_schema=False)
-def healthz() -> dict[str, str]:
+def healthz(request: Request) -> dict[str, str]:
+    # FEATURE (unit 3, erd.md §2): when the sync forwarder is wired, report the digest of the
+    # config its mount set came from, so a rolling deploy where the App and the node tier briefly
+    # read different worlds is visible (R11). An App with no sync surface keeps the exact
+    # `{"status": "ok"}` contract it had before.
+    digest = getattr(request.app.state, "config_digest", None)
+    if digest:
+        return {"status": "ok", "config_digest": digest}
     return {"status": "ok"}
 
 
@@ -95,6 +105,7 @@ def create_app(
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
+    forwarder: NodeForwarder | None = None,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -139,12 +150,27 @@ def create_app(
     _install_max_deliveries_advisor(app, settings)
     if clock is not None:
         app.state.clock = clock
+    _install_surfaces(app, forwarder)
+    return app
+
+
+def _install_surfaces(app: FastAPI, forwarder: NodeForwarder | None) -> None:
+    """Register every HTTP surface, with the sync forwarder LAST.
+
+    FEATURE (unit 3, D6/C2): the forwarder is mounted under `/` only when a node Service is
+    configured. Mounting it last is what lets every engine literal route win by route precedence
+    (D3); the forwarder then answers 404 itself for anything outside the derived mount set
+    (AC12).
+    """
     install_problem_handlers(app)
     for api_router in _ROUTERS:
         app.include_router(api_router)
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
+    if forwarder is not None:
+        app.state.forwarder = forwarder
+        app.state.config_digest = forwarder.config_digest
+        app.mount("/", forwarder, name="forwarder")
     customize_openapi(app)
-    return app
 
 
 def _register_runner_metrics(app: FastAPI) -> None:
@@ -424,4 +450,38 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         app.router.on_shutdown.append(catalog.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
+    _install_forwarder(app, settings, env=os.environ)
     return app
+
+
+def _install_forwarder(app: FastAPI, settings: Settings, *, env: Mapping[str, str]) -> None:
+    """Derive the forwardable mount set at startup and mount the App's sync forwarder.
+
+    FEATURE (unit 3, D6/C2): the App forwards ONLY mounts it can see in the same world module the
+    node uses. The derivation is async (building the world is async), so it runs in a startup hook
+    and FILLS the already-mounted forwarder; requests are not accepted until startup completes.
+    Failure to derive (a bad config, or an F4 collision) fails startup, matching C7: the process
+    must not serve a half-configured world (R11).
+    """
+    if not settings.node_base_url:
+        return
+    forwarder = NodeForwarder(
+        node_base_url=settings.node_base_url, timeout_s=settings.node_forward_timeout_s
+    )
+    app.state.forwarder = forwarder
+    app.mount("/", forwarder, name="forwarder")
+
+    async def _derive() -> None:
+        contract = await derive_forward_contract(env=env, engine_routes=engine_route_paths(app))
+        forwarder.set_mount_paths(contract.mount_paths)
+        forwarder.set_config_digest(contract.config_digest)
+        app.state.config_digest = contract.config_digest
+        logging.getLogger(__name__).info(
+            "sync forwarder armed mounts=%d node=%s config_digest=%s",
+            len(contract.mount_paths),
+            settings.node_base_url,
+            contract.config_digest,
+        )
+
+    app.router.on_startup.append(_derive)
+    app.router.on_shutdown.append(forwarder.aclose)
