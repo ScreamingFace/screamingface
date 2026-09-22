@@ -489,6 +489,7 @@ def test_a_configured_metrics_scrape_peer_is_admitted_to_the_metrics_port_only()
 # --- FX-86: the chart refuses node.enabled without an s3 artifact backend ---------------------
 
 
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 def test_node_is_disabled_by_default() -> None:
     """FX-86: the default posture needs no `--set` at all to prove it — a bare render (no s3, no
     node.enabled) must not even ATTEMPT to render the node objects."""
@@ -515,26 +516,15 @@ def test_node_enabled_without_s3_backend_is_refused() -> None:
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 def test_node_refuses_an_aigateway_timeout_at_or_above_the_request_timeout() -> None:
-    result = subprocess.run(
-        [
-            "helm",
-            "template",
-            _RELEASE,
-            str(_CHART),
-            "--set-string",
-            "config.natsUrl=nats://nats.example:4222",
-            "--set",
-            "node.enabled=true",
-            "--set",
-            "artifactStorage.backend=s3",
-            "--set-string",
-            "artifactStorage.s3.endpointUrl=http://garage:3900",
-            "--set",
-            "node.aigatewayTimeoutS=30",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
+    result = _render_raw(
+        "--set",
+        "node.enabled=true",
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set-string",
+        "artifactStorage.s3.endpointUrl=http://garage:3900",
+        "--set",
+        "node.aigatewayTimeoutS=30",
     )
     assert result.returncode != 0
     assert "node.requestTimeoutS" in result.stderr
@@ -542,29 +532,56 @@ def test_node_refuses_an_aigateway_timeout_at_or_above_the_request_timeout() -> 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 def test_node_refuses_a_termination_grace_period_too_small_for_the_ladder() -> None:
-    result = subprocess.run(
-        [
-            "helm",
-            "template",
-            _RELEASE,
-            str(_CHART),
-            "--set-string",
-            "config.natsUrl=nats://nats.example:4222",
-            "--set",
-            "node.enabled=true",
-            "--set",
-            "artifactStorage.backend=s3",
-            "--set-string",
-            "artifactStorage.s3.endpointUrl=http://garage:3900",
-            "--set",
-            "node.terminationGracePeriodSeconds=38",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
+    result = _render_raw(
+        "--set",
+        "node.enabled=true",
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set-string",
+        "artifactStorage.s3.endpointUrl=http://garage:3900",
+        "--set",
+        "node.terminationGracePeriodSeconds=38",
     )
     assert result.returncode != 0
     assert "node.spillTimeoutS" in result.stderr
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_node_refuses_a_metrics_port_equal_to_the_request_port() -> None:
+    """Review round #8: the node itself does not validate this at startup, so the chart is the
+    ONLY place that can catch it — a collision would silently defeat FX-82's whole point (a
+    scrape competing with request traffic on one listener, and a NetworkPolicy rule that cannot
+    distinguish the two)."""
+    result = _render_raw(
+        "--set",
+        "node.enabled=true",
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set-string",
+        "artifactStorage.s3.endpointUrl=http://garage:3900",
+        "--set",
+        "node.metrics.port=9109",
+    )
+    assert result.returncode != 0
+    assert "node.metrics.port" in result.stderr
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_node_refuses_a_hard_cap_below_the_inline_cap() -> None:
+    """Review round #8: the node refuses this at STARTUP (world/node_tier's own validation);
+    failing at render time means a misconfigured value never reaches a running pod at all."""
+    result = _render_raw(
+        "--set",
+        "node.enabled=true",
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set-string",
+        "artifactStorage.s3.endpointUrl=http://garage:3900",
+        "--set",
+        "node.resultHardCapBytes=1000",
+    )
+    assert result.returncode != 0
+    assert "node.resultHardCapBytes" in result.stderr
 
 
 # --- FX-87: no duplicated app.kubernetes.io/component key on any node object -------------------
@@ -611,27 +628,17 @@ def test_node_object_labels_have_no_duplicate_component_key(template_path: str) 
     key. Most parsers silently keep the LAST occurrence (which happened to be correct here), but
     that is luck, not a contract — a strict loader that REJECTS a duplicate is the only check
     that would have caught it, and the only one immune to a future reorder swapping it back."""
-    result = subprocess.run(
-        [
-            "helm",
-            "template",
-            _RELEASE,
-            str(_CHART),
-            "--set-string",
-            "config.natsUrl=nats://nats.example:4222",
-            "--set",
-            "node.enabled=true",
-            "--set",
-            "artifactStorage.backend=s3",
-            "--set-string",
-            "artifactStorage.s3.endpointUrl=http://garage:3900",
-            "--show-only",
-            f"templates/{template_path}",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
+    result = _render_raw(
+        "--set",
+        "node.enabled=true",
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set-string",
+        "artifactStorage.s3.endpointUrl=http://garage:3900",
+        "--show-only",
+        f"templates/{template_path}",
     )
+    assert result.returncode == 0, result.stderr
     try:
         list(yaml.load_all(result.stdout, Loader=_StrictDuplicateKeyLoader))
     except yaml.constructor.ConstructorError as exc:
@@ -733,3 +740,217 @@ def test_the_node_tier_can_be_disabled_and_then_the_app_has_no_forwarder() -> No
     assert _NODE_NAME not in names
     configmap = _find(docs, "ConfigMap", f"{_RELEASE}-{_RELEASE}")
     assert "URL4_CLOUD_NODE_BASE_URL" not in configmap["data"]
+
+
+# --- review round #1: the documented enable command actually renders -------------------------
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_documented_enable_command_renders() -> None:
+    """The README and NOTES.txt both tell an operator to run
+    `--set node.enabled=true --set artifactStorage.backend=s3 --set garage.enabled=true`.
+    `artifactStorage.backend=s3` alone does not render (the chart also needs to know WHERE the
+    store is), so this pins the EXACT documented command against a regression the other tests
+    would not catch — they all supply an explicit `artifactStorage.s3.endpointUrl` instead."""
+    result = _render_raw(
+        "--set",
+        "node.enabled=true",
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set",
+        "garage.enabled=true",
+    )
+    assert result.returncode == 0, result.stderr
+    docs = [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+    assert _find(docs, "Deployment", _NODE_NAME)
+
+
+# --- review round #2: the signing checksum is keyed on the key's SOURCE, not the rendered Secret
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_signing_checksum_is_stable_across_independent_renders() -> None:
+    """With neither `signingKey` nor `existingSecret` set, `secret-artifact-signing.yaml`'s
+    `lookup` is empty under `helm template` (no live cluster), so it falls back to
+    `randAlphaNum` — a NEW value on every render. Hashing THAT (the original, wrong, approach)
+    would roll the App and the node on every offline/GitOps render even though nothing about the
+    key changed. The checksum must be identical across two INDEPENDENT render invocations."""
+    first = _find(_render(), "Deployment", f"{_RELEASE}-{_RELEASE}")
+    second = _find(_render(), "Deployment", f"{_RELEASE}-{_RELEASE}")
+
+    checksum_1 = first["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+    checksum_2 = second["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+    assert checksum_1 == checksum_2
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_signing_checksum_matches_between_app_and_node() -> None:
+    """Both tiers must roll TOGETHER on a real rotation — a checksum that diverges between them
+    would either miss a roll on one side or force one on a render where nothing changed."""
+    docs = _render()
+    app = _find(docs, "Deployment", f"{_RELEASE}-{_RELEASE}")
+    node = _find(docs, "Deployment", _NODE_NAME)
+
+    app_checksum = app["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+    node_checksum = node["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+    assert app_checksum == node_checksum
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_signing_checksum_changes_when_the_pinned_key_changes() -> None:
+    """A REAL rotation — an operator changing `signingKey` (or `existingSecret`) — must still
+    roll both tiers; only the chart-generated/no-cluster case is deliberately insensitive to a
+    per-render difference."""
+    docs = _find(_render(), "Deployment", f"{_RELEASE}-{_RELEASE}")
+    baseline = docs["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+
+    pinned_a = _find(
+        _render("--set-string", "artifactSigning.signingKey=key-a"),
+        "Deployment",
+        f"{_RELEASE}-{_RELEASE}",
+    )["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+    pinned_b = _find(
+        _render("--set-string", "artifactSigning.signingKey=key-b"),
+        "Deployment",
+        f"{_RELEASE}-{_RELEASE}",
+    )["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+
+    assert pinned_a != baseline
+    assert pinned_a != pinned_b
+    # Pinning the SAME key across independent renders must still be stable.
+    pinned_a_again = _find(
+        _render("--set-string", "artifactSigning.signingKey=key-a"),
+        "Deployment",
+        f"{_RELEASE}-{_RELEASE}",
+    )["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+    assert pinned_a == pinned_a_again
+
+
+# --- review round #3: `instance: <release>-node` is scoped to selectors, never object metadata -
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+@pytest.mark.parametrize(
+    ("kind", "name"),
+    [
+        ("Deployment", _NODE_NAME),
+        ("Service", _NODE_NAME),
+        ("NetworkPolicy", _NODE_NAME),
+        ("PodDisruptionBudget", _NODE_NAME),
+    ],
+)
+def test_node_object_metadata_uses_the_release_instance(kind: str, name: str) -> None:
+    """§2.5's `instance: <release>-node` fix is a SELECTOR concern — the App's own Service and
+    Deployment select on a bare {name, instance}. Object `metadata.labels` is not a selector, so
+    it keeps the RELEASE's own instance: `kubectl get -l app.kubernetes.io/instance=<release>`
+    must still find the node's own Service/PDB/NetworkPolicy/Deployment, not only the App."""
+    doc = _find(_render(), kind, name)
+
+    assert doc["metadata"]["labels"]["app.kubernetes.io/instance"] == _RELEASE
+    assert doc["metadata"]["labels"]["app.kubernetes.io/component"] == "node"
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_shared_signing_secret_is_not_tagged_as_the_nodes() -> None:
+    """The signing Secret is SHARED — the node signs with it, the App verifies with it — so it
+    belongs to neither tier alone. Tagging it `component: node` would be a lie the same way
+    `component: control-plane` would be; it gets the release's own instance and no node-only
+    component."""
+    secret = _find(_render(), "Secret", f"{_RELEASE}-{_RELEASE}-artifact-signing")
+
+    assert secret["metadata"]["labels"]["app.kubernetes.io/instance"] == _RELEASE
+    assert secret["metadata"]["labels"]["app.kubernetes.io/component"] != "node"
+
+
+# --- review round #5: podLabels can neither hijack an identity label nor duplicate a key -------
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+@pytest.mark.parametrize(
+    "hijacked_key",
+    ["app.kubernetes.io/component", "app.kubernetes.io/instance", "app.kubernetes.io/name"],
+)
+def test_node_pod_labels_cannot_hijack_an_identity_label(hijacked_key: str) -> None:
+    """`podLabels` is OMITTED of every chart-owned identity key before it is merged in (not
+    merely rendered after it) — an operator's own copy of one of these keys must neither win NOR
+    survive as a duplicate mapping key alongside the chart's own value."""
+    escaped = hijacked_key.replace(".", r"\.").replace("/", r"\/")
+    docs = _render("--set-string", f"podLabels.{escaped}=hijacked")
+    pod_labels = _node_pod(docs)["metadata"]["labels"]
+
+    assert pod_labels[hijacked_key] != "hijacked"
+    # And the pod must still match its own Deployment selector and Service selector.
+    deployment = _find(docs, "Deployment", _NODE_NAME)
+    assert all(
+        pod_labels.get(k) == v for k, v in deployment["spec"]["selector"]["matchLabels"].items()
+    )
+    service = _find(docs, "Service", _NODE_NAME)
+    assert all(pod_labels.get(k) == v for k, v in service["spec"]["selector"].items())
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+@pytest.mark.parametrize(
+    "hijacked_key",
+    ["app.kubernetes.io/component", "app.kubernetes.io/instance"],
+)
+def test_node_pod_labels_hijack_attempt_renders_no_duplicate_key(hijacked_key: str) -> None:
+    """The `omit` is what stops a hijack attempt from becoming a genuine YAML duplicate mapping
+    key (the same class FX-87 fixed) — checked with the strict, duplicate-key-rejecting loader
+    rather than trusting `yaml.safe_load`'s silent last-value-wins behavior."""
+    escaped = hijacked_key.replace(".", r"\.").replace("/", r"\/")
+    result = _render_raw(
+        "--set",
+        "node.enabled=true",
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set-string",
+        "artifactStorage.s3.endpointUrl=http://garage:3900",
+        "--set-string",
+        f"podLabels.{escaped}=hijacked",
+        "--show-only",
+        "templates/deployment-node.yaml",
+    )
+    assert result.returncode == 0, result.stderr
+    try:
+        list(yaml.load_all(result.stdout, Loader=_StrictDuplicateKeyLoader))
+    except yaml.constructor.ConstructorError as exc:
+        pytest.fail(f"duplicate mapping key with podLabels.{hijacked_key} set: {exc}")
+
+
+# --- review round #6: pytest equivalents of two verify_chart_wiring.py-only checks -------------
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_network_policy_peer_does_not_match_the_nodes_own_pods() -> None:
+    """FX-90: the App-only peer (`component: control-plane`) must not ALSO match the node's own
+    pod template — if it did, the node's own pods could reach each other's request port under
+    the guise of being "the App", which defeats the point of naming a peer at all."""
+    docs = _render()
+    policy = _find(docs, "NetworkPolicy", _NODE_NAME)
+    node_labels = _node_pod(docs)["metadata"]["labels"]
+
+    peer = next(
+        element["podSelector"]["matchLabels"]
+        for element in _admitted_node_peers(policy)
+        if element.get("podSelector")
+    )
+    assert not all(node_labels.get(k) == v for k, v in peer.items())
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_node_pod_labels_component_survives_a_podlabels_override() -> None:
+    """FX-84, the node's own mirror of the App's identical rule: `podLabels` renders BEFORE the
+    chart-owned `component`/`part-of`, so an operator's override can add a label but never
+    rewrite which selector the node's own pods match."""
+    docs = _render(
+        "--set-string",
+        "podLabels.app\\.kubernetes\\.io/component=platform-convention",
+    )
+    node_labels = _node_pod(docs)["metadata"]["labels"]
+
+    assert node_labels["app.kubernetes.io/component"] == "node"
+    policy = _find(docs, "NetworkPolicy", _NODE_NAME)
+    assert policy["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "node"
+    assert all(
+        node_labels.get(k) == v for k, v in policy["spec"]["podSelector"]["matchLabels"].items()
+    )

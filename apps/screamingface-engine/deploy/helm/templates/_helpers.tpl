@@ -18,13 +18,25 @@ Name helpers + k8s recommended labels (app.kubernetes.io/*) — spec §9 / docs/
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{/* Common labels: k8s recommended set (name/instance/version/managed-by/part-of) + chart. */}}
-{{- define "screamingface-engine.labels" -}}
+{{/*
+Recommended labels MINUS `component` — shared by `labels` (fixes `control-plane`) and
+`nodeLabels` (fixes `node`), so a label added or changed here reaches both call sites from one
+place instead of two near-identical blocks that can silently drift apart. Uses the RELEASE's own
+`instance` (not the node's own `<release>-node`) — object metadata is not a selector, so
+`kubectl get -l app.kubernetes.io/instance=<release>` finds every object the release owns,
+node-tier objects included.
+*/}}
+{{- define "screamingface-engine.labelsBase" -}}
 helm.sh/chart: {{ include "screamingface-engine.chart" . }}
 {{ include "screamingface-engine.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: screamingface
+{{- end -}}
+
+{{/* Common labels: k8s recommended set (name/instance/version/managed-by/part-of) + chart. */}}
+{{- define "screamingface-engine.labels" -}}
+{{ include "screamingface-engine.labelsBase" . }}
 app.kubernetes.io/component: control-plane
 {{- end -}}
 
@@ -186,20 +198,22 @@ app.kubernetes.io/instance: {{ printf "%s-node" .Release.Name }}
 {{- end -}}
 
 {{/*
-Full recommended labels for node-tier OBJECTS (FX-87). `screamingface-engine.labels` always
-resolves `app.kubernetes.io/component: control-plane`, and every node template used to append
-`component: node` right after it — a genuine YAML duplicate mapping key. Most parsers silently
-keep the LAST occurrence (which happened to be correct here), but that is luck, not a contract,
-and a stray reorder would silently swap the component back to control-plane. This helper builds
-the same recommended set with `component: node` and `nodeSelectorLabels` baked in from the start,
-so the key is written exactly once.
+Full recommended labels for node-tier OBJECTS' own `metadata.labels` (FX-87, review round #3/#4):
+`screamingface-engine.labels` always resolves `app.kubernetes.io/component: control-plane`, and
+every node template used to append `component: node` right after it — a genuine YAML duplicate
+mapping key. Most parsers silently keep the LAST occurrence (which happened to be correct here),
+but that is luck, not a contract. Built from the SAME `labelsBase` as `labels`, so the key is
+written exactly once and a label change has one home.
+
+WHY `instance` is the RELEASE's own here, NOT `nodeSelectorLabels`' `<release>-node`: this is
+OBJECT metadata, not a selector — `kubectl get -l app.kubernetes.io/instance=<release>` must
+still find the node's Service/PDB/NetworkPolicy/Deployment. Only the SELECTOR-bearing fields
+(the node's own Deployment `spec.selector`, its pod template labels, the node Service's
+selector, the NetworkPolicy's `podSelector`, the PDB's selector) use `nodeSelectorLabels`
+(§2.5) — that is the narrow set the App/node collision fix actually needs.
 */}}
 {{- define "screamingface-engine.nodeLabels" -}}
-helm.sh/chart: {{ include "screamingface-engine.chart" . }}
-{{ include "screamingface-engine.nodeSelectorLabels" . }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: screamingface
+{{ include "screamingface-engine.labelsBase" . }}
 app.kubernetes.io/component: node
 {{- end -}}
 
@@ -214,6 +228,33 @@ the node signs the 303, the App verifies it.
 {{- .Values.artifactSigning.existingSecret -}}
 {{- else -}}
 {{- printf "%s-artifact-signing" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The checksum BOTH tiers' `checksum/artifact-signing` pod annotations key on (review round #2).
+
+WHY not hash the rendered `secret-artifact-signing.yaml` template (the ORIGINAL, and wrong,
+approach): with no `existingSecret`/`signingKey`, that template's `lookup` reads the live
+cluster and is EMPTY under `helm template` (no cluster to query — GitOps' own render path), so
+it falls back to `randAlphaNum`, a NEW random value on every single offline render. Hashing that
+rolls the App and the node on every GitOps sync even though nothing about the key actually
+changed — and this App holds live WebSocket relays, so that is not a free restart.
+
+This hashes the KEY'S SOURCE instead, which is stable unless an operator actually changes it:
+`artifactSigning.signingKey` when pinned, else `artifactSigning.existingSecret`'s NAME (rotating
+that Secret's contents out-of-band is the operator's own concern, same as any other
+`existingSecret`), else one FIXED constant for the chart-generated-and-`lookup`-reused case — a
+real `helm upgrade` reuses the SAME key via `lookup` there, so nothing needs to roll for it; only
+`signingKey`/`existingSecret` are meant to change under an intentional rotation.
+*/}}
+{{- define "screamingface-engine.artifactSigningChecksum" -}}
+{{- if .Values.artifactSigning.signingKey -}}
+{{- .Values.artifactSigning.signingKey | sha256sum -}}
+{{- else if .Values.artifactSigning.existingSecret -}}
+{{- .Values.artifactSigning.existingSecret | sha256sum -}}
+{{- else -}}
+{{- "screamingface-engine.artifactSigning.chart-generated" | sha256sum -}}
 {{- end -}}
 {{- end -}}
 

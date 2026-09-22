@@ -172,16 +172,21 @@ slow or crashing sync call cannot take down the WebSocket relays that in-flight 
 depend on. **Off by default** (`node.enabled: false`) — turn it on with:
 
 ```bash
---set node.enabled=true --set artifactStorage.backend=s3
+--set node.enabled=true --set artifactStorage.backend=s3 --set garage.enabled=true
 ```
+
+(or, pointing at storage you already run, `--set-string
+artifactStorage.s3.endpointUrl=http://your-s3-endpoint:port` in place of `garage.enabled=true` —
+`artifactStorage.backend=s3` alone is not enough to render: the chart also needs to know WHERE
+the store is, from one of those two sources.)
 
 **Needs S3.** The node's spill path (a response over 512 KiB) writes to the SAME object store
 the App reads it back from, across pods — the chart REFUSES `node.enabled=true` paired with any
-`artifactStorage.backend` other than `s3` (OME-929, the same failure mode `runner: queue` +
-`artifactStorage.backend: filesystem` already refuses one tier over). `values-cloud.yaml` leaves
-the node off for exactly this reason: it does not set an s3 backend, so turning the node on there
-needs `--set artifactStorage.backend=s3` (and usually `--set garage.enabled=true`, or a real S3
-endpoint) at install time.
+`artifactStorage.backend` other than `s3` (OME-929; the SAME failure mode for `runner: queue` +
+`artifactStorage.backend: filesystem` is refused at App STARTUP, one tier over, rather than by
+this chart — a local single-process run is a legitimate shape the chart never renders at all).
+`values-cloud.yaml` leaves the node off for exactly this reason: it does not set an s3 backend,
+so turning the node on there needs the same two extra flags as above at install time.
 
 **Its own label set.** The node Deployment's pods carry `app.kubernetes.io/name: url4-cloud` —
 the SAME name as the App, so aigateway's own NetworkPolicy admits the node's outbound calls
@@ -197,6 +202,24 @@ changes to fix this; the node's own instance value is what breaks the match.
 > that also matches on `instance` denies the node tier's calls, because the node's instance is
 > never the App's.
 
+**Verifying the App-only NetworkPolicy on a real cluster.** `tests/unit/test_chart_render_node_tier.py`
+and `verify_chart_wiring.py` prove the policy is CORRECTLY SHAPED at render time; neither proves a
+CNI actually enforces it — `kind`'s default CNI does not enforce `NetworkPolicy` at all (test-plan
+§3, T15), so a kind-based test cannot tell you this works. On a cluster whose CNI does enforce it,
+confirm both directions after installing with `node.enabled=true`:
+
+```bash
+# From a pod that is NOT the App (must be REFUSED):
+kubectl run np-probe --rm -it --image=curlimages/curl --restart=Never -- \
+  curl -sS -m 3 http://<release>-<release>-node:9109/livez
+# expect: no response / connection timed out (the request never reaches the node)
+
+# From inside the App's own pod (must SUCCEED):
+kubectl exec deploy/<release>-<release> -- \
+  curl -sS -m 3 http://<release>-<release>-node:9109/livez
+# expect: 200 (or whatever /livez answers once the node is up)
+```
+
 **Metrics on their own port.** `/metrics` is served on `node.metrics.port` (default `9110`),
 separate from the request port `node.port` (`9109`) — a scrape can never compete with a sync
 call for the same listener. The NetworkPolicy admits it via a SECOND, independent ingress rule,
@@ -207,11 +230,20 @@ all.
 **The artifact-signing key (OQ-3.2).** The node signs a spilled artifact's short-lived `303`
 `Location`; the App verifies it. The SAME `URL4_CLOUD_ARTIFACT_SIGNING_KEY` Secret must reach
 both tiers — `artifactSigning.existingSecret` (recommended for GitOps) is created out-of-band.
-Left empty, the chart generates one and reuses it across upgrades via Helm's `lookup` function —
-but `lookup` reads the LIVE cluster, so it returns nothing under `helm template` (no cluster to
-query). A GitOps controller that renders offline (ArgoCD/Flux `helm template`, not `helm
-upgrade --install` against a live cluster) will therefore see a NEW random key on every render
-unless `artifactSigning.existingSecret` names a Secret it manages itself.
+Left empty (and with `artifactSigning.signingKey` also empty), the chart generates one and
+reuses it across upgrades via Helm's `lookup` function — but `lookup` reads the LIVE cluster, so
+it returns nothing under `helm template` (no cluster to query).
+
+> **GitOps / offline-render workflows (ArgoCD, Flux, or any `helm template` that never talks to
+> the target cluster) MUST set `artifactSigning.existingSecret` or `artifactSigning.signingKey`.**
+> Left to the generated default, every offline render mints a NEW random key — and unlike a live
+> `helm upgrade --install` (where `lookup` finds and reuses the cluster's existing copy), an
+> offline render has no way to know there already is one. If that render is then applied, every
+> in-flight signed artifact URL breaks, and the two tiers can end up disagreeing about which key
+> is current. The `checksum/artifact-signing` pod annotation is keyed on the SOURCE of the key
+> (`signingKey`, else `existingSecret`'s name, else a fixed constant), not the rendered Secret, so
+> a chart-generated key does not by itself force a rollout on every sync — but the Secret's actual
+> VALUE still changes underneath it, which is the real hazard `existingSecret`/`signingKey` closes.
 
 **Web tools are off on the node tier.** The node Deployment's `envFrom` never references the
 Tavily Secret, regardless of `tavily.enabled` — only the runner pool does. A sync call has a 30 s

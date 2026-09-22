@@ -1163,6 +1163,150 @@ check(
     "default), never a second literal that could drift from the node's own ladder",
 )
 
+# --- review round #8: the chart also refuses a metrics/request port collision and a hard cap
+# below the inline cap — both would otherwise only surface as a runtime failure one layer down.
+node_metrics_collision_error = render_fails(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    *ENGINE_NODE_ARGS,
+    "--set",
+    "node.metrics.port=9109",
+)
+check(
+    node_metrics_collision_error is not None
+    and "node.metrics.port" in node_metrics_collision_error,
+    "REFUSES node.metrics.port == node.port — a collision would defeat FX-82's entire point "
+    "(a scrape competing with request traffic on one listener)",
+)
+node_hard_cap_error = render_fails(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    *ENGINE_NODE_ARGS,
+    "--set",
+    "node.resultHardCapBytes=1000",
+)
+check(
+    node_hard_cap_error is not None
+    and "node.resultHardCapBytes" in node_hard_cap_error,
+    "REFUSES node.resultHardCapBytes below the 512 KiB inline cap — the node refuses this at "
+    "startup too, but failing at render means a bad value never reaches a running pod",
+)
+
+# --- review round #1: the documented enable command actually renders -------------------------
+documented_command_error = render_fails(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    "--set",
+    "node.enabled=true",
+    "--set",
+    "artifactStorage.backend=s3",
+    "--set",
+    "garage.enabled=true",
+)
+check(
+    documented_command_error is None,
+    "the EXACT command the chart README and NOTES.txt document "
+    "(node.enabled=true + artifactStorage.backend=s3 + garage.enabled=true) actually renders — "
+    "artifactStorage.backend=s3 alone does not, since the chart also needs to know WHERE the "
+    "store is",
+)
+
+# --- review round #2: the signing checksum is keyed on the key's SOURCE, not the rendered Secret
+engine_chart_again = render(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    *ENGINE_NODE_ARGS,
+)
+checksum_first = find_named(
+    engine_chart, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
+)["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+checksum_second = find_named(
+    engine_chart_again, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
+)["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+check(
+    checksum_first == checksum_second,
+    "checksum/artifact-signing is STABLE across two independent renders with no key pinned — "
+    "hashing the rendered Secret (the original approach) would differ every time, since its "
+    "`lookup` is empty under `helm template` and it falls back to a fresh random value",
+)
+node_checksum = find_named(engine_chart, "Deployment", node_name)["spec"]["template"][
+    "metadata"
+]["annotations"]["checksum/artifact-signing"]
+check(
+    checksum_first == node_checksum,
+    "the App's and the node's checksum/artifact-signing agree — both must roll TOGETHER on a "
+    "real rotation",
+)
+engine_pinned_key = render(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    "--set-string",
+    "config.natsUrl=nats://nats.example:4222",
+    *ENGINE_NODE_ARGS,
+    "--set-string",
+    "artifactSigning.signingKey=a-real-pinned-key",
+)
+pinned_checksum = find_named(
+    engine_pinned_key, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
+)["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+check(
+    pinned_checksum != checksum_first,
+    "pinning artifactSigning.signingKey changes the checksum — a REAL rotation must still roll "
+    "both tiers",
+)
+
+# --- review round #3: instance: <release>-node is scoped to selectors, never object metadata --
+for _kind, _name in [
+    ("Deployment", node_name),
+    ("Service", node_name),
+    ("NetworkPolicy", node_name),
+    ("PodDisruptionBudget", node_name),
+]:
+    _doc = find_named(engine_chart, _kind, _name)
+    check(
+        _doc["metadata"]["labels"].get("app.kubernetes.io/instance") == ENGINE_RELEASE
+        and _doc["metadata"]["labels"].get("app.kubernetes.io/component") == "node",
+        f"{_kind}/{_name}'s OWN metadata.labels uses the RELEASE's instance (not "
+        "<release>-node) plus component: node — instance divergence is a selector concern "
+        "(§2.5), not an object-identification one",
+    )
+signing_secret_labels = find_named(engine_chart, "Secret", signing_name)["metadata"][
+    "labels"
+]
+check(
+    signing_secret_labels.get("app.kubernetes.io/instance") == ENGINE_RELEASE
+    and signing_secret_labels.get("app.kubernetes.io/component") != "node",
+    "the shared artifact-signing Secret is NOT tagged as the node's — it is signed by the node "
+    "and verified by the App, so it belongs to neither tier alone",
+)
+
+# --- review round #5: podLabels can neither hijack an identity label nor duplicate a key -------
+for _hijack_key in ("app.kubernetes.io/component", "app.kubernetes.io/instance"):
+    engine_hijack = render(
+        ENGINE_CHART,
+        ENGINE_RELEASE,
+        "--set-string",
+        "config.natsUrl=nats://nats.example:4222",
+        *ENGINE_NODE_ARGS,
+        "--set-string",
+        f"podLabels.{_hijack_key.replace('.', chr(92) + '.').replace('/', chr(92) + '/')}=hijacked",
+    )
+    _node_pod_after_hijack = find_named(engine_hijack, "Deployment", node_name)["spec"][
+        "template"
+    ]["metadata"]["labels"]
+    check(
+        _node_pod_after_hijack.get(_hijack_key) != "hijacked",
+        f"a podLabels override of {_hijack_key} cannot hijack the node pod's own identity label",
+    )
+
 print("\nreport-intake chart")
 # THE DEFAULT INSTALL IS SAFE AND NOT USEFUL, deliberately: `authMode: disabled` is loopback-only
 # and no edge is rendered. That is what keeps a bare `helm template` green on a clean checkout —

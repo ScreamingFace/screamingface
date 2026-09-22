@@ -19,6 +19,16 @@ ContextVar bound for the request's duration.
 {{- if ge (float64 .Values.node.aigatewayTimeoutS) (float64 .Values.node.requestTimeoutS) -}}
 {{- fail (printf "node.aigatewayTimeoutS (%v) must stay BELOW node.requestTimeoutS (%v): otherwise the request wrapper times out first and the caller gets a bare 504 instead of a 502 naming aigateway as the cause" .Values.node.aigatewayTimeoutS .Values.node.requestTimeoutS) -}}
 {{- end -}}
+{{- if eq (int64 .Values.node.metrics.port) (int64 .Values.node.port) -}}
+{{- fail (printf "node.metrics.port (%v) must differ from node.port (%v): FX-82 moved /metrics off the request port precisely so a scrape cannot compete with a sync call for the same listener, and so the NetworkPolicy's second ingress rule can admit a scraper to metrics alone" .Values.node.metrics.port .Values.node.port) -}}
+{{- end -}}
+{{/* review round #8: the node itself refuses a body over this at STARTUP (world/node_tier's own
+hard cap validation) — failing here too means a misconfigured value never reaches a running pod
+at all. 524288 = 512 KiB, the inline cap (D9): a hard cap below it could never admit even the
+smallest spilled result. */ -}}
+{{- if lt (int64 .Values.node.resultHardCapBytes) 524288 -}}
+{{- fail (printf "node.resultHardCapBytes (%v) must be at least 524288 (512 KiB, the inline cap, D9): a smaller hard cap would 413 a result that never even reached the spill threshold" .Values.node.resultHardCapBytes) -}}
+{{- end -}}
 {{/* WHY `le`, not `lt`: the grace period must be STRICTLY GREATER than preStop + the request
 budget + the spill budget, or the kubelet's SIGKILL lands at the exact instant a maximally slow
 request-then-spill would still be running. */ -}}
@@ -46,13 +56,21 @@ spec:
     metadata:
       labels:
         {{- include "screamingface-engine.nodeSelectorLabels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
+        {{/* review round #5: OMIT the chart-owned keys from `podLabels` rather than merely
+        rendering them last. Rendering order alone stops an override from WINNING (the chart's
+        value still applies), but the operator's OWN copy of the key is still written to the
+        YAML first — a genuine duplicate mapping key (the exact class FX-87 fixed), and one a
+        strict parser rejects regardless of which value wins. Omitting means there is nothing
+        left to duplicate, for ALL FOUR identity-bearing keys, not just the two rendered after
+        this block. */}}
+        {{- with (omit .Values.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" "app.kubernetes.io/part-of") }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
         # INVARIANT (FX-84): CHART-OWNED and rendered AFTER `podLabels`, mirroring the App
         # Deployment's own rule (see its identical comment) — an operator's `podLabels` override
         # must not be able to change which selector this pod matches. Rendered in this order a
-        # platform convention adds a label; it can never rewrite `component` or `part-of`.
+        # platform convention adds a label; it can never rewrite `component` or `part-of` (and,
+        # per the `omit` above, can no longer even duplicate `name`/`instance` either).
         app.kubernetes.io/component: node
         app.kubernetes.io/part-of: screamingface
       annotations:
@@ -61,7 +79,12 @@ spec:
         # secrets arrive by reference; a stale env is silently wrong behavior.
         checksum/runner-env: {{ include (print $.Template.BasePath "/configmap-runner-env.yaml") . | sha256sum }}
         checksum/artifact-storage: {{ include (print $.Template.BasePath "/secret-artifact-storage.yaml") . | sha256sum }}
-        checksum/artifact-signing: {{ include (print $.Template.BasePath "/secret-artifact-signing.yaml") . | sha256sum }}
+        # WHY the key's SOURCE and not the rendered Secret (review round #2): with no
+        # `existingSecret`/`signingKey` its `lookup` is EMPTY under `helm template` (no live
+        # cluster to query), so it falls back to `randAlphaNum` — a NEW value on every offline
+        # render, which would roll this stateless-but-in-flight-holding tier on every GitOps sync
+        # even though the key never actually changed.
+        checksum/artifact-signing: {{ include "screamingface-engine.artifactSigningChecksum" . }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

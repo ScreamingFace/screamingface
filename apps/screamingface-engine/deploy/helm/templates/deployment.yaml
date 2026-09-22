@@ -40,7 +40,13 @@ spec:
         # rotated signing Secret must roll the App too — without this annotation the App keeps
         # verifying against the OLD key until its next unrelated restart, and every redirect the
         # node signs with the new one fails closed until then.
-        checksum/artifact-signing: {{ include (print $.Template.BasePath "/secret-artifact-signing.yaml") . | sha256sum }}
+        #
+        # WHY the KEY'S SOURCE and not the rendered Secret (review round #2): with no
+        # `existingSecret`/`signingKey`, `secret-artifact-signing.yaml`'s `lookup` is EMPTY under
+        # `helm template` (no live cluster to query), so it falls back to `randAlphaNum` — a NEW
+        # value on every offline render. Hashing that would roll this App, which holds live
+        # WebSocket relays, on every GitOps sync even though the key never actually changed.
+        checksum/artifact-signing: {{ include "screamingface-engine.artifactSigningChecksum" . }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}

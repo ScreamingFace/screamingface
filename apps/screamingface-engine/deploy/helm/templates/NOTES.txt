@@ -20,8 +20,9 @@ The node tier (sync surface, unit 3) is running as:
 {{- else }}
 
 The node tier (sync surface) is OFF (the default). Turn it on with:
-  --set node.enabled=true --set artifactStorage.backend=s3
-(the chart refuses node.enabled without an s3-compatible artifact store — OME-929).
+  --set node.enabled=true --set artifactStorage.backend=s3 --set garage.enabled=true
+(or point artifactStorage.s3.endpointUrl at storage you already run, in place of garage.enabled;
+the chart refuses node.enabled without an s3-compatible artifact store — OME-929).
 {{- end }}
 
 {{- if .Values.ingress.enabled }}
