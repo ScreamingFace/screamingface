@@ -1,12 +1,12 @@
 ---
 id: OME-1254
 linear_url: https://linear.app/openmined/issue/OME-1254/flag-class-based-test-files-in-code-review
-status: in_progress
+status: done
 type: task
 priority: P3
 labels: [repo, agentic, autonomous, task]
 created: 2026-09-22
-closed:
+closed: 2026-09-22
 ---
 
 # Flag class-based test files in code review

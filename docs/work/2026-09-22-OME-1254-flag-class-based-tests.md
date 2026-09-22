@@ -1,9 +1,9 @@
 ---
 ticket: OME-1254
 stack: repo
-status: in_progress
+status: done
 started: 2026-09-22
-finished:
+finished: 2026-09-22
 ---
 
 # OME-1254 — Flag class-based test files in code review
@@ -42,6 +42,6 @@ flattened during the OME-1236 stack review.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned
-- **Commits:** filled at close
-- **Gates:** docs-only; repo hooks
+- **Commits:** cc203d88 — docs(repo): teach the review agent the plain-function test convention
+- **Gates:** docs-only; repo hooks green on commit; counts re-derived from the tree (`git grep -lE "^class Test"` → 8 engine + 10 aigateway files)
 - **Deviations:** none
