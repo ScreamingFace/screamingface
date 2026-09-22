@@ -558,7 +558,23 @@ class BenchmarkSchema(BaseModel):
 
 
 class ScoreRankingNotice(BaseModel):
-    """Why a successfully persisted score will not enter the current ranking."""
+    """Why a successfully persisted score will not enter the current ranking.
+
+    AIDEV-NOTE: "the current ranking", literally. This is for a row that is stored and readable
+    but ABSENT FROM THE RANKED BOARD. It is not a general "something about this row is off"
+    channel, and widening it to one costs the type its meaning.
+
+    An unpriced run (OME-822, `run_cost_status` of `partial` or `unavailable`) deliberately does
+    NOT use this, and `OME-1251` D2's original wording — which said it would — was withdrawn for
+    that reason. Such a row DOES rank: its score is known and not in doubt. It is absent only
+    from the Pareto frontier and the other surfaces that read cost as a number. Giving it a
+    notice here would assert something false about it on every read.
+
+    `run_cost_status` already travels on `ScoreSchema`, so the client is told why its cost is
+    missing without a second, worse-shaped carrier. Note also that the two fields below are
+    revision-specific and required — a member added for any other reason would have to make
+    them optional, which weakens the shape for the one case that does belong here.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

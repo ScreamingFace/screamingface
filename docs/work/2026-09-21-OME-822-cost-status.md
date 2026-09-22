@@ -122,6 +122,10 @@ line 34 is untouched — the read DTO keeps its nullable cost, as designed.
    `run_cost_status` is already on the submission response, so the client is told why without a
    second, worse-shaped carrier. D2's wording is the thing that was wrong, not the design.
 
+   Recorded in the type itself as an AIDEV-NOTE on `ScoreRankingNotice`, so the next person to
+   reach for it reads why it does not fit before widening it. `OME-1251` D2's wording was
+   withdrawn in the same pass.
+
 3. **Three assertions were rewritten, all added by `#841` itself on this branch** — prior tests
    on `origin/main` were not touched by these:
    - `test_post_score_requires_a_non_null_run_cost` → `…_requires_a_cost_or_a_reason_it_is_absent`.
