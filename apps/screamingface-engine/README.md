@@ -139,6 +139,91 @@ installed by the wheel, so in a checkout local mode falls back to the checkout's
 `URL4_RUNNER_CONFIG` to override. Tuning: `URL4_CLOUD_LOCAL_MAX_CONCURRENT_RUNS`,
 `URL4_CLOUD_LOCAL_STREAM_MAX_FRAMES`, `URL4_CLOUD_LOCAL_MAX_RUN_HISTORY`.
 
+## Sync surface — `GET /<mount>?q=(context)!intent`
+
+The sync surface calls one handler one time. It does not mint a token, open a WebSocket, or wait
+for a queued run. Use it for a fast single-model call. The ensemble path stays the path for heavy
+work.
+
+A caller sends a direct mount path with a `q` query:
+
+```sh
+curl -H 'X-User-Email: alice@example.com' \
+  'https://engine.example.com/anthropic/claude-haiku-4-5?q=(Hello)!Reply with exactly: PARIS'
+```
+
+Two placements serve it. Deployed, the App forwards the request verbatim to the node tier (D6).
+With `serve --local`, the App mounts the same node in process. Both tiers build the mount set from
+the SAME `url4.toml` declaration, so they cannot disagree about what is addressable.
+
+### Rules that shape a sync call
+
+- **Edge-verified identity only.** The App reads `X-User-Email` from the edge (Cloudflare Access
+  or Envoy). It removes a client-supplied `X-User-Email` and sets the verified value. No
+  capability token is used (D4). A request with no verified identity is refused, not forwarded
+  anonymously.
+- **`q` is a URL.** Edge proxies limit a request URL to about 8 KiB. Some allow 8-16 KiB. A large
+  context cannot go on this surface. `url4` is GET-only, so there is no POST variant. Send large
+  context on the ensemble path.
+- **30 s budget.** The node wrapper stops a request after 30 s and returns `504`. The body names
+  the ensemble path as the remedy: `POST /token`, attach the WebSocket, then
+  `GET /?q=<expression>`.
+- **In-flight cap.** The node admits 2 x worker count requests. More requests get `503` with
+  `Retry-After`.
+- **Prefer `web_search = false`.** A web-tool mount usually uses the whole 30 s budget before it
+  reaches its iteration count. Set `web_search = false` on the model routes that the sync surface
+  serves (`[[aigateway.models]]` in `url4.toml`).
+- **Large result.** A body over 512 KiB spills to the artifact store. The caller gets `303` with
+  a short-lived signed `Location`. A body over `result_hard_cap_bytes` gets `413`.
+- **Encoded route id.** A model id with a `:` is not addressable in a URL path. Write the encoded
+  form with `~`: `/huggingface/model~provider`.
+
+### Error dialects — the split in one place
+
+One origin speaks two error dialects (OQ-3.1):
+
+| Path | Envelope |
+| --- | --- |
+| Mount paths — `GET /<mount>?q=` | url4: `{"error": {"code": "...", "message": "..."}}` |
+| Everything else — `/`, `/token`, `/v1/*`, `/artifacts/{id}` | RFC 9457 `application/problem+json` |
+
+Both dialects stay. Under D6 the App forwards verbatim, and a mount path IS a `url4` node surface.
+A `url4` client can point at the engine and at a bare `url4 serve` node and get the same
+contract. The `Problem` schema in this document defines the RFC 9457 shape. `contracts.md` C1
+defines the url4 status mapping.
+
+### Operator notes
+
+- **The declared shelves are global (D8).** Every shelf in `[holdings]` and `[identities]` is
+  readable by EVERY caller of the sync surface. v1 has no per-caller scoping. Put no secret in
+  these shelves. The node logs the declared shelves at startup, so you can see what is exposed.
+
+  ```toml
+  [holdings]
+  default = { file = "/etc/url4/holdings.json" }
+
+  [identities.alice]
+  default = { file = "/etc/url4/alice.json" }
+  ```
+
+  Everything in the example above is readable by all sync callers.
+- **The artifact-signing key must match on both tiers (OQ-3.2).** The node signs a spilled
+  artifact's `303` URL. The App verifies that URL on `GET /artifacts/{id}`. Set the same
+  `URL4_CLOUD_ARTIFACT_SIGNING_KEY` in the App and the node tier. Put it in a Secret in both
+  tiers. A different key makes every signed fetch fail closed, which is safe but useless. The
+  signature TTL is 10 minutes by default; the node sets it with
+  `URL4_CLOUD_NODE_ARTIFACT_URL_TTL_S`. A bare `/artifacts/{id}` stays capability-token-only.
+- **`config_digest` detects a rolling-deploy skew.** When the forwarder is armed, the App reports
+  the SHA-256 of the `url4.toml` file it derived its mount set from:
+
+  ```json
+  {"status": "ok", "config_digest": "<sha256>"}
+  ```
+
+  Both tiers read the same baked file, so a digest that does not match the running node tier
+  means the two tiers run different configuration. During such a skew, an unknown mount answers
+  `404` at the App and never reaches the node.
+
 ## Model catalog — `GET /v1/models`
 
 Discover which models an expression can address: aigateway's own `/v1/models` for this caller,

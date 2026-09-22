@@ -77,6 +77,16 @@ ArtifactAccess = Annotated[None, Depends(_authorize_artifact)]
     "/artifacts/{artifact_id}",
     tags=["Runs"],
     summary="Fetch one complete spilled result by its claim ticket",
+    # OQ-3.1/OQ-3.2, description only: this is the one engine path a sync caller reaches (the
+    # spill `303` redirects here), so it states both credentials AND which envelope it speaks.
+    description=(
+        "Redeem a run's claim ticket and return the stored bytes. A bare request needs the "
+        "capability token. A sync caller holds no token, so the spill path's ``303`` carries a "
+        "short-lived signature (``exp``/``sig`` query parameters); a valid, unexpired signature "
+        "is accepted as an alternative credential. Errors here are RFC 9457 "
+        "``application/problem+json`` — the sync mount surface is the origin's only "
+        "url4-envelope exception (see the Error envelopes section of the API description)."
+    ),
     # WHY both (OME-929): the handler now returns one of TWO response classes, and FastAPI
     # tries to build a Pydantic response field from the return annotation — which a union of
     # Starlette responses is not. `response_model=None` disables that inference; declaring
