@@ -21,8 +21,8 @@ import httpx
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
-from screamingface_engine.artifacts import ArtifactStore, ArtifactWriter, S3ArtifactStore
-from screamingface_engine.artifacts.wiring import s3_config_from_values
+from screamingface_engine.artifacts import ArtifactWriter
+from screamingface_engine.artifacts.wiring import result_writer_from_env
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.client_provenance import (
@@ -156,10 +156,9 @@ def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, Artifact
     hard_cap = _int_from_env(
         env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES
     )
-    if (env.get(job_env.ARTIFACT_STORE) or "filesystem").strip() == "s3":
-        return inline_cap, hard_cap, S3ArtifactStore(s3_config_from_values(env))
-    artifacts_dir = env.get(job_env.ARTIFACTS_DIR) or job_env.DEFAULT_ARTIFACTS_DIR
-    return inline_cap, hard_cap, ArtifactStore(Path(artifacts_dir))
+    # The store construction is SHARED with the node tier's spill path (unit 3): both call
+    # `result_writer_from_env`, so the run path and the sync tier cannot park into two places.
+    return inline_cap, hard_cap, result_writer_from_env(env)
 
 
 async def run_and_reclaim(

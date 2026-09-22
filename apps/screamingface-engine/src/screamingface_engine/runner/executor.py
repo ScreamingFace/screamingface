@@ -24,7 +24,12 @@ from decimal import Decimal
 from typing import Any, Literal, cast
 
 from screamingface_engine import job_env
-from screamingface_engine.artifacts import ArtifactWriter
+from screamingface_engine.artifacts import (
+    ArtifactWriter,
+    ResultDelivery,
+    allowed_result_bytes,
+    decide_result_delivery,
+)
 from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
@@ -606,14 +611,23 @@ class _RunState:
         path of GitHub #642 is unrepresentable here.
         """
         encoded = result_str.encode("utf-8")
-        allowed = hard_cap if store is not None else min(inline_cap, hard_cap)
-        if len(encoded) > allowed:
+        # The hard-cap-first decision is SHARED with the node tier's sync spill path
+        # (`world.node_tier`), so the two delivery paths cannot disagree on the boundary or
+        # on which check wins (T6).
+        decision = decide_result_delivery(
+            len(encoded),
+            inline_cap=inline_cap,
+            hard_cap=hard_cap,
+            spill_available=store is not None,
+        )
+        if decision is ResultDelivery.TOO_LARGE:
+            allowed = allowed_result_bytes(inline_cap, hard_cap, spill_available=store is not None)
             raise ResolutionError(
                 f"result is {len(encoded)} bytes, cap is {allowed} bytes",
                 code="result_too_large",
                 permanent=True,
             )
-        if len(encoded) <= inline_cap:
+        if decision is ResultDelivery.INLINE:
             return ResultData(body=result_str, media_type=None)
         assert store is not None  # over inline yet allowed ⇒ a store existed above
         return ResultData(media_type=None, artifact=store.write_bytes(encoded))

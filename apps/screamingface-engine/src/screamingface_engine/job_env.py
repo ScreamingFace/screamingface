@@ -340,6 +340,22 @@ ARTIFACT_S3_SECRET_KEY = "URL4_CLOUD_ARTIFACT_S3_SECRET_KEY"
 """Secret access key. INVARIANT: Secret only — never a ConfigMap, never logged. A ConfigMap is
 readable by anything with `get` on it and is printed in plain text by `helm get manifest`."""
 
+ARTIFACT_SIGNING_KEY = "URL4_CLOUD_ARTIFACT_SIGNING_KEY"
+"""Shared HMAC key for short-lived artifact URLs (OQ-3.2, contracts.md C6).
+
+The node tier SIGNS the 303's `Location`; the App VERIFIES it on `GET /artifacts/{id}`. Both
+halves read this one name, so the signer and the verifier cannot be pointed at different keys
+by a one-sided edit — the same one-name invariant :data:`ARTIFACTS_DIR` states.
+
+INVARIANT: Secret only — a signing key is authorization material (a holder can mint a fetch
+credential for any artifact id), so it must never travel by ConfigMap or be logged.
+
+AIDEV-NOTE: deliberately NOT yet in :data:`DEPLOY_TIME`. The chart does not render the Secret
+in this unit, and `test_deploy_time_chart_contract.py` refuses a deploy-time name the chart
+does not write. The name joins DEPLOY_TIME in the Helm unit that wires the shared Secret;
+until then an unset key means the tier refuses to sign (a 502 at spill time, never an
+unsigned redirect)."""
+
 RESULT_INLINE_CAP_BYTES = "URL4_CLOUD_RESULT_INLINE_CAP_BYTES"
 """Largest result body (UTF-8 bytes) that rides the result frame inline; anything larger is
 spilled whole to :data:`ARTIFACTS_DIR`. Replaces the pre-OME-892 truncation cap."""
@@ -485,6 +501,7 @@ __all__ = [
     "ARTIFACT_S3_ENDPOINT_URL",
     "ARTIFACT_S3_REGION",
     "ARTIFACT_S3_SECRET_KEY",
+    "ARTIFACT_SIGNING_KEY",
     "ARTIFACT_STORE",
     "DEFAULT_ARTIFACT_S3_REGION",
     "DEPLOY_TIME",

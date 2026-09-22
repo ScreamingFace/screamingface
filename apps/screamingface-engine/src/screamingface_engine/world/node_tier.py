@@ -53,6 +53,15 @@ from prometheus_client import (
     generate_latest,
 )
 
+from screamingface_engine import job_env
+from screamingface_engine.artifacts import (
+    ArtifactWriter,
+    ResultDelivery,
+    allowed_result_bytes,
+    decide_result_delivery,
+)
+from screamingface_engine.artifacts.signing import signed_artifact_path
+from screamingface_engine.artifacts.wiring import result_writer_from_env
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.logs import run_scope
 from screamingface_engine.request_scope import (
@@ -105,6 +114,11 @@ LOG_LEVEL_ENV = f"{_NODE_ENV}LOG_LEVEL"
 
 _MISSING_Q_MESSAGE = "this mount requires a `q` query parameter: GET <mount>?q=(context)!intent"
 
+# Engine-added error codes (contracts.md C1/C5): `result_too_large` mirrors the run path's code
+# for the same refusal; `artifact_spill_failed` names the failed deposit as the cause of a 502.
+_RESULT_TOO_LARGE = "result_too_large"
+_ARTIFACT_SPILL_FAILED = "artifact_spill_failed"
+
 
 @dataclass(frozen=True, slots=True)
 class NodeTierSettings:
@@ -115,8 +129,10 @@ class NodeTierSettings:
     the cause, and the in-flight cap is 2 × the worker count. No literal for any of these may
     appear anywhere else — a second copy is how a ladder ends up non-monotonic.
 
-    ``artifact_url_ttl_s`` (OQ-3.2) is centralized here beside the ladder numbers even though the
-    spill writer itself is a later unit, so the signing TTL cannot be set in two places.
+    ``artifact_url_ttl_s`` (OQ-3.2) is centralized here beside the ladder numbers: the node
+    signs a spilled artifact's redirect with this TTL and the App enforces the same expiry from
+    the signature, so the number has one home. `result_inline_cap_bytes`/`result_hard_cap_bytes`
+    are here for the same reason — the sync spill path must decide without a second config read.
     """
 
     request_timeout_s: float = 30.0
@@ -125,6 +141,13 @@ class NodeTierSettings:
     workers: int = 1
     retry_after_s: int = 1
     artifact_url_ttl_s: int = 600
+    # WHY the caps live here TOO, even though `job_env` owns their names and defaults: the
+    # sync tier must refuse an over-hard-cap body without a second read of the environment,
+    # and a test needs one seam to aim the boundary at an exact byte. They read the SAME
+    # `URL4_CLOUD_RESULT_*` names the run path reads, so the two paths cannot be capped
+    # differently by a one-sided edit.
+    result_inline_cap_bytes: int = job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
+    result_hard_cap_bytes: int = job_env.DEFAULT_RESULT_HARD_CAP_BYTES
     host: str = "0.0.0.0"
     port: int = 9109
     log_level: str = "info"
@@ -149,6 +172,12 @@ class NodeTierSettings:
             workers=_int(env, WORKERS_ENV, 1),
             retry_after_s=_int(env, RETRY_AFTER_ENV, 1),
             artifact_url_ttl_s=_int(env, ARTIFACT_URL_TTL_ENV, 600),
+            result_inline_cap_bytes=_int(
+                env, job_env.RESULT_INLINE_CAP_BYTES, job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
+            ),
+            result_hard_cap_bytes=_int(
+                env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES
+            ),
             host=env.get(HOST_ENV) or "0.0.0.0",
             port=_int(env, PORT_ENV, 9109),
             log_level=env.get(LOG_LEVEL_ENV) or "info",
@@ -261,10 +290,21 @@ class NodeTier:
         settings: NodeTierSettings,
         metrics: NodeMetrics,
         readiness: NodeReadiness,
+        artifact_store: ArtifactWriter | None = None,
+        signing_key: str = "",
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self._settings = settings
         self._metrics = metrics
         self._readiness = readiness
+        # FEATURE (unit 3, D9/OQ-3.2): the spill writer and the HMAC key the 303's Location is
+        # signed with. `None` store / empty key is a working tier for bodies under the inline
+        # cap; only a spill needs them, and a spill that cannot be signed or written is a 502
+        # rather than an inline fallback. `clock` is injectable so the expiry is deterministic
+        # in tests without freezing the process's real clock.
+        self._artifact_store = artifact_store
+        self._signing_key = signing_key
+        self._clock = clock if clock is not None else time.time
         self._inner: AsgiApp | None = None
         self._node: Any = None
         self._aclose_world: Callable[[], Awaitable[None]] | None = None
@@ -374,7 +414,19 @@ class NodeTier:
         inner = self._inner
         assert inner is not None  # guaranteed by build_node_tier before serving
         started = time.monotonic()
+        # INVARIANT: spill wraps observation, so the metric records the status the CALLER
+        # actually received (303/413/502 after a spill decision), not the node's pre-decision
+        # 200. The 504 reword stays inside `_ObservedSend`, which spill only forwards.
         observed = _ObservedSend(send, self._settings.request_timeout_s)
+        spill = _SpillSend(
+            observed,
+            store=self._artifact_store,
+            inline_cap=self._settings.result_inline_cap_bytes,
+            hard_cap=self._settings.result_hard_cap_bytes,
+            signing_key=self._signing_key,
+            ttl_s=self._settings.artifact_url_ttl_s,
+            clock=self._clock,
+        )
         self._metrics.inflight.inc()
         try:
             # INVARIANT: both scopes are bound around the call and reset after it, so a sibling
@@ -383,7 +435,7 @@ class NodeTier:
                 request_scope(bound),
                 run_scope(None, parse_traceparent(bound.traceparent), origin="sync"),
             ):
-                await inner(scope, receive, observed)
+                await inner(scope, receive, spill)
         finally:
             self._metrics.inflight.dec()
             duration = time.monotonic() - started
@@ -440,6 +492,9 @@ async def build_node_tier(
     engine_routes: Iterable[str] | None = None,
     metrics: NodeMetrics | None = None,
     readiness: NodeReadiness | None = None,
+    artifact_store: ArtifactWriter | None = None,
+    artifact_signing_key: str | None = None,
+    clock: Callable[[], float] | None = None,
 ) -> NodeTier:
     """Build the world ONCE and return a servable tier, or refuse to.
 
@@ -461,9 +516,24 @@ async def build_node_tier(
     )
     resolved_metrics = metrics or build_node_metrics()
     resolved_readiness = readiness or NodeReadiness()
+    # The spill store is built from the SAME env the run path reads (`result_writer_from_env`),
+    # so the sync tier and the Runner park into one place — and the App reads that one place.
+    resolved_store = artifact_store if artifact_store is not None else result_writer_from_env(env)
+    # An injected key wins; otherwise the deployment env supplies it. Empty means "no signer",
+    # which fails a spill with a 502 rather than emitting an unsigned (unfetchable) redirect.
+    resolved_signing_key = (
+        artifact_signing_key
+        if artifact_signing_key is not None
+        else env.get(job_env.ARTIFACT_SIGNING_KEY, "")
+    )
     reserved = frozenset(engine_routes) if engine_routes is not None else _OPS_PATHS
     tier = NodeTier(
-        settings=resolved_settings, metrics=resolved_metrics, readiness=resolved_readiness
+        settings=resolved_settings,
+        metrics=resolved_metrics,
+        readiness=resolved_readiness,
+        artifact_store=resolved_store,
+        signing_key=resolved_signing_key,
+        clock=clock,
     )
     try:
         io, world_aclose = await compose_serving_world(
@@ -593,6 +663,139 @@ class _ObservedSend:
                 "more_body": False,
             }
         await self._send(message)
+
+
+class _SpillSend:
+    """Buffer one sync response and, over the inline cap, park it and redirect (D9, C5).
+
+    FEATURE (unit 3, prd/03 §2.4): a body over 512 KiB is written to the artifact store and the
+    caller gets ``303 See Other`` with a short-lived signed ``Location``; a body over the hard
+    cap is ``413`` and NOTHING is written; a failed deposit is ``502`` and the body is NEVER
+    returned inline — falling back would defeat the memory protection the caps exist for.
+
+    WHY at the ASGI send boundary: url4's node computes the whole body before emitting it
+    (``_StartGuard``), so the sync tier sees the complete response here without re-implementing
+    dispatch, and ``node.fetch``'s output is the one place a size can be measured honestly.
+
+    # INVARIANT: a response that is not a 2xx is forwarded unchanged. Error envelopes are
+    # small by construction, and spilling one would replace a meaningful ``error.code`` with a
+    # redirect the caller cannot interpret.
+    """
+
+    __slots__ = (
+        "_send",
+        "_store",
+        "_inline_cap",
+        "_hard_cap",
+        "_signing_key",
+        "_ttl_s",
+        "_clock",
+        "_status",
+        "_headers",
+        "_body",
+    )
+
+    def __init__(
+        self,
+        send: AsgiSend,
+        *,
+        store: ArtifactWriter | None,
+        inline_cap: int,
+        hard_cap: int,
+        signing_key: str,
+        ttl_s: int,
+        clock: Callable[[], float],
+    ) -> None:
+        self._send = send
+        self._store = store
+        self._inline_cap = inline_cap
+        self._hard_cap = hard_cap
+        self._signing_key = signing_key
+        self._ttl_s = ttl_s
+        self._clock = clock
+        self._status = 0
+        self._headers: list[tuple[bytes, bytes]] = []
+        self._body = bytearray()
+
+    async def __call__(self, message: MutableMapping[str, Any]) -> None:
+        kind = message["type"]
+        if kind == "http.response.start":
+            # Hold the start until the body is complete: the decision (inline/spill/refuse)
+            # changes the status, so emitting the node's 200 first would make the rewrite
+            # impossible. url4 sends the body in one message, so this holds nothing long.
+            self._status = int(message.get("status", 0))
+            self._headers = list(message.get("headers", ()))
+            self._body = bytearray()
+            return
+        if kind != "http.response.body":
+            await self._send(message)
+            return
+        self._body.extend(message.get("body", b""))
+        if message.get("more_body"):
+            return
+        await self._finish()
+
+    async def _finish(self) -> None:
+        body = bytes(self._body)
+        decision = decide_result_delivery(
+            len(body),
+            inline_cap=self._inline_cap,
+            hard_cap=self._hard_cap,
+            spill_available=self._store is not None,
+        )
+        if not _is_success(self._status) or decision is ResultDelivery.INLINE:
+            await self._emit(self._status, self._headers, body)
+            return
+        if decision is ResultDelivery.TOO_LARGE:
+            allowed = allowed_result_bytes(
+                self._inline_cap, self._hard_cap, spill_available=self._store is not None
+            )
+            await _send_error(
+                self._send,
+                413,
+                _RESULT_TOO_LARGE,
+                f"sync response is {len(body)} bytes, cap is {allowed} bytes — the result is "
+                "too large to deliver; reduce the request or use the ensemble path",
+            )
+            return
+        assert self._store is not None
+        try:
+            # WHY a worker thread: the write hashes and may push to object storage — sync, and
+            # blocking the loop here would stall every concurrent request for the deposit.
+            location = await asyncio.to_thread(self._spill, body)
+        except Exception:
+            logger.exception("artifact spill failed for a %d-byte sync response", len(body))
+            await _send_error(
+                self._send,
+                502,
+                _ARTIFACT_SPILL_FAILED,
+                "the response could not be parked in artifact storage; it is NOT returned "
+                "inline, because that would defeat the size cap it exceeded",
+            )
+            return
+        await self._emit(
+            303,
+            [(b"location", location.encode("latin-1")), (b"content-length", b"0")],
+            b"",
+        )
+
+    def _spill(self, body: bytes) -> str:
+        """Park the complete body and sign its redirect URL. Blocking; runs in a thread."""
+        assert self._store is not None
+        ref = self._store.write_bytes(body)
+        return signed_artifact_path(
+            ref.id, key=self._signing_key, ttl_s=self._ttl_s, now=self._clock
+        )
+
+    async def _emit(self, status: int, headers: Sequence[tuple[bytes, bytes]], body: bytes) -> None:
+        await self._send(
+            {"type": "http.response.start", "status": status, "headers": list(headers)}
+        )
+        await self._send({"type": "http.response.body", "body": body})
+
+
+def _is_success(status: int) -> bool:
+    return 200 <= status < 300
 
 
 def _timeout_body(timeout: float) -> bytes:
