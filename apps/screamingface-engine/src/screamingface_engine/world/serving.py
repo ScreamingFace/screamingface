@@ -1,0 +1,200 @@
+"""F4 (prd/02): fail startup when an engine route shadows a url4 mount.
+
+Under D3 the node keeps url4's default ``eval_path="/v1"`` and collisions between an ENGINE
+literal route and a url4 mount are resolved by FastAPI route precedence. Precedence is SILENT:
+an engine route registered before the node's ASGI mount wins, and the only symptom is a mount
+that stops answering — a 404 on a process that looks perfectly healthy. url4's own
+``_check_routable`` refuses duplicates WITHIN the node; it cannot see the engine's FastAPI route
+table. This module closes that engine-versus-node gap by collecting both sides and failing
+startup, naming both the mount and the shadowing route (AC5).
+
+The same check pins the case D3 depends on. ``eval_path="/v1"`` must survive the engine's
+``/v1/models``, ``/v1/benchmarks`` and ``/v1/connections``: each is a strictly LONGER literal, so
+it wins only its own exact path while the eval path keeps the rest. A hypothetical engine route
+at exactly ``/v1`` would eat the eval path entirely and must fail (AC6). This is the difference
+between "precedence works" and "precedence silently ate the eval path".
+
+# INVARIANT: :func:`compose_serving_world` is the ONE place a world is composed for serving.
+# `serve --local` mounts the node inside the App; the node tier serves it directly. Both call the
+# helper, so their mount sets and this guard cannot diverge. The run mode keeps calling
+# `world.factory.build_world` directly: it does not serve, so it has no engine route set to
+# check against.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Iterator, Mapping
+from pathlib import Path
+from typing import Any
+
+import httpx
+from starlette.routing import compile_path
+
+from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
+from screamingface_engine.world.config import WorldConfig, WorldConfigError
+from screamingface_engine.world.factory import World, build_world
+
+
+class MountCollisionError(WorldConfigError):
+    """An engine route shadows a node mount or the node's eval path — startup must fail (F4)."""
+
+
+def engine_route_paths(app: object) -> frozenset[str]:
+    """Every path the FastAPI app registers, flattened.
+
+    WHY derive rather than list every route name here: a hand-maintained list of ``/v1/models``,
+    ``/token``, … rots the day a router is added — and a new router is exactly the day this
+    guard has to fire. The walker follows FastAPI 0.141's ``_IncludedRouter`` wrappers (an
+    included router is no longer flattened into ``app.routes``) so ``include_router`` is seen
+    with or without a prefix, and it also collects WebSocket routes, which the app's own
+    effective-route view omits.
+    """
+    return frozenset(_iter_route_paths(getattr(app, "routes", ())))
+
+
+def _iter_route_paths(routes: Iterable[object]) -> Iterator[str]:
+    for route in routes:
+        path = getattr(route, "path", None)
+        if isinstance(path, str) and path:
+            yield path
+            continue
+        original = getattr(route, "original_router", None)
+        if original is None:
+            continue
+        prefix = getattr(getattr(route, "include_context", None), "prefix", "") or ""
+        for child in _iter_route_paths(getattr(original, "routes", ())):
+            yield f"{prefix}{child}"
+
+
+def node_mount_paths(node: Any) -> frozenset[str]:
+    """Every URL path the node serves directly: its endpoints and its data routes.
+
+    Holdings and identity shelves are addressed as ``@``/``@name``, never as URL paths, so they
+    cannot collide with a FastAPI route and are deliberately absent. ``processor_routes()`` is
+    the public endpoint accessor; the data table has no public one, so it is read privately —
+    the same reach ``benchmarks.registry._data_routes`` already makes, for the same reason
+    (Url4Node publishes no accessor and the engine does not own that API).
+    """
+    mounts: set[str] = set()
+    processor_routes = getattr(node, "processor_routes", None)
+    if processor_routes is not None:
+        mounts = set(processor_routes())
+    data = getattr(node, "_data", None)
+    if data:
+        mounts |= set(data)
+    return frozenset(mounts)
+
+
+def node_eval_path(node: Any, *, default: str = "/v1") -> str:
+    """The node's eval path — url4's default when the layer is not a node (deny-by-default).
+
+    INVARIANT: the default here mirrors ``Url4Node.__init__``'s own default. A world with no
+    mounts (``StaticIOLayer``) has no eval path to protect, but returning the default keeps the
+    caller from branching on "is this a node" before every check.
+    """
+    return str(getattr(node, "_eval_path", default))
+
+
+def check_mount_collisions(node: Any, engine_routes: Iterable[str]) -> None:
+    """Fail when an engine route shadows a node mount or the node's eval path (F4, AC5, AC6).
+
+    Two checks, both loud:
+
+    1. Every mount path an engine route matches EXACTLY. A literal ``/token`` route and a
+       ``/token`` data mount collide; a parameterised ``/artifacts/{artifact_id}`` route also
+       shadows a mount at ``/artifacts/foo``, which a literal-only comparison would miss.
+    2. The eval path. Because the router resolves literal routes first, an engine route at
+       exactly ``/v1`` removes the bare eval path entirely. Longer literals under ``/v1/...`` do
+       NOT collide — that is the longer-literal-wins rule AC6 pins, and the reason D3 works.
+
+    WHY fail and not warn: a shadowed mount is invisible at runtime. Startup failure is the only
+    loud signal, and it is cheap because nothing has been served yet (00-overview D3).
+    """
+    routes = tuple(engine_routes)
+    for mount in sorted(node_mount_paths(node)):
+        for route in routes:
+            if _route_matches(route, mount):
+                raise MountCollisionError(_mount_message(route, mount))
+    eval_path = node_eval_path(node)
+    for route in routes:
+        if _route_matches(route, eval_path):
+            raise MountCollisionError(
+                f"engine route {route!r} shadows the node eval path {eval_path!r} — every bare "
+                f"{eval_path!r} request would be answered by the engine route instead of the "
+                "node. Rename the engine route or change the node's eval_path (prd/02 F4, AC6)."
+            )
+
+
+def _route_matches(route_path: str, candidate: str) -> bool:
+    """Whether a FastAPI route pattern matches ``candidate`` EXACTLY.
+
+    WHY starlette's own compiler: a hand-rolled segment comparison would disagree with the
+    router the day a path converter appears (``{artifact_id:path}``), and the guard would then
+    pass a mount the router silently eats. One matcher owns the semantics, so the guard and the
+    router cannot drift (the same reason D3 delegates precedence to FastAPI at all).
+    """
+    try:
+        regex, _format, _convertors = compile_path(route_path)
+    except ValueError:
+        # An unparseable pattern is not a route FastAPI would serve; fall back to a literal
+        # comparison rather than crashing the guard on a route that cannot shadow anything.
+        return route_path == candidate
+    return regex.match(candidate) is not None
+
+
+def _mount_message(route: str, mount: str) -> str:
+    return (
+        f"engine route {route!r} shadows the node mount {mount!r} — the mount would never "
+        "answer, because FastAPI resolves engine literal routes before the node's mount. "
+        "Rename the mount or the engine route; route precedence is silent (prd/02 F4, AC5)."
+    )
+
+
+async def compose_serving_world(
+    *,
+    env: Mapping[str, str],
+    engine_routes: Iterable[str],
+    config: WorldConfig | None = None,
+    client: httpx.AsyncClient | None = None,
+    tavily_client: httpx.AsyncClient | None = None,
+    benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
+    benchmark_assets_root: Path | None = None,
+    run_key: str | None = None,
+) -> World:
+    """Compose a world FOR SERVING and refuse a mount an engine route would shadow (F4).
+
+    The single composition helper both deployment shapes call (see the module INVARIANT). It is
+    a thin wrapper over :func:`~screamingface_engine.world.factory.build_world` plus the guard;
+    ``build_world``'s own semantics and teardown are unchanged.
+
+    A collision tears the world down before the error propagates, matching F3's mount
+    registration: a half-built world must not survive an error, and the caller must not have to
+    remember to close it.
+    """
+    world = await build_world(
+        env=env,
+        config=config,
+        client=client,
+        tavily_client=tavily_client,
+        benchmarks=benchmarks,
+        benchmark_assets_root=benchmark_assets_root,
+        run_key=run_key,
+    )
+    _io, aclose = world
+    try:
+        check_mount_collisions(_io, engine_routes)
+    except MountCollisionError:
+        if aclose is not None:
+            await aclose()
+        raise
+    return world
+
+
+__all__ = [
+    "MountCollisionError",
+    "check_mount_collisions",
+    "compose_serving_world",
+    "engine_route_paths",
+    "node_eval_path",
+    "node_mount_paths",
+]
