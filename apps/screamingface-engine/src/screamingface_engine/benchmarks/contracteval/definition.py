@@ -18,7 +18,6 @@ References:
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
@@ -41,6 +40,7 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.spine.serving import board_routes, compute_board_revision
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Url4Node
 
@@ -70,30 +70,27 @@ def compute_revision(
     changed exam and must re-address every route.
     """
 
-    return hashlib.sha256(
-        "\n".join(
-            (
-                DATASET,
-                DATASET_SPLIT,
-                dataset_revision,
-                PREPARER_REVISION,
-                PROTOCOL_REVISION,
-                EVALUATION_PROTOCOL_REVISION,
-                CANDIDATE_RESULT_SCHEMA,
-                system_prompt,
-                user_template,
-            )
-        ).encode()
-    ).hexdigest()[:16]
+    return compute_board_revision(
+        DATASET,
+        DATASET_SPLIT,
+        dataset_revision,
+        PREPARER_REVISION,
+        PROTOCOL_REVISION,
+        EVALUATION_PROTOCOL_REVISION,
+        CANDIDATE_RESULT_SCHEMA,
+        system_prompt,
+        user_template,
+    )
 
 
 REVISION = compute_revision()
 
-ROUTE_PREFIX = f"/benchmarks/{BENCHMARK_ID}/{REVISION}"
-CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
-CHECK_ROUTE = f"{ROUTE_PREFIX}/check"
-CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
-AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
+_ROUTES = board_routes(BENCHMARK_ID, REVISION)
+ROUTE_PREFIX = _ROUTES.prefix
+CASES_ROUTE = _ROUTES.cases
+CHECK_ROUTE = _ROUTES.check
+CASE_EVALUATION_ROUTE = _ROUTES.case_evaluation
+AGGREGATE_ROUTE = _ROUTES.aggregate
 
 
 def _build(case_count: int) -> Node:
