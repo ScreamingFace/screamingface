@@ -74,7 +74,25 @@ Unit shape (three PRs off this ticket + one scope-correction comment):
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned — PR1 `importer.py` + `test_inspect_importer.py`
+  (3 appended tests) + this ledger + the mirror; PR2/PR3 each: generated rows in
+  `pins.py`/`prepare.py`/`boards.py`, `_EXPECTED_FAMILIES` entry + declaration
+  roster row + appended fixture bake test.
+- **Commits:** `0e89314` fix(screamingface-engine): bind the importer through
+  inspect_evals' variadic hf_dataset wrapper (PR #1009, ready); `843ae35`
+  feat: import the aime24 board (PR #1010, draft, base #1009); `ec99846`
+  feat: import the aime25 board (PR #1011, draft, base #1010).
+- **Gates:** `run_gates.py screamingface-engine` ALL GREEN on PR1;
+  `--skip-append-only` on PR2/PR3 (prior-test extension paths — owner sign-off
+  requested on the ticket). Full-bake offline verified: aime24 30/30 at
+  `8d88b28…`, aime25 30/30 at `563bb84…`.
 - **Deviations:**
+  - "No importer changes" premise false — PR1 exists (wrapper binding +
+    cross-module template resolution); pre-sanctioned by the ticket's own
+    refusal policy ("extend the importer for this family").
+  - GPQA reclassified: not gated-HF at 0.20.0 but a sha256-pinned CSV from
+    OpenAI's blob — new snapshot family, sent back to product on the ticket.
+  - HLE reclassified: judge-graded at 0.20.0 — outside this pipeline, sent
+    back to product.
+  - Importer pins-import sort vs ruff-isort mismatch found (`*_DATA_DIR`
+    pins); `ruff check --fix` applied in PR2, follow-up noted on the ticket.
