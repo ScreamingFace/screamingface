@@ -124,3 +124,11 @@ Owner approved Calling MODEL → Completed MODEL call on the same logical line, 
 Neutral-call wording verification: 27 focused tests pass, including same-line start/retry/completion under answering and grading, original timestamp retention and safe failure details. Existing test edits are wording-only; identity, unknown-case, parentage, history, icons, retries and token-limit assertions remain. Full gate run uses --skip-append-only solely for this owner-authorized text migration; no lint/type/test/coverage gate is skipped. No Engine, wire schema, state model or new dependency changes.
 
 Neutral-call wording outcome: all Client gates passed (lint, format, types, full tests/coverage, notebooks, build/distribution). Manual review confirmed only model-call text and matching assertions changed; no state, privacy or execution changes.
+
+
+## Compact spacing and candidate overflow — 2026-09-22
+Owner requested less empty space around activity and single-line horizontally scrollable candidate names. Use content-sized logs capped at 280px, 8px inner padding, and a constrained name scroll region that preserves row expansion. Validate in Jupyter without model calls and run Client gates. Existing fixed-height assertions migrate to the explicitly requested content-sized behavior.
+
+Compact layout verification: 58 focused activity/progress tests pass. Actual Jupyter output refreshed without provider calls; long name has 76px overflow and horizontal scrolling reached its end, clicking the name still toggles expansion. Tight 8px log inset replaces 12px/16px and fixed minimum height; viewport remains capped at 280px. Existing test migrations only cover the requested height and name focus changes. Review: presentation only, no wire/state/privacy changes, dependencies or raw data exposure. Full gates rerun after discovering two additional old-layout assertions.
+
+Outcome: all Client gates green, including lint, formatting, types, full tests/95% coverage, notebooks, build and distribution. Append-only exception limited to owner-requested layout assertion migrations. Draft status retained.

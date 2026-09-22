@@ -37,7 +37,7 @@ class CandidateActivityRow:
         # WHY: keep the scroll viewport outside replaceable HTML content.
         self.html: Any = widgets.HTML(
             value="",
-            layout=widgets.Layout(overflow="auto", height="280px"),
+            layout=widgets.Layout(overflow="auto", height="auto", max_height="280px"),
             tabbable=True,
             tooltip=f"Activity for {candidates[index]}",
         )

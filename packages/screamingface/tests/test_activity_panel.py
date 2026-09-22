@@ -92,9 +92,10 @@ def test_activity_has_contained_scroll_box_and_no_report_headings():
     panel = CandidateActivityRow(log, ("candidate",), 0)
     panel.toggle.value = True
     assert 'class="sf-activity-console"' in panel.html.value
-    assert "height:280px" in panel.html.value
+    assert "min-height:280px" not in panel.html.value
     assert panel.html.layout.overflow == "auto"
-    assert panel.html.layout.height == "280px"
+    assert panel.html.layout.height == "auto"
+    assert panel.html.layout.max_height == "280px"
     assert "<h4" not in panel.html.value
     assert "<small" not in panel.html.value
 

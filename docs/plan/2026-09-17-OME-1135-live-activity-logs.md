@@ -41,3 +41,7 @@ Owner requested a Copy control at the top right of each log box. Add a native ke
 
 ## Neutral call wording — 2026-09-21
 Owner approved Calling MODEL → Completed MODEL call on the same logical line, Retrying MODEL call and MODEL call failed. Retain first-observed timestamps, icons, operation identity, case numbering and stage status. Avoid implying member/synthesiser/judge roles. Client-only presentation change in #983. Migrate only the existing wording assertions authorized by this request; preserve behavioral assertions. Add lifecycle/role-neutral regression coverage, run full gates with the explicit append-only migration exception, and keep draft/In Progress.
+
+
+## Compact spacing and candidate overflow — 2026-09-22
+Owner requested less empty space around activity and single-line horizontally scrollable candidate names. Use content-sized logs capped at 280px, 8px inner padding, and a constrained name scroll region that preserves row expansion. Validate in Jupyter without model calls and run Client gates. Existing fixed-height assertions migrate to the explicitly requested content-sized behavior.

@@ -670,7 +670,8 @@ def test_candidate_table_owns_the_responsive_scroll_boundary() -> None:
     assert "overflow-x:auto" in html
     assert ".sf-eval__table-scroll .sf-eval__table-wrap{overflow:visible}" in html
     assert "min-width:820px" in html
-    assert "tabindex='0'" not in html
+    assert "class='sf-eval__table-wrap' tabindex='0'" not in html
+    assert "class='sf-eval__candidate' tabindex='0'" in html
     assert "role='region'" not in html
     assert "aria-label='Candidate evaluation table'" not in html
     assert ".sf-eval{border:0;padding:0 0 14px;" in html

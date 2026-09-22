@@ -9,8 +9,8 @@ from screamingface._ui.activity_record import LABELS, TERMINAL
 from screamingface._ui.activity_state import ActivityLog, ActivityRow
 
 STYLE = """<style>
-.sf-activity-console{box-sizing:border-box;min-height:280px;
- margin:0;padding:12px 16px;border:1px solid var(--sf-line);
+.sf-activity-console{box-sizing:border-box;
+ margin:0;padding:8px;border:1px solid var(--sf-line);
  background:var(--sf-surface);color:var(--sf-ink);font:12px/1.6 "IBM Plex Mono",monospace;
  font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:left}
 .sf-activity-tools{display:flex;justify-content:flex-end;position:sticky;top:0;
@@ -39,6 +39,7 @@ STYLE = """<style>
 .sf-candidate-summary{position:relative}
 .sf-candidate-row .sf-eval__table-wrap{margin:0;border:0}
 .sf-candidate-summary .widget-html{pointer-events:none;margin:0}
+.sf-candidate-summary .sf-eval__candidate{position:relative;z-index:2;pointer-events:auto}
 .sf-candidate-row .sf-eval__table thead{position:absolute;width:1px;height:1px;overflow:hidden;
  clip:rect(0,0,0,0)}
 .sf-candidate-row .widget-toggle-button{position:absolute;inset:0;z-index:1;

@@ -47,7 +47,8 @@ _STYLE = (
 .sf-eval__table tbody tr:hover{background:var(--sf-surface)}
 .sf-eval__table tbody tr:last-child td{border-bottom:0}
 .sf-eval__candidate{font-family:"IBM Plex Sans",system-ui,sans-serif;font-weight:500;
-  color:var(--sf-ink)}
+  color:var(--sf-ink);display:block;max-width:100%;white-space:nowrap;
+  overflow-x:auto;overflow-y:hidden;overflow-wrap:normal}
 .sf-eval__status{display:inline-flex;align-items:center;gap:8px;color:var(--sf-ink-2);
   font-family:"IBM Plex Sans",system-ui,sans-serif;white-space:normal}
 .sf-eval__status-sq{width:9px;height:9px;flex:0 0 auto;background:var(--sf-ink-3)}
@@ -273,7 +274,9 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
     progress_html = _case_progress_html(row)
     return (
         "<tr>"
-        f"<td><span class='sf-eval__candidate'>{escape(row.candidate.name)}</span></td>"
+        "<td><span class='sf-eval__candidate' tabindex='0' "
+        "onclick=\"this.closest('.sf-candidate-summary')?.querySelector('button')?.click()\">"
+        f"{escape(row.candidate.name)}</span></td>"
         f"<td><span class='sf-eval__status sf-eval__status--{row.status}'>"
         f"<span class='sf-eval__status-sq' aria-hidden='true'></span>{status}{suffix}</span></td>"
         f"<td class='sf-eval__num'>{progress_html}</td>"

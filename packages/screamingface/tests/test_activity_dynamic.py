@@ -49,7 +49,8 @@ def test_pagination_counts_visible_operations_not_transitions():
     panel.toggle.value = True
     assert panel.page.max == 0
     assert panel.html.value.count('class="sf-activity__call"') == 51
-    assert panel.html.layout.height == "280px"
+    assert panel.html.layout.height == "auto"
+    assert panel.html.layout.max_height == "280px"
 
 
 def test_completed_loading_and_aggregation_have_concise_labels():
