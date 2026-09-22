@@ -140,3 +140,11 @@ The live notebook retains an older global console height:280px rule. Explicitly 
 Verified in the existing Jupyter output with stale fixed-height CSS still present: ten rows now measure 199.953px, console padding is 4px 8px, toolbar height is zero, and the widget retains max-height 280px. Screenshot confirms no empty top/bottom block and Copy aligned with the first row. No provider calls or evaluation state changes.
 
 Outcome: 58 focused tests pass and all Client gates are green (lint, format, types, full tests/95% coverage, notebooks, distribution). Existing branch-wide append-only exception retained for previously authorized assertion migrations; no tests changed in this follow-up. Notebook display saved.
+
+
+## Candidate status and alignment — 2026-09-22
+Owner requested one-word nonwrapping status, independently stopped candidate timers, and aligned contiguous table headers/rows. Root Terminated events establish execution completion and freeze duration from event timestamps; final reports remain score authority. Multiple simultaneous stages show Running, inactive stages show Waiting. Normalize widget wrapper margins and equal header/row borders. Verify concurrent candidate completion, nested terminal isolation, final report reconciliation, and rendered alignment.
+
+Verification: regression demonstrates Finished · 12s remains fixed at later refresh times while another candidate runs; an unmatched child termination cannot finish the candidate. Final Report remains score authority. Existing assertions migrated only for requested completion, one-word labels, frozen terminal durations and column widths. Browser measurement confirms all six header/cell x positions and widths match, status computes nowrap, and only shared border separates header and rows. Notebook modules refreshed without provider calls. Review: no Engine/wire/API/dependency changes; execution completion is based on root terminal evidence, never aggregation-log inference.
+
+Outcome: final Client gates all green, including full tests with 95% coverage, types, lint, format, notebooks and distribution. Draft/In Progress retained.

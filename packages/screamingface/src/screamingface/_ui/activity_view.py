@@ -38,6 +38,11 @@ STYLE = """<style>
 .sf-activity-console p{margin:0;font:inherit;color:var(--sf-ink-2)}
 .sf-candidate-row{border:1px solid var(--sf-line);border-top:0;box-sizing:border-box}
 .sf-candidate-summary{position:relative}
+.sf-candidate-head{border:1px solid var(--sf-line);box-sizing:border-box}
+.sf-candidate-head .widget-html{margin:0;padding:0}
+.sf-candidate-head .sf-eval__table-wrap{margin:0;border:0}
+.sf-candidate-head .sf-eval__table{margin:0}
+.sf-candidate-summary .sf-eval__table{margin:0}
 .sf-candidate-row .sf-eval__table-wrap{margin:0;border:0}
 .sf-candidate-summary .widget-html{pointer-events:none;margin:0}
 .sf-candidate-summary .sf-eval__candidate{position:relative;z-index:2;pointer-events:auto}

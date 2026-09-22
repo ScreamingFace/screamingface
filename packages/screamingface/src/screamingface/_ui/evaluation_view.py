@@ -30,8 +30,8 @@ _STYLE = (
 .sf-eval__table{width:100%;min-width:820px;table-layout:fixed;border-collapse:collapse;
   font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;
   font-variant-numeric:tabular-nums}
-.sf-eval__col--candidate{width:27%}
-.sf-eval__col--status{width:17%}
+.sf-eval__col--candidate{width:22%}
+.sf-eval__col--status{width:22%}
 .sf-eval__col--cases{width:10%}
 .sf-eval__col--score{width:17%}
 .sf-eval__col--cost{width:14%}
@@ -50,7 +50,7 @@ _STYLE = (
   color:var(--sf-ink);display:block;max-width:100%;white-space:nowrap;
   overflow-x:auto;overflow-y:hidden;overflow-wrap:normal}
 .sf-eval__status{display:inline-flex;align-items:center;gap:8px;color:var(--sf-ink-2);
-  font-family:"IBM Plex Sans",system-ui,sans-serif;white-space:normal}
+  font-family:"IBM Plex Sans",system-ui,sans-serif;white-space:nowrap}
 .sf-eval__status-sq{width:9px;height:9px;flex:0 0 auto;background:var(--sf-ink-3)}
 .sf-eval__status--running .sf-eval__status-sq{background:var(--sf-accent)}
 .sf-eval__status--finished .sf-eval__status-sq{background:var(--sf-success-solid)}
@@ -243,10 +243,10 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
         "queued": "Queued",
         "running": "Running",
         "finished": "Finished",
-        "run_failed": "Run failed",
+        "run_failed": "Failed",
         "stopped": "Stopped",
-        "timed_out": "Timed out",
-        "not_run": "Not run",
+        "timed_out": "Timeout",
+        "not_run": "Skipped",
     }[row.status]
     if row.status == "running" and row.stage is not None:
         status = escape(row.stage)

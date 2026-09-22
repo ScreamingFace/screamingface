@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from typing import cast
 
@@ -39,10 +40,12 @@ class _CandidateProgress:
     result: CandidateResult | None = None
     workflow_status: str | None = None
     started_elapsed_seconds: float | None = None
+    started_at: datetime | None = None
+    terminal_duration_seconds: float | None = None
 
     @property
     def status(self) -> str:
-        if self.result is not None:
+        if self.result is not None or self.terminal_status == "succeeded":
             status = "finished"
         elif self.terminal_status == "failed":
             status = "run_failed"
@@ -83,7 +86,7 @@ class _CandidateProgress:
     @property
     def duration_seconds(self) -> float | None:
         if self.result is None:
-            return None
+            return self.terminal_duration_seconds
         return (self.result.completed_at - self.result.started_at).total_seconds()
 
     @property
@@ -145,11 +148,17 @@ class _CandidateProgress:
         self.root_sources.add(event.source)
         self.activity = "Run started"
         self.started_elapsed_seconds = elapsed_seconds
+        self.started_at = event.timestamp
 
     def _observe_terminated(self, event: Terminated) -> None:
         if event.source not in self.root_sources:
             return
         self.terminal_status = event.status
+        # INVARIANT: a sibling run must never advance this candidate's finished timer.
+        if self.started_at is not None:
+            self.terminal_duration_seconds = max(
+                0.0, (event.timestamp - self.started_at).total_seconds()
+            )
         self.activity = (
             "Run finished"
             if event.status == "succeeded"

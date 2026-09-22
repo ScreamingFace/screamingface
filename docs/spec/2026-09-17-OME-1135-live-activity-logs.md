@@ -60,3 +60,7 @@ Owner approved Calling MODEL → Completed MODEL call on the same logical line, 
 
 ## Compact spacing and candidate overflow — 2026-09-22
 Owner requested less empty space around activity and single-line horizontally scrollable candidate names. Use content-sized logs capped at 280px, 8px inner padding, and a constrained name scroll region that preserves row expansion. Validate in Jupyter without model calls and run Client gates. Existing fixed-height assertions migrate to the explicitly requested content-sized behavior.
+
+
+## Candidate status and alignment — 2026-09-22
+Owner requested one-word nonwrapping status, independently stopped candidate timers, and aligned contiguous table headers/rows. Root Terminated events establish execution completion and freeze duration from event timestamps; final reports remain score authority. Multiple simultaneous stages show Running, inactive stages show Waiting. Normalize widget wrapper margins and equal header/row borders. Verify concurrent candidate completion, nested terminal isolation, final report reconciliation, and rendered alignment.

@@ -80,11 +80,6 @@ def stage_status(log: ActivityLog, candidate: int, *, now_ms: float) -> str | No
     # a later sibling's completion establishes that another operation has ended.
     active = _active_stages(stages, now_ms)
     if active:
-        return ", ".join(dict.fromkeys(LABELS[r.record.kind] for r in active))
-    latest = max(stages, key=lambda r: r.record.observed_at_ms)
-    label = LABELS[latest.record.kind]
-    return (
-        f"{label} {latest.record.state}"
-        if latest.record.state in TERMINAL
-        else f"Last observed: {label}"
-    )
+        labels = {LABELS[r.record.kind] for r in active}
+        return next(iter(labels)).split()[0] if len(labels) == 1 else "Running"
+    return "Waiting"

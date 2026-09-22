@@ -33,10 +33,10 @@ def test_missing_numbering_stays_stage_only():
 def test_completed_or_stale_case_is_not_presented_as_active():
     log = ActivityLog()
     log.observe(0, record(kind="answering", case_position=3, case_count=5))
-    assert stage_status(log, 0, now_ms=400000) == "Last observed: Answering"
+    assert stage_status(log, 0, now_ms=400000) == "Waiting"
     assert active_cases(log, 0, now_ms=400000) is None
     log.observe(0, record(2, kind="answering", state="completed", case_position=3, case_count=5))
-    assert stage_status(log, 0, now_ms=110000) == "Answering completed"
+    assert stage_status(log, 0, now_ms=110000) == "Waiting"
     assert active_cases(log, 0, now_ms=110000) is None
 
 

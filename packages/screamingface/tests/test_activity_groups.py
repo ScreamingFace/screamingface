@@ -15,7 +15,7 @@ def test_calls_follow_parent_activity_not_arrival_order():
         ("Answering", ["a"]),
         ("Grading", ["b"]),
     ]
-    assert stage_status(log, 0, now_ms=110000) == "Answering, Grading"
+    assert stage_status(log, 0, now_ms=110000) == "Running"
 
 
 def test_missing_cross_run_and_cyclic_parents_stay_unassigned():
@@ -35,9 +35,9 @@ def test_nested_calls_resolve_nearest_stage_and_late_parent():
     log.observe(0, record(id="model", parent_id="phase"))
     log.observe(0, record(id="phase", kind="grading"))
     assert [c.record.id for c in groups(log, 0)[0].calls] == ["child", "model"]
-    assert stage_status(log, 0, now_ms=400000) == "Last observed: Grading"
+    assert stage_status(log, 0, now_ms=400000) == "Waiting"
     log.observe(0, record(2, id="phase", kind="grading", state="completed"))
-    assert stage_status(log, 0, now_ms=110000) == "Grading completed"
+    assert stage_status(log, 0, now_ms=110000) == "Waiting"
 
 
 def test_candidate_row_shows_stage_without_changing_authoritative_status():
