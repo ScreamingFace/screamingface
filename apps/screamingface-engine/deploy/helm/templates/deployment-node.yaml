@@ -1,0 +1,158 @@
+{{- if .Values.node.enabled }}
+{{/*
+The node tier (unit 3, prd/03 §2.1, contracts.md C2/C3). `screamingface-engine node` builds the
+declared world ONCE and serves url4's ASGI surface behind url4's own admission and timeout
+guards. It is stateless: one world, one aigateway client, and per-request caller state only in a
+ContextVar bound for the request's duration.
+
+# INVARIANT: reachable ONLY from the App (the NetworkPolicy this chart renders). The tier trusts
+# the `X-User-Email` the App injects; with no policy, any pod in the cluster could set it freely
+# and impersonate any caller (contracts.md §10, AC5) — a correctness requirement, not hardening.
+
+# INVARIANT: readiness reflects a BUILT world and a passed collision guard, and liveness does
+# NOT probe a downstream. A tier that cannot start without aigateway, or that restarts when
+# aigateway blinks, turns one outage into two (AC18/AC19).
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "screamingface-engine.nodeName" . }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node
+spec:
+  replicas: {{ .Values.node.replicas }}
+  selector:
+    matchLabels:
+      {{- include "screamingface-engine.selectorLabels" . | nindent 6 }}
+      # The node's OWN component label. It shares `app.kubernetes.io/name` with the App so
+      # aigateway's NetworkPolicy admits its outbound calls by that name, but without the
+      # component the node Service would also front the App's pods — and the NodePolicy would
+      # select them too.
+      app.kubernetes.io/component: node
+  template:
+    metadata:
+      labels:
+        {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: node
+        app.kubernetes.io/part-of: screamingface
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # INVARIANT: a ConfigMap/Secret value change alone rolls the pod — the same rule the App
+        # and runner pool carry. The node's aigateway address, artifact-store settings and both
+        # secrets arrive by reference; a stale env is silently wrong behavior.
+        checksum/runner-env: {{ include (print $.Template.BasePath "/configmap-runner-env.yaml") . | sha256sum }}
+        checksum/artifact-storage: {{ include (print $.Template.BasePath "/secret-artifact-storage.yaml") . | sha256sum }}
+        checksum/artifact-signing: {{ include (print $.Template.BasePath "/secret-artifact-signing.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      # INVARIANT: kubelet's legacy Docker-link env injection MUST stay off, the same rule as
+      # the App and the runner pool. It would inject a `{SERVICE_NAME}_PORT` variable per
+      # Service — and this release's Services include `screamingface-engine`, whose value
+      # collides with the app's own `URL4_CLOUD_` settings prefix.
+      enableServiceLinks: false
+      # The node talks to aigateway and object storage, never the Kubernetes API. No token.
+      automountServiceAccountToken: false
+      serviceAccountName: {{ include "screamingface-engine.serviceAccountName" . }}
+      # SIGTERM removes the pod from endpoints while in-flight sync calls (max 30 s) finish.
+      terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: node
+          # The control-plane image, NOT the benchmark image: the node serves the world and runs
+          # no benchmark assets. The `node` subcommand is the mode switch, pinned beside the
+          # Deployment that uses it.
+          image: {{ include "screamingface-engine.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - screamingface-engine
+            - node
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            # The single ASGI app serves mounts AND the ops paths, so `metrics` and `http` are
+            # the same containerPort. Both are named so a scrape can target `metrics` and the
+            # Service can target `http`.
+            - name: http
+              containerPort: {{ .Values.node.port }}
+            - name: metrics
+              containerPort: {{ .Values.node.port }}
+          env:
+            # The tier's OWN ladder, rendered from `node` — the same values the probes and the
+            # resource arithmetic already consume. Without these the tier reads the code
+            # defaults, which happen to coincide today, so a drift would be invisible.
+            - name: URL4_CLOUD_NODE_REQUEST_TIMEOUT_S
+              value: {{ .Values.node.requestTimeoutS | quote }}
+            - name: URL4_CLOUD_NODE_AIGATEWAY_TIMEOUT_S
+              value: {{ .Values.node.aigatewayTimeoutS | quote }}
+            - name: URL4_CLOUD_NODE_MAX_INFLIGHT_PER_WORKER
+              value: {{ .Values.node.maxInflightPerWorker | quote }}
+            - name: URL4_CLOUD_NODE_WORKERS
+              value: {{ .Values.node.workers | quote }}
+            - name: URL4_CLOUD_NODE_RETRY_AFTER_S
+              value: {{ .Values.node.retryAfterS | quote }}
+            - name: URL4_CLOUD_NODE_ARTIFACT_URL_TTL_S
+              value: {{ .Values.node.artifactUrlTtlS | quote }}
+            - name: URL4_CLOUD_NODE_PORT
+              value: {{ .Values.node.port | quote }}
+          envFrom:
+            # The SAME deploy-time env the worker pool reads: AIGATEWAY_BASE_URL and the
+            # artifact-store settings are rendered once, into this ConfigMap, so the sync tier
+            # and the run tier cannot be pointed at different aigateway or store by a one-sided
+            # edit. Keys the node does not read are ignored.
+            - configMapRef:
+                name: {{ include "screamingface-engine.fullname" . }}-runner-env
+            {{- if eq .Values.artifactStorage.backend "s3" }}
+            # The credential pair the spill path signs its PUTs with (contracts.md C5). The
+            # node writes spilled sync responses to the SAME store the App reads them from.
+            - secretRef:
+                name: {{ include "screamingface-engine.artifactSecretName" . }}
+            {{- end }}
+            # The shared HMAC key OQ-3.2: the node signs the 303's short-lived Location.
+            - secretRef:
+                name: {{ include "screamingface-engine.artifactSigningSecretName" . }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "{{ .Values.node.preStopSleepSeconds }}"]
+          livenessProbe:
+            {{- toYaml .Values.node.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.node.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.node.resources | nindent 12 }}
+          # INVARIANT: pairs with `securityContext.readOnlyRootFilesystem`. Without one writable
+          # path, any transitive dependency that writes a temp file crashes the pod at an
+          # arbitrary later moment.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

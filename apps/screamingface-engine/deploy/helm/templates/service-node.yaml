@@ -1,0 +1,25 @@
+{{- if .Values.node.enabled }}
+{{/*
+The node tier's Service: what the App's forwarder dials (`config.Settings.node_base_url`). The
+selector carries `component: node` so it fronts ONLY the node pods — the node shares
+`app.kubernetes.io/name` with the App (so aigateway admits its calls), so name+instance alone
+would also select the App.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "screamingface-engine.nodeName" . }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.node.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "screamingface-engine.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: node
+{{- end }}

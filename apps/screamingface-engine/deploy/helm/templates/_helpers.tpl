@@ -149,6 +149,39 @@ true
 {{- end -}}
 
 {{/*
+The node tier's object name (`<fullname>-node`), shared by its Deployment, Service,
+NetworkPolicy and PodDisruptionBudget. A helper rather than four copies of the same printf, so
+the App's `node_base_url` cannot name a Service the chart does not render.
+*/}}
+{{- define "screamingface-engine.nodeName" -}}
+{{- printf "%s-node" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+
+{{/*
+Where the App forwards a known mount (contracts.md C2, D6). Only the composition root knows a
+node tier exists in a deployment, so this is derived from the same name helper the node objects
+use — a wrong guess would silently forward to nothing. The App mounts its forwarder ONLY when
+this value is set (`config.Settings.node_base_url`), so a disabled tier arms nothing.
+*/}}
+{{- define "screamingface-engine.nodeBaseUrl" -}}
+{{- printf "http://%s:%v" (include "screamingface-engine.nodeName" .) .Values.node.service.port -}}
+{{- end -}}
+
+{{/*
+Name of the Secret holding the shared artifact-signing key (OQ-3.2). An `existingSecret` wins
+(the prod shape — created out-of-band or by an External Secrets / Sealed Secrets flow);
+otherwise the chart creates `<fullname>-artifact-signing`. The SAME name reaches both tiers:
+the node signs the 303, the App verifies it.
+*/}}
+{{- define "screamingface-engine.artifactSigningSecretName" -}}
+{{- if .Values.artifactSigning.existingSecret -}}
+{{- .Values.artifactSigning.existingSecret -}}
+{{- else -}}
+{{- printf "%s-artifact-signing" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Where the object store lives. Explicit `artifactStorage.s3.endpointUrl` wins; otherwise, with the
 bundled instance enabled, its in-cluster Service. Failing render is deliberate: an empty endpoint
 would leave the App to refuse startup with a less specific message than this one.

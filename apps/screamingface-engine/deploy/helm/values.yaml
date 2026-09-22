@@ -508,6 +508,89 @@ runnerPool:
   # The worker's Prometheus /metrics port (prometheus_client.start_http_server).
   metricsPort: 9109
 
+# The node tier (unit 3, prd/03 §2.1): the sync surface, deployed separately from the App so a
+# slow or crashing sync call cannot take down the WebSocket relays that in-flight ensemble runs
+# depend on. It runs `screamingface-engine node`: the declared world built ONCE and served over
+# url4's own admission and timeout guards.
+#
+# STATELESS and horizontally scalable — it holds one world and one httpx client to aigateway,
+# never per-caller state. It is reachable ONLY from the App (the NetworkPolicy this stanza
+# renders), because it trusts the `X-User-Email` the App injects; without that policy any pod in
+# the cluster could set it freely and impersonate a caller (contracts.md §10, AC5).
+node:
+  enabled: true
+  # More than one so a rolling update and a node drain have somewhere to go. Unlike the App,
+  # the node tier holds no WebSocket-affinity state, so scaling it is safe (the App's
+  # `replicaCount: 1` constraint does not apply here).
+  replicas: 2
+  # The single port the tier serves on: mounts, /readyz, /livez and /metrics share one ASGI app.
+  # Mirrors `world.node_tier.NodeTierSettings.port`; keep the two in step.
+  port: 9109
+  service:
+    port: 9109
+  # The timeout/admission ladder (contracts.md, ans:Q5). The request wrapper fails at 30 s;
+  # aigateway at 28 s so the INNER failure wins and the caller gets a 502 naming the cause;
+  # the in-flight cap is 2 × workers. No literal for any of these appears in a template — they
+  # are rendered from here into the tier's own URL4_CLOUD_NODE_* env.
+  requestTimeoutS: 30
+  aigatewayTimeoutS: 28
+  maxInflightPerWorker: 2
+  workers: 1
+  retryAfterS: 1
+  # OQ-3.2 / contracts.md C6: how long a spilled artifact's short-lived signed URL stays valid.
+  # Centralized here with the ladder numbers; the App enforces the same expiry from the
+  # signature, and the node refuses to sign without a key rather than emitting a bare redirect.
+  artifactUrlTtlS: 600
+  # Graceful shutdown: SIGTERM removes the pod from endpoints while in-flight sync calls (max
+  # 30 s) finish. As with the App, the grace period must exceed preStop + the worst-case hold,
+  # or a rollout SIGKILLs mid-request.
+  preStopSleepSeconds: 5
+  terminationGracePeriodSeconds: 45
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      # Memory only, matching the App: a CPU limit would CFS-throttle the event loop in
+      # latency spikes even on an idle node.
+      memory: 512Mi
+  # Liveness is /livez, which answers unconditionally. It must NOT probe a downstream: if it
+  # did, aigateway blipping would restart every healthy node pod and turn one outage into two
+  # (AC19's rationale). Readiness is /readyz — world built AND the collision guard passed (AC18).
+  livenessProbe:
+    httpGet:
+      path: /livez
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 20
+    timeoutSeconds: 5
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+
+# Shared HMAC key for short-lived artifact URLs (OQ-3.2, contracts.md C6). The node SIGNS the
+# 303 `Location`; the App VERIFIES that signature on `GET /artifacts/{id}` as an alternative to
+# the capability token, leaving the bare route token-only.
+#
+# ONE Secret reaches BOTH tiers: a key that lands on only one half makes every redirect
+# unfetchable (the App cannot verify) or every spill a 502 (the node has no signer). INVARIANT:
+# it travels by Secret only — a holder can mint a fetch credential for any artifact id, so it
+# must never appear in a ConfigMap or a log.
+artifactSigning:
+  # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
+  # / Sealed Secrets flow). Empty + node.enabled => the chart creates one and reuses it across
+  # upgrades via `lookup`, so a values-less `helm upgrade` does not invalidate in-flight URLs.
+  # It must key the value `URL4_CLOUD_ARTIFACT_SIGNING_KEY`: both tiers attach it with
+  # `envFrom.secretRef`, which injects keys under their own names and cannot rename.
+  existingSecret: ""
+  # Dev-only convenience for a chart-created Secret. NEVER commit a real key to a values file;
+  # pass it with `--set` / `--set-file`, or use `existingSecret`.
+  signingKey: ""
+
 # Runner image (spec §9). The pool Deployment runs this image in `worker` mode; the worker
 # forks each run as a child from its own image, so this is the image that must carry the
 # benchmark datasets and private grading assets the control plane must not.

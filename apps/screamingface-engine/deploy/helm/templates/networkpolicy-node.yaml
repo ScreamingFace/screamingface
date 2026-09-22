@@ -1,0 +1,46 @@
+{{- if .Values.node.enabled }}
+{{/*
+Who may reach the node tier: the App, and nothing else. THIS POLICY IS THE AUTHENTICATION
+BOUNDARY. The node trusts the `X-User-Email` header the App injects, exactly as aigateway trusts
+it from the App — so without this policy any pod in the cluster could set the header freely and
+impersonate any caller (contracts.md §10, AC5). That makes it a correctness requirement, not
+hardening.
+
+INVARIANT: the peer's `namespaceSelector` and `podSelector` MUST stay in ONE `from` element.
+Selectors within an element are ANDed; elements are ORed. Split across two elements the rule
+would read "any pod in this namespace OR any pod with that label anywhere" — the whole namespace,
+which is the hole this policy closes.
+
+INVARIANT: the peer matches on `component: control-plane`, which the App pod template carries.
+Matching on `name`/`instance` alone would also admit the node's OWN pods (they share name and
+instance) and the aigateway-visible pool. The App is the only workload with that component.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "screamingface-engine.nodeName" . }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "screamingface-engine.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: node
+  # Ingress only. The node dials aigateway and object storage on unrestricted egress; only
+  # who may reach ITS surface is the security property.
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.node.port }}
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+          podSelector:
+            matchLabels:
+              {{- include "screamingface-engine.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: control-plane
+{{- end }}

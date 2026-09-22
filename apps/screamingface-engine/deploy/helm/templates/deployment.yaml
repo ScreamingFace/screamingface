@@ -16,6 +16,19 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        # FEATURE (unit 3, AC5): the node tier's NetworkPolicy admits ONLY these pods, and it
+        # cannot express "the App and not also the node" by name+instance — the node deliberately
+        # shares that name so aigateway admits its calls. This component label is the one thing
+        # that distinguishes the App from the node and the runner pool, so the policy's peer can
+        # name exactly it.
+        #
+        # INVARIANT: CHART-OWNED and deliberately rendered AFTER `podLabels`, so an operator's
+        # label set cannot override it. The aigateway chart lost an outage to exactly this:
+        # a platform's `podLabels` rendered later, changed `component`, and emptied a Service
+        # selector. Here the consequence would be the node refusing the App's traffic — lockout
+        # rather than a zero-endpoint Service. Adding a POD label is safe: `spec.selector`
+        # stays name+instance.
+        app.kubernetes.io/component: control-plane
       annotations:
         # INVARIANT: a ConfigMap/Secret value change alone does NOT roll the pod — see the
         # aigateway chart's identical annotation for the live failure this prevents (config
@@ -81,6 +94,15 @@ spec:
             # credential it is not merely forwarded to Jobs.
             - secretRef:
                 name: {{ include "screamingface-engine.artifactSecretName" . }}
+            {{- end }}
+            {{- if .Values.node.enabled }}
+            # FEATURE (unit 3, OQ-3.2): the shared HMAC key the App VERIFIES a spilled
+            # artifact's short-lived signature against. The node SIGNS with the same Secret.
+            # Gated on `node.enabled` because the node is the only signer: with no tier there is
+            # no signature to accept, and holding the key would only widen the credential
+            # surface.
+            - secretRef:
+                name: {{ include "screamingface-engine.artifactSigningSecretName" . }}
             {{- end }}
           env:
             # HS256 topic-capability signing secret (spec §4). Never logged.

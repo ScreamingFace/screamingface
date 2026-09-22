@@ -1,0 +1,26 @@
+{{- if .Values.node.enabled }}
+{{/*
+The node tier's disruption budget: voluntary disruptions are SERIALIZED.
+
+WHY `maxUnavailable: 1` and not `0`: a PodDisruptionBudget cannot see request occupancy — it
+knows pod COUNT only — so `0` does not wait for in-flight sync calls to drain; it makes
+`disruptionsAllowed` permanently 0, the eviction API answers 429 forever, and `kubectl drain`,
+node upgrades and the cluster autoscaler block on this pod indefinitely, idle or not. The tier
+is stateless and in-flight requests are bounded by the 30 s wrapper budget, so a rolling eviction
+loses at most one pod's calls, which the preStop + termination grace let finish. `1` serializes
+voluntary disruptions so a multi-pod tier never loses more than one at a time.
+*/}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "screamingface-engine.nodeName" . }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "screamingface-engine.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: node
+{{- end }}
