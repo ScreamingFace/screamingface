@@ -151,3 +151,15 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
 
     seeded: set[str] = {key for key, spec in SNAPSHOTS.items() if spec.shuffle_seed is not None}
     assert seeded == {"mmlu", "commonsense_qa", "mmlu_pro", "race_h", "paws", "boolq"}
+
+
+def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
+    """The aime24 sha is COPIED from the eval's own pinned constant (upstream pins
+    win at import time) — a dependency bump that moves upstream's pin must fail
+    here instead of silently serving a different exam than the eval means."""
+
+    from inspect_evals.aime2024.aime2024 import AIME2024_DATASET_REVISION
+
+    from screamingface_engine_inspect.pins import AIME24_DATASET_REVISION
+
+    assert AIME24_DATASET_REVISION == AIME2024_DATASET_REVISION
