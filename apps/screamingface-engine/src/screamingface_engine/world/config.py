@@ -23,13 +23,15 @@ aigateway provider plugin (OME-859). This module merges that world with the opti
 additive ``[[aigateway.models]]`` array, so one function still produces the single
 world both halves consume.
 
-``[data]``, ``[commands]``,
-``[holdings]`` and ``[identities]`` are reserved here but not parsed yet — declaring one is a
-loud error rather than a silent no-op, so a config that looks like it works actually does.
+``[data]``, ``[holdings]`` and ``[identities]`` are parsed here (F3, prd/02) and delegated to
+url4's own resolvers, so provider semantics have exactly one owner. ``[commands]`` stays reserved:
+its argv templates are exec mounts and the node tier has no sandbox for them, so declaring one is
+a loud error — a config that looks like it works must not silently serve nothing.
 
-# AIDEV-NOTE: this loader deliberately duplicates `_serve.py`'s tested parsing rather than
-# depending on it — `_serve` is a private CLI module in another package. Within URL4 Cloud this
-# module is the single authority shared by the App and Runner.
+# AIDEV-NOTE: delegation to url4's `_config` resolvers replaces the old duplication of
+# `_serve.py`'s parsing (F3). The provider rules — value/file/command, the `default` shelf, the
+# exact-then-default collection fallback — are url4's product contract, and a second parser here
+# would let the engine and `url4 serve` disagree about the same file with no test able to see it.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ from __future__ import annotations
 import json
 import tomllib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from screamingface_engine import job_env
@@ -48,6 +50,22 @@ from screamingface_engine.world.models.registry import (
     decode_route_id,
     encode_route_id,
     is_route_legal,
+)
+
+# F3 (prd/02): the read-side section vocabularies are url4's, taken verbatim from its own serve
+# config rather than re-declared. The `default`-shelf normalisation, the value/file/command
+# provider rules, and the exact-then-default collection fallback are all owned there, so the
+# engine cannot drift from what `url4 serve` would do with the same file. The private names are a
+# deliberate cross-module reach, the same one url4's own `render.py`/`server.py` make, for the
+# same reason: re-declaring them would let the two disagree.
+from url4.cli._config import (
+    ConfigError as Url4ConfigError,
+)
+from url4.cli._config import (
+    ProviderSpec,
+    _toml_data_map,
+    _toml_identity_map,
+    _toml_shelf_map,
 )
 
 DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
@@ -68,8 +86,12 @@ _AIGATEWAY_KEYS = frozenset(
     }
 )
 _MODEL_KEYS = frozenset({"id", "web_search"})
-_RESERVED_TABLES = frozenset({"data", "commands", "holdings", "identities"})
-_TOP_LEVEL_KEYS = frozenset({"aigateway"})
+# F3 (prd/02): `[commands]` is the ONE section still reserved. `[data]`, `[holdings]` and
+# `[identities]` are now parsed (see `_parse_read_side`), so they are top-level keys, not reserved
+# names — a declaration under one of them reaches url4's resolvers rather than a blanket error.
+_RESERVED_TABLES = frozenset({"commands"})
+_READ_SIDE_TABLES = frozenset({"data", "holdings", "identities"})
+_TOP_LEVEL_KEYS = frozenset({"aigateway"} | _READ_SIDE_TABLES)
 
 
 class WorldConfigError(ValueError):
@@ -171,9 +193,18 @@ class AigatewaySection:
 
 @dataclass(frozen=True, slots=True)
 class WorldConfig:
-    """The whole declared world. ``aigateway is None`` is a legitimate tokenless world."""
+    """The whole declared world. ``aigateway is None`` is a legitimate tokenless world.
+
+    ``data``/``holdings``/``identities`` are url4's own read-side registries, delegated verbatim
+    (F3, prd/02). They are THIN wrappers: the engine keeps no provider semantics of its own, so a
+    value/file/command decision is made in exactly one place (url4.cli._config) for both the node
+    tier and a bare `url4 serve` node.
+    """
 
     aigateway: AigatewaySection | None = None
+    data: Mapping[str, ProviderSpec] = field(default_factory=dict)
+    holdings: Mapping[str | None, ProviderSpec] = field(default_factory=dict)
+    identities: Mapping[str, Mapping[str | None, ProviderSpec]] = field(default_factory=dict)
 
 
 def routes_for(models: Sequence[ModelSpec]) -> dict[str, ModelSpec]:
@@ -239,13 +270,59 @@ def parse_config(
     un-admitted ids into the declared projection.
     """
     _reject_unsupported_tables(raw)
+    data, holdings, identities = _parse_read_side(raw)
     table = raw.get("aigateway")
     if table is None:
-        return WorldConfig()
+        return WorldConfig(data=data, holdings=holdings, identities=identities)
     if not isinstance(table, Mapping):
         raise WorldConfigError(f"[aigateway] must be a table, got {table!r}")
     return WorldConfig(
-        aigateway=_parse_aigateway(table, env, registry, include_extra_models=include_extra_models)
+        aigateway=_parse_aigateway(table, env, registry, include_extra_models=include_extra_models),
+        data=data,
+        holdings=holdings,
+        identities=identities,
+    )
+
+
+def _parse_read_side(
+    raw: Mapping[str, object],
+) -> tuple[
+    dict[str, ProviderSpec],
+    dict[str | None, ProviderSpec],
+    dict[str, dict[str | None, ProviderSpec]],
+]:
+    """Parse `[data]`/`[holdings]`/`[identities]` through url4's own resolvers (F3).
+
+    WHY delegate rather than re-implement: the provider kinds and the ``default``-shelf rule are
+    url4's product contract; a second parser here would let the engine and `url4 serve` disagree
+    about the same file with no test able to see it. url4 raises `ConfigError`, so it is translated
+    to the engine's `WorldConfigError` at this boundary — callers catch one type.
+    """
+    try:
+        data = _toml_data_map(raw.get("data"))
+        holdings = _toml_shelf_map(raw.get("holdings"), "holdings")
+        identities = _toml_identity_map(raw.get("identities"))
+    except Url4ConfigError as exc:
+        raise WorldConfigError(f"invalid world config: {exc}") from exc
+    _reject_command_backed_data(data)
+    return data, holdings, identities
+
+
+def _reject_command_backed_data(data: Mapping[str, ProviderSpec]) -> None:
+    """Refuse a command-backed `[data]` route — an exec mount the node tier cannot sandbox.
+
+    WHY reject rather than skip: a skipped mount becomes a production 404 with no explanation,
+    while this names the path and the provider kind so the operator fixes the declaration. WHY
+    only `[data]`: D2 restricts data providers to value/file; holdings and identities are
+    operator-declared shelves and are accepted whole (prd/02 F3).
+    """
+    offenders = sorted(path for path, spec in data.items() if spec.command is not None)
+    if not offenders:
+        return
+    raise WorldConfigError(
+        f"[data] route(s) {offenders} use a 'command' provider — command-backed data routes are "
+        "exec mounts with no sandbox on the node tier, so they are rejected in v1; declare a "
+        "'value' or 'file' provider instead"
     )
 
 
@@ -254,8 +331,9 @@ def _reject_unsupported_tables(raw: Mapping[str, object]) -> None:
     reserved = sorted(declared & _RESERVED_TABLES)
     if reserved:
         raise WorldConfigError(
-            f"{reserved} is reserved in the world config format but not supported yet — "
-            "remove it, or land the endpoint kind that reads it"
+            f"{reserved} is not supported — read-side mounts are declared with [data], [holdings] "
+            "and [identities]; [commands] registers argv templates as exec mounts, which is "
+            "deferred deliberately (not forgotten) until a sandboxed tier can run them"
         )
     unknown = sorted(declared - _TOP_LEVEL_KEYS - _RESERVED_TABLES)
     if unknown:

@@ -654,6 +654,10 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # `Url4Node`, `factory` types the world over `url4.io`, and the candidate/corrective
         # installers register endpoints on the node. The control plane may import `world`, so
         # the allowance is listed here by its new home rather than by its old `benchmarks` one.
+        # prd/02 F3: `config` now delegates the `[data]`/`[holdings]`/`[identities]` sections to
+        # url4's own resolvers, so the engine keeps no competing provider semantics — that
+        # delegation is exactly why the engine imports url4 here rather than parsing again.
+        Path("screamingface_engine/world/config.py"),
         Path("screamingface_engine/world/connector.py"),
         Path("screamingface_engine/world/factory.py"),
         Path("screamingface_engine/world/candidate_adapter.py"),

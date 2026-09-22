@@ -32,11 +32,21 @@ from screamingface_engine.world.candidate_adapter import install_candidate_invoc
 from screamingface_engine.world.config import WorldConfig, WorldConfigError, load_config
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world.corrective import install_corrective_runtime
+from url4.cli._serve import make_data_provider, make_identity_handler, make_shelf_handler
 from url4.io.layer import IOLayer
 from url4.io.static import StaticIOLayer
+from url4.peer.server import Url4Node
 from url4.streaming.protocol import CachePolicy
 
 logger = logging.getLogger(__name__)
+
+READ_SIDE_TIMEOUT_S = 120.0
+"""Provider timeout for the read-side mounts, matching url4 serve's own default.
+
+Only a ``command`` provider reads it (``value`` and ``file`` do not), and ``[data]`` rejects
+commands outright, so it is currently reachable only through a ``[holdings]``/``[identities]``
+command provider. Kept equal to url4's default so a shelf behaves the same on either tier.
+"""
 
 World = tuple[IOLayer, Callable[[], Awaitable[None]] | None]
 """A resolved world: its io layer plus the teardown that owns whatever it allocated.
@@ -85,9 +95,16 @@ async def build_world(
     if section is None:
         if len(benchmarks):
             raise WorldConfigError("installed Benchmarks require a declared aigateway model world")
-        # WHY: a world with no [aigateway] table is a legitimate empty world; the node itself
-        # denies everything undeclared.
-        return deny_by_default_world(), None
+        if not _has_read_side(resolved):
+            # WHY: a world with no [aigateway] table and no read-side mounts is a legitimate empty
+            # world; the node itself denies everything undeclared.
+            return deny_by_default_world(), None
+        # WHY a bare node: a [data]/[holdings]/[identities]-only declaration must still become a
+        # mount (F3, prd/02 AC1). Returning the deny-by-default layer here would drop the operator's
+        # declaration in silence — the exact failure AC3 rejects for command providers.
+        node = Url4Node("world")
+        register_read_side_mounts(node, resolved)
+        return node, None
     # WHY: no credential check here; aigateway runs `cloudflare_headers` when deployed and
     # `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to demand.
     # Identity is forwarded when present and simply absent locally, where every caller is
@@ -106,6 +123,14 @@ async def build_world(
         tavily_api_key=env.get(job_env.TAVILY_API_KEY),
         tavily_client=tavily_client,
     )
+    # F3 (prd/02): the read-side mounts register on the SAME node that serves model routes, before
+    # any benchmark endpoint, so a declared path is addressable exactly where a model route is. A
+    # registration failure closes the world first — a half-built world must not survive an error.
+    try:
+        register_read_side_mounts(world.node, resolved)
+    except ValueError as exc:
+        await world.aclose()
+        raise WorldConfigError(f"cannot register the declared read-side mounts: {exc}") from exc
     if len(benchmarks):
         # WHY: installation can fail through any concrete Benchmark adapter. AsyncExitStack
         # guarantees the already-open model world closes without a catch-all exception clause.
@@ -152,9 +177,63 @@ def _cache_stated(policy: CachePolicy) -> str:
     return "not-stated"
 
 
+def _has_read_side(config: WorldConfig) -> bool:
+    return bool(config.data or config.holdings or config.identities)
+
+
+def register_read_side_mounts(node: Url4Node, config: WorldConfig) -> None:
+    """Register the declared `[data]`/`[holdings]`/`[identities]` mounts on ``node`` (F3).
+
+    WHY delegation: the provider semantics — value vs file vs command, the ``default`` shelf
+    normalisation, the exact-then-default collection fallback — are url4's, taken verbatim from
+    its own handler builders. A local re-implementation would let the engine and `url4 serve`
+    disagree about the same file, and no test could tell that they had.
+
+    INVARIANT (D8): every shelf declared here is readable by EVERY caller of the sync surface.
+    `_log_declared_shelves` is the only thing that says so at boot, and it is called LAST so a new
+    mount kind added here cannot skip the warning.
+    """
+    for path, spec in config.data.items():
+        node.data(path, make_data_provider(spec, READ_SIDE_TIMEOUT_S), media_type=spec.media_type)
+    for collection, spec in config.holdings.items():
+        node.holdings(collection)(make_shelf_handler(spec, READ_SIDE_TIMEOUT_S))
+    for name, shelves in config.identities.items():
+        node.identity(name)(make_identity_handler(name, shelves, READ_SIDE_TIMEOUT_S))
+    _log_declared_shelves(config)
+
+
+def _log_declared_shelves(config: WorldConfig) -> None:
+    """Say, at INFO, which shelves are global — the one control D8's shared visibility gets.
+
+    WHY at INFO and not DEBUG: under D8 a shelf is readable by every sync caller, so an operator
+    who put per-team content in `[holdings]` has no isolation and must see that at boot. The
+    wording is literal ("EVERY caller of the sync surface") so it cannot be read as a caveat.
+    """
+    for collection in config.holdings:
+        logger.info(
+            "world holdings shelf %s declared — shelves are readable by EVERY caller of the "
+            "sync surface",
+            _shelf_label(collection),
+        )
+    for name, shelves in config.identities.items():
+        for collection in shelves:
+            logger.info(
+                "world identity shelf %s %s declared — shelves are readable by EVERY caller "
+                "of the sync surface",
+                name,
+                _shelf_label(collection),
+            )
+
+
+def _shelf_label(collection: str | None) -> str:
+    return "default" if collection is None else repr(collection)
+
+
 __all__ = [
+    "READ_SIDE_TIMEOUT_S",
     "World",
     "WorldFactory",
     "build_world",
     "deny_by_default_world",
+    "register_read_side_mounts",
 ]
