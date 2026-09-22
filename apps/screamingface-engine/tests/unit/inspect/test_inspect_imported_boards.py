@@ -45,6 +45,10 @@ _EXPECTED_FAMILIES: dict[str, bool] = {
     "boolq": False,
     "aime24": False,
     "aime25": False,
+    "musr": True,
+    "wmdp_bio": True,
+    "wmdp_chem": True,
+    "wmdp_cyber": True,
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -154,6 +158,8 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     # aime24/aime25: OURS policy seed (owner-approved 2026-09-22) — upstream serves
     # dataset order (AIME I then II, roughly ascending difficulty within each), so an
     # unseeded import would give a limited run only the easier AIME I half.
+    # musr: upstream shuffles per run (hf_dataset shuffle=True, no seed), so the
+    # import pins one order. wmdp boards serve upstream order — no seed.
     assert seeded == {
         "mmlu",
         "commonsense_qa",
@@ -163,6 +169,7 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "boolq",
         "aime24",
         "aime25",
+        "musr",
     }
 
 

@@ -93,6 +93,12 @@ from screamingface_engine_inspect.pins import (
     MMLU_PRO_SPLIT,
     MMLU_SHUFFLE_SEED,
     MMLU_SPLIT,
+    MUSR_CASE_COUNT,
+    MUSR_CONFIG,
+    MUSR_DATASET,
+    MUSR_DATASET_REVISION,
+    MUSR_SHUFFLE_SEED,
+    MUSR_SPLIT,
     PAWS_CASE_COUNT,
     PAWS_CONFIG,
     PAWS_DATASET,
@@ -110,6 +116,21 @@ from screamingface_engine_inspect.pins import (
     WINOGRANDE_DATASET,
     WINOGRANDE_DATASET_REVISION,
     WINOGRANDE_SPLIT,
+    WMDP_BIO_CASE_COUNT,
+    WMDP_BIO_CONFIG,
+    WMDP_BIO_DATASET,
+    WMDP_BIO_DATASET_REVISION,
+    WMDP_BIO_SPLIT,
+    WMDP_CHEM_CASE_COUNT,
+    WMDP_CHEM_CONFIG,
+    WMDP_CHEM_DATASET,
+    WMDP_CHEM_DATASET_REVISION,
+    WMDP_CHEM_SPLIT,
+    WMDP_CYBER_CASE_COUNT,
+    WMDP_CYBER_CONFIG,
+    WMDP_CYBER_DATASET,
+    WMDP_CYBER_DATASET_REVISION,
+    WMDP_CYBER_SPLIT,
 )
 
 if TYPE_CHECKING:
@@ -304,6 +325,67 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         record_to_sample="inspect_evals.aime2025.aime2025:record_to_sample",
         prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
         shuffle_seed=AIME25_SHUFFLE_SEED,
+    ),
+    "musr": SnapshotSpec(
+        dataset=MUSR_DATASET,
+        config=MUSR_CONFIG,
+        split=MUSR_SPLIT,
+        dataset_revision=MUSR_DATASET_REVISION,
+        case_count=MUSR_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.musr.musr:musr;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.musr.musr:record_to_sample",
+        choice_template="inspect_evals.musr.musr:REGULAR_PROMPT",
+        shuffle_seed=MUSR_SHUFFLE_SEED,
+        # WHY the unbaked system_message is benign (review flag resolved): the
+        # eval's SYSTEM_PROMPT is the generic "You are a helpful assistant that
+        # will answer the questions given by the user." — boilerplate with no
+        # exam content. Every format instruction rides REGULAR_PROMPT, which IS
+        # the baked choice_template, so the baked prompt matches the eval's
+        # rendered user turn.
+    ),
+    "wmdp_bio": SnapshotSpec(
+        dataset=WMDP_BIO_DATASET,
+        config=WMDP_BIO_CONFIG,
+        split=WMDP_BIO_SPLIT,
+        dataset_revision=WMDP_BIO_DATASET_REVISION,
+        case_count=WMDP_BIO_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.wmdp.wmdp:wmdp_bio;
+        # verify against the eval's task.
+        # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
+        # this pinned revision (verified 1273/1273 unique stable ids), so the
+        # bake's unfiltered rows are the same exam.
+        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
+    ),
+    "wmdp_chem": SnapshotSpec(
+        dataset=WMDP_CHEM_DATASET,
+        config=WMDP_CHEM_CONFIG,
+        split=WMDP_CHEM_SPLIT,
+        dataset_revision=WMDP_CHEM_DATASET_REVISION,
+        case_count=WMDP_CHEM_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.wmdp.wmdp:wmdp_chem;
+        # verify against the eval's task.
+        # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
+        # this pinned revision (verified 408/408 unique stable ids), so the
+        # bake's unfiltered rows are the same exam.
+        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
+    ),
+    "wmdp_cyber": SnapshotSpec(
+        dataset=WMDP_CYBER_DATASET,
+        config=WMDP_CYBER_CONFIG,
+        split=WMDP_CYBER_SPLIT,
+        dataset_revision=WMDP_CYBER_DATASET_REVISION,
+        case_count=WMDP_CYBER_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.wmdp.wmdp:wmdp_cyber;
+        # verify against the eval's task.
+        # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
+        # this pinned revision (verified 1987/1987 unique stable ids), so the
+        # bake's unfiltered rows are the same exam.
+        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }

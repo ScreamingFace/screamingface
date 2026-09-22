@@ -298,3 +298,73 @@ def test_aime25_snapshot_bakes_their_row_rule_and_private_target(
     target = json.loads((tmp_path / "targets" / "2.json").read_text(encoding="utf-8"))
     assert target == {"target": "400"}
     assert summary["cases"] == 2
+
+
+# ── musr ─────────────────────────────────────────────────────────────────────
+
+_MUSR_ROWS: list[dict[str, Any]] = [
+    {
+        "narrative": "A short mystery story.",
+        "question": "Who did it?",
+        "choices": "['The butler', 'The gardener']",
+        "answer_index": 1,
+    },
+    {
+        "narrative": "Another short mystery.",
+        "question": "Who is guilty?",
+        "choices": "['Alice', 'Bob']",
+        "answer_index": 0,
+    },
+]
+
+
+def test_musr_snapshot_parses_stringified_choices_and_their_template(
+    tmp_path: Path,
+) -> None:
+    """OME-1253: musr stores choices as a STRINGIFIED Python list its row rule
+    ast.literal_eval's, and the prompt is the eval's own REGULAR_PROMPT — the
+    bake must parse the choices into real options and render that template,
+    keeping the key private."""
+
+    summary = emit_snapshot(SNAPSHOTS["musr"], _MUSR_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # The spec's policy shuffle (seed 20260922) happens to leave a 2-row fixture
+    # in place, so the assertions below still address rows by original order.
+    assert [case["id"] for case in cases] == [1, 2]
+    # Narrative and question are joined, choices rendered as lettered options.
+    assert "A short mystery story.\n\nWho did it?" in cases[0]["input"]
+    assert "A) The butler" in cases[0]["input"] and "B) The gardener" in cases[0]["input"]
+    # REGULAR_PROMPT's own answer-format instruction, not our MCQ default.
+    assert "ANSWER: (your answer here, include the choice letter)" in cases[0]["input"]
+    # INVARIANT: the public booklet never carries the answer key.
+    assert "target" not in json.dumps(cases)
+    target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
+    assert target == {"target": "B", "choices": ["The butler", "The gardener"]}
+    assert summary["cases"] == 2
+
+
+# ── wmdp ─────────────────────────────────────────────────────────────────────
+
+_WMDP_ROWS: list[dict[str, Any]] = [
+    {"question": "Pick B.", "choices": ["no", "yes", "never", "maybe"], "answer": 1},
+    {"question": "Pick A.", "choices": ["yes", "no", "never", "maybe"], "answer": 0},
+]
+
+
+def test_wmdp_snapshot_bakes_letter_target_in_upstream_order(tmp_path: Path) -> None:
+    """OME-1253: wmdp's row rule maps an integer answer index to a letter and
+    the eval serves upstream order (no shuffle, no seed) — the bake must keep
+    both, with the key private. One config stands for all three: the wmdp_*
+    snapshots share record_to_sample and differ only in pins."""
+
+    summary = emit_snapshot(SNAPSHOTS["wmdp_bio"], _WMDP_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # No shuffle seed: rows keep the upstream order.
+    assert [case["id"] for case in cases] == [1, 2]
+    assert "Pick B." in cases[0]["input"]
+    assert "A) no" in cases[0]["input"] and "D) maybe" in cases[0]["input"]
+    # INVARIANT: the public booklet never carries the answer key.
+    assert "target" not in json.dumps(cases)
+    target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
+    assert target == {"target": "B", "choices": ["no", "yes", "never", "maybe"]}
+    assert summary["cases"] == 2

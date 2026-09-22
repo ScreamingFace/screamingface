@@ -307,6 +307,88 @@ BOARDS: tuple[BoardSpec, ...] = (
         # MCQ boards must NOT set this (OME-796).
         with_check_surface=True,
     ),
+    BoardSpec(
+        key="musr",
+        title="MuSR",
+        description=(
+            "250 machine-generated murder mysteries (the MuSR murder_mysteries "
+            "split — the upstream eval's default domain), each a ~1,000-word "
+            "narrative whose whodunit question takes multi-step soft reasoning "
+            "over the story, imported from inspect_evals. The model picks a "
+            "suspect through the eval's own choice prompt; grading is inspect's "
+            "own choice scorer against the published key, so no judge tokens "
+            "are spent. Cases are served in a fixed seeded shuffle (the "
+            "upstream eval randomizes order per run); benchmark score = plain "
+            "accuracy over the cases run. No mid-run check surface "
+            "(elimination attack over few options)."
+        ),
+        focus="Long-narrative multi-step reasoning (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/TAUR-Lab/MuSR",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.musr.musr:musr.
+        # License: cc-by-4.0.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="wmdp_bio",
+        title="WMDP-Bio",
+        description=(
+            "1,273 four-option questions probing hazardous biosecurity "
+            "knowledge (the WMDP wmdp-bio test split), written by experts as a "
+            "proxy measure of weapons-of-mass-destruction-relevant capability, "
+            "imported from inspect_evals. Grading is inspect's own choice "
+            "scorer against the published key, so no judge tokens are spent; "
+            "cases are served in the upstream order (the eval does not "
+            "shuffle); benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Hazardous biosecurity knowledge probe (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/cais/wmdp",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.wmdp.wmdp:wmdp_bio.
+        # License: mit.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="wmdp_chem",
+        title="WMDP-Chem",
+        description=(
+            "408 four-option questions probing hazardous chemical-security "
+            "knowledge (the WMDP wmdp-chem test split), written by experts as "
+            "a proxy measure of weapons-of-mass-destruction-relevant "
+            "capability, imported from inspect_evals. Grading is inspect's own "
+            "choice scorer against the published key, so no judge tokens are "
+            "spent; cases are served in the upstream order (the eval does not "
+            "shuffle); benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Hazardous chemical-security knowledge probe (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/cais/wmdp",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.wmdp.wmdp:wmdp_chem.
+        # License: mit.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="wmdp_cyber",
+        title="WMDP-Cyber",
+        description=(
+            "1,987 four-option questions probing hazardous cybersecurity "
+            "knowledge (the WMDP wmdp-cyber test split), written by experts as "
+            "a proxy measure of weapons-of-mass-destruction-relevant "
+            "capability, imported from inspect_evals. Grading is inspect's own "
+            "choice scorer against the published key, so no judge tokens are "
+            "spent; cases are served in the upstream order (the eval does not "
+            "shuffle); benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Hazardous cybersecurity knowledge probe (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/cais/wmdp",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.wmdp.wmdp:wmdp_cyber.
+        # License: mit.
+        scorer="inspect_ai.scorer:choice",
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 
