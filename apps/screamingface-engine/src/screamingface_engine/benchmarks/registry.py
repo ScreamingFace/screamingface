@@ -13,6 +13,7 @@ from screamingface_engine.benchmarks.definition import Benchmark
 from url4 import Iteration, Node, RelExpr, RelUrl, build, render
 from url4.core.errors import ParseError
 from url4.core.nodes import walk
+from url4.core.parser import split_top_level_commas
 from url4.peer.server import Url4Node
 
 BENCHMARK_ASSETS_ENV = "URL4_BENCHMARK_ASSETS"
@@ -130,18 +131,31 @@ def _relative_endpoint_paths(protocol: Node) -> set[str]:
             )
             if reference is not None and (path := _literal_path(reference)) is not None:
                 found.add(path)
-            if isinstance(child, Iteration):
-                for template in (child.body, child.intent, child.reducer):
-                    if not template:
-                        continue
-                    try:
-                        pending.append(build(template))
-                    except ParseError:
-                        # A row template is URL4 only once `$item` is substituted, so one that
-                        # cannot be parsed here carries no route to check. Skipping narrows the
-                        # check; raising would fail the world for a legal Benchmark.
-                        continue
+            pending.extend(_embedded_protocols(child))
     return found
+
+
+def _embedded_protocols(node: Node) -> Iterator[Node]:
+    templates: tuple[str | None, ...] = ()
+    if isinstance(node, Iteration):
+        templates = (node.body, node.intent, node.reducer)
+    elif isinstance(node, RelExpr) and node.context and "@" not in node.context:
+        # INVARIANT: local call contexts execute source lists, including the selector's
+        # dataset. Holdings contexts stay opaque in URL4; remote contexts execute elsewhere.
+        # WHY empty intent: build() requires a complete expression around a source list.
+        # This wrapper is inspected only, never evaluated or published.
+        # URL4 ignores empty source slots (for example a trailing comma) before parsing.
+        context = ",".join(filter(str.strip, split_top_level_commas(node.context)))
+        templates = (f"({context})!''",)
+    for template in templates:
+        if not template:
+            continue
+        try:
+            yield build(template)
+        except ParseError:
+            # WHY: unresolved iteration templates and free-prose contexts may be legal at
+            # runtime without being parseable here; do not invent routes from that text.
+            continue
 
 
 EMPTY_BENCHMARKS = BenchmarkRegistry()

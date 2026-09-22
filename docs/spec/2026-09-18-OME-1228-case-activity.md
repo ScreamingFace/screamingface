@@ -14,3 +14,11 @@ Activity-to-result identity joins compare `str(case_id)` on both sides. URL4 tem
 ## Selected-case numbering — 2026-09-18
 
 The shared protocol selection resolves the requested prefix once and annotates each selected row with one-based position and selected total. Candidate builders carry these as optional envelope fields, removed before model input. Scope isolates them per run and case. Position/count are both present or both absent, positive integers with position <= count. Model activity publishes safe scalar fields case_position and case_count; Client displays [Case n/N], falling back to Case ID. No role attribution or guessed ordinals.
+
+## Review fix — validate selector dataset dependencies (2026-09-22)
+
+The selected-cases wrapper must preserve installation-time validation of its dataset route.
+Registry route discovery must inspect parseable local-call context source lists, including nested
+calls, while retaining URL4's prose/holdings fallback and ignoring quoted text and remote-call
+contexts. A missing literal dataset route fails registration before evaluation. Valid datasets,
+selection order, expression fingerprints, prompts and scores remain unchanged.
