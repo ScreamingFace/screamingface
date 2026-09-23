@@ -6,6 +6,16 @@ metadata:
     {{- include "screamingface-engine.labels" . | nindent 4 }}
 data:
   # Keys are the URL4_CLOUD_*-prefixed env consumed by screamingface_engine.config.Settings.
+  #
+  # The one exception, deliberately: this is read by `logs.configure()` and not by `Settings`
+  # (OME-942). Logging is installed BEFORE anything reads config, because a failure while
+  # building `Settings` is exactly the failure whose log line the operator needs.
+  #
+  # INVARIANT: rendered here AND in `configmap-runner-env.yaml` from the SAME value. Both
+  # halves run `screamingface_engine` code through `cli.main`; a level reaching only the App
+  # would leave the worker pods — the ones carrying a run's log context (OME-1069) — at INFO
+  # while the operator believes the whole deployment is at DEBUG.
+  URL4_CLOUD_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   URL4_CLOUD_NATS_URL: {{ include "screamingface-engine.natsUrl" . | quote }}
   URL4_CLOUD_IAT_WINDOW_S: {{ .Values.config.iatWindowS | quote }}
   URL4_CLOUD_SYNC_MAX_WAIT_S: {{ .Values.config.syncMaxWaitS | quote }}

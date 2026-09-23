@@ -17,6 +17,7 @@ from nats.js.errors import APIError, BadRequestError, NotFoundError
 from pydantic import ValidationError
 
 from screamingface_engine import subjects
+from screamingface_engine.readiness import StreamNotReadyError
 from screamingface_engine.subjects import owns_stream, stream_for, subject_for, topic_of
 from url4.streaming.codec import decode, encode
 from url4.streaming.interfaces import (
@@ -36,6 +37,17 @@ Stated here rather than left to nats-py's default of 4000 because it is the memo
 module PROMISES, not an incidental library setting. It is also the whole stall defence: an
 unreachable broker fills this window, `publish` then blocks, the Runner's drain stops, and its
 event bridge fails at its own hard cap — bounded, and loudly.
+"""
+
+
+READINESS_DIAL_TIMEOUT_S = 3.0
+"""How long `check_ready` may spend establishing a connection before it answers NOT READY.
+
+Sized BELOW the chart's `readinessProbe.timeoutSeconds` (5s) on purpose: the App must decide
+and answer while the kubelet is still listening. If the kubelet times out first the handler is
+NOT cancelled — Starlette has no way to — and the probes stack up on `_connect_lock` for the
+duration of the outage. Answering "not ready" early is free: the next probe is `periodSeconds`
+away and a slow dial is indistinguishable from an unreachable broker to everything downstream.
 """
 
 
@@ -182,6 +194,58 @@ class _JetStreamConnection:
         """
         nc = self._nc
         return nc is not None and nc.is_closed
+
+    async def check_ready(self) -> None:
+        """Report whether THIS binding can reach its broker (OME-942); raise if it cannot.
+
+        Serves `/readyz`, which the chart's readinessProbe targets. A pod whose own NATS
+        connection is dead cannot bridge a run's frames, so it should leave the Service's
+        endpoints rather than stay in rotation.
+
+        SCOPE, stated exactly (review round 2): this reports on the connection the object it is
+        called on owns, and on nothing else. `app.state.stream` is the JetStream CONSUMER, so
+        `/readyz` covers the App's frame bridge. The queue runner (`QueueJobRunner`) holds
+        SEPARATE connections — `RunQueue`, `JetStreamPublisher`, `ControlClient` — and is not
+        probed here. Widening the probe to those would widen the blast radius of a broker
+        outage, which is an availability trade the owner has not signed off (ledger D7).
+
+        WHY `is_connected` and NOT `_is_closed`: nats-py keeps the client object alive and
+        retrying for its whole reconnect budget, and only then marks it closed. `is_closed`
+        alone therefore reports READY throughout an outage — the entire window the probe
+        exists to cover.
+
+        WHY no `account_info()` round trip: a kubelet probes every `periodSeconds` forever, so
+        an RPC here would put a broker round trip on that timer for every pod of every
+        deployment. `Client` already maintains this state; reading it is the cheap, honest
+        check.
+
+        WHY the dial is BOUNDED (review round 2): `_jetstream()` dials when `_js` is None or
+        the cached client is closed — exactly the outage the probe exists for — and nats-py
+        retries `max_reconnect_attempts` servers, `reconnect_time_wait` apart, before raising
+        `NoServersError`. Unbounded, one probe parks far past the kubelet's `timeoutSeconds`;
+        Starlette does not cancel the handler when the kubelet gives up, so the next probe
+        queues on `_connect_lock` behind it and pending handlers accumulate for the whole
+        outage — on the loop that pumps every WebSocket. `wait_for` cancels the dial, which
+        unwinds `async with self._connect_lock` and leaves the next probe its own budget.
+
+        INVARIANT: every transport failure is translated into `StreamNotReadyError`, whose
+        message is a FIXED literal. It reaches an unauthenticated caller through `/readyz`, so
+        neither `self._url` (free-form operator input; `nats://user:pass@host` is the standard
+        nats-py auth form) nor the broker's own exception text may appear in it. The detail is
+        chained as `__cause__` and logged by `stream_readiness`, server-side.
+        """
+        try:
+            await asyncio.wait_for(self._jetstream(), timeout=READINESS_DIAL_TIMEOUT_S)
+        except TimeoutError as exc:
+            raise StreamNotReadyError("event stream broker dial timed out") from exc
+        except (OSError, NatsError) as exc:
+            raise StreamNotReadyError("event stream broker is unreachable") from exc
+        nc = self._nc
+        # A missing client is NOT unready, for the same reason `_is_closed` says so: a
+        # `JetStreamContext` can be supplied without going through `nats.connect`, and calling
+        # that down would report a live injected context as an outage.
+        if nc is not None and not nc.is_connected:
+            raise StreamNotReadyError("event stream broker is not connected")
 
     async def ensure_stream(self, topic: str) -> None:
         # WHY: `add_stream` on an existing stream is a round trip that ends in BadRequestError,

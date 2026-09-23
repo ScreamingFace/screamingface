@@ -34,6 +34,11 @@
     "config": {
       "type": "object",
       "properties": {
+        "logLevel": {
+          "type": "string",
+          "enum": ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+          "description": "The level the screamingface_engine logger tree runs at (OME-942), rendered to BOTH the App and the runner pool as URL4_CLOUD_LOG_LEVEL. Constrained to the names logging.Logger.setLevel resolves: an unknown name raises inside the handler install at boot, so the pod crashloops with a traceback naming the logging module rather than the values file."
+        },
         "activityLevel": {"type": "string", "enum": ["off", "full"]},
         "natsUrl": {
           "type": "string",

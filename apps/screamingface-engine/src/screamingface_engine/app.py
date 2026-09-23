@@ -38,9 +38,11 @@ if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotat
 
 from screamingface_engine.connections import build_connections
 from screamingface_engine.connections.port import Connections
+from screamingface_engine.logs import configure as configure_logging
 from screamingface_engine.metrics import (
     MetricsMiddleware,
     build_metrics,
+    register_active_runs_metrics,
     register_catalog_metrics,
     register_max_deliveries_metrics,
     register_queue_metrics,
@@ -101,6 +103,20 @@ def create_app(
     All keyword-only params are DI seams: production wiring supplies real adapters via
     `create_app_from_env`, tests inject fakes/mocks directly.
     """
+    # FEATURE (OME-942): every ASGI entry keeps app logging, not just `cli.main`.
+    #
+    # WHY here and not only in the CLI: `uvicorn.run()` installs handlers for the `uvicorn*`
+    # loggers ONLY, so a `screamingface_engine` record falls through to `logging.lastResort`
+    # and is discarded below WARNING — the regression `logs.py`'s docstring documents. Any
+    # other ASGI host (`uvicorn screamingface_engine.app:create_app_from_env`, an embedding
+    # process, a test harness) reproduced it in full. `create_app` is the one door they all go
+    # through.
+    #
+    # INVARIANT: `configure` is idempotent about ITS OWN handler, so the CLI's call followed by
+    # this one installs exactly one, and a process that builds two Apps does not double every
+    # line. FIRST statement in the builder, because a failure while building `Settings` below
+    # is precisely the failure whose log line the operator needs.
+    configure_logging()
     settings = settings or Settings()
     app = FastAPI(title="screamingface-engine", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.settings = settings
@@ -125,10 +141,7 @@ def create_app(
     # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
     # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
     _install_artifact_sweeper(app, app.state.artifact_store, settings)
-    # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
-    # every /metrics scrape rather than capturing the value built here.
-    register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
-    _register_runner_metrics(app)
+    _register_metrics(app)
     app.add_middleware(MetricsMiddleware)
     app.state.registry = ConnectionRegistry()
     app.state.interest = interest if interest is not None else app.state.registry
@@ -147,6 +160,17 @@ def create_app(
     return app
 
 
+def _register_metrics(app: FastAPI) -> None:
+    """Every custom collector this App exposes, in one place.
+
+    WHY getters throughout, never the built value: each collector re-reads `app.state` at
+    SCRAPE time, so a series reflects the App as it is rather than as it was at boot, and
+    /metrics never depends on wiring order.
+    """
+    register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
+    _register_runner_metrics(app)
+
+
 def _register_runner_metrics(app: FastAPI) -> None:
     """The queue's own signals (depth, oldest-unclaimed age) and the max-deliveries advisories
     (OME-1092). Registered unconditionally via getters, like the reaper's: a stream-only App
@@ -154,6 +178,10 @@ def _register_runner_metrics(app: FastAPI) -> None:
     order."""
     register_queue_metrics(app.state.metrics, lambda: app.state.job_runner)
     register_max_deliveries_metrics(app.state.metrics, lambda: app.state.max_deliveries_advisor)
+    # FEATURE (OME-942): runs in flight in THIS process — the admission gate's own input, and
+    # until now a number only the code enforcing it could see. Through a getter like the rest,
+    # so it is read at SCRAPE time rather than captured at boot.
+    register_active_runs_metrics(app.state.metrics, lambda: app.state.job_runner)
 
 
 # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.
