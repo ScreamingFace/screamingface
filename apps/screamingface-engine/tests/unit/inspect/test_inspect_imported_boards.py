@@ -215,6 +215,21 @@ def test_hellaswag_pin_tracks_upstreams_own_revision_constant() -> None:
     assert HELLASWAG_DATASET_REVISION == UPSTREAM
 
 
+def test_choice_shuffle_seed_rides_exam_identity() -> None:
+    """OME-1264: the pinned choice order is part of the exam a candidate sits —
+    a re-import that gains or loses the choice-shuffle seed cannot keep the
+    board's revision identity."""
+
+    from dataclasses import replace
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    pins = _revision_pins(replace(SNAPSHOTS["mmlu"], choice_shuffle_seed=7))
+    assert "choice_shuffle_seed=7" in pins
+    # And a board without one carries no such pin (the field is conditional).
+    assert not any(p.startswith("choice_shuffle_seed=") for p in _revision_pins(SNAPSHOTS["mmlu"]))
+
+
 def test_system_message_pointer_rides_exam_identity() -> None:
     """Review finding on PR #1018: adding or dropping the leading instruction
     changes the exam a candidate sits, so the pointer must move the board's

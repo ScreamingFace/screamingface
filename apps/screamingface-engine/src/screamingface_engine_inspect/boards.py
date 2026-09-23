@@ -515,6 +515,11 @@ def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
     ]
     if snapshot.shuffle_seed is not None:
         pins.append(f"shuffle_seed={snapshot.shuffle_seed}")
+    if snapshot.choice_shuffle_seed is not None:
+        # WHY: the pinned per-case choice order changes the exam a candidate
+        # sits (and the letter that grades correct), so the seed rides exam
+        # identity exactly like the row-shuffle seed (OME-1264).
+        pins.append(f"choice_shuffle_seed={snapshot.choice_shuffle_seed}")
     if snapshot.system_message is not None:
         # WHY: adding or dropping the leading instruction changes the exam a
         # candidate sits, so the pointer rides exam identity. (The template

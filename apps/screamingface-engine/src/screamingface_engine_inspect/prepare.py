@@ -174,6 +174,12 @@ class SnapshotSpec:
     #: as ``prompt_template``.
     system_message: str | None = None
     shuffle_seed: int | None = None
+    #: Pins one per-case CHOICE order for an eval whose hf_dataset call shuffles
+    #: choices (shuffle_choices) — applied via inspect's own
+    #: ``MemoryDataset.shuffle_choices``, so the baked order is exactly what the
+    #: eval family produces for this seed. The pinned order is exam identity
+    #: (it rides the board's revision pins). OME-1264.
+    choice_shuffle_seed: int | None = None
 
 
 #: Every imported board's bake. Importing another eval = one more entry here
@@ -493,13 +499,16 @@ def emit_snapshot(
                   and a wrong-sized dataset (the pinned case count is, too).
         Stage 2 — shuffle when the spec pins a seed (the baked order is exam identity).
         Stage 3 — per row: the eval's ``record_to_sample`` builds the Sample; any raise
-                  fails the bake by case number. The Sample then crosses the one
-                  validated boundary (non-empty input/target, target letter within the
-                  choices for MCQ boards).
-        Stage 4 — render the prompt from the Sample's own shape: choices → the MCQ
-                  formatter; a template reference → its substitution; neither → the
-                  raw input.
-        Stage 5 — write the booklet (prompts only) and the private targets.
+                  fails the bake by case number.
+        Stage 4 — shuffle each Sample's CHOICE order when the spec pins a choice seed,
+                  via inspect's own ``MemoryDataset.shuffle_choices`` over the WHOLE
+                  dataset at once — upstream draws every case's permutation from one
+                  random stream, so a per-case shuffle would pin a different exam.
+        Stage 5 — per Sample: cross the one validated boundary (non-empty input/target,
+                  target letter within the choices for MCQ boards), then render the
+                  prompt from the Sample's own shape: choices → the MCQ formatter; a
+                  template reference → its substitution; neither → the raw input.
+        Stage 6 — write the booklet (prompts only) and the private targets.
 
     Args:
         spec: the board's bake declaration.
@@ -523,16 +532,12 @@ def emit_snapshot(
     ordered: list[dict[str, Any]] = list(rows)
     if spec.shuffle_seed is not None:
         random.Random(spec.shuffle_seed).shuffle(ordered)
+    samples: list[Sample] = _converted_samples(ordered, record_to_sample)
+    if spec.choice_shuffle_seed is not None:
+        _shuffle_choices(samples, spec.choice_shuffle_seed)
     cases: list[dict[str, Any]] = []
     targets: dict[int, dict[str, Any]] = {}
-    for case_id, row in enumerate(ordered, start=1):
-        try:
-            sample: Sample = record_to_sample(row)
-        except Exception as exc:  # noqa: BLE001 — WHY broad: the conversion is eval
-            # code over an untrusted row; ANY raise must fail the bake by case number.
-            raise PrepareError(
-                f"case {case_id}: record_to_sample refused the row ({type(exc).__name__}: {exc})"
-            ) from exc
+    for case_id, sample in enumerate(samples, start=1):
         target, choices = _validated_target(sample, case_id)
         input_text: str = _prompt(sample, choices, template, choice_template)
         if system_text is not None:
@@ -553,6 +558,35 @@ def emit_snapshot(
             {"target": target} if choices is None else {"target": target, "choices": choices}
         )
     return _emit(cases, targets, out, dataset_revision=spec.dataset_revision)
+
+
+def _converted_samples(ordered: list[dict[str, Any]], record_to_sample: Any) -> list[Sample]:
+    """Stage 3 — every row through the eval's own conversion, failing by case number."""
+
+    samples: list[Sample] = []
+    for case_id, row in enumerate(ordered, start=1):
+        try:
+            samples.append(record_to_sample(row))
+        except Exception as exc:  # noqa: BLE001 — WHY broad: the conversion is eval
+            # code over an untrusted row; ANY raise must fail the bake by case number.
+            raise PrepareError(
+                f"case {case_id}: record_to_sample refused the row ({type(exc).__name__}: {exc})"
+            ) from exc
+    return samples
+
+
+def _shuffle_choices(samples: list[Sample], seed: int) -> None:
+    """Stage 4 — pin each case's choice order with inspect's OWN shuffle, in place.
+
+    WHY the whole dataset at once: ``MemoryDataset.shuffle_choices`` draws every
+    sample's permutation (and target-letter remap) from ONE ``random.Random(seed)``
+    stream, so each case's order depends on its position — shuffling per case
+    would bake a different exam than the eval family produces for this seed.
+    """
+
+    from inspect_ai.dataset import MemoryDataset
+
+    MemoryDataset(samples).shuffle_choices(seed=seed)
 
 
 def _resolved_system_text(spec: SnapshotSpec) -> str | None:
