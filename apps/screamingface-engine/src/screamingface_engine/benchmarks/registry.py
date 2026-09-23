@@ -72,6 +72,11 @@ def _data_routes(node: Url4Node) -> frozenset[str]:
     WHY read privately: `processor_routes()` lists endpoints only, and `Url4Node` publishes no
     accessor for its data table — widening the engine's API is outside this landing's boundary.
     Degrades to the endpoint-only check rather than rejecting a valid Benchmark.
+
+    FX-55: this is the ONE data-route accessor. `world.serving.node_mount_paths` imports it
+    rather than keeping its own copy of the same private reach — `benchmarks` is a shared leaf
+    (`.claude/scripts/check_layering.py`) both the world and the run mode may import, so the
+    accessor lives here rather than in `world`, which a shared leaf may not import.
     """
 
     return frozenset(getattr(node, "_data", {}))

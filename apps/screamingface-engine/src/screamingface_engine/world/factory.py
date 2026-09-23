@@ -33,6 +33,7 @@ from screamingface_engine.world.config import (
     ModelSpec,
     WorldConfig,
     WorldConfigError,
+    _shelf_label,
     extra_model_ids,
     load_config,
     routes_for,
@@ -84,12 +85,18 @@ def deny_by_default_world() -> IOLayer:
 def _bare_read_side_world(resolved: WorldConfig) -> Url4Node:
     """A read-side-only declaration becomes a bare node — not a deny-by-default layer.
 
+    WHY ``outbound=StaticIOLayer()`` (FX-51): a read-side-only declaration has no ``[aigateway]``
+    table, so nothing on this node should ever reach an absolute URL. Leaving ``outbound``
+    unset would make ``Url4Node`` create and OWN an httpx adapter lazily — an ``https://`` fetch
+    would then silently succeed, exactly the outbound access the operator never declared.
+    ``StaticIOLayer`` denies every absolute target instead, the same deny-by-default posture
+    :func:`deny_by_default_world` gives a world with no read-side mounts either.
+
     WHY the same ``ValueError`` → ``WorldConfigError`` translation as the aigateway branch in
-    :func:`build_world` and no aclose: a registration failure must surface as ``WorldConfigError``
-    whichever branch declared the mounts (a bare read-side node owns nothing to close yet —
-    failing the build IS the cleanup).
+    :func:`build_world`: a registration failure must surface as ``WorldConfigError`` whichever
+    branch declared the mounts.
     """
-    node = Url4Node("world")
+    node = Url4Node("world", outbound=StaticIOLayer())
     try:
         register_read_side_mounts(node, resolved)
     except ValueError as exc:
@@ -134,7 +141,11 @@ async def build_world(
         # WHY a bare node: a [data]/[holdings]/[identities]-only declaration must still become a
         # mount (F3, prd/02 AC1). Returning the deny-by-default layer here would drop the operator's
         # declaration in silence — the exact failure AC3 rejects for command providers.
-        return _bare_read_side_world(resolved), None
+        # WHY `node.aclose` and not `None` (FX-51): the node owns an `outbound=StaticIOLayer()`
+        # like every other world this factory returns; a `None` teardown here was the one path
+        # that skipped closing a node this factory built, for no reason tied to what it owns.
+        node = _bare_read_side_world(resolved)
+        return node, node.aclose
     # WHY: no credential check here; aigateway runs `cloudflare_headers` when deployed and
     # `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to demand.
     # Identity is forwarded when present and simply absent locally, where every caller is
@@ -285,10 +296,6 @@ def _log_declared_shelves(config: WorldConfig) -> None:
                 name,
                 _shelf_label(collection),
             )
-
-
-def _shelf_label(collection: str | None) -> str:
-    return "default" if collection is None else repr(collection)
 
 
 __all__ = [

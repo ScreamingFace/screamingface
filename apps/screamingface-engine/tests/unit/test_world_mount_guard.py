@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 import pytest
 
@@ -30,9 +32,11 @@ from screamingface_engine.world.models.registry import (
 )
 from screamingface_engine.world.serving import (
     MountCollisionError,
+    NodeMountRoute,
     check_mount_collisions,
     compose_serving_world,
     engine_route_paths,
+    install_node_route,
     node_eval_path,
 )
 from url4.peer.server import Url4Node
@@ -181,3 +185,123 @@ def test_deny_by_default_world_composes_without_a_node_to_guard() -> None:
 
     io = deny_by_default_world()
     check_mount_collisions(io, _engine_routes())
+
+
+# --- FX-50: a Starlette `Mount` route shadows its whole subtree, not just its bare path -----------
+
+
+@pytest.mark.asyncio
+async def test_a_static_mount_shadows_every_path_under_it() -> None:
+    """``/diagrams`` is a real Starlette ``Mount`` (StaticFiles): it is a FULL match for its own
+    path AND everything under ``path + "/"`` — a literal-route comparison would miss the
+    subtree entirely, because FastAPI's route table for a ``Mount`` never lists ``/diagrams/foo``
+    as its own route (FX-50, U2-1)."""
+
+    config = _config('[data]\n"/diagrams/foo" = { value = "shadowed" }\n')
+    with pytest.raises(MountCollisionError) as excinfo:
+        await compose_serving_world(env={}, engine_routes=_engine_routes(), config=config)
+    assert "/diagrams" in str(excinfo.value)
+
+
+def test_engine_route_paths_ignores_the_node_mount_route() -> None:
+    """``NodeMountRoute`` (B2, unit 3) is the node's own surface, not an engine route — it has
+    neither ``.path`` nor ``.original_router``, so the walker must not surface its paths."""
+
+    app = create_app()
+
+    async def _app(scope, receive, send) -> None:  # pragma: no cover - never invoked
+        raise AssertionError("not called")
+
+    install_node_route(
+        app, NodeMountRoute(_app, paths=lambda: frozenset({"/some/node/path"}), name="node")
+    )
+
+    derived = engine_route_paths(app)
+    assert "/some/node/path" not in derived
+
+
+# --- FX-54 (AC5): the collision message names both sides, even for a method-only overlap ----------
+
+
+@pytest.mark.asyncio
+async def test_a_get_only_engine_route_collision_names_both_the_mount_and_the_route() -> None:
+    """``/healthz`` is a GET-only engine route. A ``[data]`` mount at the same path is answered
+    by the engine route for GET, so the message must not claim the mount "never" answers."""
+
+    config = _config('[data]\n"/healthz" = { value = "shadowed", media_type = "text/plain" }\n')
+    with pytest.raises(MountCollisionError) as excinfo:
+        await compose_serving_world(env={}, engine_routes=_engine_routes(), config=config)
+
+    message = str(excinfo.value)
+    assert "/healthz" in message
+    assert "never" not in message.lower(), message
+
+
+@pytest.mark.asyncio
+async def test_the_parameterised_route_name_appears_in_the_collision_message() -> None:
+    """AC5: the message names the SHADOWING route, not just the mount it shadows."""
+
+    config = _config('[data]\n"/artifacts/foo" = { value = "shadowed" }\n')
+    with pytest.raises(MountCollisionError) as excinfo:
+        await compose_serving_world(env={}, engine_routes=_engine_routes(), config=config)
+
+    message = str(excinfo.value)
+    assert "/artifacts/foo" in message
+    assert "/artifacts/{artifact_id}" in message, message
+
+
+# --- FX-52: mounts are guarded against each other too --------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_data_route_equal_to_a_declared_model_route_is_rejected() -> None:
+    """A ``[data]`` mount at the same path as a declared model route collides on the SAME node —
+    url4's own ``Url4Node._check_routable`` already refuses the duplicate registration; this pins
+    that it surfaces as the engine's own ``WorldConfigError``, not a raw ``ValueError`` (FX-52)."""
+    from screamingface_engine.world.config import WorldConfigError
+
+    config = _config(_AIGATEWAY + '\n[data]\n"/m" = { value = "shadowed" }\n')
+    with pytest.raises(WorldConfigError) as excinfo:
+        async with httpx.AsyncClient() as client:
+            await compose_serving_world(
+                env={}, engine_routes=_engine_routes(), config=config, client=client
+            )
+    assert "/m" in str(excinfo.value)
+
+
+def test_a_data_route_under_the_eval_path_is_rejected() -> None:
+    """``{eval_path}/…`` is url4's reserved self-holdings qualifier namespace (spec §5.6.3.1,
+    mirrored from ``url4.cli._config.ServeConfig.validate``) — a data mount there would shadow
+    every ``@`` qualifier below it (FX-52)."""
+    from screamingface_engine.world.config import WorldConfigError
+
+    with pytest.raises(WorldConfigError) as excinfo:
+        _config(_AIGATEWAY + '\n[data]\n"/v1/science" = { value = "shadowed" }\n')
+    message = str(excinfo.value)
+    assert "/v1/science" in message
+    assert "/v1" in message
+
+
+# --- FX-57: a holdings collection colliding with an engine literal route WARNS, not fails --------
+
+
+@pytest.mark.asyncio
+async def test_a_holdings_collection_matching_an_engine_route_segment_warns(caplog) -> None:
+    """``models`` collides with the real engine route ``/v1/models`` — ``/v1/models?q=(@)`` is
+    then answered by the engine, not the ``models`` shelf. That is a narrow shadow (one query
+    form under one literal path), so the guard warns rather than fails startup (FX-57)."""
+
+    config = _config(_AIGATEWAY + '\n[holdings]\nmodels = { value = "shadowed shelf" }\n')
+    with caplog.at_level(logging.WARNING, logger="screamingface_engine.world.serving"):
+        async with httpx.AsyncClient() as client:
+            io, aclose = await compose_serving_world(
+                env={}, engine_routes=_engine_routes(), config=config, client=client
+            )
+    try:
+        assert isinstance(io, Url4Node)
+    finally:
+        if aclose is not None:
+            await aclose()
+
+    assert "models" in caplog.text
+    assert "/v1/models" in caplog.text

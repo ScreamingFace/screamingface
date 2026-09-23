@@ -307,39 +307,91 @@ def _parse_read_side(
         identities = _toml_identity_map(raw.get("identities"))
     except Url4ConfigError as exc:
         raise WorldConfigError(f"invalid world config: {exc}") from exc
-    _reject_command_backed_read_side(data, holdings, identities)
+    _reject_disallowed_read_side_providers(data, holdings, identities)
+    _reject_data_under_eval_path(data)
     return data, holdings, identities
 
 
-def _reject_command_backed_read_side(
+ALLOWED_PROVIDER_KINDS = ("value", "file")
+"""The only read-side provider kinds the node tier may register (FX-53).
+
+WHY an allowlist and not a ``command`` denylist: a denylist admits any kind url4 adds later BY
+DEFAULT, while an allowlist admits nothing the node tier cannot serve un-sandboxed until this
+tuple says so. ``command`` is today's only excluded kind — url4's ``_provide`` runs
+``asyncio.create_subprocess_exec`` for it regardless of the mount kind (``cli/_serve.py``), the
+same unsandboxed exec surface ``[commands]`` is rejected for — but a future provider kind is
+refused by the same rule with no code change needed here. Both the check
+(:func:`_reject_disallowed_read_side_providers`) and its error message read this ONE tuple, so
+they cannot drift apart.
+"""
+
+
+def _provider_kind(spec: ProviderSpec) -> str:
+    """The one source url4's ``_as_provider`` (``url4.cli._config``) guarantees is set."""
+    if spec.value is not None:
+        return "value"
+    if spec.file is not None:
+        return "file"
+    return "command"
+
+
+def _reject_disallowed_read_side_providers(
     data: Mapping[str, ProviderSpec],
     holdings: Mapping[str | None, ProviderSpec],
     identities: Mapping[str, Mapping[str | None, ProviderSpec]],
 ) -> None:
-    """Refuse a command-backed read-side provider — an exec mount the node tier cannot sandbox.
+    """Refuse a read-side provider whose kind is not in :data:`ALLOWED_PROVIDER_KINDS` (FX-53).
 
     WHY reject rather than skip: a skipped mount becomes a production 404 with no explanation,
-    while this names each offending declaration so the operator fixes it.
+    while this names each offending declaration, and its kind, so the operator fixes it.
 
     WHY every read-side section and not just ``[data]``: D2's table restricts only ``[data]``,
-    but a ``command`` provider is an exec surface wherever it is declared. url4's ``_provide``
-    runs ``asyncio.create_subprocess_exec`` for a command source regardless of the mount kind
-    (``cli/_serve.py``), so a ``[holdings]``/``[identities]`` command is the same unsandboxed
-    subprocess on the same network-reachable node tier that F3 rejects for ``[commands]``. R12
-    (test-plan §2) names a command-backed provider explicitly; resolving the spec inconsistency
-    in R12's direction is what keeps its mitigation true.
+    but a disallowed provider is an exec surface wherever it is declared, so a
+    ``[holdings]``/``[identities]`` command is the same unsandboxed subprocess on the same
+    network-reachable node tier that F3 rejects for ``[commands]``. R12 (test-plan §2) names a
+    command-backed provider explicitly; resolving the spec inconsistency in R12's direction is
+    what keeps its mitigation true.
     """
     offenders = sorted(
-        label
+        (label, kind)
         for label, spec in _read_side_providers(data, holdings, identities)
-        if spec.command is not None
+        if (kind := _provider_kind(spec)) not in ALLOWED_PROVIDER_KINDS
     )
     if not offenders:
         return
+    named = [f"{label} ({kind!r})" for label, kind in offenders]
+    allowed = " or ".join(repr(kind) for kind in ALLOWED_PROVIDER_KINDS)
     raise WorldConfigError(
-        f"{offenders} use a 'command' provider — command-backed providers are exec mounts "
-        "with no sandbox on the node tier, so they are rejected in v1; declare a 'value' or "
-        "'file' provider instead"
+        f"{named} do not use an allowed provider kind — only {allowed} providers may be "
+        "declared on the node tier; a command-backed provider is an exec mount with no sandbox"
+    )
+
+
+_EVAL_PATH = "/v1"
+"""The engine's node eval path — never overridden (see ``world.serving``'s module INVARIANT:
+every ``Url4Node`` the engine builds keeps url4's own default). Mirrors ``url4.cli._config``'s
+``ServeConfig.eval_path`` default of the same value."""
+
+
+def _reject_data_under_eval_path(data: Mapping[str, ProviderSpec]) -> None:
+    """Reject a ``[data]`` route under the eval path's self-holdings qualifier namespace (FX-52).
+
+    WHY: mirrors url4's own pre-bind rule, ``url4.cli._config.ServeConfig.validate`` —
+    ``{eval_path}/…`` is reserved for self-holdings qualifiers (spec §5.6.3.1;
+    ``GET /v1/science?q=(@)!'…'`` scopes ``@`` to the "science" shelf), and endpoints match
+    first in dispatch, so a data route there would shadow every qualifier below it. That
+    ``validate()`` cannot be called directly here: it requires a fully assembled
+    ``ServeConfig`` (non-empty ``commands`` among other fields), which the engine's
+    ``[data]``-only declarations never have — so the one relevant rule is replicated, not
+    reused.
+    """
+    prefix = f"{_EVAL_PATH}/"
+    shadowed = sorted(path for path in data if path.startswith(prefix))
+    if not shadowed:
+        return
+    raise WorldConfigError(
+        f"[data] routes {shadowed} live under the eval path {_EVAL_PATH!r}, which is reserved "
+        "for self-holdings qualifiers (@ collections) — mount them elsewhere"
     )
 
 
@@ -356,13 +408,18 @@ def _read_side_providers(
     for path, spec in data.items():
         yield f"[data] {path!r}", spec
     for collection, spec in holdings.items():
-        yield f"[holdings] {_shelf_name(collection)}", spec
+        yield f"[holdings] {_shelf_label(collection)}", spec
     for name, shelves in identities.items():
         for collection, spec in shelves.items():
-            yield f"[identities.{name}] {_shelf_name(collection)}", spec
+            yield f"[identities.{name}] {_shelf_label(collection)}", spec
 
 
-def _shelf_name(collection: str | None) -> str:
+def _shelf_label(collection: str | None) -> str:
+    """One label for a holdings/identity collection — the default shelf, or a named one.
+
+    FX-55: the ONE shelf-label helper. ``world.factory`` imports this rather than keeping its
+    own copy, so a shelf's log line and its config-error label can never say it differently.
+    """
     return "default" if collection is None else repr(collection)
 
 

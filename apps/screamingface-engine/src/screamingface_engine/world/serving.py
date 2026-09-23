@@ -23,6 +23,7 @@ between "precedence works" and "precedence silently ate the eval path".
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -31,13 +32,17 @@ import httpx
 from starlette._utils import get_route_path
 from starlette.applications import Starlette
 from starlette.datastructures import URLPath
-from starlette.routing import BaseRoute, Match, NoMatchFound, compile_path
+from starlette.routing import BaseRoute, Match, Mount, NoMatchFound, compile_path
 from starlette.types import Receive, Scope, Send
 
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
+from screamingface_engine.benchmarks.registry import _data_routes
 from screamingface_engine.world.config import WorldConfig, WorldConfigError
 from screamingface_engine.world.factory import World, build_world
 from screamingface_engine.world.wire import AsgiApp
+from url4.peer.server import Url4Node
+
+logger = logging.getLogger(__name__)
 
 
 class MountCollisionError(WorldConfigError):
@@ -62,6 +67,14 @@ def _iter_route_paths(routes: Iterable[object]) -> Iterator[str]:
         path = getattr(route, "path", None)
         if isinstance(path, str) and path:
             yield path
+            if isinstance(route, Mount):
+                # FX-50 (U2-1): a Mount is a FULL match for its own path AND every path under
+                # `path + "/"` (`Mount.path_regex` is compiled from exactly this pattern — see
+                # `Mount.__init__`). A literal-only comparison of `route.path` would miss the
+                # whole subtree a Mount actually serves (`/diagrams/foo` under `/diagrams`), so
+                # this yields the SAME pattern Starlette itself matches with, and `_route_matches`
+                # (below) needs no extra branch to honor it.
+                yield f"{path}/{{path:path}}"
             continue
         original = getattr(route, "original_router", None)
         if original is None:
@@ -76,18 +89,17 @@ def node_mount_paths(node: Any) -> frozenset[str]:
 
     Holdings and identity shelves are addressed as ``@``/``@name``, never as URL paths, so they
     cannot collide with a FastAPI route and are deliberately absent. ``processor_routes()`` is
-    the public endpoint accessor; the data table has no public one, so it is read privately —
-    the same reach ``benchmarks.registry._data_routes`` already makes, for the same reason
-    (Url4Node publishes no accessor and the engine does not own that API).
+    the public endpoint accessor; the data table has no public one, so it is read through
+    ``benchmarks.registry._data_routes`` — the ONE data-route accessor (FX-55) — rather than a
+    second private reach kept here.
+
+    FX-56: ``isinstance`` rather than duck typing. A non-``Url4Node`` layer (``StaticIOLayer``,
+    ``deny_by_default_world``) has no mounts to protect by construction, and checking the type
+    directly says so instead of relying on an object happening to expose the same method names.
     """
-    mounts: set[str] = set()
-    processor_routes = getattr(node, "processor_routes", None)
-    if processor_routes is not None:
-        mounts = set(processor_routes())
-    data = getattr(node, "_data", None)
-    if data:
-        mounts |= set(data)
-    return frozenset(mounts)
+    if not isinstance(node, Url4Node):
+        return frozenset()
+    return frozenset(node.processor_routes()) | _data_routes(node)
 
 
 def node_eval_path(node: Any, *, default: str = "/v1") -> str:
@@ -96,8 +108,15 @@ def node_eval_path(node: Any, *, default: str = "/v1") -> str:
     INVARIANT: the default here mirrors ``Url4Node.__init__``'s own default. A world with no
     mounts (``StaticIOLayer``) has no eval path to protect, but returning the default keeps the
     caller from branching on "is this a node" before every check.
+
+    FX-56: ``isinstance`` rather than duck typing, for the same reason as ``node_mount_paths``.
+    # WHY the private ``_eval_path`` read: ``Url4Node`` exposes no public eval-path accessor —
+    # widening its API is outside this landing's boundary, the same reasoning
+    # ``node_mount_paths`` already applies to the data table.
     """
-    return str(getattr(node, "_eval_path", default))
+    if not isinstance(node, Url4Node):
+        return default
+    return str(node._eval_path)
 
 
 def check_mount_collisions(node: Any, engine_routes: Iterable[str]) -> None:
@@ -120,6 +139,11 @@ def check_mount_collisions(node: Any, engine_routes: Iterable[str]) -> None:
         for route in routes:
             if _route_matches(route, mount):
                 raise MountCollisionError(_mount_message(route, mount))
+    if not isinstance(node, Url4Node):
+        # FX-56: a non-node layer (StaticIOLayer) has no eval path to protect — `node_eval_path`
+        # would answer the DEFAULT "/v1" for it, and checking that default against the engine's
+        # routes would be a check against a path this layer never actually claims.
+        return
     eval_path = node_eval_path(node)
     for route in routes:
         if _route_matches(route, eval_path):
@@ -128,6 +152,7 @@ def check_mount_collisions(node: Any, engine_routes: Iterable[str]) -> None:
                 f"{eval_path!r} request would be answered by the engine route instead of the "
                 "node. Rename the engine route or change the node's eval_path (prd/02 F4, AC6)."
             )
+    _warn_holdings_shadowed_by_engine_routes(node, routes, eval_path)
 
 
 def _route_matches(route_path: str, candidate: str) -> bool:
@@ -137,22 +162,71 @@ def _route_matches(route_path: str, candidate: str) -> bool:
     router the day a path converter appears (``{artifact_id:path}``), and the guard would then
     pass a mount the router silently eats. One matcher owns the semantics, so the guard and the
     router cannot drift (the same reason D3 delegates precedence to FastAPI at all).
+
+    FX-56: no ``except ValueError`` fallback. Every ``route_path`` this function ever receives
+    comes from a route Starlette already registered on the real App (`engine_route_paths`) —
+    Starlette itself would have failed AT REGISTRATION on a pattern ``compile_path`` cannot
+    parse, so a route reaching here has already been proven compilable; a fallback for that case
+    was dead code no test could reach honestly.
     """
-    try:
-        regex, _format, _convertors = compile_path(route_path)
-    except ValueError:
-        # An unparseable pattern is not a route FastAPI would serve; fall back to a literal
-        # comparison rather than crashing the guard on a route that cannot shadow anything.
-        return route_path == candidate
+    regex, _format, _convertors = compile_path(route_path)
     return regex.match(candidate) is not None
 
 
 def _mount_message(route: str, mount: str) -> str:
     return (
-        f"engine route {route!r} shadows the node mount {mount!r} — the mount would never "
-        "answer, because FastAPI resolves engine literal routes before the node's mount. "
-        "Rename the mount or the engine route; route precedence is silent (prd/02 F4, AC5)."
+        f"engine route {route!r} shadows the node mount {mount!r} — a request for one of the "
+        "engine route's own methods is answered by the engine route instead of the mount, "
+        "because FastAPI resolves engine literal routes before the node's mount. Rename the "
+        "mount or the engine route; route precedence is silent (prd/02 F4, AC5)."
     )
+
+
+def _warn_holdings_shadowed_by_engine_routes(
+    node: Url4Node, routes: tuple[str, ...], eval_path: str
+) -> None:
+    """Warn — never fail — when a ``[holdings]`` collection name equals an engine literal
+    route's last segment directly under the eval path (FX-57, U2-11).
+
+    Example: collection ``models`` versus the real engine route ``/v1/models``. The self-holdings
+    qualifier form ``/v1/models?q=(@)`` is then answered by the engine route instead of resolving
+    ``@models`` on this node. WHY warn and not raise: unlike a mount collision (nothing answers
+    the mount at all), the shadow here is narrow — one query form under one literal path — and
+    ``@models`` still resolves correctly from any OTHER expression, so it does not justify
+    failing startup the way :func:`check_mount_collisions`'s other checks do.
+    """
+    collections = _holdings_collection_names(node)
+    if not collections:
+        return
+    prefix = f"{eval_path}/"
+    for route in routes:
+        if not route.startswith(prefix):
+            continue
+        segment = route[len(prefix) :]
+        if not segment or "/" in segment or "{" in segment:
+            continue  # not a literal, single-segment route under the eval path
+        if segment in collections:
+            logger.warning(
+                "holdings collection %r collides with the engine literal route %r under the "
+                "eval path %r — %r is answered by the engine route, not the %r shelf "
+                "(prd/02 U2-11)",
+                segment,
+                route,
+                eval_path,
+                route,
+                segment,
+            )
+
+
+def _holdings_collection_names(node: Url4Node) -> frozenset[str]:
+    """Every NAMED ``[holdings]`` collection on ``node`` (the default shelf, keyed ``None``, is
+    excluded — it names no path segment to collide with).
+
+    WHY read privately: like ``node_mount_paths``'s data table, ``Url4Node`` publishes no
+    accessor for its holdings registry — widening the engine's API is outside this fix's scope.
+    """
+    holdings: Mapping[str | None, object] = getattr(node, "_self_holdings", {})
+    return frozenset(name for name in holdings if name is not None)
 
 
 async def compose_serving_world(

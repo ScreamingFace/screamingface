@@ -198,3 +198,79 @@ async def test_declared_shelves_are_logged_with_their_global_visibility(caplog) 
     assert "science" in text, text
     assert "alice" in text, text
     assert "EVERY caller of the sync surface" in text, text
+
+
+# --- FX-51: a read-side-only world (no [aigateway]) denies outbound and has a real teardown -------
+
+
+@pytest.mark.asyncio
+async def test_a_read_side_only_world_denies_outbound_and_its_teardown_closes_the_node() -> None:
+    """A ``[data]``-only declaration has no ``[aigateway]`` table, so nothing here may reach an
+    absolute URL — a lazily-created httpx adapter (``Url4Node``'s default when ``outbound`` is
+    omitted) would silently ALLOW that. The teardown must also be real, not ``None`` (FX-51)."""
+
+    config = _config('[data]\n"/corpus" = { value = "hello corpus" }\n')
+    io, aclose = await build_world(env={}, config=config)
+
+    with pytest.raises(ResolutionError):
+        await io.fetch("https://example.invalid/", relative=False)
+
+    assert aclose is not None
+    await aclose()  # the node's own aclose; must not raise
+
+
+# --- FX-58: `file` providers for holdings/identities, and the identity->default fallback ----------
+
+
+@pytest.mark.asyncio
+async def test_a_file_provider_is_read_per_request_for_a_holdings_shelf(tmp_path) -> None:
+    path = tmp_path / "shelf.txt"
+    path.write_text("from file", encoding="utf-8")
+    io, aclose = await _built_with(_AIGATEWAY + f'\n[holdings]\ndefault = {{ file = "{path}" }}\n')
+    holdings = cast(SupportsHoldings, io)
+
+    first = await holdings.fetch_holdings(None, None)
+    path.write_text("edited", encoding="utf-8")
+    second = await holdings.fetch_holdings(None, None)
+    if aclose is not None:
+        await aclose()  # type: ignore[operator]
+
+    assert first == "from file"
+    assert second == "edited"
+
+
+@pytest.mark.asyncio
+async def test_a_file_provider_is_read_per_request_for_an_identity_shelf(tmp_path) -> None:
+    path = tmp_path / "alice.txt"
+    path.write_text("alice from file", encoding="utf-8")
+    io, aclose = await _built_with(
+        _AIGATEWAY + f'\n[identities.alice]\ndefault = {{ file = "{path}" }}\n'
+    )
+    holdings = cast(SupportsHoldings, io)
+
+    first = await holdings.fetch_holdings("alice", None)
+    path.write_text("alice edited", encoding="utf-8")
+    second = await holdings.fetch_holdings("alice", None)
+    if aclose is not None:
+        await aclose()  # type: ignore[operator]
+
+    assert first == "alice from file"
+    assert second == "alice edited"
+
+
+@pytest.mark.asyncio
+async def test_an_identity_falls_back_to_its_own_default_for_an_undeclared_collection() -> None:
+    """``alice`` declares only her ``default`` shelf. A request for a collection she never
+    declared (``science``) falls back to HER default, not a global one and not an error — url4's
+    exact-then-default rule (``resolve_shelf``), which ``make_identity_handler`` applies (FX-58)."""
+
+    io, aclose = await _built_with(
+        _AIGATEWAY + '\n[identities.alice]\ndefault = { value = "alice default" }\n'
+    )
+    holdings = cast(SupportsHoldings, io)
+
+    result = await holdings.fetch_holdings("alice", "science")
+    if aclose is not None:
+        await aclose()  # type: ignore[operator]
+
+    assert result == "alice default"
