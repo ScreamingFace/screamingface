@@ -12,6 +12,7 @@ from screamingface._catalogue_vocabulary import (
 )
 from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.cards import (
+    ALL_CHIP_VALUE,
     benchmark_tier_sections_html,
     benchmarks_rows_html,
     catalog_empty_html,
@@ -187,9 +188,9 @@ class _BenchmarkCatalog(_Catalog[Benchmark]):
 
         def render() -> None:
             rows.value = self._facet_html(
-                difficulty_chips.value,
-                interaction_chips.value,
-                origin_chips.value,
+                _chip_filter(difficulty_chips.value),
+                _chip_filter(interaction_chips.value),
+                _chip_filter(origin_chips.value),
                 state["query"],
             )
 
@@ -240,9 +241,15 @@ class _BenchmarkCatalog(_Catalog[Benchmark]):
         return self._rows(visible)
 
 
+def _chip_filter(value: str) -> str | None:
+    """One chip pick → the filter it means: the All chip means 'no filter here'."""
+
+    return None if value == ALL_CHIP_VALUE else value
+
+
 def _origin_chip_options(
     values: Sequence[Benchmark],
-) -> tuple[tuple[str, str | None], ...]:
+) -> tuple[tuple[str, str], ...]:
     """(label, origin) pairs for the Origin chips — All first, our shelf next.
 
     WHY derived from the catalogue, not a fixed vocabulary: origin is an OPEN set by
@@ -259,7 +266,7 @@ def _origin_chip_options(
     if "screamingface" in seen:
         seen.remove("screamingface")
         seen.insert(0, "screamingface")
-    return (("All", None), *((origin_label(origin), origin) for origin in seen))
+    return (("All", ALL_CHIP_VALUE), *((origin_label(origin), origin) for origin in seen))
 
 
 def _any_tier(values: Sequence[Benchmark]) -> bool:

@@ -24,6 +24,7 @@ import httpx
 import pytest
 
 import screamingface as sf
+from screamingface._ui.cards import ALL_CHIP_VALUE
 
 LEADERBOARD_URL = "https://leaderboard.dev.screamingface.ai/"
 INSPECT_EVALS_URL = "https://ukgovernmentbeis.github.io/inspect_evals/"
@@ -204,7 +205,7 @@ def test_widget_renders_both_chip_rows_with_all_selected(
         "Multi-turn",
         "Agentic",
     ]
-    assert difficulty.value is None and interaction.value is None
+    assert difficulty.value == ALL_CHIP_VALUE and interaction.value == ALL_CHIP_VALUE
     bodies = _html_bodies(root)
     assert "gsm8k title" in bodies and "draco title" in bodies and "hle title" in bodies
 
@@ -266,9 +267,25 @@ def test_search_composes_with_the_chips_and_clearing_restores_the_map(
 
     # STORY: as a researcher I clear the filter and the whole map comes back.
     search.value = ""
-    _chip_group(root, "Difficulty:").value = None
+    _chip_group(root, "Difficulty:").value = ALL_CHIP_VALUE
     bodies = _html_bodies(root)
     assert "draco title" in bodies and "hle title" in bodies and "gsm8k title" in bodies
+
+
+def test_the_all_chip_is_a_real_value_never_the_no_selection_sentinel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WHY: ipywidgets treats value None as "no selection" — an All chip valued None
+    # filters correctly on click but the frontend clears every highlight, so All
+    # only turns active on a SECOND click (owner-reported). All must be a real
+    # selectable value on every axis row.
+    pytest.importorskip("ipywidgets")
+    root = _displayed_root(monkeypatch, _two_tier_handler())
+    for description in ("Difficulty:", "Interaction:", "Origin:"):
+        group = _chip_group(root, description)
+        values = [value for _, value in group.options]
+        assert None not in values
+        assert group.value == values[0]  # All selected — and highlightable — by default
 
 
 def test_the_listing_body_scrolls_instead_of_growing_the_cell(
@@ -313,7 +330,7 @@ def test_widget_renders_an_origin_chip_row_from_the_origins_present(
     root = _displayed_root(monkeypatch, _two_tier_handler())
     origin = _chip_group(root, "Origin:")
     assert [label for label, _ in origin.options] == ["All", "ScreamingFace", "inspect_evals"]
-    assert origin.value is None
+    assert origin.value == ALL_CHIP_VALUE
 
 
 def test_clicking_an_origin_chip_filters_but_keeps_the_map_shape(

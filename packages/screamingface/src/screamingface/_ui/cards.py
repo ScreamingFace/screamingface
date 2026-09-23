@@ -196,17 +196,28 @@ def interaction_label(interaction: str | None) -> str:
     return _INTERACTION_LABELS.get(interaction, interaction)
 
 
-def difficulty_chip_options() -> tuple[tuple[str, str | None], ...]:
+# The All chip's value on every axis row — meaning "no filter on this axis".
+# INVARIANT: a REAL value, never Python None — ipywidgets treats a None value as
+# "no selection" and clears every button highlight, so an All chip valued None
+# filters correctly on click but only LOOKS selected on a second click. No wire
+# vocabulary can collide: difficulty/interaction are closed sets without "all",
+# and an origin literally named "all" would shadow only its own chip label.
+ALL_CHIP_VALUE = "all"
+
+
+def difficulty_chip_options() -> tuple[tuple[str, str], ...]:
     """(label, wire value) pairs for the widget's Difficulty chips — All first.
 
-    FEATURE: clickable facet chips over the catalogue (OME-1257). ``None`` is the
-    All chip's value: no filter on this axis.
+    FEATURE: clickable facet chips over the catalogue (OME-1257).
     """
 
-    return (("All", None), *((tier_label(tier), tier) for tier in DECLARED_DIFFICULTY_TIERS))
+    return (
+        ("All", ALL_CHIP_VALUE),
+        *((tier_label(tier), tier) for tier in DECLARED_DIFFICULTY_TIERS),
+    )
 
 
-def interaction_chip_options() -> tuple[tuple[str, str | None], ...]:
+def interaction_chip_options() -> tuple[tuple[str, str], ...]:
     """(label, wire value) pairs for the widget's Interaction chips — All first.
 
     WHY the upcoming values appear: an "Agentic" chip over an empty lane teaches the
@@ -214,7 +225,7 @@ def interaction_chip_options() -> tuple[tuple[str, str | None], ...]:
     """
 
     values: tuple[str, ...] = (*DECLARED_INTERACTION_TYPES, *_UPCOMING_INTERACTIONS)
-    return (("All", None), *((interaction_label(value), value) for value in values))
+    return (("All", ALL_CHIP_VALUE), *((interaction_label(value), value) for value in values))
 
 
 def catalog_empty_html(message: str) -> str:
