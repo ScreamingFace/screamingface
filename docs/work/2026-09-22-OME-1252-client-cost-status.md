@@ -116,3 +116,62 @@ is not published (D3) and does not make a run `partial` on its own.
   6. **Two approved exceptions**, both granted 2026-09-22 after being shown exactly what each was:
      the payload key-set guard gains the string `"run_cost_status"` (a prior test on `origin/main`),
      and the public surface snapshot is regenerated per its own documented procedure.
+
+## Review round 1 (PR #1017, keelancj 2026-09-23)
+
+Two findings, both confirmed against the code before any fix, both mine.
+
+### F1 — the central invariant had NO regression protection
+
+The reviewer swapped `cache_saved_cost_usd` for `cache_saved_cost_archive_usd` in
+`_run_cost_status` — inverting the exact rule this unit carries three docstrings and a ticket
+decision (`OME-1251` D3) about — and reported 220 relevant tests still passing.
+
+**Reproduced, and it is worse: 1695 passed / 26 skipped.** The whole SDK suite is blind to it,
+at 95% coverage, with pyright and ruff clean.
+
+**This was a recorded acceptance criterion that was never met.** The plan's Step 1 named both
+cases:
+
+> 5. an unpriced run with a reported sum derives `partial`; the payload carries **no** amount
+> 6. an unpriced run with only an archive sum derives `unavailable` (§3.1)
+
+and this ledger's Risks section said *"§3.1 is the subtle rule. Archive-only evidence is
+`unavailable`, not `partial`. Easy to get backwards, **and a test pins it**."* No test pinned it.
+The nine original tests cover spans, accumulation, the structural no-third-field guard and the
+payload shape, but never run an unpriced `_RunOutcome` through the derivation with one sum set
+and not the other.
+
+Direct cost of deviation 2 above — tests written after the code rather than against a failing
+bar. A test written to follow working code confirms what the code does; it does not ask what the
+code should do.
+
+**Fixed.** Four tests added, driving `_run_cost_status` directly. Re-applying the swap now fails
+three of them from both directions: `partial` where `unavailable` is required, and the reverse.
+
+### F2 — the export silently destroyed the evidence
+
+`CandidateResult.to_dict()` listed 18 keys and `run_cost_status` was not among them, though
+`models`, `usage` and `answer_seed` all were.
+
+The consequence is worse than a missing field. `partial` and `unavailable` both carry a **null**
+cost, so a reader rebuilding the status from the amount collapses both to `unavailable` — the
+lower-bound evidence is gone, silently, and unrecoverable from the export alone. This SDK has
+report-driven paths (blessing replays, submitting from a saved report), so a lossy export is not
+cosmetic.
+
+**Fixed.** Always emitted, never conditional — an absent key and a null value would otherwise
+mean different things with nothing recording which. Two tests: every member survives the export,
+and a `partial` run exports as `partial` beside its null cost.
+
+### Gates
+
+`run_gates.py screamingface --base origin/main --skip-append-only` — ALL GREEN. 95% coverage.
+**15 tests** in `test_run_cost_status.py`, up from 9. The public surface snapshot did NOT move:
+adding a key to `to_dict`'s return does not change its signature.
+
+### Note on the review
+
+The reviewer found this with a mutation test rather than by reading the diff. Nothing else would
+have — pyright, ruff, 95% coverage and 1695 green tests all passed with the rule inverted.
+Recorded because the lesson is about the review method, not this unit.

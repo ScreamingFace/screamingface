@@ -326,6 +326,14 @@ class CandidateResult:
             "failures": [failure.to_dict() for failure in self.failures],
             "duration_ms": self.duration_ms,
             "usage": self.usage.to_dict(),
+            # INVARIANT (OME-1252): the status travels with the export or the export LOSES it.
+            # `partial` and `unavailable` both carry a null cost, so a reader reconstructing the
+            # status from the amount alone cannot tell them apart and collapses both to
+            # `unavailable` — destroying the one piece of evidence that says a real lower bound
+            # was known. Always emitted, never conditional: an absent key and a null value would
+            # then mean different things to a consumer, and nothing records which.
+            # Found in review of PR #1017 (keelancj, 2026-09-23).
+            "run_cost_status": self.run_cost_status,
         }
 
 
