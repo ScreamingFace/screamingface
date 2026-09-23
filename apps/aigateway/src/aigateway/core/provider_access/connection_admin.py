@@ -207,6 +207,9 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
                     await self._index.upsert(mirror, require_present=True)
                 else:
                     await self._index.upsert(mirror)
+                await self._mirror_siblings(
+                    account_id, provider, name=name, raw_api_key=raw_api_key
+                )
                 if reuse is not None:
                     await _publish_api_key_on(store, reuse, provider=provider, requested=name)
                 await profile_admin.persist_credentials_or_refuse(
@@ -279,6 +282,28 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         self._invalidate(plugin, credential_name)
 
     # --- shared --------------------------------------------------------------------------------
+
+    async def _mirror_siblings(
+        self, account_id: str, provider: str, *, name: str, raw_api_key: str
+    ) -> None:
+        """Every OTHER document of the pair describes the same ONE credential — say so (D-R1-3).
+
+        # WHY: the key lands at the effective row's locator, which may be ANOTHER document's
+        # address (an alias write); that document must read api_key after an R1 rollback, as the
+        # native key route already ensures (`republish_effective_api_key`). Defaults are kept.
+        """
+        for document in await self._index.list(account_id, provider):
+            if document.name == name:
+                continue
+            sibling = api_key_mirror(
+                document,
+                account_id=account_id,
+                provider=provider,
+                name=document.name,
+                raw_api_key=raw_api_key,
+                defaults=None,
+            )
+            await self._index.upsert(sibling, require_present=True)
 
     async def _effective(self, account_id: str, pair: PairAuthority) -> OAuthConnection | None:
         if pair.effective_connection_id is None:

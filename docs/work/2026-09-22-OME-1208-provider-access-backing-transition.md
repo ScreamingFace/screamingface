@@ -1,7 +1,7 @@
 ---
 ticket: OME-1208
 stack: aigateway
-status: in_progress   # S1 + S2'a + S2'b1 + S2'b2 + S2'b3 + S2'b4 + S2'c + S4 DONE (uncommitted, gates green 2026-09-22); awaiting owner authorization to stage/commit/push/PR
+status: in_progress   # S1 + S2'a + S2'b1 + S2'b2 + S2'b3 + S2'b4 + S2'c + S4 DONE (commit 2c39a949, PR #1029); R1 review fixes DONE uncommitted, gates green 2026-09-23
 started: 2026-09-22
 finished:
 ---
@@ -1340,3 +1340,174 @@ memory updated; NO staging/commit.
   `classify_pair`, an owner-mapping flag and a `--dry-run --rollback` combo were all left out.
 - **Commit:** NOT made — owner authorization required (see the commit/PR shape above; never stage `.codegraph/`,
   Markdown paths only with exact-path approval).
+
+### R1 — PR #1029 review fixes (planned 2026-09-23, before RED)
+
+**Intent.** Three review findings on PR #1029, each confirmed by a code path (none yet reproduced by a test):
+1. **High — native delete destroys a shared blob.** `DELETE /v1/oauth/connections/{id}` deletes the blob at the
+   row's locator with no owner check. Since Stage B several rows can address ONE Profile blob (a superseded
+   `error` row beside the fresh row a re-auth opened; the backfill's row beside the legacy Profile after an R1
+   rollback), deleting a non-effective or rolled-back row destroys a credential another owner serves.
+2. **Medium — api_key → OAuth under one name regresses on a migrated pair.** `begin_connection_oauth` opens a
+   fresh pending row labelled with the requested name while the superseded `error` row still holds that label
+   (`mark_error` keeps an api_key row's label, SF-291 RF2-1; the backfill labels its row with the Profile name)
+   → `IntegrityError` → 409 `profile_auth_conflict`. The legacy path allows the switch (SF-244).
+3. **Medium/low — op 8 reuse leaves the key's own document saying `oauth`.** Reusing the effective row writes the
+   key at the row's locator but mirrors only the requested name's document; after an R1 rollback the document at
+   the key's address (e.g. `default`) still says `oauth`, so the legacy path is incoherent.
+
+**Decisions.**
+- **D-R1-1 (finding 2).** At start, a non-reusable, non-revoked effective row (status `error`) is REVOKED in the
+  same transaction, BEFORE `create_pending`: the label is freed, the zombie leaves listings, its blob is untouched
+  (the new row addresses the same Profile blob and the callback overwrites it, exactly as before). "An error row
+  is never revived" holds — it is retired, not revived. The marker fence still protects: a concurrent in-place
+  re-key advances the marker → our advance conflicts → the whole transaction, revoke included, rolls back.
+- **D-R1-2 (finding 1).** `_delete_connection` keeps the blob when another owner addresses the locator: (i) any
+  other non-revoked row of the account+provider with an equal locator; (ii) when the pair is NOT `migrated`
+  (`none`/`quarantined` — the legacy Profile owns it), a legacy document whose Profile address equals the
+  locator. Helper `credential_has_other_owner(app, connection)` in `connection_native.py`. The row is still
+  revoked and the cache evicted. A blob is deleted when its LAST live addresser goes — conservative (D11): never
+  destroy what another live row addresses; a blob lingering behind a zombie `error` row (pre-fix data) goes when
+  that row is deleted.
+- **D-R1-3 (finding 3).** Op 8 on a migrated pair mirrors EVERY document of the pair as api_key
+  (`require_present`), not only the requested name — the rule `republish_effective_api_key` already applies on
+  the native key route (S2'b4); the document at the key's address is then rollback-coherent. Alias documents
+  (address ≠ effective locator) stay rollback-fragile BY DESIGN of one-credential-per-pair and are reported by
+  `migrate_profiles --dry-run` (`alias_documents`). The committed test
+  `test_an_alias_name_writes_the_pairs_single_credential` pins today's alias contract, so REFUSING alias names
+  (the reviewer's alternative) is a contract change needing owner approval → surfaced, not done here.
+- No schema change (S1 trivially satisfied).
+
+**Planned files.** `core/provider_access/connection_oauth.py` (revoke the superseded error row),
+`core/provider_access/connection_native.py` (+ `credential_has_other_owner`), `routes/oauth_connections.py`
+(`_delete_connection` guard), `core/provider_access/connection_admin.py` (sibling mirrors). Tests: NEW module
+`tests/unit/core/provider_access/test_connection_backed_shared_addresses.py` (the native-routes module is at
+449 lines; the new tests share one subject — several addressers of one blob).
+
+**Test plan (RED first).** (a) api_key migrated pair in `error` → legacy OAuth start 201, new pending row
+labelled `default`, old row revoked, callback publishes, the pair authenticates; (b) oauth errored effective →
+start revokes it, one live row remains; (c) delete a non-effective sibling at the effective's address → 204, blob
+kept, the effective still serves its token, marker unchanged; then deleting the effective (last addresser)
+deletes the blob; (d) rolled-back pair: delete the leftover Connection → 204, the legacy Profile's blob kept,
+legacy status authenticated, legacy resolve serves; (e) alias key write mirrors `default` as api_key; after a
+marker reset the legacy status of `default` reads api_key/authenticated.
+
+**Acceptance.** New tests green; every prior test unmodified and green; `run_gates.py aigateway` ALL GREEN;
+ledger outcome; PR replies drafted; NO commit/push without authorization.
+
+### R1 — PR #1029 review fixes: DONE (uncommitted on top of `2c39a949`, 2026-09-23)
+
+- **Actual files (4 production + 1 new test module, no schema change):**
+  - `core/provider_access/connection_oauth.py` (301 lines): in `begin_connection_oauth`, when no row is
+    reusable and the effective row is not already revoked, `mark_revoked(current, f"superseded:{fresh}")`
+    runs INSIDE the flow transaction before `create_pending(connection_id=fresh)`. The module INVARIANT
+    now states the retirement.
+  - `core/provider_access/connection_native.py` (155): new `credential_has_other_owner(app, connection)`.
+  - `routes/oauth_connections.py` (572, pre-existing oversize; only a call site was added, the new
+    responsibility lives in `connection_native.py`): `_delete_connection` computes `keep_blob` after
+    `retire_effective` and skips `_delete_credentials` when another owner addresses the locator.
+  - `core/provider_access/connection_admin.py` (342): `_mirror_siblings` mirrors EVERY other document of
+    a migrated pair as `api_key` inside op 8's transaction — the rule `republish_effective_api_key`
+    already applied on the native key route.
+  - `core/provider_access/__init__.py`: exports `credential_has_other_owner` (the route imports from the
+    package, so the first GREEN run failed at app construction until the export was added).
+  - `tests/unit/core/provider_access/test_connection_backed_shared_addresses.py` (NEW, 195 lines, 5 tests).
+- **RED → GREEN.** RED: all 5 new tests failed for the right reasons —
+  (1) legacy OAuth start on a migrated api_key pair in `error` answered **409 `connection_conflict`**
+  (not `profile_auth_conflict` as the review predicted: the `IntegrityError` becomes
+  `WriteConflict(superseded, subject="connection")` and `provider_access_http._write_conflict` maps that
+  subject to `connection_conflict`; the mechanism the reviewer described is exactly right, the surfaced
+  code differs); (2) the superseded row stayed `error` instead of `revoked`; (3) and (4) the blob was
+  `None` after deleting a non-effective sibling / a rolled-back Connection — the reported data loss,
+  reproduced; (5) the document at the key's address still read `oauth`. GREEN: 5 passed.
+- **Evidence.**
+  - `uv run pytest tests/unit/core/provider_access tests/unit/test_oauth_connections_routes.py
+    tests/unit/test_auth_routes.py tests/unit/test_api_key_routes.py -q -p no:cacheprovider` → **595 passed**
+    (every prior test unmodified).
+  - `uv run .claude/scripts/run_gates.py aigateway` (worktree root) → **ALL GATES GREEN**, exit 0, attempt 1
+    of 10: append-only test check ✓, ruff check ✓, ruff format --check ✓, pyright ✓, check_no_enterprise ✓,
+    `pytest --cov=aigateway --cov-fail-under=80 -q` ✓.
+  - `AIGW_TEST_PG=1 uv run pytest tests/integration/test_lifecycle_postgres_races.py
+    tests/integration/test_provider_access_backing_postgres.py
+    tests/integration/test_provider_access_backfill_postgres.py -q` → **13 passed**, exit 0.
+- **Wisdom review.** The three fixes are subtractive, not new policy: one revoke of a row that was already
+  superseded, one guard before an existing delete, one loop that applies an existing rule to the sibling
+  documents. No new module, no new HTTP shape, no schema change, no `# type: ignore`, no secret in a log or
+  message (`superseded:<uuid>` is opaque). Blast radius: `DELETE /v1/oauth/connections/{id}` now keeps a
+  blob it used to delete — strictly less destructive; `POST /v1/auth/{p}/profiles` revokes a row that was
+  already unusable; op 8 writes sibling documents it used to leave stale. Every affected prior test stayed
+  green, including the delete tests that assert the blob IS removed when the effective row is the last
+  addresser. Files: 155/301/342 ≤ 450; the route module stays at its pre-existing 572 (split still a
+  follow-up candidate).
+- **Deliberately NOT done (owner decision).** The reviewer's alternative for finding 3 — refuse a
+  `legacy_name` that does not match the effective row's locator — is a contract change: the committed test
+  `test_an_alias_name_writes_the_pairs_single_credential` pins today's behaviour (an alias name writes the
+  pair's single credential). Alias documents stay rollback-fragile by design of one-credential-per-pair and
+  are reported by `migrate_profiles --dry-run` as `alias_documents`. Surfaced, not decided here.
+- **Commit:** NOT made — owner authorization required. PR replies drafted, NOT posted.
+- **R1 addendum (2026-09-23) — lock-order defect in the first D-R1-1 cut, found in diff review.** The first
+  cut revoked the superseded `error` row BEFORE the marker advance. Every other authority writer (native key
+  replacement, native delete, op 8) takes the marker first and the row second, so the start inverted the
+  D14 lock order. SQLite cannot show it; a NEW PostgreSQL test reproduced it RED —
+  `asyncpg.exceptions.DeadlockDetectedError: deadlock detected` between a native `PUT …/api-key` holding the
+  marker and a legacy OAuth start on the same errored row. Fix: on the retirement path the start first
+  advances the marker to `migrated` with NO effective Connection (the fence — a stale start loses there,
+  before touching any row), then revokes the row, creates the fresh pending row and advances again to name
+  it. Cost: two generation steps on that path only; every other path is unchanged.
+  - `tests/integration/test_provider_access_shared_addresses_postgres.py` (NEW, 1 test, `needs_postgres`,
+    fixtures and helpers bound from the S2'c module): the key replacement answers 200, the start 409
+    `connection_conflict`, the errored row is NOT retired (the loser rolled back), one live row, marker
+    generation +1, the blob holds the replacement key.
+  - Evidence: `AIGW_TEST_PG=1 uv run pytest` over all four PostgreSQL modules → 14 passed; the SQLite focused
+    suites → 595 passed (unmodified); `connection_oauth.py` 312 lines.
+  - Gates after the addendum: `uv run .claude/scripts/run_gates.py aigateway` (worktree root) — attempt 1 RED on
+    pyright (the new PostgreSQL test annotated a connection id as `object`; fixed to `UUID`), attempt 2 ALL GATES
+    GREEN, exit 0 (append-only ✓, ruff ✓, format ✓, pyright ✓, check_no_enterprise ✓, pytest --cov ≥ 80 ✓).
+  - Commit: still NOT made; PR replies drafted, NOT posted.
+
+### R2 — owner review of R1 (2026-09-23): concurrent delete + rollback after an alias write
+
+Owner review of the R1 cut: finding 2 (api_key → OAuth) accepted; finding 1 (shared-blob delete) only
+proven for sequential deletes; finding 3 (rollback coherence) NOT solved — mirroring `auth_type` onto sibling
+documents does not put a key at a sibling document's address. Owner direction: keep the alias-write
+behaviour (pinned by `test_an_alias_name_writes_the_pairs_single_credential`) and make the rollback of such a
+pair an explicit, reported refusal (or a real reverse mapping); tests first.
+
+- **R2-A — two concurrent deletes of rows sharing one blob.** Defect: the owner check read the pair's rows
+  BEFORE revoking its own, without locks — two overlapping deletes each saw the other live and both kept the
+  blob (orphaned credential). Fix: every deleter locks the pair's live rows in ONE ascending id order —
+  `lock_lower_addressers` (rows below it) before `mark_revoked`, its own row in `mark_revoked`, the rows
+  above it inside `credential_has_other_owner`, which now runs AFTER the revoke. One global order cannot
+  deadlock; the later deleter waits for the earlier commit and PostgreSQL's re-check drops the revoked row.
+  A first cut that locked ALL live rows (own included) before the revoke broke the prior race test
+  `test_connection_absent_credential_delete_set_commit_orders_on_postgres` (the delete then waited on the
+  key-set's row lock before reaching `mark_revoked`, where that test observes it); the prior test was NOT
+  touched — the lock order was changed instead.
+  - Test (NEW, PostgreSQL, parametrized lower-id-first / higher-id-first):
+    `test_two_concurrent_deletes_of_rows_sharing_a_blob_leave_no_orphan_on_postgres` — the first delete is
+    held after its owner check; the second overlaps it (reaches its check or parks on a row lock); both
+    answer 204, both rows revoked, the blob is gone.
+  - RED evidence: with the pre-R2 delete code temporarily restored, both parametrizations fail
+    (`assert '{"auth_type": "api_key", …}' is None` — the blob survives); with the fix, green.
+- **R2-B — rollback of a pair whose documents do not live at the effective row's address.** Decision
+  (owner option 1): `rollback_account` does NOT reset such a pair (`alias_documents > 0`); it records
+  `disposition=migrated`, `category=rollback_refused_alias_documents`, `action=skip`, `applied=false` and the
+  alias count, while the account's other pairs still roll back. `migrate_profiles` gains `EXIT_REFUSED = 4`
+  via `exit_code_for(report)` (conflicts still win with `EXIT_RETRY`). The pinned `counts()` dict is
+  unchanged. Rejected: reverse mapping by copying the secret between addresses (decrypts for transfer).
+  - Tests (NEW, SQLite): a `work` alias write → rollback refused, marker stays migrated with the same
+    generation/effective row, and access THROUGH `work` (`resolve` with selector `work` and the `work`
+    status) still reaches the key; a UUID-addressed Connection that gained a document → refused; a pair with
+    no alias documents still resets to `none` with `EXIT_OK`.
+  - RED evidence: 3 failed (two rolled back to `none`, one `AttributeError: exit_code_for`), then green.
+- **Evidence (actually run, 2026-09-23):** all four PostgreSQL modules `AIGW_TEST_PG=1` → 16 passed; SQLite
+  focused suites → 598 passed; `uv run .claude/scripts/run_gates.py aigateway` (worktree root) → ALL GATES
+  GREEN (append-only ✓, ruff ✓, format ✓, pyright ✓, check_no_enterprise ✓, pytest --cov ≥ 80 ✓);
+  `git diff --check` clean.
+- **Files:** `connection_native.py` (lock helpers, post-revoke owner check), `routes/oauth_connections.py`
+  (575 lines — pre-existing over-limit module, +3; split remains a follow-up), `provider_access/__init__.py`,
+  `backfill_apply.py` (refusal, `ROLLBACK_REFUSED`), `migrate_profiles.py` (`EXIT_REFUSED`, `exit_code_for`),
+  the two new test modules. All touched modules except the route ≤ 450 lines.
+- **Residual (surfaced):** an alias pair can never be rolled back by the tool — the operator must remove or
+  re-key the alias documents first. SQLite relies on its single writer for the delete serialization.
+- **Commit:** NOT made; PR replies revised as drafts, NOT posted.

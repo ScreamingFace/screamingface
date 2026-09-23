@@ -35,7 +35,9 @@ from aigateway.core.oauth_pkce import generate_pkce, generate_state
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
 from aigateway.core.provider_access import (
+    credential_has_other_owner,
     credential_name_of,
+    lock_lower_addressers,
     republish_effective_api_key,
     retire_effective,
 )
@@ -403,6 +405,10 @@ async def _delete_connection(
     # INVARIANT (D14, S2'b4): a migrated pair's effective row retires the pair FIRST — marker
     # (effective → None) and compat document — before the row and the blob; no-op otherwise.
     await retire_effective(request.app, connection)
+    # WHY (D-R1-2): several rows — and, after an R1 rollback, the legacy Profile — may address ONE
+    # blob; the blob goes with its LAST live addresser. The pair's live rows lock in ascending id
+    # order around the revoke (lower here, own in mark_revoked, higher in the owner check).
+    await lock_lower_addressers(connection)
     # INVARIANT (OME-307 Blocker 3): mark the ALWAYS-PRESENT connection row revoked FIRST
     # (mark_revoked UPDATEs by PK and takes its row lock, held until commit), THEN delete the
     # credential blob SECOND — ONE consistent lock order shared with set_connection_api_key.
@@ -411,7 +417,9 @@ async def _delete_connection(
     # forces a racing set to observe the revoke (its reactivate CAS matches 0 rows and 409s),
     # so nothing is orphaned or resurrected.
     await store.mark_revoked(connection)
-    await _delete_credentials(request, connection.credential_locator)
+    keep_blob = await credential_has_other_owner(request.app, connection)
+    if not keep_blob:
+        await _delete_credentials(request, connection.credential_locator)
     return connection
 
 

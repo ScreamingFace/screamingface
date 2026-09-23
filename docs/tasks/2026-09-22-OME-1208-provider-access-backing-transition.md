@@ -124,3 +124,20 @@ Plan: `docs/plan/2026-09-09-OME-1138-converge-connections.md` §2 S1/S2'/S4, §3
   Flagged for the owner: no owner-mapping flag, master-key refusal, the `--rollback` mechanism, legacy-index
   orphan documents out of scope, ORM DEBUG SQL logging echoes parameters (deployment concern). Next: owner review
   and authorization to stage/commit/push/PR (Stage B is complete; no Stage C/D/E work started).
+- 2026-09-23: PR #1029 review round 1 addressed in the unit worktree (uncommitted, on top of the pushed
+  commit): the blocking finding (deleting a Connection could destroy a credential blob another live owner
+  still serves — a superseded row's sibling, or the legacy Profile after an R1 rollback) is fixed by a
+  last-addresser guard before the blob delete; the api-key-to-OAuth regression under one name is fixed by
+  retiring the superseded errored row inside the flow transaction; the incoherent rollback is fixed by
+  mirroring every document of a migrated pair when a key is written. Five new tests reproduce all three
+  reported scenarios (all RED first), 595 prior tests unmodified and green, gate runner ALL GREEN,
+  PostgreSQL lanes 13 passed. The reviewer's alternative fix for the third finding (refusing an alias
+  name) is a contract change and was surfaced to the owner rather than applied.
+- 2026-09-23: R1 addendum — the first cut of the "retire the superseded errored row" fix took the row lock
+  before the pair marker, inverting the single lock order; a new PostgreSQL test reproduced a deadlock
+  against a concurrent key replacement. The start now advances the marker first, then retires the row.
+  PostgreSQL lanes 14 passed; SQLite focused suites 595 passed. Still uncommitted, awaiting authorization.
+- 2026-09-23 R2 (owner review of R1): concurrent deletes of rows sharing one blob now serialize on the pair's
+  live rows in ascending id order (PostgreSQL race test, both orders); a rollback of a pair with alias
+  documents is refused and reported (`rollback_refused_alias_documents`, exit 4) instead of leaving a
+  document with no key at its address. Gates green; not committed.

@@ -24,6 +24,7 @@ from .config import Settings
 from .core.credential_blob.store import ORMStore
 from .core.loader import load_plugins
 from .core.provider_access.backfill_apply import (
+    ROLLBACK_REFUSED,
     BackfillReport,
     Mode,
     all_account_ids,
@@ -38,6 +39,23 @@ from .db import close_db, init_db
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_RETRY = 3
+EXIT_REFUSED = 4
+
+
+def exit_code_for(report: BackfillReport) -> int:
+    """Retry on a lost race; a refused rollback is its own non-zero code — the operator must look.
+
+    # WHY a separate code, not a `counts()` key: the counts dict is a pinned report contract; the
+    # refused pairs are already named per pair (`category`) in the report itself.
+    """
+    if report.counts()["conflicts"]:
+        return EXIT_RETRY
+    refused = any(
+        record.category == ROLLBACK_REFUSED
+        for account in report.accounts
+        for record in account.records
+    )
+    return EXIT_REFUSED if refused else EXIT_OK
 
 
 class NoMasterKey(RuntimeError):
@@ -131,7 +149,7 @@ def main(argv: Sequence[str] | None = None, *, out: TextIO = sys.stdout) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_USAGE
     out.write(json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n")
-    return EXIT_RETRY if report.counts()["conflicts"] else EXIT_OK
+    return exit_code_for(report)
 
 
 if __name__ == "__main__":

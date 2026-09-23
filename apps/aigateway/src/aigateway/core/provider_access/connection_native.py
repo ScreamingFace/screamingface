@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from tortoise.queryset import QuerySet
+
 from aigateway.core.oauth.models import OAuthConnection
+from aigateway.core.oauth.store import credential_locator_for
 from aigateway.core.plugin_base import credential_service_provider_for
 from aigateway.core.profile_index import ProfileIndexStore, ProfileTransitionConflict
 
@@ -42,6 +45,56 @@ async def effective_pair_of(connection: OAuthConnection) -> PairAuthority | None
     if pair.migration_state != "migrated" or pair.effective_connection_id != connection.id:
         return None
     return pair
+
+
+def _live_rows(connection: OAuthConnection) -> QuerySet[OAuthConnection]:
+    return OAuthConnection.filter(
+        account_id=str(connection.account_id), provider=connection.provider
+    ).exclude(status="revoked")
+
+
+async def lock_lower_addressers(connection: OAuthConnection) -> None:
+    """Delete time, BEFORE `mark_revoked`: lock the pair's live rows ordered below this one.
+
+    # WHY: two deletes of rows sharing one blob would each see the other live and BOTH keep the
+    # blob — orphaned. Every deleter therefore locks the pair's live rows in ONE ascending id order:
+    # the lower rows here, its own row via `mark_revoked`, the higher rows in
+    # `credential_has_other_owner`. One global order cannot deadlock; the later deleter waits for
+    # the earlier to commit, and PostgreSQL's re-check then drops the revoked row from its view.
+    # AIDEV-NOTE: SQLite ignores FOR UPDATE — its single writer serializes the deletes anyway.
+    """
+    await _live_rows(connection).filter(id__lt=connection.id).order_by("id").select_for_update()
+
+
+async def credential_has_other_owner(app: Any, connection: OAuthConnection) -> bool:
+    """Delete time, AFTER `mark_revoked`: does another live addresser still serve this row's blob?
+
+    True when another non-revoked row of the pair has the same locator (a superseded `error` row
+    beside the row a re-auth opened), or when the legacy Profile owns the pair (marker `none` or
+    `quarantined`) and one of its documents is addressed there — the shape an R1 rollback leaves.
+    The caller then keeps the blob.
+    # INVARIANT (D5, D11): a blob is deleted only when its LAST live addresser goes — never destroy
+    # what another owner serves, never guess which one the user meant.
+    # WHY a migrated pair's documents do not count: they are mirrors of the effective row, not
+    # owners; `retire_effective` removes them when the effective row itself is deleted.
+    """
+    account_id = str(connection.account_id)
+    locator = connection.credential_locator
+    await _live_rows(connection).filter(id__gt=connection.id).order_by("id").select_for_update()
+    rows = await _live_rows(connection).exclude(id=connection.id)
+    if any(row.credential_locator == locator for row in rows):
+        return True
+    pair = await PairAuthorityStore().read(account_id, connection.provider)
+    if pair.migration_state == "migrated":
+        return False
+    credential_provider = credential_service_provider_for(
+        app.state.providers.get(connection.provider), connection.provider
+    )
+    index: ProfileIndexStore = app.state.profile_index
+    return any(
+        credential_locator_for(credential_provider, account_id, document.name) == locator
+        for document in await index.list(account_id, provider=connection.provider)
+    )
 
 
 async def retire_effective(app: Any, connection: OAuthConnection) -> None:
@@ -116,8 +169,10 @@ def _superseded(connection: OAuthConnection) -> WriteConflict:
 
 
 __all__ = [
+    "credential_has_other_owner",
     "credential_name_of",
     "effective_pair_of",
+    "lock_lower_addressers",
     "republish_effective_api_key",
     "retire_effective",
 ]

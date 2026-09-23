@@ -137,6 +137,9 @@ async def apply_account(ctx: BackfillContext, account_id: str) -> AccountResult:
     return AccountResult(account_id, tuple(records))
 
 
+ROLLBACK_REFUSED = "rollback_refused_alias_documents"
+
+
 async def rollback_account(ctx: BackfillContext, account_id: str) -> AccountResult:
     """R1: every `migrated` pair of the account returns to legacy authority; nothing else moves."""
     plans = await classify_account(ctx, account_id)
@@ -146,6 +149,27 @@ async def rollback_account(ctx: BackfillContext, account_id: str) -> AccountResu
             for plan in plans:
                 if plan.category != "already_migrated":
                     records.append(_record(plan, applied=False))
+                    continue
+                if plan.alias_documents:
+                    # WHY refuse, not reset: a document not addressed at the effective row's blob
+                    # (a `work` alias write, a UUID-addressed row that gained a document) holds no
+                    # key at its own address. Reset to `none`, the legacy path would serve that
+                    # document from an empty address while reporting it connected. The only
+                    # repair — copying the secret between addresses — decrypts it for transfer, so
+                    # the pair stays migrated and the report names it for the operator.
+                    # INVARIANT (R1): a rollback never leaves a document whose address holds no key.
+                    records.append(
+                        PairRecord(
+                            plan.provider,
+                            "migrated",
+                            ROLLBACK_REFUSED,
+                            "skip",
+                            plan.generation,
+                            _text(plan.connection_id),
+                            False,
+                            plan.alias_documents,
+                        )
+                    )
                     continue
                 pair = await PairAuthorityStore().advance(
                     account_id,
@@ -258,6 +282,7 @@ def _journal(journal: TextIO | None, result: AccountResult) -> None:
 
 __all__ = [
     "MODES",
+    "ROLLBACK_REFUSED",
     "AccountResult",
     "BackfillReport",
     "Mode",

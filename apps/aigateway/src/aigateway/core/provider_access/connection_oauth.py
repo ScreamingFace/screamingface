@@ -13,8 +13,11 @@
 # lock"). The Connection row keeps its own status fence (`complete_pending`/`complete_active`)
 # as defence in depth against writers that do not consult the marker yet.
 # INVARIANT: an `error` or `revoked` row is never revived — a fresh flow opens a NEW pending row
-# labelled with the requested name, addressing that name's Profile blob; an `active` row
-# re-authenticates IN PLACE and stays usable until the callback swaps its blob (D-S2b2-3).
+# labelled with the requested name, addressing that name's Profile blob, and RETIRES (revokes) the
+# `error` row it supersedes in the same transaction (D-R1-1: an api_key row keeps its label in
+# `error`, so leaving it would collide on the unique label and leave a zombie addressing the
+# pair's blob); an `active` row re-authenticates IN PLACE and stays usable until the callback
+# swaps its blob (D-S2b2-3).
 # AIDEV-NOTE: `none`/`quarantined` pairs never reach these bodies — `begin_connection_oauth`
 # answers `None` after ONE marker read and the route runs today's legacy body unchanged.
 """
@@ -95,14 +98,31 @@ async def begin_connection_oauth(
     try:
         async with in_transaction():
             connection = reuse
+            expected = pair.generation
             if connection is None:
+                fresh = uuid4()
+                if current is not None and current.status != "revoked":
+                    # WHY (D-R1-1): the superseded `error` row may still hold the requested label
+                    # and still addresses the pair's blob; retired here, never revived.
+                    # INVARIANT (D14 lock order): the MARKER first — clear the effective reference
+                    # (the fence: a stale start loses here, before touching any row), THEN revoke
+                    # the row. Revoking first would invert the order against a native key
+                    # replacement (marker → row) and deadlock on PostgreSQL.
+                    cleared = await markers.advance(
+                        account_id,
+                        provider,
+                        expected_generation=expected,
+                        migration_state="migrated",
+                    )
+                    expected = cleared.generation
+                    await store.mark_revoked(current, f"superseded:{fresh}")
                 # WHY before the marker: the marker's FK needs the row, and nobody else can
                 # contend a row whose fresh UUID no one has seen.
                 connection = await store.create_pending(
                     account_id=account_id,
                     provider=provider,
                     label=name,
-                    connection_id=uuid4(),
+                    connection_id=fresh,
                     credential_provider=credential_provider,
                     credential_locator=credential_locator_for(
                         credential_provider, account_id, name
@@ -111,7 +131,7 @@ async def begin_connection_oauth(
             claimed = await markers.advance(
                 account_id,
                 provider,
-                expected_generation=pair.generation,
+                expected_generation=expected,
                 migration_state="migrated",
                 effective_connection_id=connection.id,
             )

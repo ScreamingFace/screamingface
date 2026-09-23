@@ -26,8 +26,10 @@ from .connection_admin import ConnectionBackedCredentialAdmin
 from .connection_backed import ConnectionBackedProviderAccess
 from .connection_facade import FacadeTarget, facade_target, patch_facade, refresh_facade
 from .connection_native import (
+    credential_has_other_owner,
     credential_name_of,
     effective_pair_of,
+    lock_lower_addressers,
     republish_effective_api_key,
     retire_effective,
 )
@@ -134,6 +136,8 @@ __all__ = [
     "complete_connection_oauth",
     "context_stamp",
     "contract_auth_mode",
+    "credential_has_other_owner",
+    "lock_lower_addressers",
     "credential_name_of",
     "effective_pair_of",
     "facade_target",
