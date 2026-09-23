@@ -271,6 +271,22 @@ def test_search_composes_with_the_chips_and_clearing_restores_the_map(
     assert "draco title" in bodies and "hle title" in bodies and "gsm8k title" in bodies
 
 
+def test_the_listing_body_scrolls_instead_of_growing_the_cell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # STORY: as a researcher with 25 boards, the listing scrolls inside the widget
+    # after roughly a screenful instead of stretching the notebook cell to the full
+    # catalogue height (owner request, OME-1257).
+    widgets = pytest.importorskip("ipywidgets")
+    root = _displayed_root(monkeypatch, _two_tier_handler())
+    rows = [
+        item
+        for item in _walk(root)
+        if isinstance(item, widgets.HTML) and "sf-catalog__scroll" in item._dom_classes
+    ]
+    assert len(rows) == 1  # exactly the rows body scrolls — never the chips or search
+
+
 def test_widget_without_any_tier_keeps_flat_rows_under_the_chips(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

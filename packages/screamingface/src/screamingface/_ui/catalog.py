@@ -178,6 +178,10 @@ class _BenchmarkCatalog(_Catalog[Benchmark]):
             options=_origin_chip_options(self._values), description="Origin:"
         )
         rows = widgets.HTML()
+        # WHY: 25+ boards would stretch the notebook cell to the full catalogue
+        # height — the rows body scrolls after roughly a screenful instead, while
+        # the search box and chips stay put above it (owner request, OME-1257).
+        rows.add_class("sf-catalog__scroll")
         # The one piece of state the chips and the search box share: the live query.
         state: dict[str, str] = {"query": ""}
 

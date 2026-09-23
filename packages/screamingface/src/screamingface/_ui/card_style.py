@@ -79,6 +79,8 @@ details[open]>.sf-summary::before{content:'▾'}
   height:32px!important;padding:0 8px!important;border:1px solid var(--sf-line-2)!important;
   background:var(--sf-bg)!important;color:var(--sf-ink)!important;
   font:12px/1 "IBM Plex Mono",ui-monospace,monospace!important}
+.sf-catalog-widget .sf-catalog__scroll{max-height:min(70vh,880px);overflow-y:auto;
+  border-top:1px solid var(--sf-line)}
 .sf-catalog-widget .widget-toggle-buttons{margin:0 12px 4px}
 .sf-catalog-widget .widget-toggle-buttons .widget-label{width:auto!important;
   font:10px/1 "IBM Plex Mono",ui-monospace,monospace!important;letter-spacing:.08em;
