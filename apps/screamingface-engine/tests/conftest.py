@@ -16,8 +16,12 @@ end-to-end by ``test_world_golden_parity.py``, ``test_cache_policy_threading.py`
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import pytest
 
+from screamingface_engine.config import Settings
 from screamingface_engine.request_scope import RequestScope, request_scope
 
 
@@ -25,3 +29,30 @@ from screamingface_engine.request_scope import RequestScope, request_scope
 def _default_request_scope() -> object:
     with request_scope(RequestScope()):
         yield
+
+
+NodeTierSettings = Callable[..., Settings]
+
+
+@pytest.fixture
+def node_tier_settings() -> NodeTierSettings:
+    """Settings for an App with a node tier: a node base URL and the store both tiers share.
+
+    WHY S3 and not the default filesystem store: FX-38 refuses a filesystem store when
+    ``node_base_url`` is set (the node pod's disk is not the App's, OME-929). Constructing the S3
+    store dials nothing, so the tests stay offline. Keyword overrides replace any field.
+    """
+
+    def build(**overrides: Any) -> Settings:
+        fields: dict[str, Any] = {
+            "jwt_secret": "s" * 32,
+            "node_base_url": "http://node.test",
+            "artifact_store": "s3",
+            "artifact_s3_endpoint_url": "http://garage.test:3900",
+            "artifact_s3_bucket": "artifacts",
+            "artifact_s3_access_key": "GKtest",
+            "artifact_s3_secret_key": "secret",
+        }
+        return Settings(**{**fields, **overrides})
+
+    return build

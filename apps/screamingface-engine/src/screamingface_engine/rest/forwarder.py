@@ -35,9 +35,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+from fastapi import FastAPI
 from starlette.datastructures import Headers
 
 from screamingface_engine import job_env
+from screamingface_engine.config import Settings
 from screamingface_engine.request_scope import (
     ANSWER_SEED_HEADER,
     CACHE_CONTROL_HEADER,
@@ -45,14 +47,21 @@ from screamingface_engine.request_scope import (
     TRACEPARENT_HEADER,
 )
 from screamingface_engine.world.config import DEFAULT_CONFIG_PATH, WorldConfig
-from screamingface_engine.world.serving import compose_serving_world, node_mount_paths
+from screamingface_engine.world.serving import (
+    NodeMountRoute,
+    compose_serving_world,
+    engine_route_paths,
+    install_node_route,
+    node_mount_paths,
+)
 from screamingface_engine.world.wire import AsgiReceive, AsgiScope, AsgiSend, send_url4_error, write
 
 logger = logging.getLogger(__name__)
 
-# WHY a separate, short connect budget (FX-33): the node is one in-cluster hop away. A connect
-# that takes longer than this is a node that is not there, and waiting the whole forward budget
-# for it would hold the caller for 35 s to learn what the retry learns in 2.
+# WHY a separate, short connect and pool budget (FX-33): the node is one in-cluster hop away. A
+# connect, or a wait for a pooled connection, that takes longer than this is a node that is not
+# there. Waiting the whole forward budget would hold the caller up to 70 s (two attempts) to
+# learn what two 2 s waits learn in about 4 s.
 _CONNECT_TIMEOUT_S = 2.0
 
 # The failures where the request never reached the node, so a retry cannot double a bill.
@@ -102,7 +111,6 @@ _UNREACHABLE_MESSAGE = "the node tier is unreachable; retry shortly"
 # strings, NOT `url4.core.errors.ErrorCode`: the control plane does not import the url4 ENGINE
 # (`test_url4_executor.py`), and the mount surface's envelope is a wire contract, not an engine
 # call. `world.node_tier` owns the node side of the same mapping; the two spell the codes once each.
-_ENDPOINT_NOT_FOUND = "endpoint_not_found"
 _IDENTITY_ACCESS_DENIED = "identity_access_denied"
 _TIMEOUT_CODE = "timeout"
 _UPSTREAM_UNAVAILABLE = "upstream_unavailable"
@@ -196,9 +204,12 @@ def _config_file_digest(env: Mapping[str, str]) -> str | None:
 class NodeForwarder:
     """The App's ASGI forwarder to the node Service.
 
-    Installed on the App behind a `NodeMountRoute` (`app._install_forwarder`), which matches only
+    Installed on the App behind a `NodeMountRoute` (:func:`install_forwarder`), which matches only
     the derived mount set — so every engine route keeps its own answer and only a declared mount
-    reaches this class. The defensive 404 below covers a path outside the set all the same.
+    reaches this class.
+
+    INVARIANT: the route is the ONE place that decides "is this a mount". It passes only ``http``
+    scopes on a path in :attr:`mount_paths`, so this class does not check either again.
 
     ``timeout_s`` has no default (FX-34): the forward budget comes only from
     `Settings.node_forward_timeout_s`, which the chart derives from the node's own budgets.
@@ -209,23 +220,27 @@ class NodeForwarder:
         *,
         node_base_url: str,
         timeout_s: float,
-        mount_paths: frozenset[str] = frozenset(),
-        config_digest: str | None = None,
         identity_resolver: Callable[[Headers], Mapping[str, str]] | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._node_base_url = node_base_url
-        self._mount_paths = mount_paths
-        self._config_digest = config_digest
+        # Empty until `install_forwarder`'s startup hook derives it; the route matches nothing
+        # before then, so no request can reach this class early.
+        self._mount_paths: frozenset[str] = frozenset()
         self._identity_resolver = identity_resolver
         # WHY a shared client with keep-alive: C2 names it, and a per-request client would pay a
-        # TCP/TLS handshake on every sync call. `timeout_s` bounds read/write/pool; connect has
-        # its own short bound (`_CONNECT_TIMEOUT_S`). The node's own 30 s wrapper fires first.
+        # TCP/TLS handshake on every sync call. `timeout_s` bounds read and write; connect and the
+        # pool wait have their own short bound (`_CONNECT_TIMEOUT_S`, FX-33). The node's own 30 s
+        # wrapper fires first.
         self._owns_client = client is None
         self._client = (
             client
             if client is not None
-            else httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=_CONNECT_TIMEOUT_S))
+            else httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    timeout_s, connect=_CONNECT_TIMEOUT_S, pool=_CONNECT_TIMEOUT_S
+                )
+            )
         )
 
     # --- wiring --------------------------------------------------------------------------
@@ -239,13 +254,6 @@ class NodeForwarder:
         """The forwardable set — what the App's `NodeMountRoute` matches against."""
         return self._mount_paths
 
-    def set_config_digest(self, digest: str | None) -> None:
-        self._config_digest = digest
-
-    @property
-    def config_digest(self) -> str | None:
-        return self._config_digest
-
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
@@ -253,17 +261,6 @@ class NodeForwarder:
     # --- ASGI ----------------------------------------------------------------------------
 
     async def __call__(self, scope: AsgiScope, receive: AsgiReceive, send: AsgiSend) -> None:
-        if scope.get("type") != "http":
-            return
-        path = str(scope.get("path") or "")
-        if path not in self._mount_paths:
-            await send_url4_error(
-                send,
-                404,
-                _ENDPOINT_NOT_FOUND,
-                f"no mount is declared at {path!r}",
-            )
-            return
         identity = self._resolve_identity(scope)
         if not identity:
             await send_url4_error(send, 403, _IDENTITY_ACCESS_DENIED, _MISSING_IDENTITY_MESSAGE)
@@ -273,9 +270,10 @@ class NodeForwarder:
     def _resolve_identity(self, scope: AsgiScope) -> Mapping[str, str]:
         """The caller's verified identity, or an empty mapping when none is present.
 
-        ``identity_resolver`` is this class's one test seam: a test can present a verified value
-        the client header does NOT contain, modelling Envoy's overwrite. Production leaves it
-        ``None`` and reads the edge-injected header, which IS the trust boundary (C2, RD1).
+        ``identity_resolver`` is the IDENTITY test seam: a test can present a verified value the
+        client header does NOT contain, modelling Envoy's overwrite. (``client`` is injectable
+        too, for a stub node; it carries no identity.) Production leaves both ``None`` and reads
+        the edge-injected header, which IS the trust boundary (C2, RD1).
         """
         headers = Headers(scope=scope)
         if self._identity_resolver is None:
@@ -362,9 +360,59 @@ def _response_headers(response: httpx.Response, body: bytes) -> list[tuple[bytes
     return headers
 
 
+def install_forwarder(
+    app: FastAPI,
+    settings: Settings,
+    *,
+    env: Mapping[str, str],
+    client: httpx.AsyncClient | None = None,
+    identity_resolver: Callable[[Headers], Mapping[str, str]] | None = None,
+) -> None:
+    """Derive the forwardable mount set at startup and install the App's sync forwarder LAST.
+
+    FEATURE (unit 3, D6/C2): the App forwards ONLY mounts it can see in the same world module the
+    node uses. The derivation is async (building the world is async), so it runs in a startup hook
+    and FILLS the already-installed forwarder; requests are not accepted until startup completes.
+    Failure to derive (a bad config, or an F4 collision) fails startup, matching C7: the process
+    must not serve a half-configured world (R11).
+
+    INVARIANT (FX-32): this is the ONE way a forwarder reaches the App, in production and in
+    tests. ``client`` and ``identity_resolver`` pass straight to `NodeForwarder` so a test can put
+    a stub node behind the production install path; production leaves both ``None``.
+    """
+    if not settings.node_base_url:
+        return
+    forwarder = NodeForwarder(
+        node_base_url=settings.node_base_url,
+        timeout_s=settings.node_forward_timeout_s,
+        client=client,
+        identity_resolver=identity_resolver,
+    )
+    app.state.forwarder = forwarder
+    install_node_route(
+        app, NodeMountRoute(forwarder, paths=lambda: forwarder.mount_paths, name="forwarder")
+    )
+
+    async def _derive() -> None:
+        contract = await derive_forward_contract(env=env, engine_routes=engine_route_paths(app))
+        forwarder.set_mount_paths(contract.mount_paths)
+        # `/healthz` reads the digest from here; the forwarder keeps no copy of its own.
+        app.state.config_digest = contract.config_digest
+        logger.info(
+            "sync forwarder armed mounts=%d node=%s config_digest=%s",
+            len(contract.mount_paths),
+            settings.node_base_url,
+            contract.config_digest,
+        )
+
+    app.router.on_startup.append(_derive)
+    app.router.on_shutdown.append(forwarder.aclose)
+
+
 __all__ = [
     "ForwardContract",
     "NodeForwarder",
     "derive_forward_contract",
     "forwarded_headers",
+    "install_forwarder",
 ]

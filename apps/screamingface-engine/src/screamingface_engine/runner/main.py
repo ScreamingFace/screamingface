@@ -8,6 +8,7 @@ layering note in :mod:`screamingface_engine.runner`.
 """
 
 import asyncio
+import functools
 import logging
 import os
 import time
@@ -39,7 +40,12 @@ from screamingface_engine.runner.operation_capture import OperationCapturingExec
 from screamingface_engine.runner.summary import RunSummary
 from screamingface_engine.tracing.relay import SpanRelay, SpanSink, otlp_configured
 from screamingface_engine.world.config import WorldConfig, load_config
-from screamingface_engine.world.factory import World, build_world, shared_world_serves
+from screamingface_engine.world.factory import (
+    World,
+    build_world,
+    shared_world_serves,
+    world_reads_answer_seed,
+)
 from url4.streaming.interfaces import EventPublisher
 from url4.streaming.lifecycle import run
 from url4.streaming.trace import parse_traceparent
@@ -252,6 +258,57 @@ def params_from_env(environ: Mapping[str, str]) -> RunnerParams:
     )
 
 
+def _seeded_world(
+    env: Mapping[str, str],
+    config: WorldConfig | None,
+    shared_io: Any,
+    build: Callable[[WorldConfig], Awaitable[World]],
+) -> tuple[Callable[[], Awaitable[World]], Callable[[], RequestScope]]:
+    """The run's world factory and its request-scope producer, sharing ONE seed parse.
+
+    FEATURE (F2, prd/01): the child boot's caller state is resolved by the scope producer when
+    the run starts, and bound around the run by `Url4Executor` — so the world carries nothing
+    per-request and the stateless connector reads the caller's own values (AC2). Both callables
+    are LAZY for the same reason the world is: a malformed seed must fail the run (a Terminated
+    frame on the topic), not take down the scheduling caller before the stream exists.
+
+    INVARIANT (FX-40, contracts.md C9): a malformed ANSWER_SEED behaves exactly as on `main`,
+    for BOTH world shapes. `main` parsed the seed inside the world factory, after the empty-world
+    early return and before the model world was built. So a world with no model route never reads
+    the seed and the run completes; a world with model routes refuses the run in its world
+    factory — before anything is built or run — so `last_summary()` is `None`. The scope is
+    memoized, so the refusal and the bound scope are the same parse, whichever runs first.
+
+    ``shared_io`` is local mode's shared world, or ``None`` for a per-run world. A shared world
+    comes back with NO teardown: its owner closes it, never a run.
+    """
+
+    @functools.cache
+    def resolved() -> WorldConfig:
+        return config if config is not None else load_config(env, include_extra_models=True)
+
+    def reads_seed() -> bool:
+        if shared_io is not None:
+            return world_reads_answer_seed(shared_io)
+        return resolved().aigateway is not None
+
+    @functools.cache
+    def scope() -> RequestScope:
+        if reads_seed():
+            return request_scope_from_env(env)
+        return request_scope_from_env(
+            {name: value for name, value in env.items() if name != job_env.ANSWER_SEED}
+        )
+
+    async def world() -> World:
+        scope()  # FX-40: refuse a malformed seed before the world is built or run
+        if shared_io is not None:
+            return shared_io, None
+        return await build(resolved())
+
+    return world, scope
+
+
 def build_executor(
     env: Mapping[str, str],
     config: WorldConfig | None = None,
@@ -288,55 +345,7 @@ def build_executor(
     the wrapper is the only executor this function ever builds.
     """
 
-    # INVARIANT (FX-40, contracts.md C9): a malformed ANSWER_SEED behaves exactly as on `main`.
-    # `main` parsed the seed inside the world factory, AFTER the empty-world early return and
-    # BEFORE the model world was built. So a world with no `[aigateway]` never reads the seed and
-    # the run succeeds, and a declared world refuses the run before anything is built — the
-    # refusal comes out of `_resolve_world`, ahead of the summary, so `last_summary()` is `None`.
-    world_reads_seed = True
-
-    async def _world() -> World:
-        # FEATURE (F1, prd/01): building the world lives in the shared world package, because
-        # both halves build one. This closure supplies only the run mode's per-Job wiring — the
-        # Job's own env, its optional test clients, and the run key the world log names. The
-        # factory stays LAZY so a bad config or unreachable gateway surfaces as a Terminated
-        # frame on the topic rather than crashing the scheduling caller before the stream exists.
-        nonlocal world_reads_seed
-        # Resolved here, not inside `build_world`, only to see the section before building; the
-        # SAME resolved object is handed on, so the world is built from one parse.
-        resolved = config if config is not None else load_config(env, include_extra_models=True)
-        if resolved.aigateway is None:
-            world_reads_seed = False
-        else:
-            request_scope_from_env(env)
-        return await build_world(
-            env=env,
-            config=resolved,
-            client=client,
-            tavily_client=tavily_client,
-            benchmarks=benchmarks,
-            benchmark_assets_root=benchmark_assets_root,
-            run_key=run_key,
-        )
-
     inline_cap, hard_cap, artifact_store = result_delivery_from_env(env)
-
-    # FEATURE (F2, prd/01): the child boot's caller state is resolved by this producer when the
-    # run starts, and bound around the run by `Url4Executor` — so the world carries nothing
-    # per-request and the stateless connector reads the caller's own values (AC2). The factory is
-    # LAZY for the same reason the world itself is: a malformed seed must fail the run (a
-    # Terminated frame on the topic), not take down the scheduling caller before the stream
-    # exists. See `Url4Executor._resolve_world` and the `InProcessJobRunner.schedule` comment.
-    def _scope_from_env() -> RequestScope:
-        try:
-            return request_scope_from_env(env)
-        except RunnerConfigError:
-            if world_reads_seed:
-                raise
-            # FX-40: no model call in this world reads the seed, and `main` never parsed it.
-            return request_scope_from_env(
-                {name: value for name, value in env.items() if name != job_env.ANSWER_SEED}
-            )
 
     # FEATURE (OME-908): the run's downstream admission policy. `io_gate` is LOCAL mode's
     # shared fair-share gate; when present, the run's world io is wrapped into it under the
@@ -360,19 +369,36 @@ def build_executor(
     #
     # INVARIANT: `None` (the deployed Job, and every non-local caller) leaves the per-run world
     # factory in place, byte-identical to before. The shared world's own teardown belongs to
-    # whoever built it, so `world_factory` is cleared when an io is supplied or the run would
-    # close a world it does not own.
+    # whoever built it, so its factory returns NO teardown — a run must not close a world it does
+    # not own.
     shared_io = io_provider() if io_provider is not None else None
     # FEATURE (FX-30, OME-880): a model admitted after the shared node was built is not a route
     # on it. Such a run builds its own per-run world, exactly as before the shared node existed,
     # and that world owns its own teardown.
     if shared_io is not None and not shared_world_serves(shared_io, env):
         shared_io = None
+
+    async def _build(resolved: WorldConfig) -> World:
+        # FEATURE (F1, prd/01): building the world lives in the shared world package, because
+        # both halves build one. This closure supplies only the run mode's per-Job wiring — the
+        # Job's own env, its optional test clients, and the run key the world log names. The
+        # factory stays LAZY so a bad config or unreachable gateway surfaces as a Terminated
+        # frame on the topic rather than crashing the scheduling caller before the stream exists.
+        return await build_world(
+            env=env,
+            config=resolved,
+            client=client,
+            tavily_client=tavily_client,
+            benchmarks=benchmarks,
+            benchmark_assets_root=benchmark_assets_root,
+            run_key=run_key,
+        )
+
+    world_factory, scope_factory = _seeded_world(env, config, shared_io, _build)
     return OperationCapturingExecutor(
         Url4Executor(
-            io=shared_io,
-            world_factory=None if shared_io is not None else _world,
-            request_scope_factory=_scope_from_env,
+            world_factory=world_factory,
+            request_scope_factory=scope_factory,
             result_cap=inline_cap,
             hard_cap=hard_cap,
             memory_budget=bridge_budget_from_env(env),

@@ -198,10 +198,11 @@ async def test_the_in_process_run_path_shares_the_mounted_nodes_io_layer(
         executor = app.state.job_runner._factory(run_env)  # noqa: SLF001
         inner = executor._inner  # noqa: SLF001 - the wrapped Url4Executor
 
-        assert inner._io is shared  # noqa: SLF001 - identity IS the invariant
-
-        # F2 + OME-908: the shared world is wrapped PER RUN for fair-share I/O, and the
-        # wrapper's inner layer is still the one shared node.
+        # B2 review (FX-40): the shared world is handed over by the run's world factory, which
+        # first applies the seed refusal, so it is the run's io once the world is resolved.
+        # F2 + OME-908: it is wrapped PER RUN for fair-share I/O, and the wrapper's inner layer
+        # is still the one shared node — identity IS the invariant.
         await inner._resolve_world()  # noqa: SLF001
         assert isinstance(inner._io, FairShareIOLayer)  # noqa: SLF001
         assert inner._io._inner is shared  # noqa: SLF001
+        assert inner._world_aclose is None  # noqa: SLF001 - a run never closes the shared node

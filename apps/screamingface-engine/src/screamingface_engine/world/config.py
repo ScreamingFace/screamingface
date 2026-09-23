@@ -428,13 +428,36 @@ def _apply_extra_models(section: AigatewaySection, env: Mapping[str, str]) -> Ai
     unknown ids are appended with the same defaults a compiled OpenRouter route
     gets (``ModelSpec`` defaults, ``web_search=True``).
 
-    WHY malformed fails LOUD: this env is App-written, never caller input, so an
-    unreadable value is a bug — dropping it silently would resurface as a
-    mid-run 404 with no trail back to the cause.
+    WHY malformed fails LOUD: see :func:`extra_model_ids`.
+    """
+    value = extra_model_ids(env)
+    if not value:
+        return section
+    declared_ids = {model.id for model in section.models}
+    extras = tuple(ModelSpec(id=model_id) for model_id in value if model_id not in declared_ids)
+    if not extras:
+        return section
+    return replace(section, models=section.models + extras)
+
+
+def extra_model_ids(env: Mapping[str, str]) -> tuple[str, ...]:
+    """The admitted overlay's model ids (OME-880), in route form; empty when none is stated.
+
+    INVARIANT: the ONE parser of ``URL4_CLOUD_EXTRA_MODELS``. The world merge and the local
+    shared-world check (`world.factory.shared_world_serves`) both read the overlay through it, so
+    they cannot disagree about which ids an overlay names.
+
+    WHY malformed fails LOUD: this env is App-written, never caller input, so an unreadable value
+    is a bug — dropping it silently would resurface as a mid-run 404 with no trail back to the
+    cause.
+
+    Raises:
+        WorldConfigError: the value is not a JSON array of strings, or an entry cannot be a url4
+            route.
     """
     raw = env.get(job_env.EXTRA_MODELS)
     if raw is None or not raw.strip():
-        return section
+        return ()
     try:
         value = json.loads(raw)
     except ValueError as exc:
@@ -448,11 +471,7 @@ def _apply_extra_models(section: AigatewaySection, env: Mapping[str, str]) -> Ai
             raise WorldConfigError(
                 f"{job_env.EXTRA_MODELS} entry {model_id!r} cannot be a url4 route"
             )
-    declared_ids = {model.id for model in section.models}
-    extras = tuple(ModelSpec(id=model_id) for model_id in value if model_id not in declared_ids)
-    if not extras:
-        return section
-    return replace(section, models=section.models + extras)
+    return tuple(value)
 
 
 def _apply_env(section: AigatewaySection, env: Mapping[str, str]) -> AigatewaySection:
@@ -643,6 +662,7 @@ __all__ = [
     "WorldConfig",
     "WorldConfigError",
     "declared_model_ids",
+    "extra_model_ids",
     "load_config",
     "parse_config",
     "routes_for",

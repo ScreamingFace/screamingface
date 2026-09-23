@@ -20,6 +20,7 @@ import json
 import logging
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -30,8 +31,15 @@ from screamingface_engine.local import create_local_app
 from screamingface_engine.logs import APP_LOGGER, configure, run_scope
 from screamingface_engine.request_scope import current_scope
 from screamingface_engine.runner import main as runner_main
+from screamingface_engine.runner.fair_share import FairShareIOLayer
 from screamingface_engine.runner.main import RunnerConfigError, build_executor
-from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.config import (
+    AigatewaySection,
+    ModelSpec,
+    WorldConfig,
+    WorldConfigError,
+    extra_model_ids,
+)
 from screamingface_engine.world.factory import build_world, shared_world_serves
 from url4.io.static import StaticIOLayer
 from url4.streaming.interfaces import Completed
@@ -111,6 +119,16 @@ async def test_a_malformed_overlay_is_left_to_the_per_run_world(tmp_path: Path) 
         await aclose()
 
 
+def test_the_overlay_has_one_parser_in_world_config() -> None:
+    """B2 review: `shared_world_serves` reuses the config parser, and a refusal there is False."""
+    assert extra_model_ids(_overlay(_DEFAULT, _ADMITTED)) == tuple(sorted((_DEFAULT, _ADMITTED)))
+    assert extra_model_ids({}) == ()
+    for bad in ("not json", '{"a": 1}', '["has:colon"]'):
+        with pytest.raises(WorldConfigError):
+            extra_model_ids({job_env.EXTRA_MODELS: bad})
+        assert shared_world_serves(StaticIOLayer(), {job_env.EXTRA_MODELS: bad}) is False
+
+
 def test_a_world_that_is_not_a_node_serves_no_overlay() -> None:
     assert shared_world_serves(StaticIOLayer(), {}) is True
     assert shared_world_serves(StaticIOLayer(), _overlay(_DEFAULT)) is False
@@ -143,6 +161,47 @@ async def test_a_local_run_on_a_model_admitted_after_startup_completes(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_the_per_run_world_of_an_admitted_model_run_is_closed_after_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The per-run world owns its teardown; the shared node is never closed by a run."""
+    app = create_local_app(
+        Settings(jwt_secret="s" * 32), env={job_env.RUNNER_CONFIG: _config(tmp_path)}
+    )
+    closed: list[str] = []
+    real_build = runner_main.build_world
+
+    async def _recording_build(**kwargs: Any) -> Any:
+        io_layer, aclose = await real_build(**kwargs)
+        assert aclose is not None
+
+        async def _close() -> None:
+            closed.append("per-run")
+            await aclose()
+
+        return io_layer, _close
+
+    monkeypatch.setattr(runner_main, "build_world", _recording_build)
+    expression = f"/{_ADMITTED}('hi')!'answer'"
+
+    async with app.router.lifespan_context(app):
+        runner = app.state.job_runner
+        runner._extra_models = lambda: [_ADMITTED]  # noqa: SLF001
+        env = runner._env("t-close", expression, 60, None, None)  # noqa: SLF001
+        async with _Gateway().client() as client:
+            executor = runner._factory(env, client=client)  # noqa: SLF001
+            steps = [step async for step in executor.execute(expression)]
+        assert closed == ["per-run"]
+        # The shared node still serves after the run closed its own world.
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://app.test"
+        ) as http:
+            assert (await http.get("/v1", params={"q": "'hello'"})).text == "hello"
+
+    assert isinstance(steps[-1], Completed)
+
+
+@pytest.mark.asyncio
 async def test_a_local_run_the_shared_node_serves_still_uses_the_shared_node(
     tmp_path: Path,
 ) -> None:
@@ -155,9 +214,13 @@ async def test_a_local_run_the_shared_node_serves_still_uses_the_shared_node(
         runner._extra_models = lambda: [_DEFAULT]  # noqa: SLF001
         env = runner._env("t-shared", "'hello'", 60, None, None)  # noqa: SLF001
         executor = runner._factory(env)  # noqa: SLF001
+        inner = executor._inner  # noqa: SLF001
+        await inner._resolve_world()  # noqa: SLF001
 
-        assert executor._inner._io is app.state.node_world  # noqa: SLF001
-        assert executor._inner._world_factory is None  # noqa: SLF001 - never closes it
+        # The run's io is the shared node, wrapped per run for fair-share I/O (OME-908).
+        assert isinstance(inner._io, FairShareIOLayer)  # noqa: SLF001
+        assert inner._io._inner is app.state.node_world  # noqa: SLF001
+        assert inner._world_aclose is None  # noqa: SLF001 - never closes the shared node
 
 
 # --- FX-39: run log lines are main's lines ----------------------------------------------------
@@ -267,3 +330,74 @@ async def test_a_valid_seed_is_still_bound_in_the_runs_scope() -> None:
 
     assert isinstance(steps[-1], Completed)
     assert seen == [7]
+
+
+# --- FX-40 on both world shapes (B2 review): the four cases, against main ----------------------
+#
+# main built a per-run world for every run, so its behaviour is the oracle for both shapes:
+# an empty world ignores a malformed seed and completes; a declared world refuses the run before
+# any run step, so `last_summary()` is `None`.
+
+
+async def _declared_world(tmp_path: Path) -> Any:
+    world, _aclose = await build_world(env={job_env.RUNNER_CONFIG: _config(tmp_path)})
+    return world
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_seed_on_an_empty_shared_world_completes() -> None:
+    shared = StaticIOLayer()
+    executor = build_executor({job_env.ANSWER_SEED: "lucky"}, io_provider=lambda: shared)
+
+    steps = [step async for step in executor.execute("'hello'")]
+
+    assert isinstance(steps[-1], Completed)
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_seed_on_a_declared_shared_world_is_refused_before_the_run(
+    tmp_path: Path,
+) -> None:
+    shared = await _declared_world(tmp_path)
+    executor = build_executor({job_env.ANSWER_SEED: "lucky"}, io_provider=lambda: shared)
+
+    with pytest.raises(RunnerConfigError, match=job_env.ANSWER_SEED):
+        async for _ in executor.execute(f"/{_DEFAULT}('ctx')!'go'"):
+            pass
+
+    assert executor.last_summary() is None
+
+
+@pytest.mark.asyncio
+async def test_a_valid_seed_on_a_shared_world_is_bound_and_the_world_is_not_closed(
+    tmp_path: Path,
+) -> None:
+    seen: list[int | None] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(current_scope().answer_seed)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    async with httpx.AsyncClient(
+        base_url="http://aigateway.test", transport=httpx.MockTransport(handle)
+    ) as client:
+        shared, aclose = await build_world(
+            env={job_env.RUNNER_CONFIG: _config(tmp_path)}, client=client
+        )
+        executor = build_executor({job_env.ANSWER_SEED: "7"}, io_provider=lambda: shared)
+        steps = [step async for step in executor.execute(f"/{_DEFAULT}('ctx')!'go'")]
+        # A second run on the same shared world still works: the first did not close it.
+        again = build_executor({}, io_provider=lambda: shared)
+        steps_again = [step async for step in again.execute(f"/{_DEFAULT}('ctx')!'go'")]
+        assert aclose is not None
+        await aclose()
+
+    assert isinstance(steps[-1], Completed)
+    assert isinstance(steps_again[-1], Completed)
+    assert seen == [7, None]

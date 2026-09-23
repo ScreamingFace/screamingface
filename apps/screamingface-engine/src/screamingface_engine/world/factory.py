@@ -15,7 +15,6 @@ so one world serves many callers.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
@@ -34,6 +33,7 @@ from screamingface_engine.world.config import (
     ModelSpec,
     WorldConfig,
     WorldConfigError,
+    extra_model_ids,
     load_config,
     routes_for,
 )
@@ -208,26 +208,23 @@ def shared_world_serves(io: IOLayer, env: Mapping[str, str]) -> bool:
     WHY a malformed overlay is ``False`` and not a raise: the per-run world parses it again and
     refuses it with its own loud ``WorldConfigError`` — the one error this overlay has always had.
     """
-    raw = env.get(job_env.EXTRA_MODELS)
-    if raw is None or not raw.strip():
-        return True
-    ids = _overlay_ids(raw)
-    if ids is None:
+    try:
+        ids = extra_model_ids(env)
+    except WorldConfigError:
         return False
     wanted = routes_for(tuple(ModelSpec(id=model_id) for model_id in ids))
     served = frozenset(io.processor_routes()) if isinstance(io, Url4Node) else frozenset()
     return wanted.keys() <= served
 
 
-def _overlay_ids(raw: str) -> list[str] | None:
-    """The overlay's model ids, or ``None`` when it is not a JSON array of strings."""
-    try:
-        value = json.loads(raw)
-    except ValueError:
-        return None
-    if isinstance(value, list) and all(isinstance(item, str) for item in value):
-        return value
-    return None
+def world_reads_answer_seed(io: IOLayer) -> bool:
+    """Whether a built world has a model call that reads the run's answer seed (FX-40).
+
+    The run-mode twin of "``[aigateway]`` is declared": only the connector's model endpoints read
+    the seed, and a world has them exactly when it is a node with processor routes. A bare
+    read-side node has data routes only, and the deny-by-default layer is not a node at all.
+    """
+    return isinstance(io, Url4Node) and bool(io.processor_routes())
 
 
 def _cache_stated(policy: CachePolicy) -> str:
@@ -302,4 +299,5 @@ __all__ = [
     "deny_by_default_world",
     "register_read_side_mounts",
     "shared_world_serves",
+    "world_reads_answer_seed",
 ]

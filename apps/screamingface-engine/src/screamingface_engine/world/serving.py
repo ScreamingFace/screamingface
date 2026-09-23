@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from starlette._utils import get_route_path
 from starlette.applications import Starlette
 from starlette.datastructures import URLPath
 from starlette.routing import BaseRoute, Match, NoMatchFound, compile_path
@@ -219,7 +220,10 @@ class NodeMountRoute(BaseRoute):
         self._paths = paths
 
     def matches(self, scope: Scope) -> tuple[Match, Scope]:
-        if scope["type"] == "http" and scope["path"] in self._paths():
+        # WHY `get_route_path` and not `scope["path"]`: behind a `root_path` the router matches
+        # the path minus that prefix, as every Starlette route does. It is private to Starlette,
+        # but it is the function the router itself calls, so the two cannot disagree.
+        if scope["type"] == "http" and get_route_path(scope) in self._paths():
             return Match.FULL, {"endpoint": self.app}
         return Match.NONE, {}
 

@@ -21,7 +21,7 @@ from screamingface_engine.artifacts import (
     decide_result_delivery,
 )
 from screamingface_engine.artifacts.signing import signed_artifact_path
-from screamingface_engine.world.wire import AsgiSend, send_url4_error, write
+from screamingface_engine.world.wire import AsgiSend, send_url4_error, url4_error_body, write
 from url4.core.errors import ErrorCode
 
 logger = logging.getLogger(__package__)
@@ -290,13 +290,8 @@ def _is_success(status: int) -> bool:
 
 
 def _timeout_body(timeout: float) -> bytes:
-    payload = {
-        "error": {
-            "code": str(ErrorCode.TIMEOUT),
-            "message": (
-                f"sync request exceeded the {timeout:g}s budget — long-running work belongs on "
-                "the ensemble path (POST /token, attach the WebSocket, then GET /?q=<expression>)"
-            ),
-        }
-    }
-    return json.dumps(payload).encode()
+    return url4_error_body(
+        str(ErrorCode.TIMEOUT),
+        f"sync request exceeded the {timeout:g}s budget — long-running work belongs on "
+        "the ensemble path (POST /token, attach the WebSocket, then GET /?q=<expression>)",
+    )

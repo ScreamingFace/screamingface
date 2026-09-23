@@ -45,17 +45,24 @@ async def write_json(
     await write(send, status, headers, json.dumps(payload).encode())
 
 
+def url4_error_body(code: str, message: str) -> bytes:
+    """url4's error envelope, ``{"error": {"code", "message"}}``, as response body bytes.
+
+    INVARIANT: the ONE place the envelope's shape is spelled. The body is byte-identical to the
+    one url4's own node writes, so a caller cannot tell an engine refusal from a url4 one by its
+    shape — only by its ``code``.
+    """
+    return json.dumps({"error": {"code": code, "message": message}}).encode()
+
+
 async def send_url4_error(
     send: AsgiSend, status: int, code: str, message: str, *, retry_after: int | None = None
 ) -> None:
-    """Write url4's error envelope, ``{"error": {"code", "message"}}``.
-
-    INVARIANT: the body is byte-identical to the one url4's own node writes, so a caller cannot
-    tell an engine refusal from a url4 one by its shape — only by its ``code``.
-    """
-    await write_json(
-        send, status, {"error": {"code": code, "message": message}}, retry_after=retry_after
-    )
+    """Write url4's error envelope (:func:`url4_error_body`) as one complete response."""
+    headers = [(b"content-type", b"application/json")]
+    if retry_after is not None:
+        headers.append((b"retry-after", str(retry_after).encode()))
+    await write(send, status, headers, url4_error_body(code, message))
 
 
 __all__ = [
@@ -64,6 +71,7 @@ __all__ = [
     "AsgiScope",
     "AsgiSend",
     "send_url4_error",
+    "url4_error_body",
     "write",
     "write_json",
 ]

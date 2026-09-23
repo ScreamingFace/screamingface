@@ -14,9 +14,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-import tempfile
 from collections.abc import AsyncIterator, Callable, Mapping
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -24,11 +23,12 @@ import pytest
 from starlette.datastructures import Headers
 
 from screamingface_engine import job_env
-from screamingface_engine.app import _install_forwarder, create_app
+from screamingface_engine.app import create_app
 from screamingface_engine.config import Settings
 from screamingface_engine.rest.forwarder import (
     derive_forward_contract,
     forwarded_headers,
+    install_forwarder,
 )
 
 _MODEL = "anthropic/claude-haiku-4-5"
@@ -87,32 +87,28 @@ _MOUNTS_CONFIG = (
 )
 
 
-@asynccontextmanager
-async def _served(
-    stub: _StubNode,
-    *,
-    identity_resolver: Callable[[Headers], Mapping[str, str]] | None = None,
-) -> AsyncIterator[tuple[httpx.AsyncClient, str]]:
-    """The App as production builds it (FX-32): `create_app`, then `_install_forwarder`.
+Served = Callable[..., AbstractAsyncContextManager[tuple[httpx.AsyncClient, str]]]
+
+
+@pytest.fixture
+def served(tmp_path: Path, node_tier_settings: Callable[..., Settings]) -> Served:
+    """The App as production builds it (FX-32): `create_app`, then `install_forwarder`.
 
     The lifespan runs, because the mount set is derived in a startup hook. Yields the client and
     the config file's sha256, which `/healthz` reports.
     """
-    with tempfile.TemporaryDirectory() as tmp:
-        config = Path(tmp) / "url4.toml"
+
+    @asynccontextmanager
+    async def serve(
+        stub: _StubNode,
+        *,
+        identity_resolver: Callable[[Headers], Mapping[str, str]] | None = None,
+    ) -> AsyncIterator[tuple[httpx.AsyncClient, str]]:
+        config = tmp_path / "url4.toml"
         config.write_text(_MOUNTS_CONFIG)
-        settings = Settings(
-            jwt_secret="s" * 32,
-            node_base_url="http://node.test",
-            # FX-38: a node tier needs a store both tiers share.
-            artifact_store="s3",
-            artifact_s3_endpoint_url="http://garage.test:3900",
-            artifact_s3_bucket="artifacts",
-            artifact_s3_access_key="GKtest",
-            artifact_s3_secret_key="secret",
-        )
+        settings = node_tier_settings()
         app = create_app(settings)
-        _install_forwarder(
+        install_forwarder(
             app,
             settings,
             env={job_env.RUNNER_CONFIG: str(config)},
@@ -125,6 +121,8 @@ async def _served(
                 transport=httpx.ASGITransport(app=app), base_url="http://app.test"
             ) as client:
                 yield client, hashlib.sha256(config.read_bytes()).hexdigest()
+
+    return serve
 
 
 # --- T2 / AC4: the verified identity is the only identity that leaves -------------------------
@@ -157,10 +155,10 @@ async def test_forwarded_headers_strip_the_client_identity_and_set_the_verified_
     )
 
 
-async def test_a_forged_identity_header_is_replaced_by_the_verified_value() -> None:
+async def test_a_forged_identity_header_is_replaced_by_the_verified_value(served: Served) -> None:
     """AC4: the outbound request carries the edge-verified value, never the client's."""
     stub = _StubNode(_ok(body=b"PARIS"))
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -178,11 +176,13 @@ async def test_a_forged_identity_header_is_replaced_by_the_verified_value() -> N
     assert "cookie" not in sent.headers
 
 
-async def test_a_request_without_verified_identity_is_rejected_and_not_forwarded() -> None:
+async def test_a_request_without_verified_identity_is_rejected_and_not_forwarded(
+    served: Served,
+) -> None:
     """AC4: no verified identity is a 403, never an anonymous forward."""
     stub = _StubNode()
     # The default resolver reads the edge-injected header.
-    async with _served(stub) as (client, _digest):
+    async with served(stub) as (client, _digest):
         response = await client.get(f"/{_MODEL}", params={"q": "('')!'x'"})
 
     assert response.status_code == 403
@@ -190,11 +190,11 @@ async def test_a_request_without_verified_identity_is_rejected_and_not_forwarded
     assert stub.calls == []
 
 
-async def test_the_forwarded_request_carries_path_and_query_unchanged() -> None:
+async def test_the_forwarded_request_carries_path_and_query_unchanged(served: Served) -> None:
     """C2: the path and query are forwarded verbatim, including percent-encoding."""
     stub = _StubNode()
     query = "q=(%27%27)!%27Reply%20with%20PARIS%27"
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -208,13 +208,13 @@ async def test_the_forwarded_request_carries_path_and_query_unchanged() -> None:
 # --- T10 / AC12: only known mounts are forwarded ----------------------------------------------
 
 
-async def test_an_unknown_path_404s_at_the_app_without_forwarding() -> None:
+async def test_an_unknown_path_404s_at_the_app_without_forwarding(served: Served) -> None:
     """AC12: a path outside the set is answered at the App and never reaches the node.
 
     FX-31: the App's node route does not match it, so the ENGINE answers with its own 404.
     """
     stub = _StubNode()
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -225,9 +225,9 @@ async def test_an_unknown_path_404s_at_the_app_without_forwarding() -> None:
     assert stub.calls == []
 
 
-async def test_a_known_mount_is_forwarded() -> None:
+async def test_a_known_mount_is_forwarded(served: Served) -> None:
     stub = _StubNode(_ok(body=b"rows"))
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -241,12 +241,12 @@ async def test_a_known_mount_is_forwarded() -> None:
 # --- T8 / AC9: retry only what is safe --------------------------------------------------------
 
 
-async def test_a_connection_error_is_retried_exactly_once() -> None:
+async def test_a_connection_error_is_retried_exactly_once(served: Served) -> None:
     refused = httpx.ConnectError(
         "connection refused", request=httpx.Request("GET", "http://node.test")
     )
     stub = _StubNode(_raises(refused), _ok(body=b"PARIS"))
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -256,10 +256,10 @@ async def test_a_connection_error_is_retried_exactly_once() -> None:
     assert len(stub.calls) == 2
 
 
-async def test_a_timeout_is_not_retried() -> None:
+async def test_a_timeout_is_not_retried(served: Served) -> None:
     timeout = httpx.ReadTimeout("node slow", request=httpx.Request("GET", "http://node.test"))
     stub = _StubNode(_raises(timeout))
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -269,9 +269,9 @@ async def test_a_timeout_is_not_retried() -> None:
     assert response.status_code == 504
 
 
-async def test_a_five_hundred_is_not_retried() -> None:
+async def test_a_five_hundred_is_not_retried(served: Served) -> None:
     stub = _StubNode(_ok(status=500, body=b"boom"))
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -285,11 +285,11 @@ async def test_a_five_hundred_is_not_retried() -> None:
 # --- T7 / AC7, AC8: the pass-through and the node-down floor ----------------------------------
 
 
-async def test_a_node_503_and_retry_after_pass_through_unmodified() -> None:
+async def test_a_node_503_and_retry_after_pass_through_unmodified(served: Served) -> None:
     """AC7: the node's own shedding is not rewritten by the forwarder."""
     body = json.dumps({"error": {"code": "overloaded", "message": "capacity"}}).encode()
     stub = _StubNode(_ok(status=503, body=body, headers={"Retry-After": "7"}))
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -300,14 +300,14 @@ async def test_a_node_503_and_retry_after_pass_through_unmodified() -> None:
     assert response.content == body
 
 
-async def test_node_down_is_503_with_retry_after_and_never_500() -> None:
+async def test_node_down_is_503_with_retry_after_and_never_500(served: Served) -> None:
     """AC8: an unreachable node is a 503 + Retry-After, never a 500."""
 
     def refused(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=request)
 
     stub = _StubNode(refused)
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -319,11 +319,11 @@ async def test_node_down_is_503_with_retry_after_and_never_500() -> None:
     assert len(stub.calls) == 2
 
 
-async def test_a_303_location_under_any_prefix_is_relayed_unchanged() -> None:
+async def test_a_303_location_under_any_prefix_is_relayed_unchanged(served: Served) -> None:
     """FX-35: the prefix rewrite is gone; no Location is rewritten, whatever its prefix."""
     location = "/downloads/abc123?exp=1000&sig=deadbeef"
     stub = _StubNode(_ok(status=303, body=b"", headers={"Location": location}))
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -333,10 +333,10 @@ async def test_a_303_location_under_any_prefix_is_relayed_unchanged() -> None:
     assert response.headers["Location"] == location
 
 
-async def test_a_303_location_is_unchanged_when_the_prefixes_match() -> None:
+async def test_a_303_location_is_unchanged_when_the_prefixes_match(served: Served) -> None:
     location = "/artifacts/abc123?exp=1000&sig=deadbeef"
     stub = _StubNode(_ok(status=303, body=b"", headers={"Location": location}))
-    async with _served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
+    async with served(stub, identity_resolver=lambda _h: {"X-User-Email": _VERIFIED}) as (
         client,
         _digest,
     ):
@@ -348,10 +348,12 @@ async def test_a_303_location_is_unchanged_when_the_prefixes_match() -> None:
 # --- config_digest on health ------------------------------------------------------------------
 
 
-async def test_healthz_reports_the_config_digest_when_the_forwarder_is_configured() -> None:
+async def test_healthz_reports_the_config_digest_when_the_forwarder_is_configured(
+    served: Served,
+) -> None:
     """erd.md §2: a rolling deploy where the two tiers disagree is visible on health."""
     stub = _StubNode()
-    async with _served(stub) as (client, digest):
+    async with served(stub) as (client, digest):
         response = await client.get("/healthz")
 
     assert response.status_code == 200

@@ -8,31 +8,27 @@ mark. The derivation itself has no network hop, so the mount set is a fact about
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from screamingface_engine import job_env
-from screamingface_engine.app import _install_forwarder, create_app
+from screamingface_engine.app import create_app
 from screamingface_engine.config import Settings
+from screamingface_engine.rest.forwarder import install_forwarder
 
 _REPO_CONFIG = Path(__file__).resolve().parents[2] / "url4.toml"
 
 
-def test_install_forwarder_derives_the_mount_set_and_digest_at_startup() -> None:
+def test_install_forwarder_derives_the_mount_set_and_digest_at_startup(
+    node_tier_settings: Callable[..., Settings],
+) -> None:
     """AC12/erd §2: at startup the App learns its forwardable paths and the config digest."""
-    settings = Settings(
-        jwt_secret="s" * 32,
-        node_base_url="http://node.test",
-        # FX-38: a node tier needs a store both tiers share.
-        artifact_store="s3",
-        artifact_s3_endpoint_url="http://garage.test:3900",
-        artifact_s3_bucket="artifacts",
-        artifact_s3_access_key="GKtest",
-        artifact_s3_secret_key="secret",
-    )
+    # FX-38: a node tier needs a store both tiers share — the shared fixture supplies it.
+    settings = node_tier_settings()
     app = create_app(settings)
-    _install_forwarder(app, settings, env={job_env.RUNNER_CONFIG: str(_REPO_CONFIG)})
+    install_forwarder(app, settings, env={job_env.RUNNER_CONFIG: str(_REPO_CONFIG)})
 
     with TestClient(app) as client:
         health = client.get("/healthz").json()

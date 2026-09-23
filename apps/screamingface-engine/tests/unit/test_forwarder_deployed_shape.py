@@ -3,7 +3,7 @@
 # WHY this file exists. Before the fix round every forwarder test built the App through a
 # `create_app(forwarder=...)` seam that production never used, so no test saw the production
 # install path: the startup derivation, the route order and the ordering assertion. Here the App
-# is built exactly as `create_app_from_env` builds it — `create_app` and then `_install_forwarder`
+# is built exactly as `create_app_from_env` builds it — `create_app` and then `install_forwarder`
 # — with a stub node behind an injected client. Starlette's TestClient drives the real lifespan,
 # because the mount set is derived in a startup hook.
 
@@ -25,10 +25,10 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from screamingface_engine import job_env
-from screamingface_engine.app import _install_forwarder, create_app
+from screamingface_engine.app import create_app
 from screamingface_engine.config import Settings
 from screamingface_engine.rest import forwarder as forwarder_module
-from screamingface_engine.rest.forwarder import NodeForwarder
+from screamingface_engine.rest.forwarder import NodeForwarder, install_forwarder
 
 _MODEL = "anthropic/claude-haiku-4-5"
 _USER = {"X-User-Email": "caller@example.com"}
@@ -39,15 +39,8 @@ _CONFIG = (
     "\n[data]\n"
     '"/corpus/papers" = { value = "rows", media_type = "text/plain" }\n'
 )
-_S3: dict[str, Any] = {
-    "artifact_store": "s3",
-    "artifact_s3_endpoint_url": "http://garage.test:3900",
-    "artifact_s3_bucket": "artifacts",
-    "artifact_s3_access_key": "GKtest",
-    "artifact_s3_secret_key": "secret",
-}
-
 Handler = Callable[[httpx.Request], httpx.Response]
+Settings_ = Callable[..., Settings]
 
 
 class _StubNode:
@@ -77,32 +70,45 @@ def _kwargs(**kwargs: Any) -> dict[str, Any]:
     return kwargs
 
 
-def _settings() -> Settings:
-    return Settings(jwt_secret="s" * 32, node_base_url="http://node.test", **_S3)
+Deployed = Callable[["_StubNode"], tuple[FastAPI, Path]]
 
 
-def _deployed(tmp_path: Path, stub: _StubNode) -> tuple[FastAPI, Path]:
-    config = tmp_path / "url4.toml"
-    config.write_text(_CONFIG)
-    settings = _settings()
-    app = create_app(settings)
-    _install_forwarder(
-        app, settings, env={job_env.RUNNER_CONFIG: str(config)}, client=stub.client()
-    )
-    return app, config
+@pytest.fixture
+def deployed(tmp_path: Path, node_tier_settings: Settings_) -> Deployed:
+    """The App as production builds it (`create_app`, then `install_forwarder`), stub node."""
+
+    def build(stub: _StubNode) -> tuple[FastAPI, Path]:
+        config = tmp_path / "url4.toml"
+        config.write_text(_CONFIG)
+        settings = node_tier_settings()
+        app = create_app(settings)
+        install_forwarder(
+            app, settings, env={job_env.RUNNER_CONFIG: str(config)}, client=stub.client()
+        )
+        return app, config
+
+    return build
 
 
-def _engine_answer(method: str, path: str) -> httpx.Response:
+@pytest.fixture
+def engine_answer(node_tier_settings: Settings_) -> Callable[[str, str], httpx.Response]:
     """What the engine alone answers: the same App settings, no node route."""
-    return TestClient(create_app(_settings())).request(method, path, follow_redirects=False)
+
+    def answer(method: str, path: str) -> httpx.Response:
+        app = create_app(node_tier_settings())
+        return TestClient(app).request(method, path, follow_redirects=False)
+
+    return answer
 
 
 # --- FX-43: the deployed route table ----------------------------------------------------------
 
 
-def test_engine_routes_reach_the_engine_and_mounts_reach_the_forwarder(tmp_path: Path) -> None:
+def test_engine_routes_reach_the_engine_and_mounts_reach_the_forwarder(
+    deployed: Deployed, engine_answer: Callable[[str, str], httpx.Response]
+) -> None:
     stub = _StubNode()
-    app, config = _deployed(tmp_path, stub)
+    app, config = deployed(stub)
 
     with TestClient(app) as client:
         health = client.get("/healthz")
@@ -120,19 +126,19 @@ def test_engine_routes_reach_the_engine_and_mounts_reach_the_forwarder(tmp_path:
         "status": "ok",
         "config_digest": hashlib.sha256(config.read_bytes()).hexdigest(),
     }
-    expected_405 = _engine_answer("GET", "/token")
+    expected_405 = engine_answer("GET", "/token")
     assert (token.status_code, token.content) == (405, expected_405.content)
     assert artifact.status_code == 401
     assert artifact.headers["content-type"] == "application/problem+json"
-    expected_404 = _engine_answer("GET", "/v1")
+    expected_404 = engine_answer("GET", "/v1")
     assert (eval_path.status_code, eval_path.content) == (404, expected_404.content)
     assert (mounted.status_code, model.status_code) == (200, 200)
     assert [call.url.path for call in stub.calls] == ["/corpus/papers", f"/{_MODEL}"]
 
 
-def test_a_trailing_slash_and_a_wrong_method_keep_starlettes_answers(tmp_path: Path) -> None:
+def test_a_trailing_slash_and_a_wrong_method_keep_starlettes_answers(deployed: Deployed) -> None:
     stub = _StubNode()
-    app, _config = _deployed(tmp_path, stub)
+    app, _config = deployed(stub)
 
     with TestClient(app) as client:
         slash = client.get("/healthz/", follow_redirects=False)
@@ -143,10 +149,10 @@ def test_a_trailing_slash_and_a_wrong_method_keep_starlettes_answers(tmp_path: P
     assert stub.calls == []
 
 
-def test_a_wrong_method_on_a_mount_is_forwarded_for_the_node_to_answer(tmp_path: Path) -> None:
+def test_a_wrong_method_on_a_mount_is_forwarded_for_the_node_to_answer(deployed: Deployed) -> None:
     """AC14: the route matches the path, not the method; the node's own 405 is relayed."""
     stub = _StubNode(lambda _r: httpx.Response(405, content=b'{"error":{}}'))
-    app, _config = _deployed(tmp_path, stub)
+    app, _config = deployed(stub)
 
     with TestClient(app) as client:
         response = client.post("/corpus/papers", headers=_USER)
@@ -158,22 +164,23 @@ def test_a_wrong_method_on_a_mount_is_forwarded_for_the_node_to_answer(tmp_path:
 # --- FX-33: the connect budget and which timeouts retry ---------------------------------------
 
 
-def test_the_forward_client_bounds_connect_at_two_seconds() -> None:
+def test_the_forward_client_bounds_connect_and_pool_at_two_seconds() -> None:
+    """FX-33 (amended): the worst case before a 503 is about 4 s (two 2 s waits), not 70 s."""
     forwarder = NodeForwarder(node_base_url="http://node.test", timeout_s=35.0)
 
     timeout = forwarder._client.timeout  # noqa: SLF001 - the built client IS the contract
 
-    assert timeout.connect == 2.0
-    assert (timeout.read, timeout.write, timeout.pool) == (35.0, 35.0, 35.0)
+    assert (timeout.connect, timeout.pool) == (2.0, 2.0)
+    assert (timeout.read, timeout.write) == (35.0, 35.0)
 
 
 @pytest.mark.parametrize("exc_type", [httpx.ConnectTimeout, httpx.PoolTimeout])
 def test_a_connect_or_pool_timeout_is_retried_once_then_answers_503(
-    tmp_path: Path, exc_type: type[httpx.TransportError]
+    deployed: Deployed, exc_type: type[httpx.TransportError]
 ) -> None:
     """The request never reached the node, so it is safe to retry, like a refused connection."""
     stub = _StubNode(_raise(exc_type))
-    app, _config = _deployed(tmp_path, stub)
+    app, _config = deployed(stub)
 
     with TestClient(app) as client:
         response = client.get("/corpus/papers", headers=_USER)
@@ -184,9 +191,9 @@ def test_a_connect_or_pool_timeout_is_retried_once_then_answers_503(
     assert response.json()["error"]["code"] == "upstream_unavailable"
 
 
-def test_a_connect_timeout_then_success_is_the_nodes_answer(tmp_path: Path) -> None:
+def test_a_connect_timeout_then_success_is_the_nodes_answer(deployed: Deployed) -> None:
     stub = _StubNode(_raise(httpx.ConnectTimeout), lambda _r: httpx.Response(200, content=b"rows"))
-    app, _config = _deployed(tmp_path, stub)
+    app, _config = deployed(stub)
 
     with TestClient(app) as client:
         response = client.get("/corpus/papers", headers=_USER)
@@ -196,10 +203,10 @@ def test_a_connect_timeout_then_success_is_the_nodes_answer(tmp_path: Path) -> N
 
 @pytest.mark.parametrize("exc_type", [httpx.ReadTimeout, httpx.WriteTimeout])
 def test_a_read_or_write_timeout_is_504_and_never_retried(
-    tmp_path: Path, exc_type: type[httpx.TransportError]
+    deployed: Deployed, exc_type: type[httpx.TransportError]
 ) -> None:
     stub = _StubNode(_raise(exc_type))
-    app, _config = _deployed(tmp_path, stub)
+    app, _config = deployed(stub)
 
     with TestClient(app) as client:
         response = client.get("/corpus/papers", headers=_USER)
@@ -218,15 +225,12 @@ def test_the_forward_budget_has_no_module_default() -> None:
         NodeForwarder(**_kwargs(node_base_url="http://node.test"))
 
 
-def test_install_forwarder_takes_the_budget_from_settings(tmp_path: Path) -> None:
-    settings = Settings(
-        jwt_secret="s" * 32,
-        node_base_url="http://node.test",
-        node_forward_timeout_s=12.5,
-        **_S3,
-    )
+def test_install_forwarder_takes_the_budget_from_settings(
+    tmp_path: Path, node_tier_settings: Settings_
+) -> None:
+    settings = node_tier_settings(node_forward_timeout_s=12.5)
     app = create_app(settings)
-    _install_forwarder(app, settings, env={job_env.RUNNER_CONFIG: str(tmp_path / "x.toml")})
+    install_forwarder(app, settings, env={job_env.RUNNER_CONFIG: str(tmp_path / "x.toml")})
 
     assert app.state.forwarder._client.timeout.read == 12.5  # noqa: SLF001
 
@@ -234,10 +238,10 @@ def test_install_forwarder_takes_the_budget_from_settings(tmp_path: Path) -> Non
 # --- FX-35, FX-37: what is relayed ------------------------------------------------------------
 
 
-def test_a_303_is_relayed_with_its_location_unchanged(tmp_path: Path) -> None:
+def test_a_303_is_relayed_with_its_location_unchanged(deployed: Deployed) -> None:
     location = "/artifacts/abc123?exp=1000&sig=deadbeef"
     stub = _StubNode(lambda _r: httpx.Response(303, headers={"Location": location}))
-    app, _config = _deployed(tmp_path, stub)
+    app, _config = deployed(stub)
 
     with TestClient(app) as client:
         response = client.get("/corpus/papers", headers=_USER, follow_redirects=False)
@@ -254,7 +258,7 @@ def test_the_prefix_rewrite_is_gone() -> None:
         )
 
 
-def test_the_nodes_server_and_date_headers_are_not_relayed(tmp_path: Path) -> None:
+def test_the_nodes_server_and_date_headers_are_not_relayed(deployed: Deployed) -> None:
     """The App's own server writes these; relaying the node's would send two of each."""
     stub = _StubNode(
         lambda _r: httpx.Response(
@@ -263,7 +267,7 @@ def test_the_nodes_server_and_date_headers_are_not_relayed(tmp_path: Path) -> No
             headers={"Server": "node-uvicorn", "Date": "Mon, 01 Jan 2001 00:00:00 GMT"},
         )
     )
-    app, _config = _deployed(tmp_path, stub)
+    app, _config = deployed(stub)
 
     # WHY through TestClient: it has no uvicorn to add its own `server`/`date`, so any value seen
     # here was relayed from the node.
@@ -276,14 +280,32 @@ def test_the_nodes_server_and_date_headers_are_not_relayed(tmp_path: Path) -> No
     assert response.headers["content-length"] == "4"
 
 
+def test_the_forwarder_keeps_no_config_digest_and_takes_no_mount_set_at_construction() -> None:
+    """B2 review: `/healthz` reads `app.state.config_digest`; the forwarder's copy had no reader,
+    and the mount set is filled only by the startup derivation."""
+    for removed in ({"config_digest": "x"}, {"mount_paths": frozenset({"/x"})}):
+        with pytest.raises(TypeError):
+            NodeForwarder(**_kwargs(node_base_url="http://node.test", timeout_s=1.0, **removed))
+    forwarder = NodeForwarder(node_base_url="http://node.test", timeout_s=1.0)
+    assert not hasattr(forwarder, "config_digest")
+    assert not hasattr(forwarder, "set_config_digest")
+
+
+def test_install_forwarder_lives_beside_the_forwarder() -> None:
+    """B2 review: the install path moved out of app.py, which must stay under 450 lines."""
+    from screamingface_engine import app as app_module
+
+    assert not hasattr(app_module, "_install_forwarder")
+
+
 # --- FX-38: the node tier needs a shared store ------------------------------------------------
 
 
-def test_a_filesystem_store_is_refused_when_a_node_tier_is_configured(tmp_path: Path) -> None:
+def test_a_filesystem_store_is_refused_when_a_node_tier_is_configured(
+    tmp_path: Path, node_tier_settings: Settings_
+) -> None:
     """OME-929: the node pod's disk is not the App's, so a spilled sync result would 404."""
-    settings = Settings(
-        jwt_secret="s" * 32, node_base_url="http://node.test", artifacts_dir=str(tmp_path)
-    )
+    settings = node_tier_settings(artifact_store="filesystem", artifacts_dir=str(tmp_path))
 
     with pytest.raises(ValueError, match="OME-929"):
         create_app(settings)

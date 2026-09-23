@@ -226,23 +226,10 @@ class _LocalNodeMount:
         self._holder = holder
 
     async def __call__(self, scope: AsgiScope, receive: AsgiReceive, send: AsgiSend) -> None:
-        if scope.get("type") != "http":
-            # Lifetime and websocket scopes belong to the parent App; the node owns no websocket
-            # surface. Mirrors the forwarder's guard.
-            return
-        node_asgi = self._holder.get("asgi")
-        if node_asgi is None:
-            # No node means no mounts: a declaration with neither ``[aigateway]`` nor a read-side
-            # shelf is a legitimate empty world, and every path is unknown. Fail closed in the
-            # mount surface's own envelope rather than a bare 500.
-            await send_url4_error(
-                send,
-                404,
-                "endpoint_not_found",
-                "the local node serves no mounts: declare an [aigateway] model or a read-side "
-                "shelf in url4.toml",
-            )
-            return
+        # INVARIANT: the `NodeMountRoute` is the ONE place that decides "is this a mount". It
+        # passes only `http` scopes on a path the built node serves, and its path set is empty
+        # until startup has built a node — so a node always exists by the time this runs.
+        node_asgi = self._holder["asgi"]
         raw_headers = Headers(scope=scope)
         try:
             bound = request_scope_from_headers(raw_headers)

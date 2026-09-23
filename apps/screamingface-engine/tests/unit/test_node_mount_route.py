@@ -85,6 +85,15 @@ def test_the_path_set_is_read_at_match_time_not_at_construction() -> None:
     assert route.matches(_http("/corpus"))[0] is Match.FULL
 
 
+def test_the_match_is_on_the_route_path_under_a_root_path() -> None:
+    """B2 review: behind a ``root_path`` the router matches the path minus that prefix, as every
+    Starlette route does (`get_route_path`), so a mount still matches its own path."""
+    route = NodeMountRoute(_asgi, paths=lambda: frozenset({"/corpus"}), name="node")
+
+    assert route.matches({**_http("/api/corpus"), "root_path": "/api"})[0] is Match.FULL
+    assert route.matches({**_http("/api/other"), "root_path": "/api"})[0] is Match.NONE
+
+
 def test_url_path_for_never_resolves() -> None:
     route = NodeMountRoute(_asgi, paths=lambda: frozenset({"/corpus"}), name="node")
 
