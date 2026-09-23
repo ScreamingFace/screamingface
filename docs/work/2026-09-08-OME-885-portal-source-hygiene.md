@@ -120,3 +120,60 @@ from them is preserved here:
   The same source-cleaning design covered the larger set. The public font-license note also
   contained an internal attribution follow-up without a forbidden marker; its uncertainty is
   preserved above and its served text now carries only the external attribution reference.
+
+## Rebase onto current `main`, 2026-09-23
+
+The unit was finished and pushed on 2026-09-08 and **no PR was ever opened**. Fifteen days
+later `main` had moved far enough that the branch no longer merged. Rebased onto `c6774ea1`.
+
+### Conflicts, and how they were resolved
+
+Two files, across two of the three commits — `portal/leaderboard-logic.js` and
+`tests/unit/test_portal_static.py`. Both are places where `main` added content in the same
+region this unit was editing.
+
+* **`test_portal_static.py` — additive on both sides.** `main` added
+  `test_pareto_chart_heading_and_label_name_the_pareto_frontier` (`OME-1146`) and
+  `test_portal_index_filters_private_boards_through_the_shared_logic_module` (`OME-1147`); this
+  unit added the served-bytes guard. **All three kept.** The second commit's rename of the guard
+  (`…_text_asset…` → `…_asset…`, widening it from known text media types to raw bytes) was
+  applied by hand on top of `main`'s version.
+
+* **`leaderboard-logic.js` header — merged, not taken.** `main`'s text describes behaviour this
+  unit predates (the index catalogue filter). Taking either side wholesale would have lost
+  something. `main`'s substance was kept and only the internal markers stripped.
+
+### The guard immediately earned its keep
+
+With the rebase complete and before any further edit, the suite failed:
+
+```
+/leaderboard-logic.js publicly exposes internal ticket prefix, agent-only note,
+                      internal invariant anchor
+/main.js              publicly exposes internal ticket prefix
+```
+
+**Five new leaks that `main` introduced after this unit was written** — an `OME-1147` reference
+and a `FEATURE:` anchor on the catalogue filter, an `INVARIANT:` block, an `AIDEV-NOTE:`
+carrying internal product detail and an `OME-1112` roadmap pointer, and one more `OME-1147` in
+`main.js`.
+
+This is the third time the count has moved: the ticket's August baseline was 42 references in
+four files, the build found 79 across eight, and the rebase found five more. **The number is not
+converging on its own**, which is the argument for the guard rather than a one-off sweep.
+
+All five removed. The load-bearing content was kept in every case — in particular the fail-open
+reasoning on `listedBenchmarks` ("this is cosmetic, NOT an access control… the rule fails OPEN")
+survives in full, with only the anchors and ticket numbers gone. Internal product specifics went
+with them: which board is private, and where a future provenance field should live.
+
+### Gates after the rebase
+
+`run_gates.py scoreboard --base origin/main` — **ALL GATES GREEN**, and notably **without**
+`--skip-append-only`. The append-only check passes against current `main`: `main`'s two new tests
+are preserved intact and this unit only appends.
+
+`test_portal_static.py` alone: **18 passed** (16 before, plus `main`'s two).
+
+One formatting fix was needed after the manual conflict resolution — a missing blank line before
+the guard, caught by `ruff format --check` and corrected, not suppressed.

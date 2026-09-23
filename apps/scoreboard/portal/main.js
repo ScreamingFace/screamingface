@@ -316,7 +316,7 @@ window.ScorePortal = (function () {
 
     fetchJson("/v1/benchmarks").then(
       function (data) {
-        // OME-1147: filter BEFORE the per-board fetches below, so the page does not request a
+        // Filter BEFORE the per-board fetches below, so the page does not request a
         // board it will never draw. `/v1/benchmarks` deliberately keeps returning every board —
         // `sf.leaderboards` needs the private ones so challenge participants can submit against
         // them — so the catalogue is trimmed here rather than at the API.

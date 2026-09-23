@@ -254,6 +254,7 @@ def test_portal_index_filters_private_boards_through_the_shared_logic_module() -
     caller_at = index.index('<script src="main.js"')
     assert logic_at < caller_at
 
+
 def test_every_served_asset_carries_no_internal_references(tmp_path: Path) -> None:
     """The mounted portal tree is a public response surface, including source comments."""
     portal = Path(__file__).resolve().parents[2] / "portal"
