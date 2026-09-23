@@ -68,7 +68,7 @@ Retired prior tests, with their mapping (the contract change is owner-directed b
 
 | Retired test | Why | Covered by |
 | --- | --- | --- |
-| `actions.test.ts` "forwards the key once, names the default profile, and sends no defaults when blank" | asserts `defaults: null` in the payload, which this unit forbids | new test 2 (same key and name, payload `{ api_key }`) |
+| `actions.test.ts` "forwards the key once, names the default profile, and sends no defaults when blank" | asserts `defaults: null` in the payload, which this unit forbids | new test 2 (same key and name, payload `{ api_key }`) and new test 2's successful-write `revalidatePath` assertion |
 | `actions.test.ts` "passes through the defaults that were filled in" | defaults are no longer authored | new test 2 (filled fields are ignored) |
 | `actions.test.ts` `badInput` rows `max_tokens`, `temperature`, `timeout_seconds` | those fields are no longer parsed | new test 2 (malformed values no longer block); the `account_id` / `provider` / `api_key` rows stay |
 | `form.test.tsx` "puts a numeric failure on the field that was mistyped" | the control is gone | new test 1 |
@@ -157,3 +157,13 @@ approved test transitions, then append-only and all six UI gates passed (`ALL GA
 OME-1322 package, including `docs/tasks/2026-09-23-OME-1322-aigateway-ui-stop-authoring-profile-defaults.md`
 and `docs/work/2026-09-23-OME-1322-aigateway-ui-stop-authoring-profile-defaults.md`. OME-1323 remains
 separate and blocked on this unit.
+
+### PR review follow-up — preserve the non-defaults success assertion
+
+Post-publication review found that the retired successful key-write test also asserted
+`revalidatePath("/", "layout")`, unrelated to saved defaults. The implementation still called it,
+but the replacement test had not retained the assertion. The owner explicitly authorised restoring
+it and publishing a follow-up. Added that assertion to the successful `setApiKeyAction` test and
+updated the exact `actions.test.ts` Git blob ID in the approval manifest; its reason now accurately
+counts four retired tests plus three `badInput` rows. The full branch-level gate, not a filtered
+coverage run, is the acceptance check for this test-only follow-up.

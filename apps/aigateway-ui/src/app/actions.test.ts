@@ -265,6 +265,7 @@ describe("setApiKeyAction without saved defaults (OME-1322)", () => {
     const state = await setApiKeyAction(null, form({ ...base, name: "primary", ...staleDefaults }));
 
     expect(state).toEqual({ ok: true });
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
     expect(setApiKey).toHaveBeenCalledTimes(1);
     expect(setApiKey).toHaveBeenCalledWith("a1", "openai", "primary", {
       api_key: "sk-live-secret-value",

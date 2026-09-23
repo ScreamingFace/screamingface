@@ -1,7 +1,7 @@
 {
   "issue": "OME-1322",
   "branch": "OME-1322-aigateway-ui-stop-authoring-profile-defaults",
-  "reason": "Owner approved retiring the five saved-default test cases/rows mapped to replacement tests in the OME-1322 ledger; the client test is additive only.",
+  "reason": "Owner approved retiring four saved-default tests and three badInput rows mapped to replacement tests in the OME-1322 ledger; the client test is additive only. The unrelated successful-write revalidation assertion is retained.",
   "files": {
     "apps/aigateway-ui/src/app/accounts/[id]/credentials/new/form.test.tsx": {
       "base_blob": "0262f347b904d6ffae3ff401a2e87abf5fb3e2b7",
@@ -9,7 +9,7 @@
     },
     "apps/aigateway-ui/src/app/actions.test.ts": {
       "base_blob": "4c6a9dfb33ec98f689813b9521efaf1fedb9c5ae",
-      "approved_blob": "cd4be1d1ae8c9aae28b41f25b52f17cb95d9d9b6"
+      "approved_blob": "a1c57a5355fa8a0b48badc5d84b0f494af8c907f"
     },
     "apps/aigateway-ui/src/lib/aigateway/client.test.ts": {
       "base_blob": "6513aeb2098c00913d7ad11d8f796ec8a49b8f28",
