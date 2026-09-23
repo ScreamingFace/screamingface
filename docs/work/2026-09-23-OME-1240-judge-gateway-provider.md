@@ -96,3 +96,20 @@ Stacked PRs (~500 LoC cap each), in `apps/screamingface-engine`:
     `valid: False`, which the wire model refuses — meaning a `scorer_error`
     could never publish on ANY imported board. Both fixed, both pinned by the
     end-to-end tests.
+
+### PR 3 (sample-metadata plumbing + importer judge flag)
+
+- **Proof board re-picked: frontierscience replaces xstest.** The sweep (PR #1018
+  Appendix A) + a live probe settled it: xstest's dataset (walledai/XSTest) is
+  GATED on the HF Hub → `OME-1270`'s lane; uccb bakes clean but carries the
+  cc-by-nc-sa-4.0 licence the owner refused for sec_qa; coconot/sosbench fail
+  the bake (empty targets). frontierscience: clean bake, apache-2.0, explicit
+  `model` kwarg (our path), 160 cases, needs shuffle-seed + sample metadata.
+- **Actual files:** `prepare.py` (`SnapshotSpec.keep_sample_metadata` opt-in —
+  bakes Sample metadata into the private target; JSON-refusal by case; default
+  False keeps published snapshots byte-identical), `boards.py` (the opt-in is a
+  revision pin), `shim.py` (material metadata → TaskState.metadata),
+  `importer.py` (model_graded_* scorers emit `judge=JudgeSpec(model="TODO")` +
+  TODO(review) — refused at assembly until resolved), tests appended to shim /
+  snapshots / importer suites (9 new).
+- **Gates:** run_gates.py ALL GREEN; inspect lane 241 passed.

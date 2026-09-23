@@ -664,6 +664,18 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
             f'"{name}": {value!r}' for name, value in sorted(facts.scorer_kwargs.items())
         )
         board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+    if facts.scorer.rpartition(":")[2].startswith("model_graded_"):
+        # OME-1240: a judged row must never land silently — the TODO model is
+        # refused at assembly by name, so an unreviewed judge cannot ship.
+        board_lines.append(
+            "        # TODO(review): this scorer grades with an LLM judge. Pin the judge"
+        )
+        board_lines.append("        # through our gateway: replace the model kwarg above with")
+        board_lines.append(
+            '        # "screamingface/<gateway-model-id>" and declare the SAME id (plus'
+        )
+        board_lines.append("        # pinned params) here — both join the board's exam identity.")
+        board_lines.append('        judge=JudgeSpec(model="TODO"),')
     if not facts.mcq:
         board_lines.append(
             "        # Free-form answers make mid-run feedback legitimate (spec §4);"

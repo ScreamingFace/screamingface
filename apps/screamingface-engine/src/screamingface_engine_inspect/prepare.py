@@ -174,6 +174,11 @@ class SnapshotSpec:
     #: as ``prompt_template``.
     system_message: str | None = None
     shuffle_seed: int | None = None
+    #: OME-1240 opt-in: bake each Sample's metadata into its private target record —
+    #: needed by metadata-dispatching scorers (frontierscience's format field).
+    #: Default False keeps every published board's baked assets byte-identical
+    #: (snapshots are immutable at their revision); flipping it moves the revision.
+    keep_sample_metadata: bool = False
 
 
 #: Every imported board's bake. Importing another eval = one more entry here
@@ -549,9 +554,12 @@ def emit_snapshot(
                 "input": input_text,
             }
         )
-        targets[case_id] = (
+        record: dict[str, Any] = (
             {"target": target} if choices is None else {"target": target, "choices": choices}
         )
+        if spec.keep_sample_metadata and sample.metadata:
+            record["metadata"] = _validated_metadata(sample.metadata, case_id)
+        targets[case_id] = record
     return _emit(cases, targets, out, dataset_revision=spec.dataset_revision)
 
 
@@ -625,6 +633,19 @@ def _validated_target(sample: Sample, case_id: int) -> tuple[str, list[str] | No
             f"case {case_id}: target {target!r} is not a letter within {len(choices)} choices"
         )
     return target, choices
+
+
+def _validated_metadata(metadata: dict[str, Any], case_id: int) -> dict[str, Any]:
+    """The target file is JSON — refuse an unserializable metadata value by case
+    number; truncating or coercing an exam asset silently is never an option."""
+
+    try:
+        json.dumps(metadata)
+    except (TypeError, ValueError) as exc:
+        raise PrepareError(
+            f"case {case_id}: sample metadata is not JSON-serializable ({exc})"
+        ) from exc
+    return metadata
 
 
 def _require_case_count(rows: list[dict[str, Any]], expected: int | None) -> None:
