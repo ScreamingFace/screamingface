@@ -23,6 +23,7 @@ async def test_builtin_installers_declare_every_stage(monkeypatch, tmp_path, reg
     registration.benchmark.install(node, tmp_path)
     run = RunObservations((ActivityObserver,))
     expected = {
+        "cases": "case_loading",
         "tasks": "grading",
         "check": "grading",
         "check-surface": "grading",
@@ -132,6 +133,7 @@ async def test_imported_board_stages_use_the_same_optional_port(monkeypatch, tmp
         prepare=lambda out: {},
         install=lambda node, root: None,
         with_check_surface=True,
+        difficulty="easy",
     )
     node = Url4Node("imported")
     single_shot.install_imported_board(node, tmp_path, board.benchmark.id)
@@ -150,6 +152,8 @@ async def test_imported_board_stages_use_the_same_optional_port(monkeypatch, tmp
         ):
             records.clear()
             with pytest.raises(ResolutionError):
-                node._endpoints[route](Request(route, "", "", {}))
+                result = node._endpoints[route](Request(route, "", "", {}))
+                if inspect.isawaitable(result):
+                    await result
             assert [r["sf.activity.kind"] for r in records] == [kind, kind]
     await run.aclose()

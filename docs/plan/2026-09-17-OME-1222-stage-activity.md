@@ -39,3 +39,9 @@ Owner approved keeping benchmark execution unchanged. Emit a started fact after 
 
 ## Updated-base integration — 2026-09-22
 Preserve the shared serving spine and error classes from #988/main. Move MedXpertQA's former loader declaration into `serve_cases`, add ContractEval checker stage and case-start declarations, and extend the existing all-board parity fixture with ContractEval assets. Validate shared loading once, grading entry signals, eight-board full/off parity, real optional Inspect scoring, and the complete Engine gates. Keep #980 draft and stacked on #988.
+
+## Inspect logging correction (2026-09-23)
+1. Retain the real imported GSM8K aggregation regression (enabled/off, score and per-case facts).
+2. Move shared ScoredPath orchestration into aggregate_async; synchronous aggregate delegates through the existing compatibility driver.
+3. Add async_aggregate_endpoint with the existing selection/error contract. Wire imported aggregation through a shared async board reducer; retain board_aggregate for synchronous callers.
+4. Test report parity, failures, cancellation and real-route events. Run Engine gates and review; keep PR draft.

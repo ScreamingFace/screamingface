@@ -175,6 +175,7 @@ def async_aggregate_endpoint(
 
     positive_count(available_case_count, "available_case_count")
 
+    @observe_stage(ActivityKind.AGGREGATION)
     async def endpoint(request: Request) -> str:
         selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
         try:
@@ -301,6 +302,7 @@ def positive_count(value: object, label: str) -> int:
 __all__ = [
     "CandidateAnswer",
     "aggregate_endpoint",
+    "async_aggregate_endpoint",
     "attempt_records_endpoint",
     "benchmark_unavailable",
     "candidate_answer",

@@ -63,3 +63,6 @@ Owner approved keeping benchmark execution unchanged. Emit a started fact after 
 
 ## Shared serving integration — 2026-09-22
 ContractEval joins the built-in stage coverage. The shared `serve_cases` handler owns Loading observation for both ContractEval and MedXpertQA; neither board wraps it again. Their native checkers declare Grading and report authoritative case starts after ID decoding. Shared candidate, reduction, aggregation and case-outcome handlers keep their existing ownership. No scoring, prompt, URL4 or error-classification changes.
+
+## Imported aggregation async boundary (2026-09-23)
+Approved follow-up: imported aggregation must await its asynchronous scorer on the active endpoint loop. Expose an additive async ScoredPath aggregation method and async endpoint adapter while retaining synchronous entry points. Both paths share scoring, selection validation and public error semantics. No URL4 logging contract changes, worker relay, new wire fields or scoring policy changes. Verify native endpoint grading events, identical reports, exception translation and cancellation.

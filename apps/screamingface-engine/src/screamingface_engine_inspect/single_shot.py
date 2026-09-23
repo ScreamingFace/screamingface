@@ -46,7 +46,6 @@ from screamingface_engine.benchmarks.deployment import (
 )
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
     async_aggregate_endpoint,
     attempt_records_endpoint,
     candidate_answer,
@@ -381,19 +380,14 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
         ),
         (
             routes["aggregate"],
-            # WHY two faces: a judged aggregate awaits model calls through the
-            # run's shared HTTP client, whose pooled connections are bound to the
-            # run's OWN loop — httpx raises "bound to a different event loop" on a
-            # worker thread's second loop (reproduced, review 2026-09-24). url4
-            # awaits async handlers natively, so the judged face never leaves the
-            # run's loop; string-match boards keep the sync face byte-identically.
+            # WHY: both scorer families stay on the owning loop for logs and model I/O.
             async_aggregate_endpoint(
                 label=board.benchmark.title,
                 available_case_count=board.benchmark.case_count,
                 aggregate=_judged_aggregate(board, root, node),
             )
             if board.judge is not None
-            else aggregate_endpoint(
+            else async_aggregate_endpoint(
                 label=board.benchmark.title,
                 available_case_count=board.benchmark.case_count,
                 aggregate=_aggregate(board, root),
@@ -611,19 +605,7 @@ def board_aggregate(
 ) -> dict[str, Any]:
     """Score every selected Case on the shared spine, then mean accuracy."""
 
-    return board.scored_path().aggregate(
-        raw_rows,
-        benchmark_id=board.benchmark.id,
-        benchmark_revision=board.benchmark.revision,
-        selected_cases=read_selected_cases(
-            root,
-            case_ids,
-            benchmark_label=board.benchmark.title,
-            error_type=AggregateError,
-        ),
-        grading_material=lambda case_id: _target(root, case_id),
-        scorer=_accuracy,
-    )
+    return _run_sync(board_aggregate_async(board, raw_rows, root, case_ids=case_ids))
 
 
 async def board_aggregate_async(
@@ -633,8 +615,7 @@ async def board_aggregate_async(
     *,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
-    """:func:`board_aggregate`, awaited on the caller's loop (the judged face)."""
-
+    # WHY: Inspect scorers are already async; preserve their endpoint's log scope.
     return await board.scored_path().aggregate_async(
         raw_rows,
         benchmark_id=board.benchmark.id,
@@ -650,9 +631,9 @@ async def board_aggregate_async(
     )
 
 
-def _aggregate(board: ImportedBoard, root: Path) -> Callable[[str, int], dict[str, Any]]:
-    def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        return board_aggregate(
+def _aggregate(board: ImportedBoard, root: Path) -> Callable[[str, int], Awaitable[dict[str, Any]]]:
+    async def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
+        return await board_aggregate_async(
             board, case_evaluations, root, case_ids=tuple(range(1, selected_case_count + 1))
         )
 
