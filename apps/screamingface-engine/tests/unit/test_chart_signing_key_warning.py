@@ -40,7 +40,9 @@ def _notes(*extra: str) -> str:
         "config.natsUrl=nats://nats.example:4222",
         *extra,
     ]
-    stdout = subprocess.run(args, capture_output=True, text=True, check=True).stdout
+    result = subprocess.run(args, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    stdout = result.stdout
     assert "NOTES:" in stdout, stdout[-2000:]
     return stdout.split("NOTES:", 1)[1]
 
