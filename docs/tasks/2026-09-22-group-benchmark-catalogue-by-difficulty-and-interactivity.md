@@ -1,12 +1,12 @@
 ---
 id: OME-1257
 linear_url: https://linear.app/openmined/issue/OME-1257/group-the-benchmark-catalogue-by-difficulty-and-interactivity
-status: in_progress
+status: done
 type: feature
 priority: P2
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-22
-closed:
+closed: 2026-09-23
 ---
 
 # Group the benchmark catalogue by difficulty and interactivity
