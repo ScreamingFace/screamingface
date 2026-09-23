@@ -903,3 +903,43 @@ def test_selected_cases_reader_names_the_board_in_its_errors(tmp_path: Path) -> 
     (tmp_path / "cases.json").write_text(json.dumps([{"id": 1, "input": " "}]), encoding="utf-8")
     with pytest.raises(BoardError, match="TestBoard Case 1 has no public input"):
         read_selected_cases(tmp_path, (1,), benchmark_label="TestBoard", error_type=BoardError)
+
+
+# ── the hook's execution context ────────────────────────────────────────────
+
+
+def test_the_hook_sees_the_callers_context_under_a_running_loop() -> None:
+    """INVARIANT (OME-1240): the caller's ContextVars reach the hook even on the
+    running-loop path, where the hook chain is driven on a worker thread.
+
+    WHY it matters: the url4 executor binds the run's usage sink as a ContextVar
+    around the aggregate; a judge-calling hook (a model-graded imported board)
+    reports its tokens through that sink. A worker thread that starts from an
+    empty context silently drops the judge's cost from the run — a judged score
+    that omits judge cost is wrong by construction.
+    """
+
+    import contextvars
+
+    sink_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+        "test_usage_sink", default=None
+    )
+    seen: list[str | None] = []
+
+    class _ContextReadingHook(_Hook):
+        async def __call__(self, request: GradeRequest) -> CaseGradeOutcome:
+            seen.append(sink_var.get())
+            return await super().__call__(request)
+
+    hook = _ContextReadingHook()
+    path = _path(hook)
+
+    async def run_with_bound_sink() -> dict[str, Any]:
+        # The executor binds sinks in the resolving task's context; the aggregate
+        # runs synchronously inside that task, blocking its (running) loop.
+        sink_var.set("the-run-usage-sink")
+        return _aggregate(path, [_envelope(1, _grading(1))], _selected(1))
+
+    result = asyncio.run(run_with_bound_sink())
+    assert result["cases"][0]["grade"]["score"] == 0.5
+    assert seen == ["the-run-usage-sink"]

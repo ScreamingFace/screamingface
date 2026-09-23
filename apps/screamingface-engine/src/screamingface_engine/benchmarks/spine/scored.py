@@ -55,6 +55,7 @@ extraction moves logic, never words. The e2e goldens pin every failed Case's cod
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -546,8 +547,15 @@ def _run_sync[T](coroutine: Awaitable[T]) -> T:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(_awaited(coroutine))
+    # INVARIANT (OME-1240): the worker thread runs under a COPY of the caller's
+    # context, so ContextVars bound around the aggregate — the url4 executor's
+    # usage/response/log sinks — stay visible to the hook chain. A judge-calling
+    # hook reports its tokens through that sink; a thread starting from an empty
+    # context would silently drop the judge's cost from the run. The caller
+    # blocks on `.result()`, so the bindings outlive the whole worker run.
+    context = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, _awaited(coroutine)).result()
+        return pool.submit(context.run, asyncio.run, _awaited(coroutine)).result()
 
 
 async def _awaited[T](coroutine: Awaitable[T]) -> T:

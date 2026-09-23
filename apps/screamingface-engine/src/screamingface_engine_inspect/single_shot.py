@@ -19,6 +19,7 @@ FEATURE: imported inspect_evals benchmarks run in our product like any board
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -644,8 +645,12 @@ def _run_sync[T](coroutine: Awaitable[T]) -> T:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(_awaited(coroutine))
+    # INVARIANT (OME-1240): a COPY of the caller's context rides into the worker
+    # thread, mirroring spine `scored._run_sync` verbatim — the twins must not
+    # diverge on whether a judge-calling hook can see the run's usage sink.
+    context = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, _awaited(coroutine)).result()
+        return pool.submit(context.run, asyncio.run, _awaited(coroutine)).result()
 
 
 async def _awaited[T](coroutine: Awaitable[T]) -> T:
