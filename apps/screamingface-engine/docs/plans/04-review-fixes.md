@@ -189,8 +189,8 @@ The batches run in order. B5 changes only chart files, so it can run in parallel
 | FX-64 | U1-L1 | One trace carrier. The connector reads the trace from `trace_scope`; the sync producer binds `trace_scope`, not a scope field. |
 | FX-65 | U1-L2 | `RequestScope.__post_init__` freezes `identity_headers` with `MappingProxyType`. `cache` is copied with `model_copy()`. |
 | FX-66 | U1-L3 | `origin` has no default. |
-| FX-67 | U1-L4 | Move `request_scope_from_env` next to its sibling in `request_scope.py`; `runner.main` re-exports it. |
-| FX-68 | U1-L5 | The world log line no longer parses the caller's cache policy. |
+| FX-67 | U1-L4 | **Dropped (B4).** Moving the producer also moves `RunnerConfigError` out of `runner.main`, only for file placement. Fix only the docstring that points between the two producers. |
+| FX-68 | U1-L5 | The run producer writes the `runner world` line, byte-identical to `main`, once per run (local runs on the shared node too). `build_world` and the shared-world builds write no such line. The web-tools flag comes from one world helper that the connector also uses. |
 | FX-69 | U1-L7 | Remove the stale re-export docstring in `runner/executor.py`. |
 | FX-70 | U1-L9 | `check_layering.py` exemptions match on the path relative to the package, not the file name. |
 | FX-71 | U1-L8 | *docs*: amend the PRD-01 risk row. The layering check covers `src/`; tests are not layered. |
