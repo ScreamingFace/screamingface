@@ -53,7 +53,7 @@ class BenchmarkRegistry:
 
         for benchmark in self:
             benchmark.install(node, assets_root)
-        declared = frozenset(node.processor_routes()) | _data_routes(node)
+        declared = served_routes(node)
         for benchmark in self:
             protocol = benchmark.protocol(benchmark.case_count)
             # Rendering at installation catches malformed hand-built ASTs before discovery can
@@ -66,17 +66,25 @@ class BenchmarkRegistry:
                 )
 
 
-def _data_routes(node: Url4Node) -> frozenset[str]:
+def served_routes(node: Url4Node) -> frozenset[str]:
+    """Every URL path ``node`` serves directly: its endpoints and its data routes.
+
+    FX-55 / B3 review R8: the ONE accessor for this union. `world.serving.node_mount_paths` (the
+    collision guard) and :meth:`BenchmarkRegistry.install` (the endpoint check) both call it, so
+    the guard and the install cannot disagree about what a node serves. It lives here, not in
+    `world`: `benchmarks` is a shared leaf (`.claude/scripts/check_layering.py`) that the world
+    may import and that may not import the world.
+    """
+
+    return frozenset(node.processor_routes()) | data_routes(node)
+
+
+def data_routes(node: Url4Node) -> frozenset[str]:
     """The node's data paths, which are servable relative targets too.
 
     WHY read privately: `processor_routes()` lists endpoints only, and `Url4Node` publishes no
     accessor for its data table — widening the engine's API is outside this landing's boundary.
     Degrades to the endpoint-only check rather than rejecting a valid Benchmark.
-
-    FX-55: this is the ONE data-route accessor. `world.serving.node_mount_paths` imports it
-    rather than keeping its own copy of the same private reach — `benchmarks` is a shared leaf
-    (`.claude/scripts/check_layering.py`) both the world and the run mode may import, so the
-    accessor lives here rather than in `world`, which a shared leaf may not import.
     """
 
     return frozenset(getattr(node, "_data", {}))
@@ -141,4 +149,6 @@ __all__ = [
     "BenchmarkRegistry",
     "EMPTY_BENCHMARKS",
     "assets_root",
+    "data_routes",
+    "served_routes",
 ]

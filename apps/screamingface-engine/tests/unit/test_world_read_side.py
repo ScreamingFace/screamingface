@@ -204,17 +204,37 @@ async def test_declared_shelves_are_logged_with_their_global_visibility(caplog) 
 
 
 @pytest.mark.asyncio
-async def test_a_read_side_only_world_denies_outbound_and_its_teardown_closes_the_node() -> None:
+async def test_a_read_side_only_world_denies_outbound_and_returns_the_nodes_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A ``[data]``-only declaration has no ``[aigateway]`` table, so nothing here may reach an
     absolute URL — a lazily-created httpx adapter (``Url4Node``'s default when ``outbound`` is
-    omitted) would silently ALLOW that. The teardown must also be real, not ``None`` (FX-51)."""
+    omitted) would silently ALLOW that (FX-51).
 
+    WHY both checks: an ``example.invalid`` fetch fails DNS even through a real adapter, so a bare
+    ``ResolutionError`` passed with the fix reverted (B3 review R1). The refusal must be the
+    ``StaticIOLayer``'s own, and url4's owned-adapter factory must never be reached.
+
+    The teardown is ``node.aclose`` (not ``None``) so this world has the shape every other world
+    has; it closes only an adapter url4 OWNS, so with the injected ``StaticIOLayer`` it closes
+    nothing — the ``StaticIOLayer`` is what removes the outbound path, not the teardown (R3).
+    """
+    import url4.peer._owned as owned
+
+    built: list[object] = []
+
+    def _no_owned_adapter() -> object:
+        built.append(object())
+        raise AssertionError("url4 built its own http adapter for a read-side-only world")
+
+    monkeypatch.setattr(owned, "_http_io", _no_owned_adapter)
     config = _config('[data]\n"/corpus" = { value = "hello corpus" }\n')
     io, aclose = await build_world(env={}, config=config)
 
-    with pytest.raises(ResolutionError):
+    with pytest.raises(ResolutionError, match="no fetch mapping"):
         await io.fetch("https://example.invalid/", relative=False)
 
+    assert built == []
     assert aclose is not None
     await aclose()  # the node's own aclose; must not raise
 
@@ -262,10 +282,15 @@ async def test_a_file_provider_is_read_per_request_for_an_identity_shelf(tmp_pat
 async def test_an_identity_falls_back_to_its_own_default_for_an_undeclared_collection() -> None:
     """``alice`` declares only her ``default`` shelf. A request for a collection she never
     declared (``science``) falls back to HER default, not a global one and not an error — url4's
-    exact-then-default rule (``resolve_shelf``), which ``make_identity_handler`` applies (FX-58)."""
+    exact-then-default rule (``resolve_shelf``), which ``make_identity_handler`` applies (FX-58).
+
+    A GLOBAL ``[holdings]`` default is declared too (B3 review R10), so the test can tell "her
+    own default" from "some default": the global one must lose."""
 
     io, aclose = await _built_with(
-        _AIGATEWAY + '\n[identities.alice]\ndefault = { value = "alice default" }\n'
+        _AIGATEWAY
+        + '\n[holdings]\ndefault = { value = "global default" }\n'
+        + '\n[identities.alice]\ndefault = { value = "alice default" }\n'
     )
     holdings = cast(SupportsHoldings, io)
 
@@ -274,3 +299,49 @@ async def test_an_identity_falls_back_to_its_own_default_for_an_undeclared_colle
         await aclose()  # type: ignore[operator]
 
     assert result == "alice default"
+
+
+# --- B3 review R2: a data route that collides with a benchmark endpoint is a config error -------
+
+
+@pytest.mark.asyncio
+async def test_a_data_route_at_a_benchmark_endpoint_is_a_world_config_error() -> None:
+    """``/benchmarks/candidate`` is registered by the benchmark install, AFTER the read-side
+    mounts. url4 refuses the duplicate with a raw ``ValueError``; the factory must name it as the
+    engine's ``WorldConfigError``, like every other registration failure."""
+    from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+
+    config = _config(_AIGATEWAY + '\n[data]\n"/benchmarks/candidate" = { value = "shadow" }\n')
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(WorldConfigError) as excinfo:
+            await build_world(env={}, config=config, client=client, benchmarks=BUILTIN_BENCHMARKS)
+
+    assert "/benchmarks/candidate" in str(excinfo.value)
+
+
+# --- B3 review R5: the kind named in the refusal is the kind declared ---------------------------
+
+
+def test_the_provider_refusal_lists_the_allowed_kinds() -> None:
+    from screamingface_engine.world.config import ALLOWED_PROVIDER_KINDS
+
+    with pytest.raises(WorldConfigError) as excinfo:
+        _config(_AIGATEWAY + '\n[data]\n"/corpus" = { command = ["cat", "/etc/passwd"] }\n')
+
+    message = str(excinfo.value)
+    for kind in ALLOWED_PROVIDER_KINDS:
+        assert repr(kind) in message, message
+
+
+def test_a_provider_with_no_source_is_not_called_a_command() -> None:
+    """Only a declared ``command`` is a command. A spec with no source at all (url4's parser never
+    builds one today) must be refused under its own name, not mislabelled as an exec mount."""
+    from screamingface_engine.world.config import _reject_disallowed_read_side_providers
+    from url4.cli._config import ProviderSpec
+
+    with pytest.raises(WorldConfigError) as excinfo:
+        _reject_disallowed_read_side_providers({"/empty": ProviderSpec()}, {}, {})
+
+    message = str(excinfo.value)
+    assert "'/empty' ('unknown')" in message, message
+    assert "'command'" not in message, message

@@ -36,8 +36,8 @@ from starlette.routing import BaseRoute, Match, Mount, NoMatchFound, compile_pat
 from starlette.types import Receive, Scope, Send
 
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
-from screamingface_engine.benchmarks.registry import _data_routes
-from screamingface_engine.world.config import WorldConfig, WorldConfigError
+from screamingface_engine.benchmarks.registry import served_routes
+from screamingface_engine.world.config import DEFAULT_EVAL_PATH, WorldConfig, WorldConfigError
 from screamingface_engine.world.factory import World, build_world
 from screamingface_engine.world.wire import AsgiApp
 from url4.peer.server import Url4Node
@@ -47,6 +47,12 @@ logger = logging.getLogger(__name__)
 
 class MountCollisionError(WorldConfigError):
     """An engine route shadows a node mount or the node's eval path — startup must fail (F4)."""
+
+
+# The pattern `_iter_route_paths` yields for a Starlette `Mount`'s subtree (FX-50). Its parameter
+# name is the engine's own, so `_mount_message` can tell a mounted sub-app from a real engine
+# route that happens to end in a `{name:path}` parameter (B3 review R9).
+_MOUNT_SUBTREE = "/{mounted_subapp_path:path}"
 
 
 def engine_route_paths(app: object) -> frozenset[str]:
@@ -74,7 +80,7 @@ def _iter_route_paths(routes: Iterable[object]) -> Iterator[str]:
                 # whole subtree a Mount actually serves (`/diagrams/foo` under `/diagrams`), so
                 # this yields the SAME pattern Starlette itself matches with, and `_route_matches`
                 # (below) needs no extra branch to honor it.
-                yield f"{path}/{{path:path}}"
+                yield f"{path}{_MOUNT_SUBTREE}"
             continue
         original = getattr(route, "original_router", None)
         if original is None:
@@ -88,10 +94,9 @@ def node_mount_paths(node: Any) -> frozenset[str]:
     """Every URL path the node serves directly: its endpoints and its data routes.
 
     Holdings and identity shelves are addressed as ``@``/``@name``, never as URL paths, so they
-    cannot collide with a FastAPI route and are deliberately absent. ``processor_routes()`` is
-    the public endpoint accessor; the data table has no public one, so it is read through
-    ``benchmarks.registry._data_routes`` — the ONE data-route accessor (FX-55) — rather than a
-    second private reach kept here.
+    cannot collide with a FastAPI route and are deliberately absent. The paths come from
+    ``benchmarks.registry.served_routes`` — the ONE accessor for endpoints plus data routes
+    (FX-55, B3 review R8), which the benchmark install reads too.
 
     FX-56: ``isinstance`` rather than duck typing. A non-``Url4Node`` layer (``StaticIOLayer``,
     ``deny_by_default_world``) has no mounts to protect by construction, and checking the type
@@ -99,23 +104,22 @@ def node_mount_paths(node: Any) -> frozenset[str]:
     """
     if not isinstance(node, Url4Node):
         return frozenset()
-    return frozenset(node.processor_routes()) | _data_routes(node)
+    return served_routes(node)
 
 
-def node_eval_path(node: Any, *, default: str = "/v1") -> str:
-    """The node's eval path — url4's default when the layer is not a node (deny-by-default).
+def node_eval_path(node: Any, *, default: str = DEFAULT_EVAL_PATH) -> str:
+    """The node's eval path, or ``default`` when the layer is not a ``Url4Node``.
 
-    INVARIANT: the default here mirrors ``Url4Node.__init__``'s own default. A world with no
-    mounts (``StaticIOLayer``) has no eval path to protect, but returning the default keeps the
-    caller from branching on "is this a node" before every check.
+    A non-node layer (``StaticIOLayer``, ``deny_by_default_world``) claims no eval path.
+    :func:`check_mount_collisions` therefore never calls this for one (FX-56); the default is
+    for callers such as local mode, which routes the eval path only once a node exists.
 
     FX-56: ``isinstance`` rather than duck typing, for the same reason as ``node_mount_paths``.
-    # WHY the private ``_eval_path`` read: ``Url4Node`` exposes no public eval-path accessor —
-    # widening its API is outside this landing's boundary, the same reasoning
-    # ``node_mount_paths`` already applies to the data table.
     """
     if not isinstance(node, Url4Node):
         return default
+    # WHY the private `_eval_path` read: `Url4Node` exposes no public eval-path accessor, and
+    # widening url4's API is outside this landing's boundary.
     return str(node._eval_path)
 
 
@@ -141,7 +145,7 @@ def check_mount_collisions(node: Any, engine_routes: Iterable[str]) -> None:
                 raise MountCollisionError(_mount_message(route, mount))
     if not isinstance(node, Url4Node):
         # FX-56: a non-node layer (StaticIOLayer) has no eval path to protect — `node_eval_path`
-        # would answer the DEFAULT "/v1" for it, and checking that default against the engine's
+        # would answer DEFAULT_EVAL_PATH for it, and checking that default against the engine's
         # routes would be a check against a path this layer never actually claims.
         return
     eval_path = node_eval_path(node)
@@ -174,6 +178,16 @@ def _route_matches(route_path: str, candidate: str) -> bool:
 
 
 def _mount_message(route: str, mount: str) -> str:
+    if route.endswith(_MOUNT_SUBTREE):
+        # R9: name the route the operator wrote (`/diagrams`), not the synthetic subtree pattern.
+        mounted = route.removesuffix(_MOUNT_SUBTREE)
+        return (
+            f"engine route {mounted!r} (a mounted sub-app, which answers every method on every "
+            f"path under it) shadows the node mount {mount!r} — every request for the mount is "
+            "answered by the sub-app instead, because FastAPI resolves engine routes before the "
+            "node's mount. Rename the mount or the engine route; route precedence is silent "
+            "(prd/02 F4, AC5)."
+        )
     return (
         f"engine route {route!r} shadows the node mount {mount!r} — a request for one of the "
         "engine route's own methods is answered by the engine route instead of the mount, "
@@ -190,10 +204,11 @@ def _warn_holdings_shadowed_by_engine_routes(
 
     Example: collection ``models`` versus the real engine route ``/v1/models``. The self-holdings
     qualifier form ``/v1/models?q=(@)`` is then answered by the engine route instead of resolving
-    ``@models`` on this node. WHY warn and not raise: unlike a mount collision (nothing answers
-    the mount at all), the shadow here is narrow — one query form under one literal path — and
-    ``@models`` still resolves correctly from any OTHER expression, so it does not justify
-    failing startup the way :func:`check_mount_collisions`'s other checks do.
+    ``@models`` on this node. WHY warn and not raise: a mount collision takes a declared path
+    away from the node for every request the engine route answers, while the shadow here is
+    narrow — one query form under one literal path — and ``@models`` still resolves correctly
+    from any OTHER expression, so it does not justify failing startup the way
+    :func:`check_mount_collisions`'s other checks do.
     """
     collections = _holdings_collection_names(node)
     if not collections:
@@ -222,11 +237,11 @@ def _holdings_collection_names(node: Url4Node) -> frozenset[str]:
     """Every NAMED ``[holdings]`` collection on ``node`` (the default shelf, keyed ``None``, is
     excluded — it names no path segment to collide with).
 
-    WHY read privately: like ``node_mount_paths``'s data table, ``Url4Node`` publishes no
-    accessor for its holdings registry — widening the engine's API is outside this fix's scope.
+    WHY read privately: like the data table (``benchmarks.registry.data_routes``), ``Url4Node``
+    publishes no accessor for its holdings registry — widening the engine's API is outside this
+    fix's scope. ``node`` is a known ``Url4Node``, so the attribute is read directly.
     """
-    holdings: Mapping[str | None, object] = getattr(node, "_self_holdings", {})
-    return frozenset(name for name in holdings if name is not None)
+    return frozenset(name for name in node._self_holdings if name is not None)
 
 
 async def compose_serving_world(

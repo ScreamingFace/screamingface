@@ -33,10 +33,10 @@ from screamingface_engine.world.config import (
     ModelSpec,
     WorldConfig,
     WorldConfigError,
-    _shelf_label,
     extra_model_ids,
     load_config,
     routes_for,
+    shelf_label,
 )
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world.corrective import install_corrective_runtime
@@ -122,8 +122,9 @@ async def build_world(
     ``httpx.AsyncClient``(s).
 
     Raises:
-        WorldConfigError: a malformed/undeclared config, or Benchmarks installed without a
-            declared aigateway model world.
+        WorldConfigError: a malformed/undeclared config, Benchmarks installed without a
+            declared aigateway model world, or a declared route a benchmark endpoint collides
+            with.
     """
 
     # `include_extra_models`: the Runner boot is the ONE parse that reads the Job-scoped
@@ -141,9 +142,10 @@ async def build_world(
         # WHY a bare node: a [data]/[holdings]/[identities]-only declaration must still become a
         # mount (F3, prd/02 AC1). Returning the deny-by-default layer here would drop the operator's
         # declaration in silence — the exact failure AC3 rejects for command providers.
-        # WHY `node.aclose` and not `None` (FX-51): the node owns an `outbound=StaticIOLayer()`
-        # like every other world this factory returns; a `None` teardown here was the one path
-        # that skipped closing a node this factory built, for no reason tied to what it owns.
+        # WHY `node.aclose` and not `None` (FX-51): it keeps this world's teardown the same shape
+        # as every other world this factory returns. It closes only an adapter url4 OWNS, so with
+        # the injected `StaticIOLayer` it has nothing to close: the `StaticIOLayer` is what
+        # removes the outbound path (and the owned adapter nobody closed), not the teardown.
         node = _bare_read_side_world(resolved)
         return node, node.aclose
     # WHY: no credential check here; aigateway runs `cloudflare_headers` when deployed and
@@ -177,17 +179,26 @@ async def build_world(
         # guarantees the already-open model world closes without a catch-all exception clause.
         async with AsyncExitStack() as cleanup:
             cleanup.push_async_callback(world.aclose)
-            install_candidate_invocation(world.node)
-            # The corrective loop's generic gate/select/answer endpoints are engine capability,
-            # not benchmark surface — installed once beside the candidate invocation for every
-            # world that runs benchmarks.
-            install_corrective_runtime(world.node)
-            benchmarks.install(
-                world.node,
-                assets_root=(
-                    benchmark_assets_root if benchmark_assets_root is not None else assets_root(env)
-                ),
-            )
+            try:
+                install_candidate_invocation(world.node)
+                # The corrective loop's generic gate/select/answer endpoints are engine
+                # capability, not benchmark surface — installed once beside the candidate
+                # invocation for every world that runs benchmarks.
+                install_corrective_runtime(world.node)
+                benchmarks.install(
+                    world.node,
+                    assets_root=(
+                        benchmark_assets_root
+                        if benchmark_assets_root is not None
+                        else assets_root(env)
+                    ),
+                )
+            except ValueError as exc:
+                # WHY (B3 review R2): url4 refuses a duplicate route with a raw `ValueError` —
+                # e.g. a `[data]` mount at `/benchmarks/candidate`. The same translation as the
+                # read-side registration above, so a caller catches one type. The exit stack
+                # still closes the world as the error leaves.
+                raise WorldConfigError(f"cannot install the benchmark endpoints: {exc}") from exc
             cleanup.pop_all()
     # FEATURE (OME-1069): the world's resolved shape, logged once per run. The topic comes from
     # the run's own env (`run_key`); the trace id is appended by the run-context filter, which is
@@ -286,7 +297,7 @@ def _log_declared_shelves(config: WorldConfig) -> None:
         logger.info(
             "world holdings shelf %s declared — shelves are readable by EVERY caller of the "
             "sync surface",
-            _shelf_label(collection),
+            shelf_label(collection),
         )
     for name, shelves in config.identities.items():
         for collection in shelves:
@@ -294,7 +305,7 @@ def _log_declared_shelves(config: WorldConfig) -> None:
                 "world identity shelf %s %s declared — shelves are readable by EVERY caller "
                 "of the sync surface",
                 name,
-                _shelf_label(collection),
+                shelf_label(collection),
             )
 
 

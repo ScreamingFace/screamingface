@@ -200,7 +200,13 @@ async def test_a_static_mount_shadows_every_path_under_it() -> None:
     config = _config('[data]\n"/diagrams/foo" = { value = "shadowed" }\n')
     with pytest.raises(MountCollisionError) as excinfo:
         await compose_serving_world(env={}, engine_routes=_engine_routes(), config=config)
-    assert "/diagrams" in str(excinfo.value)
+
+    message = str(excinfo.value)
+    assert "'/diagrams/foo'" in message, message  # the shadowed mount
+    # R9: the operator-visible route and what it is — never the synthetic subtree pattern.
+    assert "'/diagrams'" in message, message
+    assert "mounted sub-app" in message, message
+    assert "{" not in message, message
 
 
 def test_engine_route_paths_ignores_the_node_mount_route() -> None:
@@ -305,3 +311,60 @@ async def test_a_holdings_collection_matching_an_engine_route_segment_warns(capl
 
     assert "models" in caplog.text
     assert "/v1/models" in caplog.text
+
+
+# --- B3 review R7/R8: one eval-path constant, one route accessor, public shared helpers ----------
+
+
+def test_the_engines_eval_path_constant_mirrors_url4s_default() -> None:
+    """R7: `"/v1"` lives in ONE engine constant, and that constant is url4's own default."""
+    import inspect
+
+    from screamingface_engine.world.config import DEFAULT_EVAL_PATH
+
+    url4_default = inspect.signature(Url4Node.__init__).parameters["eval_path"].default
+    assert DEFAULT_EVAL_PATH == url4_default
+    assert node_eval_path(deny_by_default_world()) == DEFAULT_EVAL_PATH
+
+
+def test_one_accessor_lists_every_path_a_node_serves() -> None:
+    """R8: the guard and the benchmark install read the SAME union of endpoints and data routes."""
+    from screamingface_engine.benchmarks.registry import data_routes, served_routes
+    from screamingface_engine.world.serving import node_mount_paths
+
+    node = Url4Node("accessor")
+    node.endpoint("/model")(lambda _request: "answer")
+    node.data("/corpus", lambda: "rows")
+
+    assert data_routes(node) == frozenset({"/corpus"})
+    assert served_routes(node) == frozenset({"/model", "/corpus"})
+    assert node_mount_paths(node) == served_routes(node)
+
+
+def test_the_shelf_label_is_a_public_shared_helper() -> None:
+    from screamingface_engine.world.config import shelf_label
+
+    assert shelf_label(None) == "default"
+    assert shelf_label("science") == "'science'"
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/v1/models/{model_id}",  # parameterised, and nested under the collection name
+        "/v1/extra/models",  # nested: `models` is not the segment directly under the eval path
+        "/v1/{collection}",  # parameterised single segment: not a literal
+    ],
+)
+def test_a_holdings_collection_does_not_warn_for_a_nested_or_parameterised_route(
+    route: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """FX-57's negative cases (B3 review R10): only a LITERAL route exactly one segment under the
+    eval path shadows the ``/v1/<collection>?q=(@)`` form; nothing else may warn."""
+    node = Url4Node("holdings-negative")
+    node.holdings("models")(lambda _request: "shelf")
+
+    with caplog.at_level(logging.WARNING, logger="screamingface_engine.world.serving"):
+        check_mount_collisions(node, {route})
+
+    assert "collides with the engine literal route" not in caplog.text, caplog.text

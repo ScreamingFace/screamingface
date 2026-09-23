@@ -327,12 +327,14 @@ they cannot drift apart.
 
 
 def _provider_kind(spec: ProviderSpec) -> str:
-    """The one source url4's ``_as_provider`` (``url4.cli._config``) guarantees is set."""
-    if spec.value is not None:
-        return "value"
-    if spec.file is not None:
-        return "file"
-    return "command"
+    """The source kind ``spec`` declares, or ``"unknown"`` when it declares none.
+
+    url4's ``_as_provider`` (``url4.cli._config``) always sets exactly one source, so
+    ``"unknown"`` is unreachable from a parsed file today. WHY it exists anyway (B3 review R5): a
+    spec with no source is refused under its own name, never mislabelled as an exec mount.
+    """
+    declared = {"value": spec.value, "file": spec.file, "command": spec.command}
+    return next((kind for kind, source in declared.items() if source is not None), "unknown")
 
 
 def _reject_disallowed_read_side_providers(
@@ -367,10 +369,14 @@ def _reject_disallowed_read_side_providers(
     )
 
 
-_EVAL_PATH = "/v1"
-"""The engine's node eval path — never overridden (see ``world.serving``'s module INVARIANT:
-every ``Url4Node`` the engine builds keeps url4's own default). Mirrors ``url4.cli._config``'s
-``ServeConfig.eval_path`` default of the same value."""
+DEFAULT_EVAL_PATH = "/v1"
+"""The engine's node eval path — never overridden (D3: every ``Url4Node`` the engine builds keeps
+url4's own default).
+
+WHY one engine constant and not url4's: url4 publishes no constant for it — the default is a
+literal in ``Url4Node.__init__`` and in ``url4.cli._config.ServeConfig``. The config check and
+``world.serving`` both read THIS name, so the engine states the value once, and
+``tests/unit/test_world_mount_guard.py`` pins it equal to ``Url4Node``'s default."""
 
 
 def _reject_data_under_eval_path(data: Mapping[str, ProviderSpec]) -> None:
@@ -385,13 +391,13 @@ def _reject_data_under_eval_path(data: Mapping[str, ProviderSpec]) -> None:
     ``[data]``-only declarations never have — so the one relevant rule is replicated, not
     reused.
     """
-    prefix = f"{_EVAL_PATH}/"
+    prefix = f"{DEFAULT_EVAL_PATH}/"
     shadowed = sorted(path for path in data if path.startswith(prefix))
     if not shadowed:
         return
     raise WorldConfigError(
-        f"[data] routes {shadowed} live under the eval path {_EVAL_PATH!r}, which is reserved "
-        "for self-holdings qualifiers (@ collections) — mount them elsewhere"
+        f"[data] routes {shadowed} live under the eval path {DEFAULT_EVAL_PATH!r}, which is "
+        "reserved for self-holdings qualifiers (@ collections) — mount them elsewhere"
     )
 
 
@@ -408,13 +414,13 @@ def _read_side_providers(
     for path, spec in data.items():
         yield f"[data] {path!r}", spec
     for collection, spec in holdings.items():
-        yield f"[holdings] {_shelf_label(collection)}", spec
+        yield f"[holdings] {shelf_label(collection)}", spec
     for name, shelves in identities.items():
         for collection, spec in shelves.items():
-            yield f"[identities.{name}] {_shelf_label(collection)}", spec
+            yield f"[identities.{name}] {shelf_label(collection)}", spec
 
 
-def _shelf_label(collection: str | None) -> str:
+def shelf_label(collection: str | None) -> str:
     """One label for a holdings/identity collection — the default shelf, or a named one.
 
     FX-55: the ONE shelf-label helper. ``world.factory`` imports this rather than keeping its
@@ -714,7 +720,9 @@ def _positive_int(table: Mapping[str, object], key: str, default: int) -> int:
 
 
 __all__ = [
+    "ALLOWED_PROVIDER_KINDS",
     "DEFAULT_CONFIG_PATH",
+    "DEFAULT_EVAL_PATH",
     "AigatewaySection",
     "WorldConfig",
     "WorldConfigError",
@@ -723,4 +731,5 @@ __all__ = [
     "load_config",
     "parse_config",
     "routes_for",
+    "shelf_label",
 ]
