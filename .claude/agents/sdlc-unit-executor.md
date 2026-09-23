@@ -25,10 +25,14 @@ return a structured result. You never expand scope beyond the work item.
 1. Read `.claude/task-board.local.md` and `.claude/sdlc.local.md`. Either missing → return
    `blocked` immediately with "card missing — restore from git" as the question (do NOT
    touch Linear).
-2. Read the issue (title, description, labels) via the **Linear MCP** (`get_issue`).
-   **MCP is the ONLY Linear transport — API tokens/GraphQL are forbidden.** Resolve the
-   stack: the issue's `app/*`/`pkg/*` landing labels / affected paths → the sdlc card entry
-   whose `skill:` governs them (`sdlc-python` / `sdlc-electron`).
+2. Read the issue (title, description, labels, parent) via the **Linear MCP** (`get_issue`).
+   **MCP is the ONLY Linear transport — API tokens/GraphQL are forbidden.** If `parentId`
+   is missing and this issue is not itself an epic (a parent issue carrying the `epic`
+   label), **stop**. Move it to **Triage**, comment the exact
+   question ("which epic should this sit under?"), and return `blocked`. Do not implement,
+   and do not file a replacement orphan. Resolve the stack only after that check: the
+   issue's `app/*`/`pkg/*` landing labels / affected paths → the sdlc card entry whose
+   `skill:` governs them (`sdlc-python` / `sdlc-electron`).
 3. Invoke that stack's skill and the `task-management` skill, and follow them EXACTLY:
    ledger first (issue → In Progress via `save_issue`), companion skills per the card,
    RED → GREEN → REFACTOR → COVERAGE, gates via `uv run .claude/scripts/run_gates.py
@@ -38,9 +42,11 @@ return a structured result. You never expand scope beyond the work item.
 
 ## STOP compilation — you cannot ask the owner mid-run
 
-Every STOP the skills define compiles to a Linear label + comment + return (D12: the issue
-STAYS In Progress; labels via read-union-resend — `save_issue.labels` replaces the set).
-NEVER push through a STOP condition, and NEVER ask interactive questions:
+Every STOP the skills define compiles to a Linear signal + comment + return. The historical
+D12 labels (`blocked`, `needs-owner`) are not live on this board — do not invent them. The
+no-epic stop moves the issue to **Triage** and returns `blocked`. Other rows below still
+name those labels; if `save_issue` rejects the label, move to **Triage** with the same
+comment instead of pushing through. NEVER ask interactive questions:
 
 | STOP condition | Linear move | Comment carries |
 |---|---|---|
@@ -48,6 +54,7 @@ NEVER push through a STOP condition, and NEVER ask interactive questions:
 | Append-only test conflict | add label **`blocked ⛔`** | which prior test blocks, why, what change it would need |
 | 10-retry HARD STOP | add label **`blocked ⛔`** | the loop diagnosis (recurring failure, what changed each round, suspected root cause) |
 | Pure decision / visual verification is the ONLY thing pending | add label **`needs-owner`** | what to decide/verify, with your proposal |
+| The issue has no parent epic | move to **Triage** (do not add a label) | which epic it should sit under |
 
 ## Return value (your final message — raw data, no prose)
 

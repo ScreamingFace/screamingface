@@ -24,10 +24,22 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
 
 0. **95% confidence gate — TOP RULE.** Below 95% confident it's correct AND wanted →
    STOP and ask. Applies to everything: code, work items, docs, diagrams.
-1. **Work item first.** Every unit of work is a Linear issue (`OME-N`, Engineering team,
-   😱 ScreamingFace V1 project) with its labels (workstream when applicable;
-   `app/*`/`pkg/*` or `repo`; one `who-acts`; one `actor` — agentic|human, mandatory) +
-   a mirror in `docs/tasks/`. Close status in BOTH at finish.
+1. **Epic first.** Every unit of work is a Linear issue under an epic (`OME-N`, Engineering
+   team, 😱 ScreamingFace V1) with its labels (`app/*`/`pkg/*` or `repo`; one `who-acts`;
+   one `actor` — agentic|human, mandatory), a **self-assigned assignee** (`assignee: "me"` —
+   mandatory on every issue and epic; nothing is filed unassigned), and a mirror in
+   `docs/tasks/`. The issue is
+   created when the PR is opened — not at work start, and not on a commit or a new branch —
+   and only after you confirm it with the user. No fitting epic
+   → the agent proposes one (stating plainly that it may not create an epic on the user's
+   behalf) and, only with the user's direct consent, creates it in the Triage state with the
+   rationale in the body and Irina plus Kevin tagged in a comment for scope approval; the leaf
+   is then filed under it and the PR proceeds without blocking on that approval. Agents do not
+   file orphan tickets and never auto-create epics. **The only exception to epic-first is a
+   `bug`:** an issue labeled `bug` may be filed with no parent epic — in Triage, left
+   unassigned, with Irina and Kevin tagged for review. Everything else goes under an epic and
+   self-assigns.
+   Close status in BOTH Linear and the mirror at finish.
 2. **Work ledger.** Every unit has `docs/work/YYYY-MM-DD-<ticket-id>-<desc>.md` — created
    at work START from `docs/work/TEMPLATE.md`, outcome filled at finish.
 3. **Spec before plan, plan before code.** `docs/spec/` then `docs/plan/` artifacts are
@@ -49,8 +61,8 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
    Every change lands via **PR** — green CI first, then squash-merge; never `--admin`.
 7. **Asana is READ-ONLY** product/marketing input (`asana-product` skill). Technical work
    never goes to Asana.
-8. **Cross-cutting** (≥2 apps/packages) → epic + one sub-issue per affected app/package.
-   Never one mega-ticket.
+8. **Cross-cutting** (≥2 apps/packages) → one sub-issue per affected app/package under the
+   epic. Never one mega-ticket. Single-landing work is still a leaf under an epic.
 9. **Linear via MCP only** (`/mcp` to activate). API tokens / raw GraphQL are forbidden;
    MCP-uncovered operations are owner actions in the Linear UI.
 

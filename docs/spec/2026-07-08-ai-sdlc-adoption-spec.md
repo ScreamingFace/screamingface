@@ -225,3 +225,24 @@ per-stack invariants (aigateway credential rules; scoreboard artifact allowlist)
 - Whether `repo-checks.yml` also runs actionlint — nice-to-have, decide in implementation.
 
 Confidence: ≥95% on design correctness/completeness given locked decisions D1–D12.
+
+## Decisions superseding (2026-09-22) — epic first
+
+These decisions sit on top of the 2026-07-08 record. They do not rewrite it. The 2026-07-15
+reconciliation (`OME-443`) already deleted the `Epic` label group that D10 treated as the
+workstream axis, and the live `type` group is `decision` / `task`. "Epic" below means a
+Linear **parent issue**, not that deleted label group.
+
+| # | Decision | Choice |
+|---|---|---|
+| D14 | Organizing unit | The **epic** (a parent issue) is the primary organizing unit. It carries priority, one landing leaf, one actor, and a rationale in the body. Every other issue has `parentId` set to an epic. Agents file leaves only; they do not file orphans and never auto-create epics (see D16). |
+| D15 | Milestones | Milestones are an **optional** phase grouping above epics. They are not required. The legacy sprint milestones are not the backbone; retiring the stale launch milestones is an owner action after open children sit on an epic. |
+| D16 | No fitting epic | The agent **proposes** an epic and states plainly that it may not create one on the user's behalf (*"this is a proposed epic for this work — suggest edits or confirm"*). It creates the epic **only with the user's direct consent** — never automatically. On consent: create it in the **Triage** state with the rationale in its body and the `[EPIC]` title suffix, and tag Irina Bejan (`irina@openmined.org`) and Kevin McDonough (`kevin@openmined.org`) in a comment for scope review and approval. The leaf is filed under the proposed epic and the PR proceeds — scope approval is asynchronous and does not block (reparent later if redirected). Irina doubles as product reviewer, so both the prioritized and not-yet-prioritized paths tag Irina and Kevin. (Revised 2026-09-23, `OME-1262`, superseding the earlier hard-stop / human-authors-only rule.) |
+| D17 | Epics are queryable | The owner created a standalone `epic` workspace label (id `fa574829-3329-4c84-831f-42a23cb74164`, registered in the board card 2026-09-23) plus a saved **Epics by priority** view (filter `label = epic`). **Every epic carries the `epic` label** — agents apply the existing label via `addLabels`; they do not mint it. |
+| D18 | No-epic park state | D12's `blocked` and `needs-owner` labels are not live, and this decision does not add workflow states. The no-epic stop does not file. An already-filed issue with no parent epic moves to **Triage** plus a comment. D9 still holds: work spanning ≥2 landings is one sub-issue per landing under the epic. |
+| D19 | When the issue is filed | The Linear issue is created **when the pull request is opened — not at the moment work starts, and not on a commit or a new branch** — and only after the agent asks the user to confirm it (title, parent epic, labels, priority). A session opening, a commit, or a pushed branch is not a reason to file; exploration, drafting, committing, and pushing a branch need no issue. `Refs: OME-N` goes in the PR body. This narrows filing to the point a change is proposed for merge. (2026-09-23, superseding the earlier first-commit trigger, `OME-1262`.) |
+| D20 | Epic naming & classification | Epic titles end with the suffix ` [EPIC]` (never an `EPIC:` prefix or an `(epic)` suffix). Every epic is attached to the project, carries the standalone `epic` label, and carries **exactly one classification** label — `tech-debt` / `product-feature` / `infra` (EPIC-only workspace labels; ids in the card's `labels.classification`). Pure process/meta epics may skip the classification. Agents apply existing labels; they never mint them. (2026-09-23, `OME-1259`/`OME-1262`.) |
+| D21 | Self-assign on creation | Every issue **and** every epic is self-assigned by its creator at creation (`assignee: "me"`) — nothing is filed unassigned, **except a `bug`-labeled issue (see D22), which is left unassigned.** `"me"` resolves to whoever is currently authenticated to the Linear MCP (the person running the session), not a hardcoded default. Reassigning to a different owner is a later, deliberate act. Applies to both agent-filed leaves and consented proposed epics. (2026-09-23, `OME-1262`.) |
+| D22 | Bug exception to epic-first | The **only** exception to epic-first (D14/D16): an issue labeled `bug` need not belong to an epic. It is filed with **no parent**, in the **Triage** state, **unassigned** (bugs do not self-assign, cf. D21), with Irina and Kevin tagged in a comment for review. It still carries a landing leaf + `actor` and a `docs/tasks` mirror. Everything that is not a `bug` goes under an epic and self-assigns. (2026-09-23, `OME-1262`.) |
+
+Tracked as epic `OME-1259`. The process-doc unit is `OME-1262`.

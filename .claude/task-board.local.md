@@ -52,6 +52,12 @@ labels:  # RECONCILED 2026-07-15 (OME-443) vs live Linear (list_issue_labels). S
   type:  # Linear group "type" — optional tagging (replaced the former Bug/Feature/Improvement)
     "decision": "89f24a1e-50fe-43c6-8ba9-bcf0f25d6ab7"  # a LOCKED decision (contract frozen), not code
     "task": "5fc84240-25d2-4893-85b7-9e12bb0db207"       # mechanical/housekeeping/research — no product behavior change
+  epic:  # standalone workspace label (NOT under the type group) — MANDATORY on every epic
+    "epic": "fa574829-3329-4c84-831f-42a23cb74164"  # created 2026-09-23; apply via addLabels to every epic (parent) issue
+  classification:  # EPIC-ONLY labels — exactly ONE per epic (process/meta epics may skip). standalone workspace labels
+    "tech-debt": "76c260e6-73c2-41a5-9f69-b226a4c2810f"        # work that is tech debt
+    "product-feature": "7a4418fd-1ceb-4822-b342-4d4e56cd096f"  # a new product feature
+    "infra": "22a133e3-7844-4d62-bfe1-a449baa785ed"            # internal infrastructure
   # ── Reconciliation note (2026-07-15, OME-443) ─────────────────────────────────────────────
   # Labels present in the PRIOR card but ABSENT from live Linear (verified via list_issue_labels):
   #   - epic_group workstreams (url4 Engine, AI Gateway, Eval Runner & Datasets, Results & Runs,
@@ -60,14 +66,20 @@ labels:  # RECONCILED 2026-07-15 (OME-443) vs live Linear (list_issue_labels). S
   #     folded into the app/* + research/* landing labels above.
   #   - type_ish Bug / Feature / Improvement: replaced by type decision / task.
   #   - STOP labels "blocked ⛔" and "needs-owner": DO NOT EXIST. The D12 STOP mechanism below is
-  #     currently unbacked. OWNER ACTION: recreate these two labels in the Linear UI, or switch the
-  #     D12 rule to another signal. Until then, record a STOP as a `design-session`/`deferred`
-  #     label + a comment stating the exact question.
+  #     currently unbacked. 2026-09-22 (D18, OME-1259): the no-epic stop does not file. An
+  #     already-filed issue with no parent epic parks in Triage plus a comment. Do not
+  #     recreate those labels for that case, and do not add workflow states.
   #   - landing app/aigateway, app/scoreboard IDs were stale; live labels are aigateway / scoreboard
   #     (parent "app"). repo and pkg/url4-python-sdk IDs were correct and are retained.
   # who_acts/actor `group:` parent IDs from the prior card were dropped (unverified + unused for
   # filing, which resolves by member label). Re-add if a group-level operation ever needs them.
 priority: { P1: 2, P2: 3, P3: 4 }  # Linear ints; 1 (Urgent) reserved for incidents
+# Epic priority is the same field. The epics the team is actually working are the
+# highest-priority open epics (owner-set). There is no separate P0 integer.
+reviewers:
+  engineering: kevin@openmined.org   # Kevin McDonough, head of engineering
+  project_lead: irina@openmined.org  # Irina Bejan
+  product: irina@openmined.org       # Irina doubles as product reviewer (confirmed 2026-09-23, OME-1259)
 close_template: |
   Commits: <sha> <message>[, …]
   Gates: <run_gates.py summary / test counts>
@@ -78,16 +90,57 @@ close_template: |
 
 # Ticket rules (bind alongside the task-management skill)
 
+## Epic conventions (2026-09-22, OME-1259)
+
+- An epic is a Linear **parent issue**, attached to the project (`{{project}}`). It carries
+  priority, one landing leaf, one actor, and a rationale in the body. It **must** carry the
+  standalone `epic` label (`labels.epic` above) — apply it via `addLabels`.
+- **Epic title ends with ` [EPIC]`** (a suffix). Do NOT use an `EPIC:` prefix or an
+  `(epic)` suffix — normalize to ` [EPIC]`.
+- **Every epic carries exactly ONE classification label** from `labels.classification`:
+  `tech-debt`, `product-feature`, or `infra` (EPIC-only). Pure process/meta epics
+  (e.g. `OME-1259`) may skip it. Agents apply the existing label; they do not mint it.
+- Demoting an epic to a sub-issue reverses all three: remove `epic` + the classification
+  label, strip the ` [EPIC]` suffix, and set `parentId` to the new epic.
+- Every other open issue has `parentId` set to an epic. Agents do not file orphans and never
+  auto-create epics.
+- **The one exception is a `bug`.** An issue labeled `bug` need not belong to an epic — file
+  it with no parent, in the **Triage** state, with Irina + Kevin tagged in a comment for
+  review, and **left unassigned** (bugs do not self-assign). It still carries a landing leaf +
+  `actor`. Anything that is not a `bug` goes under an epic and self-assigns.
+- No fitting epic: the agent **proposes** one and says plainly it may not create an epic on
+  the user's behalf (*"this is a proposed epic — suggest edits or confirm"*). It creates the
+  epic **only with the user's direct consent** — never automatically. On consent: create it
+  in the `Triage` state (rationale in the body, ` [EPIC]` suffix) and tag Irina + Kevin
+  (`reviewers.project_lead` + `reviewers.engineering`) in a comment for scope approval. File
+  the leaf under it and open the PR — scope approval is async and does not block (reparent
+  later if redirected). Irina doubles as product (`reviewers.product`), so both paths tag
+  Irina and Kevin.
+- When a ticket is added under an epic, move it out of Triage to **Backlog** (unless it is
+  actively started/in-review) — Triage is the *no-epic* park state, not a resting state for
+  a parented ticket.
+- Milestones are optional. Do not put new work on the legacy sprint milestones (Walking
+  Skeleton, Week 1, Week 2, Testers, Fusion Monsters Launch, Public Launch). Retiring the
+  two stale launch milestones is an owner action (`OME-1260`), after open children sit on
+  an epic.
+- Saved view **Epics by priority** (filter `label = epic`, group by priority then status)
+  is an owner UI action (`OME-1260`). It is the at-a-glance board.
+- No-epic park state is **Triage** (`states.triage`) plus a comment. Do not apply
+  `blocked` or `needs-owner`.
+
 - Every work item: team Engineering + project 😱 ScreamingFace V1 (D11) + a landing label
   (`app/*`/`pkg/*`, or `repo` for process work) + one `who-acts` label + one `actor` label
-  (agentic|human — D13, MANDATORY). Add the workstream (`Epic` group) label whenever the
-  work belongs to one; workstream additions are coordinated with the project lead.
-- D9: ≥2 `app/*`/`pkg/*` labels → cross-cutting: epic carrying the workstream label + all
-  affected landing labels, with one sub-issue per affected app/package (one SDLC unit
-  each). Never a single-app filing, never one mega-ticket.
-- D12 STOPs: apply `blocked ⛔` or `needs-owner` + a comment stating the exact question;
-  the issue stays In Progress; remove the label when resolved. Never add workflow states
-  to the shared team.
+  (agentic|human — D13, MANDATORY) + `parentId` of an epic unless the issue itself is the
+  epic + a **self-assigned `assignee`** (`assignee: "me"`, MANDATORY — see below).
+- **Self-assign on creation (MANDATORY, except bugs).** Every issue and every epic is assigned
+  to its creator at creation (`assignee: "me"`); nothing is filed unassigned — **except a
+  `bug`-labeled issue, which is left unassigned.** Reassigning to another owner is a later,
+  deliberate act.
+- D9 still holds for cross-cutting work: ≥2 landings → one sub-issue per landing under the
+  epic. Never one mega-ticket. Single-landing work is a leaf under an epic as well.
+- D12 labels `blocked ⛔` and `needs-owner` are **not live** (reconciliation note above).
+  Never add workflow states to the shared team. The no-epic stop uses Triage, not those
+  labels.
 - MCP quirks: `save_issue.labels` REPLACES the whole set — read current labels and resend
   the union. Relations (blockedBy/relatedTo) are append-only. Send raw markdown with real
   newlines. Bare `OME-N` identifiers auto-link and may create relations — wrap in
