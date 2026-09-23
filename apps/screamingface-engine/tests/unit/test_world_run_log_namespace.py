@@ -24,8 +24,8 @@ from screamingface_engine import job_env
 from screamingface_engine.config import Settings
 from screamingface_engine.local import create_local_app
 from screamingface_engine.runner.main import build_executor
-from screamingface_engine.world.config import WorldConfig, parse_config
-from screamingface_engine.world.factory import build_world
+from screamingface_engine.world.config import WorldConfig, load_config, parse_config
+from screamingface_engine.world.factory import SharedWorld, build_world
 from screamingface_engine.world.models.registry import EMPTY_MODEL_WORLD
 from url4.streaming.interfaces import Completed
 
@@ -156,11 +156,18 @@ async def test_a_run_on_the_shared_node_survives_the_config_file_breaking_after_
     fail every later run, or log a shape that no longer matches what the node actually serves.
     """
     config = tmp_path / "url4.toml"
+    config_env = {job_env.RUNNER_CONFIG: str(config)}
     config.write_text(
         '[aigateway]\nbase_url = "http://aigateway.test"\n'
         'default_route = "/anthropic/claude-haiku-4-5"\n'
     )
-    app = create_local_app(Settings(jwt_secret="s" * 32), env={job_env.RUNNER_CONFIG: str(config)})
+    # item 7 (B6 review round 2): the expected model count comes from the SAME startup parse
+    # the shared node's own build performs, rather than a hardcoded number that silently rots
+    # the moment the builtin model registry gains or loses an entry.
+    startup_parse = load_config(config_env, include_extra_models=True)
+    assert startup_parse.aigateway is not None
+    expected_models = len(startup_parse.aigateway.models)
+    app = create_local_app(Settings(jwt_secret="s" * 32), env=config_env)
 
     with caplog.at_level(logging.INFO):
         async with app.router.lifespan_context(app):
@@ -174,6 +181,33 @@ async def test_a_run_on_the_shared_node_survives_the_config_file_breaking_after_
     assert isinstance(steps[-1], Completed)
     (record,) = _world_lines(caplog)
     assert record.getMessage() == (
-        "runner world topic=t-broken models=117 default_model=anthropic/claude-haiku-4-5 "
-        "web_tools=disabled cache=not-stated outbound=allowed"
+        f"runner world topic=t-broken models={expected_models} "
+        "default_model=anthropic/claude-haiku-4-5 web_tools=disabled cache=not-stated "
+        "outbound=allowed"
     )
+
+
+async def test_every_shared_world_run_writes_exactly_one_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`build_executor(shared_world_provider=...)` writes exactly one line per run (item 2, B6
+    review round 2): the ONE `SharedWorld` value carries both halves the line needs (the io and
+    the section), so a caller cannot hand in one without the other the way two independent
+    optional providers could — there is no shape left that silently drops the line.
+    """
+    shared_io, aclose = await build_world(env={}, config=_config())
+    shared = SharedWorld(io=shared_io, section=_config().aigateway)
+    try:
+        with caplog.at_level(logging.INFO, logger=_RUN_LOGGER):
+            for topic in ("t-x", "t-y"):
+                executor = build_executor(
+                    {job_env.TOPIC: topic}, shared_world_provider=lambda: shared
+                )
+                async for _ in executor.execute("'hello'"):
+                    pass
+    finally:
+        if aclose is not None:
+            await aclose()
+
+    lines = [r.getMessage() for r in _world_lines(caplog)]
+    assert [line.split()[2] for line in lines] == ["topic=t-x", "topic=t-y"], lines

@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -30,6 +31,7 @@ from screamingface_engine.benchmarks import (
 )
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.config import (
+    AigatewaySection,
     ModelSpec,
     WorldConfig,
     WorldConfigError,
@@ -68,6 +70,26 @@ Defined HERE, in the shared world, rather than in `runner.executor`: the engine-
 the world builder, and the run mode's executor types its factory against this without owning the
 definition. `tests/unit/test_url4_executor.py` pins which modules may import the url4 engine.
 """
+
+
+@dataclass(frozen=True, slots=True)
+class SharedWorld:
+    """A local-mode shared world: its io layer, plus the ``[aigateway]`` section it was built
+    from (B6 review round 2, item 2).
+
+    ONE object rather than two independent optional providers (``io_provider`` and a second
+    ``io_config_provider``): a caller supplying the io half without the section half used to
+    compile and run fine, silently dropping the run's "runner world" log line (item 1) with no
+    signal anywhere that anything was missing. Bundling both into one value a provider returns
+    together makes that omission a construction error instead of a silent one.
+
+    ``section`` is ``None`` for a shared world with no ``[aigateway]`` table (a bare read-side
+    node, or the deny-by-default layer) — the same shape that writes no world line on `main`.
+    """
+
+    io: IOLayer
+    section: AigatewaySection | None
+
 
 WorldFactory = Callable[[], Awaitable[World]]
 
@@ -279,6 +301,7 @@ def _log_declared_shelves(config: WorldConfig) -> None:
 
 __all__ = [
     "READ_SIDE_TIMEOUT_S",
+    "SharedWorld",
     "World",
     "WorldFactory",
     "build_world",

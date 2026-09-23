@@ -41,6 +41,7 @@ from screamingface_engine.runner.summary import RunSummary
 from screamingface_engine.tracing.relay import SpanRelay, SpanSink, otlp_configured
 from screamingface_engine.world.config import AigatewaySection, WorldConfig, load_config
 from screamingface_engine.world.factory import (
+    SharedWorld,
     World,
     build_world,
     shared_world_serves,
@@ -389,8 +390,7 @@ def build_executor(
     benchmark_assets_root: Path | None = None,
     io_gate: FairShareGate | None = None,
     observers: tuple[ObserverFactory, ...] = (),
-    io_provider: Callable[[], Any] | None = None,
-    io_config_provider: Callable[[], AigatewaySection | None] | None = None,
+    shared_world_provider: Callable[[], SharedWorld | None] | None = None,
 ) -> OperationCapturingExecutor:
     """Wire an executor over the DECLARED world — without building it yet.
 
@@ -411,10 +411,12 @@ def build_executor(
     ``observers`` are per-execution factories supplied by composition. The empty default
     leaves execution without observers; optional telemetry policy belongs to its adapter.
 
-    ``io_config_provider`` is local mode's second half of ``io_provider`` (item 1, B6 review): the
-    ``[aigateway]`` section the shared world was ALREADY built from, so the run's world line does
-    not re-read ``url4.toml``. ``None`` (every non-local caller) leaves the per-run world's own
-    ``resolved()`` read in place, unchanged.
+    ``shared_world_provider`` is local mode's shared world: its io layer AND the ``[aigateway]``
+    section it was built from, bundled into ONE ``world.factory.SharedWorld`` (B6 review round
+    2, item 2 — two independent optional providers let a caller supply the io half without the
+    section half, which silently dropped the run's world line, item 1, with no signal anywhere).
+    ``None`` (every non-local caller) leaves the per-run world's own ``resolved()`` read in
+    place, unchanged.
 
     The concrete return type (not the ``Executor`` port) is deliberate: the composition root
     reads the run's process-level summary back off the wrapper after the run (OME-1069), and
@@ -436,19 +438,20 @@ def build_executor(
     if io_gate is not None and run_key:
         io_wrap = lambda io: FairShareIOLayer(io, io_gate, run_key)  # noqa: E731 - binding read
     # FEATURE (unit 3, prd/03 C8): LOCAL mode builds ONE world, mounts it as the node's ASGI
-    # surface, and runs every in-process run against that same world. `io_provider` is how a
-    # caller hands that shared world in WITHOUT building it here: it is read at executor BUILD
-    # time (once per run) rather than captured, because local mode builds the world in the App's
-    # startup hook, after this factory exists. A provider rather than the world itself also keeps
-    # `build_executor`'s `partial` shape intact — the local composition's `benchmarks` and
+    # surface, and runs every in-process run against that same world. `shared_world_provider` is
+    # how a caller hands that shared world in WITHOUT building it here: it is read at executor
+    # BUILD time (once per run) rather than captured, because local mode builds the world in the
+    # App's startup hook, after this factory exists. A provider rather than the world itself also
+    # keeps `build_executor`'s `partial` shape intact — the local composition's `benchmarks` and
     # `observers` keywords are read by tests, and a bespoke callable would erase them.
     #
     # INVARIANT: `None` (the deployed Job, and every non-local caller) leaves the per-run world
     # factory in place, byte-identical to before. The shared world's own teardown belongs to
     # whoever built it, so its factory returns NO teardown — a run must not close a world it does
     # not own.
-    shared_io = io_provider() if io_provider is not None else None
-    shared_section = io_config_provider() if io_config_provider is not None else None
+    shared = shared_world_provider() if shared_world_provider is not None else None
+    shared_io = shared.io if shared is not None else None
+    shared_section = shared.section if shared is not None else None
     # FEATURE (FX-30, OME-880): a model admitted after the shared node was built is not a route
     # on it. Such a run builds its own per-run world, exactly as before the shared node existed,
     # and that world owns its own teardown.

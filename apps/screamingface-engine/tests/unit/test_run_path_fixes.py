@@ -40,7 +40,7 @@ from screamingface_engine.world.config import (
     WorldConfigError,
     extra_model_ids,
 )
-from screamingface_engine.world.factory import build_world, shared_world_serves
+from screamingface_engine.world.factory import SharedWorld, build_world, shared_world_serves
 from url4.io.static import StaticIOLayer
 from url4.streaming.interfaces import Completed
 
@@ -347,7 +347,8 @@ async def _declared_world(tmp_path: Path) -> Any:
 @pytest.mark.asyncio
 async def test_a_malformed_seed_on_an_empty_shared_world_completes() -> None:
     shared = StaticIOLayer()
-    executor = build_executor({job_env.ANSWER_SEED: "lucky"}, io_provider=lambda: shared)
+    provider = lambda: SharedWorld(io=shared, section=None)  # noqa: E731 - binding read
+    executor = build_executor({job_env.ANSWER_SEED: "lucky"}, shared_world_provider=provider)
 
     steps = [step async for step in executor.execute("'hello'")]
 
@@ -359,7 +360,8 @@ async def test_a_malformed_seed_on_a_declared_shared_world_is_refused_before_the
     tmp_path: Path,
 ) -> None:
     shared = await _declared_world(tmp_path)
-    executor = build_executor({job_env.ANSWER_SEED: "lucky"}, io_provider=lambda: shared)
+    provider = lambda: SharedWorld(io=shared, section=None)  # noqa: E731 - binding read
+    executor = build_executor({job_env.ANSWER_SEED: "lucky"}, shared_world_provider=provider)
 
     with pytest.raises(RunnerConfigError, match=job_env.ANSWER_SEED):
         async for _ in executor.execute(f"/{_DEFAULT}('ctx')!'go'"):
@@ -390,13 +392,19 @@ async def test_a_valid_seed_on_a_shared_world_is_bound_and_the_world_is_not_clos
         shared, aclose = await build_world(
             env={job_env.RUNNER_CONFIG: _config(tmp_path)}, client=client
         )
-        # FX-68: a run on the shared node reads its config for the world line, so each run env
-        # carries the config path — as every local run env does (`local._with_runner_config`).
+        # item 1 (B6 review): a run on the shared node no longer re-reads its config for the
+        # world line — it logs from the `SharedWorld.section` the caller hands in below, which
+        # here is `None` (this test does not assert the world line); each run env still carries
+        # the config path, as every local run env does (`local._with_runner_config`), because a
+        # run WITHOUT a shared world still builds and resolves its own.
         run_env = {job_env.RUNNER_CONFIG: _config(tmp_path)}
-        executor = build_executor({**run_env, job_env.ANSWER_SEED: "7"}, io_provider=lambda: shared)
+        provider = lambda: SharedWorld(io=shared, section=None)  # noqa: E731 - binding read
+        executor = build_executor(
+            {**run_env, job_env.ANSWER_SEED: "7"}, shared_world_provider=provider
+        )
         steps = [step async for step in executor.execute(f"/{_DEFAULT}('ctx')!'go'")]
         # A second run on the same shared world still works: the first did not close it.
-        again = build_executor(run_env, io_provider=lambda: shared)
+        again = build_executor(run_env, shared_world_provider=provider)
         steps_again = [step async for step in again.execute(f"/{_DEFAULT}('ctx')!'go'")]
         assert aclose is not None
         await aclose()

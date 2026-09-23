@@ -15,6 +15,7 @@ the suite stays offline.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -216,7 +217,7 @@ async def test_the_in_process_run_path_shares_the_mounted_nodes_io_layer(
 
 @pytest.mark.asyncio
 async def test_a_direct_hit_on_a_benchmark_endpoint_gets_the_engines_404(
-    tmp_path: Path,
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """`/benchmarks/candidate` is installed on the shared node, but is not a direct mount.
 
@@ -225,6 +226,10 @@ async def test_a_direct_hit_on_a_benchmark_endpoint_gets_the_engines_404(
     direct loopback hit on a judge/candidate endpoint has no candidate invocation around it, so
     the direct-mount set must exclude benchmark endpoints, exactly as the deployed shape does
     (which never mounts them for the forwarder at all).
+
+    Also pins B6 review round 2 (items 3/4): the direct-mount set is computed from the ONE
+    shared world, not a second world build — so a `[holdings]` declaration logs its "readable by
+    EVERY caller" INFO line exactly ONCE at startup, not twice.
     """
     assets = tmp_path / "assets"
     assets.mkdir()
@@ -232,27 +237,31 @@ async def test_a_direct_hit_on_a_benchmark_endpoint_gets_the_engines_404(
         '[aigateway]\nbase_url = "http://aigateway.test"\n'
         'default_route = "/anthropic/claude-haiku-4-5"\n'
         '[data]\n"/corpus" = { value = "rows", media_type = "text/plain" }\n'
+        '[holdings]\ndefault = { value = "global notes" }\n'
     )
     # Any (even empty) asset root installs BUILTIN_BENCHMARKS lazily — install() never reads an
     # asset eagerly (see test_benchmark_asset_isolation.py).
-    app = create_local_app(
-        Settings(jwt_secret="s" * 32),
-        env={
-            job_env.RUNNER_CONFIG: _config_file(tmp_path, config),
-            BENCHMARK_ASSETS_ENV: str(assets),
-        },
-    )
-    app.state.catalog = _FakeCatalog()
+    with caplog.at_level(logging.INFO):
+        app = create_local_app(
+            Settings(jwt_secret="s" * 32),
+            env={
+                job_env.RUNNER_CONFIG: _config_file(tmp_path, config),
+                BENCHMARK_ASSETS_ENV: str(assets),
+            },
+        )
+        app.state.catalog = _FakeCatalog()
 
-    async with app.router.lifespan_context(app):
-        async with _client(app) as client:
-            benchmark_hit = await client.get("/benchmarks/candidate")
-            mount_hit = await client.get("/corpus")
+        async with app.router.lifespan_context(app):
+            async with _client(app) as client:
+                benchmark_hit = await client.get("/benchmarks/candidate")
+                mount_hit = await client.get("/corpus")
 
     assert benchmark_hit.status_code == 404
-    # AND: not url4's error envelope either — a route the App never declared a mount for.
-    assert "error" not in benchmark_hit.json() or "code" not in benchmark_hit.json().get(
-        "error", {}
-    )
+    # AND: the ENGINE's own 404 body, byte-for-byte — FastAPI's default for an unmatched route,
+    # not url4's error envelope (a route the App never declared a mount for reaches neither).
+    assert benchmark_hit.json() == {"detail": "Not Found"}
     assert mount_hit.status_code == 200
     assert mount_hit.text == "rows"
+
+    shelf_lines = [r for r in caplog.records if "holdings shelf" in r.getMessage()]
+    assert len(shelf_lines) == 1, shelf_lines

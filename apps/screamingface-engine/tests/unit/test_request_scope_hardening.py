@@ -147,13 +147,6 @@ _OPAQUE = (
     types.BuiltinFunctionType,
     float,
     type(None),
-    # item 8 (B6 review): widening the module set to every `screamingface_engine.*` module
-    # (not only `world*`) put CLASS objects in a module's globals within reach for the first
-    # time — e.g. a Pydantic `BaseModel` subclass, or `BaseModel` itself, imported by name at
-    # module scope elsewhere in the package. A class is shared code, never per-request state,
-    # and walking one's attributes can trigger a descriptor that only behaves on an INSTANCE
-    # (Pydantic's `__pydantic_validator__` raises `PydanticUserError` when read off the class).
-    type,
 )
 
 
@@ -189,6 +182,8 @@ def _children(path: str, value: object) -> list[tuple[str, object]]:
     children: list[tuple[str, object]] = []
     if isinstance(value, (str, bytes, int, *_OPAQUE)):
         pass
+    elif isinstance(value, type):
+        children += _class_attributes(path, value)
     elif isinstance(value, Mapping):
         for key, item in list(value.items()):
             children += [(f"{path}[{key!r}].key", key), (f"{path}[{key!r}]", item)]
@@ -197,6 +192,30 @@ def _children(path: str, value: object) -> list[tuple[str, object]]:
     else:
         children += _attributes(path, value)
     return children
+
+
+def _class_attributes(path: str, cls: type) -> list[tuple[str, object]]:
+    """A class's OWN attributes, read from ``vars(cls)`` — never through a descriptor.
+
+    item 1 (B6 review round 2): the widened module scan (item 8) put CLASS objects in a
+    module's globals within reach for the first time — a Pydantic `BaseModel` subclass, or
+    `BaseModel` itself, imported by name at module scope elsewhere in the package.
+    `getattr(cls, name)` runs that class's descriptors as if reading off the CLASS, which is
+    exactly what raised `PydanticUserError` (`__pydantic_validator__` only behaves on an
+    INSTANCE) — excluding every class from the scan (`type` in `_OPAQUE`) fixed that but made
+    the scan blind to a leak planted as a class attribute, e.g. `_ModelEndpoint._LAST`.
+    `vars(cls)` is the class's raw `__dict__`: no descriptor's `__get__` runs, so it cannot
+    raise, and it still finds the leak.
+
+    A class the ENGINE does not own is skipped (not merely left opaque, — SKIPPED, so nothing
+    beneath it is walked either): this package cannot stash a scope value as an attribute of a
+    class it does not define, and every foreign class the scan met before this fix (`BaseModel`,
+    `Enum`, ...) is exactly what raised.
+    """
+    module = getattr(cls, "__module__", "") or ""
+    if module != "screamingface_engine" and not module.startswith("screamingface_engine."):
+        return []
+    return [(f"{path}.{name}", value) for name, value in sorted(vars(cls).items())]
 
 
 def _attributes(path: str, value: object) -> list[tuple[str, object]]:
@@ -306,5 +325,24 @@ def test_the_module_scan_reaches_every_engine_module_not_only_world() -> None:
     try:
         roots = [(f"{name}.<globals>", vars(module)) for name, module in _engine_modules()]
         assert any(path.endswith("['_LAST']") for path in _leaks(roots))
+    finally:
+        del mutant._LAST
+
+
+def test_the_scan_catches_a_leak_planted_as_a_class_attribute() -> None:
+    """Pins item 1 (B6 review round 2): a leak on a CLASS attribute must be caught too.
+
+    `type` in `_OPAQUE` (this file's item-8 fix) closed the `PydanticUserError` crash by
+    skipping every class outright — which also made the scan blind to exactly this case. A
+    `_ModelEndpoint._LAST` class-level mutant was caught by the ORIGINAL (pre-item-8) scan and
+    silently missed once `type` went into `_OPAQUE`; `_class_attributes` (reading `vars(cls)`,
+    never `getattr`) is what lets the scan walk an engine-owned class again without touching a
+    foreign class's descriptors.
+    """
+    mutant = cast(Any, _ModelEndpoint)
+    mutant._LAST = _PROFILE
+    try:
+        roots = [(f"{name}.<globals>", vars(module)) for name, module in _engine_modules()]
+        assert any(path.endswith("._LAST") for path in _leaks(roots))
     finally:
         del mutant._LAST

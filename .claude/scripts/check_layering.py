@@ -113,9 +113,9 @@ RULES: list[tuple[str, set[str], str]] = [
         "log over NATS, so it must not reach into the engine-bearing half. This narrower wording "
         "is a deliberate, recorded change of rule (prd/01-foundation-world-module.md), not an "
         "exemption — the control plane may import screamingface_engine.world and serve a direct "
-        "mount from one node. `local.py` (the one declared exemption above, `_EXEMPT`) is the "
-        "sole control-plane module that also evaluates an arbitrary expression, serving `/v1?q=` "
-        "in-process for `serve --local`; every other control-plane module still does not",
+        "mount from one node. `local.py` (declared in `_EXEMPT` below) is the sole control-plane "
+        "module that also evaluates an arbitrary expression, serving `/v1?q=` in-process for "
+        "`serve --local`; every other control-plane module still does not",
     ),
     (
         "world",

@@ -173,14 +173,12 @@ def trace_from_headers(headers: Mapping[str, str]) -> TraceContext | None:
     ``None``, and ``None`` binds "no trace", so the outbound call omits the header rather than
     forwarding a value that joins nothing.
 
-    WHY the flags are not kept: `trace_scope` renders the bound trace with url4's own
-    `format_traceparent`, the same rendering the run path has always sent.
-
-    # WHY: this deliberately re-emits the trace with the sampled flag `01`, whatever the
-    # inbound flag was — an inbound `...-00` traceparent comes back out `...-01`, same trace id.
-    # `format_traceparent` always writes `01` (`lifecycle.run` / the run path never carried a
-    # flag either), so the sync surface and the ensemble path agree on one rendering rather than
-    # the sync surface forwarding a caller's unsampled flag downstream.
+    # WHY the flags are not kept: `trace_scope` renders the bound trace with url4's own
+    # `format_traceparent`, which always writes the sampled flag `01` — the same rendering the
+    # run path (`lifecycle.run`) has always sent. This deliberately RE-EMITS the trace sampled,
+    # whatever the inbound flag was: an inbound `...-00` traceparent comes back out `...-01`,
+    # same trace id, so the sync surface and the ensemble path agree on one rendering rather
+    # than the sync surface forwarding a caller's unsampled flag downstream.
     """
     valid = valid_traceparent(_optional(headers.get(TRACEPARENT_HEADER)))
     if valid is None:

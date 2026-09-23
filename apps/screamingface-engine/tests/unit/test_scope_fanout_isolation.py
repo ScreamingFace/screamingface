@@ -23,7 +23,8 @@ import pytest
 from screamingface_engine import job_env
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
-from screamingface_engine.world.factory import build_world
+from screamingface_engine.world.factory import SharedWorld, build_world
+from url4.io.layer import IOLayer
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.no_default_scope]
 
@@ -119,13 +120,14 @@ async def test_every_fan_out_call_carries_its_own_runs_identity_under_concurrent
         assert request.headers["X-Profile"] == f"profile-{run}", _user_content(request)
 
 
-async def _run_on_shared(run: str, shared: object) -> None:
+async def _run_on_shared(run: str, shared: IOLayer) -> None:
     """Same run body as ``_run``, but on the SHARED world (the local-mode shape, item 9)."""
     env = {
         **job_env.identity_to_env({"X-User-Email": _identity(run)}),
         job_env.AIGATEWAY_PROFILE: f"profile-{run}",
     }
-    executor = build_executor(env, io_provider=lambda: shared)
+    provider = lambda: SharedWorld(io=shared, section=None)  # noqa: E731 - binding read
+    executor = build_executor(env, shared_world_provider=provider)
     async for _ in executor.execute(_fan_out(run)):
         pass
 

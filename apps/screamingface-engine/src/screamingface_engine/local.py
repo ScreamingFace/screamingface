@@ -43,6 +43,7 @@ from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks import (
     BENCHMARK_ASSETS_ENV,
     EMPTY_BENCHMARKS,
+    SHARED_ADAPTER_ROUTES,
     BenchmarkRegistry,
 )
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -56,16 +57,18 @@ from screamingface_engine.request_scope import (
     request_scope_from_headers,
     trace_from_headers,
 )
-from screamingface_engine.rest.forwarder import derive_forward_contract, forwarded_headers
+from screamingface_engine.rest.forwarder import forwarded_headers
 from screamingface_engine.runner.fair_share import FairShareGate
 from screamingface_engine.trace_scope import run_trace_scope
 from screamingface_engine.world.config import load_config
+from screamingface_engine.world.factory import SharedWorld
 from screamingface_engine.world.serving import (
     NodeMountRoute,
     compose_serving_world,
     engine_route_paths,
     install_node_route,
     node_eval_path,
+    node_mount_paths,
 )
 from screamingface_engine.world.wire import (
     MALFORMED_HEADER,
@@ -304,11 +307,11 @@ def _install_local_node(
     async def _build_shared_node() -> None:
         """Compose the ONE world both surfaces use, guarded against the App's real route table."""
         # AIDEV-NOTE (item 1, B6 review): parsed here, ONCE, rather than left for
-        # `compose_serving_world`/`build_world` to parse internally, so `holder["section"]` and
-        # the world it builds are the SAME read. A run on the shared node then logs from
-        # `holder["section"]` (see `runner.main._model_section`) instead of re-reading
-        # `url4.toml` — a file broken or changed after startup must not fail or misreport a run
-        # that never needed to read it again.
+        # `compose_serving_world`/`build_world` to parse internally, so `holder["shared_world"]`
+        # and the world it builds are the SAME read. A run on the shared node then logs from
+        # `holder["shared_world"].section` (see `runner.main._model_section`) instead of
+        # re-reading `url4.toml` — a file broken or changed after startup must not fail or
+        # misreport a run that never needed to read it again.
         resolved_config = load_config(run_env, include_extra_models=True)
         world, aclose = await compose_serving_world(
             env=run_env,
@@ -318,37 +321,43 @@ def _install_local_node(
             engine_routes=engine_route_paths(app),
             benchmarks=benchmarks,
         )
-        holder["io"] = world
-        holder["section"] = resolved_config.aigateway
+        # item 2 (B6 review round 2): ONE object for both halves of the shared world — see
+        # `SharedWorld`'s own docstring for why two independent optional providers are not this.
+        holder["shared_world"] = SharedWorld(io=world, section=resolved_config.aigateway)
         holder["aclose"] = aclose
         asgi = getattr(world, "asgi", None)
         holder["asgi"] = asgi() if callable(asgi) else None
         # No node means no mounts and no eval path: every path is then the engine's.
         if holder["asgi"] is not None:
-            # item 2 (B6 review): the direct-mount route set must equal the DEPLOYED shape's —
-            # model + data mounts, WITHOUT benchmark/candidate/corrective/judge endpoints —
-            # derived the SAME way `rest.forwarder.derive_forward_contract` derives it for the
-            # App forwarder: a second world, built from the SAME config but with NO benchmarks
-            # installed, whose mount set is read and then closed. `holder["io"]` (above) is the
-            # ONE node that actually serves every request, benchmarks included.
+            # item 2 (B6 review round 2): the direct-mount route set must equal the DEPLOYED
+            # shape's — model + data mounts, WITHOUT benchmark/candidate/corrective/judge
+            # endpoints — computed from the ONE shared world (`world`, above) rather than a
+            # second world build. `benchmarks.installed_routes()` (per-Benchmark data/case/judge
+            # routes) plus `SHARED_ADAPTER_ROUTES` (candidate + corrective, which `world` installs
+            # separately whenever ANY benchmark exists) is the exact set `world`'s node carries
+            # beyond its model+data mounts — see `installed_routes`'s own docstring for why a
+            # second build, or a protocol-AST walk, is not what computes it. A second world build
+            # would also print every boot log line (shelf declarations, shadow warnings) twice
+            # and leak `world` itself on a failure in the second build, before it could ever be
+            # closed — neither risk exists here, since nothing else is built.
             #
-            # WHY: a connector applies the run's X-Answer-Seed to every model call it makes.
-            # Inside a candidate invocation that is correct (the candidate call and its
-            # downstream model calls share the seed); a JUDGE call a benchmark endpoint issues
-            # OUTSIDE a candidate invocation must NOT be seeded. A direct loopback hit on a judge
-            # endpoint has no candidate invocation around it, so excluding benchmark endpoints
-            # from the direct-mount set is what keeps a judge call unseeded here, as it is on the
-            # deployed shape (which never mounts them at all).
-            contract = await derive_forward_contract(
-                env=run_env, engine_routes=engine_route_paths(app), config=resolved_config
-            )
-            # AIDEV-NOTE: the eval path stays IN the direct-mount set, and the actual node
-            # (`holder["io"]`) still has the benchmark endpoints installed — so an expression
-            # evaluated through `{eval_path}?q=` can still address `/benchmarks/candidate` and
-            # friends. Only a DIRECT external hit on a benchmark URL is excluded above. This is
-            # the dev shape (C8, loopback only); it does not need to match the deployed shape,
-            # which has no eval-path caller to protect from itself.
-            holder["paths"] = contract.mount_paths | {node_eval_path(world)}
+            # WHY excluding a benchmark endpoint matters: a connector applies the run's
+            # X-Answer-Seed to every model call it makes. Inside a candidate invocation that is
+            # correct (the candidate call and its downstream model calls share the seed); a JUDGE
+            # call a benchmark endpoint issues OUTSIDE a candidate invocation must NOT be seeded.
+            # A direct loopback hit on a judge/candidate/corrective ENDPOINT has no candidate
+            # invocation around it, so excluding these from the direct-mount set is what keeps
+            # that call unseeded here, as it is on the deployed shape (which never mounts them).
+            #
+            # AIDEV-NOTE (item 6, B6 review): this does NOT close the residual for a judge MODEL
+            # route reached through the eval path. `/{eval_path}?q=` still reaches
+            # `/benchmarks/candidate` and every judge/corrective endpoint inside an expression —
+            # the dev shape, loopback only — and the connector seeds every call whose scope has
+            # `origin == "sync"` regardless of a candidate-invocation flag, so a judge model call
+            # issued THROUGH the eval path is still seeded. Closing that would mean the eval path
+            # stops evaluating arbitrary expressions, which is the whole point of `serve --local`.
+            excluded = benchmarks.installed_routes() | SHARED_ADAPTER_ROUTES
+            holder["paths"] = (node_mount_paths(world) - excluded) | {node_eval_path(world)}
         else:
             holder["paths"] = frozenset()
         app.state.node_world = world
@@ -426,10 +435,7 @@ def create_local_app(
             io_gate=io_gate,
             observers=observers,
             # Read AT RUN TIME so the shared node exists by the time a run is scheduled.
-            io_provider=lambda: holder.get("io"),
-            # item 1 (B6 review): the `[aigateway]` section the shared node was built from, so
-            # a run's world line reads it back instead of re-parsing `url4.toml`.
-            io_config_provider=lambda: holder.get("section"),
+            shared_world_provider=lambda: holder.get("shared_world"),
         ),
         base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,
