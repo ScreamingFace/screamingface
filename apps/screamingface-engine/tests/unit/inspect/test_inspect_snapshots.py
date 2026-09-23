@@ -169,6 +169,39 @@ def test_choice_shuffle_bakes_inspects_own_order_and_remaps_the_target(tmp_path:
     assert shuffled_any
 
 
+def test_choice_shuffle_failure_is_a_named_bake_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bake's failure contract is uniform: eval code blowing up inside
+    inspect's choice shuffle (a non-letter target meeting the letter remap) must
+    surface as a PrepareError naming the stage, never a raw TypeError (review
+    finding on PR #1031)."""
+
+    import sys
+    import types
+
+    from inspect_ai.dataset import Sample
+
+    def bad_target_sample(row: dict[str, Any]) -> Sample:
+        return Sample(input="q", target="yes", choices=["a", "b"])
+
+    module = types.ModuleType("fake_bake_eval")
+    module.bad_target_sample = bad_target_sample  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "fake_bake_eval", module)
+    spec = SnapshotSpec(
+        dataset="acme/quiz",
+        config="",
+        split="test",
+        dataset_revision="c" * 40,
+        case_count=1,
+        record_to_sample="fake_bake_eval:bad_target_sample",
+        choice_shuffle_seed=7,
+    )
+
+    with pytest.raises(PrepareError, match="choice shuffle"):
+        emit_snapshot(spec, [{"q": "?"}], tmp_path)
+
+
 def test_choice_shuffled_bake_is_deterministic(tmp_path: Path) -> None:
     """INVARIANT: the pinned choice order is exam identity — same rows, same
     seed, byte-identical assets across bakes (OME-1264)."""

@@ -586,7 +586,16 @@ def _shuffle_choices(samples: list[Sample], seed: int) -> None:
 
     from inspect_ai.dataset import MemoryDataset
 
-    MemoryDataset(samples).shuffle_choices(seed=seed)
+    try:
+        MemoryDataset(samples).shuffle_choices(seed=seed)
+    except Exception as exc:  # noqa: BLE001 — WHY broad: the shuffle runs inspect's
+        # letter remap over eval-produced Samples; ANY raise (a non-letter target
+        # hitting ord(), an out-of-range letter) must surface as the bake's own
+        # named refusal, never a raw TypeError/KeyError (review finding on PR #1031).
+        raise PrepareError(
+            f"choice shuffle refused the dataset ({type(exc).__name__}: {exc}) — "
+            "a sample's target/choices do not fit inspect's letter remap"
+        ) from exc
 
 
 def _resolved_system_text(spec: SnapshotSpec) -> str | None:

@@ -82,3 +82,16 @@ This PR is the extension + unit tests only — no boards imported yet.
   worktrees — `sh .githooks/pre-push` run by hand correctly exits 1 on the
   append-only check). Gates were run manually instead; the hook quirk is
   process tooling and is left to the owner.
+
+## Review follow-up (owner-approved 2026-09-23, findings on PR #1031)
+
+- Finding 1 resolved by owner: acceptance 1 wins — the refusal moved to
+  `main()`; the append-only skip covers only the one replaced test.
+- Finding 2 fixed: `--choice-shuffle-seed` over an upstream-SEEDED choice
+  shuffle now refuses by name (`_resolved_choice_shuffle_seed` helper carries
+  the full flag/fact matrix) + matrix test. The row-shuffle flag keeps its
+  pre-existing override behavior — out of scope here.
+- Finding 3 fixed: `_shuffle_choices` wraps inspect's shuffle and re-raises as
+  a named `PrepareError` (no case number — inspect's loop cannot say which
+  sample failed) + test with a non-letter target.
+- Gates re-run: ALL GREEN; inspect lane 223 passed. Both new tests appended.

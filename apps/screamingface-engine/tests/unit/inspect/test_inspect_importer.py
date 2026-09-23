@@ -1059,6 +1059,34 @@ def test_an_upstream_choice_shuffle_seed_is_reproduced_in_the_rows(
     assert "SEEDED_CHOICE_SHUFFLE_SEED = 9" in (engine_src_copy / "pins.py").read_text()
 
 
+def test_choice_shuffle_seed_flag_is_refused_when_the_eval_pins_its_own(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """A seeded upstream (shuffle_choices=N) defines ONE exam — overriding it with
+    a policy seed would silently bake an exam upstream never produces (review
+    finding on PR #1031). The flag is refused, same rationale as the stray-flag
+    refusal one test down."""
+
+    _install_fake_eval(monkeypatch, seeded=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:seeded",
+            "--key",
+            "seeded",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "SEEDED_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
 def test_choice_shuffle_seed_flag_without_an_upstream_choice_shuffle_is_refused(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:

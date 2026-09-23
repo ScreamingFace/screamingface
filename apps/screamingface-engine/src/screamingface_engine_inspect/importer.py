@@ -953,30 +953,11 @@ def main(
                 f"{args.task_ref}: the eval shuffles its exam order with no seed — "
                 "pass --shuffle-seed to pin one order as exam identity"
             )
-        # WHY the same resolution one level down: shuffle_choices=True with no
-        # seed means each case's CHOICE order is random per run — the import
-        # must pin one order. But unlike the row shuffle, the policy flag is
-        # refused when upstream does NOT shuffle choices: shuffling choices the
-        # eval keeps fixed would bake a different exam than the eval means.
-        choice_shuffle_seed: int | None = None
-        if facts.upstream_shuffle_choices:
-            choice_shuffle_seed = (
-                args.choice_shuffle_seed
-                if args.choice_shuffle_seed is not None
-                else facts.upstream_choice_shuffle_seed
-            )
-            if choice_shuffle_seed is None:
-                raise ImporterError(
-                    f"{args.task_ref}: the eval shuffles each case's choice order with "
-                    "no seed — pass --choice-shuffle-seed to pin one choice order as "
-                    "exam identity"
-                )
-        elif args.choice_shuffle_seed is not None:
-            raise ImporterError(
-                f"{args.task_ref}: --choice-shuffle-seed was passed but the eval does "
-                "not shuffle choices — the policy seed would bake a different exam; "
-                "drop the flag"
-            )
+        # Same conservation one level down (choice order); the full refusal
+        # matrix lives in the helper's docstring.
+        choice_shuffle_seed: int | None = _resolved_choice_shuffle_seed(
+            args.task_ref, facts, args.choice_shuffle_seed
+        )
         observations: Observations = capture_observations(
             facts, dataset_info=dataset_info, count_rows=count_rows
         )
@@ -999,6 +980,40 @@ def main(
         "every TODO(review), then run the gates — a human must review the diff before merge."
     )
     return 0
+
+
+def _resolved_choice_shuffle_seed(
+    task_ref: str, facts: TaskFacts, flag_seed: int | None
+) -> int | None:
+    """The one pinned choice-order seed this import bakes with, or None.
+
+    The policy flag exists for exactly one situation: the eval shuffles choices
+    UNSEEDED, so someone must pick the order. Everywhere else the flag would
+    silently deviate from the exam upstream defines, so it refuses by name —
+    over a seeded upstream (upstream already picked ONE order; review finding
+    on PR #1031) and over an eval that does not shuffle choices at all. An
+    unseeded shuffle with no flag refuses too: conserved, never dropped.
+    """
+
+    if facts.upstream_shuffle_choices:
+        if flag_seed is not None and facts.upstream_choice_shuffle_seed is not None:
+            raise ImporterError(
+                f"{task_ref}: the eval pins its own choice-shuffle seed "
+                f"({facts.upstream_choice_shuffle_seed}) — --choice-shuffle-seed would "
+                "bake a different exam than upstream ever produces; drop the flag"
+            )
+        if flag_seed is None and facts.upstream_choice_shuffle_seed is None:
+            raise ImporterError(
+                f"{task_ref}: the eval shuffles each case's choice order with no seed — "
+                "pass --choice-shuffle-seed to pin one choice order as exam identity"
+            )
+        return flag_seed if flag_seed is not None else facts.upstream_choice_shuffle_seed
+    if flag_seed is not None:
+        raise ImporterError(
+            f"{task_ref}: --choice-shuffle-seed was passed but the eval does not "
+            "shuffle choices — the policy seed would bake a different exam; drop the flag"
+        )
+    return None
 
 
 def _parse_task_args(pairs: list[str]) -> dict[str, Any]:
