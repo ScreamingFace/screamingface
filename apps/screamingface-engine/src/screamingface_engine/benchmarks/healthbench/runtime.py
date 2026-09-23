@@ -24,6 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
@@ -115,8 +116,7 @@ def _install_protocol_once(
     case_ids: tuple[int, ...],
     mean: ExamMean,
 ) -> None:
-    if cases_route not in getattr(node, "_data", {}):
-        node.data(cases_route, _cases(root, case_ids), media_type="application/json")
+    install_cases(node, cases_route, _cases(root, case_ids))
     routes = frozenset(node.processor_routes())
     endpoints = (
         (tasks_route, _rubric_tasks(root, case_ids, benchmark_id)),

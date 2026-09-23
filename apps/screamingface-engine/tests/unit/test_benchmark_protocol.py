@@ -15,7 +15,7 @@ from screamingface_engine.benchmarks.case_execution import (
     CASE_EXECUTION_SCHEMA,
     install_case_execution,
 )
-from screamingface_engine.benchmarks.case_selection import install_case_selection
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.draco.definition import DRACO, JUDGE_MODEL
@@ -34,7 +34,6 @@ from url4.peer.server import Request, Url4Node
 
 def _protocol_node(name: str) -> Url4Node:
     node = Url4Node(name)
-    install_case_selection(node)
     return node
 
 
@@ -81,11 +80,11 @@ def test_canonical_draco_limit_changes_cases_only_not_grading_strength() -> None
     assert DRACO.case_count == 100
     assert full.count("/" + JUDGE_MODEL) == 5
     assert one_case.count("/" + JUDGE_MODEL) == 5
-    assert "/benchmarks/selected-cases" in full
-    # Selection annotates the outer cases only; criteria remain unsliced.
-    assert one_case.count("/benchmarks/selected-cases") == 1
+    assert "iteration.slice=0:100" in full
+    # Selection slices the outer cases only; criteria remain unsliced.
+    assert one_case.count("iteration.slice=0:1") == 1
     assert ")!'1'" in one_case
-    assert "iteration.slice" not in one_case
+    assert "/benchmarks/selected-cases" not in one_case
 
 
 def test_canonical_draco_judge_passes_have_stable_independent_cache_slots() -> None:
@@ -99,16 +98,16 @@ def test_canonical_draco_judge_passes_have_stable_independent_cache_slots() -> N
 @pytest.mark.asyncio
 async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -> None:
     node = _protocol_node("benchmark-protocol")
-    node.data(
+    install_cases(
+        node,
         "/example/cases",
-        json.dumps(
+        lambda: json.dumps(
             [
                 {"id": 11, "input": "first"},
                 {"id": 22, "input": "second"},
                 {"id": 33, "input": "unselected"},
             ]
         ),
-        media_type="application/json",
     )
 
     @node.endpoint("/example/evaluate-case")
@@ -159,10 +158,10 @@ async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -
 @pytest.mark.asyncio
 async def test_protocol_evaluates_only_one_complete_case_at_a_time() -> None:
     node = _protocol_node("benchmark-sequential-cases")
-    node.data(
+    install_cases(
+        node,
         "/example/cases",
-        json.dumps([{"id": "case-1"}, {"id": "case-2"}, {"id": "case-3"}]),
-        media_type="application/json",
+        lambda: json.dumps([{"id": "case-1"}, {"id": "case-2"}, {"id": "case-3"}]),
     )
     active_cases: set[str] = set()
     active_branches = max_active_cases = max_active_branches = 0
@@ -289,11 +288,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # OME-1228: repin the explicit Case envelope; model input equivalence is tested separately.
         # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low
         # (max_tokens stays the paper's 4096) and a bounded ;retry=2 per verdict source.
-        (DRACO, "f18827ab476d336ee63e3abae1a8027801caa92a2954f94b5e575965bbeaf577"),
-        (IFEVAL, "114c0c48f339192da2d729ff94ba694ae251f9976be1fa5961970925690a6ad3"),
+        (DRACO, "8e2889308b182192ad4164733a0fd993a0726cf0be08a86fee0c14da1f6537ff"),
+        (IFEVAL, "a7ec445b2f12c5dfeb3639bc6e3aef99a599e781e759b2edeef4638b47036f9e"),
         (
             HEALTHBENCH_WORST30,
-            "71f4fa4cfa5ab1802b7d5e6ee01fcc1c8916fbee7bd10bde15786528a4a9fa19",
+            "61001f00042bd9320a0b83f6d7826467505640d6e5c75a95ae594fc36e175939",
         ),
     ),
 )
@@ -312,11 +311,7 @@ def test_canonical_ifeval_binds_the_exact_selected_count_for_aggregation() -> No
 @pytest.mark.asyncio
 async def test_protocol_resolves_shared_bindings_before_case_iteration() -> None:
     node = _protocol_node("benchmark-bindings")
-    node.data(
-        "/example/cases",
-        json.dumps([{"id": 1, "input": "case"}]),
-        media_type="application/json",
-    )
+    install_cases(node, "/example/cases", lambda: json.dumps([{"id": 1, "input": "case"}]))
 
     @node.endpoint("/example/evaluate-case")
     def evaluate_case(request: Request) -> str:

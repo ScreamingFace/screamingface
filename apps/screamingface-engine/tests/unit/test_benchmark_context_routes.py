@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.definition import Benchmark, BenchmarkDeclaration
 from screamingface_engine.benchmarks.protocol import build_evaluation_protocol
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
@@ -19,7 +20,7 @@ def _benchmark(protocol: Node) -> Benchmark:
         revision="v1",
         case_count=1,
         declaration=BenchmarkDeclaration(
-            failure_policy="coverage_declare", interaction="single_shot"
+            failure_policy="coverage_declare", interaction="single_shot", difficulty="medium"
         ),
         build=lambda _count: protocol,
     )
@@ -37,13 +38,13 @@ def _selection_protocol() -> Node:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("registered", [False, True])
-async def test_selector_dataset_is_validated_before_evaluation(registered: bool) -> None:
-    # INVARIANT: wrapping the dataset in the selector must not hide it from registration.
+async def test_cases_dataset_is_validated_before_evaluation(registered: bool) -> None:
+    # INVARIANT: the cases processor must remain visible to registry validation.
     node = Url4Node("context-routes")
     node.endpoint("/aggregate")(lambda request: request.context)
     protocol = _selection_protocol()
     if registered:
-        node.data("/cases/example", '[{"id": "first"}]', media_type="application/json")
+        install_cases(node, "/cases/example", lambda: '[{"id": "first"}]')
     try:
         registry = BenchmarkRegistry((_benchmark(protocol),))
         if not registered:

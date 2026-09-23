@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.case_execution import install_case_execution
-from screamingface_engine.benchmarks.case_selection import install_case_selection
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_PROFESSIONAL,
@@ -75,8 +74,10 @@ async def test_both_boards_serve_one_answer_key_from_separate_addresses(tmp_path
     professional_routes = PROFESSIONAL_EXAM.routes
     assert professional_routes.cases != WORST30_EXAM.routes.cases
 
-    worst30_cases = json.loads(await node.fetch(WORST30_EXAM.routes.cases, relative=True))
-    professional_cases = json.loads(await node.fetch(professional_routes.cases, relative=True))
+    worst30_cases = json.loads((await node.evaluate(f"{WORST30_EXAM.routes.cases}()!'157'")).text)
+    professional_cases = json.loads(
+        (await node.evaluate(f"{professional_routes.cases}()!'525'")).text
+    )
     assert [case["id"] for case in worst30_cases] == list(WORST30_CASE_IDS)
     assert [case["id"] for case in professional_cases] == list(range(1, 526))
     # The hard subset is a strict subset of the full exam — same ids, same answer key.
@@ -104,7 +105,6 @@ async def test_the_official_clip_reaches_the_score_through_the_real_expression(
     _write_full_assets(tmp_path, points=(2, -8))
     node = Url4Node("test")
     install(node, tmp_path, PROFESSIONAL_EXAM)
-    install_case_selection(node)
     install_case_execution(node)
 
     @node.endpoint(CANDIDATE_ROUTE)

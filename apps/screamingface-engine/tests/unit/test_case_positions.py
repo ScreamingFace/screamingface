@@ -7,6 +7,7 @@ import pytest
 
 from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.case_context import current_case_id, current_case_position
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.definition import candidate
 from screamingface_engine.benchmarks.protocol import build_evaluation_protocol
 from url4 import render
@@ -27,16 +28,16 @@ async def test_selected_positions_repeat_per_candidate_without_changing_input(mo
     monkeypatch.setattr(candidate_adapter, "evaluate_candidate_recipe", evaluate)
     node = Url4Node()
     install_candidate_invocation(node)
-    node.data(
+    install_cases(
+        node,
         "/cases",
-        json.dumps(
+        lambda: json.dumps(
             [
                 {"id": 42, "input": "first"},
                 {"id": "007", "input": "second"},
                 {"id": 900, "input": "not selected"},
             ]
         ),
-        media_type="application/json",
     )
 
     @node.endpoint("/aggregate")
@@ -48,8 +49,8 @@ async def test_selected_positions_repeat_per_candidate_without_changing_input(mo
         case_evaluation=candidate(
             "$item.input",
             case_id="$item.id",
-            case_position="$item._sf_case_position",
-            case_count="$item._sf_case_count",
+            case_index="$index",
+            case_count="2",
             web_search=False,
         ),
         selected_case_count=2,
@@ -70,7 +71,7 @@ async def test_selected_positions_repeat_per_candidate_without_changing_input(mo
 
 @pytest.mark.parametrize(
     "position,count",
-    [(0, 2), (3, 2), (True, 2), (1, False), (1.5, 2), ("1.0", "2"), (1, 9007199254740992)],
+    [(-1, 2), (2, 2), (True, 2), (1, False), (1.5, 2), ("1.0", "2"), (1, 9007199254740992)],
 )
 def test_invalid_positions_are_rejected(position, count):
     from screamingface_engine.benchmarks.case_request import candidate_position
@@ -85,7 +86,7 @@ def test_invalid_positions_are_rejected(position, count):
                     {
                         "input": "question",
                         "case_id": "42",
-                        "case_position": position,
+                        "case_index": position,
                         "case_count": count,
                     }
                 ),
@@ -114,20 +115,20 @@ def test_position_scope_masks_nested_runs_and_unlabelled_calls():
     [("{}", "1"), ("[]", "1"), ("[{}]", "2"), ("[{}]", "0"), ("[1]", "1"), ("[]", "invalid")],
 )
 def test_selection_rejects_invalid_rows_without_payload_leaks(rows, count):
-    from screamingface_engine.benchmarks.case_selection import _select
+    from screamingface_engine.benchmarks.case_selection import cases_handler
     from url4.core.errors import ResolutionError
     from url4.peer.server import Request
 
     with pytest.raises(ResolutionError, match="Invalid benchmark case selection"):
-        _select(Request("/benchmarks/selected-cases", rows, count, {}))
+        cases_handler(lambda: rows)(Request("/cases", "", count, {}))
 
 
 def test_numbering_requires_case_identity_and_a_complete_pair():
     from screamingface_engine.benchmarks.definition import candidate_call
 
     for values in (
-        {"case_position": "1", "case_count": "2"},
-        {"case_id": "$item.id", "case_position": "1"},
+        {"case_index": "1", "case_count": "2"},
+        {"case_id": "$item.id", "case_index": "1"},
     ):
         with pytest.raises(ValueError, match="Case"):
             candidate_call("question", web_search=False, **values)

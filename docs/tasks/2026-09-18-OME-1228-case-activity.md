@@ -18,3 +18,7 @@ nested calls and empty slots; quoted text, holdings and remote contexts retain t
 semantics. New regression coverage is additive. Ledger:
 `docs/work/2026-09-22-OME-1228-selector-route-validation.md`. PR remains open; no merge or issue
 closure is requested.
+
+2026-09-23 follow-up: replace selected-cases with native URL4 `$index` and slicing; move
+pre-inference dataset validation into existing cases handlers. Tests and replay fingerprint
+migration approved. See docs/work/2026-09-23-OME-1228-native-index.md.

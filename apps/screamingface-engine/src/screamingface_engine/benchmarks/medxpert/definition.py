@@ -117,8 +117,8 @@ def _build(case_count: int) -> Node:
     reasoning = candidate(
         "$item.cot_prompt",
         case_id="$item.id",
-        case_position="$item._sf_case_position",
-        case_count="$item._sf_case_count",
+        case_index="$index",
+        case_count=str(case_count),
         web_search=CANDIDATE_WEB_SEARCH,
         binding="$candidate",
     )
@@ -130,8 +130,8 @@ def _build(case_count: int) -> Node:
     commit = candidate_call(
         {"question": "$item.input", "reasoning": "$reasoning", "trigger": "$item.trigger"},
         case_id="$item.id",
-        case_position="$item._sf_case_position",
-        case_count="$item._sf_case_count",
+        case_index="$index",
+        case_count=str(case_count),
         web_search=CANDIDATE_WEB_SEARCH,
         binding="$candidate",
     )

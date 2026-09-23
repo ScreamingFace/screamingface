@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from screamingface_engine.benchmarks.case_execution import CASE_EXECUTION_ROUTE
-from screamingface_engine.benchmarks.case_selection import SELECTION_ROUTE
 from screamingface_engine.benchmarks.evaluation import positive_count
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 
@@ -101,10 +100,11 @@ def build_evaluation_protocol(
 
     # INVARIANT: Case admission covers the complete spawned row; nested Case work keeps its cap.
     case_evaluations = iterate(
-        RelExpr(path=SELECTION_ROUTE, context=cases_route, intent=Text(str(selected_case_count))),
+        RelExpr(path=cases_route, intent=Text(str(selected_case_count))),
         body=(src(case_evaluation, name="evaluated", weight=0.0),),
         intent=Text("$evaluated"),
         concurrency=1,
+        slice=(0, selected_case_count),
         on_error="collect",
     )
     selected_case_evaluations = expr(

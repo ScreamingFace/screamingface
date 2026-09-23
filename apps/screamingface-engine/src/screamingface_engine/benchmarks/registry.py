@@ -8,7 +8,6 @@ from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from types import MappingProxyType
 
-from screamingface_engine.benchmarks.case_selection import install_case_selection
 from screamingface_engine.benchmarks.definition import Benchmark
 from url4 import Iteration, Node, RelExpr, RelUrl, build, render
 from url4.core.errors import ParseError
@@ -53,7 +52,6 @@ class BenchmarkRegistry:
     def install(self, node: Url4Node, *, assets_root: Path) -> None:
         """Install and validate every concrete protocol before its first paid request."""
 
-        install_case_selection(node)
         for benchmark in self:
             benchmark.install(node, assets_root)
         declared = served_routes(node)

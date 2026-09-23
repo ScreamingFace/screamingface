@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.evaluation import (
     CandidateAnswer,
     CaseEvaluationBinder,
@@ -142,8 +143,7 @@ def install_board(node: Url4Node, root: Path, board: ServedBoard) -> None:
     """
 
     routes = board.routes
-    if routes.cases not in getattr(node, "_data", {}):
-        node.data(routes.cases, serve_cases(root, board), media_type="application/json")
+    install_cases(node, routes.cases, serve_cases(root, board))
     installed = frozenset(node.processor_routes())
     endpoints = (
         (routes.check, board.check(root)),

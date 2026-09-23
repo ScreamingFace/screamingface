@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
@@ -36,8 +37,7 @@ from url4.peer.server import Request, Url4Node
 def install(node: Url4Node, root: Path) -> None:
     """Register the canonical IFEval runtime and its check-surface port."""
 
-    if CASES_ROUTE not in getattr(node, "_data", {}):
-        node.data(CASES_ROUTE, _cases(root), media_type="application/json")
+    install_cases(node, CASES_ROUTE, _cases(root))
     routes = frozenset(node.processor_routes())
     endpoints = (
         (CHECK_ROUTE, _check(root)),

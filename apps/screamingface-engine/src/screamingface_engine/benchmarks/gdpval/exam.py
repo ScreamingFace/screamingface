@@ -161,8 +161,8 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
     candidate_invocation = candidate(
         "$item.input",
         case_id="$item.id",
-        case_position="$item._sf_case_position",
-        case_count="$item._sf_case_count",
+        case_index="$index",
+        case_count=str(case_count),
         web_search=False,
     )
     # Stage 3a — one pre-rendered grader prompt to the judge.

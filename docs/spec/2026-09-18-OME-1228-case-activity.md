@@ -22,3 +22,10 @@ Registry route discovery must inspect parseable local-call context source lists,
 calls, while retaining URL4's prose/holdings fallback and ignoring quoted text and remote-call
 contexts. A missing literal dataset route fails registration before evaluation. Valid datasets,
 selection order, expression fingerprints, prompts and scores remain unchanged.
+
+## Native index supersedes selector (2026-09-23)
+
+The native-index follow-up replaces synthetic row numbering and the selected-cases route.
+See `2026-09-23-OME-1228-native-index.md`: the existing cases route validates selection,
+URL4 supplies `$index`, and the candidate envelope carries case_index plus the known total.
+Event fields remain one-based case_position and case_count.

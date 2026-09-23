@@ -200,6 +200,14 @@ protocol references a route `install` never registered, so a missing route fails
 startup, not mid-run. Copy `medxpert/definition.py` + `medxpert/runtime.py`; the shapes
 are not summarized here on purpose — those two files are the source of truth.
 
+The cases route is now a validated collection producer. Shared `install_cases` in
+`benchmarks/case_selection.py` registers it; `build_evaluation_protocol` calls
+`/benchmarks/<id>/<revision>/cases()!'N'` to validate that at least N object rows exist
+before inference, then applies native `iteration.slice`. Bare data-route reads are no
+longer the cases contract. Candidate builders pass `case_index="$index"` and the selected
+`case_count` alongside the Case ID, outside model input. The adapter converts the index
+to the existing one-based activity position. Do not add synthetic fields to dataset rows.
+
 ## Step 6 — register
 
 A flat, hand-edited list — no entry points, no discovery. Three edits in

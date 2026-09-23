@@ -18,7 +18,7 @@ def candidate_input(request: Request) -> tuple[str, CaseId | None]:
         payload = json.loads(request.context)
         if not isinstance(payload, dict) or set(payload) not in (
             {"input", "case_id"},
-            {"input", "case_id", "case_position", "case_count"},
+            {"input", "case_id", "case_index", "case_count"},
         ):
             raise ValueError("expected candidate input and case_id")
         case_id = validate_case_id(payload["case_id"])
@@ -39,16 +39,17 @@ def candidate_position(request: Request) -> tuple[int, int] | None:
     if "context_format" not in request.params:
         return None
     payload = json.loads(request.context)
-    if "case_position" not in payload:
+    if "case_index" not in payload:
         return None
     try:
-        values = (payload["case_position"], payload["case_count"])
+        values = (payload["case_index"], payload["case_count"])
         if any(
             type(value) not in {int, str} or not str(value).isascii() or not str(value).isdigit()
             for value in values
         ):
             raise ValueError("invalid case position")
-        position, count = map(int, values)
+        index, count = map(int, values)
+        position = index + 1
         if not 1 <= position <= count <= 9_007_199_254_740_991:
             raise ValueError("invalid case position")
         return position, count
