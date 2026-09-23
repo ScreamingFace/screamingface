@@ -1,9 +1,9 @@
 ---
-ticket: none (owner decision RD4 — commits on sf-refactory, no Linear issue)
+ticket: OME-1267 (filed at PR time — earlier commits say `Refs: none (owner decision RD4)`)
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-22
-finished:
+finished: 2026-09-22
 ---
 
 # sf-refactory — fix round for the units 1–3 review findings
@@ -44,7 +44,21 @@ high defects and a set of partial spec items. This round fixes them. The rubric 
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus `world/node_tier/` split into 7 modules (`build.py` extra),
+  `world/wire.py`, and new test files per batch. See each commit body.
+- **Commits:** 7a558bb8, 7a9bb943 (B1); a03668aa, 43f6df89 (B2); c069e145, 1995f965 (B3);
+  ea2cc20d, 083cccd6 (B4); b5795fcf, 5b1b6ef6 (B5); f0b2490d (B6); docs 2f045975, deb2ce49,
+  95f9a31c, 935d2d96, 98ff89b9.
+- **Gates:** final run on f0b2490d — ruff, ruff format, pyright, layering, pytest with coverage:
+  ALL GATES GREEN (`--skip-append-only`: the append-only check flags the rubric-approved edits
+  of branch-only tests, each listed in its commit body). Integration 37 passed. Chart:
+  helm lint/template green (defaults, values-cloud, node+s3, node+s3+garage),
+  verify_chart_wiring 159/159.
+- **Reviews:** each batch had a design review and at most one feedback round; a final
+  whole-branch regression review closed all nine headline findings and found no regression on
+  the ensemble path.
+- **Deviations:** FX-67 dropped; FX-68 via the run producer; §2.2a/§2.2b added after the B1
+  review; B3 review items fixed in B4; B6 added for the final-review items. Follow-ups are in
+  04-review-fixes.md §4 (oversize files, garage selectors, trace flags, url4 public read-side
+  API, live NetworkPolicy check). Plan-record edits after 98ff89b9 are committed with the
+  ledger renames.

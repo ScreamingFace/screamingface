@@ -1,5 +1,5 @@
 ---
-ticket: none (owner decision RD4 — commits on sf-refactory, no Linear issue)
+ticket: OME-1267 (filed at PR time — earlier commits say `Refs: none (owner decision RD4)`)
 stack: screamingface-engine
 status: done
 started: 2026-09-22
@@ -74,7 +74,7 @@ Helm README node-tier sizing note.
   - `apps/screamingface-engine/tests/unit/test_world_run_log_namespace.py` (item 1)
   - Item 6 is docs-only (an `# AIDEV-NOTE:`); no test file — confirmed `copy.deepcopy` on a
     `RequestScope` raises `TypeError: cannot pickle 'mappingproxy' object` by hand.
-- **Commits:** to be recorded by the caller after this ledger's commit lands.
+- **Commits:** `f0b2490d` — fix(b6): final review items — world-line reuse, mount shape, docs.
 - **Gates:** `uv run .claude/scripts/run_gates.py screamingface-engine --skip-append-only` — ALL
   GATES GREEN (ruff check, ruff format --check, pyright, check_layering.py,
   `pytest --cov=screamingface_engine --cov=url4.streaming --cov-fail-under=80 -q`).

@@ -221,6 +221,10 @@ The batches run in order. B5 changes only chart files, so it can run in parallel
 | Renaming `RunnerRequestError` (U1-L6) | The rename touches many modules and changes nothing at run time. |
 | Hiding the mount set from callers with no identity (FW-L11) | The mount names are already public on `/v1/models`. |
 | The App selectors also match garage StatefulSet pods when `garage.enabled` (found in the B5 review) | Pre-existing. Low harm: garage has no `http` port and its pods are owned by the StatefulSet. A StatefulSet selector cannot change, so the fix is its own migration. Follow-up. |
+| Moving `request_scope_from_env` into `request_scope.py` (FX-67) | Dropped: it would also move `RunnerConfigError` out of `runner.main`, only for file placement. |
+| Splitting `runner/main.py`, `runner/executor.py`, `world/connector.py`, `world/config.py` below 450 lines | They were already over the limit on `main` (580, 982, 1041, 531 lines). A split touches the ensemble path and needs its own unit. Follow-up. |
+| Keeping the caller's trace flags on the sync path | The sync path writes sampled `01`, as the ensemble path already does. Revisit with OME-1130, when spans become real. |
+| The local eval path (`/v1?q=`) can reach benchmark endpoints inside an expression | Local is a loopback development shape (C8). The direct-mount set excludes benchmark endpoints (B6). |
 | An in-flight gauge that excludes shed requests (NT-L8) | url4 owns admission and the wrapper cannot see it. The gauge help text says "requests inside the tier, including shed ones". |
 
 ## 5. Exit criteria

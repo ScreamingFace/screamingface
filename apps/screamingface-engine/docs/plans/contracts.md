@@ -219,6 +219,11 @@ Listed as regression surface. `POST /token` → WS `/ws?ticket=` → `ai.url4.at
 The one thing unit 1 touches here is *where the world code lives*, not what it does.
 Any observable change on this path is a defect, and the existing suite is the oracle.
 
+One deliberate difference from `main`, recorded here: a benchmark install that collides with a
+declared route now fails as `WorldConfigError` instead of a bare `ValueError`, so
+`RunSummary.error_type` names the config error. The terminated frame's code is still
+`internal_error` (`04-review-fixes.md` B3 review R2).
+
 ---
 
 ## 10. Trust boundaries
