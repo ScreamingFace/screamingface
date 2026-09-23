@@ -21,7 +21,6 @@ export type AdminAccount = components["schemas"]["AdminAccountOut"];
 export type AdminAccountList = components["schemas"]["AdminAccountList"];
 export type AdminProfile = components["schemas"]["AdminProfileOut"];
 export type AdminProfileList = components["schemas"]["AdminProfileList"];
-export type ProfileDefaults = components["schemas"]["ProfileDefaults"];
 
 /** The identity header Envoy injects. Mirrors `HEADER_USER_EMAIL` in aigateway. */
 const IDENTITY_HEADER = "x-user-email";
@@ -260,11 +259,14 @@ export async function setApiKey(
   accountId: string,
   provider: string,
   name: string,
-  input: { api_key: string; defaults?: ProfileDefaults | null },
+  input: { api_key: string },
 ): Promise<AdminProfile> {
+  // WHY build the body from `api_key` alone rather than serialising `input`: a stale caller object
+  // can still carry `defaults` at runtime, and the gateway will refuse defaults-carrying writes
+  // (OME-1138 Stage C). The body is exactly `{ "api_key": … }` — no `defaults`, not even `null`.
   return request<AdminProfile>(
     `/v1/admin/accounts/${segment(accountId)}/profiles/${segment(provider)}/${segment(name)}/api-key`,
-    { method: "PUT", body: JSON.stringify(input) },
+    { method: "PUT", body: JSON.stringify({ api_key: input.api_key }) },
   );
 }
 
