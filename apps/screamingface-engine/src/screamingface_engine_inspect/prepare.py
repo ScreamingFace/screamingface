@@ -183,6 +183,16 @@ class SnapshotSpec:
     #: the importer refuses that combination whenever upstream seeded either
     #: shuffle (review blocker on PR #1031). OME-1264.
     choice_shuffle_seed: int | None = None
+    #: hf_dataset's data_files selection (a dict of str to str, infinite_bench's
+    #: {"passkey": "passkey.jsonl"}), forwarded verbatim to
+    #: ``datasets.load_dataset`` — it selects WHICH files load, so it rides the
+    #: board's revision pins. OME-1264 extension 2.
+    data_files: Any = None
+    #: The eval's Features schema as a dotted POINTER at its own module constant
+    #: (infinite_bench's ``constants:ft``) — same convention as
+    #: ``record_to_sample``; resolved at bake time and required to be a
+    #: ``datasets.Features``. Rides the board's revision pins too.
+    features: str | None = None
 
 
 #: Every imported board's bake. Importing another eval = one more entry here
@@ -719,8 +729,22 @@ def _load_rows(spec: SnapshotSpec) -> list[dict[str, Any]]:
             "the `datasets` package is required to prepare a benchmark — "
             "`uv pip install datasets` in the build environment"
         ) from exc
+    selection: dict[str, Any] = {}
+    if spec.data_files is not None:
+        selection["data_files"] = spec.data_files
+    if spec.features is not None:
+        resolved_schema: Any = _resolve(spec.features)
+        # WHY the type check: a mispointed reference landing on a string or a
+        # function would corrupt every row silently or crash deep inside
+        # `datasets` — refuse the bake by name instead (OME-1264 extension 2).
+        if not isinstance(resolved_schema, datasets.Features):
+            raise PrepareError(
+                f"features {spec.features} must resolve to a datasets.Features "
+                f"schema, got {type(resolved_schema).__name__}"
+            )
+        selection["features"] = resolved_schema
     loaded = datasets.load_dataset(
-        spec.dataset, spec.config, revision=spec.dataset_revision, split=spec.split
+        spec.dataset, spec.config, revision=spec.dataset_revision, split=spec.split, **selection
     )
     return [dict(row) for row in loaded]
 

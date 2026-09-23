@@ -248,6 +248,79 @@ def test_hf_row_shuffle_is_not_pythons_row_shuffle() -> None:
     assert hf_order != python_order
 
 
+def test_load_rows_forwards_data_files_and_the_resolved_features_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1264 extension 2: the bake loads with the SAME data_files + features
+    pair the eval declares — data_files forwarded verbatim, features resolved
+    from its dotted pointer to the eval's own Features schema."""
+
+    import sys
+    import types
+
+    import datasets
+
+    from screamingface_engine_inspect.prepare import _load_rows
+
+    schema = datasets.Features({"q": datasets.Value("string")})
+    module = types.ModuleType("fake_bake_eval2")
+    module.FT = schema  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "fake_bake_eval2", module)
+    seen: dict[str, Any] = {}
+
+    def fake_load(path: str, name: str | None = None, **kwargs: Any) -> list[dict[str, Any]]:
+        seen.update({"path": path, "name": name, **kwargs})
+        return [{"q": "?"}]
+
+    monkeypatch.setattr(datasets, "load_dataset", fake_load)
+    spec = SnapshotSpec(
+        dataset="acme/quiz",
+        config="default",
+        split="test",
+        dataset_revision="c" * 40,
+        case_count=1,
+        record_to_sample="fake_bake_eval2:FT",
+        data_files={"test": "test.jsonl"},
+        features="fake_bake_eval2:FT",
+    )
+
+    rows = _load_rows(spec)
+
+    assert rows == [{"q": "?"}]
+    assert seen["data_files"] == {"test": "test.jsonl"}
+    # Identity, not equality: the bake must use the eval's OWN schema object.
+    assert seen["features"] is schema
+
+
+def test_load_rows_refuses_a_features_pointer_that_is_not_a_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mispointed features reference (landing on a string, a function) must
+    refuse the bake by name — loading with a junk schema would corrupt every
+    row silently or crash deep inside `datasets`."""
+
+    import sys
+    import types
+
+    from screamingface_engine_inspect.prepare import _load_rows
+
+    module = types.ModuleType("fake_bake_eval3")
+    module.NOT_A_SCHEMA = "hello"  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "fake_bake_eval3", module)
+    spec = SnapshotSpec(
+        dataset="acme/quiz",
+        config="default",
+        split="test",
+        dataset_revision="c" * 40,
+        case_count=1,
+        record_to_sample="fake_bake_eval3:NOT_A_SCHEMA",
+        features="fake_bake_eval3:NOT_A_SCHEMA",
+    )
+
+    with pytest.raises(PrepareError, match="features"):
+        _load_rows(spec)
+
+
 def test_without_a_choice_shuffle_seed_the_choice_order_is_upstreams(tmp_path: Path) -> None:
     """The new field defaults to None — boards without it keep baking the
     dataset's own choice order (append-only behavior for every existing board)."""
