@@ -39,6 +39,7 @@ url4 runs a subprocess for it wherever it is declared, so ``[data]``, ``[holding
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tomllib
 from collections.abc import Iterator, Mapping, Sequence
@@ -240,11 +241,26 @@ def declared_model_ids(
 def config_path(env: Mapping[str, str]) -> Path:
     """Where the declared world lives: ``env``'s override, or :data:`DEFAULT_CONFIG_PATH`.
 
-    THE one place this is computed — both `load_config` and the forwarder's
-    `_config_file_digest` (rest/forwarder.py) read the same file through it, so a digest and
-    the world it describes can never be taken from two different paths.
+    THE one place this is computed — both `load_config` and :func:`config_file_digest` read
+    the same file through it, so a digest and the world it describes can never be taken from
+    two different paths.
     """
     return Path(env.get(job_env.RUNNER_CONFIG, DEFAULT_CONFIG_PATH))
+
+
+def config_file_digest(env: Mapping[str, str]) -> str | None:
+    """sha256 of the declared-world file, or ``None`` when it cannot be read.
+
+    Both tiers report it on ``/healthz`` (erd.md §2, contracts.md C2) so a rolling deploy where
+    the App and the node briefly read different configs is visible (R11).
+
+    WHY the FILE bytes and not the resolved object: both tiers read the same file from the same
+    image, so the file hash is the one value they can compare without agreeing on a serialization.
+    """
+    try:
+        return hashlib.sha256(config_path(env).read_bytes()).hexdigest()
+    except OSError:
+        return None
 
 
 def load_config(
@@ -743,6 +759,7 @@ __all__ = [
     "AigatewaySection",
     "WorldConfig",
     "WorldConfigError",
+    "config_file_digest",
     "config_path",
     "declared_model_ids",
     "extra_model_ids",

@@ -15,7 +15,7 @@ from screamingface_engine import job_env
 from screamingface_engine.artifacts import ArtifactWriter, FilesystemArtifactStore
 from screamingface_engine.artifacts.wiring import result_writer_from_env
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
-from screamingface_engine.world.config import WorldConfig, load_config
+from screamingface_engine.world.config import WorldConfig, config_file_digest, load_config
 from screamingface_engine.world.node_tier.metrics import NodeMetrics, build_node_metrics
 from screamingface_engine.world.node_tier.settings import NodeTierError, NodeTierSettings
 from screamingface_engine.world.node_tier.tier import OPS_PATHS, NodeReadiness, NodeTier
@@ -95,6 +95,7 @@ async def build_node_tier(
             artifact_store=store,
             signing_key=signing_key,
             clock=clock,
+            config_digest=config_file_digest(env),
         )
     except Exception as exc:
         # ONE readiness-marking site for every refusal above (T4 refactor): a settings, store,

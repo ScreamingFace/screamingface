@@ -214,20 +214,24 @@ defines the url4 status mapping.
   tiers. A different key makes every signed fetch fail closed, which is safe but useless. The
   signature TTL is 10 minutes by default; the node sets it with
   `URL4_CLOUD_NODE_ARTIFACT_URL_TTL_S`. A bare `/artifacts/{id}` stays capability-token-only.
-- **`config_digest` detects a rolling-deploy skew.** This is the App's OWN `/healthz`, and only
-  the App's — the node tier exposes no digest of its own. When the forwarder is armed, `/healthz`
-  reports the SHA-256 of the `url4.toml` file the App derived its mount set from:
+- **`config_digest` detects a rolling-deploy skew.** The App and the node tier both report it
+  on `/healthz`. It is the SHA-256 of the `url4.toml` file the tier built its world from.
+  The App reports it when the forwarder is armed:
 
   ```json
   {"status": "ok", "config_digest": "<sha256>"}
   ```
 
-  Both tiers read the same baked file, so in steady state the App's digest and whatever the
-  running node tier was built from agree. During a rolling deploy they can briefly diverge — an
-  App pod on the new build paired with a node pod still on the old one, or the reverse. There is
-  no digest-to-digest comparison to detect that (the node has nothing to compare against); what
-  actually surfaces the skew is that an unknown mount answers `404` at the App and never reaches
-  the node.
+  The node tier reports it on its own `/healthz`:
+
+  ```json
+  {"status": "live", "config_digest": "<sha256>"}
+  ```
+
+  A tier that cannot read the file omits the field. Both tiers read the same baked file, so in
+  steady state the two digests are equal. During a rolling deploy they can differ for a short
+  time: an App pod on the new build can pair with a node pod on the old one. Compare the two
+  digests to see this. An unknown mount also answers `404` at the App and never reaches the node.
 
 ## Model catalog — `GET /v1/models`
 

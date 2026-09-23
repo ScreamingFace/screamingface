@@ -28,7 +28,6 @@ edge-verified value before forwarding (AC4).
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -45,7 +44,7 @@ from screamingface_engine.request_scope import (
     PROFILE_HEADER,
     TRACEPARENT_HEADER,
 )
-from screamingface_engine.world.config import WorldConfig, config_path
+from screamingface_engine.world.config import WorldConfig, config_file_digest
 from screamingface_engine.world.serving import (
     NodeMountRoute,
     compose_serving_world,
@@ -190,20 +189,7 @@ async def derive_forward_contract(
     finally:
         if aclose is not None:
             await aclose()
-    return ForwardContract(mount_paths=mounts, config_digest=_config_file_digest(env))
-
-
-def _config_file_digest(env: Mapping[str, str]) -> str | None:
-    """sha256 of the declared-world file, or ``None`` when it cannot be read.
-
-    WHY the FILE bytes and not the resolved object: both tiers read the same file from the same
-    image, so the file hash is the one value they can compare without agreeing on a serialization.
-    """
-    path = config_path(env)
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return None
+    return ForwardContract(mount_paths=mounts, config_digest=config_file_digest(env))
 
 
 class NodeForwarder:

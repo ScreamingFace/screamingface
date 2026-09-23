@@ -136,6 +136,7 @@ class NodeTier:
         artifact_store: ArtifactWriter | None = None,
         signing_key: str = "",
         clock: Callable[[], float] | None = None,
+        config_digest: str | None = None,
     ) -> None:
         self._settings = settings
         self._metrics = metrics
@@ -152,6 +153,9 @@ class NodeTier:
         self._artifact_store = artifact_store
         self._signing_key = signing_key
         self._clock = clock if clock is not None else time.time
+        # FX-92: the digest of the config FILE at the env's config path (as the App's), reported on
+        # `/healthz` like the App's so an operator can compare the two mid-rollout (erd.md §2).
+        self._config_digest = config_digest
         # §2.2a: the requests admitted and not yet finished, spill phase included. A count, not
         # caller state, so the STATELESS invariant holds.
         self._inflight = 0
@@ -365,7 +369,10 @@ class NodeTier:
                     retry_after=self._settings.retry_after_s,
                 )
             return
-        await write_json(send, 200, {"status": "live"})
+        body: dict[str, str] = {"status": "live"}
+        if self._config_digest is not None:
+            body["config_digest"] = self._config_digest
+        await write_json(send, 200, body)
 
 
 __all__ = ["OPS_PATHS", "NodeReadiness", "NodeTier"]
