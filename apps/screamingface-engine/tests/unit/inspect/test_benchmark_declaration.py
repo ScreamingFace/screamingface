@@ -155,6 +155,11 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         "inspect-boolq": ("coverage_declare", "single_shot"),
         "inspect-aime24": ("coverage_declare", "single_shot"),
         "inspect-aime25": ("coverage_declare", "single_shot"),
+        "inspect-musr": ("coverage_declare", "single_shot"),
+        "inspect-wmdp_bio": ("coverage_declare", "single_shot"),
+        "inspect-wmdp_chem": ("coverage_declare", "single_shot"),
+        "inspect-wmdp_cyber": ("coverage_declare", "single_shot"),
+        "inspect-hellaswag": ("coverage_declare", "single_shot"),
     }
     actual = {
         benchmark.id: (

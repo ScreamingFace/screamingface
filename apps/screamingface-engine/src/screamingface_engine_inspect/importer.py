@@ -99,6 +99,12 @@ class TaskFacts:
     #: resolves to one module attribute — captured as a fact instead of flagged
     #: (the family renderer, OME-1116 milestone C).
     choice_template: str | None = None
+    #: The eval's system instruction when it lives in a module-level constant —
+    #: captured as a fact the row POINTS at; the bake delivers it as leading
+    #: input text (a benchmark cannot address a candidate's system role — the
+    #: contracteval named-deviation pattern, owner-approved on OME-1253). An
+    #: inline-literal system message still earns the review flag instead.
+    system_message: str | None = None
     #: The eval shuffles its exam order (hf_dataset shuffle=True). Without a seed
     #: the upstream order is random per run, so an import must pin one order —
     #: the upstream seed when the eval has one, else a --shuffle-seed policy seed.
@@ -173,7 +179,9 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     _refuse_irreproducible_dataset_kwargs(kwargs, task_ref)
     sample_fields: Any = _module_level_row_rule(kwargs.get("sample_fields"), task_ref)
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
-    template_ref, choice_template_ref, custom_solvers = _solver_facts(task, module, task_ref)
+    template_ref, choice_template_ref, system_message_ref, custom_solvers = _solver_facts(
+        task, module, task_ref
+    )
     return TaskFacts(
         task_ref=task_ref,
         dataset=str(kwargs["path"]),
@@ -187,6 +195,7 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         scorer_kwargs=scorer_kwargs,
         custom_solvers=custom_solvers,
         choice_template=choice_template_ref,
+        system_message=system_message_ref,
         upstream_shuffle=bool(kwargs.get("shuffle")),
         upstream_shuffle_seed=kwargs.get("seed") if kwargs.get("shuffle") else None,
     )
@@ -367,14 +376,16 @@ def _scorer_reference(task: Any, module: Any) -> tuple[str, dict[str, Any], str]
 
 def _solver_facts(
     task: Any, module: Any, task_ref: str
-) -> tuple[str | None, str | None, tuple[str, ...]]:
-    """The template references (prompt_template / custom multiple_choice) + unknowns."""
+) -> tuple[str | None, str | None, str | None, tuple[str, ...]]:
+    """The template references (prompt_template / custom multiple_choice / module-level
+    system message) + unknowns."""
 
     from inspect_ai._util.registry import registry_info, registry_params
 
     solvers: list[Any] = task.solver if isinstance(task.solver, list) else [task.solver]
     template_ref: str | None = None
     choice_template_ref: str | None = None
+    system_message_ref: str | None = None
     custom: list[str] = []
     for solver in solvers:
         registry_name: str = registry_info(solver).name
@@ -387,22 +398,46 @@ def _solver_facts(
             template_value: Any = registry_params(solver).get("template")
             template_ref = _template_attribute(module, template_value, task_ref)
         elif name == "system_message":
-            # WHY always flagged: the bake has no system-message channel, so the
-            # instruction would silently vanish from the imported exam.
-            custom.append(f"{registry_name} (system instructions are not baked)")
+            # A module-level system instruction the bake CAN deliver — as leading
+            # input text (a benchmark cannot address a candidate's system role;
+            # contracteval named-deviation pattern, owner-approved on OME-1253).
+            # An inline literal has no module attribute for the row to POINT at,
+            # and the importer never copies exam text, so it stays flagged.
+            system_message_ref = _resolved_or_flagged(
+                module,
+                solver,
+                task_ref,
+                custom,
+                f"{registry_name} (system instructions are not baked)",
+            )
         elif name == "multiple_choice" and registry_params(solver).get("template") is not None:
             # A custom choice template the bake CAN reproduce — when it resolves to
             # one module attribute the row points at (the family renderer, OME-1116
             # milestone C); an unresolvable one still earns the review flag.
-            try:
-                choice_template_ref = _template_attribute(
-                    module, registry_params(solver).get("template"), task_ref
-                )
-            except ImporterError:
-                custom.append(f"{registry_name} (custom choice template is not baked)")
+            choice_template_ref = _resolved_or_flagged(
+                module,
+                solver,
+                task_ref,
+                custom,
+                f"{registry_name} (custom choice template is not baked)",
+            )
         elif name not in _FULLY_BAKED_SOLVERS:
             custom.append(registry_name)
-    return template_ref, choice_template_ref, tuple(custom)
+    return template_ref, choice_template_ref, system_message_ref, tuple(custom)
+
+
+def _resolved_or_flagged(
+    module: Any, solver: Any, task_ref: str, custom: list[str], flag: str
+) -> str | None:
+    """Resolve the solver's template to one module attribute, or record the review flag."""
+
+    from inspect_ai._util.registry import registry_params
+
+    try:
+        return _template_attribute(module, registry_params(solver).get("template"), task_ref)
+    except ImporterError:
+        custom.append(flag)
+        return None
 
 
 def _template_attribute(module: Any, template: Any, task_ref: str) -> str:
@@ -574,6 +609,15 @@ def render_fragments(
         snapshot_lines.append(f'        prompt_template="{facts.prompt_template}",')
     if facts.choice_template is not None:
         snapshot_lines.append(f'        choice_template="{facts.choice_template}",')
+    if facts.system_message is not None:
+        snapshot_lines.append(
+            "        # Named deviation: the eval sends this as a SYSTEM message; the"
+        )
+        snapshot_lines.append(
+            "        # bake delivers it as leading input text (a benchmark cannot"
+        )
+        snapshot_lines.append("        # address a candidate's system role).")
+        snapshot_lines.append(f'        system_message="{facts.system_message}",')
     if shuffle_seed is not None:
         snapshot_lines.append(f"        shuffle_seed={prefix}_SHUFFLE_SEED,")
     for solver_name in facts.custom_solvers:

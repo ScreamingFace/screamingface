@@ -28,6 +28,7 @@ pytest.importorskip("inspect_evals")
 from screamingface_engine_inspect.prepare import (  # noqa: E402
     SNAPSHOTS,
     PrepareError,
+    SnapshotSpec,
     emit_snapshot,
     mcq_prompt,
 )
@@ -298,3 +299,160 @@ def test_aime25_snapshot_bakes_their_row_rule_and_private_target(
     target = json.loads((tmp_path / "targets" / "2.json").read_text(encoding="utf-8"))
     assert target == {"target": "400"}
     assert summary["cases"] == 2
+
+
+# ── musr ─────────────────────────────────────────────────────────────────────
+
+_MUSR_ROWS: list[dict[str, Any]] = [
+    {
+        "narrative": "A short mystery story.",
+        "question": "Who did it?",
+        "choices": "['The butler', 'The gardener']",
+        "answer_index": 1,
+    },
+    {
+        "narrative": "Another short mystery.",
+        "question": "Who is guilty?",
+        "choices": "['Alice', 'Bob']",
+        "answer_index": 0,
+    },
+]
+
+
+def test_musr_snapshot_parses_stringified_choices_and_their_template(
+    tmp_path: Path,
+) -> None:
+    """OME-1253: musr stores choices as a STRINGIFIED Python list its row rule
+    ast.literal_eval's, and the prompt is the eval's own REGULAR_PROMPT — the
+    bake must parse the choices into real options and render that template,
+    keeping the key private."""
+
+    summary = emit_snapshot(SNAPSHOTS["musr"], _MUSR_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # The spec's policy shuffle (seed 20260922) happens to leave a 2-row fixture
+    # in place, so the assertions below still address rows by original order.
+    assert [case["id"] for case in cases] == [1, 2]
+    # Narrative and question are joined, choices rendered as lettered options.
+    assert "A short mystery story.\n\nWho did it?" in cases[0]["input"]
+    assert "A) The butler" in cases[0]["input"] and "B) The gardener" in cases[0]["input"]
+    # REGULAR_PROMPT's own answer-format instruction, not our MCQ default.
+    assert "ANSWER: (your answer here, include the choice letter)" in cases[0]["input"]
+    # INVARIANT: the public booklet never carries the answer key.
+    assert "target" not in json.dumps(cases)
+    target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
+    assert target == {"target": "B", "choices": ["The butler", "The gardener"]}
+    assert summary["cases"] == 2
+
+
+# ── wmdp ─────────────────────────────────────────────────────────────────────
+
+_WMDP_ROWS: list[dict[str, Any]] = [
+    {"question": "Pick B.", "choices": ["no", "yes", "never", "maybe"], "answer": 1},
+    {"question": "Pick A.", "choices": ["yes", "no", "never", "maybe"], "answer": 0},
+]
+
+
+def test_wmdp_snapshot_bakes_letter_target_in_upstream_order(tmp_path: Path) -> None:
+    """OME-1253: wmdp's row rule maps an integer answer index to a letter and
+    the eval serves upstream order (no shuffle, no seed) — the bake must keep
+    both, with the key private. One config stands for all three: the wmdp_*
+    snapshots share record_to_sample and differ only in pins."""
+
+    summary = emit_snapshot(SNAPSHOTS["wmdp_bio"], _WMDP_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # No shuffle seed: rows keep the upstream order.
+    assert [case["id"] for case in cases] == [1, 2]
+    assert "Pick B." in cases[0]["input"]
+    assert "A) no" in cases[0]["input"] and "D) maybe" in cases[0]["input"]
+    # INVARIANT: the public booklet never carries the answer key.
+    assert "target" not in json.dumps(cases)
+    target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
+    assert target == {"target": "B", "choices": ["no", "yes", "never", "maybe"]}
+    assert summary["cases"] == 2
+
+
+# ── system message as leading input text ─────────────────────────────────────
+
+
+def test_snapshot_with_system_message_bakes_it_as_leading_input_text(
+    tmp_path: Path,
+) -> None:
+    """OME-1253: a benchmark cannot address a candidate's system role, so an
+    eval's system instruction is delivered as the LEADING TEXT of the candidate
+    input (contracteval precedent) — stripped, once, ahead of the untouched
+    render — and it never leaks into the private targets."""
+
+    spec = SnapshotSpec(
+        dataset="acme/sums",
+        config="",
+        split="test",
+        dataset_revision="deadbeef" * 5,
+        case_count=2,
+        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
+        system_message="inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE",
+    )
+    emit_snapshot(spec, _WMDP_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # Leading text: the eval's instruction (stripped of its surrounding
+    # newlines), a blank line, then the normal MCQ render.
+    assert cases[0]["input"].startswith("Choose the most plausible continuation for the story.\n\n")
+    assert "A) no" in cases[0]["input"] and "Pick B." in cases[0]["input"]
+    target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
+    assert target == {"target": "B", "choices": ["no", "yes", "never", "maybe"]}
+
+
+# ── hellaswag ────────────────────────────────────────────────────────────────
+
+_HELLASWAG_ROWS: list[dict[str, Any]] = [
+    {
+        "ctx": "She cracks the eggs into a bowl and",
+        "endings": ["whisks them.", "paints the wall.", "drives away.", "sings."],
+        "label": "0",
+        "source_id": "activitynet~v_1",
+    },
+    {
+        "ctx": "He laces up his running shoes and",
+        "endings": ["eats the laces.", "heads out the door.", "melts.", "sleeps."],
+        "label": "1",
+        "source_id": "activitynet~v_2",
+    },
+]
+
+
+def test_hellaswag_snapshot_leads_with_their_instruction(tmp_path: Path) -> None:
+    """OME-1253 (owner-approved): hellaswag's task instruction lives in a SYSTEM
+    message upstream; the board delivers it as the input's leading text (named
+    deviation — a benchmark cannot address a candidate's system role), ahead of
+    the untouched MCQ render, with the key private."""
+
+    summary = emit_snapshot(SNAPSHOTS["hellaswag"], _HELLASWAG_ROWS, tmp_path)
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    # The spec's policy shuffle (seed 20260922, domain-grouped split) happens to
+    # leave a 2-row fixture in place, so assertions address rows by original order.
+    assert [case["id"] for case in cases] == [1, 2]
+    assert cases[0]["input"].startswith("Choose the most plausible continuation for the story.\n\n")
+    assert "She cracks the eggs into a bowl and" in cases[0]["input"]
+    assert "A) whisks them." in cases[0]["input"]
+    # INVARIANT: the public booklet never carries the answer key.
+    assert "target" not in json.dumps(cases)
+    target = json.loads((tmp_path / "targets" / "2.json").read_text(encoding="utf-8"))
+    assert target["target"] == "B" and target["choices"][1] == "heads out the door."
+    assert summary["cases"] == 2
+
+
+def test_system_message_resolving_to_a_non_string_refuses_the_bake(
+    tmp_path: Path,
+) -> None:
+    """Review finding on PR #1018: a mispointed system_message landing on a
+    function must refuse the bake — str() would silently bake its repr into
+    every case of the exam."""
+
+    from dataclasses import replace
+
+    spec = replace(
+        SNAPSHOTS["hellaswag"],
+        # A real module attribute that is a function, not text.
+        system_message="inspect_evals.hellaswag.hellaswag:record_to_sample",
+    )
+    with pytest.raises(PrepareError, match="must resolve to text"):
+        emit_snapshot(spec, _HELLASWAG_ROWS, tmp_path)
