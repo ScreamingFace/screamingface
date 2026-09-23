@@ -68,10 +68,12 @@ flag to product) and full 248-ref reconciliation.
   boards (PR #1016, CI green); `a4c5a92` feat(screamingface-engine): import
   hellaswag, delivering its system instruction as leading input text
   (PR #1018, stacked on #1016). Both await owner merge.
-- **Gates:** `run_gates.py screamingface-engine` ALL GREEN on the committed
-  branch (append-only included — the roster extensions are extension-only vs
-  main); pytest 3537 passed, 0 failed, 9 skipped. Offline full-bakes 250/250,
-  1273/1273, 408/408, 1987/1987.
+- **Gates:** `run_gates.py screamingface-engine` ALL GREEN on both committed
+  branches (append-only included). PR #1016: pytest 3537 passed. PR #1018
+  after the review round: pytest 3550 passed, 0 failed, 9 skipped (209 in
+  the inspect lane). Offline full-bakes 250/250, 1273/1273, 408/408,
+  1987/1987, hellaswag 10042/10042 re-baked with the policy shuffle seed
+  (seeded prefixes mix both domains at the base rate).
 - **Deviations:**
   - Batch plan reshuffled: 10 of the sweep's in-scope 22 were already on main,
     so the train shrank to 7 choice + 4 custom-deterministic candidates.
@@ -92,3 +94,9 @@ flag to product) and full 248-ref reconciliation.
     ticket's scope-correction comment.
   - Unlock pipes deferred by owner sizing call (~100 LoC each): filed as
     OME-1264 (lab_bench + truthfulqa + infinite_bench families).
+  - Review round on PR #1018 (2 blockers fixed): hellaswag gets an OURS
+    policy shuffle seed (the pinned validation split is domain-grouped —
+    3,243 ActivityNet then 6,799 WikiHow) + an upstream-pin drift test;
+    system_message pointer now rides revision identity; non-string
+    system_message resolutions refuse the bake; template-conservation gap
+    (params/placeholders) filed as a follow-up ticket.

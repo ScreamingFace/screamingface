@@ -85,6 +85,7 @@ from screamingface_engine_inspect.pins import (
     HELLASWAG_CONFIG,
     HELLASWAG_DATASET,
     HELLASWAG_DATASET_REVISION,
+    HELLASWAG_SHUFFLE_SEED,
     HELLASWAG_SPLIT,
     MMLU_CASE_COUNT,
     MMLU_CONFIG,
@@ -412,6 +413,9 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # bake delivers it as leading input text (a benchmark cannot
         # address a candidate's system role).
         system_message="inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE",
+        # WHY the seed: the split is domain-grouped (ActivityNet then
+        # WikiHow) — see the pin's comment; OURS by policy.
+        shuffle_seed=HELLASWAG_SHUFFLE_SEED,
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
@@ -515,12 +519,7 @@ def emit_snapshot(
     choice_template: str | None = (
         None if spec.choice_template is None else _resolve(spec.choice_template)
     )
-    # WHY stripped once here: eval constants often carry framing newlines
-    # (hellaswag's SYSTEM_MESSAGE); the leading text must join the render with
-    # exactly one blank line.
-    system_text: str | None = (
-        None if spec.system_message is None else str(_resolve(spec.system_message)).strip()
-    )
+    system_text: str | None = _resolved_system_text(spec)
     ordered: list[dict[str, Any]] = list(rows)
     if spec.shuffle_seed is not None:
         random.Random(spec.shuffle_seed).shuffle(ordered)
@@ -554,6 +553,27 @@ def emit_snapshot(
             {"target": target} if choices is None else {"target": target, "choices": choices}
         )
     return _emit(cases, targets, out, dataset_revision=spec.dataset_revision)
+
+
+def _resolved_system_text(spec: SnapshotSpec) -> str | None:
+    """The eval's system instruction as leading input text, or None without one.
+
+    WHY stripped once here: eval constants often carry framing newlines
+    (hellaswag's SYSTEM_MESSAGE); the leading text must join the render with
+    exactly one blank line. A non-string resolution (a mispointed reference
+    landing on a function) refuses the bake — str() would silently bake its
+    repr into every case of the exam (review finding on PR #1018).
+    """
+
+    if spec.system_message is None:
+        return None
+    resolved_message: Any = _resolve(spec.system_message)
+    if not isinstance(resolved_message, str):
+        raise PrepareError(
+            f"system_message {spec.system_message} must resolve to text, "
+            f"got {type(resolved_message).__name__}"
+        )
+    return resolved_message.strip()
 
 
 def prepare_snapshot(spec: SnapshotSpec, out: Path) -> dict[str, Any]:

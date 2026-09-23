@@ -114,6 +114,8 @@ def test_snapshot_row_references_resolve_inside_the_pinned_eval(key: str) -> Non
         references.append(snapshot.prompt_template)
     if snapshot.choice_template is not None:
         references.append(snapshot.choice_template)
+    if snapshot.system_message is not None:
+        references.append(snapshot.system_message)
     for reference in references:
         module_name, _, attribute = reference.partition(":")
         assert hasattr(import_module(module_name), attribute), reference
@@ -161,6 +163,9 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     # unseeded import would give a limited run only the easier AIME I half.
     # musr: upstream shuffles per run (hf_dataset shuffle=True, no seed), so the
     # import pins one order. wmdp boards serve upstream order — no seed.
+    # hellaswag: OURS policy seed (review finding on PR #1018) — the pinned
+    # validation split is domain-grouped (3,243 ActivityNet rows then 6,799
+    # WikiHow), so an unshuffled limit ≤ 3243 run would examine zero WikiHow.
     assert seeded == {
         "mmlu",
         "commonsense_qa",
@@ -171,6 +176,7 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "aime24",
         "aime25",
         "musr",
+        "hellaswag",
     }
 
 
@@ -195,3 +201,28 @@ def test_aime25_pin_tracks_upstreams_own_revision_constant() -> None:
     from screamingface_engine_inspect.pins import AIME25_DATASET_REVISION
 
     assert AIME25_DATASET_REVISION == AIME2025_DATASET_REVISION
+
+
+def test_hellaswag_pin_tracks_upstreams_own_revision_constant() -> None:
+    """Same drift guard as aime24/25: the sha is COPIED from the eval's own
+    pinned constant — a dependency bump that moves upstream's pin must fail
+    here, never leave us baking the old sha with the new scorer."""
+
+    from inspect_evals.hellaswag.hellaswag import HELLASWAG_DATASET_REVISION as UPSTREAM
+
+    from screamingface_engine_inspect.pins import HELLASWAG_DATASET_REVISION
+
+    assert HELLASWAG_DATASET_REVISION == UPSTREAM
+
+
+def test_system_message_pointer_rides_exam_identity() -> None:
+    """Review finding on PR #1018: adding or dropping the leading instruction
+    changes the exam a candidate sits, so the pointer must move the board's
+    revision identity — a re-import that lost it cannot keep the revision."""
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    pins = _revision_pins(SNAPSHOTS["hellaswag"])
+    assert "system_message=inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE" in pins
+    # And a board without one carries no such pin (the field is conditional).
+    assert not any(p.startswith("system_message=") for p in _revision_pins(SNAPSHOTS["musr"]))

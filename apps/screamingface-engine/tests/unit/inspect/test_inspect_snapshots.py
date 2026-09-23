@@ -427,7 +427,8 @@ def test_hellaswag_snapshot_leads_with_their_instruction(tmp_path: Path) -> None
 
     summary = emit_snapshot(SNAPSHOTS["hellaswag"], _HELLASWAG_ROWS, tmp_path)
     cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
-    # No shuffle: rows keep the upstream order.
+    # The spec's policy shuffle (seed 20260922, domain-grouped split) happens to
+    # leave a 2-row fixture in place, so assertions address rows by original order.
     assert [case["id"] for case in cases] == [1, 2]
     assert cases[0]["input"].startswith("Choose the most plausible continuation for the story.\n\n")
     assert "She cracks the eggs into a bowl and" in cases[0]["input"]
@@ -437,3 +438,21 @@ def test_hellaswag_snapshot_leads_with_their_instruction(tmp_path: Path) -> None
     target = json.loads((tmp_path / "targets" / "2.json").read_text(encoding="utf-8"))
     assert target["target"] == "B" and target["choices"][1] == "heads out the door."
     assert summary["cases"] == 2
+
+
+def test_system_message_resolving_to_a_non_string_refuses_the_bake(
+    tmp_path: Path,
+) -> None:
+    """Review finding on PR #1018: a mispointed system_message landing on a
+    function must refuse the bake — str() would silently bake its repr into
+    every case of the exam."""
+
+    from dataclasses import replace
+
+    spec = replace(
+        SNAPSHOTS["hellaswag"],
+        # A real module attribute that is a function, not text.
+        system_message="inspect_evals.hellaswag.hellaswag:record_to_sample",
+    )
+    with pytest.raises(PrepareError, match="must resolve to text"):
+        emit_snapshot(spec, _HELLASWAG_ROWS, tmp_path)
