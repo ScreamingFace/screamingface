@@ -33,7 +33,12 @@ check:
 - The dataset's license permits public redistribution — the tool *warns* on an
   uncleared license and still emits (the diff review is the gate), so check early,
   not after the work is done.
-- Agentic, multi-turn, and model-graded evals are out of scope for this pipeline.
+- Agentic and multi-turn evals are out of scope for this pipeline.
+- **Model-graded (LLM-judged) evals are importable since OME-1240**, with one extra
+  condition: the scorer must take its judge as an explicit model argument (xstest's
+  `model=`, frontierscience's `model=`). A scorer that only resolves inspect's grader
+  *role* (`get_model(role="grader")` with no model kwarg) is not supported yet —
+  assembly refuses it by name.
 
 ## Step 1 — run the importer
 
@@ -68,7 +73,9 @@ flags. The importing agent (not a human) resolves all of them:
 - **`title` / `description` / `focus`** — catalogue prose, written from the eval's own
   README/docstring and the dataset card, in the voice of the existing rows (open the
   gsm8k/mmlu rows in `boards.py`; state case count, split, what the model does, how
-  grading works, that no judge tokens are spent, and how the score is computed).
+  grading works, and how the score is computed — string-match boards say that no judge
+  tokens are spent, judged boards say judge calls are routed and metered through our
+  gateway).
 - **`TODO(review)` flags** — each names a setting the bake does not reproduce (a
   custom solver, a system message, an unreproduced dataset option). For each one:
   either confirm it does not change the exam (and say why in the comment), or stop —
@@ -77,11 +84,14 @@ flags. The importing agent (not a human) resolves all of them:
 
 ## Step 3 — decide the check surface
 
-`with_check_surface=True` **only for free-text boards** (spec §4): the eval's own
-scorer then also answers the corrective loop's mid-run checks with sealed
+`with_check_surface=True` **only for string-match free-text boards** (spec §4): the
+eval's own scorer then also answers the corrective loop's mid-run checks with sealed
 pass/fail-only feedback. **MCQ boards never get one** — pass/fail feedback over a
-handful of options is an elimination attack (OME-796). The generated row defaults
-correctly from the scorer family; treat changing it as an owner decision.
+handful of options is an elimination attack (OME-796). **Judged boards never get one
+either (yet)** — a judged mid-run check spends judge tokens per attempt while the
+surface still advertises `free`; assembly refuses the combination until the check-cost
+knob lands (OME-1116). The generated row defaults correctly from the scorer family;
+treat changing it as an owner decision.
 
 ## Step 4 — verify
 
@@ -106,7 +116,20 @@ checklist (minutes, not hours):
 - The license in the pins comment is genuinely cleared for a public catalogue.
 - Every `TODO(review)` is resolved with a reason, and the prose honestly describes
   the exam.
-- The check-surface flag matches the scorer family (free text ⇔ surface on).
+- The check-surface flag matches the scorer family (string-match free text ⇔ surface
+  on; MCQ and judged ⇔ surface off).
+- **Judged rows only** (the model-graded lane, OME-1240):
+  - `judge=JudgeSpec(model=..., params=...)` is declared, and the SAME model appears as
+    a `screamingface/<model>` value in `scorer_kwargs` — assembly cross-checks both
+    directions, but the reviewer confirms the chosen judge is the intended house judge
+    (precedent: HealthBench's judge model and params, `benchmarks/healthbench/pins.py`).
+  - The judge model, its params, and the judge prompt (template/instructions kwargs)
+    are exam identity — expect the revision to move if any of them changes.
+  - If the scorer dispatches on sample metadata (frontierscience's `format`), the
+    snapshot row sets `keep_sample_metadata=True` — otherwise the scorer grades blind.
+  - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
+    `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
+    calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.
 
 ## When the tool refuses
 

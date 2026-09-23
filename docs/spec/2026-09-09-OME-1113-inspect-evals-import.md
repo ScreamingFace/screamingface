@@ -136,6 +136,16 @@ seam failed review** — same bar the `OME-1097` signature carried.
 
 ### 3.3 Judge routing — zero code
 
+> **CORRECTED 2026-09-23 (OME-1240).** This section's plan was falsified by
+> implementation: the shim runs scorers outside inspect's eval loop (no active model —
+> `get_model()` raises), and the `openai-api`+env-vars route never touches the engine's
+> usage sink, so judge cost would vanish from `cost_usd` even with the gateway in the
+> middle. The shipped design is a `screamingface` inspect model provider bound to the
+> node's own model route per grading pass, with the judge declared (and hashed into the
+> revision) on the board row — see `screamingface_engine_inspect/judge_provider.py` and
+> the runbook's model-graded section. The paragraph below is kept as written for
+> history.
+
 Model-graded scorers resolve their judge through inspect's own provider machinery. **We
 route it with configuration, not code:** the plugin runs those scorers with inspect's
 `openai-api` provider pointed at our AI Gateway via base-URL + key environment variables
