@@ -39,15 +39,17 @@ from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLay
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.runner.summary import RunSummary
 from screamingface_engine.tracing.relay import SpanRelay, SpanSink, otlp_configured
-from screamingface_engine.world.config import WorldConfig, load_config
+from screamingface_engine.world.config import AigatewaySection, WorldConfig, load_config
 from screamingface_engine.world.factory import (
     World,
     build_world,
     shared_world_serves,
     world_reads_answer_seed,
 )
+from screamingface_engine.world.web_tools import tavily_key
 from url4.streaming.interfaces import EventPublisher
 from url4.streaming.lifecycle import run
+from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import parse_traceparent
 
 logger = logging.getLogger(__name__)
@@ -281,6 +283,9 @@ def _seeded_world(
 
     ``shared_io`` is local mode's shared world, or ``None`` for a per-run world. A shared world
     comes back with NO teardown: its owner closes it, never a run.
+
+    FEATURE (OME-1069, FX-68): once the world is resolved, the run writes its world line — for
+    a per-run world AND for the shared node, so every run says what it ran on, as on `main`.
     """
 
     @functools.cache
@@ -301,12 +306,61 @@ def _seeded_world(
         )
 
     async def world() -> World:
-        scope()  # FX-40: refuse a malformed seed before the world is built or run
-        if shared_io is not None:
-            return shared_io, None
-        return await build(resolved())
+        bound = scope()  # FX-40: refuse a malformed seed before the world is built or run
+        built: World = (shared_io, None) if shared_io is not None else await build(resolved())
+        section = _model_section(shared_io, resolved)
+        if section is not None:
+            _log_world(env, section, bound.cache)
+        return built
 
     return world, scope
+
+
+def _model_section(shared_io: Any, resolved: Callable[[], WorldConfig]) -> AigatewaySection | None:
+    """The run's declared model world, for its world line — or ``None`` when it has none.
+
+    WHY the same test the seed uses (`world_reads_answer_seed`): a shared world with no model
+    route (the deny-by-default layer, a bare read-side node) is the shape of a run with no
+    `[aigateway]` table, which never wrote the line on `main` — so its config is not read.
+    """
+    if shared_io is not None and not world_reads_answer_seed(shared_io):
+        return None
+    return resolved().aigateway
+
+
+def _log_world(env: Mapping[str, str], section: AigatewaySection, cache: CachePolicy) -> None:
+    """The run's world line — byte-identical to `main`'s, on this module's logger.
+
+    FEATURE (OME-1069): the world's resolved shape, logged once per run. The topic comes from the
+    run's own env; the trace id is appended by the run-context filter, which is bound by the time
+    the world is resolved. Model ids are public catalog names; `web_tools` is derived from the
+    PRESENCE of the Tavily key (`world.web_tools.tavily_key`, the world's own normalization),
+    never the key itself; `cache` states whether the run declared a policy, not its content.
+
+    WHY here and not in `world.factory` (FX-68): the cache policy is the RUN's caller state, read
+    by this run's scope producer, and the world carries no caller state (F2).
+    """
+    logger.info(
+        "runner world topic=%s models=%d default_model=%s web_tools=%s cache=%s outbound=%s",
+        env.get(job_env.TOPIC),
+        len(section.models),
+        section.default_model,
+        "enabled" if tavily_key(env.get(job_env.TAVILY_API_KEY)) is not None else "disabled",
+        _cache_stated(cache),
+        "allowed" if section.allow_outbound else "denied",
+    )
+
+
+def _cache_stated(policy: CachePolicy) -> str:
+    """Whether a run's cache policy stated anything — 'stated' or 'not-stated'.
+
+    Its own token rather than the rendered policy: "did not declare" and "declared an
+    all-unset policy" are different statements, and the world log only needs the first.
+    """
+
+    if policy.participate is not None or policy.max_age is not None:
+        return "stated"
+    return "not-stated"
 
 
 def build_executor(
@@ -381,9 +435,9 @@ def build_executor(
     async def _build(resolved: WorldConfig) -> World:
         # FEATURE (F1, prd/01): building the world lives in the shared world package, because
         # both halves build one. This closure supplies only the run mode's per-Job wiring — the
-        # Job's own env, its optional test clients, and the run key the world log names. The
-        # factory stays LAZY so a bad config or unreachable gateway surfaces as a Terminated
-        # frame on the topic rather than crashing the scheduling caller before the stream exists.
+        # Job's own env and its optional test clients. The factory stays LAZY so a bad config or
+        # unreachable gateway surfaces as a Terminated frame on the topic rather than crashing
+        # the scheduling caller before the stream exists.
         return await build_world(
             env=env,
             config=resolved,
@@ -391,7 +445,6 @@ def build_executor(
             tavily_client=tavily_client,
             benchmarks=benchmarks,
             benchmark_assets_root=benchmark_assets_root,
-            run_key=run_key,
         )
 
     world_factory, scope_factory = _seeded_world(env, config, shared_io, _build)

@@ -67,6 +67,7 @@ from screamingface_engine.world.web_tools import (
     append_tool_results,
     build_client,
     build_runtime,
+    tavily_key,
     truncate_tool_result,
 )
 from url4.core.errors import ResolutionError
@@ -410,8 +411,7 @@ async def build_aigateway_world(
     )
     routes = routes_for(cfg.models)
 
-    normalized_tavily_key = tavily_api_key.strip() if tavily_api_key else None
-    normalized_tavily_key = normalized_tavily_key or None
+    normalized_tavily_key = tavily_key(tavily_api_key)
     tavily_http, owns_tavily_client = build_client(
         cfg,
         normalized_tavily_key,

@@ -44,16 +44,12 @@ from url4.cli._serve import make_data_provider, make_identity_handler, make_shel
 from url4.io.layer import IOLayer
 from url4.io.static import StaticIOLayer
 from url4.peer.server import Url4Node
-from url4.streaming.protocol import CachePolicy
 
 logger = logging.getLogger(__name__)
 
-# CHARACTERIZATION (prd/01 AC1 — the ensemble path is byte-for-byte unchanged): the per-run
-# "runner world topic=…" line was emitted on logger `screamingface_engine.runner.main` before F1
-# moved its emitter into this package, and log routing keyed on that name must not change with
-# the code's address. This ONE line keeps its historical logger; world-side logs that are new
-# (the D8 shelf declarations below) use `logger` above.
-_RUN_PATH_LOGGER = logging.getLogger("screamingface_engine.runner.main")
+# AIDEV-NOTE (FX-68): the per-run "runner world topic=…" line is NOT written here. It states the
+# RUN's cache policy, and a world carries no caller state (F2), so the run producer
+# (`runner.main`) writes it, once per run — on a per-run world and on the shared node alike.
 
 READ_SIDE_TIMEOUT_S = 120.0
 """Provider timeout passed to url4's read-side handler builders.
@@ -112,7 +108,6 @@ async def build_world(
     tavily_client: httpx.AsyncClient | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     benchmark_assets_root: Path | None = None,
-    run_key: str | None = None,
 ) -> World:
     """Build the declared world and install every endpoint it needs.
 
@@ -152,7 +147,6 @@ async def build_world(
     # `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to demand.
     # Identity is forwarded when present and simply absent locally, where every caller is
     # anonymous.
-    cache = job_env.cache_policy_from_env(env)
     world = await build_aigateway_world(
         AigatewayConfig(
             base_url=section.base_url,
@@ -200,20 +194,6 @@ async def build_world(
                 # still closes the world as the error leaves.
                 raise WorldConfigError(f"cannot install the benchmark endpoints: {exc}") from exc
             cleanup.pop_all()
-    # FEATURE (OME-1069): the world's resolved shape, logged once per run. The topic comes from
-    # the run's own env (`run_key`); the trace id is appended by the run-context filter, which is
-    # bound by the time the world is built. Model ids are public catalog names; `web_tools` is
-    # derived from the PRESENCE of the Tavily key, never the key itself; `cache` states whether
-    # the run declared a policy, not the policy's content.
-    _RUN_PATH_LOGGER.info(
-        "runner world topic=%s models=%d default_model=%s web_tools=%s cache=%s outbound=%s",
-        run_key,
-        len(section.models),
-        section.default_model,
-        "enabled" if world.web_tools_enabled else "disabled",
-        _cache_stated(cache),
-        "allowed" if section.allow_outbound else "denied",
-    )
     return world.node, world.aclose
 
 
@@ -247,18 +227,6 @@ def world_reads_answer_seed(io: IOLayer) -> bool:
     read-side node has data routes only, and the deny-by-default layer is not a node at all.
     """
     return isinstance(io, Url4Node) and bool(io.processor_routes())
-
-
-def _cache_stated(policy: CachePolicy) -> str:
-    """Whether a run's cache policy stated anything — 'stated' or 'not-stated'.
-
-    Its own token rather than the rendered policy: "did not declare" and "declared an
-    all-unset policy" are different statements, and the world log only needs the first.
-    """
-
-    if policy.participate is not None or policy.max_age is not None:
-        return "stated"
-    return "not-stated"
 
 
 def _has_read_side(config: WorldConfig) -> bool:

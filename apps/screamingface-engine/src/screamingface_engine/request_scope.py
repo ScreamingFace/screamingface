@@ -14,8 +14,16 @@ ContextVars are copied into every task created inside the bound region. That cop
 spawned model calls inherit their parent request (AC4) and what keeps sibling requests isolated
 (AC2), without the handler or the world carrying a per-request field.
 
-INVARIANT: a producer binds a scope BEFORE any handler executes — the child run path from its
-`job_env` (see `runner.main.request_scope_from_env`), the sync surface from verified headers.
+INVARIANT: a producer binds a scope BEFORE any handler executes. There are two producers, and
+they live apart on purpose:
+
+- the RUN producer is `runner.main.request_scope_from_env` (it raises the run mode's own
+  `RunnerConfigError`, so it lives with it). `runner.main._seeded_world` hands it to
+  `Url4Executor`, which binds it around the run;
+- the SYNC producer is :func:`request_scope_from_headers` (and :func:`trace_from_headers`), in
+  this module. The node tier (`world.node_tier.tier`) and local mode's mount (`local`) bind it
+  per request.
+
 Nothing may call a handler outside a bound scope: `current_scope()` raises rather than inventing
 a default, because an anonymous, unprofiled, unseeded call still reaches aigateway and still
 bills someone (AC5).

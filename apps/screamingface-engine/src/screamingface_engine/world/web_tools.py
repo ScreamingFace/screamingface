@@ -82,6 +82,16 @@ class WebToolRuntime:
     excluded_domains: tuple[str, ...]
 
 
+def tavily_key(raw: str | None) -> str | None:
+    """The Tavily key a world uses, or ``None`` when web tools are off.
+
+    INVARIANT (FX-68): the ONE normalization of the key — a blank value is no key. The connector
+    builds its Tavily client from this, and the run's world line derives ``web_tools`` from it,
+    so the line can never say "enabled" for a world that has no client.
+    """
+    return (raw or "").strip() or None
+
+
 def build_client(
     config: WebToolConfig,
     api_key: str | None,

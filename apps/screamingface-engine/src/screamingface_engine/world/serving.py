@@ -253,7 +253,6 @@ async def compose_serving_world(
     tavily_client: httpx.AsyncClient | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     benchmark_assets_root: Path | None = None,
-    run_key: str | None = None,
 ) -> World:
     """Compose a world FOR SERVING and refuse a mount an engine route would shadow (F4).
 
@@ -272,7 +271,6 @@ async def compose_serving_world(
         tavily_client=tavily_client,
         benchmarks=benchmarks,
         benchmark_assets_root=benchmark_assets_root,
-        run_key=run_key,
     )
     _io, aclose = world
     try:

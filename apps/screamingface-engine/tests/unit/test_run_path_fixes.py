@@ -390,10 +390,13 @@ async def test_a_valid_seed_on_a_shared_world_is_bound_and_the_world_is_not_clos
         shared, aclose = await build_world(
             env={job_env.RUNNER_CONFIG: _config(tmp_path)}, client=client
         )
-        executor = build_executor({job_env.ANSWER_SEED: "7"}, io_provider=lambda: shared)
+        # FX-68: a run on the shared node reads its config for the world line, so each run env
+        # carries the config path — as every local run env does (`local._with_runner_config`).
+        run_env = {job_env.RUNNER_CONFIG: _config(tmp_path)}
+        executor = build_executor({**run_env, job_env.ANSWER_SEED: "7"}, io_provider=lambda: shared)
         steps = [step async for step in executor.execute(f"/{_DEFAULT}('ctx')!'go'")]
         # A second run on the same shared world still works: the first did not close it.
-        again = build_executor({}, io_provider=lambda: shared)
+        again = build_executor(run_env, io_provider=lambda: shared)
         steps_again = [step async for step in again.execute(f"/{_DEFAULT}('ctx')!'go'")]
         assert aclose is not None
         await aclose()
