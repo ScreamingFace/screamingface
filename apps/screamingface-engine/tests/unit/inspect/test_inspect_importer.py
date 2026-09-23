@@ -524,6 +524,63 @@ def test_mcq_fragments_refuse_the_check_surface() -> None:
     assert "prompt_template" not in fragments.snapshot
 
 
+def test_mcq_detection_follows_the_solver_not_the_scorer_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """lab_bench grades its MCQ exams with its OWN scorer (precision_choice), so
+    keying mcq on the scorer name reads them as free-text and hands an MCQ board
+    the check surface — an elimination attack (OME-796). MCQ-ness is the exam's
+    SHAPE, declared by the multiple_choice solver, and is detected there."""
+
+    from inspect_ai.scorer import Score, Target, accuracy, scorer
+    from inspect_ai.solver import TaskState
+
+    @scorer(metrics=[accuracy()])
+    def house_grader(no_answer: str | None = None) -> Any:
+        async def score(state: TaskState, target: Target) -> Score:
+            return Score(value="C")
+
+        return score
+
+    def custom_graded_mcq() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/quiz", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=multiple_choice(),
+            scorer=house_grader(no_answer="Insufficient information to answer the question."),
+        )
+
+    module = _install_fake_eval(monkeypatch, custom_graded_mcq=custom_graded_mcq)
+    # The eval exports its own scorer constructor — the row must resolve it there.
+    module.house_grader = house_grader  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:custom_graded_mcq")
+
+    assert facts.mcq is True
+    assert facts.scorer.endswith(":house_grader")
+
+
+def test_board_row_renders_str_scorer_kwargs_format_safe() -> None:
+    """The first str scorer kwarg (lab_bench's no_answer) must emit DOUBLE-quoted
+    — repr's single quotes would fail the ruff-format gate on the emitted file."""
+
+    fragments = render_fragments(
+        "quiz",
+        _facts(
+            mcq=True,
+            prompt_template=None,
+            scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+            scorer_kwargs={"no_answer": "Insufficient information."},
+        ),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+    )
+
+    assert '"no_answer": "Insufficient information."' in fragments.board
+    ast.parse(f"BOARDS = (\n{fragments.board})")
+
+
 def test_custom_solver_gets_a_review_flag() -> None:
     """A solver the importer cannot classify must be pointed out, not papered over."""
 
