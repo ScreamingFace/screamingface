@@ -1,0 +1,85 @@
+# The paid imported-board smoke (OME-1275): run every inspect_evals board once for
+# real — a Fusion of three flash-tier seeded models, 2 Cases per board — through the
+# full product path, and fail on any infrastructure failure code.
+#
+# workflow_dispatch ONLY, on purpose: this lane spends real money (a fraction of a
+# dollar per run) through the OPENROUTER_API_KEY repo secret. It is a button the
+# owner presses after wrapper/gateway/route refactors or new imports — never a merge
+# gate, never on push/pull_request. The local twin is
+# `just screamingface test-paid-inspect`.
+name: ScreamingFace Paid Inspect Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paid-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: packages/screamingface
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      # Fail before booting anything if the secret is absent (e.g. a fork) — the
+      # pytest gate would otherwise burn minutes of stack boot to print a skip.
+      - name: Require the OpenRouter key secret
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY secret is not configured — the paid smoke cannot run"
+            exit 1
+          fi
+
+      - name: Install SDK dependencies
+        run: uv sync
+
+      # The imported bundles are dataset snapshots pinned by commit sha — slow to
+      # download once, immutable afterwards, so the cache key only needs the pins.
+      - name: Cache benchmark assets
+        uses: actions/cache@v6
+        with:
+          path: /tmp/screamingface-data/benchmark-assets
+          key: inspect-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine_inspect/**') }}
+
+      # The engine serves the imported boards only with the `benchmarks` extra
+      # (uncoinstallable with the SDK's runtime extra), and their bundles come from
+      # the engine's own preparer — `screamingface prepare --all` covers only the
+      # ScreamingFace-authored boards.
+      - name: Prepare imported benchmark assets
+        working-directory: apps/screamingface-engine
+        run: |
+          uv sync --extra benchmarks
+          assets=/tmp/screamingface-data/benchmark-assets
+          missing=()
+          while read -r bundle; do
+            case "$bundle" in inspect-*) ;; *) continue ;; esac
+            if uv run python -c "import json,sys;json.load(open(sys.argv[1]))" \
+                "$assets/$bundle/cases.json" >/dev/null 2>&1; then
+              continue
+            fi
+            rm -rf "$assets/${bundle:?}"
+            missing+=("--bundle" "$bundle")
+          done < <(uv run python -m screamingface_engine.benchmarks.prepare --list-bundles)
+          if [ ${#missing[@]} -gt 0 ]; then
+            uv run python -m screamingface_engine.benchmarks.prepare --root "$assets" "${missing[@]}"
+          fi
+
+      # -rs so any skip (gate mis-set, assets missing) prints its loud reason in the
+      # log instead of hiding inside a green run.
+      - name: Run the paid smoke over every imported board
+        env:
+          SCREAMINGFACE_TEST_PAID: "1"
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          SCREAMINGFACE_E2E_ASSETS: /tmp/screamingface-data/benchmark-assets
+        run: uv run pytest tests/paid -m paid -rs -v

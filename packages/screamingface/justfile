@@ -242,3 +242,49 @@ e2e-bless-fresh board dump report candidate *flags: _bless-preconditions
 e2e-refresh-golden board *flags: _bless-preconditions
     {{ blesser }} --board {{board}} \
         --refresh-golden {{flags}}
+
+# Paid smoke of every imported board (OME-1275): boots the real stack (Postgres +
+# gateway + engine) and spends real money through OPENROUTER_API_KEY — a fraction of
+# a dollar per run (17 boards × 2 Cases × a 3-model Fusion of flash-tier seeds). The
+# test fails only on infrastructure failure codes, never on scores. Never wired into
+# merge gates; the on-demand CI twin is
+# .github/workflows/screamingface-paid-inspect-smoke.yml.
+[doc("Run the paid OpenRouter smoke over every imported benchmark (spends money)")]
+test-paid-inspect:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    UV="{{ require('uv') }}"
+    DOCKER="{{ require('docker') }}"
+    : "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY must be set — the paid smoke needs a real key}"
+    # Fail here, not minutes later inside a booted stack, if the daemon is down.
+    "$DOCKER" info >/dev/null 2>&1 || { echo "error: docker daemon unreachable (Postgres testcontainer needs it)" >&2; exit 1; }
+
+    # The imported boards' extra is uncoinstallable with the SDK's runtime extra, so
+    # the engine always runs from its own venv, synced here.
+    ( cd "{{ engine_dir }}" && "$UV" sync --extra benchmarks )
+
+    # Prepare any missing imported bundle. Same resumable rule as local-stack-notebooks:
+    # a bundle counts as finished only when its cases.json PARSES; anything else is
+    # debris from a dead run and is cleared before re-preparing.
+    # AIDEV-NOTE: verbatim copy of that recipe's loop, narrowed to inspect-* bundles —
+    # fold both into a shared [private] recipe when a third copy appears.
+    missing=()
+    while read -r bundle; do
+        case "$bundle" in inspect-*) ;; *) continue ;; esac
+        if "$UV" run python -c "import json,sys;json.load(open(sys.argv[1]))" \
+            "{{ assets }}/$bundle/cases.json" >/dev/null 2>&1; then
+            continue
+        fi
+        rm -rf "{{ assets }}/${bundle:?}"
+        missing+=("--bundle" "$bundle")
+    done < <( cd "{{ engine_dir }}" && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles )
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "==> downloading $((${#missing[@]} / 2)) imported dataset(s) into {{ assets }} — slow, once"
+        ( cd "{{ engine_dir }}" \
+            && "$UV" run python -m screamingface_engine.benchmarks.prepare \
+                --root "{{ assets }}" "${missing[@]}" )
+    fi
+
+    # -rs so a skip (mis-set gate, missing assets) prints its loud reason.
+    SCREAMINGFACE_TEST_PAID=1 SCREAMINGFACE_E2E_ASSETS="{{ assets }}" \
+        "$UV" run pytest tests/paid -m paid -rs -v
