@@ -6,7 +6,7 @@ type: task
 priority: 2
 labels: [scoreboard, agentic, autonomous, BUG]
 created: 2026-09-08
-closed: 2026-09-09
+closed: 2026-09-11
 ---
 
 # Remove the "Submitter" column from the leaderboard table
