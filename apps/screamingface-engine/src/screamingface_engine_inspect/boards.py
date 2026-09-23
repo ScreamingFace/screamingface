@@ -389,6 +389,34 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: mit.
         scorer="inspect_ai.scorer:choice",
     ),
+    BoardSpec(
+        key="hellaswag",
+        title="HellaSwag",
+        description=(
+            "10,042 everyday scenarios (the HellaSwag validation split — test "
+            "labels are withheld upstream), each a story context with four "
+            "candidate continuations where only one is plausible; the wrong "
+            "ones are adversarially machine-generated, imported from "
+            "inspect_evals. One named deviation: the eval sends its task "
+            "instruction ('Choose the most plausible continuation for the "
+            "story.') as a system message, while this board delivers it as the "
+            "leading text of the candidate input, because a benchmark cannot "
+            "address a candidate's system role. Grading is inspect's own "
+            "choice scorer against the published key, so no judge tokens are "
+            "spent; cases are served in a fixed seeded shuffle (the pinned "
+            "split is domain-grouped, so a limited run over raw order would "
+            "examine one domain); benchmark score = plain accuracy over the "
+            "cases run. No mid-run check surface (elimination attack over few "
+            "options)."
+        ),
+        focus="Commonsense sentence continuation (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/Rowan/hellaswag",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.hellaswag.hellaswag:hellaswag.
+        # License: UNKNOWN on the HF card; MIT per the upstream source repo
+        # (owner-approved 2026-09-22 — see pins.py).
+        scorer="inspect_ai.scorer:choice",
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 
@@ -442,6 +470,12 @@ def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
     ]
     if snapshot.shuffle_seed is not None:
         pins.append(f"shuffle_seed={snapshot.shuffle_seed}")
+    if snapshot.system_message is not None:
+        # WHY: adding or dropping the leading instruction changes the exam a
+        # candidate sits, so the pointer rides exam identity. (The template
+        # pointers predate revision-pin coverage and cannot join without
+        # moving every published board's revision.)
+        pins.append(f"system_message={snapshot.system_message}")
     return tuple(pins)
 
 
