@@ -46,12 +46,14 @@ from url4.streaming.protocol import CachePolicy
 MODEL = "anthropic/claude-haiku-4-5"
 
 _SCOPE_A = RequestScope(
+    origin="run",
     identity_headers={"X-User-Email": "a@x.test"},
     profile="profile-a",
     answer_seed=11,
     cache=CachePolicy(participate=False),
 )
 _SCOPE_B = RequestScope(
+    origin="run",
     identity_headers={"X-User-Email": "b@x.test"},
     profile="profile-b",
     answer_seed=22,
@@ -137,7 +139,7 @@ async def test_a_spawned_task_inherits_the_bound_scope() -> None:
     async def read_seed() -> int | None:
         return current_scope().answer_seed
 
-    with request_scope(RequestScope(answer_seed=5)):
+    with request_scope(RequestScope(origin="run", answer_seed=5)):
         async with asyncio.TaskGroup() as group:
             child = group.create_task(read_seed())
 
@@ -153,8 +155,8 @@ async def test_sibling_tasks_bound_to_different_scopes_stay_isolated() -> None:
             return current_scope().answer_seed
 
     results = await asyncio.gather(
-        read_in(RequestScope(answer_seed=1)),
-        read_in(RequestScope(answer_seed=2)),
+        read_in(RequestScope(origin="run", answer_seed=1)),
+        read_in(RequestScope(origin="run", answer_seed=2)),
     )
 
     assert results == [1, 2]
@@ -162,7 +164,7 @@ async def test_sibling_tasks_bound_to_different_scopes_stay_isolated() -> None:
 
 def test_the_scope_is_restored_on_exit() -> None:
     """A finished request must not leak its caller state to the next one in the same task."""
-    with request_scope(RequestScope(answer_seed=7)):
+    with request_scope(RequestScope(origin="run", answer_seed=7)):
         assert current_scope().answer_seed == 7
 
     context = contextvars.Context()
@@ -201,7 +203,10 @@ async def test_no_handler_world_or_module_object_retains_a_request_scope() -> No
     gw = _MockAigateway((MODEL,))
     cfg = AigatewayConfig(models=gw.models, default_model=MODEL)
     scope = RequestScope(
-        identity_headers={"X-User-Email": "a@x.test"}, profile="profile-a", answer_seed=44
+        origin="run",
+        identity_headers={"X-User-Email": "a@x.test"},
+        profile="profile-a",
+        answer_seed=44,
     )
 
     async with gw.client() as client:
@@ -299,7 +304,7 @@ async def test_the_child_boots_producer_is_what_the_run_path_binds() -> None:
 
 def test_a_scope_has_no_deadline_by_default() -> None:
     """The run producer binds no deadline, so the ensemble path's retry is unchanged."""
-    assert RequestScope().deadline is None
+    assert RequestScope(origin="run").deadline is None
     assert request_scope_from_env({}).deadline is None
 
 

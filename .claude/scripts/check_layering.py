@@ -138,6 +138,9 @@ RULES: list[tuple[str, set[str], str]] = [
     ),
 ]
 
+# INVARIANT (FX-70): an exemption is a PATH relative to the package root (`SRC`), never a bare
+# file name. Matching on the name exempted every `local.py`/`cli.py` at any depth — a future
+# `world/local.py` would have skipped every rule in silence. See `_is_exempt`.
 _EXEMPT = {
     # WHY: `cli` is the composition root for BOTH modes — dispatching to them is its entire job.
     # It imports each lazily, inside the branch that runs it, so neither mode pays for the other.
@@ -149,6 +152,11 @@ _EXEMPT = {
     # inside `create_local_app`, so a deployed App never pays for the engine.
     "local.py",
 }
+
+
+def _is_exempt(path: pathlib.Path) -> bool:
+    """Whether ``path`` is one of the declared exemptions, compared by its path under ``SRC``."""
+    return path.relative_to(SRC).as_posix() in _EXEMPT
 
 
 def _package_of(path: pathlib.Path) -> list[str]:
@@ -261,7 +269,7 @@ def check_layers() -> list[str]:
     offenders: list[str] = []
     for subtree, forbidden, why in RULES:
         for path in files_for(subtree):
-            if path.name in _EXEMPT:
+            if _is_exempt(path):
                 continue
             for module in sorted(
                 imported_screamingface_engine_submodules(path) & forbidden
@@ -278,7 +286,7 @@ def check_layers() -> list[str]:
         "it into the half that needs it, or lift what both need into url4.streaming"
     )
     for path in shared_leaf_files():
-        if path.name in _EXEMPT:
+        if _is_exempt(path):
             continue
         for module in sorted(
             imported_screamingface_engine_submodules(path)

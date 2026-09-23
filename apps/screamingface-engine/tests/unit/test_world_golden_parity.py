@@ -100,3 +100,50 @@ async def test_the_run_path_produces_its_recorded_result_and_request() -> None:
 
     assert request == _GOLDEN_REQUEST
     assert result == _GOLDEN_RESULT
+
+
+# --- FX-63 (U1-M6): the same golden run, with an identity and a profile ---------------------------
+
+# The caller-state headers aigateway observed, recorded on `main` (pre-refactor tree) with the env
+# below. Every OTHER header on the call is httpx's own, so the engine-owned subset is exactly these
+# two: no traceparent (this drive binds no run trace) and no second identity header.
+_GOLDEN_IDENTITY_HEADERS = {"x-profile": "golden-profile", "x-user-email": "golden@x.test"}
+_HTTPX_OWN_HEADERS = frozenset(
+    {
+        "accept",
+        "accept-encoding",
+        "connection",
+        "content-length",
+        "content-type",
+        "host",
+        "user-agent",
+    }
+)
+
+
+def _identity_env() -> dict[str, str]:
+    """The golden env plus the caller state the ensemble path forwards: identity and profile."""
+    return {
+        **_env(),
+        **job_env.identity_to_env({"X-User-Email": "golden@x.test"}),
+        job_env.AIGATEWAY_PROFILE: "golden-profile",
+    }
+
+
+async def test_the_run_path_with_identity_and_profile_sends_its_recorded_headers_and_body() -> None:
+    gw = _MockAigateway((MODEL,), responses={MODEL: _GOLDEN_ANSWER}, web_search=False)
+
+    async with gw.client() as client:
+        executor = build_executor(
+            _identity_env(), _config(), client=client, benchmarks=BUILTIN_BENCHMARKS
+        )
+        result = await _drain(executor)
+
+    chats = [r for r in gw.requests if r.url.path == "/v1/chat/completions"]
+    assert len(chats) == 1, "the golden run must make exactly one aigateway call"
+    sent = {name.lower(): value for name, value in chats[0].headers.items()}
+    engine_owned = {name: value for name, value in sent.items() if name not in _HTTPX_OWN_HEADERS}
+
+    assert engine_owned == _GOLDEN_IDENTITY_HEADERS
+    assert json.loads(chats[0].content) == _GOLDEN_REQUEST
+    assert result == _GOLDEN_RESULT

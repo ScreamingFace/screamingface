@@ -1063,14 +1063,16 @@ def _headers(scope: RequestScope) -> dict[str, str]:
     look correct in every log it reached.
 
     INVARIANT (F2): identity, profile and seed come from the REQUEST SCOPE, never from `self`, so
-    a shared world renders each caller's own values (AC2). The scope's `traceparent` wins when a
-    producer set one (the sync surface, unit 3); the ensemble run keeps sourcing it from
-    `run_trace_scope`, which url4's lifecycle binds inside the driving task.
+    a shared world renders each caller's own values (AC2).
+
+    INVARIANT (FX-64): the trace comes ONLY from `trace_scope`. The run path binds it inside the
+    driving task (`Url4Executor`); a sync producer binds it from the validated inbound header
+    (`request_scope.trace_from_headers`). One carrier, so no path can prefer a second copy.
     """
     headers = dict(scope.identity_headers)
     if scope.profile is not None:
         headers["X-Profile"] = scope.profile
-    traceparent = scope.traceparent if scope.traceparent is not None else current_traceparent()
+    traceparent = current_traceparent()
     if traceparent is not None:
         headers["traceparent"] = traceparent
     return headers

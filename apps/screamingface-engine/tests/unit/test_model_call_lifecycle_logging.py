@@ -58,7 +58,7 @@ async def _run_loop(monkeypatch: pytest.MonkeyPatch, fetch) -> str:
     return await _chat_completion_loop(
         http_client=cast(httpx.AsyncClient, None),
         cfg=AigatewayConfig(default_model=_MODEL, models=(ModelSpec(id=_MODEL),)),
-        scope=RequestScope(),
+        scope=RequestScope(origin="run"),
         messages=[{"role": "user", "content": _PROMPT}],
         params={},
         spec=ModelSpec(id=_MODEL),

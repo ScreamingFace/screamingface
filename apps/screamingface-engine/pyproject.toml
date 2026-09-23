@@ -138,6 +138,9 @@ testpaths = ["tests"]
 filterwarnings = [
     "error::DeprecationWarning:screamingface_engine",
 ]
+markers = [
+    "no_default_scope: turn off the autouse request scope (tests/conftest.py), so the test proves a production producer bound one (FX-61)",
+]
 
 [tool.coverage.run]
 omit = ["src/screamingface_engine/benchmarks/ifeval/vendor/*"]

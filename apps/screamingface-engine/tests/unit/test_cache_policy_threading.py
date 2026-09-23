@@ -375,7 +375,9 @@ async def _bodies(cache: CachePolicy | None, *, expression: str = f"/{MODEL}('ct
         world = await build_aigateway_world(cfg, client=client)
         # F2: the policy is per-REQUEST now, bound in the scope. `None` means nothing was stated,
         # which is expressed by an unstated policy — no `cache` field on the wire at all.
-        with request_scope(RequestScope(cache=cache if cache is not None else CachePolicy())):
+        with request_scope(
+            RequestScope(origin="run", cache=cache if cache is not None else CachePolicy())
+        ):
             await url4_run(expression, io=world.node)
     return gw
 
@@ -439,7 +441,7 @@ async def test_two_concurrent_runs_with_different_policies_do_not_contaminate_ea
 
     async def _policed(policy: CachePolicy, node: IOLayer, context: str) -> None:
         # Each run binds its own scope: F2's concurrency guarantee rests on this.
-        with request_scope(RequestScope(cache=policy)):
+        with request_scope(RequestScope(origin="run", cache=policy)):
             await url4_run(f"/{MODEL}('{context}')!'go'", io=node)
 
     async with gw.client() as client:
@@ -504,7 +506,7 @@ async def test_the_tool_calling_loop_applies_the_policy_on_every_round_trip() ->
             tavily_api_key=TAVILY_TOKEN,
             tavily_client=tavily,
         )
-        with request_scope(RequestScope(cache=OPT_OUT)):
+        with request_scope(RequestScope(origin="run", cache=OPT_OUT)):
             await url4_run(f"/{MODEL}('ctx')!'go'", io=world.node)
 
     assert len(gw.bodies) == 2, "the tool loop must have made a second round trip"

@@ -48,7 +48,7 @@ def _client(gateway: _Gateway, timeout: float) -> httpx.AsyncClient:
 
 
 async def _post(client: httpx.AsyncClient, deadline: float | None) -> tuple[httpx.Response, bool]:
-    with request_scope(RequestScope(deadline=deadline)):
+    with request_scope(RequestScope(origin="run", deadline=deadline)):
         return await connector_module._post_completion(client, headers={}, body={})
 
 

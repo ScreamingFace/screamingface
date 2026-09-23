@@ -18,9 +18,9 @@ from screamingface_engine.runner.executor import (
     _Bridge,
     _closing_logs,
     _RunState,
-    deny_by_default_world,
 )
 from screamingface_engine.testing import InMemoryEventStream
+from screamingface_engine.world.factory import deny_by_default_world
 from url4.core.errors import ParseError, ResolutionError
 from url4.dag.nodes import TextNode
 from url4.io.static import StaticIOLayer

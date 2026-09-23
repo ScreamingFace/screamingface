@@ -15,11 +15,15 @@ outlive its run. This is also the idiom the same call site already uses:
 `current_retrieval_policy()` and `operation_call_identity()` sit beside it in
 `world/connector.py`.
 
-INVARIANT: the id here is the one `url4.streaming.lifecycle.run` resolved and handed to
-`Executor.execute`, NOT `logs.RunContext.trace_id`. `runner/main.py` binds the log context from
-`parse_traceparent(env)`, which is `None` when the caller sent none — and url4 then MINTS one
-that never reaches it. Reading the log context would propagate for client-originated runs
-(passing rung 2) and silently propagate nothing for every other run.
+INVARIANT (FX-64): this is the ONE trace carrier. The run path binds it in `Url4Executor`; the
+sync producers (the node tier, local mode's mount) bind it from the validated inbound header
+(`request_scope.trace_from_headers`). The request scope carries no trace of its own.
+
+INVARIANT: on the run path, the id here is the one `url4.streaming.lifecycle.run` resolved and
+handed to `Executor.execute`, NOT `logs.RunContext.trace_id`. `runner/main.py` binds the log
+context from `parse_traceparent(env)`, which is `None` when the caller sent none — and url4
+then MINTS one that never reaches it. Reading the log context would propagate for
+client-originated runs (passing rung 2) and silently propagate nothing for every other run.
 """
 
 import contextvars

@@ -50,7 +50,9 @@ from screamingface_engine.request_scope import (
     RequestScope,
     request_scope,
     request_scope_from_headers,
+    trace_from_headers,
 )
+from screamingface_engine.trace_scope import run_trace_scope
 from screamingface_engine.world.node_tier.metrics import NodeMetrics
 from screamingface_engine.world.node_tier.send import (
     _OVERLOADED,
@@ -69,7 +71,7 @@ from screamingface_engine.world.wire import (
 )
 from url4.core.errors import ErrorCode, ParseError
 from url4.peer.server import Url4Node
-from url4.streaming.trace import parse_traceparent
+from url4.streaming.interfaces import TraceContext
 from url4.wire.subrequest import extract_expression_params
 
 logger = logging.getLogger(__package__)
@@ -251,11 +253,12 @@ class NodeTier:
     async def _request(
         self, scope: AsgiScope, receive: AsgiReceive, send: AsgiSend, path: str
     ) -> None:
+        headers = Headers(scope=scope)
         try:
             # Identity trust (RD1): see the module docstring — the App sets the header, and
             # only the App can reach this port.
             bound = request_scope_from_headers(
-                Headers(scope=scope),
+                headers,
                 deadline=time.monotonic() + self._settings.request_timeout_s,
             )
         except AnswerSeedError as exc:
@@ -263,7 +266,7 @@ class NodeTier:
             # the sync surface's one 400 that is not url4's dispatch refusing anything (FX-17).
             await send_url4_error(send, 400, _MALFORMED_HEADER, str(exc))
             return
-        await self._dispatch(scope, receive, send, bound, path)
+        await self._dispatch(scope, receive, send, bound, trace_from_headers(headers), path)
 
     async def _dispatch(
         self,
@@ -271,6 +274,7 @@ class NodeTier:
         receive: AsgiReceive,
         send: AsgiSend,
         bound: RequestScope,
+        trace: TraceContext | None,
         path: str,
     ) -> None:
         started = time.monotonic()
@@ -289,12 +293,14 @@ class NodeTier:
             spill_timeout_s=self._settings.spill_timeout_s,
             retry_after_s=self._settings.retry_after_s,
         )
-        # INVARIANT: both scopes are bound around the call and reset after it, so a sibling
-        # request task can never observe this caller's identity or this request's log context.
-        # The per-request log line is INSIDE them (FX-6), so it carries origin and trace_id.
+        # INVARIANT: every scope is bound around the call and reset after it, so a sibling
+        # request task can never observe this caller's identity, trace or log context. The
+        # per-request log line is INSIDE them (FX-6), so it carries origin and trace_id. The
+        # trace is bound in `trace_scope`, its ONE carrier (FX-64), which the connector reads.
         with (
             request_scope(bound),
-            run_scope(None, parse_traceparent(bound.traceparent), origin="sync"),
+            run_trace_scope(trace),
+            run_scope(None, None if trace is None else trace.trace_id, origin="sync"),
         ):
             admitted = self._admit()
             try:

@@ -165,3 +165,27 @@ def test_the_doctrine_records_the_narrowed_rule() -> None:
     source = _SCRIPT.read_text()
     assert "the control plane never runs an ENSEMBLE in-process" in source
     assert "docs/plans/prd/01-foundation-world-module.md" in source
+
+
+# --- FX-70 (U1-L9): an exemption names a PATH, not a file name --------------------------------
+
+_RUN_MODE_IMPORT = "from screamingface_engine.runner.executor import Url4Executor\n"
+
+
+def test_an_exemption_covers_only_the_top_level_module_it_names(tmp_path, monkeypatch) -> None:
+    """`local.py` and `cli.py` are exempt because they are the two composition roots. A module
+    that merely shares the name one level down (`world/local.py`, `rest/cli.py`) is not one, so
+    it must be checked like any other file — a basename match exempted it silently."""
+
+    src = _source_tree(tmp_path)
+    _write(src, "world/local.py", _RUN_MODE_IMPORT)
+    _write(src, "rest/cli.py", _RUN_MODE_IMPORT)
+    _write(src, "local.py", _RUN_MODE_IMPORT)
+    _write(src, "cli.py", _RUN_MODE_IMPORT)
+
+    offenders = _offenders(tmp_path, monkeypatch)
+
+    assert any("screamingface_engine/world/local.py:" in o for o in offenders), offenders
+    assert any("screamingface_engine/rest/cli.py:" in o for o in offenders), offenders
+    assert not any("screamingface_engine/local.py:" in o for o in offenders), offenders
+    assert not any("screamingface_engine/cli.py:" in o for o in offenders), offenders

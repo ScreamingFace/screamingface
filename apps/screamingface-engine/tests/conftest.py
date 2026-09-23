@@ -11,12 +11,13 @@ when nothing is bound, and that is asserted in ``tests/unit/test_request_scope.p
 fresh ``contextvars.Context``. Tests that care about identity, profile, cache or seed bind their
 OWN scope inside the test, which shadows this one. The production producer is exercised
 end-to-end by ``test_world_golden_parity.py``, ``test_cache_policy_threading.py`` and
-``test_answer_seed_threading.py`` through ``build_executor``.
+``test_answer_seed_threading.py`` through ``build_executor``, and each producer is proven
+with this fixture OFF (the ``no_default_scope`` marker) in ``tests/unit/test_scope_producers.py``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
@@ -26,8 +27,14 @@ from screamingface_engine.request_scope import RequestScope, request_scope
 
 
 @pytest.fixture(autouse=True)
-def _default_request_scope() -> object:
-    with request_scope(RequestScope()):
+def _default_request_scope(request: pytest.FixtureRequest) -> Iterator[None]:
+    # FEATURE (FX-61): `@pytest.mark.no_default_scope` turns this harness producer OFF, so a test
+    # can prove a PRODUCTION producer bound the scope — not this fixture. See
+    # `tests/unit/test_scope_producers.py`.
+    if request.node.get_closest_marker("no_default_scope") is not None:
+        yield
+        return
+    with request_scope(RequestScope(origin="run")):
         yield
 
 

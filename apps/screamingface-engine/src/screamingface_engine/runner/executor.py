@@ -4,10 +4,9 @@
 
 This module imports the url4 ENGINE and, since prd/01 F1, shares that allowance with the
 shared world package (`world.connector`, `world.factory`, and the candidate/corrective
-installers). The composition root (`runner.main`) types its world factory against
-`World`/`WorldFactory` here without ever importing the engine itself.
-`tests/unit/test_url4_executor.py` pins that allowance over the whole distribution, control
-plane included.
+installers). `World` and `WorldFactory` are defined in `world.factory`, and every caller —
+`runner.main` included — imports them from there. `tests/unit/test_url4_executor.py` pins that
+allowance over the whole distribution, control plane included.
 """
 
 from __future__ import annotations
@@ -36,7 +35,7 @@ from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCo
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from screamingface_engine.trace_scope import run_trace_scope
 from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
-from screamingface_engine.world.factory import World, WorldFactory, deny_by_default_world
+from screamingface_engine.world.factory import WorldFactory
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
@@ -734,11 +733,6 @@ def _log_frame(event: Log) -> LogData:
     )
 
 
-# `World`, `WorldFactory` and `deny_by_default_world` are re-exported from
-# :mod:`screamingface_engine.world.factory` at the top of this module: the shared world owns
-# them now, so the run mode types its factory without a second definition to drift from.
-
-
 class Url4Executor(Executor):
     """The `Executor` port implementation that drives one url4 run against the real engine.
 
@@ -1014,4 +1008,4 @@ class Url4Executor(Executor):
             _logger.warning("aigateway world teardown failed", exc_info=True)
 
 
-__all__ = ["Url4Executor", "World", "WorldFactory", "deny_by_default_world"]
+__all__ = ["Url4Executor"]

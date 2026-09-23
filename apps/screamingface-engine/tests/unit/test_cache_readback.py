@@ -396,7 +396,9 @@ async def _run_against(
     async with gateway.client() as client:
         world = await build_aigateway_world(cfg, client=client)
         # F2: the cache policy travels in the request scope, not on the world.
-        with request_scope(RequestScope(cache=cache if cache is not None else CachePolicy())):
+        with request_scope(
+            RequestScope(origin="run", cache=cache if cache is not None else CachePolicy())
+        ):
             result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node, observer=rec)
     return result, rec
 

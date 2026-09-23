@@ -246,7 +246,7 @@ async def _run_once(identity: dict[str, str] | None) -> httpx.Request:
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
         # F2: the identity is per-REQUEST and travels in the scope, not on the world.
-        with request_scope(RequestScope(identity_headers=identity or {})):
+        with request_scope(RequestScope(origin="run", identity_headers=identity or {})):
             await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
     assert len(gw.requests) == 1
     return gw.requests[0]
@@ -280,6 +280,7 @@ async def test_an_inbound_header_cannot_displace_the_runs_own_profile() -> None:
         world = await build_aigateway_world(cfg, client=client)
         with request_scope(
             RequestScope(
+                origin="run",
                 profile="gateway-owned",
                 identity_headers={**IDENTITY, "X-Profile": "attacker-profile"},
             )

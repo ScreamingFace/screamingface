@@ -110,7 +110,9 @@ async def _run(responses: list[httpx.Response]) -> tuple[RunSummary | None, int]
         world = await build_aigateway_world(cfg, client=client)
         executor = Url4Executor(world.node)
         # F2: the policy travels in the request scope; the executor inherits it from this task.
-        with request_scope(RequestScope(cache=CachePolicy(participate=True, max_age=0))):
+        with request_scope(
+            RequestScope(origin="run", cache=CachePolicy(participate=True, max_age=0))
+        ):
             async for _frame in executor.execute(f"/{_MODEL}(ctx)!go"):
                 pass
         return executor.last_summary(), seen

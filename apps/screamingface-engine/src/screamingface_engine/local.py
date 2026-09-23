@@ -54,9 +54,11 @@ from screamingface_engine.request_scope import (
     AnswerSeedError,
     request_scope,
     request_scope_from_headers,
+    trace_from_headers,
 )
 from screamingface_engine.rest.forwarder import forwarded_headers
 from screamingface_engine.runner.fair_share import FairShareGate
+from screamingface_engine.trace_scope import run_trace_scope
 from screamingface_engine.world.serving import (
     NodeMountRoute,
     compose_serving_world,
@@ -252,7 +254,9 @@ class _LocalNodeMount:
                 (name.encode("latin-1"), value.encode("latin-1")) for name, value in cleaned
             ],
         }
-        with request_scope(bound):
+        # FX-64: the trace is bound in `trace_scope`, its ONE carrier, exactly as the node tier
+        # binds it — the connector reads nothing trace-shaped off the request scope.
+        with request_scope(bound), run_trace_scope(trace_from_headers(raw_headers)):
             await node_asgi(child_scope, receive, send)
 
 

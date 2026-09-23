@@ -100,7 +100,9 @@ async def _run_in_scope(
         # world. `trace` stays in its own scope — the ensemble path's producer is url4's lifecycle.
         with (
             run_trace_scope(trace),
-            request_scope(RequestScope(identity_headers=identity or {}, profile=profile)),
+            request_scope(
+                RequestScope(origin="run", identity_headers=identity or {}, profile=profile)
+            ),
         ):
             await url4_run(f"/{MODEL}('ctx')!'go'", world.node)
     assert len(gw.requests) == 1

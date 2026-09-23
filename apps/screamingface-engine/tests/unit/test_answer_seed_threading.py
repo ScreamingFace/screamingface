@@ -363,7 +363,7 @@ async def _bodies(answer_seed: int | None, *, expression: str | None = None) -> 
         world = await build_aigateway_world(cfg, client=client)
         install_candidate_invocation(world.node)
         # F2: the seed is per-REQUEST now — it travels in the scope, not on the world.
-        with request_scope(RequestScope(answer_seed=answer_seed)):
+        with request_scope(RequestScope(origin="run", answer_seed=answer_seed)):
             await url4_run(expression or _candidate_wrapped(), io=world.node)
     return gw
 
@@ -428,7 +428,7 @@ async def test_two_concurrent_runs_with_different_seeds_do_not_contaminate_each_
 
     async def _seeded(seed: int | None, node: IOLayer, context: str) -> None:
         # Each run binds its own scope: this is what F2 gives the concurrency guarantee on.
-        with request_scope(RequestScope(answer_seed=seed)):
+        with request_scope(RequestScope(origin="run", answer_seed=seed)):
             await url4_run(_candidate_wrapped(context), io=node)
 
     async with gw.client() as client:
@@ -493,7 +493,7 @@ async def test_the_seed_reaches_candidate_calls_and_never_judge_calls() -> None:
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
         install_candidate_invocation(world.node)
-        with request_scope(RequestScope(answer_seed=7)):
+        with request_scope(RequestScope(origin="run", answer_seed=7)):
             await url4_run(outer, io=world.node)
 
     by_context = {body["messages"][-1]["content"]: body for body in gw.bodies}
