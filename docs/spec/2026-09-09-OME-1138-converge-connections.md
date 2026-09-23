@@ -28,8 +28,9 @@ first and back it with the existing Profile mechanisms; move every consumer onto
 remain the only storage; then transition the storage/authority behind the same boundary. Profiles
 are not removed in this pass. Which model finally backs the boundary — a transfer to Connections
 (plus the retained slot design) or an internal aggregate that absorbs the current Profile mechanisms
-— is an open owner decision (D11). The boundary is designed so either backing satisfies the same
-contract.
+— was an open owner decision (D11) until 2026-09-22, when the transfer to Connections through the
+retained slot design was decided (§8). The boundary is designed so either backing satisfies the same
+contract, which is what let Stage B swap the backing without a consumer rewrite.
 
 **Naming decision (OME-1210, 2026-09-16):** the final product/API/domain noun is **Connection**.
 `Provider access` names the internal boundary and its HTTP successor family, not a persisted
@@ -392,7 +393,7 @@ mechanism for option (a) and as the semantic requirements for option (b):
 
 ## 8. Decision register
 
-D1–D10 are preserved as decided; D11–D20 are new (D15, D17, D19 and D20 decided, the rest open).
+D1–D10 are preserved as decided; D11–D20 are new (D11, D14, D15, D16, D17, D19 and D20 decided; D12 carries a decided Stage B rule and stays open for Stage D; D13 and D18 open).
 Conflicts are presented, not resolved.
 
 | ID | Decision | Contract | Status |
@@ -407,12 +408,12 @@ Conflicts are presented, not resolved.
 | D8 | Admin API | API-key only, masked, no OAuth start, no defaults editor | preserved; correction: the UI has a defaults fieldset on attach today (no PATCH editor) |
 | D9 | Desktop output | untouched | preserved |
 | D10 | Catalog retirement | built-in `supersedes`, deprecate without deletion | preserved |
-| D11 | Backing model | (a) transfer to Connections + slot, remove Profiles; (b) rework the current Profile mechanisms into an internal aggregate that still publishes Connections as the credential resource | **open**; boundary agnostic; Stage B content, D17/D18 shapes and whether `Selector` survives depend on it; D20 settles naming only, not the storage/authority design |
-| D12 | Selector after cutover | (a) selector-less pair → one target, multi-Connection pairs dispositioned (D3); (b) label disambiguation stays supported (today's 409) | **open**; the 2026-09-10 selector-less `resolve_effective` would change today's 409 behaviour, so it is not the consumer signature in the window |
+| D11 | Backing model | (a) transfer to Connections + slot, remove Profiles; (b) rework the current Profile mechanisms into an internal aggregate that still publishes Connections as the credential resource | **decided 2026-09-22 (owner; design PR #23): (a), conservatively** — one deterministic effective credential per `(account, provider)` pair, no selectable accounts or credentials per provider; Stage B moves credential authority to Connections through the `provider_credential_slots` pair marker and locator-authoritative reads without secret re-entry (`OME-1208`); Profile storage, routes and schemas are retained until Stage E (`OME-1209`); D17/D18 shapes follow from it; whether `Selector` survives is D12 (Stage D) |
+| D12 | Selector after cutover | (a) selector-less pair → one target, multi-Connection pairs dispositioned (D3); (b) label disambiguation stays supported (today's 409) | **open** for Stage D; **Stage B rule decided 2026-09-22 (owner; design PR #23):** a Connection-only pair with several active Connections is not migrated (`none`) — today's label resolution and its 409 stand; the 2026-09-10 selector-less `resolve_effective` would change today's 409 behaviour, so it is not the consumer signature in the window |
 | D13 | Approved protocol surface | removing `X-Profile` from solution `completions` v6 / `model-catalog` v5: successor protocols vs prose bump | **open** (M0) |
-| D14 | Dual OAuth write owner | (a) gate the Profile flip and stop shadow Connections; (b) shadow Connection canonical, Profile a view; (c) both until B with a reconciliation rule | **open**; precondition of Stage B; census is a Q02 item |
+| D14 | Dual OAuth write owner | (a) gate the Profile flip and stop shadow Connections; (b) shadow Connection canonical, Profile a view; (c) both until B with a reconciliation rule | **decided 2026-09-22 (owner; design PR #23): per-pair authority marker** — for a `migrated` pair the Connection backing owns every write, including the OAuth callback publication (the Profile routes are facades over it); an unmigrated or `quarantined` pair keeps today's legacy behaviour, shadow Connection write included; never two independent write owners for one owned pair; applied by `OME-1208`; the census stays a Q02 item for the apply run |
 | D15 | Hosted read-only rule | (a) explicit mutability flag; (b) gateway-side policy | **decided 2026-09-14: (a)** explicit flag on the Engine connections adapter, Hosted `mutable=False`, Local `mutable=True`; any Hosted mutation refused before network or storage I/O; applied at A4 |
-| D16 | Defaults during transition | (a) legacy index read-only for defaults until cutover; (b) cutover precedes the switch | **open**; either satisfies D2 |
+| D16 | Defaults during transition | (a) legacy index read-only for defaults until cutover; (b) cutover precedes the switch | **decided 2026-09-22 (owner; design PR #23): (a)** — a migrated pair's legacy index entry remains a defaults-only compatibility document during the transition; Stage B creates no Connection defaults, presets or hidden saved defaults; the full REMOVE at Stage C (D2) is unchanged |
 | D17 | Availability successor | (a) neutral `GET /v1/provider-access` (recommended); (b) `?effective=true`; plus whether Connection-only accounts fold into the window listing | **decided 2026-09-14: (a)** caller-scoped read-only `GET /v1/provider-access` returning only `provider` and `status` ∈ {not_connected, pending, connected, needs_reauth, error}; the Profile-backed implementation never emits `needs_reauth` in the window; no ids, labels, defaults, `auth_method`, `account_label` or secrets; `private, no-store`; `X-Profile` non-selecting; A3 reproduces the Engine aggregation with golden-equivalence tests; the Hosted Engine switch is A4, separately |
 | D18 | Admin HTTP successor | pair-addressed neutral resource: publish after D11, or now beside the legacy routes | **open**; the UI attach call cannot move before C regardless; the UI defaults fieldset stays until C unless the owner drops it earlier; conflict codes on the successor to confirm — the legacy contract has two (503 retry-exhausted, 409 superseded-by-delete) |
 | D19 | Module naming | no file introduced by the provider-access unit has a name beginning with `_`; `__init__.py` is the required Python exception; underscores between words in `snake_case` names are allowed | **decided 2026-09-15**; applied by `OME-1204` (A1 follow-up: five package modules and two test helpers renamed, rename-only); binds A3's `profile_admin.py` and every later module of the package |

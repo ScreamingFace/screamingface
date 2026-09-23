@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..oauth.models import OAuthConnection
-from ..oauth.store import credential_key_for
+from ..plugin_base import credential_service_provider_for
 from ..profile_index import ProfileIndexStore
 from ..profile_models import AuthMode, Profile, ProfileDefaults, ProfileState, credential_name_for
 from .auth_mode import (
@@ -25,6 +25,7 @@ from .auth_mode import (
     contract_auth_mode,
     profileless_auth_mode,
 )
+from .connection_locator import credential_name_from_locator
 from .ports import ProviderAccess
 from .profile_authorize import (
     authorize,
@@ -87,13 +88,27 @@ def profile_target(
 
 
 def connection_target(
-    account_id: str, provider: str, selector: Selector, connection: OAuthConnection
+    account_id: str,
+    provider: str,
+    selector: Selector,
+    connection: OAuthConnection,
+    *,
+    plugin: Any,
 ) -> CredentialTarget:
     auth_type = auth_type_of(None, connection)
     return CredentialTarget(
         kind="stored",
         auth_type=auth_type,
-        credential_name=credential_key_for(account_id, connection.id),
+        # WHY the locator (OME-1208, D-S2a-3): a Connection reads the blob its stored
+        # `credential_locator` names. A UUID locator yields exactly today's address; a migrated
+        # Connection's locator names the Profile's blob, so the label path can never address an
+        # empty UUID slot and mark the pair's effective Connection errored on a stray header.
+        credential_name=credential_name_from_locator(
+            connection.credential_locator,
+            credential_provider=credential_service_provider_for(plugin, provider),
+            account_id=account_id,
+            connection_id=connection.id,
+        ),
         context_stamp=context_stamp(account_id, None, connection),
         reauth_url=reauth_url_for(
             provider, selector.name, auth_type, connection_id=str(connection.id)
@@ -170,7 +185,7 @@ class ProfileBackedProviderAccess:
         connection = await self._active_connection(account_id, provider, selector)
         if connection is not None:
             connection = await self._repair_api_key_only(plugin, connection)
-            return connection_target(account_id, provider, selector, connection)
+            return connection_target(account_id, provider, selector, connection, plugin=plugin)
         # WHY the escape (OME-1167): the model-parameters DATASHEET needs no stored target for
         # the DEFAULT selector. Chat never asks for it — dispatch keeps the refusal.
         admitted = policy is ResolvePolicy.DATASHEET and selector.is_default
@@ -306,7 +321,7 @@ def target_from_legacy(
     """Rebuild the target a route was handed as a legacy triple (the `_inject_credentials` shim)."""
     selector = Selector.from_header(profile_name)
     if connection is not None:
-        return connection_target(account_id, provider, selector, connection)
+        return connection_target(account_id, provider, selector, connection, plugin=plugin)
     if profile is not None:
         return profile_target(account_id, provider, selector, profile)
     return targetless(account_id, plugin)
