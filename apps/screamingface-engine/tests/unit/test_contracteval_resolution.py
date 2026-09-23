@@ -20,13 +20,13 @@ import httpx
 import pytest
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.contracteval import definition as board
 from screamingface_engine.benchmarks.contracteval.prepare import emit
 from screamingface_engine.benchmarks.definition import link_candidate
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4 import RelExpr, build, text
 
 pytestmark = pytest.mark.asyncio

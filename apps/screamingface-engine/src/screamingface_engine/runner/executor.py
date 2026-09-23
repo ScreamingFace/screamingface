@@ -2,10 +2,11 @@
 (`url4.dag.run`) and bridges its synchronous `url4.observe` callback events into the async
 `url4.streaming.protocol` wire frames the run publishes over NATS.
 
-This is the only module (besides `connector`) that may import the url4 ENGINE — the composition
-root (`runner.main`) types its world factory against `World`/`WorldFactory` here without ever
-importing the engine itself. `tests/unit/test_url4_executor.py` pins that pair over the whole
-distribution, control plane included.
+This module imports the url4 ENGINE and, since prd/01 F1, shares that allowance with the
+shared world package (`world.connector`, `world.factory`, and the candidate/corrective
+installers). `World` and `WorldFactory` are defined in `world.factory`, and every caller —
+`runner.main` included — imports them from there. `tests/unit/test_url4_executor.py` pins that
+allowance over the whole distribution, control plane included.
 """
 
 from __future__ import annotations
@@ -22,16 +23,22 @@ from decimal import Decimal
 from typing import Any, Literal, cast
 
 from screamingface_engine import job_env
-from screamingface_engine.artifacts import ArtifactWriter
+from screamingface_engine.artifacts import (
+    ArtifactWriter,
+    ResultDelivery,
+    allowed_result_bytes,
+    decide_result_delivery,
+)
 from screamingface_engine.observations import bridge_loss_attributes
-from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from screamingface_engine.trace_scope import run_trace_scope
+from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
+from screamingface_engine.world.factory import WorldFactory
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
-from url4.io.static import StaticIOLayer
 from url4.observe import (
     Log,
     ModelResponse,
@@ -603,14 +610,23 @@ class _RunState:
         path of GitHub #642 is unrepresentable here.
         """
         encoded = result_str.encode("utf-8")
-        allowed = hard_cap if store is not None else min(inline_cap, hard_cap)
-        if len(encoded) > allowed:
+        # The hard-cap-first decision is SHARED with the node tier's sync spill path
+        # (`world.node_tier`), so the two delivery paths cannot disagree on the boundary or
+        # on which check wins (T6).
+        decision = decide_result_delivery(
+            len(encoded),
+            inline_cap=inline_cap,
+            hard_cap=hard_cap,
+            spill_available=store is not None,
+        )
+        if decision is ResultDelivery.TOO_LARGE:
+            allowed = allowed_result_bytes(inline_cap, hard_cap, spill_available=store is not None)
             raise ResolutionError(
                 f"result is {len(encoded)} bytes, cap is {allowed} bytes",
                 code="result_too_large",
                 permanent=True,
             )
-        if len(encoded) <= inline_cap:
+        if decision is ResultDelivery.INLINE:
             return ResultData(body=result_str, media_type=None)
         assert store is not None  # over inline yet allowed ⇒ a store existed above
         return ResultData(media_type=None, artifact=store.write_bytes(encoded))
@@ -717,17 +733,6 @@ def _log_frame(event: Log) -> LogData:
     )
 
 
-World = tuple[IOLayer, Callable[[], Awaitable[None]] | None]
-"""A resolved world: its io layer plus the teardown that owns whatever it allocated.
-
-Exported so the composition root can type its factory WITHOUT importing the engine — only
-this module and `connector` may (pinned by
-``test_only_url4_executor_module_imports_url4``).
-"""
-
-WorldFactory = Callable[[], Awaitable[World]]
-
-
 class Url4Executor(Executor):
     """The `Executor` port implementation that drives one url4 run against the real engine.
 
@@ -747,6 +752,7 @@ class Url4Executor(Executor):
         artifact_store: ArtifactWriter | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None = None,
         world_factory: WorldFactory | None = None,
+        request_scope_factory: Callable[[], RequestScope] | None = None,
         io_wrap: Callable[[IOLayer], IOLayer] | None = None,
         io_concurrency: int | None = None,
     ) -> None:
@@ -765,6 +771,12 @@ class Url4Executor(Executor):
         self._artifact_store = artifact_store
         self._world_aclose = world_aclose
         self._world_factory = world_factory
+        # FEATURE (F2, prd/01): the child boot's caller-state producer, resolved lazily when the
+        # run starts so a malformed value fails INSIDE the run (a Terminated frame) rather than
+        # taking down the scheduling caller with nothing on the stream — the same reason the
+        # world itself is resolved lazily. `None` is a direct-IO executor (tests, the local
+        # spine): it binds nothing and relies on an outer producer's scope.
+        self._request_scope_factory = request_scope_factory
         # FEATURE (OME-908): the run's downstream admission policy, injected as data.
         # `io_wrap` is the LOCAL shape — one wrapper binding this run into the process's
         # shared `FairShareGate` — and when set it REPLACES URL4's per-run bound, so the
@@ -829,6 +841,18 @@ class Url4Executor(Executor):
         finally:
             await self._aclose_world()
 
+    def _scope_context(self) -> contextlib.AbstractContextManager[RequestScope | None]:
+        """The request scope bound around one run, or a no-op when no producer was supplied.
+
+        WHY a method rather than inline in `_drive`: the factory must run INSIDE the driving task
+        (a ContextVar token may not cross a task boundary) and inside the `bridge.close()` guard,
+        so the selection of "bind a scope or nothing" lives here. A factory that raises therefore
+        leaves the consumer's `drain` a closed bridge rather than one it waits on forever.
+        """
+        if self._request_scope_factory is None:
+            return contextlib.nullcontext()
+        return request_scope(self._request_scope_factory())
+
     async def _run_steps(
         self,
         url4: str,
@@ -849,7 +873,7 @@ class Url4Executor(Executor):
 
         async def _drive() -> str:
             # FEATURE (OME-1119): the run's trace is bound HERE, inside the driving task, so the
-            # world's outbound aigateway calls carry it (`runner.connector._headers`).
+            # world's outbound aigateway calls carry it (`world.connector._headers`).
             #
             # WHY not around `execute`'s own `async for ... yield`: `execute` is an ASYNC
             # GENERATOR, and consecutive steps of one can be driven from different contexts —
@@ -858,8 +882,17 @@ class Url4Executor(Executor):
             # `ValueError: Token was created in a different Context`, which is what a cancelled
             # run did (`test_a_cancelled_run_records_stopped`). This task is a single context for
             # its whole life, and it is where every model call actually happens.
-            with run_trace_scope(trace):
-                try:
+            #
+            # FEATURE (F2): the request scope is bound in the SAME task and for the same reason.
+            # A producer (the child boot, or unit 3's sync layer) resolves the caller's state;
+            # binding it here is what lets the stateless connector read it and what makes every
+            # model call the run spawns inherit it (AC4).
+            #
+            # INVARIANT: `bridge.close()` is in the `finally` that ENCLOSES the factory call. A
+            # malformed scope value raising outside it would leave the consumer's `drain`
+            # waiting forever on a bridge nobody closes — a run that hangs instead of failing.
+            try:
+                with run_trace_scope(trace), self._scope_context():
                     if trace is not None:
                         return await url4_run(
                             url4,
@@ -870,8 +903,8 @@ class Url4Executor(Executor):
                             **self._run_kwargs,
                         )
                     return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
-                finally:
-                    bridge.close()
+            finally:
+                bridge.close()
 
         task = asyncio.ensure_future(_drive())
         try:
@@ -975,8 +1008,4 @@ class Url4Executor(Executor):
             _logger.warning("aigateway world teardown failed", exc_info=True)
 
 
-def deny_by_default_world() -> IOLayer:
-    return StaticIOLayer()
-
-
-__all__ = ["Url4Executor", "deny_by_default_world"]
+__all__ = ["Url4Executor"]

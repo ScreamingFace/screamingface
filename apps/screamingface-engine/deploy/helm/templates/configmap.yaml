@@ -7,6 +7,18 @@ metadata:
 data:
   # Keys are the URL4_CLOUD_*-prefixed env consumed by screamingface_engine.config.Settings.
   URL4_CLOUD_NATS_URL: {{ include "screamingface-engine.natsUrl" . | quote }}
+  {{- if .Values.node.enabled }}
+  # FEATURE (unit 3, D6/C2): WHERE the App forwards a known mount. This is the one switch that
+  # arms the sync forwarder — with it unset the App mounts no forwarder and no world is derived
+  # for forwarding (`app._install_forwarder`), so mount requests never reach the node tier.
+  # It names the node Service this chart renders, via the same helper that names the object.
+  URL4_CLOUD_NODE_BASE_URL: {{ include "screamingface-engine.nodeBaseUrl" . | quote }}
+  # FX-83 / §2.2: the App→node forward budget, DERIVED rather than a second literal —
+  # `node.requestTimeoutS` (the wrapper's own budget) + `node.spillTimeoutS` (the spill write,
+  # which runs AFTER the wrapper returns) + 1s of slack for the hop itself. A forward timeout
+  # shorter than the node's own worst case would cut the App off before the node ever answers.
+  URL4_CLOUD_NODE_FORWARD_TIMEOUT_S: {{ addf (float64 .Values.node.requestTimeoutS) (float64 .Values.node.spillTimeoutS) 1.0 | quote }}
+  {{- end }}
   URL4_CLOUD_IAT_WINDOW_S: {{ .Values.config.iatWindowS | quote }}
   URL4_CLOUD_SYNC_MAX_WAIT_S: {{ .Values.config.syncMaxWaitS | quote }}
   URL4_CLOUD_WS_HEARTBEAT_S: {{ .Values.config.wsHeartbeatS | quote }}

@@ -23,8 +23,8 @@ from screamingface_engine.operation_calls import (
     capture_operation_calls,
     capture_request_accounting,
 )
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4 import Node, RelExpr, build, expr, render, src, text
 from url4.peer.server import Request
 

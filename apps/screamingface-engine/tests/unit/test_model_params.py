@@ -23,8 +23,8 @@ import json
 import httpx
 import pytest
 
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.core.errors import ResolutionError
 
 _MODEL = "openrouter/google/gemini-3.1-pro-preview"

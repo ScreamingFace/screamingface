@@ -211,7 +211,7 @@ the Runner and on to aigateway (`job_env.IDENTITY_HEADER_ENV`):
 When `TAVILY_API_KEY` reaches the run's child process (a `secretKeyRef` on the runner pool's
 Deployment — never a literal in the queue message, since a queue message is readable by any
 worker), the aigateway connector
-(`runner/connector.py`):
+(world/connector.py):
 
 - declares `web_search` / `web_fetch` (OpenAI function‑calling shape) to the model,
 - runs a **bounded** tool‑calling loop (`web_tool_max_iterations`, default 5):
@@ -275,7 +275,7 @@ swallow — leaving the client staring at heartbeats forever.
 | mode dispatch | `screamingface_engine/cli.py::main` — `serve` (default) / `run` / `worker`, each imported lazily |
 | Runner lifecycle | `screamingface_engine/runner/main.py::main`, `url4/streaming/lifecycle.py::run` |
 | url4 engine bridge | `screamingface_engine/runner/executor.py::{Url4Executor,_Bridge,_RunState}` |
-| aigateway connector | `screamingface_engine/runner/connector.py::{build_aigateway_world,_chat_completion_loop}`, `screamingface_engine/world_config.py::{load_config,routes_for}` |
+| aigateway connector | `screamingface_engine/world/connector.py::{build_aigateway_world,_chat_completion_loop}`, `screamingface_engine/world/config.py::{load_config,routes_for}` |
 | aigateway chat | `aigateway/routes/chat.py::chat_completions` (+ `chat_dispatch.py`) |
 | stream ports + implementations | `url4/streaming/interfaces/stream.py` (the abstractions), `screamingface_engine/adapters/jetstream.py::{JetStreamPublisher,JetStreamConsumer}` (JetStream, shared leaf), `screamingface_engine/testing/memory_stream.py` (test double) |
 | the layering rule | `.claude/scripts/check_layering.py`, `screamingface_engine/runner/__init__.py` |

@@ -40,9 +40,9 @@ from screamingface_engine.runner.cache_counters import (
     UNSTATED_REASON,
     RunCacheCounters,
 )
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor, _RunState
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.observe import ModelResponse, NodeFinished, NodeStarted, ObservationEvent
 from url4.streaming.interfaces import Completed, Traced
 from url4.streaming.protocol import LogData

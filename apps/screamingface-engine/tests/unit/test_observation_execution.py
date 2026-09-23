@@ -18,11 +18,11 @@ import asyncio
 import importlib.util
 import logging
 import httpx
-from screamingface_engine.runner import connector
+from screamingface_engine.world import connector
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.local import create_local_app
 from screamingface_engine.observations import ModelCall
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 from url4.streaming.protocol import CachePolicy
 
 assert importlib.util.find_spec('screamingface_engine.activity') is None

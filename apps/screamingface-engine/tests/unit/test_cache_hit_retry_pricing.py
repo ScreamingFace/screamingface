@@ -33,14 +33,14 @@ from unittest import mock
 import httpx
 import pytest
 
-from screamingface_engine.runner.accounting import (
+from screamingface_engine.runner.executor import _RunState
+from screamingface_engine.world.accounting import (
     OPENROUTER_CREDIT_UNIT,
     PRICING_VERSION,
     UNPRICED,
 )
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.runner.executor import _RunState
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.dag import run as url4_run
 from url4.observe import NodeStarted, ObservationEvent, Usage
 
@@ -134,8 +134,8 @@ async def _run(
     ) as client:
         world = await build_aigateway_world(cfg, client=client)
         with (
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
         ):
             return await url4_run(f"/{_MODEL}(ctx)!go", io=world.node, observer=rec)
 

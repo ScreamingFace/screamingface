@@ -20,13 +20,6 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.runner.accounting import (
-    OPENROUTER_CREDIT_UNIT,
-    AvoidedCost,
-    avoided_usd_for_outcome,
-    avoided_usd_from_aigw,
-    usd_from_aigw,
-)
 from screamingface_engine.runner.cache_counters import (
     SAVED_COST_ARCHIVE_HITS,
     SAVED_COST_ARCHIVE_USD,
@@ -35,7 +28,14 @@ from screamingface_engine.runner.cache_counters import (
     SAVED_COST_USD,
     RunCacheCounters,
 )
-from screamingface_engine.runner.cache_readback import CacheOutcome
+from screamingface_engine.world.accounting import (
+    OPENROUTER_CREDIT_UNIT,
+    AvoidedCost,
+    avoided_usd_for_outcome,
+    avoided_usd_from_aigw,
+    usd_from_aigw,
+)
+from screamingface_engine.world.cache_readback import CacheOutcome
 
 
 def _aigw(*, direct_cost: dict[str, Any] | None, cache_status: str = "hit") -> dict[str, Any]:
@@ -266,7 +266,7 @@ def test_every_saved_cost_provenance_literal_declares_the_same_members() -> None
     """INVARIANT: one vocabulary, spelled in three places, with nothing to keep them equal.
 
     `SavedCostProvenance` is declared independently in `url4.observe` (the dependency-free
-    observation leaf), in `runner.accounting`, and in `runner.cache_counters`. The duplication is
+    observation leaf), in `world.accounting`, and in `runner.cache_counters`. The duplication is
     deliberate — `test_only_engine_extensions_import_url4` forbids the counters from importing the
     engine — and each site carries a "change both together" comment. A comment cannot fail CI.
 
@@ -277,8 +277,8 @@ def test_every_saved_cost_provenance_literal_declares_the_same_members() -> None
     """
     from typing import get_args
 
-    from screamingface_engine.runner.accounting import SavedCostProvenance as AccountingProvenance
     from screamingface_engine.runner.cache_counters import SavedCostProvenance as CounterProvenance
+    from screamingface_engine.world.accounting import SavedCostProvenance as AccountingProvenance
     from url4.observe import SavedCostProvenance as WireProvenance
 
     wire = frozenset(get_args(WireProvenance.__value__))

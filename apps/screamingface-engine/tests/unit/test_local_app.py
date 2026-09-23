@@ -123,7 +123,7 @@ def test_importing_the_serving_app_does_not_pull_in_local_mode_or_the_run_mode()
     exactly what needs pinning: an ordinary `screamingface-engine serve` must not
     reach the run mode just because a local mode exists. If `screamingface_engine.app`
     ever imported `local` at module scope, every deployed App would load
-    `runner.connector`/`runner.executor` and httpx behind it.
+    `world.connector`/`runner.executor` and httpx behind it.
 
     NOT asserted here: that the url4 ENGINE stays unloaded. `url4/__init__` imports the DAG, so
     any `url4.streaming` import loads it — which `check_layering.py`'s SCOPE NOTE already records

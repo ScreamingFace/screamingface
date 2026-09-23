@@ -13,15 +13,49 @@ spec:
     metadata:
       labels:
         {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
+        {{/* FX-93: OMIT the chart-owned keys, as `deployment-node.yaml` does. Rendering them
+        AFTER `podLabels` stops an override from winning, but the operator's own copy is still
+        written first — a duplicate mapping key that a strict parser refuses and a lenient one
+        resolves either way. `name`/`instance` come from `selectorLabels` above; `component` is
+        rendered below. */}}
+        {{- with (omit .Values.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component") }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        # FEATURE (unit 3, AC5): the node tier's NetworkPolicy admits ONLY these pods, and it
+        # cannot express "the App and not also the node" by name+instance — the node deliberately
+        # shares that name so aigateway admits its calls. This component label is the one thing
+        # that distinguishes the App from the node and the runner pool, so the policy's peer can
+        # name exactly it.
+        #
+        # INVARIANT: CHART-OWNED. The `omit` above removes an operator's copy from `podLabels`,
+        # so there is no duplicate key, and this line renders after it, so it cannot be
+        # overridden. The aigateway chart lost an outage to exactly this:
+        # a platform's `podLabels` rendered later, changed `component`, and emptied a Service
+        # selector. Here the consequence would be the node refusing the App's traffic — lockout
+        # rather than a zero-endpoint Service. Adding a POD label is safe: `spec.selector`
+        # stays name+instance.
+        app.kubernetes.io/component: control-plane
       annotations:
         # INVARIANT: a ConfigMap/Secret value change alone does NOT roll the pod — see the
         # aigateway chart's identical annotation for the live failure this prevents (config
         # updated, running pod kept the OLD env, silently wrong behavior).
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.node.enabled }}
+        # FX-81: the App VERIFIES the node's signed 303 with this same key (OQ-3.2), so a
+        # rotated signing Secret must roll the App too — without this annotation the App keeps
+        # verifying against the OLD key until its next unrelated restart, and every redirect the
+        # node signs with the new one fails closed until then.
+        #
+        # WHY the KEY'S SOURCE and not the rendered Secret (review round #2): with no
+        # `existingSecret`/`signingKey`, `secret-artifact-signing.yaml`'s `lookup` is EMPTY under
+        # `helm template` (no live cluster to query), so it falls back to `randAlphaNum` — a NEW
+        # value on every offline render. Hashing that would roll this App, which holds live
+        # WebSocket relays, on every GitOps sync. The cost of NOT hashing it (FX-91): an offline
+        # render does write a new key that no pod restarts for, so GitOps must pin one — see the
+        # `artifactSigningChecksum` helper and the NOTES.txt warning.
+        checksum/artifact-signing: {{ include "screamingface-engine.artifactSigningChecksum" . }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -81,6 +115,15 @@ spec:
             # credential it is not merely forwarded to Jobs.
             - secretRef:
                 name: {{ include "screamingface-engine.artifactSecretName" . }}
+            {{- end }}
+            {{- if .Values.node.enabled }}
+            # FEATURE (unit 3, OQ-3.2): the shared HMAC key the App VERIFIES a spilled
+            # artifact's short-lived signature against. The node SIGNS with the same Secret.
+            # Gated on `node.enabled` because the node is the only signer: with no tier there is
+            # no signature to accept, and holding the key would only widen the credential
+            # surface.
+            - secretRef:
+                name: {{ include "screamingface-engine.artifactSigningSecretName" . }}
             {{- end }}
           env:
             # HS256 topic-capability signing secret (spec §4). Never logged.

@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from screamingface_engine.models.registry import EMPTY_MODEL_WORLD, ModelRegistry, ProviderSeed
-from screamingface_engine.world_config import (
+from screamingface_engine.world.config import (
     AigatewaySection,
     WorldConfigError,
     parse_config,
     routes_for,
+)
+from screamingface_engine.world.models.registry import (
+    EMPTY_MODEL_WORLD,
+    ModelRegistry,
+    ProviderSeed,
 )
 
 _REGISTRY = ModelRegistry(

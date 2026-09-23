@@ -332,7 +332,7 @@ def _collected_failure_result(
 
 
 def _is_gateway_call_failure(error: Mapping[str, Any]) -> bool:
-    # WHY: these codes are emitted by runner/connector.py at the model-call boundary.
+    # WHY: these codes are emitted by world/connector.py at the model-call boundary.
     # IFEval's checker is deterministic; its protected failures never take this path.
     # Do not infer provenance from a message, a broad prefix, or a sanitized code:
     # unknown and legacy kind/message-only rows remain the grading fallback.

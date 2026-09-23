@@ -28,9 +28,9 @@ import httpx
 import pytest
 
 from screamingface_engine.retrieval_policy import RetrievalPolicy, retrieval_scope
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.runner.web_tools import build_runtime
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
+from screamingface_engine.world.web_tools import build_runtime
 from url4.core.errors import ResolutionError
 
 _NATIVE = "openrouter/anthropic/claude-opus-4.8"
