@@ -136,40 +136,6 @@ describe("setAccountActiveAction", () => {
 describe("setApiKeyAction", () => {
   const base = { account_id: "a1", provider: "openai", api_key: "sk-live-secret-value" };
 
-  it("forwards the key once, names the default profile, and sends no defaults when blank", async () => {
-    setApiKey.mockResolvedValue({ id: "p1" });
-
-    const state = await setApiKeyAction(null, form(base));
-
-    expect(setApiKey).toHaveBeenCalledWith("a1", "openai", "default", {
-      api_key: "sk-live-secret-value",
-      defaults: null,
-    });
-    expect(state).toEqual({ ok: true });
-    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
-  });
-
-  it("passes through the defaults that were filled in", async () => {
-    setApiKey.mockResolvedValue({ id: "p1" });
-
-    await setApiKeyAction(
-      null,
-      form({ ...base, name: "primary", model: "gpt-4o", max_tokens: "2048", temperature: "0.2" }),
-    );
-
-    expect(setApiKey).toHaveBeenCalledWith("a1", "openai", "primary", {
-      api_key: "sk-live-secret-value",
-      defaults: {
-        model: "gpt-4o",
-        system_prompt: null,
-        max_tokens: 2048,
-        temperature: 0.2,
-        timeout_seconds: null,
-        reasoning_effort: null,
-      },
-    });
-  });
-
   const badInput: Array<{ patch: Record<string, string>; error: string; field: string }> = [
     {
       patch: { account_id: "" },
@@ -178,17 +144,6 @@ describe("setApiKeyAction", () => {
     },
     { patch: { provider: "" }, error: "Choose a provider.", field: "provider" },
     { patch: { api_key: "  " }, error: "Paste the provider API key.", field: "api_key" },
-    { patch: { max_tokens: "lots" }, error: "Max tokens must be a number.", field: "max_tokens" },
-    {
-      patch: { temperature: "warm" },
-      error: "Temperature must be a number.",
-      field: "temperature",
-    },
-    {
-      patch: { timeout_seconds: "soon" },
-      error: "Timeout must be a number of seconds.",
-      field: "timeout_seconds",
-    },
   ];
 
   it.each(badInput)("rejects a bad $field before calling the gateway", async ({ patch, error, field }) => {
@@ -290,3 +245,41 @@ describe("deleteProfileAction", () => {
 
 // This file uses vitest globals, so the top-level `await import` needs an explicit module marker.
 export {};
+
+describe("setApiKeyAction without saved defaults (OME-1322)", () => {
+  const base = { account_id: "a1", provider: "openai", api_key: "sk-live-secret-value" };
+  // Every field the retired "Defaults (optional)" fieldset once posted — the numeric ones
+  // malformed, because a stale form must neither be forwarded nor be refused over them.
+  const staleDefaults = {
+    model: "gpt-4o",
+    system_prompt: "Be brief.",
+    max_tokens: "lots",
+    temperature: "warm",
+    timeout_seconds: "soon",
+    reasoning_effort: "high",
+  };
+
+  it("forwards only the key, ignoring stale default fields in the submission", async () => {
+    setApiKey.mockResolvedValue({ id: "p1" });
+
+    const state = await setApiKeyAction(null, form({ ...base, name: "primary", ...staleDefaults }));
+
+    expect(state).toEqual({ ok: true });
+    expect(setApiKey).toHaveBeenCalledTimes(1);
+    expect(setApiKey).toHaveBeenCalledWith("a1", "openai", "primary", {
+      api_key: "sk-live-secret-value",
+    });
+    // INVARIANT: no `defaults` property at all — `null` would still be a defaults write.
+    expect(Object.keys(setApiKey.mock.calls[0][3] as object)).toEqual(["api_key"]);
+  });
+
+  it("still names the default profile when the name is blank", async () => {
+    setApiKey.mockResolvedValue({ id: "p1" });
+
+    await setApiKeyAction(null, form(base));
+
+    expect(setApiKey).toHaveBeenCalledWith("a1", "openai", "default", {
+      api_key: "sk-live-secret-value",
+    });
+  });
+});
