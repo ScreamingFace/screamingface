@@ -76,6 +76,12 @@ from screamingface_engine_inspect.pins import (
     COMMONSENSE_QA_DATASET_REVISION,
     COMMONSENSE_QA_SHUFFLE_SEED,
     COMMONSENSE_QA_SPLIT,
+    FRONTIERSCIENCE_CASE_COUNT,
+    FRONTIERSCIENCE_CONFIG,
+    FRONTIERSCIENCE_DATASET,
+    FRONTIERSCIENCE_DATASET_REVISION,
+    FRONTIERSCIENCE_SHUFFLE_SEED,
+    FRONTIERSCIENCE_SPLIT,
     GSM8K_CASE_COUNT,
     GSM8K_DATA_DIR,
     GSM8K_DATASET,
@@ -421,6 +427,21 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # WHY the seed: the split is domain-grouped (ActivityNet then
         # WikiHow) — see the pin's comment; OURS by policy.
         shuffle_seed=HELLASWAG_SHUFFLE_SEED,
+    ),
+    "frontierscience": SnapshotSpec(
+        dataset=FRONTIERSCIENCE_DATASET,
+        config=FRONTIERSCIENCE_CONFIG,
+        split=FRONTIERSCIENCE_SPLIT,
+        dataset_revision=FRONTIERSCIENCE_DATASET_REVISION,
+        case_count=FRONTIERSCIENCE_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.frontierscience.frontierscience:frontierscience;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.frontierscience.frontierscience:record_to_sample",
+        # The scorer dispatches each case to its format's judge prompt via the
+        # Sample's metadata (format/subject) — bake it into the private target.
+        keep_sample_metadata=True,
+        shuffle_seed=FRONTIERSCIENCE_SHUFFLE_SEED,
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }

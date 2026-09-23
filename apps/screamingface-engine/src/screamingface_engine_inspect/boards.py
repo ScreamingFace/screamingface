@@ -467,6 +467,44 @@ BOARDS: tuple[BoardSpec, ...] = (
         # (owner-approved 2026-09-22 — see pins.py).
         scorer="inspect_ai.scorer:choice",
     ),
+    BoardSpec(
+        key="frontierscience",
+        title="FrontierScience",
+        description=(
+            "160 expert-authored frontier science problems (the FrontierScience test "
+            "split from OpenAI), imported from inspect_evals: olympiad-style short "
+            "answers and open research questions across physics, chemistry, and "
+            "biology. Grading is the eval's own LLM judge — olympiad answers against "
+            "the official grading prompt, research answers against a per-case rubric — "
+            "with every judge call routed and metered through our gateway, so judge "
+            "tokens count in the run's cost. Cases are served in a fixed seeded "
+            "shuffle so a limited run spans formats and subjects. Benchmark score = "
+            "mean judge grade over the cases run."
+        ),
+        focus="Frontier-level physics, chemistry, and biology problems",
+        dataset_url="https://huggingface.co/datasets/openai/frontierscience",
+        # Frontier-research material — the hard end of the catalogue (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.frontierscience.frontierscience:frontierscience.
+        # License: apache-2.0.
+        scorer="inspect_evals.frontierscience.frontierscience:frontierscience_scorer",
+        # The eval's default judge is "the active model" (model=None) — outside
+        # inspect's own eval loop that is nothing, so the import pins OUR judge:
+        # the same gateway model HealthBench's judge dials (its pins document the
+        # OpenRouter deviation from the official OpenAI-internal snapshot).
+        scorer_kwargs={"model": "screamingface/openrouter/openai/gpt-5.4"},
+        judge=JudgeSpec(
+            model="openrouter/openai/gpt-5.4",
+            # HealthBench's judge-params precedent: grading is retrieval-free, the
+            # token cap is an engine-side safety bound, and temperature is
+            # deliberately unpinned — a retry must be able to draw a fresh sample.
+            params=(("web_search", "false"), ("max_tokens", "4096")),
+        ),
+        # Judged board: no check surface until the check-cost knob (OME-1116) —
+        # a judged mid-run check would spend judge tokens while advertising free.
+        with_check_surface=False,
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 
