@@ -43,6 +43,7 @@ mode the named codes exist to prevent, so the mapping here is explicit and close
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any
 
@@ -196,7 +197,7 @@ def _check(score: Score, value: float) -> dict[str, Any]:
                 "metadata": {
                     "value": score.value if isinstance(score.value, str) else value,
                     "answer": score.answer,
-                    **(dict(score.metadata) if score.metadata else {}),
+                    **_json_metadata(score.metadata),
                 },
                 "accounting": None,
             }
@@ -205,16 +206,43 @@ def _check(score: Score, value: float) -> dict[str, Any]:
     }
 
 
+def _json_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Only JSON-safe metadata entries may cross into the wire evidence.
+
+    WHY: judge scorers (``model_graded_qa``) attach rich objects to
+    ``Score.metadata`` — their whole grading transcript, chat messages and usage
+    objects included — and the report's wire model refuses non-JSON values. The
+    judge's own words already ride ``raw_output``/``explanation``, so dropping an
+    unserializable transcript loses no audit material. Still zero per-scorer
+    branches: the rule is "JSON crosses, objects don't", whoever the scorer is.
+    """
+
+    if not metadata:
+        return {}
+    safe: dict[str, Any] = {}
+    for key, value in metadata.items():
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError):
+            continue
+        safe[key] = value
+    return safe
+
+
 def _failure(code: str, detail: str, score: Score | None = None) -> CaseGradeOutcome:
     """A named, complete failure outcome — the cause rides the evidence, never a log."""
 
     evidence: dict[str, Any] = {
         "sequence": 1,
         "producer": {"type": "inspect_scorer", "id": "inspect/scorer"},
+        # INVARIANT (wire model): invalid evidence claims NO outcome/explanation —
+        # the cause rides raw_output + rejection_reason, the rubric evidence rule.
         "valid": False,
-        "outcome": "FAIL",
         "raw_output": detail,
-        "metadata": {} if score is None else {"answer": score.answer},
+        "metadata": {
+            "rejection_reason": detail,
+            **({} if score is None else {"answer": score.answer}),
+        },
         "accounting": None,
     }
     return CaseGradeOutcome(

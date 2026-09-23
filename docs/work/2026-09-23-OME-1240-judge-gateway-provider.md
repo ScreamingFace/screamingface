@@ -75,3 +75,24 @@ Stacked PRs (~500 LoC cap each), in `apps/screamingface-engine`:
     the acceptance; the endpoint seam returns text only. Follow-up noted.
   - Transport BINDING in the aggregate path ships with PR 2 (it needs the
     board-declared judge params from the importer).
+
+### PR 2 (judge declaration: exam identity + binding + assembly guards)
+
+- **Actual files:** `single_shot.py` (JudgeSpec, revision pins for judge
+  model/params, check-surface guard, `_aggregate` binds the transport via
+  `node.fetch`), `boards.py` (BoardSpec.judge, `_check_judge_declaration`
+  cross-checks, `_judge_prompt_pins` — scorer + kwargs hashed for judged boards
+  only), `shim.py` (two latent wire bugs fixed: non-JSON Score.metadata filtered;
+  invalid failure evidence no longer claims an outcome),
+  `tests/unit/inspect/test_judged_board_assembly.py` (new, 13 tests).
+- **Gates:** run_gates.py ALL GREEN; inspect lane 232 passed; spine suite green.
+- **Deviations:**
+  - Importer flag moved from PR 2 to PR 3 (rides with the xstest import) to
+    respect the ~500 LoC PR cap.
+  - Two pre-existing shim defects surfaced by the first wire-crossing judged
+    aggregate: (1) `model_graded_qa` attaches its grading transcript (non-JSON
+    objects) to `Score.metadata`, which the shim spread verbatim into wire
+    evidence; (2) `_failure` evidence claimed `outcome: FAIL` with
+    `valid: False`, which the wire model refuses — meaning a `scorer_error`
+    could never publish on ANY imported board. Both fixed, both pinned by the
+    end-to-end tests.

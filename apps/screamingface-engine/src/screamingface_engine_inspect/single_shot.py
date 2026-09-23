@@ -108,6 +108,26 @@ class AggregateError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class JudgeSpec:
+    """A judged board's declaration: its scorer dials a gateway judge.
+
+    The declaration is half of a two-sided contract the assembly cross-checks:
+    ``model`` must reappear as ``screamingface/<model>`` among the scorer's own
+    kwargs (the string the scorer actually dials), so the pinned judge and the
+    called judge can never drift apart.
+
+    Attributes:
+        model: the gateway model id the judge call dials (the node route is
+            ``/<model>``) — exam identity, hashed into the board revision.
+        params: protocol params pinned onto every judge call (e.g.
+            ``(("temperature", "0"),)``) — exam identity too.
+    """
+
+    model: str
+    params: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ImportedBoard:
     """One assembled imported board — the benchmark plus its plugin-side bindings."""
 
@@ -120,6 +140,8 @@ class ImportedBoard:
     check_surface_route: str
     case_evaluation_route: str
     aggregate_route: str
+    #: The board's judge declaration; None for every string-match board (OME-1240).
+    judge: JudgeSpec | None = None
 
     def scored_path(self) -> ScoredPath:
         """This board's spine binding — built on demand so the scorer stays lazy."""
@@ -163,6 +185,7 @@ def single_shot_board(
     with_check_surface: bool,
     difficulty: DifficultyTier,
     multiple_correct: bool = False,
+    judge: JudgeSpec | None = None,
 ) -> ImportedBoard:
     """Assemble one imported single-shot board from its declarations.
 
@@ -190,12 +213,23 @@ def single_shot_board(
             delegates to :func:`install_imported_board`.
         with_check_surface: §4 dual registration; False for MCQ boards (OME-796).
         multiple_correct: inspect's MCQ multi-answer flag, passed to the shim.
+        judge: the board's judge declaration (OME-1240) — the aggregate binds the
+            judge transport from it, and its model + params are hashed into the
+            revision below. None for every string-match board.
 
     Returns:
         The assembled board, its registration ready for the plugin's entry point.
     """
 
     benchmark_id: str = f"inspect-{board_key}"
+    if judge is not None and with_check_surface:
+        # WHY: a judged mid-run check spends judge tokens per attempt, and the
+        # advertised check cost is still hardcoded "free" — until the check-cost
+        # knob exists (OME-1116), a judged board must not advertise a check surface.
+        raise ValueError(
+            f"{benchmark_id}: a judged board cannot declare a check surface until "
+            "the check-cost knob lands (OME-1116)"
+        )
     # WHY: pins are newline-joined below; a pin containing "\n" would make two
     # different pin lists hash identically — refused, never coerced.
     if any("\n" in pin for pin in revision_pins):
@@ -215,6 +249,18 @@ def single_shot_board(
                 # unchanged exam identity.
                 f"case_count={case_count}",
                 f"check_surface={with_check_surface}",
+                # WHY conditional pins (OME-1240): the judge is exam identity —
+                # swapping the judge model or its pinned params is a different
+                # exam — but an UNDECLARED board contributes nothing here, so the
+                # published string-match boards' revisions stay byte-identical.
+                *(
+                    ()
+                    if judge is None
+                    else (
+                        f"judge_model={judge.model}",
+                        f"judge_params={json.dumps(list(judge.params))}",
+                    )
+                ),
             )
         ).encode()
     ).hexdigest()[:16]
@@ -278,6 +324,7 @@ def single_shot_board(
         check_surface_route=routes["check_surface"],
         case_evaluation_route=routes["case_evaluation"],
         aggregate_route=routes["aggregate"],
+        judge=judge,
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # board is harmless (tests do it), but a copy-pasted board module that kept
@@ -334,7 +381,7 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
             aggregate_endpoint(
                 label=board.benchmark.title,
                 available_case_count=board.benchmark.case_count,
-                aggregate=_aggregate(board, root),
+                aggregate=_aggregate(board, root, node),
             ),
         ),
     ]
@@ -555,11 +602,29 @@ def board_aggregate(
     )
 
 
-def _aggregate(board: ImportedBoard, root: Path) -> Callable[[str, int], dict[str, Any]]:
+def _aggregate(
+    board: ImportedBoard, root: Path, node: Url4Node
+) -> Callable[[str, int], dict[str, Any]]:
     def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        return board_aggregate(
-            board, case_evaluations, root, case_ids=tuple(range(1, selected_case_count + 1))
+        case_ids: tuple[int, ...] = tuple(range(1, selected_case_count + 1))
+        if board.judge is None:
+            return board_aggregate(board, case_evaluations, root, case_ids=case_ids)
+        # WHY the lazy import: judge_provider drags in inspect_ai; board
+        # registration happens at engine import in every mode, and only a judged
+        # board's GRADING needs the provider (the shim's own lazy-import rule).
+        from screamingface_engine_inspect.judge_provider import (
+            JudgeTransport,
+            bound_judge_transport,
         )
+
+        async def fetch(target: str) -> str:
+            # INVARIANT (OME-1240): the judge call's only exit is THIS node's own
+            # declared model route — the same connector that routes, meters, and
+            # identity-stamps every candidate call serves the judge's.
+            return await node.fetch(target, relative=True)
+
+        with bound_judge_transport(JudgeTransport(fetch=fetch, params=board.judge.params)):
+            return board_aggregate(board, case_evaluations, root, case_ids=case_ids)
 
     return aggregate_handler
 
@@ -660,6 +725,7 @@ async def _awaited[T](coroutine: Awaitable[T]) -> T:
 __all__ = [
     "AggregateError",
     "ImportedBoard",
+    "JudgeSpec",
     "board_aggregate",
     "install_imported_board",
     "single_shot_board",
