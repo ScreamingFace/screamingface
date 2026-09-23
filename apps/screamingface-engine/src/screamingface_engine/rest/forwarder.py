@@ -32,7 +32,6 @@ import hashlib
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
@@ -46,7 +45,7 @@ from screamingface_engine.request_scope import (
     PROFILE_HEADER,
     TRACEPARENT_HEADER,
 )
-from screamingface_engine.world.config import DEFAULT_CONFIG_PATH, WorldConfig
+from screamingface_engine.world.config import WorldConfig, config_path
 from screamingface_engine.world.serving import (
     NodeMountRoute,
     compose_serving_world,
@@ -54,7 +53,14 @@ from screamingface_engine.world.serving import (
     install_node_route,
     node_mount_paths,
 )
-from screamingface_engine.world.wire import AsgiReceive, AsgiScope, AsgiSend, send_url4_error, write
+from screamingface_engine.world.wire import (
+    ENSEMBLE_PATH_HINT,
+    AsgiReceive,
+    AsgiScope,
+    AsgiSend,
+    send_url4_error,
+    write,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +81,9 @@ _FORWARDED_REQUEST_HEADERS = (
     ANSWER_SEED_HEADER,
     TRACEPARENT_HEADER,
 )
+
+# Lowercased-name lookup for `forwarded_headers`, built once rather than per call.
+_CANONICAL_FORWARDED_HEADERS = {name.lower(): name for name in _FORWARDED_REQUEST_HEADERS}
 
 # Response headers that describe the HOP, not the payload. `content-length` is re-derived from
 # the buffered body; `content-encoding` is dropped because httpx decodes transparently.
@@ -101,10 +110,7 @@ _MISSING_IDENTITY_MESSAGE = (
     "the sync surface requires an edge-verified identity (X-User-Email); this request carried "
     "none, so it is refused rather than forwarded anonymously"
 )
-_TIMEOUT_MESSAGE = (
-    "the node tier did not answer within the forward budget — long-running work belongs on the "
-    "ensemble path (POST /token, attach the WebSocket, then GET /?q=<expression>)"
-)
+_TIMEOUT_MESSAGE = f"the node tier did not answer within the forward budget — {ENSEMBLE_PATH_HINT}"
 _UNREACHABLE_MESSAGE = "the node tier is unreachable; retry shortly"
 
 # The url4 WIRE error codes this module emits itself (contracts.md C1 status mapping). Plain
@@ -137,10 +143,9 @@ def forwarded_headers(
     them. Everything not named in `_FORWARDED_REQUEST_HEADERS` is dropped: Cookies,
     ``Authorization`` and ``URL4-Capability`` especially.
     """
-    canonical = {name.lower(): name for name in _FORWARDED_REQUEST_HEADERS}
     out: list[tuple[str, str]] = []
     for name, value in inbound:
-        header = canonical.get(name.lower())
+        header = _CANONICAL_FORWARDED_HEADERS.get(name.lower())
         if header is not None:
             out.append((header, value))
     out.extend(verified_identity.items())
@@ -194,7 +199,7 @@ def _config_file_digest(env: Mapping[str, str]) -> str | None:
     WHY the FILE bytes and not the resolved object: both tiers read the same file from the same
     image, so the file hash is the one value they can compare without agreeing on a serialization.
     """
-    path = Path(env.get(job_env.RUNNER_CONFIG, DEFAULT_CONFIG_PATH))
+    path = config_path(env)
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
@@ -223,7 +228,8 @@ class NodeForwarder:
         identity_resolver: Callable[[Headers], Mapping[str, str]] | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
-        self._node_base_url = node_base_url
+        # Parsed once: every forwarded request only needs `copy_with(raw_path=...)` off of it.
+        self._node_url = httpx.URL(node_base_url)
         # Empty until `install_forwarder`'s startup hook derives it; the route matches nothing
         # before then, so no request can reach this class early.
         self._mount_paths: frozenset[str] = frozenset()
@@ -301,7 +307,7 @@ class NodeForwarder:
         # also given, so appending here is what keeps the wire query byte-for-byte unchanged.
         if query:
             raw_path = raw_path + b"?" + query
-        url = httpx.URL(self._node_base_url).copy_with(raw_path=raw_path)
+        url = self._node_url.copy_with(raw_path=raw_path)
         inbound = [
             (name.decode("latin-1"), value.decode("latin-1"))
             for name, value in scope.get("headers") or ()
@@ -320,25 +326,19 @@ class NodeForwarder:
         the first attempt: the node may be mid-call and billing, and a retry doubles the cost. A
         5xx is a RESPONSE, so it is never retried at all — it is relayed unchanged.
         """
-        try:
-            return await self._client.send(request)
-        except _CONNECTION_ERRORS:
-            logger.warning("node connection failed; retrying once")
-        except httpx.TimeoutException:
-            raise _NodeTimeout from None
-        except httpx.TransportError as exc:
-            raise _NodeUnreachable from exc
-        return await self._retry(request)
-
-    async def _retry(self, request: httpx.Request) -> httpx.Response:
-        try:
-            return await self._client.send(request)
-        except _CONNECTION_ERRORS as exc:
-            raise _NodeUnreachable from exc
-        except httpx.TimeoutException:
-            raise _NodeTimeout from None
-        except httpx.TransportError as exc:
-            raise _NodeUnreachable from exc
+        for attempt in range(2):
+            try:
+                return await self._client.send(request)
+            except _CONNECTION_ERRORS as exc:
+                if attempt == 0:
+                    logger.warning("node connection failed; retrying once")
+                    continue
+                raise _NodeUnreachable from exc
+            except httpx.TimeoutException:
+                raise _NodeTimeout from None
+            except httpx.TransportError as exc:
+                raise _NodeUnreachable from exc
+        raise AssertionError("unreachable")  # the loop always returns or raises
 
     async def _relay(self, send: AsgiSend, response: httpx.Response) -> None:
         # A `303` is relayed unchanged: the node signs its Location under the App's own

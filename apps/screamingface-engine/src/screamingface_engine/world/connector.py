@@ -27,7 +27,12 @@ from screamingface_engine.operation_accounting import (
     combine_operation_accounting,
 )
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
-from screamingface_engine.request_scope import RequestScope, RequestScopeError, current_scope
+from screamingface_engine.request_scope import (
+    PROFILE_HEADER,
+    RequestScope,
+    RequestScopeError,
+    current_scope,
+)
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
@@ -643,7 +648,15 @@ async def _post_completion(
     for attempt in range(_TRANSPORT_RETRIES + 1):
         timeout = _attempt_timeout(deadline, configured, last)
         try:
-            response = await _post_attempt(http_client, headers=headers, body=body, timeout=timeout)
+            # INVARIANT: with no deadline (`timeout is None`) this passes no timeout at all —
+            # `USE_CLIENT_DEFAULT` is httpx's own sentinel for that — so the client's configured
+            # timeout applies, byte-identical to the ensemble path before FX-1.
+            response = await http_client.post(
+                _COMPLETIONS_PATH,
+                headers=headers,
+                json=body,
+                timeout=httpx.USE_CLIENT_DEFAULT if timeout is None else timeout,
+            )
         except httpx.TransportError as exc:
             last = exc
             if isinstance(exc, httpx.TimeoutException) and _deadline_bound(timeout, configured):
@@ -710,23 +723,6 @@ def _deadline_exceeded(cause: httpx.TransportError | None) -> ResolutionError:
         code="aigateway_deadline_exceeded",
         permanent=False,
     )
-
-
-async def _post_attempt(
-    http_client: httpx.AsyncClient,
-    *,
-    headers: dict[str, str],
-    body: dict,
-    timeout: float | None,
-) -> httpx.Response:
-    """One POST under ``timeout``, or under the client's own timeout when it is None.
-
-    INVARIANT: with no deadline the POST passes no ``timeout`` — the client's own configured
-    timeout applies, byte-identical to the ensemble path before FX-1.
-    """
-    if timeout is None:
-        return await http_client.post(_COMPLETIONS_PATH, headers=headers, json=body)
-    return await http_client.post(_COMPLETIONS_PATH, headers=headers, json=body, timeout=timeout)
 
 
 def _retry_fits(deadline: float, delay: float, configured: float | None) -> bool:
@@ -1071,7 +1067,7 @@ def _headers(scope: RequestScope) -> dict[str, str]:
     """
     headers = dict(scope.identity_headers)
     if scope.profile is not None:
-        headers["X-Profile"] = scope.profile
+        headers[PROFILE_HEADER] = scope.profile
     traceparent = current_traceparent()
     if traceparent is not None:
         headers["traceparent"] = traceparent

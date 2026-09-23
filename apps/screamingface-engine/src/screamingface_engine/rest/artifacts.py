@@ -20,7 +20,6 @@ all three (review finding on OME-892). Artifacts die by TTL alone: the periodic 
 """
 
 import asyncio
-import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Request, Response
@@ -32,7 +31,7 @@ from screamingface_engine.artifacts.signing import (
     SIGNATURE_PARAM,
     verify_artifact_signature,
 )
-from screamingface_engine.auth.dependencies import verified_claims
+from screamingface_engine.auth.dependencies import default_clock, verified_claims
 from screamingface_engine.auth.problem import ProblemException
 
 router = APIRouter()
@@ -55,8 +54,8 @@ def _authorize_artifact(request: Request) -> None:
     exp = request.query_params.get(EXPIRY_PARAM)
     sig = request.query_params.get(SIGNATURE_PARAM)
     if exp is not None and sig is not None:
-        clock = getattr(request.app.state, "clock", None)
-        now = clock().timestamp() if clock is not None else time.time()
+        clock = getattr(request.app.state, "clock", default_clock)
+        now = clock().timestamp()
         if verify_artifact_signature(
             artifact_id,
             exp=exp,

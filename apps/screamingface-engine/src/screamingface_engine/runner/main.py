@@ -105,28 +105,9 @@ def stream_grace_s(env: Mapping[str, str]) -> float:
     the cost of the default being wrong is a slightly late reclamation, the cost of raising is
     a leaked stream on every run.
     """
-    raw = env.get(job_env.STREAM_GRACE_S)
-    if raw is None:
-        return job_env.DEFAULT_STREAM_GRACE_S
-    try:
-        return float(raw)
-    except ValueError:
-        logger.warning("ignoring unparseable %s=%r", job_env.STREAM_GRACE_S, raw)
-        return job_env.DEFAULT_STREAM_GRACE_S
-
-
-def _int_from_env(env: Mapping[str, str], name: str, default: int) -> int:
-    """One deploy-time integer, tolerantly. INVARIANT: never raises — same reasoning as
-    `stream_grace_s`: a typo'd knob must not take down every Job, and running with the
-    shipped default is the cheap wrong answer."""
-    raw = env.get(name)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("ignoring unparseable %s=%r", name, raw)
-        return default
+    return job_env.number_from_env(
+        env, job_env.STREAM_GRACE_S, job_env.DEFAULT_STREAM_GRACE_S, log=logger
+    )
 
 
 def bridge_budget_from_env(env: Mapping[str, str]) -> int:
@@ -137,8 +118,11 @@ def bridge_budget_from_env(env: Mapping[str, str]) -> int:
     to an unparseable value ("crash every run at boot" vs "run with the shipped default")
     the default is the one that costs nothing.
     """
-    return _int_from_env(
-        env, job_env.BRIDGE_MEMORY_BUDGET_BYTES, job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES
+    return job_env.number_from_env(
+        env,
+        job_env.BRIDGE_MEMORY_BUDGET_BYTES,
+        job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES,
+        log=logger,
     )
 
 
@@ -159,11 +143,11 @@ def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, Artifact
     STORE does not. That asymmetry is the OME-929 lesson: an unwritten value falls back
     silently, and only some fallbacks are harmless.
     """
-    inline_cap = _int_from_env(
-        env, job_env.RESULT_INLINE_CAP_BYTES, job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
+    inline_cap = job_env.number_from_env(
+        env, job_env.RESULT_INLINE_CAP_BYTES, job_env.DEFAULT_RESULT_INLINE_CAP_BYTES, log=logger
     )
-    hard_cap = _int_from_env(
-        env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES
+    hard_cap = job_env.number_from_env(
+        env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES, log=logger
     )
     # The store construction is SHARED with the node tier's spill path (unit 3): both call
     # `result_writer_from_env`, so the run path and the sync tier cannot park into two places.
@@ -264,8 +248,7 @@ def params_from_env(environ: Mapping[str, str]) -> RunnerParams:
 def _seeded_world(
     env: Mapping[str, str],
     config: WorldConfig | None,
-    shared_io: Any,
-    shared_section: AigatewaySection | None,
+    shared: SharedWorld | None,
     build: Callable[[WorldConfig], Awaitable[World]],
 ) -> tuple[Callable[[], Awaitable[World]], Callable[[], RequestScope]]:
     """The run's world factory and its request-scope producer, sharing ONE seed parse.
@@ -283,13 +266,11 @@ def _seeded_world(
     factory — before anything is built or run — so `last_summary()` is `None`. The scope is
     memoized, so the refusal and the bound scope are the same parse, whichever runs first.
 
-    ``shared_io`` is local mode's shared world, or ``None`` for a per-run world. A shared world
-    comes back with NO teardown: its owner closes it, never a run.
-
-    ``shared_section`` is the ``[aigateway]`` section the shared world was ALREADY built from —
-    local mode's holder captures it once, at startup. A run on the shared node must not re-read
-    ``url4.toml`` a second time just to log; a per-run world (``shared_io is None``) still reads
-    ``resolved()`` for its own config, and ``shared_section`` is unused there.
+    ``shared`` is local mode's shared world (its io layer AND the ``[aigateway]`` section it was
+    built from), or ``None`` for a per-run world. A shared world comes back with NO teardown: its
+    owner closes it, never a run. ``shared.section`` is captured once, at startup — a run on the
+    shared node must not re-read ``url4.toml`` a second time just to log; a per-run world
+    (``shared is None``) still reads ``resolved()`` for its own config.
 
     FEATURE (OME-1069, FX-68): once the world is resolved, the run writes its world line — for
     a per-run world AND for the shared node, so every run says what it ran on, as on `main`.
@@ -299,9 +280,19 @@ def _seeded_world(
     def resolved() -> WorldConfig:
         return config if config is not None else load_config(env, include_extra_models=True)
 
+    @functools.cache
     def reads_seed() -> bool:
-        if shared_io is not None:
-            return world_reads_answer_seed(shared_io)
+        """Whether this run's world has a model call that reads the answer seed.
+
+        Cached so the ONE predicate (`world_reads_answer_seed`, or the per-run world's own
+        ``[aigateway]`` presence) is computed once per run and shared by `scope` and by the
+        world line's section expression below, rather than each re-deriving it. A shared world
+        with no model route (the deny-by-default layer, a bare read-side node) is the shape of a
+        run with no ``[aigateway]`` table, which never wrote the line on `main` — so its config
+        is not read.
+        """
+        if shared is not None:
+            return world_reads_answer_seed(shared.io)
         return resolved().aigateway is not None
 
     @functools.cache
@@ -314,35 +305,21 @@ def _seeded_world(
 
     async def world() -> World:
         bound = scope()  # FX-40: refuse a malformed seed before the world is built or run
-        built: World = (shared_io, None) if shared_io is not None else await build(resolved())
-        section = _model_section(shared_io, shared_section, resolved)
+        built: World = (shared.io, None) if shared is not None else await build(resolved())
+        # WHY `shared.section` and not `resolved()` on the shared branch: `resolved()` re-reads
+        # `url4.toml` from disk. On the shared node that file was already read once, at startup,
+        # to build `shared.io` — reading it again per run means a file broken or changed after
+        # startup fails or misreports every later run for a line that only logs, never builds,
+        # anything. A per-run world (`shared is None`) has no such prior read, so it still calls
+        # `resolved()`.
+        section = (
+            resolved().aigateway if shared is None else (shared.section if reads_seed() else None)
+        )
         if section is not None:
             _log_world(env, section, bound.cache)
         return built
 
     return world, scope
-
-
-def _model_section(
-    shared_io: Any,
-    shared_section: AigatewaySection | None,
-    resolved: Callable[[], WorldConfig],
-) -> AigatewaySection | None:
-    """The run's declared model world, for its world line — or ``None`` when it has none.
-
-    WHY the same test the seed uses (`world_reads_answer_seed`): a shared world with no model
-    route (the deny-by-default layer, a bare read-side node) is the shape of a run with no
-    `[aigateway]` table, which never wrote the line on `main` — so its config is not read.
-
-    WHY ``shared_section`` and not ``resolved()`` on the shared branch: ``resolved()`` re-reads
-    ``url4.toml`` from disk. On the shared node that file was already read once, at startup, to
-    build ``shared_io`` — reading it again per run means a file broken or changed after startup
-    fails or misreports every later run for a line that only logs, never builds, anything. A
-    per-run world (``shared_io is None``) has no such prior read, so it still calls ``resolved()``.
-    """
-    if shared_io is not None:
-        return shared_section if world_reads_answer_seed(shared_io) else None
-    return resolved().aigateway
 
 
 def _log_world(env: Mapping[str, str], section: AigatewaySection, cache: CachePolicy) -> None:
@@ -450,14 +427,11 @@ def build_executor(
     # whoever built it, so its factory returns NO teardown — a run must not close a world it does
     # not own.
     shared = shared_world_provider() if shared_world_provider is not None else None
-    shared_io = shared.io if shared is not None else None
-    shared_section = shared.section if shared is not None else None
     # FEATURE (FX-30, OME-880): a model admitted after the shared node was built is not a route
     # on it. Such a run builds its own per-run world, exactly as before the shared node existed,
     # and that world owns its own teardown.
-    if shared_io is not None and not shared_world_serves(shared_io, env):
-        shared_io = None
-        shared_section = None
+    if shared is not None and not shared_world_serves(shared.io, env):
+        shared = None
 
     async def _build(resolved: WorldConfig) -> World:
         # FEATURE (F1, prd/01): building the world lives in the shared world package, because
@@ -474,7 +448,7 @@ def build_executor(
             benchmark_assets_root=benchmark_assets_root,
         )
 
-    world_factory, scope_factory = _seeded_world(env, config, shared_io, shared_section, _build)
+    world_factory, scope_factory = _seeded_world(env, config, shared, _build)
     return OperationCapturingExecutor(
         Url4Executor(
             world_factory=world_factory,

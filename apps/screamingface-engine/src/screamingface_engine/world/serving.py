@@ -107,8 +107,8 @@ def node_mount_paths(node: Any) -> frozenset[str]:
     return served_routes(node)
 
 
-def node_eval_path(node: Any, *, default: str = DEFAULT_EVAL_PATH) -> str:
-    """The node's eval path, or ``default`` when the layer is not a ``Url4Node``.
+def node_eval_path(node: Any) -> str:
+    """The node's eval path, or :data:`DEFAULT_EVAL_PATH` when the layer is not a ``Url4Node``.
 
     A non-node layer (``StaticIOLayer``, ``deny_by_default_world``) claims no eval path.
     :func:`check_mount_collisions` therefore never calls this for one (FX-56); the default is
@@ -117,7 +117,7 @@ def node_eval_path(node: Any, *, default: str = DEFAULT_EVAL_PATH) -> str:
     FX-56: ``isinstance`` rather than duck typing, for the same reason as ``node_mount_paths``.
     """
     if not isinstance(node, Url4Node):
-        return default
+        return DEFAULT_EVAL_PATH
     # WHY the private `_eval_path` read: `Url4Node` exposes no public eval-path accessor, and
     # widening url4's API is outside this landing's boundary.
     return str(node._eval_path)
@@ -138,16 +138,19 @@ def check_mount_collisions(node: Any, engine_routes: Iterable[str]) -> None:
     WHY fail and not warn: a shadowed mount is invisible at runtime. Startup failure is the only
     loud signal, and it is cheap because nothing has been served yet (00-overview D3).
     """
+    if not isinstance(node, Url4Node):
+        # FX-56: a non-node layer (StaticIOLayer) has no mounts and no eval path to protect —
+        # `node_mount_paths` would answer an empty set and `node_eval_path` would answer
+        # DEFAULT_EVAL_PATH (each carries the same isinstance guard itself), and checking either
+        # against the engine's routes would be a check against paths this layer never actually
+        # claims. This early return just skips calling both for nothing; it is not the only
+        # guard against a non-node layer.
+        return
     routes = tuple(engine_routes)
     for mount in sorted(node_mount_paths(node)):
         for route in routes:
             if _route_matches(route, mount):
                 raise MountCollisionError(_mount_message(route, mount))
-    if not isinstance(node, Url4Node):
-        # FX-56: a non-node layer (StaticIOLayer) has no eval path to protect — `node_eval_path`
-        # would answer DEFAULT_EVAL_PATH for it, and checking that default against the engine's
-        # routes would be a check against a path this layer never actually claims.
-        return
     eval_path = node_eval_path(node)
     for route in routes:
         if _route_matches(route, eval_path):

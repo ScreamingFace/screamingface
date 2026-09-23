@@ -33,6 +33,13 @@ ONE constant for the node tier and local mode (item 3, B6 review): both refuse a
 ``X-Answer-Seed`` before dispatch with the SAME 400, and a second, independently-spelled
 string would let the two answers drift silently."""
 
+ENSEMBLE_PATH_HINT = (
+    "long-running work belongs on the ensemble path (POST /token, attach the WebSocket, "
+    "then GET /?q=<expression>)"
+)
+"""The AC6 hint that closes both the node tier's own 504 reword and the App forwarder's 504 —
+ONE spelling for the direction a caller whose sync request timed out should go."""
+
 
 async def write(
     send: AsgiSend, status: int, headers: Sequence[tuple[bytes, bytes]], body: bytes
@@ -42,14 +49,24 @@ async def write(
     await send({"type": "http.response.body", "body": body})
 
 
+def _json_headers(retry_after: int | None) -> list[tuple[bytes, bytes]]:
+    """The headers every JSON response on this surface writes: content-type, plus ``Retry-After``
+    when one is given.
+
+    ONE helper for :func:`write_json` and :func:`send_url4_error`, so the two cannot spell the
+    header list differently for the same ``retry_after``.
+    """
+    headers = [(b"content-type", b"application/json")]
+    if retry_after is not None:
+        headers.append((b"retry-after", str(retry_after).encode()))
+    return headers
+
+
 async def write_json(
     send: AsgiSend, status: int, payload: Mapping[str, Any], *, retry_after: int | None = None
 ) -> None:
     """Write ``payload`` as a JSON response, with ``Retry-After`` when one is given."""
-    headers = [(b"content-type", b"application/json")]
-    if retry_after is not None:
-        headers.append((b"retry-after", str(retry_after).encode()))
-    await write(send, status, headers, json.dumps(payload).encode())
+    await write(send, status, _json_headers(retry_after), json.dumps(payload).encode())
 
 
 def url4_error_body(code: str, message: str) -> bytes:
@@ -65,11 +82,14 @@ def url4_error_body(code: str, message: str) -> bytes:
 async def send_url4_error(
     send: AsgiSend, status: int, code: str, message: str, *, retry_after: int | None = None
 ) -> None:
-    """Write url4's error envelope (:func:`url4_error_body`) as one complete response."""
-    headers = [(b"content-type", b"application/json")]
-    if retry_after is not None:
-        headers.append((b"retry-after", str(retry_after).encode()))
-    await write(send, status, headers, url4_error_body(code, message))
+    """Write url4's error envelope (:func:`url4_error_body`) as one complete response.
+
+    INVARIANT: this reads the envelope's shape from :func:`url4_error_body` — the ONE place it is
+    spelled — rather than building ``{"error": {...}}`` itself. Headers come from
+    :func:`_json_headers`, the same helper :func:`write_json` uses, so the two stay
+    byte-identical for the same status/body/``retry_after``.
+    """
+    await write(send, status, _json_headers(retry_after), url4_error_body(code, message))
 
 
 __all__ = [
@@ -77,6 +97,7 @@ __all__ = [
     "AsgiReceive",
     "AsgiScope",
     "AsgiSend",
+    "ENSEMBLE_PATH_HINT",
     "MALFORMED_HEADER",
     "send_url4_error",
     "url4_error_body",

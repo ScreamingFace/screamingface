@@ -16,7 +16,6 @@ from screamingface_engine.benchmarks.registry import (
     BENCHMARK_ASSETS_ENV,
     DEFAULT_BENCHMARK_ASSETS_ROOT,
     EMPTY_BENCHMARKS,
-    SHARED_ADAPTER_ROUTES,
     BenchmarkRegistry,
     assets_root,
 )
@@ -25,7 +24,6 @@ __all__ = [
     "BENCHMARK_ASSETS_ENV",
     "CANDIDATE_REF",
     "DEFAULT_BENCHMARK_ASSETS_ROOT",
-    "SHARED_ADAPTER_ROUTES",
     "Benchmark",
     "BenchmarkDeclaration",
     "BenchmarkInstaller",

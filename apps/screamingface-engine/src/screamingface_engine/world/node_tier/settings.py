@@ -7,6 +7,7 @@ a ladder ends up non-monotonic.
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -31,9 +32,10 @@ METRICS_PORT_ENV = f"{_NODE_ENV}METRICS_PORT"
 LOG_LEVEL_ENV = f"{_NODE_ENV}LOG_LEVEL"
 
 # WHY the env names are local to this package rather than in `job_env`: `job_env` is the JOB's
-# contract (per-run and per-deploy values the chart writes onto a run), while these are the node
-# tier's own Deployment. They move into `job_env` with the Helm unit that actually writes them;
-# until then a name here cannot drift against a chart value that does not exist yet.
+# contract (per-run and per-deploy values that reach a Runner Job through its own env), while
+# these name the node tier's own Deployment settings, rendered directly by
+# `deploy/helm/templates/deployment-node.yaml` from `.Values.node.*` — a different object with a
+# different owner, not a value a Job ever reads.
 
 NODE_DEFAULT_RESULT_HARD_CAP_BYTES = 64 * 1024 * 1024
 """The node tier's own hard cap (FX-11): 64 MiB, not the run path's 1 GiB.
@@ -120,48 +122,33 @@ class NodeTierSettings:
         to a typo'd knob is the shipped default, not a pod that cannot start. A wrong-but-running
         tier is diagnosable from `/metrics`; a crashing one is not. A value that parses but breaks
         the ladder is `validate`'s to refuse.
+
+        Every default is read off ``defaults = cls()`` rather than typed a second time here — the
+        dataclass field defaults stay the ONE place a ladder number is spelled.
         """
+        defaults = cls()
+        num = functools.partial(job_env.number_from_env, env, log=logger)
         return cls(
-            request_timeout_s=_float(env, REQUEST_TIMEOUT_ENV, 30.0),
-            aigateway_timeout_s=_float(env, AIGATEWAY_TIMEOUT_ENV, 28.0),
-            spill_timeout_s=_float(env, SPILL_TIMEOUT_ENV, 4.0),
-            max_inflight_per_worker=_int(env, MAX_INFLIGHT_PER_WORKER_ENV, 2),
-            workers=_int(env, WORKERS_ENV, 1),
-            retry_after_s=_int(env, RETRY_AFTER_ENV, 1),
-            artifact_url_ttl_s=_int(env, ARTIFACT_URL_TTL_ENV, 600),
-            result_inline_cap_bytes=_int(
-                env, job_env.RESULT_INLINE_CAP_BYTES, job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
+            request_timeout_s=num(REQUEST_TIMEOUT_ENV, defaults.request_timeout_s),
+            aigateway_timeout_s=num(AIGATEWAY_TIMEOUT_ENV, defaults.aigateway_timeout_s),
+            spill_timeout_s=num(SPILL_TIMEOUT_ENV, defaults.spill_timeout_s),
+            max_inflight_per_worker=num(
+                MAX_INFLIGHT_PER_WORKER_ENV, defaults.max_inflight_per_worker
             ),
-            result_hard_cap_bytes=_int(
-                env, job_env.RESULT_HARD_CAP_BYTES, NODE_DEFAULT_RESULT_HARD_CAP_BYTES
+            workers=num(WORKERS_ENV, defaults.workers),
+            retry_after_s=num(RETRY_AFTER_ENV, defaults.retry_after_s),
+            artifact_url_ttl_s=num(ARTIFACT_URL_TTL_ENV, defaults.artifact_url_ttl_s),
+            result_inline_cap_bytes=num(
+                job_env.RESULT_INLINE_CAP_BYTES, defaults.result_inline_cap_bytes
             ),
-            host=env.get(HOST_ENV) or "0.0.0.0",
-            port=_int(env, PORT_ENV, 9109),
-            metrics_port=_int(env, METRICS_PORT_ENV, 9110),
-            log_level=env.get(LOG_LEVEL_ENV) or "info",
+            result_hard_cap_bytes=num(
+                job_env.RESULT_HARD_CAP_BYTES, defaults.result_hard_cap_bytes
+            ),
+            host=env.get(HOST_ENV) or defaults.host,
+            port=num(PORT_ENV, defaults.port),
+            metrics_port=num(METRICS_PORT_ENV, defaults.metrics_port),
+            log_level=env.get(LOG_LEVEL_ENV) or defaults.log_level,
         )
-
-
-def _float(env: Mapping[str, str], name: str, default: float) -> float:
-    raw = env.get(name)
-    if raw is None:
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        logger.warning("ignoring unparseable %s=%r", name, raw)
-        return default
-
-
-def _int(env: Mapping[str, str], name: str, default: int) -> int:
-    raw = env.get(name)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("ignoring unparseable %s=%r", name, raw)
-        return default
 
 
 __all__ = [

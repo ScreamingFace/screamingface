@@ -8,39 +8,11 @@ from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from types import MappingProxyType
 
-from screamingface_engine.benchmarks.case_execution import CASE_EXECUTION_ROUTE
-from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.definition import Benchmark
-from screamingface_engine.benchmarks.ensemble.policy import (
-    ANSWER_ROUTE,
-    GATE_ROUTE,
-    MEMBER_ROUTE,
-    RESULT_ROUTE,
-    ROLE_ROUTE,
-    SELECT_ROUTE,
-)
 from url4 import Iteration, Node, RelExpr, RelUrl, build, render
 from url4.core.errors import ParseError
 from url4.core.nodes import walk
 from url4.peer.server import Url4Node
-
-# The shared adapters `world.factory.build_world` installs ALONGSIDE any non-empty registry
-# (`install_candidate_invocation`, `install_corrective_runtime`, both in `world`, which this
-# shared leaf may not import — see `served_routes`'s own docstring) — engine capability, not any
-# one Benchmark's own surface. PUBLIC: a caller outside this module (`local.py`, B6 review items
-# 3/4) needs these names too, and importing the constant is what keeps it from hardcoding them.
-SHARED_ADAPTER_ROUTES = frozenset(
-    {
-        CANDIDATE_ROUTE,
-        CASE_EXECUTION_ROUTE,
-        GATE_ROUTE,
-        SELECT_ROUTE,
-        ANSWER_ROUTE,
-        MEMBER_ROUTE,
-        ROLE_ROUTE,
-        RESULT_ROUTE,
-    }
-)
 
 BENCHMARK_ASSETS_ENV = "URL4_BENCHMARK_ASSETS"
 DEFAULT_BENCHMARK_ASSETS_ROOT = Path("/opt/benchmarks")
@@ -93,41 +65,14 @@ class BenchmarkRegistry:
                     f"Benchmark {benchmark.id!r} references uninstalled endpoint(s) {missing}"
                 )
 
-    def installed_routes(self) -> frozenset[str]:
-        """Every route THIS registry's Benchmarks add — their own data/case/judge routes.
-
-        Public accessor (B6 review round, items 3/4): a caller that needs "which routes would
-        installing these Benchmarks add" — `local.py`'s direct-mount set is the first — reads
-        this rather than re-deriving it or building a second real world just to diff its route
-        table. Combine with :data:`SHARED_ADAPTER_ROUTES` for the full set `install()` adds to a
-        node (this method covers only the per-Benchmark half; the shared candidate/corrective
-        adapters live in `world`, which this shared leaf may not import).
-
-        WHY install into a THROWAWAY node and read back what landed, rather than walk each
-        Benchmark's protocol AST (`_relative_endpoint_paths`, as `install()`'s own validation
-        does): the walk MISSES routes nested inside an already-built AST an `Iteration.body`
-        carries (`build()` expects a STRING template there, not a `Node`, and swallows the
-        resulting `ParseError`) — measured against DRACO in practice, that silently dropped 5 of
-        its 6 routes, including the judge verdict route itself. Installing for real and reading
-        `served_routes()` back cannot miss a route, because it is not naming or parsing
-        anything — it is asking the node what it now serves. A throwaway `Url4Node` costs
-        nothing beyond the AST construction `install()` already pays for: asset reads are LAZY
-        (`test_benchmark_asset_isolation.py`), so `assets_root` here is never touched.
-        """
-        if not len(self):
-            return frozenset()
-        scratch = Url4Node("benchmark-route-probe")
-        for benchmark in self:
-            benchmark.install(scratch, DEFAULT_BENCHMARK_ASSETS_ROOT)
-        return served_routes(scratch)
-
 
 def served_routes(node: Url4Node) -> frozenset[str]:
     """Every URL path ``node`` serves directly: its endpoints and its data routes.
 
     FX-55 / B3 review R8: the ONE accessor for this union. `world.serving.node_mount_paths` (the
-    collision guard) and :meth:`BenchmarkRegistry.install` (the endpoint check) both call it, so
-    the guard and the install cannot disagree about what a node serves. It lives here, not in
+    collision guard), `world.factory.build_world` (the direct-mount route set it captures before
+    Benchmarks install) and :meth:`BenchmarkRegistry.install` (the endpoint check) all call it,
+    so none of the three can disagree about what a node serves. It lives here, not in
     `world`: `benchmarks` is a shared leaf (`.claude/scripts/check_layering.py`) that the world
     may import and that may not import the world.
     """
@@ -202,7 +147,6 @@ EMPTY_BENCHMARKS = BenchmarkRegistry()
 __all__ = [
     "BENCHMARK_ASSETS_ENV",
     "DEFAULT_BENCHMARK_ASSETS_ROOT",
-    "SHARED_ADAPTER_ROUTES",
     "BenchmarkRegistry",
     "EMPTY_BENCHMARKS",
     "assets_root",

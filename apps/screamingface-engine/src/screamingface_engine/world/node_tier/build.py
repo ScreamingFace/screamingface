@@ -65,44 +65,42 @@ async def build_node_tier(
     resolved_readiness = readiness or NodeReadiness()
     try:
         resolved_settings.validate()
-    except NodeTierError as exc:
-        resolved_readiness.fail(str(exc))
-        raise
-    try:
         # FX-16: a store error is a build error like every other, so readiness names it.
         # WHY before the world: a refused store or key then leaves nothing built to tear down.
         store = _resolve_store(env, artifact_store)
         signing_key = _resolve_signing_key(env, artifact_signing_key)
+        node, world_aclose = await _serving_node(
+            env=env,
+            config=_tier_config(
+                config if config is not None else load_config(env), resolved_settings
+            ),
+            client=client,
+            tavily_client=tavily_client,
+            benchmarks=benchmarks,
+            engine_routes=frozenset(engine_routes) if engine_routes is not None else OPS_PATHS,
+        )
+        tier = NodeTier(
+            settings=resolved_settings,
+            metrics=metrics or build_node_metrics(),
+            readiness=resolved_readiness,
+            node=node,
+            inner=build_asgi_app(
+                node,
+                ServeConfig(
+                    timeout=resolved_settings.request_timeout_s,
+                    max_inflight=resolved_settings.max_inflight,
+                ),
+            ),
+            world_aclose=world_aclose,
+            artifact_store=store,
+            signing_key=signing_key,
+            clock=clock,
+        )
     except Exception as exc:
+        # ONE readiness-marking site for every refusal above (T4 refactor): a settings, store,
+        # signing-key or world/collision failure all name their reason on `/readyz` the same way.
         resolved_readiness.fail(str(exc))
         raise
-    node, world_aclose = await _serving_node(
-        env=env,
-        config=_tier_config(config if config is not None else load_config(env), resolved_settings),
-        client=client,
-        tavily_client=tavily_client,
-        benchmarks=benchmarks,
-        engine_routes=frozenset(engine_routes) if engine_routes is not None else OPS_PATHS,
-        readiness=resolved_readiness,
-    )
-    tier = NodeTier(
-        settings=resolved_settings,
-        metrics=metrics or build_node_metrics(),
-        readiness=resolved_readiness,
-        node=node,
-        inner=build_asgi_app(
-            node,
-            ServeConfig(
-                timeout=resolved_settings.request_timeout_s,
-                max_inflight=resolved_settings.max_inflight,
-            ),
-        ),
-        mounts=frozenset(node.processor_routes()),
-        world_aclose=world_aclose,
-        artifact_store=store,
-        signing_key=signing_key,
-        clock=clock,
-    )
     resolved_readiness.succeed()
     return tier
 
@@ -115,30 +113,28 @@ async def _serving_node(
     tavily_client: httpx.AsyncClient | None,
     benchmarks: BenchmarkRegistry,
     engine_routes: frozenset[str],
-    readiness: NodeReadiness,
 ) -> tuple[Url4Node, WorldTeardown | None]:
-    """Compose the guarded serving world and require it to be a url4 node (AC18)."""
-    try:
-        io, world_aclose = await compose_serving_world(
-            env=env,
-            engine_routes=engine_routes,
-            config=config,
-            client=client,
-            tavily_client=tavily_client,
-            benchmarks=benchmarks,
-        )
-    except Exception as exc:
-        readiness.fail(str(exc))
-        raise
+    """Compose the guarded serving world and require it to be a url4 node (AC18).
+
+    Raises straight through to `build_node_tier`'s one try/except, which marks readiness
+    failed for this and every other refusal (T4 refactor) — this function only tears down a
+    half-built world before raising, which is its own concern and not readiness's.
+    """
+    io, world_aclose = await compose_serving_world(
+        env=env,
+        engine_routes=engine_routes,
+        config=config,
+        client=client,
+        tavily_client=tavily_client,
+        benchmarks=benchmarks,
+    )
     if not isinstance(io, Url4Node):
         if world_aclose is not None:
             await world_aclose()
-        reason = (
+        raise NodeTierError(
             "the declared world has no url4 node (no [aigateway] and no read-side mounts) — "
             "the node tier serves a node's ASGI surface and cannot serve an empty world"
         )
-        readiness.fail(reason)
-        raise NodeTierError(reason)
     return io, world_aclose
 
 

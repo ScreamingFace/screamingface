@@ -237,6 +237,16 @@ def declared_model_ids(
     return frozenset(decode_route_id(model.id) for model in section.models)
 
 
+def config_path(env: Mapping[str, str]) -> Path:
+    """Where the declared world lives: ``env``'s override, or :data:`DEFAULT_CONFIG_PATH`.
+
+    THE one place this is computed — both `load_config` and the forwarder's
+    `_config_file_digest` (rest/forwarder.py) read the same file through it, so a digest and
+    the world it describes can never be taken from two different paths.
+    """
+    return Path(env.get(job_env.RUNNER_CONFIG, DEFAULT_CONFIG_PATH))
+
+
 def load_config(
     env: Mapping[str, str],
     *,
@@ -244,7 +254,7 @@ def load_config(
     include_extra_models: bool = False,
 ) -> WorldConfig:
     """Read and validate the declared world from ``env``'s config path."""
-    path = Path(env.get(job_env.RUNNER_CONFIG, DEFAULT_CONFIG_PATH))
+    path = config_path(env)
     try:
         with path.open("rb") as handle:
             raw = tomllib.load(handle)
@@ -733,6 +743,7 @@ __all__ = [
     "AigatewaySection",
     "WorldConfig",
     "WorldConfigError",
+    "config_path",
     "declared_model_ids",
     "extra_model_ids",
     "load_config",

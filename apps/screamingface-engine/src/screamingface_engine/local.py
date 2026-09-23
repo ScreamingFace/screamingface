@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
+from contextlib import ExitStack
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,6 @@ from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks import (
     BENCHMARK_ASSETS_ENV,
     EMPTY_BENCHMARKS,
-    SHARED_ADAPTER_ROUTES,
     BenchmarkRegistry,
 )
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -51,24 +51,17 @@ from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.metrics import register_fair_share_metrics
-from screamingface_engine.request_scope import (
-    AnswerSeedError,
-    request_scope,
-    request_scope_from_headers,
-    trace_from_headers,
-)
+from screamingface_engine.request_scope import AnswerSeedError, bind_sync_request
 from screamingface_engine.rest.forwarder import forwarded_headers
 from screamingface_engine.runner.fair_share import FairShareGate
-from screamingface_engine.trace_scope import run_trace_scope
 from screamingface_engine.world.config import load_config
-from screamingface_engine.world.factory import SharedWorld
+from screamingface_engine.world.factory import SharedWorld, direct_mount_paths
 from screamingface_engine.world.serving import (
     NodeMountRoute,
     compose_serving_world,
     engine_route_paths,
     install_node_route,
     node_eval_path,
-    node_mount_paths,
 )
 from screamingface_engine.world.wire import (
     MALFORMED_HEADER,
@@ -216,11 +209,12 @@ class _LocalNodeMount:
     # the caller's claim — the bind is loopback-only precisely because there is no trust boundary
     # here, which is also why this shape must never be deployed (C8).
 
-    # INVARIANT: the caller's state is bound by the SAME sync scope producer the node tier uses
-    # (``request_scope_from_headers``), so a mount call reads its identity, profile, seed and
-    # cache policy from the ContextVar exactly as a deployed node does. F2's per-request binding
-    # is what lets this one node serve both the mount and every in-process run without mixing
-    # them.
+    # INVARIANT: the caller's state is bound by the SAME sync producer the node tier uses
+    # (``request_scope.bind_sync_request``), so a mount call reads its identity, profile, seed
+    # and cache policy from the ContextVar exactly as a deployed node does — and, since FX-6,
+    # its log lines now carry the same ``origin="sync"`` (+ trace id) identity the tier's do.
+    # F2's per-request binding is what lets this one node serve both the mount and every
+    # in-process run without mixing them.
 
     NOT a deployment option (C8). A local sync call gets none of the node tier's guards: no 30 s
     timeout ladder, no admission cap, no missing-``q`` 400 and no fair-share gate — only the
@@ -242,31 +236,36 @@ class _LocalNodeMount:
         # until startup has built a node — so a node always exists by the time this runs.
         node_asgi = self._holder["asgi"]
         raw_headers = Headers(scope=scope)
-        try:
-            bound = request_scope_from_headers(raw_headers)
-        except AnswerSeedError as exc:
-            # A declared sitting must not silently run without its seed (OME-1038). The node tier
-            # maps this to 400 before dispatch; local mode calls the same producer itself, so it
-            # owns the same mapping — the same shared code, ``MALFORMED_HEADER`` (item 3, B6
-            # review) — rather than letting a malformed seed escape as a 500.
-            await send_url4_error(send, 400, MALFORMED_HEADER, str(exc))
-            return
-        cleaned = forwarded_headers(
-            (
-                (name.decode("latin-1"), value.decode("latin-1"))
-                for name, value in scope.get("headers") or ()
-            ),
-            verified_identity=bound.identity_headers,
-        )
-        child_scope = {
-            **scope,
-            "headers": [
-                (name.encode("latin-1"), value.encode("latin-1")) for name, value in cleaned
-            ],
-        }
-        # FX-64: the trace is bound in `trace_scope`, its ONE carrier, exactly as the node tier
-        # binds it — the connector reads nothing trace-shaped off the request scope.
-        with request_scope(bound), run_trace_scope(trace_from_headers(raw_headers)):
+        with ExitStack() as stack:
+            try:
+                # `bind_sync_request` is the ONE binding both this mount and the node tier's
+                # own `_request` use — the request scope, the trace (FX-64), and now the
+                # run-context log identity too (FX-6), so a local sync log line carries
+                # ``origin="sync"`` (+ trace id) exactly as the deployed tier's does.
+                bound = stack.enter_context(bind_sync_request(raw_headers))
+            except AnswerSeedError as exc:
+                # A declared sitting must not silently run without its seed (OME-1038). The node
+                # tier maps this to 400 before dispatch; local mode calls the same producer
+                # itself, so it owns the same mapping — the same shared code,
+                # ``MALFORMED_HEADER`` (item 3, B6 review) — rather than letting a malformed seed
+                # escape as a 500. Narrowed to the binding itself (R4): only entering the scope
+                # may raise this, so a later `AnswerSeedError` reaching the node's own dispatch is
+                # never mistaken for it.
+                await send_url4_error(send, 400, MALFORMED_HEADER, str(exc))
+                return
+            cleaned = forwarded_headers(
+                (
+                    (name.decode("latin-1"), value.decode("latin-1"))
+                    for name, value in scope.get("headers") or ()
+                ),
+                verified_identity=bound.identity_headers,
+            )
+            child_scope = {
+                **scope,
+                "headers": [
+                    (name.encode("latin-1"), value.encode("latin-1")) for name, value in cleaned
+                ],
+            }
             await node_asgi(child_scope, receive, send)
 
 
@@ -309,9 +308,9 @@ def _install_local_node(
         # AIDEV-NOTE (item 1, B6 review): parsed here, ONCE, rather than left for
         # `compose_serving_world`/`build_world` to parse internally, so `holder["shared_world"]`
         # and the world it builds are the SAME read. A run on the shared node then logs from
-        # `holder["shared_world"].section` (see `runner.main._model_section`) instead of
-        # re-reading `url4.toml` — a file broken or changed after startup must not fail or
-        # misreport a run that never needed to read it again.
+        # `holder["shared_world"].section` (see `runner.main._seeded_world`'s section expression)
+        # instead of re-reading `url4.toml` — a file broken or changed after startup must not
+        # fail or misreport a run that never needed to read it again.
         resolved_config = load_config(run_env, include_extra_models=True)
         world, aclose = await compose_serving_world(
             env=run_env,
@@ -325,21 +324,18 @@ def _install_local_node(
         # `SharedWorld`'s own docstring for why two independent optional providers are not this.
         holder["shared_world"] = SharedWorld(io=world, section=resolved_config.aigateway)
         holder["aclose"] = aclose
+        # WHY duck-typed, not `isinstance(world, Url4Node)`: this module may not import the url4
+        # engine (test_only_engine_extensions_import_url4).
         asgi = getattr(world, "asgi", None)
         holder["asgi"] = asgi() if callable(asgi) else None
         # No node means no mounts and no eval path: every path is then the engine's.
         if holder["asgi"] is not None:
-            # item 2 (B6 review round 2): the direct-mount route set must equal the DEPLOYED
-            # shape's — model + data mounts, WITHOUT benchmark/candidate/corrective/judge
-            # endpoints — computed from the ONE shared world (`world`, above) rather than a
-            # second world build. `benchmarks.installed_routes()` (per-Benchmark data/case/judge
-            # routes) plus `SHARED_ADAPTER_ROUTES` (candidate + corrective, which `world` installs
-            # separately whenever ANY benchmark exists) is the exact set `world`'s node carries
-            # beyond its model+data mounts — see `installed_routes`'s own docstring for why a
-            # second build, or a protocol-AST walk, is not what computes it. A second world build
-            # would also print every boot log line (shelf declarations, shadow warnings) twice
-            # and leak `world` itself on a failure in the second build, before it could ever be
-            # closed — neither risk exists here, since nothing else is built.
+            # The direct-mount route set — model + data mounts, WITHOUT benchmark/candidate/
+            # corrective/judge endpoints — is CAPTURED by `world.factory.build_world` itself,
+            # right after the declared read-side mounts register and before any Benchmark or the
+            # shared candidate/corrective adapters ever exist on this node (see `build_world`'s
+            # own comment). `direct_mount_paths` reads that capture back, so this mount's path
+            # set matches the DEPLOYED shape's exactly: model + data mounts only.
             #
             # WHY excluding a benchmark endpoint matters: a connector applies the run's
             # X-Answer-Seed to every model call it makes. Inside a candidate invocation that is
@@ -356,8 +352,7 @@ def _install_local_node(
             # `origin == "sync"` regardless of a candidate-invocation flag, so a judge model call
             # issued THROUGH the eval path is still seeded. Closing that would mean the eval path
             # stops evaluating arbitrary expressions, which is the whole point of `serve --local`.
-            excluded = benchmarks.installed_routes() | SHARED_ADAPTER_ROUTES
-            holder["paths"] = (node_mount_paths(world) - excluded) | {node_eval_path(world)}
+            holder["paths"] = direct_mount_paths(world) | {node_eval_path(world)}
         else:
             holder["paths"] = frozenset()
         app.state.node_world = world

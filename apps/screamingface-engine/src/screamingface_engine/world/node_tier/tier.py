@@ -39,20 +39,13 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import ExitStack
 from dataclasses import dataclass
 
 from starlette.datastructures import Headers
 
 from screamingface_engine.artifacts import ArtifactWriter
-from screamingface_engine.logs import run_scope
-from screamingface_engine.request_scope import (
-    AnswerSeedError,
-    RequestScope,
-    request_scope,
-    request_scope_from_headers,
-    trace_from_headers,
-)
-from screamingface_engine.trace_scope import run_trace_scope
+from screamingface_engine.request_scope import AnswerSeedError, bind_sync_request
 from screamingface_engine.world.node_tier.metrics import NodeMetrics
 from screamingface_engine.world.node_tier.send import (
     _OVERLOADED,
@@ -72,7 +65,6 @@ from screamingface_engine.world.wire import (
 )
 from url4.core.errors import ErrorCode, ParseError
 from url4.peer.server import Url4Node
-from url4.streaming.interfaces import TraceContext
 from url4.wire.subrequest import extract_expression_params
 
 logger = logging.getLogger(__package__)
@@ -139,7 +131,7 @@ class NodeTier:
         readiness: NodeReadiness,
         node: Url4Node,
         inner: AsgiApp,
-        mounts: frozenset[str],
+        mounts: frozenset[str] | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None,
         artifact_store: ArtifactWriter | None = None,
         signing_key: str = "",
@@ -150,7 +142,9 @@ class NodeTier:
         self._readiness = readiness
         self._node = node
         self._inner = inner
-        self._mounts = mounts
+        # `mounts` defaults to the node's OWN declared routes when the caller does not name them
+        # — the caller (`build.py`) no longer does, so this default is what it now reads.
+        self._mounts = mounts if mounts is not None else frozenset(node.processor_routes())
         self._aclose_world = world_aclose
         # FEATURE (unit 3, D9/OQ-3.2): the spill writer and the HMAC key the 303's Location is
         # signed with. `clock` is injectable so the expiry is deterministic in tests without
@@ -253,27 +247,31 @@ class NodeTier:
         self, scope: AsgiScope, receive: AsgiReceive, send: AsgiSend, path: str
     ) -> None:
         headers = Headers(scope=scope)
-        try:
-            # Identity trust (RD1): see the module docstring — the App sets the header, and
-            # only the App can reach this port.
-            bound = request_scope_from_headers(
-                headers,
-                deadline=time.monotonic() + self._settings.request_timeout_s,
-            )
-        except AnswerSeedError as exc:
-            # A declared sitting must not silently run without its seed (OME-1038), so this is
-            # the sync surface's one 400 that is not url4's dispatch refusing anything (FX-17).
-            await send_url4_error(send, 400, MALFORMED_HEADER, str(exc))
-            return
-        await self._dispatch(scope, receive, send, bound, trace_from_headers(headers), path)
+        # Identity trust (RD1): see the module docstring — the App sets the header, and
+        # only the App can reach this port. `bind_sync_request` is producer 2's ONE binding
+        # (request scope, trace, and the run-context log identity, FX-6) — shared with local
+        # mode's in-process mount, `local._LocalNodeMount`.
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(
+                    bind_sync_request(
+                        headers, deadline=time.monotonic() + self._settings.request_timeout_s
+                    )
+                )
+            except AnswerSeedError as exc:
+                # A declared sitting must not silently run without its seed (OME-1038), so this
+                # is the sync surface's one 400 that is not url4's dispatch refusing anything
+                # (FX-17). Narrowed to the binding itself (R4): only entering the scope may raise
+                # this, so a later `AnswerSeedError` inside dispatch is never mistaken for it.
+                await send_url4_error(send, 400, MALFORMED_HEADER, str(exc))
+                return
+            await self._dispatch(scope, receive, send, path)
 
     async def _dispatch(
         self,
         scope: AsgiScope,
         receive: AsgiReceive,
         send: AsgiSend,
-        bound: RequestScope,
-        trace: TraceContext | None,
         path: str,
     ) -> None:
         started = time.monotonic()
@@ -292,45 +290,40 @@ class NodeTier:
             spill_timeout_s=self._settings.spill_timeout_s,
             retry_after_s=self._settings.retry_after_s,
         )
-        # INVARIANT: every scope is bound around the call and reset after it, so a sibling
-        # request task can never observe this caller's identity, trace or log context. The
-        # per-request log line is INSIDE them (FX-6), so it carries origin and trace_id. The
-        # trace is bound in `trace_scope`, its ONE carrier (FX-64), which the connector reads.
-        with (
-            request_scope(bound),
-            run_trace_scope(trace),
-            run_scope(None, None if trace is None else trace.trace_id, origin="sync"),
-        ):
-            admitted = self._admit()
-            try:
-                if admitted:
-                    await self._inner(scope, receive, spill)
-                    # WHY after `inner` returns (§2.2): the finish — and its spill — runs outside
-                    # url4's `asyncio.timeout`, so a late spill still answers the caller.
-                    await spill.finish()
-                else:
-                    self._metrics.shed.inc()
-                    await send_url4_error(
-                        observed,
-                        503,
-                        _OVERLOADED,
-                        _OVERLOADED_MESSAGE,
-                        retry_after=self._settings.retry_after_s,
-                    )
-            finally:
-                if admitted:
-                    self._release()
-                duration = time.monotonic() - started
-                status = observed.status
-                self._metrics.request_duration.labels(status=str(status)).observe(duration)
-                if observed.code in _BUDGET_EXHAUSTED_CODES:
-                    self._metrics.budget_exhausted.inc()
-                logger.info(
-                    "sync request mount=%s status=%d duration_ms=%.1f",
-                    path,
-                    status,
-                    duration * 1000.0,
+        # INVARIANT: `_request` already bound the scope, the trace and the log identity around
+        # this call (`bind_sync_request`), so a sibling request task can never observe this
+        # caller's identity, trace or log context. The per-request log line below is INSIDE that
+        # binding (FX-6), so it carries origin and trace_id.
+        admitted = self._admit()
+        try:
+            if admitted:
+                await self._inner(scope, receive, spill)
+                # WHY after `inner` returns (§2.2): the finish — and its spill — runs outside
+                # url4's `asyncio.timeout`, so a late spill still answers the caller.
+                await spill.finish()
+            else:
+                self._metrics.shed.inc()
+                await send_url4_error(
+                    observed,
+                    503,
+                    _OVERLOADED,
+                    _OVERLOADED_MESSAGE,
+                    retry_after=self._settings.retry_after_s,
                 )
+        finally:
+            if admitted:
+                self._release()
+            duration = time.monotonic() - started
+            status = observed.status
+            self._metrics.request_duration.labels(status=str(status)).observe(duration)
+            if observed.code in _BUDGET_EXHAUSTED_CODES:
+                self._metrics.budget_exhausted.inc()
+            logger.info(
+                "sync request mount=%s status=%d duration_ms=%.1f",
+                path,
+                status,
+                duration * 1000.0,
+            )
 
     def _admit(self) -> bool:
         """Take an in-flight slot, or refuse at the cap (§2.2a).

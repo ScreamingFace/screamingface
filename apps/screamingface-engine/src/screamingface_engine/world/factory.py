@@ -20,6 +20,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+from weakref import WeakKeyDictionary
 
 import httpx
 
@@ -29,6 +31,7 @@ from screamingface_engine.benchmarks import (
     BenchmarkRegistry,
     assets_root,
 )
+from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.config import (
     AigatewaySection,
@@ -93,6 +96,35 @@ class SharedWorld:
 
 WorldFactory = Callable[[], Awaitable[World]]
 
+_DIRECT_MOUNTS: WeakKeyDictionary[Url4Node, frozenset[str]] = WeakKeyDictionary()
+"""The DIRECT-mount route set `build_world` captured for a node, keyed by the node itself.
+
+WHY a side table and not an attribute on the node (as this used to be): `local.py` reads it back
+through `direct_mount_paths` below and may not import the url4 engine
+(test_only_engine_extensions_import_url4), so it cannot spell `Url4Node` to type an attribute
+access either — an engine-owned table, read through an engine-owned accessor, is what keeps the
+node's own type unwidened by a caller that must not know its shape.
+"""
+
+
+def direct_mount_paths(node: Any) -> frozenset[str]:
+    """The DIRECT-mount route set for ``node``: model + data mounts, WITHOUT benchmark/candidate/
+    corrective/judge endpoints.
+
+    `build_world` records this right before Benchmarks install, so `local.py`'s direct-mount set
+    reads it back here instead of re-deriving "final routes minus benchmark routes" through a
+    second scratch-node build (see `build_world`'s own comment for why). A node with no recorded
+    entry — a bare read-side node, which never has Benchmarks installed on it — falls back to
+    `served_routes`, its final served-route set already.
+
+    WHY `isinstance` rather than duck typing: a non-`Url4Node` layer (`StaticIOLayer`, the
+    deny-by-default world) has no mounts to report by construction, the same reasoning
+    `world.serving.node_mount_paths` uses (FX-56).
+    """
+    if not isinstance(node, Url4Node):
+        return frozenset()
+    return _DIRECT_MOUNTS.get(node, served_routes(node))
+
 
 def deny_by_default_world() -> IOLayer:
     """A world that resolves nothing — the shape of a Job with no declared `[aigateway]` table."""
@@ -119,6 +151,10 @@ def _bare_read_side_world(resolved: WorldConfig) -> Url4Node:
         register_read_side_mounts(node, resolved)
     except ValueError as exc:
         raise WorldConfigError(f"cannot register the declared read-side mounts: {exc}") from exc
+    # No entry in `_DIRECT_MOUNTS` for this node: `direct_mount_paths`'s fallback to
+    # `served_routes` is exactly right here, since no Benchmark is ever installed on a bare
+    # read-side node (`build_world` refuses one when `[aigateway]` is undeclared) — this IS the
+    # node's final served-route set already.
     return node
 
 
@@ -190,6 +226,15 @@ async def build_world(
     except ValueError as exc:
         await world.aclose()
         raise WorldConfigError(f"cannot register the declared read-side mounts: {exc}") from exc
+    # Capture the DIRECT-mount route set NOW — model + data mounts, before any Benchmark or the
+    # shared candidate/corrective adapters (below) ever exist on this node. `local.py`'s
+    # direct-mount set reads this back through `direct_mount_paths` (an engine-owned side table,
+    # not an attribute on the node: `build_world`'s return is the shared `World` tuple both the
+    # run mode and `world.serving.compose_serving_world` unpack, so widening it here would ripple
+    # into both, and `local.py` may not import `Url4Node` to type an attribute access either)
+    # instead of re-deriving "final routes minus benchmark routes" through a second scratch-node
+    # build.
+    _DIRECT_MOUNTS[world.node] = served_routes(world.node)
     if len(benchmarks):
         # WHY: installation can fail through any concrete Benchmark adapter. AsyncExitStack
         # guarantees the already-open model world closes without a catch-all exception clause.
@@ -306,6 +351,7 @@ __all__ = [
     "WorldFactory",
     "build_world",
     "deny_by_default_world",
+    "direct_mount_paths",
     "register_read_side_mounts",
     "shared_world_serves",
     "world_reads_answer_seed",

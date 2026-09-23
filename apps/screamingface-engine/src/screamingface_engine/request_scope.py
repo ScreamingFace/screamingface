@@ -20,9 +20,11 @@ they live apart on purpose:
 - the RUN producer is `runner.main.request_scope_from_env` (it raises the run mode's own
   `RunnerConfigError`, so it lives with it). `runner.main._seeded_world` hands it to
   `Url4Executor`, which binds it around the run;
-- the SYNC producer is :func:`request_scope_from_headers` (and :func:`trace_from_headers`), in
-  this module. The node tier (`world.node_tier.tier`) and local mode's mount (`local`) bind it
-  per request.
+- the SYNC producer is :func:`request_scope_from_headers` and :func:`trace_from_headers`, in
+  this module. The node tier (`world.node_tier.tier`) and local mode's mount (`local`) bind both
+  of these, plus the run-context log identity, through the ONE helper, :func:`bind_sync_request`
+  (FX-6): the two callers must not drift onto binding these three carriers apart from one
+  another.
 
 Nothing may call a handler outside a bound scope: `current_scope()` raises rather than inventing
 a default, because an anonymous, unprofiled, unseeded call still reaches aigateway and still
@@ -40,6 +42,8 @@ from typing import Literal
 
 from screamingface_engine import job_env
 from screamingface_engine.cache_intent import parse_cache_control
+from screamingface_engine.logs import run_scope
+from screamingface_engine.trace_scope import run_trace_scope
 from url4.streaming.interfaces import TraceContext
 from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import valid_traceparent
@@ -234,6 +238,38 @@ def request_scope(scope: RequestScope) -> Iterator[RequestScope]:
         _scope.reset(token)
 
 
+@contextmanager
+def bind_sync_request(
+    headers: Mapping[str, str], *, deadline: float | None = None
+) -> Iterator[RequestScope]:
+    """Producer 2's ONE binding: the request scope, the trace, and the log identity, together.
+
+    FEATURE (FX-6): the node tier (`world.node_tier.tier`) and local mode's in-process mount
+    (`local._LocalNodeMount`) are its two callers. Both need the SAME three carriers bound for one
+    sync request — this module's `request_scope` (F2), `trace_scope.run_trace_scope` (FX-64, the
+    ONE trace carrier) and `logs.run_scope` (the run-context log identity) — and binding them
+    apart risked one caller carrying the log identity the other did not: before this, local mode's
+    mount bound the first two only, so its sync log lines carried no ``origin`` or trace id while
+    the deployed tier's did. Both now bind all three, so a sync request's log lines read the same
+    on either surface.
+
+    ``deadline`` is forwarded to :func:`request_scope_from_headers` unchanged — the tier's request
+    budget; local mode passes none, exactly as it did before this helper existed.
+
+    Raises:
+        AnswerSeedError: before anything binds (see `request_scope_from_headers`), so a caller
+            maps it to its own 400 response outside this context manager.
+    """
+    bound = request_scope_from_headers(headers, deadline=deadline)
+    trace = trace_from_headers(headers)
+    with (
+        request_scope(bound),
+        run_trace_scope(trace),
+        run_scope(None, None if trace is None else trace.trace_id, origin="sync"),
+    ):
+        yield bound
+
+
 __all__ = [
     "ANSWER_SEED_HEADER",
     "CACHE_CONTROL_HEADER",
@@ -242,6 +278,7 @@ __all__ = [
     "AnswerSeedError",
     "RequestScope",
     "RequestScopeError",
+    "bind_sync_request",
     "current_scope",
     "request_scope",
     "request_scope_from_headers",

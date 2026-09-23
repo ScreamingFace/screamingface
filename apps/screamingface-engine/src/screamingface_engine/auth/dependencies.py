@@ -19,7 +19,10 @@ Clock = Callable[[], datetime]
 _CAPABILITY_HEADER = "URL4-Capability"
 
 
-def _default_clock() -> datetime:
+def default_clock() -> datetime:
+    """The real UTC clock — the fallback every ``Clock``-typed dependency reads when the app's
+    ``state.clock`` is unset (production). Public: `rest/artifacts.py`, `rest/routes.py` and
+    `ws/endpoint.py` all read the SAME fallback rather than each spelling its own copy."""
     return datetime.now(UTC)
 
 
@@ -47,7 +50,7 @@ def verified_claims(request: Request) -> dict[str, object]:
             without leaking which specific check failed.
     """
     settings: Settings = request.app.state.settings
-    clock: Clock = getattr(request.app.state, "clock", _default_clock)
+    clock: Clock = getattr(request.app.state, "clock", default_clock)
     codec = JwtCodec(
         secret=settings.jwt_secret,
         iat_window_s=settings.iat_window_s,
