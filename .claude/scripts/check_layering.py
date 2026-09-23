@@ -195,24 +195,24 @@ def imported_screamingface_engine_submodules(path: pathlib.Path) -> set[str]:
                 record(alias.name)
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
-                record(node.module)
-                # `from screamingface_engine import job_env` — the submodule is the imported NAME, not the
-                # module path, so it would otherwise read as a bare `screamingface_engine` import.
-                if node.module == "screamingface_engine":
-                    for alias in node.names:
-                        record(f"screamingface_engine.{alias.name}")
-                continue
-            # Relative: level 1 is this module's own package, each extra level walks up one.
-            package = _package_of(path)
-            base = package[: len(package) - (node.level - 1)]
-            if not base or base[0] != "screamingface_engine":
-                continue
-            if node.module:
-                record(".".join([*base, node.module]))
+                module = node.module
             else:
-                # `from . import runner` — the submodule is the imported name.
-                for alias in node.names:
-                    record(".".join([*base, alias.name]))
+                # Relative: level 1 is this module's own package, each extra level walks up one.
+                package = _package_of(path)
+                base = package[: len(package) - (node.level - 1)]
+                if not base or base[0] != "screamingface_engine":
+                    continue
+                module = ".".join([*base, node.module] if node.module else base)
+            record(module)
+            # WHY every imported NAME, not only the root package's: `from screamingface_engine.world
+            # import serving` imports the submodule `world.serving` by name. Reading the module
+            # path alone recorded `world` and let a two-part rule (`world.serving`,
+            # `adapters.factory`) be passed by moving one segment into the name (FX-94).
+            # AIDEV-NOTE: a name that is NOT a submodule records `pkg.name` too, so a function
+            # named like a forbidden submodule (`serving` in `world/__init__`) would be flagged —
+            # the safe direction for a boundary gate.
+            for alias in node.names:
+                record(f"{module}.{alias.name}")
     return found
 
 
